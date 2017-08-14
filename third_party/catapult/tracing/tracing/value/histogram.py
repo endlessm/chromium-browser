@@ -330,6 +330,10 @@ class Diagnostic(object):
     assert self._guid is None
     self._guid = g
 
+  @property
+  def is_inline(self):
+    return self._guid is None
+
   def AsDictOrReference(self):
     if self._guid:
       return self._guid
@@ -349,7 +353,23 @@ class Diagnostic(object):
   def FromDict(dct):
     if dct['type'] not in Diagnostic.REGISTRY:
       raise ValueError('Unrecognized diagnostic type: ' + dct['type'])
-    return Diagnostic.REGISTRY[dct['type']].FromDict(dct)
+    diagnostic = Diagnostic.REGISTRY[dct['type']].FromDict(dct)
+    if 'guid' in dct:
+      diagnostic.guid = dct['guid']
+    return diagnostic
+
+  def Inline(self):
+    """Inlines a shared diagnostic.
+
+    Any diagnostic that has a guid will be serialized as a reference, because it
+    is assumed that diagnostics with guids are shared. This method removes the
+    guid so that the diagnostic will be serialized by value.
+
+    Inling is used for example in the dashboard, where certain types of shared
+    diagnostics that vary on a per-upload basis are inlined for efficiency
+    reasons.
+    """
+    self._guid = None
 
   def CanAddDiagnostic(self, unused_other_diagnostic, unused_name,
                        unused_parent_hist, unused_other_parent_hist):
@@ -569,6 +589,42 @@ class RelatedHistogramBreakdown(RelatedHistogramMap):
     return result
 
 
+class TagMap(Diagnostic):
+  NAME = 'tagmap'
+
+  def __init__(self, info):
+    super(TagMap, self).__init__()
+    self._tags_to_story_display_names = dict(
+        (k, set(v)) for k, v in info.get(
+            'tagsToStoryDisplayNames', {}).iteritems())
+
+  def _AsDictInto(self, d):
+    d['tagsToStoryDisplayNames'] = dict(
+        (k, list(v)) for k, v in self.tags_to_story_display_names.iteritems())
+
+  @staticmethod
+  def FromDict(d):
+    return TagMap(d)
+
+  @property
+  def tags_to_story_display_names(self):
+    return self._tags_to_story_display_names
+
+  def CanAddDiagnostic(self, other_diagnostic, unused_name,
+                       unused_parent_hist, unused_other_parent_hist):
+    return isinstance(other_diagnostic, TagMap)
+
+  def AddDiagnostic(self, other_diagnostic, unused_name,
+                    unused_parent_hist, unused_other_parent_hist):
+    for name, story_display_names in\
+        other_diagnostic.tags_to_story_display_names.iteritems():
+      if not name in self.tags_to_story_display_names:
+        self.tags_to_story_display_names[name] = set()
+
+      for t in story_display_names:
+        self.tags_to_story_display_names[name].add(t)
+
+
 class BuildbotInfo(Diagnostic):
   NAME = 'buildbot'
 
@@ -619,6 +675,9 @@ class BuildbotInfo(Diagnostic):
 
 
 class RevisionInfo(Diagnostic):
+
+  NAME = 'revisions'
+
   def __init__(self, info):
     super(RevisionInfo, self).__init__()
     self._chromium_commit_position = info.get('chromiumCommitPosition', None)
@@ -1584,6 +1643,10 @@ class HistogramSet(object):
     for hist in histograms:
       self.AddHistogram(hist)
 
+  @property
+  def shared_diagnostics(self):
+    return self._shared_diagnostics_by_guid.itervalues()
+
   def AddHistogram(self, hist, diagnostics=None):
     if hist.guid in self._histograms_by_guid:
       raise ValueError('Cannot add same Histogram twice')
@@ -1599,6 +1662,10 @@ class HistogramSet(object):
 
     for hist in self:
       hist.diagnostics[name] = diagnostic
+
+  def GetFirstHistogram(self):
+    for histogram in self._histograms_by_guid.itervalues():
+      return histogram
 
   def GetHistogramsNamed(self, name):
     return [h for h in self if h.name == name]

@@ -42,18 +42,6 @@ FPDF_BOOL Is_Data_Avail(FX_FILEAVAIL* pThis, size_t offset, size_t size) {
 
 void Add_Segment(FX_DOWNLOADHINTS* pThis, size_t offset, size_t size) {}
 
-std::string CRYPT_ToBase16(const uint8_t* digest) {
-  static char const zEncode[] = "0123456789abcdef";
-  std::string ret;
-  ret.resize(32);
-  for (int i = 0, j = 0; i < 16; i++, j += 2) {
-    uint8_t a = digest[i];
-    ret[j] = zEncode[(a >> 4) & 0xf];
-    ret[j + 1] = zEncode[a & 0xf];
-  }
-  return ret;
-}
-
 }  // namespace
 
 EmbedderTest::EmbedderTest()
@@ -191,6 +179,8 @@ bool EmbedderTest::OpenDocument(const std::string& filename,
     }
   }
 
+  SetupFormFillEnvironment();
+
 #ifdef PDF_ENABLE_XFA
   int docType = DOCTYPE_PDF;
   if (FPDF_HasXFAField(document_, &docType)) {
@@ -200,7 +190,6 @@ bool EmbedderTest::OpenDocument(const std::string& filename,
 #endif  // PDF_ENABLE_XFA
 
   (void)FPDF_GetDocPermissions(document_);
-  SetupFormFillEnvironment();
   return true;
 }
 
@@ -209,6 +198,7 @@ void EmbedderTest::SetupFormFillEnvironment() {
   memset(platform, 0, sizeof(IPDF_JSPLATFORM));
   platform->version = 2;
   platform->app_alert = AlertTrampoline;
+  platform->m_isolate = external_isolate_;
 
   FPDF_FORMFILLINFO* formfillinfo = static_cast<FPDF_FORMFILLINFO*>(this);
   memset(formfillinfo, 0, sizeof(FPDF_FORMFILLINFO));
@@ -336,6 +326,15 @@ FPDF_PAGE EmbedderTest::GetPageTrampoline(FPDF_FORMFILLINFO* info,
                                                               page_index);
 }
 
+std::string EmbedderTest::HashBitmap(FPDF_BITMAP bitmap,
+                                     int expected_width,
+                                     int expected_height) {
+  uint8_t digest[16];
+  CRYPT_MD5Generate(static_cast<uint8_t*>(FPDFBitmap_GetBuffer(bitmap)),
+                    expected_width * 4 * expected_height, digest);
+  return CryptToBase16(digest);
+}
+
 // static
 void EmbedderTest::CompareBitmap(FPDF_BITMAP bitmap,
                                  int expected_width,
@@ -349,10 +348,8 @@ void EmbedderTest::CompareBitmap(FPDF_BITMAP bitmap,
   if (!expected_md5sum)
     return;
 
-  uint8_t digest[16];
-  CRYPT_MD5Generate(static_cast<uint8_t*>(FPDFBitmap_GetBuffer(bitmap)),
-                    expected_stride * expected_height, digest);
-  EXPECT_EQ(expected_md5sum, CRYPT_ToBase16(digest));
+  EXPECT_EQ(expected_md5sum,
+            HashBitmap(bitmap, expected_width, expected_height));
 }
 
 // Can't use gtest-provided main since we need to stash the path to the

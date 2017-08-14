@@ -13,20 +13,20 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.tracks', function() {
-  var ALLOCATED_MEMORY_TRACK_HEIGHT = 50;
+  const ALLOCATED_MEMORY_TRACK_HEIGHT = 50;
 
   /**
    * A track that displays an array of ProcessMemoryDump objects.
    * @constructor
    * @extends {ContainerTrack}
    */
-  var ProcessMemoryDumpTrack = tr.ui.b.define(
+  const ProcessMemoryDumpTrack = tr.ui.b.define(
       'process-memory-dump-track', tr.ui.tracks.ContainerTrack);
 
   ProcessMemoryDumpTrack.prototype = {
     __proto__: tr.ui.tracks.ContainerTrack.prototype,
 
-    decorate: function(viewport) {
+    decorate(viewport) {
       tr.ui.tracks.ContainerTrack.prototype.decorate.call(this, viewport);
       this.memoryDumps_ = undefined;
     },
@@ -40,7 +40,7 @@ tr.exportTo('tr.ui.tracks', function() {
       this.updateContents_();
     },
 
-    updateContents_: function() {
+    updateContents_() {
       this.clearTracks_();
 
       // Show no tracks if there are no dumps.
@@ -49,12 +49,12 @@ tr.exportTo('tr.ui.tracks', function() {
       this.appendAllocatedMemoryTrack_();
     },
 
-    appendAllocatedMemoryTrack_: function() {
-      var series = tr.ui.tracks.buildProcessAllocatedMemoryChartSeries(
+    appendAllocatedMemoryTrack_() {
+      const series = tr.ui.tracks.buildProcessAllocatedMemoryChartSeries(
           this.memoryDumps_);
       if (!series) return;
 
-      var track = new tr.ui.tracks.ChartTrack(this.viewport);
+      const track = new tr.ui.tracks.ChartTrack(this.viewport);
       track.heading = 'Memory per component';
       track.height = ALLOCATED_MEMORY_TRACK_HEIGHT + 'px';
       track.series = series;

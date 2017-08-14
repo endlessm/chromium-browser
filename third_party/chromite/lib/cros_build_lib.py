@@ -101,6 +101,26 @@ def ShellQuote(s):
   return '"%s"' % s
 
 
+def TruncateStringToLine(s, maxlen=80):
+  """Truncate |s| to a maximum length of |maxlen| including elipsis (...)
+
+  Args:
+    s: A string.
+    maxlen: Maximum length of desired returned string. Must be at least 3.
+
+  Returns:
+    s if len(s) <= maxlen already and s has no newline in it.
+    Otherwise, a single line truncation that ends with '...' and is of
+    length |maxlen|.
+  """
+  assert maxlen >= 3
+  line = s.splitlines()[0]
+  if len(line) <= maxlen:
+    return line
+  else:
+    return line[:maxlen-3] + '...'
+
+
 def ShellUnquote(s):
   """Do the opposite of ShellQuote.
 
@@ -992,6 +1012,24 @@ def GroupByKey(input_iter, key):
   split_dict = dict()
   for entry in input_iter:
     split_dict.setdefault(entry.get(key), []).append(entry)
+  return split_dict
+
+
+def GroupNamedtuplesByKey(input_iter, key):
+  """Split an iterable of namedtuples, based on value of a key.
+
+  Args:
+    input_iter: An iterable of namedtuples.
+    key: A string specifying the key name to split by.
+
+  Returns:
+    A dictionary, mapping from each unique value for |key| that
+    was encountered in |input_iter| to a list of entries that had
+    that value.
+  """
+  split_dict = {}
+  for entry in input_iter:
+    split_dict.setdefault(getattr(entry, key, None), []).append(entry)
   return split_dict
 
 

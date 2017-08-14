@@ -167,6 +167,8 @@ class ChromeSDKTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
   CHROME_SRC = 'chrome_src'
   CMD = ['bar', 'baz']
   CWD = 'fooey'
+  DEFAULT_NINJA_CMD = ['ninja', '-C', 'out_%s/Release' % BOARD, '-j',
+                       str(commands.ChromeSDK.DEFAULT_JOBS)]
 
   def setUp(self):
     self.inst = commands.ChromeSDK(self.CWD, self.BOARD)
@@ -175,6 +177,12 @@ class ChromeSDKTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
     """Test that running a command is possible."""
     self.inst.Run(self.CMD)
     self.assertCommandContains([self.BOARD] + self.CMD, cwd=self.CWD)
+
+  def testRunCommandWithRunArgs(self):
+    """Test run_args optional argument for RunCommand kwargs."""
+    self.inst.Run(self.CMD, run_args={'log_output': True})
+    self.assertCommandContains([self.BOARD] + self.CMD, cwd=self.CWD,
+                               log_output=True)
 
   def testRunCommandKwargs(self):
     """Exercise optional arguments."""
@@ -185,16 +193,20 @@ class ChromeSDKTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
     self.assertCommandContains(['debug', self.BOARD] + list(self.EXTRA_ARGS) +
                                list(self.EXTRA_ARGS2) + self.CMD, cwd=self.CWD)
 
+  def MockGetDefaultTarget(self, with_nacl=False):
+    nacl_str = ' ninja nacl gold' if with_nacl else ''
+    self.rc.AddCmdResult(partial_mock.In('qlist-%s' % self.BOARD),
+                         output='%s%s' % (constants.CHROME_CP, nacl_str))
+
   def testNinjaWithNaclUseFlag(self):
     """Test that running ninja is possible.
 
     Verify that nacl_helper is built when the 'nacl' USE flag is specified
     for chromeos-base/chromeos-chrome.
     """
-    self.rc.AddCmdResult(partial_mock.In('qlist-%s' % self.BOARD),
-                         output='%s ninja nacl gold' % constants.CHROME_CP)
-    self.inst.Ninja(self.BOARD)
-    self.assertCommandContains([self.BOARD], cwd=self.CWD)
+    self.MockGetDefaultTarget(with_nacl=True)
+    self.inst.Ninja()
+    self.assertCommandContains(self.DEFAULT_NINJA_CMD, cwd=self.CWD)
     self.assertCommandContains(['nacl_helper'])
 
   def testNinjaWithoutNaclUseFlag(self):
@@ -203,11 +215,30 @@ class ChromeSDKTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
     Verify that nacl_helper is not built when no 'nacl' USE flag is specified
     for chromeos-base/chromeos-chrome.
     """
-    self.rc.AddCmdResult(partial_mock.In('qlist-%s' % self.BOARD),
-                         output='%s' % constants.CHROME_CP)
-    self.inst.Ninja(self.BOARD)
-    self.assertCommandContains([self.BOARD], cwd=self.CWD)
+    self.MockGetDefaultTarget()
+    self.inst.Ninja()
+    self.assertCommandContains(self.DEFAULT_NINJA_CMD, cwd=self.CWD)
     self.assertCommandContains(['nacl_helper'], expected=False)
+
+  def testNinjaWithRunArgs(self):
+    """Test that running ninja with run_args.
+
+    run_args is an optional argument for RunCommand kwargs.
+    """
+    self.MockGetDefaultTarget()
+    self.inst.Ninja(run_args={'log_output': True})
+    self.assertCommandContains(self.DEFAULT_NINJA_CMD, cwd=self.CWD,
+                               log_output=True)
+
+  def testNinjaOptions(self):
+    """Test that running ninja with non-default options."""
+    self.MockGetDefaultTarget()
+    expected_jobs = 123
+    expected_target = 'custom_target'
+    self.inst.Ninja(jobs=expected_jobs, debug=True, targets=[expected_target])
+    self.assertCommandContains(
+        ['ninja', '-C', 'out_%s/Debug' % self.BOARD, '-j', str(expected_jobs)])
+    self.assertCommandContains([expected_target])
 
 
 class HWLabCommandsTest(cros_build_lib_unittest.RunCommandTestCase,
@@ -372,15 +403,17 @@ The suite job has another 2:39:39.789250 till timeout.
         side_effect=lambda *args, **kwargs: wait_results.next(),
     )
 
-    dump_json_results = iter([
-        self.rc.CmdResult(returncode=dump_json_return_code,
-                          output=self.JSON_OUTPUT,
-                          error=''),
-    ])
-    self.rc.AddCmdResult(
-        self.json_dump_cmd,
-        side_effect=lambda *args, **kwargs: dump_json_results.next(),
-    )
+    # Json dump will only run when wait_cmd fails
+    if wait_return_code != 0:
+      dump_json_results = iter([
+          self.rc.CmdResult(returncode=dump_json_return_code,
+                            output=self.JSON_OUTPUT,
+                            error=''),
+      ])
+      self.rc.AddCmdResult(
+          self.json_dump_cmd,
+          side_effect=lambda *args, **kwargs: dump_json_results.next(),
+      )
 
   def PatchJson(self, task_outputs):
     """Mock out the code that loads from json.
@@ -449,8 +482,7 @@ The suite job has another 2:39:39.789250 till timeout.
         swarming_hard_timeout_secs=swarming_timeout)
 
     self.PatchJson([(self.JOB_ID_OUTPUT, False, None),
-                    (self.WAIT_OUTPUT, False, None),
-                    (self.JSON_OUTPUT, False, None)])
+                    (self.WAIT_OUTPUT, False, None)])
     with self.OutputCapturer() as output:
       cmd_result = self.RunHWTestSuite(pool=self._pool, num=self._num,
                                        file_bugs=self._file_bugs,
@@ -462,13 +494,10 @@ The suite job has another 2:39:39.789250 till timeout.
                                        minimum_duts=self._minimum_duts,
                                        suite_min_duts=self._suite_min_duts,
                                        subsystems=self._subsystems)
-    expect_result = json.loads(self.JSON_DICT)
-    self.assertEqual(cmd_result, (None, expect_result))
+    self.assertEqual(cmd_result, (None, None))
     self.assertCommandCalled(self.create_cmd, capture_output=True,
                              combine_stdout_stderr=True)
     self.assertCommandCalled(self.wait_cmd, capture_output=True,
-                             combine_stdout_stderr=True)
-    self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
                              combine_stdout_stderr=True)
     self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
     self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
@@ -496,6 +525,29 @@ The suite job has another 2:39:39.789250 till timeout.
     with self.OutputCapturer():
       cmd_result = self.RunHWTestSuite()
       self.assertIsInstance(cmd_result.to_raise, failures_lib.TestLabFailure)
+
+  def testRunHWTestSuiteCommandErrorJSONDumpMissing(self):
+    """Test RunHWTestSuite when the JSON output is missing on error."""
+    self.SetCmdResults()
+    self.PatchJson(
+        [(self.JOB_ID_OUTPUT, False, None),
+         ('', False, None),
+         ('', False, None),
+        ])
+    def fail_swarming_cmd(cmd, *_args, **_kwargs):
+      result = swarming_lib.SwarmingCommandResult(None, cmd=cmd,
+                                                  error='injected error',
+                                                  output='', returncode=3)
+      raise cros_build_lib.RunCommandError('injected swarming failure',
+                                           result, None)
+    self.rc.AddCmdResult(self.wait_cmd, side_effect=fail_swarming_cmd)
+    self.rc.AddCmdResult(self.json_dump_cmd, side_effect=fail_swarming_cmd)
+
+    with self.OutputCapturer():
+      cmd_result = self.RunHWTestSuite(wait_for_results=True)
+      self.assertIsInstance(cmd_result.to_raise, failures_lib.TestLabFailure)
+      self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
+                               combine_stdout_stderr=True)
 
   def testRunHWTestBoardNotAvailable(self):
     """Test RunHWTestSuite when BOARD_NOT_AVAILABLE is returned."""
@@ -552,8 +604,6 @@ The suite job has another 2:39:39.789250 till timeout.
                                combine_stdout_stderr=True)
       self.assertCommandCalled(self.wait_cmd, capture_output=True,
                                combine_stdout_stderr=True)
-      self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
-                               combine_stdout_stderr=True)
       self.assertIn(self.WAIT_RETRY_OUTPUT.strip(),
                     '\n'.join(output.GetStdoutLines()))
       self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
@@ -585,6 +635,24 @@ The suite job has another 2:39:39.789250 till timeout.
 
     self.assertEqual(result_1, expected_1)
     self.assertEqual(result_2, expected_2)
+
+
+  def testRunHWTestSuiteJsonDumpWhenWaitCmdFail(self):
+    """Test RunHWTestSuite run json dump cmd when wait_cmd fail."""
+    self.SetCmdResults(wait_return_code=1, wait_retry=True)
+    self.PatchJson(
+        [(self.JOB_ID_OUTPUT, False, None),
+         (self.JSON_OUTPUT, False, None),
+        ])
+    with (mock.patch.object(commands, '_HWTestWait', return_value=False)):
+      with self.OutputCapturer() as output:
+        self.RunHWTestSuite(wait_for_results=self._wait_for_results)
+        self.assertCommandCalled(self.create_cmd, capture_output=True,
+                                 combine_stdout_stderr=True)
+        self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
+                                 combine_stdout_stderr=True)
+        self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
+        self.assertIn(self.JSON_OUTPUT, '\n'.join(output.GetStdoutLines()))
 
 
 class CBuildBotTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
@@ -652,36 +720,83 @@ class CBuildBotTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
   def testGetFirmwareVersions(self):
     self.rc.SetDefaultCmdResult(output='''
 
-flashrom(8): a273d7fd6663c665176159496bc014ff */build/nyan/usr/sbin/flashrom
-             ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), statically linked, for GNU/Linux 2.6.16, BuildID[sha1]=61d8a9676e433414fb0e22fa819b55be86329e44, stripped
+flashrom(8): a8f99c2e61e7dc09c4b25ef5a76ef692 */build/kevin/usr/sbin/flashrom
+             ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), statically linked, for GNU/Linux 2.d
+             0.9.4  : 860875a : Apr 10 2017 23:54:29 UTC
 
-
-BIOS image:   4aba4c07a65b7bf82d72d8ed892f5dc5 */build/nyan/tmp/portage/chromeos-base/chromeos-firmware-nyan-0.0.1-r20/work/chromeos-firmware-nyan-0.0.1/.dist/nyan_fw_5771.10.0.tbz2/image.bin
-BIOS version: Google_Nyan.5771.10.0
-EC image:     7b6bb5035fa8101b41c954bce5250dae */build/nyan/tmp/portage/chromeos-base/chromeos-firmware-nyan-0.0.1-r20/work/chromeos-firmware-nyan-0.0.1/.dist/nyan_ec_5771.10.0.tbz2/ec.bin
-EC version:   nyan_v1.1.1782-23f1337
+BIOS image:   6b5b855a0b8fd1657546d1402c15b206 *chromeos-firmware-kevin-0.0.1/.dist/kevin_fw_8785.178.0.n
+BIOS version: Google_Kevin.8785.178.0
+EC image:     1ebfa9518e6cac0558a80b7ab2f5b489 *chromeos-firmware-kevin-0.0.1/.dist/kevin_ec_8785.178.0.n
+EC version:kevin_v1.10.184-459421c
 
 Package Content:
-d7124c9a2680ff57f1c7d6521ac5ef8c *./mosys
-ad9520c70add670d8f2770a2a3c4115a *./gbb_utility
-7b6bb5035fa8101b41c954bce5250dae *./ec.bin
-a273d7fd6663c665176159496bc014ff *./flashrom
-d149f6413749ca6a0edddd52926f95ca *./dump_fmap
-5bfe13d9b7fef1dfd9d3dac185f94994 *./crossystem
+a8f99c2e61e7dc09c4b25ef5a76ef692 *./flashrom
 3c3a99346d1ca1273cbcd86c104851ff *./shflags
-4aba4c07a65b7bf82d72d8ed892f5dc5 *./bios.bin
-2a484f3e107bf27a4d1068e03e74803c *./common.sh
-995a97518f90541d37c3f57a336d37db *./vpd
-b9270e726180af1ed59077d1ab2fc688 *./crosfw.sh
-f6b0b80d5f2d9a2fb41ebb6e2cee7ad8 *./updater4.sh
-4363fcfd6849b2ab1a7320b1c98a11f2 *./crosutil.sh
+457a8dc8546764affc9700f8da328d23 *./dump_fmap
+c392980ddb542639edf44a965a59361a *./updater5.sh
+490c95d6123c208d20d84d7c16857c7c *./crosfw.sh
+6b5b855a0b8fd1657546d1402c15b206 *./bios.bin
+7b5bef0d2da90c23ff2e157250edf0fa *./crosutil.sh
+d78722e4f1a0dc2d8c3d6b0bc7010ae3 *./crossystem
+457a8dc8546764affc9700f8da328d23 *./gbb_utility
+1ebfa9518e6cac0558a80b7ab2f5b489 *./ec.bin
+c98ca54db130886142ad582a58e90ddc *./common.sh
+5ba978bdec0f696f47f0f0de90936880 *./mosys
+312e8ee6122057f2a246d7bcf1572f49 *./vpd
 ''')
     build_sbin = os.path.join(self._buildroot, constants.DEFAULT_CHROOT_DIR,
                               'build', self._board, 'usr', 'sbin')
     osutils.Touch(os.path.join(build_sbin, 'chromeos-firmwareupdate'),
                   makedirs=True)
     result = commands.GetFirmwareVersions(self._buildroot, self._board)
-    versions = ('Google_Nyan.5771.10.0', 'nyan_v1.1.1782-23f1337')
+    versions = ('Google_Kevin.8785.178.0', 'kevin_v1.10.184-459421c')
+    self.assertEquals(result, versions)
+
+  def testGetFirmwareVersionsMixedImage(self):
+    """Verify that can extract the right version from a mixed RO+RW bundle."""
+    self.rc.SetDefaultCmdResult(output='''
+
+flashrom(8): 29c9ec509aaa9c1f575cca883d90980c */build/caroline/usr/sbin/flashrom
+             ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, for GNU/Linux 2.6.32, BuildID[sha1]=eb6af9bb9e14e380676ad9607760c54addec4a3a, stripped
+             0.9.4  : 1bb61e1 : Feb 07 2017 18:29:17 UTC
+
+BIOS image:   9f78f612c24ee7ec4ca4d2747b01d8b9 *chromeos-firmware-caroline-0.0.1/.dist/Caroline.7820.263.0.tbz2/image.bin
+BIOS version: Google_Caroline.7820.263.0
+BIOS (RW) image:   2cb5021b986fe024f20d242e1885e1e7 *chromeos-firmware-caroline-0.0.1/.dist/Caroline.7820.286.0.tbz2/image.bin
+BIOS (RW) version: Google_Caroline.7820.286.0
+EC image:     18569de94ea66ba0cad360c3b7d8e205 *chromeos-firmware-caroline-0.0.1/.dist/Caroline_EC.7820.263.0.tbz2/ec.bin
+EC version:   caroline_v1.9.357-ac5c7b4
+EC (RW) version:   caroline_v1.9.370-e8b9bd2
+PD image:     0ba8d6a0fa82c42fa42a98096e2b1480 *chromeos-firmware-caroline-0.0.1/.dist/Caroline_PD.7820.263.0.tbz2/ec.bin
+PD version:   caroline_pd_v1.9.357-ac5c7b4
+PD (RW) version:   caroline_pd_v1.9.370-e8b9bd2
+Extra files from folder: /mnt/host/source/src/private-overlays/overlay-caroline-private/chromeos-base/chromeos-firmware-caroline/files/extra
+Extra file: /build/caroline//bin/xxd
+
+Package Content:
+dc9b08c5b17a7d51f9acdf5d3e12ebb7 *./updater4.sh
+29c9ec509aaa9c1f575cca883d90980c *./flashrom
+3c3a99346d1ca1273cbcd86c104851ff *./shflags
+d962372228f82700d179d53a509f9735 *./dump_fmap
+490c95d6123c208d20d84d7c16857c7c *./crosfw.sh
+deb421e949ffaa23102ef3cee640be2d *./bios.bin
+b0ca480cb2981b346f493ebc93a52e8a *./crosutil.sh
+fba6434300d36f7b013883b6a3d04b57 *./pd.bin
+03496184aef3ec6d5954528a5f15d8af *./crossystem
+d962372228f82700d179d53a509f9735 *./gbb_utility
+6ddd288ce20e28b90ef0b21613637b60 *./ec.bin
+7ca17c9b563383296ee9e2c353fdb766 *./updater_custom.sh
+c2728ed24809ec845c53398a15255f49 *./xxd
+c98ca54db130886142ad582a58e90ddc *./common.sh
+a3326e34e8c9f221cc2dcd2489284e30 *./mosys
+ae8cf9fca3165a1c1f12decfd910c4fe *./vpd
+''')
+    build_sbin = os.path.join(self._buildroot, constants.DEFAULT_CHROOT_DIR,
+                              'build', self._board, 'usr', 'sbin')
+    osutils.Touch(os.path.join(build_sbin, 'chromeos-firmwareupdate'),
+                  makedirs=True)
+    result = commands.GetFirmwareVersions(self._buildroot, self._board)
+    versions = ('Google_Caroline.7820.286.0', 'caroline_v1.9.370-e8b9bd2')
     self.assertEquals(result, versions)
 
   def testGetModels(self):

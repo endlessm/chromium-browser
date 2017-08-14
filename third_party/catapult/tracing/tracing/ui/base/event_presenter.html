@@ -15,75 +15,80 @@ found in the LICENSE file.
  * @fileoverview Provides color scheme related functions.
  */
 tr.exportTo('tr.ui.b', function() {
-  var ColorScheme = tr.b.ColorScheme;
+  const ColorScheme = tr.b.ColorScheme;
 
-  var colors = ColorScheme.colors;
-  var colorsAsStrings = ColorScheme.colorsAsStrings;
-  var numColorsPerVariant = ColorScheme.properties.numColorsPerVariant;
+  const colors = ColorScheme.colors;
+  const colorsAsStrings = ColorScheme.colorsAsStrings;
 
-  var SelectionState = tr.model.SelectionState;
+  const SelectionState = tr.model.SelectionState;
 
   /**
    * Provides methods to get view values for events.
    */
-  var EventPresenter = {
-    getSelectableItemColorAsString: function(item) {
-      var colorId = item.colorId + this.getColorIdOffset_(item);
+  const EventPresenter = {
+    getSelectableItemColorAsString(item) {
+      const offset = this.getColorIdOffset_(item);
+      const colorId = ColorScheme.getVariantColorId(item.colorId, offset);
       return colorsAsStrings[colorId];
     },
 
-    getColorIdOffset_: function(event) {
+    getColorIdOffset_(event) {
       return event.selectionState;
     },
 
-    getTextColor: function(event) {
+    getTextColor(event) {
       if (event.selectionState === SelectionState.DIMMED) {
         return 'rgb(60,60,60)';
       }
       return 'rgb(0,0,0)';
     },
 
-    getSliceColorId: function(slice) {
-      return slice.colorId + this.getColorIdOffset_(slice);
+    getSliceColorId(slice) {
+      const offset = this.getColorIdOffset_(slice);
+      return ColorScheme.getVariantColorId(slice.colorId, offset);
     },
 
-    getSliceAlpha: function(slice, async) {
-      var alpha = 1;
+    getSliceAlpha(slice, async) {
+      let alpha = 1;
       if (async) {
         alpha *= 0.3;
       }
       return alpha;
     },
 
-    getInstantSliceColor: function(instant) {
-      var colorId = instant.colorId + this.getColorIdOffset_(instant);
+    getInstantSliceColor(instant) {
+      const offset = this.getColorIdOffset_(instant);
+      const colorId = ColorScheme.getVariantColorId(instant.colorId, offset);
       return colors[colorId].toStringWithAlphaOverride(1.0);
     },
 
-    getObjectInstanceColor: function(instance) {
-      var colorId = instance.colorId + this.getColorIdOffset_(instance);
+    getObjectInstanceColor(instance) {
+      const offset = this.getColorIdOffset_(instance);
+      const colorId = ColorScheme.getVariantColorId(instance.colorId, offset);
       return colors[colorId].toStringWithAlphaOverride(0.25);
     },
 
-    getObjectSnapshotColor: function(snapshot) {
-      var colorId =
-          snapshot.objectInstance.colorId + this.getColorIdOffset_(snapshot);
+    getObjectSnapshotColor(snapshot) {
+      const offset = this.getColorIdOffset_(snapshot);
+      let colorId = snapshot.objectInstance.colorId;
+      colorId = ColorScheme.getVariantColorId(colorId, offset);
       return colors[colorId];
     },
 
-    getCounterSeriesColor: function(colorId, selectionState,
+    getCounterSeriesColor(colorId, selectionState,
         opt_alphaMultiplier) {
-      var event = {selectionState: selectionState};
-      var c = colors[colorId + this.getColorIdOffset_(event)];
+      const event = {selectionState};
+      const offset = this.getColorIdOffset_(event);
+      const c = colors[ColorScheme.getVariantColorId(colorId, offset)];
       return c.toStringWithAlphaOverride(
           opt_alphaMultiplier !== undefined ? opt_alphaMultiplier : 1.0);
     },
 
-    getBarSnapshotColor: function(snapshot, offset) {
-      var colorId =
-          (snapshot.objectInstance.colorId + offset) %
-          numColorsPerVariant;
-      colorId += this.getColorIdOffset_(snapshot);
+    getBarSnapshotColor(snapshot, offset) {
+      const snapshotOffset = this.getColorIdOffset_(snapshot);
+      let colorId = snapshot.objectInstance.colorId;
+      colorId = ColorScheme.getAnotherColorId(colorId, offset);
+      colorId = ColorScheme.getVariantColorId(colorId, snapshotOffset);
       return colors[colorId].toStringWithAlphaOverride(1.0);
     }
   };

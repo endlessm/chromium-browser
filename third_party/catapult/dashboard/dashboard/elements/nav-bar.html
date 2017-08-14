@@ -197,7 +197,7 @@ found in the LICENSE file.
     'use strict';
     Polymer({
       is: 'nav-bar',
-      ready: function() {
+      ready() {
         simple_xhr.send('/navbar',
                         {'path': location.pathname + location.search},
             function(response) {
@@ -213,8 +213,8 @@ found in the LICENSE file.
        * @param {Array} labels A list of labels to apply to the bug.
        * @param {Array} cc A list of email addresses to cc on the bug.
        */
-      openCrBugWindow: function(summary, comment, labels, cc) {
-        var url = 'https://code.google.com/p/chromium/issues/entry?';
+      openCrBugWindow(summary, comment, labels, cc) {
+        let url = 'https://code.google.com/p/chromium/issues/entry?';
         url += [
           'summary=' + encodeURIComponent(summary),
           'comment=' + encodeURIComponent(comment),
@@ -230,8 +230,8 @@ found in the LICENSE file.
        * @param {string} comment The description of the bug.
        * @param {string} label Label to apply to the bug.
        */
-      openGitHubIssueWindow: function(summary, comment, label) {
-        var url = 'https://github.com/catapult-project/catapult/issues/new?';
+      openGitHubIssueWindow(summary, comment, label) {
+        let url = 'https://github.com/catapult-project/catapult/issues/new?';
         url += [
           'title=' + encodeURIComponent(summary),
           'body=' + encodeURIComponent(comment),
@@ -243,14 +243,14 @@ found in the LICENSE file.
       /**
        * Opens a window to report a general dashboard bug.
        */
-      reportBug: function() {
-        var os = this.guessOS();
-        var chromeVersion = 'unknown';
-        var chromeVersionMatch = navigator.userAgent.match(/Chrome\/(\S*)/);
+      reportBug() {
+        const os = this.guessOS();
+        let chromeVersion = 'unknown';
+        const chromeVersionMatch = navigator.userAgent.match(/Chrome\/(\S*)/);
         if (chromeVersionMatch) {
           chromeVersion = chromeVersionMatch[1];
         }
-        var description = 'Chrome version: ' + chromeVersion;
+        let description = 'Chrome version: ' + chromeVersion;
         description += ' (' + os + ')\n';
         description += 'URL: ' + document.location.href + '\n\n';
         description += 'Please copy and paste any errors from JavaScript';
@@ -266,8 +266,8 @@ found in the LICENSE file.
        * Guesses user's OS from user agent string (for pre-filling bug labels).
        * @return {string} The name of an OS.
        */
-      guessOS: function() {
-        var userAgentContains = function(s) {
+      guessOS() {
+        const userAgentContains = function(s) {
           return navigator.userAgent.indexOf(s) != -1;
         };
         if (userAgentContains('CrOS')) {
@@ -284,27 +284,27 @@ found in the LICENSE file.
         return 'unknown';
       },
 
-      fileIpWhitelistRequest: function() {
-        var description = 'Please whitelist the following IP addresses ' +
+      fileIpWhitelistRequest() {
+        const description = 'Please whitelist the following IP addresses ' +
             'to send data to the Chrome Perf Dashboard:\n' +
             '<IP ADDRESSES HERE>\n\n' +
             'These buildbots are for:\n';
-        var labels = ['Performance-Dashboard-IPWhitelist',
+        const labels = ['Performance-Dashboard-IPWhitelist',
           'Restrict-View-Google'];
         this.openCrBugWindow('IP Whitelist Request', description, labels, []);
       },
 
-      fileBotWhitelistRequest: function() {
-        var description = 'Please make the following bots and all their data ' +
+      fileBotWhitelistRequest() {
+        const description = 'Please make the following bots and all their data ' +
             'publicly available, with no google.com login required: \n' +
             '<BOT NAMES HERE>\n\n';
-        var labels = ['Performance-Dashboard-BotWhitelist',
+        const labels = ['Performance-Dashboard-BotWhitelist',
           'Restrict-View-Google'];
         this.openCrBugWindow('Bot Whitelist Request', description, labels, []);
       },
 
-      fileMonitoringRequest: function() {
-        var description = 'Please add monitoring for the following tests:\n\n' +
+      fileMonitoringRequest() {
+        const description = 'Please add monitoring for the following tests:\n\n' +
             'Test owner (see http://go/perf-test-owners):\n' +
             'Buildbot master name:\n' +
             'Test suite names:\n' +
@@ -312,7 +312,7 @@ found in the LICENSE file.
             'Email address and/or URL of sheriff rotation: \n' +
             'Receive individual email alerts immediately or as a daily' +
             ' summary?\nShould these alerts be Google-internal?\n';
-        var labels = [
+        const labels = [
           'Performance-Dashboard-MonitoringRequest',
           'Restrict-View-Google'
         ];

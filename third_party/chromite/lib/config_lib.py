@@ -126,7 +126,8 @@ def UseBuildbucketScheduler(config):
           config.name in (constants.CQ_MASTER,
                           constants.CANARY_MASTER,
                           constants.PFQ_MASTER,
-                          constants.ANDROID_PFQ_MASTER,
+                          constants.MNC_ANDROID_PFQ_MASTER,
+                          constants.NYC_ANDROID_PFQ_MASTER,
                           constants.TOOLCHAIN_MASTTER,
                           constants.PRE_CQ_LAUNCHER_NAME))
 
@@ -648,6 +649,12 @@ def DefaultSettings():
       # Which Android branch build do we try to uprev from.
       android_import_branch=None,
 
+      # Android package name.
+      android_package=None,
+
+      # Android GTS package branch name, if it is necessary to uprev.
+      android_gts_build_branch=None,
+
       # Uprev Chrome, values of 'tot', 'stable_release', or None.
       chrome_rev=None,
 
@@ -734,6 +741,10 @@ def DefaultSettings():
       # TODO(sosa): Deprecate binary.
       # Type of builder.  Check constants.VALID_BUILD_TYPES.
       build_type=constants.PFQ_TYPE,
+
+      # Whether to schedule test suites by suite_scheduler. Generally only
+      # True for "release" builders.
+      suite_scheduling=False,
 
       # The class name used to build this config.  See the modules in
       # cbuildbot / builders/*_builders.py for possible values.  This should
@@ -1482,7 +1493,7 @@ def LoadGEBuildConfigFromFile(
     build_settings_file=constants.GE_BUILD_CONFIG_FILE):
   """Load template config dict from a Json encoded file."""
   json_string = osutils.ReadFile(build_settings_file)
-  return json.loads(json_string, object_hook=_DecodeDict)
+  return json.loads(json_string)
 
 
 def GeBuildConfigAllBoards(ge_build_config):
@@ -1609,7 +1620,7 @@ def LoadConfigFromFile(config_file=constants.CHROMEOS_CONFIG_FILE):
 
 def LoadConfigFromString(json_string):
   """Load a cbuildbot config from it's Json encoded string."""
-  config_dict = json.loads(json_string, object_hook=_DecodeDict)
+  config_dict = json.loads(json_string)
 
   # Use standard defaults, but allow the config to override.
   defaults = DefaultSettings()
@@ -1635,48 +1646,13 @@ def LoadConfigFromString(json_string):
 
   return result
 
-# TODO(dgarrett): Remove Decode methods when we prove unicde strings work.
-def _DecodeList(data):
-  """Convert a JSON result list from unicode to utf-8."""
-  rv = []
-  for item in data:
-    if isinstance(item, unicode):
-      item = item.encode('utf-8')
-    elif isinstance(item, list):
-      item = _DecodeList(item)
-    elif isinstance(item, dict):
-      item = _DecodeDict(item)
-
-    # Other types (None, int, float, etc) are stored unmodified.
-    rv.append(item)
-  return rv
-
-
-def _DecodeDict(data):
-  """Convert a JSON result dict from unicode to utf-8."""
-  rv = {}
-  for key, value in data.iteritems():
-    if isinstance(key, unicode):
-      key = key.encode('utf-8')
-
-    if isinstance(value, unicode):
-      value = value.encode('utf-8')
-    elif isinstance(value, list):
-      value = _DecodeList(value)
-    elif isinstance(value, dict):
-      value = _DecodeDict(value)
-
-    # Other types (None, int, float, etc) are stored unmodified.
-    rv[key] = value
-  return rv
-
 
 def _CreateVmTestConfig(jsonString):
   """Create a VMTestConfig object from a JSON string."""
   if isinstance(jsonString, VMTestConfig):
     return jsonString
   # Each VM Test is dumped as a json string embedded in json.
-  vm_test_config = json.loads(jsonString, object_hook=_DecodeDict)
+  vm_test_config = json.loads(jsonString)
   return VMTestConfig(**vm_test_config)
 
 
@@ -1685,7 +1661,7 @@ def _CreateHwTestConfig(jsonString):
   if isinstance(jsonString, HWTestConfig):
     return jsonString
   # Each HW Test is dumped as a json string embedded in json.
-  hw_test_config = json.loads(jsonString, object_hook=_DecodeDict)
+  hw_test_config = json.loads(jsonString)
   return HWTestConfig(**hw_test_config)
 
 
@@ -1694,7 +1670,7 @@ def _CreateGceTestConfig(jsonString):
   if isinstance(jsonString, GCETestConfig):
     return jsonString
   # Each GCE Test is dumped as a json string embedded in json.
-  gce_test_config = json.loads(jsonString, object_hook=_DecodeDict)
+  gce_test_config = json.loads(jsonString)
   return GCETestConfig(**gce_test_config)
 
 

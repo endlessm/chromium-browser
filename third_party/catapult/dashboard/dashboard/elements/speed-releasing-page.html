@@ -99,17 +99,17 @@ found in the LICENSE file.
         },
       },
 
-      ready: function() {
-        var params = {};
-        var path = uri.getPathName();
+      ready() {
+        const params = {};
+        let path = uri.getPathName();
         if (!path) { // Go get the list.
           path = '';
           simple_xhr.send('/speed_releasing/' + path, params,
               function(response) {
                 this.loading = false;
-                this.tableName = response['name'];
-                this.showList = response['show_list'];
-                this.tableList = response['list'];
+                this.tableName = response.name;
+                this.showList = response.show_list;
+                this.tableList = response.list;
               }.bind(this),
               function(msg) {
                 this.error = msg;

@@ -16,7 +16,7 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.tracks', function() {
-  var DrawType = {
+  const DrawType = {
     GENERAL_EVENT: 1,
     INSTANT_EVENT: 2,
     BACKGROUND: 3,
@@ -36,16 +36,16 @@ tr.exportTo('tr.ui.tracks', function() {
   // previous behavior & performance. This should be reduced to
   // be as small as possible once raw drawing performance is improved
   // such that a repaint doesn't incur a large jank
-  var MAX_OVERSIZE_MULTIPLE = 3.0;
-  var REDRAW_SLOP = (MAX_OVERSIZE_MULTIPLE - 1) / 2;
+  const MAX_OVERSIZE_MULTIPLE = 3.0;
+  const REDRAW_SLOP = (MAX_OVERSIZE_MULTIPLE - 1) / 2;
 
-  var DrawingContainer = tr.ui.b.define('drawing-container',
+  const DrawingContainer = tr.ui.b.define('drawing-container',
       tr.ui.tracks.Track);
 
   DrawingContainer.prototype = {
     __proto__: tr.ui.tracks.Track.prototype,
 
-    decorate: function(viewport) {
+    decorate(viewport) {
       tr.ui.tracks.Track.prototype.decorate.call(this, viewport);
       Polymer.dom(this).classList.add('drawing-container');
 
@@ -69,25 +69,25 @@ tr.exportTo('tr.ui.tracks', function() {
       return this.canvas_;
     },
 
-    context: function() {
+    context() {
       return this.ctx_;
     },
 
-    viewportChange_: function() {
+    viewportChange_() {
       this.invalidate();
     },
 
-    windowResized_: function() {
+    windowResized_() {
       this.invalidate();
     },
 
-    scrollChanged_: function() {
+    scrollChanged_() {
       if (this.updateOffsetY_()) {
         this.invalidate();
       }
     },
 
-    invalidate: function() {
+    invalidate() {
       if (this.rafPending_) return;
 
       this.rafPending_ = true;
@@ -95,17 +95,17 @@ tr.exportTo('tr.ui.tracks', function() {
       tr.b.requestPreAnimationFrame(this.preDraw_, this);
     },
 
-    preDraw_: function() {
+    preDraw_() {
       this.rafPending_ = false;
       this.updateCanvasSizeIfNeeded_();
 
       tr.b.requestAnimationFrameInThisFrameIfPossible(this.draw_, this);
     },
 
-    draw_: function() {
+    draw_() {
       this.ctx_.clearRect(0, 0, this.canvas_.width, this.canvas_.height);
 
-      var typesToDraw = [
+      const typesToDraw = [
         DrawType.BACKGROUND,
         DrawType.HIGHLIGHTS,
         DrawType.GRID,
@@ -116,8 +116,8 @@ tr.exportTo('tr.ui.tracks', function() {
         DrawType.FLOW_ARROWS
       ];
 
-      for (var idx in typesToDraw) {
-        for (var i = 0; i < this.children.length; ++i) {
+      for (const idx in typesToDraw) {
+        for (let i = 0; i < this.children.length; ++i) {
           if (!(this.children[i] instanceof tr.ui.tracks.Track)) {
             continue;
           }
@@ -125,11 +125,11 @@ tr.exportTo('tr.ui.tracks', function() {
         }
       }
 
-      var pixelRatio = window.devicePixelRatio || 1;
-      var bounds = this.canvas_.getBoundingClientRect();
-      var dt = this.viewport.currentDisplayTransform;
-      var viewLWorld = dt.xViewToWorld(0);
-      var viewRWorld = dt.xViewToWorld(
+      const pixelRatio = window.devicePixelRatio || 1;
+      const bounds = this.canvas_.getBoundingClientRect();
+      const dt = this.viewport.currentDisplayTransform;
+      const viewLWorld = dt.xViewToWorld(0);
+      const viewRWorld = dt.xViewToWorld(
           bounds.width * pixelRatio);
 
       this.viewport.drawGridLines(this.ctx_, viewLWorld, viewRWorld);
@@ -137,12 +137,12 @@ tr.exportTo('tr.ui.tracks', function() {
 
     // Update's this.offsetY_, returning true if the value has changed
     // and thus a redraw is needed, or false if it did not change.
-    updateOffsetY_: function() {
-      var maxYDelta = window.innerHeight * REDRAW_SLOP;
-      var newOffset = this.scrollTop - maxYDelta;
+    updateOffsetY_() {
+      const maxYDelta = window.innerHeight * REDRAW_SLOP;
+      let newOffset = this.scrollTop - maxYDelta;
       if (Math.abs(newOffset - this.offsetY_) <= maxYDelta) return false;
       // Now clamp to the valid range.
-      var maxOffset = this.scrollHeight -
+      const maxOffset = this.scrollHeight -
           this.canvas_.getBoundingClientRect().height;
       newOffset = Math.max(0, Math.min(newOffset, maxOffset));
       if (newOffset !== this.offsetY_) {
@@ -152,28 +152,29 @@ tr.exportTo('tr.ui.tracks', function() {
       return false;
     },
 
-    updateCanvasSizeIfNeeded_: function() {
-      var visibleChildTracks =
+    updateCanvasSizeIfNeeded_() {
+      const visibleChildTracks =
           tr.b.asArray(this.children).filter(this.visibleFilter_);
 
       if (visibleChildTracks.length === 0) {
         return;
       }
 
-      var thisBounds = this.getBoundingClientRect();
+      const thisBounds = this.getBoundingClientRect();
 
-      var firstChildTrackBounds = visibleChildTracks[0].getBoundingClientRect();
-      var lastChildTrackBounds =
+      const firstChildTrackBounds =
+        visibleChildTracks[0].getBoundingClientRect();
+      const lastChildTrackBounds =
           visibleChildTracks[visibleChildTracks.length - 1].
               getBoundingClientRect();
 
-      var innerWidth = firstChildTrackBounds.width -
+      const innerWidth = firstChildTrackBounds.width -
           tr.ui.b.constants.HEADING_WIDTH;
-      var innerHeight = lastChildTrackBounds.bottom - firstChildTrackBounds.top;
-      var innerHeight = Math.min(innerHeight,
+      const innerHeight = Math.min(
+          lastChildTrackBounds.bottom - firstChildTrackBounds.top,
           Math.floor(window.innerHeight * MAX_OVERSIZE_MULTIPLE));
 
-      var pixelRatio = window.devicePixelRatio || 1;
+      const pixelRatio = window.devicePixelRatio || 1;
       if (this.canvas_.width !== innerWidth * pixelRatio) {
         this.canvas_.width = innerWidth * pixelRatio;
         this.canvas_.style.width = innerWidth + 'px';
@@ -190,21 +191,21 @@ tr.exportTo('tr.ui.tracks', function() {
       }
     },
 
-    visibleFilter_: function(element) {
+    visibleFilter_(element) {
       if (!(element instanceof tr.ui.tracks.Track)) return false;
 
       return window.getComputedStyle(element).display !== 'none';
     },
 
-    addClosestEventToSelection: function(
+    addClosestEventToSelection(
         worldX, worldMaxDist, loY, hiY, selection) {
-      for (var i = 0; i < this.children.length; ++i) {
+      for (let i = 0; i < this.children.length; ++i) {
         if (!(this.children[i] instanceof tr.ui.tracks.Track)) {
           continue;
         }
-        var trackClientRect = this.children[i].getBoundingClientRect();
-        var a = Math.max(loY, trackClientRect.top);
-        var b = Math.min(hiY, trackClientRect.bottom);
+        const trackClientRect = this.children[i].getBoundingClientRect();
+        const a = Math.max(loY, trackClientRect.top);
+        const b = Math.min(hiY, trackClientRect.bottom);
         if (a <= b) {
           this.children[i].addClosestEventToSelection(
               worldX, worldMaxDist, loY, hiY, selection);
@@ -215,8 +216,8 @@ tr.exportTo('tr.ui.tracks', function() {
           apply(this, arguments);
     },
 
-    addEventsToTrackMap: function(eventToTrackMap) {
-      for (var i = 0; i < this.children.length; ++i) {
+    addEventsToTrackMap(eventToTrackMap) {
+      for (let i = 0; i < this.children.length; ++i) {
         if (!(this.children[i] instanceof tr.ui.tracks.Track)) {
           continue;
         }

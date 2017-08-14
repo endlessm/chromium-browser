@@ -24,22 +24,22 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.tracks', function() {
-  var ObjectSnapshotView = tr.ui.analysis.ObjectSnapshotView;
-  var ObjectInstanceView = tr.ui.analysis.ObjectInstanceView;
-  var SpacingTrack = tr.ui.tracks.SpacingTrack;
+  const ObjectSnapshotView = tr.ui.analysis.ObjectSnapshotView;
+  const ObjectInstanceView = tr.ui.analysis.ObjectInstanceView;
+  const SpacingTrack = tr.ui.tracks.SpacingTrack;
 
   /**
    * Visualizes a Process by building ThreadTracks and CounterTracks.
    * @constructor
    */
-  var ProcessTrackBase =
+  const ProcessTrackBase =
       tr.ui.b.define('process-track-base', tr.ui.tracks.ContainerTrack);
 
   ProcessTrackBase.prototype = {
 
     __proto__: tr.ui.tracks.ContainerTrack.prototype,
 
-    decorate: function(viewport) {
+    decorate(viewport) {
       tr.ui.tracks.ContainerTrack.prototype.decorate.call(this, viewport);
 
       this.processBase_ = undefined;
@@ -65,8 +65,9 @@ tr.exportTo('tr.ui.tracks', function() {
       this.processBase_ = processBase;
 
       if (this.processBase_) {
-        var modelSettings = new tr.model.ModelSettings(this.processBase_.model);
-        var defaultValue = this.processBase_.important;
+        const modelSettings = new tr.model.ModelSettings(
+            this.processBase_.model);
+        const defaultValue = this.processBase_.important;
         this.expanded = modelSettings.getSettingFor(
             this.processBase_, 'expanded', defaultValue);
       }
@@ -92,7 +93,7 @@ tr.exportTo('tr.ui.tracks', function() {
 
       if (!this.processBase_) return;
 
-      var modelSettings = new tr.model.ModelSettings(this.processBase_.model);
+      const modelSettings = new tr.model.ModelSettings(this.processBase_.model);
       modelSettings.setSettingFor(this.processBase_, 'expanded', expanded);
       this.updateContents_();
       this.viewport.rebuildEventToTrackMap();
@@ -106,13 +107,13 @@ tr.exportTo('tr.ui.tracks', function() {
       return true;
     },
 
-    onHeaderClick_: function(e) {
+    onHeaderClick_(e) {
       e.stopPropagation();
       e.preventDefault();
       this.expanded = !this.expanded;
     },
 
-    updateContents_: function() {
+    updateContents_() {
       this.clearTracks_();
 
       if (!this.processBase_) return;
@@ -135,47 +136,47 @@ tr.exportTo('tr.ui.tracks', function() {
       this.didAppendTracks_();
     },
 
-    willAppendTracks_: function() {
+    willAppendTracks_() {
     },
 
-    didAppendTracks_: function() {
+    didAppendTracks_() {
     },
 
-    appendMemoryDumpTrack_: function() {
+    appendMemoryDumpTrack_() {
     },
 
-    appendSummaryTrack_: function() {
-      var track = new tr.ui.tracks.ProcessSummaryTrack(this.viewport);
+    appendSummaryTrack_() {
+      const track = new tr.ui.tracks.ProcessSummaryTrack(this.viewport);
       track.process = this.process;
       if (!track.hasVisibleContent) return;
       Polymer.dom(this).appendChild(track);
       // no spacing track, since this track only shown in collapsed state
     },
 
-    appendFrameTrack_: function() {
-      var frames = this.process ? this.process.frames : undefined;
+    appendFrameTrack_() {
+      const frames = this.process ? this.process.frames : undefined;
       if (!frames || !frames.length) return;
 
-      var track = new tr.ui.tracks.FrameTrack(this.viewport);
+      const track = new tr.ui.tracks.FrameTrack(this.viewport);
       track.frames = frames;
       Polymer.dom(this).appendChild(track);
     },
 
-    appendObjectInstanceTracks_: function() {
-      var instancesByTypeName =
+    appendObjectInstanceTracks_() {
+      const instancesByTypeName =
           this.processBase_.objects.getAllInstancesByTypeName();
-      var instanceTypeNames = Object.keys(instancesByTypeName);
+      const instanceTypeNames = Object.keys(instancesByTypeName);
       instanceTypeNames.sort();
 
-      var didAppendAtLeastOneTrack = false;
+      let didAppendAtLeastOneTrack = false;
       instanceTypeNames.forEach(function(typeName) {
-        var allInstances = instancesByTypeName[typeName];
+        const allInstances = instancesByTypeName[typeName];
 
         // If a object snapshot has a view it will be shown,
         // unless the view asked for it to not be shown.
-        var instanceViewInfo = ObjectInstanceView.getTypeInfo(
+        let instanceViewInfo = ObjectInstanceView.getTypeInfo(
             undefined, typeName);
-        var snapshotViewInfo = ObjectSnapshotView.getTypeInfo(
+        let snapshotViewInfo = ObjectSnapshotView.getTypeInfo(
             undefined, typeName);
         if (instanceViewInfo && !instanceViewInfo.metadata.showInTrackView) {
           instanceViewInfo = undefined;
@@ -183,13 +184,13 @@ tr.exportTo('tr.ui.tracks', function() {
         if (snapshotViewInfo && !snapshotViewInfo.metadata.showInTrackView) {
           snapshotViewInfo = undefined;
         }
-        var hasViewInfo = instanceViewInfo || snapshotViewInfo;
+        const hasViewInfo = instanceViewInfo || snapshotViewInfo;
 
         // There are some instances that don't merit their own track in
         // the UI. Filter them out.
-        var visibleInstances = [];
-        for (var i = 0; i < allInstances.length; i++) {
-          var instance = allInstances[i];
+        const visibleInstances = [];
+        for (let i = 0; i < allInstances.length; i++) {
+          const instance = allInstances[i];
 
           // Do not create tracks for instances that have no snapshots.
           if (instance.snapshots.length === 0) continue;
@@ -204,11 +205,11 @@ tr.exportTo('tr.ui.tracks', function() {
 
         // Look up the constructor for this track, or use the default
         // constructor if none exists.
-        var trackConstructor =
+        let trackConstructor =
             tr.ui.tracks.ObjectInstanceTrack.getConstructor(
                 undefined, typeName);
         if (!trackConstructor) {
-          var snapshotViewInfo = ObjectSnapshotView.getTypeInfo(
+          snapshotViewInfo = ObjectSnapshotView.getTypeInfo(
               undefined, typeName);
           if (snapshotViewInfo && snapshotViewInfo.metadata.showInstances) {
             trackConstructor = tr.ui.tracks.ObjectInstanceGroupTrack;
@@ -216,7 +217,7 @@ tr.exportTo('tr.ui.tracks', function() {
             trackConstructor = tr.ui.tracks.ObjectInstanceTrack;
           }
         }
-        var track = new trackConstructor(this.viewport);
+        const track = new trackConstructor(this.viewport);
         track.objectInstances = visibleInstances;
         Polymer.dom(this).appendChild(track);
         didAppendAtLeastOneTrack = true;
@@ -226,30 +227,30 @@ tr.exportTo('tr.ui.tracks', function() {
       }
     },
 
-    appendCounterTracks_: function() {
+    appendCounterTracks_() {
       // Add counter tracks for this process.
-      var counters = tr.b.dictionaryValues(this.processBase.counters);
+      const counters = Object.values(this.processBase.counters);
       counters.sort(tr.model.Counter.compare);
 
       // Create the counters for this process.
       counters.forEach(function(counter) {
-        var track = new tr.ui.tracks.CounterTrack(this.viewport);
+        const track = new tr.ui.tracks.CounterTrack(this.viewport);
         track.counter = counter;
         Polymer.dom(this).appendChild(track);
         Polymer.dom(this).appendChild(new SpacingTrack(this.viewport));
       }.bind(this));
     },
 
-    appendThreadTracks_: function() {
+    appendThreadTracks_() {
       // Get a sorted list of threads.
-      var threads = tr.b.dictionaryValues(this.processBase.threads);
+      const threads = Object.values(this.processBase.threads);
       threads.sort(tr.model.Thread.compare);
 
       // Create the threads.
-      var otherThreads = [];
-      var hasVisibleThreads = false;
+      const otherThreads = [];
+      let hasVisibleThreads = false;
       threads.forEach(function(thread) {
-        var track = new tr.ui.tracks.ThreadTrack(this.viewport);
+        const track = new tr.ui.tracks.ThreadTrack(this.viewport);
         track.thread = thread;
         if (!track.hasVisibleContent) return;
 
@@ -268,7 +269,7 @@ tr.exportTo('tr.ui.tracks', function() {
         // Similarly if we are a process with only scheduling-only threads
         // don't bother making a group as the process itself serves
         // as the collapsable group
-        var track = new tr.ui.tracks.OtherThreadsTrack(this.viewport);
+        const track = new tr.ui.tracks.OtherThreadsTrack(this.viewport);
         track.threads = otherThreads;
         track.collapsible = otherThreads.length > 1 && hasVisibleThreads;
         Polymer.dom(this).appendChild(track);

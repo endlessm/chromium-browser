@@ -38,51 +38,7 @@
 1442 D3D11 : dEQP-GLES31.functional.state_query.shader.sampler_type = SKIP
 
 // OpenGL Failing Tests
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_1.sample_mask_only = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_1.sample_mask_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_1.sample_mask_and_sample_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_1.sample_mask_and_sample_coverage_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_1.sample_mask_non_effective_bits = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_2.sample_mask_only = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_2.sample_mask_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_2.sample_mask_and_sample_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_2.sample_mask_and_sample_coverage_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_2.sample_mask_non_effective_bits = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_3.sample_mask_only = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_3.sample_mask_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_3.sample_mask_and_sample_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_3.sample_mask_and_sample_coverage_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_3.sample_mask_non_effective_bits = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_4.sample_mask_only = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_4.sample_mask_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_4.sample_mask_and_sample_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_4.sample_mask_and_sample_coverage_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_4.sample_mask_non_effective_bits = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_8.sample_mask_only = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_8.sample_mask_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_8.sample_mask_and_sample_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_8.sample_mask_and_sample_coverage_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_8.sample_mask_non_effective_bits = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_10.sample_mask_only = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_10.sample_mask_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_10.sample_mask_and_sample_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_10.sample_mask_and_sample_coverage_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_10.sample_mask_non_effective_bits = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_12.sample_mask_only = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_12.sample_mask_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_12.sample_mask_and_sample_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_12.sample_mask_and_sample_coverage_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_12.sample_mask_non_effective_bits = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_13.sample_mask_only = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_13.sample_mask_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_13.sample_mask_and_sample_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_13.sample_mask_and_sample_coverage_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_13.sample_mask_non_effective_bits = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_16.sample_mask_only = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_16.sample_mask_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_16.sample_mask_and_sample_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_16.sample_mask_and_sample_coverage_and_alpha_to_coverage = FAIL
-1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_16.sample_mask_non_effective_bits = FAIL
+1442 OPENGL : dEQP-GLES31.functional.texture.multisample.samples_* = FAIL
 1442 OPENGL : dEQP-GLES31.functional.texture.multisample.negative.texture_min_filter = FAIL
 1442 OPENGL : dEQP-GLES31.functional.texture.multisample.negative.texture_mag_filter = FAIL
 1442 OPENGL : dEQP-GLES31.functional.texture.multisample.negative.texture_wrap_s = FAIL
@@ -105,6 +61,8 @@
 1442 OPENGL : dEQP-GLES31.functional.shaders.builtin_functions.texture_size.samples_4_texture_uint_2d_array = FAIL
 
 // D3D11 Failing Tests
+1442 D3D11 : dEQP-GLES31.functional.fbo.completeness.no_attachments = FAIL
+1442 D3D11 : dEQP-GLES31.functional.fbo.no_attachments.* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.shaders.builtin_functions.texture_size.* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_color_texture_samples_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_depth_texture_samples_* = FAIL
@@ -157,6 +115,7 @@
 
 // OPENGL Failing Tests
 1665 WIN NVIDIA OPENGL : dEQP-GLES31.functional.draw_indirect.negative.command_offset_not_in_buffer_unsigned32_wrap = FAIL
+1442 NVIDIA OPENGL : dEQP-GLES31.functional.fbo.no_attachments.maximums.all = FAIL
 
 // OpenGL and D3D11 Failing Tests
 1663 OPENGL D3D11 : dEQP-GLES31.functional.draw_indirect.compute_interop.* = FAIL
@@ -1400,8 +1359,6 @@
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.shader_directive.geometry_shader = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.shader_directive.tessellation_shader = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.object_labels.program_pipeline = FAIL
-1442 OPENGL D3D11 : dEQP-GLES31.functional.fbo.no_attachments.* = FAIL
-1442 OPENGL D3D11 : dEQP-GLES31.functional.fbo.completeness.no_attachments = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.program_interface_query.* = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.layout_binding.ubo.* = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.layout_binding.ssbo.* = FAIL

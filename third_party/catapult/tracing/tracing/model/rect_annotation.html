@@ -22,10 +22,10 @@ tr.exportTo('tr.model', function() {
   }
 
   RectAnnotation.fromDict = function(dict) {
-    var args = dict.args;
-    var startLoc =
+    const args = dict.args;
+    const startLoc =
         new tr.model.Location(args.start.xWorld, args.start.yComponents);
-    var endLoc =
+    const endLoc =
         new tr.model.Location(args.end.xWorld, args.end.yComponents);
     return new tr.model.RectAnnotation(startLoc, endLoc);
   };
@@ -41,7 +41,7 @@ tr.exportTo('tr.model', function() {
       return this.endLocation_;
     },
 
-    toDict: function() {
+    toDict() {
       return {
         typeName: 'rect',
         args: {
@@ -51,7 +51,7 @@ tr.exportTo('tr.model', function() {
       };
     },
 
-    createView_: function(viewport) {
+    createView_(viewport) {
       return new tr.ui.annotations.RectAnnotationView(viewport, this);
     }
   };

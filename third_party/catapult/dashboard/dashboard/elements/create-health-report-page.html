@@ -173,21 +173,21 @@ found in the LICENSE file.
         }
       },
 
-      onSubmit: function() {
-        var valid = this.validateInputs();
+      onSubmit() {
+        const valid = this.validateInputs();
         if (valid) {
           this.checkToken();
         }
         this.error = '';
       },
 
-      checkToken: function() {
-        var params = {
+      checkToken() {
+        const params = {
           getToken: true,
         };
         simple_xhr.send('/create_health_report', params,
             function(response) {
-              this.xsrfToken = response['xsrf_token'];
+              this.xsrfToken = response.xsrf_token;
               this.loading = false;
               this.buildTable(); // Needs to wait for response with token.
             }.bind(this),
@@ -197,25 +197,25 @@ found in the LICENSE file.
             }.bind(this));
       },
 
-      buildTable: function() {
+      buildTable() {
         this.loading = true;
-        var override = 0;
+        let override = 0;
         if (this.selectedTableConfig == this.name) {
           override = 1;  // Tell server it is okay to override the config.
         }
-        var params = {
+        const params = {
           tableLayout: this.layout,
           tableName: this.name,
           tableBots: this.bots,
           tableTests: this.tests,
           xsrf_token: this.xsrfToken,
-          override: override,
+          override,
         };
         simple_xhr.send('/create_health_report', params,
             function(response) {
               this.loading = false;
               this.hideSuccess = false;
-              this.endpointName = response['name'];
+              this.endpointName = response.name;
               window.scrollTo(0, 0);
             }.bind(this),
             function(msg) {
@@ -229,7 +229,7 @@ found in the LICENSE file.
       /*
        * Goes and grabs the table_config details to populate the form with.
        */
-      onEditChanged: function(e) {
+      onEditChanged(e) {
         this.selectedTableConfig = e.detail.item.label;
         if (!this.selectedTableConfig) {
           this.name = '';
@@ -238,7 +238,7 @@ found in the LICENSE file.
           this.layout = '';
           return;
         }
-        var params = {
+        const params = {
           getTableConfigDetails: this.selectedTableConfig,
           xsrf_token: this.xsrfToken,
         };
@@ -247,11 +247,11 @@ found in the LICENSE file.
               this.loading = false;
               this.name = response.table_name;
               this.bots = '';
-              for (var i in response.table_bots) {
+              for (const i in response.table_bots) {
                 this.bots += (response.table_bots[i] + '\n');
               }
               this.tests = '';
-              for (var k in response.table_tests) {
+              for (const k in response.table_tests) {
                 this.tests += (response.table_tests[k] + '\n');
               }
               this.layout = response.table_layout;
@@ -261,8 +261,8 @@ found in the LICENSE file.
             }.bind(this));
       },
 
-      validateInputs: function() {
-        var valid = true;
+      validateInputs() {
+        let valid = true;
         if (!this.name) {
           valid = false;
           this.$.name.invalid = true;
@@ -282,8 +282,8 @@ found in the LICENSE file.
         return valid;
       },
 
-      ready: function() {
-        var params = {
+      ready() {
+        const params = {
           getTableConfigList: true,
           xsrf_token: this.xsrfToken,
         };
@@ -291,7 +291,7 @@ found in the LICENSE file.
         simple_xhr.send('/create_health_report', params,
             function(response) {
               this.loading = false;
-              this.tableConfigs = response['table_config_list'];
+              this.tableConfigs = response.table_config_list;
             }.bind(this),
             function(msg) {
               this.error = msg;

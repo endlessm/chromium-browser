@@ -15,7 +15,7 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.model', function() {
-  var PowerSample = tr.model.PowerSample;
+  const PowerSample = tr.model.PowerSample;
 
   /**
    * A container holding a time series of power samples.
@@ -50,8 +50,8 @@ tr.exportTo('tr.model', function() {
      *
      * Note: Samples must be added in chronological order.
      */
-    addPowerSample: function(ts, val) {
-      var sample = new PowerSample(this, ts, val);
+    addPowerSample(ts, val) {
+      const sample = new PowerSample(this, ts, val);
       this.samples_.push(sample);
       return sample;
     },
@@ -60,31 +60,31 @@ tr.exportTo('tr.model', function() {
      * Returns the total energy (in Joules) consumed between the specified
      * start and end timestamps (in milliseconds).
      */
-    getEnergyConsumedInJ: function(start, end) {
-      var measurementRange = tr.b.math.Range.fromExplicitRange(start, end);
+    getEnergyConsumedInJ(start, end) {
+      const measurementRange = tr.b.math.Range.fromExplicitRange(start, end);
 
-      var energyConsumedInJ = 0;
-      var startIndex = tr.b.math.findLowIndexInSortedArray(
+      let energyConsumedInJ = 0;
+      let startIndex = tr.b.math.findLowIndexInSortedArray(
           this.samples, x => x.start, start) - 1;
-      var endIndex = tr.b.math.findLowIndexInSortedArray(
+      const endIndex = tr.b.math.findLowIndexInSortedArray(
           this.samples, x => x.start, end);
 
       if (startIndex < 0) {
         startIndex = 0;
       }
 
-      for (var i = startIndex; i < endIndex; i++) {
-        var sample = this.samples[i];
-        var nextSample = this.samples[i + 1];
+      for (let i = startIndex; i < endIndex; i++) {
+        const sample = this.samples[i];
+        const nextSample = this.samples[i + 1];
 
-        var sampleRange = new tr.b.math.Range();
+        const sampleRange = new tr.b.math.Range();
         sampleRange.addValue(sample.start);
         sampleRange.addValue(nextSample ? nextSample.start : sample.start);
 
-        var intersectionRangeInMs = measurementRange.findIntersection(
+        const intersectionRangeInMs = measurementRange.findIntersection(
             sampleRange);
 
-        var durationInS = tr.b.convertUnit(intersectionRangeInMs.duration,
+        const durationInS = tr.b.convertUnit(intersectionRangeInMs.duration,
             tr.b.UnitPrefixScale.METRIC.MILLI,
             tr.b.UnitPrefixScale.METRIC.NONE);
 
@@ -94,21 +94,21 @@ tr.exportTo('tr.model', function() {
       return energyConsumedInJ;
     },
 
-    getSamplesWithinRange: function(start, end) {
-      var startIndex = tr.b.math.findLowIndexInSortedArray(
+    getSamplesWithinRange(start, end) {
+      const startIndex = tr.b.math.findLowIndexInSortedArray(
           this.samples, x => x.start, start);
-      var endIndex = tr.b.math.findLowIndexInSortedArray(
+      const endIndex = tr.b.math.findLowIndexInSortedArray(
           this.samples, x => x.start, end);
       return this.samples.slice(startIndex, endIndex);
     },
 
-    shiftTimestampsForward: function(amount) {
-      for (var i = 0; i < this.samples_.length; ++i) {
+    shiftTimestampsForward(amount) {
+      for (let i = 0; i < this.samples_.length; ++i) {
         this.samples_[i].start += amount;
       }
     },
 
-    updateBounds: function() {
+    updateBounds() {
       this.bounds.reset();
 
       if (this.samples_.length === 0) return;
@@ -117,7 +117,7 @@ tr.exportTo('tr.model', function() {
       this.bounds.addValue(this.samples_[this.samples_.length - 1].start);
     },
 
-    childEvents: function* () {
+    * childEvents() {
       yield* this.samples_;
     },
   };

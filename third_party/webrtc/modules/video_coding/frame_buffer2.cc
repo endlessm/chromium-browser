@@ -141,9 +141,43 @@ FrameBuffer::ReturnReason FrameBuffer::NextFrame(
         timing_->UpdateCurrentDelay(frame->RenderTime(), now_ms);
       }
 
-      UpdateJitterDelay();
+      // Gracefully handle bad RTP timestamps and render time issues.
+      if (HasBadRenderTiming(*frame, now_ms)) {
+        jitter_estimator_->Reset();
+        timing_->Reset();
+        frame->SetRenderTime(timing_->RenderTimeMs(frame->timestamp, now_ms));
+      }
 
+      UpdateJitterDelay();
       PropagateDecodability(next_frame_it_->second);
+
+      // Sanity check for RTP timestamp monotonicity.
+      if (last_decoded_frame_it_ != frames_.end()) {
+        const FrameKey& last_decoded_frame_key = last_decoded_frame_it_->first;
+        const FrameKey& frame_key = next_frame_it_->first;
+
+        const bool frame_is_higher_spatial_layer_of_last_decoded_frame =
+            last_decoded_frame_timestamp_ == frame->timestamp &&
+            last_decoded_frame_key.picture_id == frame_key.picture_id &&
+            last_decoded_frame_key.spatial_layer < frame_key.spatial_layer;
+
+        if (AheadOrAt(last_decoded_frame_timestamp_, frame->timestamp) &&
+            !frame_is_higher_spatial_layer_of_last_decoded_frame) {
+          // TODO(brandtr): Consider clearing the entire buffer when we hit
+          // these conditions.
+          LOG(LS_WARNING) << "Frame with (timestamp:picture_id:spatial_id) ("
+                          << frame->timestamp << ":" << frame->picture_id << ":"
+                          << static_cast<int>(frame->spatial_layer) << ")"
+                          << " sent to decoder after frame with"
+                          << " (timestamp:picture_id:spatial_id) ("
+                          << last_decoded_frame_timestamp_ << ":"
+                          << last_decoded_frame_key.picture_id << ":"
+                          << static_cast<int>(
+                                 last_decoded_frame_key.spatial_layer)
+                          << ").";
+        }
+      }
+
       AdvanceLastDecodedFrame(next_frame_it_);
       last_decoded_frame_timestamp_ = frame->timestamp;
       *frame_out = std::move(frame);
@@ -160,6 +194,29 @@ FrameBuffer::ReturnReason FrameBuffer::NextFrame(
   }
 
   return kTimeout;
+}
+
+bool FrameBuffer::HasBadRenderTiming(const FrameObject& frame, int64_t now_ms) {
+  // Assume that render timing errors are due to changes in the video stream.
+  int64_t render_time_ms = frame.RenderTimeMs();
+  const int64_t kMaxVideoDelayMs = 10000;
+  if (render_time_ms < 0) {
+    return true;
+  }
+  if (std::abs(render_time_ms - now_ms) > kMaxVideoDelayMs) {
+    int frame_delay = static_cast<int>(std::abs(render_time_ms - now_ms));
+    LOG(LS_WARNING) << "A frame about to be decoded is out of the configured "
+                    << "delay bounds (" << frame_delay << " > "
+                    << kMaxVideoDelayMs
+                    << "). Resetting the video jitter buffer.";
+    return true;
+  }
+  if (static_cast<int>(timing_->TargetVideoDelay()) > kMaxVideoDelayMs) {
+    LOG(LS_WARNING) << "The video target delay has grown larger than "
+                    << kMaxVideoDelayMs << " ms.";
+    return true;
+  }
+  return false;
 }
 
 void FrameBuffer::SetProtectionMode(VCMVideoProtection mode) {
@@ -179,6 +236,22 @@ void FrameBuffer::Stop() {
   rtc::CritScope lock(&crit_);
   stopped_ = true;
   new_continuous_frame_event_.Set();
+}
+
+bool FrameBuffer::ValidReferences(const FrameObject& frame) const {
+  for (size_t i = 0; i < frame.num_references; ++i) {
+    if (AheadOrAt(frame.references[i], frame.picture_id))
+      return false;
+    for (size_t j = i + 1; j < frame.num_references; ++j) {
+      if (frame.references[i] == frame.references[j])
+        return false;
+    }
+  }
+
+  if (frame.inter_layer_predicted && frame.spatial_layer == 0)
+    return false;
+
+  return true;
 }
 
 void FrameBuffer::UpdatePlayoutDelays(const FrameObject& frame) {
@@ -205,6 +278,13 @@ int FrameBuffer::InsertFrame(std::unique_ptr<FrameObject> frame) {
           ? -1
           : last_continuous_frame_it_->first.picture_id;
 
+  if (!ValidReferences(*frame)) {
+    LOG(LS_WARNING) << "Frame with (picture_id:spatial_id) (" << key.picture_id
+                    << ":" << static_cast<int>(key.spatial_layer)
+                    << ") has invalid frame references, dropping frame.";
+    return last_continuous_picture_id;
+  }
+
   if (num_frames_buffered_ >= kMaxFramesBuffered) {
     LOG(LS_WARNING) << "Frame with (picture_id:spatial_id) (" << key.picture_id
                     << ":" << static_cast<int>(key.spatial_layer)
@@ -213,15 +293,8 @@ int FrameBuffer::InsertFrame(std::unique_ptr<FrameObject> frame) {
     return last_continuous_picture_id;
   }
 
-  if (frame->inter_layer_predicted && frame->spatial_layer == 0) {
-    LOG(LS_WARNING) << "Frame with (picture_id:spatial_id) (" << key.picture_id
-                    << ":" << static_cast<int>(key.spatial_layer)
-                    << ") is marked as inter layer predicted, dropping frame.";
-    return last_continuous_picture_id;
-  }
-
   if (last_decoded_frame_it_ != frames_.end() &&
-      key < last_decoded_frame_it_->first) {
+      key <= last_decoded_frame_it_->first) {
     if (AheadOf(frame->timestamp, last_decoded_frame_timestamp_) &&
         frame->num_references == 0) {
       // If this frame has a newer timestamp but an earlier picture id then we
@@ -306,11 +379,15 @@ void FrameBuffer::PropagateContinuity(FrameMap::iterator start) {
     // any unfulfilled dependencies then that frame is continuous as well.
     for (size_t d = 0; d < frame->second.num_dependent_frames; ++d) {
       auto frame_ref = frames_.find(frame->second.dependent_frames[d]);
-      --frame_ref->second.num_missing_continuous;
+      RTC_DCHECK(frame_ref != frames_.end());
 
-      if (frame_ref->second.num_missing_continuous == 0) {
-        frame_ref->second.continuous = true;
-        continuous_frames.push(frame_ref);
+      // TODO(philipel): Look into why we've seen this happen.
+      if (frame_ref != frames_.end()) {
+        --frame_ref->second.num_missing_continuous;
+        if (frame_ref->second.num_missing_continuous == 0) {
+          frame_ref->second.continuous = true;
+          continuous_frames.push(frame_ref);
+        }
       }
     }
   }

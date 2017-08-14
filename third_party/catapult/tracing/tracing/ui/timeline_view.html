@@ -140,7 +140,7 @@ found in the LICENSE file.
 Polymer({
   is: 'tr-ui-timeline-view',
 
-  attached: function() {
+  attached() {
     this.async(function() {
       this.trackViewContainer_ = Polymer.dom(this).querySelector(
           '#track_view_container');
@@ -150,7 +150,7 @@ Polymer({
     });
   },
 
-  ready: function() {
+  ready() {
     this.tabIndex = 0; // Let the timeline able to receive key events.
 
     this.titleEl_ = this.$.title;
@@ -211,7 +211,7 @@ Polymer({
     this.addEventListener(
         'requestSelectionChange',
         function(e) {
-          var sc = this.brushingStateController_;
+          const sc = this.brushingStateController_;
           sc.changeSelectionFromRequestSelectionChangeEvent(e.selection);
         }.bind(this));
 
@@ -236,21 +236,21 @@ Polymer({
     return this.$.hkc;
   },
 
-  updateDocumentFavicon: function() {
-    var hue;
+  updateDocumentFavicon() {
+    let hue;
     if (!this.model) {
       hue = 'blue';
     } else {
       hue = this.model.faviconHue;
     }
 
-    var faviconData = tr.ui.b.FaviconsByHue[hue];
+    let faviconData = tr.ui.b.FaviconsByHue[hue];
     if (faviconData === undefined) {
-      faviconData = tr.ui.b.FaviconsByHue['blue'];
+      faviconData = tr.ui.b.FaviconsByHue.blue;
     }
 
     // Find link if its there
-    var link = Polymer.dom(document.head).querySelector(
+    let link = Polymer.dom(document.head).querySelector(
         'link[rel="shortcut icon"]');
     if (!link) {
       link = document.createElement('link');
@@ -282,10 +282,10 @@ Polymer({
     this.trackView_.viewport.highlightVSync = highlightVSync;
   },
 
-  initHelpButton_: function() {
-    var helpButtonEl = this.$.view_help_button;
+  initHelpButton_() {
+    const helpButtonEl = this.$.view_help_button;
 
-    var dlg = new tr.ui.b.Overlay();
+    const dlg = new tr.ui.b.Overlay();
     dlg.title = 'Chrome Tracing Help';
     dlg.visible = false;
     dlg.appendChild(
@@ -300,8 +300,8 @@ Polymer({
     helpButtonEl.addEventListener('click', onClick.bind(this));
   },
 
-  initConsoleButton_: function() {
-    var toggleEl = this.$.view_console_button;
+  initConsoleButton_() {
+    const toggleEl = this.$.view_console_button;
 
     function onClick(e) {
       this.scriptingCtl_.toggleVisibility();
@@ -311,14 +311,14 @@ Polymer({
     toggleEl.addEventListener('click', onClick.bind(this));
   },
 
-  initMetadataButton_: function() {
-    var showEl = this.$.view_metadata_button;
+  initMetadataButton_() {
+    const showEl = this.$.view_metadata_button;
 
     function onClick(e) {
-      var dlg = new tr.ui.b.Overlay();
+      const dlg = new tr.ui.b.Overlay();
       dlg.title = 'Metadata for trace';
 
-      var metadataOverlay = document.createElement(
+      const metadataOverlay = document.createElement(
           'tr-ui-timeline-view-metadata-overlay');
       metadataOverlay.metadata = this.model.metadata;
 
@@ -333,8 +333,8 @@ Polymer({
     this.updateMetadataButtonVisibility_();
   },
 
-  updateMetadataButtonVisibility_: function() {
-    var showEl = this.$.view_metadata_button;
+  updateMetadataButtonVisibility_() {
+    const showEl = this.$.view_metadata_button;
     showEl.style.display =
         (this.model && this.model.metadata.length) ? '' : 'none';
   },
@@ -374,10 +374,10 @@ Polymer({
   },
 
   set model(model) {
-    var modelInstanceChanged = model !== this.model;
-    var modelValid = model && !model.bounds.isEmpty;
+    const modelInstanceChanged = model !== this.model;
+    const modelValid = model && !model.bounds.isEmpty;
 
-    var importWarningsEl = Polymer.dom(this.root).querySelector(
+    const importWarningsEl = Polymer.dom(this.root).querySelector(
         '#import-warnings');
     Polymer.dom(importWarningsEl).textContent = '';
 
@@ -461,8 +461,8 @@ Polymer({
     throw new Error('This is deprecated. Please set globalMode to true.');
   },
 
-  bindKeyListeners_: function() {
-    var hkc = this.hotkeyController;
+  bindKeyListeners_() {
+    const hkc = this.hotkeyController;
 
     // Shortcuts that *can* steal focus from the console and the filter text
     // box.
@@ -471,7 +471,7 @@ Polymer({
       keyCode: '`'.charCodeAt(0),
       useCapture: true,
       thisArg: this,
-      callback: function(e) {
+      callback(e) {
         this.scriptingCtl_.toggleVisibility();
         if (!this.scriptingCtl_.hasFocus) {
           this.focus();
@@ -486,7 +486,7 @@ Polymer({
       keyCode: '/'.charCodeAt(0),
       useCapture: true,
       thisArg: this,
-      callback: function(e) {
+      callback(e) {
         if (this.scriptingCtl_.hasFocus) return;
 
         if (this.findCtl_.hasFocus) {
@@ -505,7 +505,7 @@ Polymer({
       keyCode: '?'.charCodeAt(0),
       useCapture: false,
       thisArg: this,
-      callback: function(e) {
+      callback(e) {
         this.$.view_help_button.click();
         e.stopPropagation();
       }
@@ -516,21 +516,21 @@ Polymer({
       keyCode: 'v'.charCodeAt(0),
       useCapture: false,
       thisArg: this,
-      callback: function(e) {
+      callback(e) {
         this.toggleHighlightVSync_();
         e.stopPropagation();
       }
     }));
   },
 
-  onViewportChanged_: function(e) {
-    var spc = this.sidePanelContainer_;
+  onViewportChanged_(e) {
+    const spc = this.sidePanelContainer_;
     if (!this.trackView_) {
       spc.rangeOfInterest.reset();
       return;
     }
 
-    var vr = this.trackView_.viewport.interestRange.asRangeObject();
+    const vr = this.trackView_.viewport.interestRange.asRangeObject();
     if (!spc.rangeOfInterest.equals(vr)) {
       spc.rangeOfInterest = vr;
     }
@@ -540,12 +540,12 @@ Polymer({
     }
   },
 
-  toggleHighlightVSync_: function() {
+  toggleHighlightVSync_() {
     this.highlightVSyncCheckbox_.checked =
         !this.highlightVSyncCheckbox_.checked;
   },
 
-  setFindCtlText: function(string) {
+  setFindCtlText(string) {
     this.findCtl_.setText(string);
   }
 });

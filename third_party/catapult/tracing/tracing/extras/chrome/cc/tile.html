@@ -14,7 +14,7 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.e.cc', function() {
-  var ObjectSnapshot = tr.model.ObjectSnapshot;
+  const ObjectSnapshot = tr.model.ObjectSnapshot;
 
   /**
    * @constructor
@@ -26,11 +26,11 @@ tr.exportTo('tr.e.cc', function() {
   TileSnapshot.prototype = {
     __proto__: ObjectSnapshot.prototype,
 
-    preInitialize: function() {
+    preInitialize() {
       tr.e.cc.preInitializeObject(this);
     },
 
-    initialize: function() {
+    initialize() {
       tr.e.cc.moveOptionalFieldsFromArgsToToplevel(
           this, ['layerId', 'contentsScale', 'contentRect']);
       if (this.args.managedState) {
@@ -69,8 +69,8 @@ tr.exportTo('tr.e.cc', function() {
       }
     },
 
-    getTypeForLayer: function(layer) {
-      var type = this.type_;
+    getTypeForLayer(layer) {
+      let type = this.type_;
       if (type === tr.e.cc.tileTypes.unknown) {
         if (this.contentsScale < layer.idealContentsScale) {
           type = tr.e.cc.tileTypes.extraLowRes;

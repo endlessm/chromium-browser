@@ -8,7 +8,11 @@ After calling, it prints outs ANDROID_VERSION_ATOM=(version atom string).  A
 caller could then use this atom with emerge to build the newly uprevved version
 of Android e.g.
 
-./cros_mark_android_as_stable
+./cros_mark_android_as_stable \
+    --android_package=android-container \
+    --android_build_branch=git_mnc-dr-arc-dev \
+    --android_gts_build_branch=git_mnc-dev
+
 Returns chromeos-base/android-container-2559197
 
 emerge-veyron_minnie-cheets =chromeos-base/android-container-2559197-r1
@@ -431,9 +435,12 @@ def GetParser():
                       default=constants.ANDROID_BUCKET_URL,
                       type='gs_path')
   parser.add_argument('--android_build_branch',
-                      default=constants.ANDROID_BUILD_BRANCH)
+                      required=True,
+                      help='Android branch to import from. '
+                           'Ex: git_mnc-dr-arc-dev')
   parser.add_argument('--android_gts_build_branch',
-                      default=constants.ANDROID_GTS_BUILD_BRANCH)
+                      help='Android GTS branch to copy artifacts from. '
+                           'Ex: git_mnc-dev')
   parser.add_argument('--android_package',
                       default=constants.ANDROID_PACKAGE_NAME)
   parser.add_argument('--arc_bucket_url',
@@ -470,10 +477,11 @@ def main(argv):
                                      options.force_version)
 
   # Mirror GTS.
-  MirrorArtifacts(options.android_bucket_url,
-                  options.android_gts_build_branch,
-                  options.arc_bucket_url, acls,
-                  constants.ANDROID_GTS_BUILD_TARGETS)
+  if options.android_gts_build_branch:
+    MirrorArtifacts(options.android_bucket_url,
+                    options.android_gts_build_branch,
+                    options.arc_bucket_url, acls,
+                    constants.ANDROID_GTS_BUILD_TARGETS)
 
   stable_candidate = portage_util.BestEBuild(stable_ebuilds)
 

@@ -17,12 +17,12 @@ tr.exportTo('tr.ui.tracks', function() {
    * The base class for all tracks, which render data into a provided div.
    * @constructor
    */
-  var Track = tr.ui.b.define('track',
+  const Track = tr.ui.b.define('track',
       tr.ui.b.ContainerThatDecoratesItsChildren);
   Track.prototype = {
     __proto__: tr.ui.b.ContainerThatDecoratesItsChildren.prototype,
 
-    decorate: function(viewport) {
+    decorate(viewport) {
       tr.ui.b.ContainerThatDecoratesItsChildren.prototype.decorate.call(this);
       if (viewport === undefined) {
         throw new Error('viewport is required when creating a Track.');
@@ -49,12 +49,12 @@ tr.exportTo('tr.ui.tracks', function() {
     get eventContainer() {
     },
 
-    invalidateDrawingContainer: function() {
-      var dc = this.drawingContainer;
+    invalidateDrawingContainer() {
+      const dc = this.drawingContainer;
       if (dc) dc.invalidate();
     },
 
-    context: function() {
+    context() {
       // This is a little weird here, but we have to be able to walk up the
       // parent tree to get the context.
       if (!Polymer.dom(this).parentNode) return undefined;
@@ -65,16 +65,16 @@ tr.exportTo('tr.ui.tracks', function() {
       return Polymer.dom(this).parentNode.context();
     },
 
-    decorateChild_: function(childTrack) {
+    decorateChild_(childTrack) {
     },
 
-    undecorateChild_: function(childTrack) {
+    undecorateChild_(childTrack) {
       if (childTrack.detach) {
         childTrack.detach();
       }
     },
 
-    updateContents_: function() {
+    updateContents_() {
     },
 
     /**
@@ -82,51 +82,51 @@ tr.exportTo('tr.ui.tracks', function() {
      * context necessary for the track's contents to be drawn in the right place
      * given the current pan and zoom.
      */
-    drawTrack: function(type) {
-      var ctx = this.context();
+    drawTrack(type) {
+      const ctx = this.context();
 
-      var pixelRatio = window.devicePixelRatio || 1;
-      var bounds = this.getBoundingClientRect();
-      var canvasBounds = ctx.canvas.getBoundingClientRect();
+      const pixelRatio = window.devicePixelRatio || 1;
+      const bounds = this.getBoundingClientRect();
+      const canvasBounds = ctx.canvas.getBoundingClientRect();
 
       ctx.save();
       ctx.translate(0, pixelRatio * (bounds.top - canvasBounds.top));
 
-      var dt = this.viewport.currentDisplayTransform;
-      var viewLWorld = dt.xViewToWorld(0);
-      var viewRWorld = dt.xViewToWorld(bounds.width * pixelRatio);
+      const dt = this.viewport.currentDisplayTransform;
+      const viewLWorld = dt.xViewToWorld(0);
+      const viewRWorld = dt.xViewToWorld(bounds.width * pixelRatio);
 
       this.draw(type, viewLWorld, viewRWorld);
       ctx.restore();
     },
 
-    draw: function(type, viewLWorld, viewRWorld) {
+    draw(type, viewLWorld, viewRWorld) {
     },
 
-    addEventsToTrackMap: function(eventToTrackMap) {
+    addEventsToTrackMap(eventToTrackMap) {
     },
 
-    addContainersToTrackMap: function(containerToTrackMap) {
+    addContainersToTrackMap(containerToTrackMap) {
     },
 
-    addIntersectingEventsInRangeToSelection: function(
+    addIntersectingEventsInRangeToSelection(
         loVX, hiVX, loVY, hiVY, selection) {
-      var pixelRatio = window.devicePixelRatio || 1;
-      var dt = this.viewport.currentDisplayTransform;
-      var viewPixWidthWorld = dt.xViewVectorToWorld(1);
-      var loWX = dt.xViewToWorld(loVX * pixelRatio);
-      var hiWX = dt.xViewToWorld(hiVX * pixelRatio);
+      const pixelRatio = window.devicePixelRatio || 1;
+      const dt = this.viewport.currentDisplayTransform;
+      const viewPixWidthWorld = dt.xViewVectorToWorld(1);
+      const loWX = dt.xViewToWorld(loVX * pixelRatio);
+      const hiWX = dt.xViewToWorld(hiVX * pixelRatio);
 
-      var clientRect = this.getBoundingClientRect();
-      var a = Math.max(loVY, clientRect.top);
-      var b = Math.min(hiVY, clientRect.bottom);
+      const clientRect = this.getBoundingClientRect();
+      const a = Math.max(loVY, clientRect.top);
+      const b = Math.min(hiVY, clientRect.bottom);
       if (a > b) return;
 
       this.addIntersectingEventsInRangeToSelectionInWorldSpace(
           loWX, hiWX, viewPixWidthWorld, selection);
     },
 
-    addIntersectingEventsInRangeToSelectionInWorldSpace: function(
+    addIntersectingEventsInRangeToSelectionInWorldSpace(
         loWX, hiWX, viewPixWidthWorld, selection) {
     },
 
@@ -141,13 +141,13 @@ tr.exportTo('tr.ui.tracks', function() {
      * @param {number} hiY Upper Y bound of the search interval in view space.
      * @param {Selection} selection Selection to which to add hits.
      */
-    addClosestEventToSelection: function(
+    addClosestEventToSelection(
         worldX, worldMaxDist, loY, hiY, selection) {
     },
 
-    addClosestInstantEventToSelection: function(instantEvents, worldX,
+    addClosestInstantEventToSelection(instantEvents, worldX,
         worldMaxDist, selection) {
-      var instantEvent = tr.b.math.findClosestElementInSortedArray(
+      const instantEvent = tr.b.math.findClosestElementInSortedArray(
           instantEvents,
           function(x) { return x.start; },
           worldX,

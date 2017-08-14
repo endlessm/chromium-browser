@@ -559,7 +559,7 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
 #endif
 #if defined(GOOGLE_CHROME_BUILD)
     case IDC_FEEDBACK:
-      OpenFeedbackDialog(browser_);
+      OpenFeedbackDialog(browser_, kFeedbackSourceBrowserCommand);
       break;
 #endif
     case IDC_SHOW_BOOKMARK_BAR:
@@ -621,6 +621,9 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_HELP_PAGE_VIA_MENU:
       ShowHelp(browser_, HELP_SOURCE_MENU);
       break;
+    case IDC_SHOW_BETA_FORUM:
+      ShowBetaForum(browser_);
+      break;
     case IDC_SHOW_SIGNIN:
       ShowBrowserSigninOrSettings(
           browser_, signin_metrics::AccessPoint::ACCESS_POINT_MENU);
@@ -644,6 +647,12 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
 #endif
     case IDC_ROUTE_MEDIA:
       RouteMedia(browser_);
+      break;
+    case IDC_WINDOW_MUTE_TAB:
+      MuteTab(browser_);
+      break;
+    case IDC_WINDOW_PIN_TAB:
+      PinTab(browser_);
       break;
 
     default:
@@ -794,6 +803,7 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(IDC_HELP_MENU, true);
   command_updater_.UpdateCommandEnabled(IDC_HELP_PAGE_VIA_KEYBOARD, true);
   command_updater_.UpdateCommandEnabled(IDC_HELP_PAGE_VIA_MENU, true);
+  command_updater_.UpdateCommandEnabled(IDC_SHOW_BETA_FORUM, true);
   command_updater_.UpdateCommandEnabled(IDC_BOOKMARKS_MENU, !guest_session);
   command_updater_.UpdateCommandEnabled(IDC_RECENT_TABS_MENU,
                                         !guest_session &&
@@ -842,6 +852,9 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(
       IDC_DISTILL_PAGE, base::CommandLine::ForCurrentProcess()->HasSwitch(
                             switches::kEnableDomDistiller));
+
+  command_updater_.UpdateCommandEnabled(IDC_WINDOW_MUTE_TAB, normal_window);
+  command_updater_.UpdateCommandEnabled(IDC_WINDOW_PIN_TAB, normal_window);
 
   // Initialize other commands whose state changes based on various conditions.
   UpdateCommandsForFullscreenMode();
@@ -918,6 +931,10 @@ void BrowserCommandController::UpdateCommandsForTabState() {
   // Window management commands
   command_updater_.UpdateCommandEnabled(IDC_DUPLICATE_TAB,
       !browser_->is_app() && CanDuplicateTab(browser_));
+  command_updater_.UpdateCommandEnabled(IDC_WINDOW_MUTE_TAB,
+                                        !browser_->is_app());
+  command_updater_.UpdateCommandEnabled(IDC_WINDOW_PIN_TAB,
+                                        !browser_->is_app());
 
   // Page-related commands
   window()->SetStarredState(

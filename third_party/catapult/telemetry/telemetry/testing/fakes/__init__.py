@@ -26,6 +26,10 @@ class FakePlatform(object):
   def __init__(self):
     self._network_controller = None
     self._tracing_controller = None
+    self._has_battor = False
+    self._os_name = 'FakeOS'
+    self._device_type_name = 'abc'
+    self._is_svelte = False
 
   @property
   def is_host_platform(self):
@@ -55,24 +59,49 @@ class FakePlatform(object):
   def HasBeenThermallyThrottled(self):
     return False
 
-  def GetDeviceTypeName(self):
-    return 'FakeDevice'
-
   def GetArchName(self):
     raise NotImplementedError
 
+  def SetOSName(self, name):
+    self._os_name = name
+
   def GetOSName(self):
-    return 'FakeOS'
+    return self._os_name
 
   def GetOSVersionName(self):
+    raise NotImplementedError
+
+  def GetOSVersionDetailString(self):
     raise NotImplementedError
 
   def StopAllLocalServers(self):
     pass
 
-  def WaitForTemperature(self, _):
+  def WaitForBatteryTemperature(self, _):
     pass
 
+  def HasBattOrConnected(self):
+    return self._has_battor
+
+  def SetBattOrDetected(self, b):
+    assert isinstance(b, bool)
+    self._has_battor = b
+
+  # TODO(rnephew): Investigate moving from setters to @property.
+  def SetDeviceTypeName(self, name):
+    self._device_type_name = name
+
+  def GetDeviceTypeName(self):
+    return self._device_type_name
+
+  def SetIsSvelte(self, b):
+    assert isinstance(b, bool)
+    self._is_svelte = b
+
+  def IsSvelte(self):
+    if self._os_name != 'android':
+      raise NotImplementedError
+    return self._is_svelte
 
 class FakeLinuxPlatform(FakePlatform):
   def __init__(self):
@@ -96,6 +125,9 @@ class FakeLinuxPlatform(FakePlatform):
 
   def GetOSVersionName(self):
     return 'trusty'
+
+  def GetOSVersionDetailString(self):
+    return ''
 
   def CanTakeScreenshot(self):
     return bool(self.screenshot_png_data)
@@ -181,10 +213,10 @@ class FakeSharedPageState(shared_page_state.SharedPageState):
 
 
 class FakeSystemInfo(system_info.SystemInfo):
-  def __init__(self, model_name='', gpu_dict=None):
+  def __init__(self, model_name='', gpu_dict=None, command_line=''):
     if gpu_dict == None:
       gpu_dict = fake_gpu_info.FAKE_GPU_INFO
-    super(FakeSystemInfo, self).__init__(model_name, gpu_dict)
+    super(FakeSystemInfo, self).__init__(model_name, gpu_dict, command_line)
 
 
 class _FakeBrowserFinderOptions(browser_options.BrowserFinderOptions):

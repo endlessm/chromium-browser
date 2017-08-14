@@ -11,13 +11,13 @@ import datetime
 import os
 import sys
 
-from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import tree_status
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import completion_stages
 from chromite.cbuildbot.stages import generic_stages
+from chromite.lib import buildbucket_lib
 from chromite.lib import cidb
 from chromite.lib import config_lib
 from chromite.lib import constants
@@ -37,6 +37,7 @@ from chromite.lib import results_lib
 from chromite.lib import retry_stats
 from chromite.lib import toolchain
 from chromite.lib import triage_lib
+from chromite.scripts import upload_goma_info
 
 
 site_config = config_lib.GetConfig()
@@ -79,6 +80,7 @@ def WriteBasicMetadata(builder_run):
           'start': start_time_stamp,
       },
       'master_build_id': builder_run.options.master_build_id,
+      'suite_scheduling': builder_run.config['suite_scheduling'],
   }
 
   builder_run.attrs.metadata.UpdateWithDict(metadata)
@@ -313,10 +315,11 @@ class SlaveFailureSummaryStage(generic_stages.BuilderStage):
     slave_buildbucket_ids = self.GetScheduledSlaveBuildbucketIds()
     slave_failures = db.GetSlaveFailures(
         build_id, buildbucket_ids=slave_buildbucket_ids)
-    failures_by_build = cros_build_lib.GroupByKey(slave_failures, 'build_id')
+    failures_by_build = cros_build_lib.GroupNamedtuplesByKey(
+        slave_failures, 'build_id')
     for build_id, build_failures in sorted(failures_by_build.items()):
-      failures_by_stage = cros_build_lib.GroupByKey(build_failures,
-                                                    'build_stage_id')
+      failures_by_stage = cros_build_lib.GroupNamedtuplesByKey(
+          build_failures, 'build_stage_id')
       # Surface a link to each slave stage that failed, in stage_id sorted
       # order.
       for stage_id in sorted(failures_by_stage):
@@ -326,17 +329,17 @@ class SlaveFailureSummaryStage(generic_stages.BuilderStage):
         # might not have been printed to buildbot yet.
         # TODO(akeshet) revisit this approach, if we seem to be suppressing
         # useful information as a result of it.
-        if (failure['stage_status'] != constants.BUILDER_STATUS_FAILED or
-            failure['build_status'] == constants.BUILDER_STATUS_INFLIGHT):
+        if (failure.stage_status != constants.BUILDER_STATUS_FAILED or
+            failure.build_status == constants.BUILDER_STATUS_INFLIGHT):
           continue
-        waterfall_url = constants.WATERFALL_TO_DASHBOARD[failure['waterfall']]
+        waterfall_url = constants.WATERFALL_TO_DASHBOARD[failure.waterfall]
         slave_stage_url = tree_status.ConstructBuildStageURL(
             waterfall_url,
-            failure['builder_name'],
-            failure['build_number'],
-            failure['stage_name'])
-        logging.PrintBuildbotLink('%s %s' % (failure['build_config'],
-                                             failure['stage_name']),
+            failure.builder_name,
+            failure.build_number,
+            failure.stage_name)
+        logging.PrintBuildbotLink('%s %s' % (failure.build_config,
+                                             failure.stage_name),
                                   slave_stage_url)
 
 
@@ -372,6 +375,8 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
       for build in builds:
         old_version = build['full_version']
         if old_version is None:
+          continue
+        if build['status'] == constants.BUILDER_STATUS_PASSED:
           continue
         for suite_config in self._run.config.hw_tests:
           if not suite_config.async:
@@ -649,6 +654,8 @@ class ReportStage(generic_stages.BuilderStage,
                    builder_run.config.name, board_names)
       return
 
+    logging.PrintBuildbotSetBuildProperty('artifact_link', archive.upload_url)
+
     if builder_run.config.internal:
       # Internal builds simply link to pantheon directories, which require
       # authenticated access that most Googlers should have.
@@ -886,34 +893,39 @@ class ReportStage(generic_stages.BuilderStage,
                                         builder_run.debug,
                                         upload_urls=upload_urls)
 
-  def IsSheriffOMaticImportantBuild(self):
-    """Determines if the current build is important for Sheriff-o-matic.
+  def IsSheriffOMaticDispatchBuild(self):
+    """Determine if Sheriff-o-Matic alerts should be dispatched.
 
     Returns:
-      True if the build is important
+      tree if the alerts should be dispatcher, None otherwise.
     """
     if self._run.debug:
-      return False
+      return None
     # active_waterfall can be wrong for things like try jobs.
-    for build in constants.SOM_IMPORTANT_BUILDS:
-      if (os.environ.get('BUILDBOT_MASTERNAME', '') == build[0] and
-          self._run.config.name == build[1]):
-        return True
-    return False
+    for tree in constants.SOM_BUILDS:
+      for build in constants.SOM_BUILDS[tree]:
+        if (os.environ.get('BUILDBOT_MASTERNAME', '') == build[0] and
+            self._run.config.name == build[1]):
+          return tree
+    return None
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
-  def RunAlertsDispatcher(self, db_credentials_dir):
+  def RunAlertsDispatcher(self, db_credentials_dir, tree):
     """Submit alerts summary to Sheriff-o-Matic.
 
     Args:
       db_credentials_dir: Path to CIDB database credentials.
+      tree: Sheriff-o-Matic tree to submit alerts to.
     """
     dispatcher_cmd = [os.path.join(self._build_root, 'chromite', 'scripts',
-                                   'som_alerts_dispatcher')]
+                                   'som_alerts_dispatcher'),
+                      '--som_tree', tree]
     if buildbucket_lib.GetServiceAccount(constants.CHROMEOS_SERVICE_ACCOUNT):
       # User the service account file if it exists.
       dispatcher_cmd.extend(['--service_acct_json',
                              constants.CHROMEOS_SERVICE_ACCOUNT])
+    if tree != constants.SOM_TREE:
+      dispatcher_cmd.append('--allow_experimental')
     dispatcher_cmd.append(db_credentials_dir)
 
     try:
@@ -983,6 +995,13 @@ class ReportStage(generic_stages.BuilderStage,
     results_lib.Results.Report(
         sys.stdout, current_version=(self._run.attrs.release_tag or ''))
 
+    # Upload goma log if used. Currently BuildPackage uses this.
+    # TODO(hidehiko): Report another log set, when SimpleChrome starts to use
+    # goma on bots, too.
+    goma_tmp_dir = self._run.attrs.metadata.GetValueWithDefault('goma_tmp_dir')
+    if goma_tmp_dir:
+      upload_goma_info.GomaLogUploader(
+          goma_log_dir=os.path.join(goma_tmp_dir, 'log_dir')).Upload()
 
     if db:
       status_for_db = final_status
@@ -1031,8 +1050,9 @@ class ReportStage(generic_stages.BuilderStage,
       # Dump report about things we retry.
       retry_stats.ReportStats(sys.stdout)
 
-      if self.IsSheriffOMaticImportantBuild():
-        self.RunAlertsDispatcher(db.db_credentials_dir)
+      tree = self.IsSheriffOMaticDispatchBuild()
+      if tree:
+        self.RunAlertsDispatcher(db.db_credentials_dir, tree)
 
   def _GetBuildDuration(self):
     """Fetches the duration of this build in seconds, from cidb.
@@ -1059,17 +1079,20 @@ class ReportStage(generic_stages.BuilderStage,
     return super(ReportStage, self)._HandleStageException(exc_info)
 
 
-class DetectIrrelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
+class DetectRelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
   """Stage to detect irrelevant changes for slave per board base.
 
   This stage will get the irrelevant changes for the current board of the build,
   and record the irrelevant changes and the subsystem of the relevant changes
   test to board_metadata.
+
+  Changes relevant to this build will be logged to create links to them
+  in the builder output.
   """
 
   def __init__(self, builder_run, board, changes, suffix=None, **kwargs):
-    super(DetectIrrelevantChangesStage, self).__init__(builder_run, board,
-                                                       suffix=suffix, **kwargs)
+    super(DetectRelevantChangesStage, self).__init__(builder_run, board,
+                                                     suffix=suffix, **kwargs)
     # changes is a list of GerritPatch instances.
     self.changes = changes
 
@@ -1154,7 +1177,7 @@ class DetectIrrelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
-    """Run DetectIrrelevantChangesStage."""
+    """Run DetectRelevantChangesStage."""
     irrelevant_changes = None
     if not self._run.config.master:
       # Slave writes the irrelevant changes to current board to metadata.
@@ -1174,19 +1197,20 @@ class DetectIrrelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
         # irrelevant changes in this stage. For builds with multiple board
         # configurations, irrelevant changes have to be sorted and reocrded in
         # Completion stage which means each board has detected and recorded its
-        # irrelevant changes to metadata in the DetectIrrelevantChanges stage.
+        # irrelevant changes to metadata in the DetectRelevantChanges stage.
 
         # Record the irrelevant changes to CIDB.
         self._RecordIrrelevantChanges(irrelevant_changes)
 
-    if irrelevant_changes:
-      relevant_changes = list(set(self.changes) - irrelevant_changes)
-      logging.info('Below are the irrelevant changes for board: %s.',
+    relevant_changes = list(set(self.changes) - irrelevant_changes)
+    if relevant_changes:
+      logging.info('Below are the relevant changes for board: %s.',
                    self._current_board)
       validation_pool.ValidationPool.PrintLinksToChanges(
-          list(irrelevant_changes))
+          list(relevant_changes))
     else:
-      relevant_changes = self.changes
+      logging.info('No changes are relevant for board: %s.',
+                   self._current_board)
 
     subsystem_set = self.GetSubsystemToTest(relevant_changes)
     logging.info('Subsystems need to be tested: %s. Empty set represents '

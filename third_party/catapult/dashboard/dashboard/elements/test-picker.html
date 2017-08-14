@@ -10,6 +10,7 @@ found in the LICENSE file.
 <link rel="import" href="/components/paper-icon-button/paper-icon-button.html">
 <link rel="import" href="/components/paper-spinner/paper-spinner.html">
 <link rel="import" href="/dashboard/elements/autocomplete-box.html">
+<link rel="import" href="/dashboard/static/async_map.html">
 <link rel="import" href="/dashboard/static/simple_xhr.html">
 
 <dom-module id="test-picker">
@@ -84,34 +85,15 @@ found in the LICENSE file.
     // TODO(eakuefner): generalize this request memoization pattern. See
     // https://github.com/catapult-project/catapult/issues/3441.
     tr.exportTo('d', function() {
-      class Subtests {
-        constructor() {
-          this.subtestPromises_ = new Map();
-        }
-
-        // TODO(eakuefner): implemement cancellation by wrapping
-        async getSubtestsForPath(path) {
-          if (this.subtestPromises_.has(path)) {
-            return await this.subtestPromises_.get(path);
-          }
-          const subtests = this.fetchAndProcessSubtests_(path);
-          this.subtestPromises_[path] = subtests;
-          return await subtests;
-        }
-
-        prepopulate(obj) {
-          for (const [path, subtests] of Object.entries(obj)) {
-            this.subtestPromises_.set(path, Promise.resolve(subtests));
-          }
-        }
-
-        async fetchAndProcessSubtests_(path) {
+      class Subtests extends d.AsyncMap {
+        async process_(path) {
           const params = {
-            type: 'pattern'
+            type: 'pattern',
+            p: path + '/*',
           };
-          params.p = `${path}/*`;
           const fullSubtests = await simple_xhr.asPromise(
               '/list_tests', params);
+
           // TODO(eakuefner): Standardize logic for dealing with test paths on
           // the client side. See
           // https://github.com/catapult-project/catapult/issues/3443.
@@ -124,7 +106,9 @@ found in the LICENSE file.
         }
       }
 
-      return {Subtests};
+      return {
+        Subtests,
+      };
     });
 
     Polymer({
@@ -191,7 +175,7 @@ found in the LICENSE file.
 
       computeAnd: (x, y) => x && y,
 
-      ready: function() {
+      ready() {
         this.pageStateLoading = true;
         this.hasChart = false;
         this.enableAddSeries = false;
@@ -201,7 +185,7 @@ found in the LICENSE file.
         this.set('selectionModels.0.datalist', this.getSuiteItems());
       },
 
-      testSuitesChanged: function() {
+      testSuitesChanged() {
         this.set('selectionModels.0.datalist', this.getSuiteItems());
         this.getSelectionMenu(0).items = this.selectionModels[0].datalist;
       },
@@ -209,22 +193,22 @@ found in the LICENSE file.
       /**
        * Gets a list of menu items for test suites.
        */
-      getSuiteItems: function() {
-        var suiteMenuItems = [];
-        var isUnmonitored = suite => {
+      getSuiteItems() {
+        const suiteMenuItems = [];
+        const isUnmonitored = suite => {
           // A suite is considered unmonitored if there are no monitored
           // subtests.
-          var suiteInfo = this.testSuites[suite];
-          return !suiteInfo['mon'] || suiteInfo['mon'].length == 0;
+          const suiteInfo = this.testSuites[suite];
+          return !suiteInfo.mon || suiteInfo.mon.length == 0;
         };
 
-        for (var suite in this.testSuites) {
-          var suiteItem = {
+        for (const suite in this.testSuites) {
+          const suiteItem = {
             name: suite
           };
 
-          var tags = [];
-          if (this.testSuites[suite]['dep']) {
+          const tags = [];
+          if (this.testSuites[suite].dep) {
             suiteItem.deprecated = true;
             tags.push(this.DEPRECATED_TAG);
           }
@@ -243,27 +227,27 @@ found in the LICENSE file.
       /**
        * Gets a list of bot menu items base on the selected test suite.
        */
-      getBotItems: function() {
-        var suite = this.getSelectionMenu(0).selectedName;
+      getBotItems() {
+        const suite = this.getSelectionMenu(0).selectedName;
         if (!this.testSuites[suite]) {
           return [];
         }
-        var dict = this.testSuites[suite]['mas'];
-        var botMenuItems = [];
-        var masters = Object.keys(dict).sort();
-        for (var i = 0; i < masters.length; i++) {
-          var groupItem = {
+        const dict = this.testSuites[suite].mas;
+        const botMenuItems = [];
+        const masters = Object.keys(dict).sort();
+        for (let i = 0; i < masters.length; i++) {
+          const groupItem = {
             name: masters[i],
-            suite: suite,
+            suite,
             head: true
           };
           botMenuItems.push(groupItem);
-          var bots = dict[masters[i]];
-          var botNames = Object.keys(dict[masters[i]]).sort();
-          for (var j = 0; j < botNames.length; j++) {
-            var name = botNames[j];
-            var botItem = {
-              name: name,
+          const bots = dict[masters[i]];
+          const botNames = Object.keys(dict[masters[i]]).sort();
+          for (let j = 0; j < botNames.length; j++) {
+            const name = botNames[j];
+            const botItem = {
+              name,
               group: masters[i],
               tag: (bots[name] ? this.DEPRECATED_TAG : '')
             };
@@ -276,9 +260,9 @@ found in the LICENSE file.
       /**
        * Handles dropdown menu select; updates the subsequent menu accordingly.
        */
-      onDropdownSelect: function(event) {
-        var model = event.model;
-        var boxIndex = model.index;
+      onDropdownSelect(event) {
+        const model = event.model;
+        const boxIndex = model.index;
         if (this.updatingSubtestMenus) return;
         if (boxIndex === undefined) {
           return;
@@ -291,18 +275,18 @@ found in the LICENSE file.
         }
       },
 
-      updateTestSuiteDescription: function() {
+      updateTestSuiteDescription() {
         // Display the test suite description if there is one.
-        var descriptionElement = this.$['suite-description'];
-        var suite = this.getSelectionMenu(0).selectedName;
+        const descriptionElement = this.$['suite-description'];
+        const suite = this.getSelectionMenu(0).selectedName;
         if (!this.testSuites[suite]) {
           Polymer.dom(descriptionElement).innerHTML = '';
           return;
         }
 
-        var description = this.testSuites[suite]['des'];
+        const description = this.testSuites[suite].des;
         if (description) {
-          var descriptionHTML = '<b>' + suite + '</b>: ';
+          let descriptionHTML = '<b>' + suite + '</b>: ';
           descriptionHTML += this.convertMarkdownLinks(description);
           Polymer.dom(descriptionElement).innerHTML = descriptionHTML;
         } else {
@@ -313,9 +297,9 @@ found in the LICENSE file.
       /**
        * Updates bot dropdown menu with bot items.
        */
-      updateBotMenu: async function() {
-        var menu = this.getSelectionMenu(1);
-        var botItems = this.getBotItems();
+      async updateBotMenu() {
+        const menu = this.getSelectionMenu(1);
+        const botItems = this.getBotItems();
         menu.set('items', botItems);
         menu.set('disabled', botItems.length === 0);
         this.subtestDict = null;
@@ -334,12 +318,12 @@ found in the LICENSE file.
       /**
        * Updates all subtest menus starting at 'startIndex'.
        */
-      updateSubtestMenus: async function(startIndex) {
-        let subtests = await this.subtests.getSubtestsForPath(
+      async updateSubtestMenus(startIndex) {
+        let subtests = await this.subtests.get(
             this.getCurrentSelectedPathUpTo(startIndex));
 
         // Update existing subtest menu.
-        for (var i = startIndex; i < this.selectionModels.length; i++) {
+        for (let i = startIndex; i < this.selectionModels.length; i++) {
           // Remove the rest of the menu if no subtests.
           if (subtests.length === 0) {
             this.splice('selectionModels', i);
@@ -355,7 +339,7 @@ found in the LICENSE file.
           if (menu.selectedItem) {
             const selectedPath = this.getCurrentSelectedPathUpTo(i + 1, false);
             if (selectedPath !== undefined) {
-              subtests = await this.subtests.getSubtestsForPath(selectedPath);
+              subtests = await this.subtests.get(selectedPath);
             } else {
               subtests = [];
             }
@@ -383,26 +367,26 @@ found in the LICENSE file.
         this.updateAddButtonState();
       },
 
-      updateAddButtonState: async function() {
+      async updateAddButtonState() {
         this.enableAddSeries = (
             (await this.getCurrentSelection()) instanceof Array);
       },
 
-      getCheckedBot: function() {
-        var botMenu = this.getSelectionMenu(1);
+      getCheckedBot() {
+        const botMenu = this.getSelectionMenu(1);
         if (botMenu.selectedItem) {
-          let item = botMenu.selectedItem;
-          return item['group'] + '/' + item['name'];
+          const item = botMenu.selectedItem;
+          return item.group + '/' + item.name;
         }
         return null;
       },
 
-      getCheckedSuite: function() {
-        var suiteMenu = this.getSelectionMenu(0);
+      getCheckedSuite() {
+        const suiteMenu = this.getSelectionMenu(0);
         return suiteMenu.selectedName;
       },
 
-      getSelectionMenu: function(index) {
+      getSelectionMenu(index) {
         Polymer.dom.flush();
         return Polymer.dom(this.$.container).children[index];
       },
@@ -410,7 +394,7 @@ found in the LICENSE file.
       /**
        * Handler for drag start event for series drag button.
        */
-      onSeriesButtonDragStart: async function(event, detail) {
+      async onSeriesButtonDragStart(event, detail) {
         event.dataTransfer.setData('type', 'seriesdnd');
         event.dataTransfer.setData(
             'data', JSON.stringify({
@@ -424,14 +408,14 @@ found in the LICENSE file.
       /**
        * Fires add event on 'Add' button clicked.
        */
-      onAddButtonClicked: function(event, detail) {
+      onAddButtonClicked(event, detail) {
         this.fire('add');
       },
 
       /**
        * Gets the current selection from the menus.
        */
-      getCurrentSelection: async function() {
+      async getCurrentSelection() {
         const path = this.getCurrentSelectedPathUpTo(-1, true);
 
         // If the paths are the same, this means that the selected path has
@@ -464,7 +448,7 @@ found in the LICENSE file.
         return selectedTests;
       },
 
-      getCurrentSelectedPathUpTo: function(maxLevel, onlyValid) {
+      getCurrentSelectedPathUpTo(maxLevel, onlyValid) {
         let level = 0;
         const parts = [];
         while (true) {
@@ -494,15 +478,45 @@ found in the LICENSE file.
         return parts.join('/');
       },
 
-      getCurrentSelectedPath: function() {
+      getCurrentSelectedPath() {
         return this.currentSelectedPath_;
       },
 
-      getCurrentUnselected: function() {
+      async setCurrentSelectedPath(testPath) {
+        this.updatingSubtestMenus = true;
+        for (let boxIndex = 0; boxIndex < testPath.length; ++boxIndex) {
+          const menu = this.getSelectionMenu(boxIndex);
+          const name = testPath[boxIndex];
+          let found = false;
+
+          for (const menuItem of menu.items) {
+            if (menuItem.name === name) {
+              found = true;
+              menu.selectedItem = menuItem;
+              break;
+            }
+          }
+
+          if (!found) {
+            this.updatingSubtestMenus = false;
+            throw new Error(`Invalid testPath ${testPath} @ ${boxIndex}`);
+          }
+
+          if (boxIndex == 0) {
+            this.updateTestSuiteDescription();
+            await this.updateBotMenu();
+          } else {
+            await this.updateSubtestMenus(boxIndex + 1);
+          }
+        }
+        this.updatingSubtestMenus = false;
+      },
+
+      getCurrentUnselected() {
         return this.currentUnselectedTests_;
       },
 
-      getSubtestsForPath: async function(path, returnSelected) {
+      async getSubtestsForPath(path, returnSelected) {
         // TODO(eakuefner): Reimplement cancellation and memoize.
         // TODO(eakuefner): Fix error handling.
         const params = {
@@ -527,7 +541,7 @@ found in the LICENSE file.
        * @return {number} negative if suiteA should be before suiteB,
        *     positive if suiteA should be after suiteB, zero if they're equal.
        */
-      compareTestSuiteItem: function(suiteA, suiteB) {
+      compareTestSuiteItem(suiteA, suiteB) {
         if (!suiteA.deprecated && suiteB.deprecated) {
           return -1;
         }
@@ -540,8 +554,8 @@ found in the LICENSE file.
         if (!suiteB.unmonitored && suiteA.unmonitored) {
           return 1;
         }
-        var nameALower = suiteA.name.toLowerCase();
-        var nameBLower = suiteB.name.toLowerCase();
+        const nameALower = suiteA.name.toLowerCase();
+        const nameBLower = suiteB.name.toLowerCase();
         if (nameALower > nameBLower) {
           return 1;
         }
@@ -556,7 +570,7 @@ found in the LICENSE file.
        * @param {string} text A link in markdown format.
        * @return {string} A hyperlink string.
        */
-      convertMarkdownLinks: function(text) {
+      convertMarkdownLinks(text) {
         return text.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>');
       }
     });

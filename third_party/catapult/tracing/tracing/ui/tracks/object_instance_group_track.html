@@ -21,14 +21,14 @@ tr.exportTo('tr.ui.tracks', function() {
    * @constructor
    * @extends {ContainerTrack}
    */
-  var ObjectInstanceGroupTrack = tr.ui.b.define(
+  const ObjectInstanceGroupTrack = tr.ui.b.define(
       'object-instance-group-track', tr.ui.tracks.MultiRowTrack);
 
   ObjectInstanceGroupTrack.prototype = {
 
     __proto__: tr.ui.tracks.MultiRowTrack.prototype,
 
-    decorate: function(viewport) {
+    decorate(viewport) {
       tr.ui.tracks.MultiRowTrack.prototype.decorate.call(this, viewport);
       Polymer.dom(this).classList.add('object-instance-group-track');
       this.objectInstances_ = undefined;
@@ -42,27 +42,27 @@ tr.exportTo('tr.ui.tracks', function() {
       this.setItemsToGroup(objectInstances);
     },
 
-    addSubTrack_: function(objectInstances) {
-      var hasMultipleRows = this.subRows.length > 1;
-      var track = new tr.ui.tracks.ObjectInstanceTrack(this.viewport);
+    addSubTrack_(objectInstances) {
+      const hasMultipleRows = this.subRows.length > 1;
+      const track = new tr.ui.tracks.ObjectInstanceTrack(this.viewport);
       track.objectInstances = objectInstances;
       Polymer.dom(this).appendChild(track);
       return track;
     },
 
-    buildSubRows_: function(objectInstances) {
+    buildSubRows_(objectInstances) {
       objectInstances.sort(function(x, y) {
         return x.creationTs - y.creationTs;
       });
 
-      var subRows = [];
-      for (var i = 0; i < objectInstances.length; i++) {
-        var objectInstance = objectInstances[i];
+      const subRows = [];
+      for (let i = 0; i < objectInstances.length; i++) {
+        const objectInstance = objectInstances[i];
 
-        var found = false;
-        for (var j = 0; j < subRows.length; j++) {
-          var subRow = subRows[j];
-          var lastItemInSubRow = subRow[subRow.length - 1];
+        let found = false;
+        for (let j = 0; j < subRows.length; j++) {
+          const subRow = subRows[j];
+          const lastItemInSubRow = subRow[subRow.length - 1];
           if (objectInstance.creationTs >= lastItemInSubRow.deletionTs) {
             found = true;
             subRow.push(objectInstance);
@@ -70,13 +70,12 @@ tr.exportTo('tr.ui.tracks', function() {
           }
         }
         if (!found) {
-          var subRow = [objectInstance];
-          subRows.push(subRow);
+          subRows.push([objectInstance]);
         }
       }
       return subRows;
     },
-    updateHeadingAndTooltip_: function() {
+    updateHeadingAndTooltip_() {
     }
   };
 

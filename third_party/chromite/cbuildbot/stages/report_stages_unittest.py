@@ -22,10 +22,12 @@ from chromite.cbuildbot.stages import report_stages
 from chromite.lib import alerts
 from chromite.lib import cidb
 from chromite.lib import constants
+from chromite.lib import cq_config
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import fake_cidb
 from chromite.lib import failures_lib
+from chromite.lib import failure_message_lib_unittest
 from chromite.lib import gs_unittest
 from chromite.lib import metadata_lib
 from chromite.lib import metrics
@@ -124,17 +126,17 @@ class SlaveFailureSummaryStageTest(
 
   def testPerformStage(self):
     """Tests that stage runs without syntax errors."""
-    fake_failure = {
-        'build_id': 10,
-        'build_stage_id': 11,
-        'waterfall': constants.WATERFALL_EXTERNAL,
-        'builder_name': 'builder_name',
-        'build_number': 12,
-        'build_config': 'build-config',
-        'stage_name': 'FailingStage',
-        'stage_status': constants.BUILDER_STATUS_FAILED,
-        'build_status': constants.BUILDER_STATUS_FAILED,
-        }
+    fake_failure = (
+        failure_message_lib_unittest.StageFailureHelper.CreateStageFailure(
+            build_id=10,
+            build_stage_id=11,
+            waterfall=constants.WATERFALL_EXTERNAL,
+            builder_name='builder_name',
+            build_number=12,
+            build_config='build-config',
+            stage_name='FailingStage',
+            stage_status=constants.BUILDER_STATUS_FAILED,
+            build_status=constants.BUILDER_STATUS_FAILED))
     self.PatchObject(self.db, 'GetSlaveFailures', return_value=[fake_failure])
     self.PatchObject(logging, 'PrintBuildbotLink')
     self.RunStage()
@@ -172,6 +174,20 @@ class BuildStartStageTest(generic_stages_unittest.AbstractStageTestCase):
     self.assertGreater(build_id, 0)
     self.assertEqual(self._run.attrs.metadata.GetValue('db_type'),
                      cidb.CONNECTION_TYPE_MOCK)
+
+  def testSuiteSchedulingEqualsFalse(self):
+    """Test that a run of the stage makes suite_scheduling False."""
+    # Test suite_scheduling for **-paladin
+    self._Prepare(bot_id='x86-generic-paladin')
+    self.RunStage()
+    self.assertFalse(self._run.attrs.metadata.GetValue('suite_scheduling'))
+
+  def testSuiteSchedulingEqualsTrue(self):
+    """Test that a run of the stage makes suite_scheduling True."""
+    # Test suite_scheduling for **-release
+    self._Prepare(bot_id='x86-alex-release')
+    self.RunStage()
+    self.assertTrue(self._run.attrs.metadata.GetValue('suite_scheduling'))
 
   def testHandleSkipWithInstanceChange(self):
     """Test that HandleSkip disables cidb and dies when necessary."""
@@ -406,17 +422,17 @@ class ReportStageTest(AbstractReportStageTestCase):
         child_configs, config_status_map)
     self.assertEqual(expected, child_config_list)
 
-  def testIsSheriffOMaticImportantBuildTrue(self):
-    """Test IsSheriffOMaticImportantBuild with important build."""
+  def testIsSheriffOMaticDispatchBuildTrue(self):
+    """Test IsSheriffOMaticDispatchBuild with important build."""
     os.environ['BUILDBOT_MASTERNAME'] = constants.WATERFALL_INTERNAL
     self._Prepare('master-paladin')
     stage = self.ConstructStage()
-    self.assertTrue(stage.IsSheriffOMaticImportantBuild())
+    self.assertEqual(stage.IsSheriffOMaticDispatchBuild(), 'chromeos')
 
   def testIsSheriffOMaticImportantBuild(self):
     """Test IsSheriffOMaticImportantBuild with unimportant build."""
     stage = self.ConstructStage()
-    self.assertFalse(stage.IsSheriffOMaticImportantBuild())
+    self.assertIsNone(stage.IsSheriffOMaticDispatchBuild())
 
   def testPerformStage(self):
     """Test PerformStage."""
@@ -456,10 +472,10 @@ class ReportStageNoSyncTest(AbstractReportStageTestCase):
     self.RunStage()
 
 
-class DetectIrrelevantChangesStageTest(
+class DetectRelevantChangesStageTest(
     generic_stages_unittest.AbstractStageTestCase,
     patch_unittest.MockPatchBase):
-  """Test the DetectIrrelevantChangesStage."""
+  """Test the DetectRelevantChangesStage."""
 
   def setUp(self):
     self.changes = self.GetPatches(how_many=2)
@@ -475,6 +491,7 @@ class DetectIrrelevantChangesStageTest(
   def testGetSubsystemsWithoutEmptyEntry(self):
     """Tests the logic of GetSubsystemTobeTested() under normal case."""
     relevant_changes = self.changes
+    self.PatchObject(cq_config.CQConfigParser, 'GetCommonConfigFileForChange')
     self.PatchObject(triage_lib, 'GetTestSubsystemForChange',
                      side_effect=[['light'], ['light', 'power']])
 
@@ -486,6 +503,7 @@ class DetectIrrelevantChangesStageTest(
   def testGetSubsystemsWithEmptyEntry(self):
     """Tests whether return empty set when have empty entry in subsystems."""
     relevant_changes = self.changes
+    self.PatchObject(cq_config.CQConfigParser, 'GetCommonConfigFileForChange')
     self.PatchObject(triage_lib, 'GetTestSubsystemForChange',
                      side_effect=[['light'], []])
 
@@ -495,9 +513,9 @@ class DetectIrrelevantChangesStageTest(
     self.assertEqual(results, expected)
 
   def ConstructStage(self):
-    return report_stages.DetectIrrelevantChangesStage(self._run,
-                                                      self._current_board,
-                                                      self.changes)
+    return report_stages.DetectRelevantChangesStage(self._run,
+                                                    self._current_board,
+                                                    self.changes)
 
   def testRecordIrrelevantChanges(self):
     """Test RecordIrrelevantChanges."""

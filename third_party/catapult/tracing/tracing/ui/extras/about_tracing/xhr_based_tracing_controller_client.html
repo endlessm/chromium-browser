@@ -13,13 +13,13 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.e.about_tracing', function() {
-  var Base64 = tr.b.Base64;
+  const Base64 = tr.b.Base64;
 
   function beginXhr(method, path, data) {
     if (data === undefined) data = null;
 
     return new Promise(function(resolve, reject) {
-      var req = new XMLHttpRequest();
+      const req = new XMLHttpRequest();
       if (method !== 'POST' && data !== null) {
         throw new Error('Non-POST should have data==null');
       }
@@ -47,62 +47,63 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
   XhrBasedTracingControllerClient.prototype = {
     __proto__: tr.ui.e.about_tracing.TracingControllerClient.prototype,
 
-    beginMonitoring: function(monitoringOptions) {
-      var monitoringOptionsB64 = Base64.btoa(JSON.stringify(monitoringOptions));
+    beginMonitoring(monitoringOptions) {
+      const monitoringOptionsB64 = Base64.btoa(JSON.stringify(
+          monitoringOptions));
       return beginXhr('GET', '/json/begin_monitoring?' + monitoringOptionsB64);
     },
 
-    endMonitoring: function() {
+    endMonitoring() {
       return beginXhr('GET', '/json/end_monitoring');
     },
 
-    captureMonitoring: function() {
+    captureMonitoring() {
       return beginXhr('GET', '/json/capture_monitoring_compressed').then(
           function(data) {
-            var decodedSize = Base64.getDecodedBufferLength(data);
-            var buffer = new ArrayBuffer(decodedSize);
+            const decodedSize = Base64.getDecodedBufferLength(data);
+            const buffer = new ArrayBuffer(decodedSize);
             Base64.DecodeToTypedArray(data, new DataView(buffer));
             return buffer;
           }
       );
     },
 
-    getMonitoringStatus: function() {
+    getMonitoringStatus() {
       return beginXhr('GET', '/json/get_monitoring_status').then(
           function(monitoringOptionsB64) {
             return JSON.parse(Base64.atob(monitoringOptionsB64));
           });
     },
 
-    getCategories: function() {
+    getCategories() {
       return beginXhr('GET', '/json/categories').then(
           function(json) {
             return JSON.parse(json);
           });
     },
 
-    beginRecording: function(recordingOptions) {
-      var recordingOptionsB64 = Base64.btoa(JSON.stringify(recordingOptions));
+    beginRecording(recordingOptions) {
+      const recordingOptionsB64 = Base64.btoa(JSON.stringify(recordingOptions));
       return beginXhr('GET', '/json/begin_recording?' +
                       recordingOptionsB64);
     },
 
-    beginGetBufferPercentFull: function() {
+    beginGetBufferPercentFull() {
       return beginXhr('GET', '/json/get_buffer_percent_full');
     },
 
-    endRecording: function() {
+    endRecording() {
       return beginXhr('GET', '/json/end_recording_compressed').then(
           function(data) {
-            var decodedSize = Base64.getDecodedBufferLength(data);
-            var buffer = new ArrayBuffer(decodedSize);
+            const decodedSize = Base64.getDecodedBufferLength(data);
+            const buffer = new ArrayBuffer(decodedSize);
             Base64.DecodeToTypedArray(data, new DataView(buffer));
             return buffer;
           }
       );
     },
 
-    defaultTraceName: function() {
+    defaultTraceName() {
       return 'trace.json.gz';
     }
   };

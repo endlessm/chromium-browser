@@ -11,6 +11,7 @@ copy-tex-image-and-sub-image-2d.html
 gl-pixelstorei.html
 gl-teximage.html
 origin-clean-conformance.html
+--min-version 1.0.4 origin-clean-conformance-offscreencanvas.html
 tex-image-and-sub-image-2d-with-array-buffer-view.html
 tex-image-and-uniform-binding-bugs.html
 --min-version 1.0.3 tex-image-canvas-corruption.html
@@ -20,6 +21,7 @@ tex-image-with-invalid-data.html
 --max-version 1.9.9 tex-input-validation.html
 tex-sub-image-2d-bad-args.html
 tex-sub-image-2d.html
+--min-version 1.0.4 tex-video-using-tex-unit-non-zero.html
 texparameter-test.html
 texture-active-bind-2.html
 texture-active-bind.html

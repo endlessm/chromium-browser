@@ -17,7 +17,7 @@ found in the LICENSE file.
  * @fileoverview Provides the ObjectSnapshot and ObjectHistory classes.
  */
 tr.exportTo('tr.model', function() {
-  var ObjectSnapshot = tr.model.ObjectSnapshot;
+  const ObjectSnapshot = tr.model.ObjectSnapshot;
 
   /**
    * An object with a specific id, whose state has been snapshotted several
@@ -50,11 +50,11 @@ tr.exportTo('tr.model', function() {
       return this.name;
     },
 
-    addBoundsToRange: function(range) {
+    addBoundsToRange(range) {
       range.addRange(this.bounds);
     },
 
-    addSnapshot: function(ts, args, opt_name, opt_baseTypeName) {
+    addSnapshot(ts, args, opt_name, opt_baseTypeName) {
       if (ts < this.creationTs) {
         throw new Error('Snapshots must be >= instance.creationTs');
       }
@@ -63,7 +63,7 @@ tr.exportTo('tr.model', function() {
                         'an objects deletion timestamp.');
       }
 
-      var lastSnapshot;
+      let lastSnapshot;
       if (this.snapshots.length > 0) {
         lastSnapshot = this.snapshots[this.snapshots.length - 1];
         if (lastSnapshot.ts === ts) {
@@ -87,16 +87,16 @@ tr.exportTo('tr.model', function() {
         this.name = opt_name;
       }
 
-      var snapshotConstructor =
+      const snapshotConstructor =
           tr.model.ObjectSnapshot.subTypes.getConstructor(
               this.category, this.name);
-      var snapshot = new snapshotConstructor(this, ts, args);
+      const snapshot = new snapshotConstructor(this, ts, args);
       this.snapshots.push(snapshot);
       return snapshot;
     },
 
-    wasDeleted: function(ts) {
-      var lastSnapshot;
+    wasDeleted(ts) {
+      let lastSnapshot;
       if (this.snapshots.length > 0) {
         lastSnapshot = this.snapshots[this.snapshots.length - 1];
         if (lastSnapshot.ts > ts) {
@@ -112,8 +112,8 @@ tr.exportTo('tr.model', function() {
     /**
      * See ObjectSnapshot constructor notes on object initialization.
      */
-    preInitialize: function() {
-      for (var i = 0; i < this.snapshots.length; i++) {
+    preInitialize() {
+      for (let i = 0; i < this.snapshots.length; i++) {
         this.snapshots[i].preInitialize();
       }
     },
@@ -121,13 +121,13 @@ tr.exportTo('tr.model', function() {
     /**
      * See ObjectSnapshot constructor notes on object initialization.
      */
-    initialize: function() {
-      for (var i = 0; i < this.snapshots.length; i++) {
+    initialize() {
+      for (let i = 0; i < this.snapshots.length; i++) {
         this.snapshots[i].initialize();
       }
     },
 
-    isAliveAt: function(ts) {
+    isAliveAt(ts) {
       if (ts < this.creationTs && this.creationTsWasExplicit) {
         return false;
       }
@@ -138,7 +138,7 @@ tr.exportTo('tr.model', function() {
       return true;
     },
 
-    getSnapshotAt: function(ts) {
+    getSnapshotAt(ts) {
       if (ts < this.creationTs) {
         if (this.creationTsWasExplicit) {
           throw new Error('ts must be within lifetime of this instance');
@@ -149,8 +149,8 @@ tr.exportTo('tr.model', function() {
         throw new Error('ts must be within lifetime of this instance');
       }
 
-      var snapshots = this.snapshots;
-      var i = tr.b.math.findIndexInSortedIntervals(
+      const snapshots = this.snapshots;
+      const i = tr.b.math.findIndexInSortedIntervals(
           snapshots,
           function(snapshot) { return snapshot.ts; },
           function(snapshot, i) {
@@ -174,7 +174,7 @@ tr.exportTo('tr.model', function() {
       return this.snapshots[i];
     },
 
-    updateBounds: function() {
+    updateBounds() {
       this.bounds.reset();
       this.bounds.addValue(this.creationTs);
       if (this.deletionTs !== Number.MAX_VALUE) {
@@ -184,7 +184,7 @@ tr.exportTo('tr.model', function() {
       }
     },
 
-    shiftTimestampsForward: function(amount) {
+    shiftTimestampsForward(amount) {
       this.creationTs += amount;
       if (this.deletionTs !== Number.MAX_VALUE) {
         this.deletionTs += amount;

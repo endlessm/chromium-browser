@@ -14,8 +14,8 @@ found in the LICENSE file.
  * @fileoverview Parses Mali DDK/kernel events in the Linux event trace format.
  */
 tr.exportTo('tr.e.importer.linux_perf', function() {
-  var ColorScheme = tr.b.ColorScheme;
-  var Parser = tr.e.importer.linux_perf.Parser;
+  const ColorScheme = tr.b.ColorScheme;
+  const Parser = tr.e.importer.linux_perf.Parser;
 
   /**
    * Parses Mali DDK/kernel trace events.
@@ -38,9 +38,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     this.addJMCycles('mali_hwc_GPU_ACTIVE', 'GPU Active');
     this.addJMCycles('mali_hwc_IRQ_ACTIVE', 'IRQ Active');
 
-    for (var i = 0; i < 7; i++) {
-      var jobStr = 'JS' + i;
-      var jobHWCStr = 'mali_hwc_' + jobStr;
+    for (let i = 0; i < 7; i++) {
+      const jobStr = 'JS' + i;
+      const jobHWCStr = 'mali_hwc_' + jobStr;
       this.addJMCounter(jobHWCStr + '_JOBS', jobStr + ' Jobs');
       this.addJMCounter(jobHWCStr + '_TASKS', jobStr + ' Tasks');
       this.addJMCycles(jobHWCStr + '_ACTIVE', jobStr + ' Active');
@@ -222,17 +222,17 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   MaliParser.prototype = {
     __proto__: Parser.prototype,
 
-    maliDDKOpenSlice: function(pid, tid, ts, func, blockinfo) {
-      var thread = this.importer.model_.getOrCreateProcess(pid)
+    maliDDKOpenSlice(pid, tid, ts, func, blockinfo) {
+      const thread = this.importer.model_.getOrCreateProcess(pid)
         .getOrCreateThread(tid);
-      var funcArgs = /^([\w\d_]*)(?:\(\))?:?\s*(.*)$/.exec(func);
+      const funcArgs = /^([\w\d_]*)(?:\(\))?:?\s*(.*)$/.exec(func);
       thread.sliceGroup.beginSlice('gpu-driver', funcArgs[1], ts,
           { 'args': funcArgs[2],
-            'blockinfo': blockinfo });
+            blockinfo });
     },
 
-    maliDDKCloseSlice: function(pid, tid, ts, args, blockinfo) {
-      var thread = this.importer.model_.getOrCreateProcess(pid)
+    maliDDKCloseSlice(pid, tid, ts, args, blockinfo) {
+      const thread = this.importer.model_.getOrCreateProcess(pid)
         .getOrCreateThread(tid);
       if (!thread.sliceGroup.openSliceCount) {
         // Discard unmatched ends.
@@ -247,16 +247,16 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * @return {RegExp} the regular expression for parsing data when the format
      * is recognized; otherwise null.
      */
-    autoDetectLineRE: function(line) {
+    autoDetectLineRE(line) {
       // Matches Mali perf events with thread info
-      var lineREWithThread =
+      const lineREWithThread =
           /^\s*\(([\w\-]*)\)\s*(\w+):\s*([\w\\\/\.\-]*@\d*):?\s*(.*)$/;
       if (lineREWithThread.test(line)) {
         return lineREWithThread;
       }
 
       // Matches old-style Mali perf events
-      var lineRENoThread = /^s*()(\w+):\s*([\w\\\/.\-]*):?\s*(.*)$/;
+      const lineRENoThread = /^s*()(\w+):\s*([\w\\\/.\-]*):?\s*(.*)$/;
       if (lineRENoThread.test(line)) {
         return lineRENoThread;
       }
@@ -278,14 +278,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * tracing_mark_write: mali_driver: (mali-012345) cros_trace_print_exit: \
      *   gles/src/texture/mali_gles_texture_slave.c@1505:
      */
-    maliDDKEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
+    maliDDKEvent(eventName, cpuNumber, pid, ts, eventBase) {
       if (this.lineRE === null) {
         this.lineRE = this.autoDetectLineRE(eventBase.details);
         if (this.lineRE === null) return false;
       }
-      var maliEvent = this.lineRE.exec(eventBase.details);
+      const maliEvent = this.lineRE.exec(eventBase.details);
       // Old-style Mali perf events have no thread id, so make one.
-      var tid = (maliEvent[1] === '' ? 'mali' : maliEvent[1]);
+      const tid = (maliEvent[1] === '' ? 'mali' : maliEvent[1]);
       switch (maliEvent[2]) {
         case 'cros_trace_print_enter':
           this.maliDDKOpenSlice(pid, tid, ts, maliEvent[4],
@@ -301,9 +301,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * Kernel event support.
      */
 
-    dvfsSample: function(counterName, seriesName, ts, s) {
-      var value = parseInt(s);
-      var counter = this.model_.kernel.
+    dvfsSample(counterName, seriesName, ts, s) {
+      const value = parseInt(s);
+      const counter = this.model_.kernel.
           getOrCreateCounter('DVFS', counterName);
       if (counter.numSeries === 0) {
         counter.addSeries(new tr.model.CounterSeries(seriesName,
@@ -314,36 +314,36 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       });
     },
 
-    dvfsEventEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
-      var event = /utilization=(\d+)/.exec(eventBase.details);
+    dvfsEventEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = /utilization=(\d+)/.exec(eventBase.details);
       if (!event) return false;
 
       this.dvfsSample('DVFS Utilization', 'utilization', ts, event[1]);
       return true;
     },
 
-    dvfsSetClockEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
-      var event = /frequency=(\d+)/.exec(eventBase.details);
+    dvfsSetClockEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = /frequency=(\d+)/.exec(eventBase.details);
       if (!event) return false;
 
       this.dvfsSample('DVFS Frequency', 'frequency', ts, event[1]);
       return true;
     },
 
-    dvfsSetVoltageEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
-      var event = /voltage=(\d+)/.exec(eventBase.details);
+    dvfsSetVoltageEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = /voltage=(\d+)/.exec(eventBase.details);
       if (!event) return false;
 
       this.dvfsSample('DVFS Voltage', 'voltage', ts, event[1]);
       return true;
     },
 
-    hwcSample: function(cat, counterName, seriesName, ts, eventBase) {
-      var event = /val=(\d+)/.exec(eventBase.details);
+    hwcSample(cat, counterName, seriesName, ts, eventBase) {
+      const event = /val=(\d+)/.exec(eventBase.details);
       if (!event) return false;
-      var value = parseInt(event[1]);
+      const value = parseInt(event[1]);
 
-      var counter = this.model_.kernel.
+      const counter = this.model_.kernel.
           getOrCreateCounter(cat, counterName);
       if (counter.numSeries === 0) {
         counter.addSeries(new tr.model.CounterSeries(seriesName,
@@ -358,17 +358,17 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * Job Manager block counters.
      */
-    jmSample: function(ctrName, seriesName, ts, eventBase) {
+    jmSample(ctrName, seriesName, ts, eventBase) {
       return this.hwcSample('mali:jm', 'JM: ' + ctrName, seriesName, ts,
           eventBase);
     },
-    addJMCounter: function(hwcEventName, hwcTitle) {
+    addJMCounter(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.jmSample(hwcTitle, 'count', ts, eventBase);
       }
       this.importer.registerEventHandler(hwcEventName, handler.bind(this));
     },
-    addJMCycles: function(hwcEventName, hwcTitle) {
+    addJMCycles(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.jmSample(hwcTitle, 'cycles', ts, eventBase);
       }
@@ -378,17 +378,17 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * Tiler block counters.
      */
-    tilerSample: function(ctrName, seriesName, ts, eventBase) {
+    tilerSample(ctrName, seriesName, ts, eventBase) {
       return this.hwcSample('mali:tiler', 'Tiler: ' + ctrName, seriesName,
           ts, eventBase);
     },
-    addTilerCounter: function(hwcEventName, hwcTitle) {
+    addTilerCounter(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.tilerSample(hwcTitle, 'count', ts, eventBase);
       }
       this.importer.registerEventHandler(hwcEventName, handler.bind(this));
     },
-    addTilerCycles: function(hwcEventName, hwcTitle) {
+    addTilerCycles(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.tilerSample(hwcTitle, 'cycles', ts, eventBase);
       }
@@ -398,17 +398,17 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * Fragment counters.
      */
-    fragSample: function(ctrName, seriesName, ts, eventBase) {
+    fragSample(ctrName, seriesName, ts, eventBase) {
       return this.hwcSample('mali:fragment', 'Fragment: ' + ctrName,
           seriesName, ts, eventBase);
     },
-    addFragCounter: function(hwcEventName, hwcTitle) {
+    addFragCounter(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.fragSample(hwcTitle, 'count', ts, eventBase);
       }
       this.importer.registerEventHandler(hwcEventName, handler.bind(this));
     },
-    addFragCycles: function(hwcEventName, hwcTitle) {
+    addFragCycles(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.fragSample(hwcTitle, 'cycles', ts, eventBase);
       }
@@ -418,17 +418,17 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * Compute counters.
      */
-    computeSample: function(ctrName, seriesName, ts, eventBase) {
+    computeSample(ctrName, seriesName, ts, eventBase) {
       return this.hwcSample('mali:compute', 'Compute: ' + ctrName,
           seriesName, ts, eventBase);
     },
-    addComputeCounter: function(hwcEventName, hwcTitle) {
+    addComputeCounter(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.computeSample(hwcTitle, 'count', ts, eventBase);
       }
       this.importer.registerEventHandler(hwcEventName, handler.bind(this));
     },
-    addComputeCycles: function(hwcEventName, hwcTitle) {
+    addComputeCycles(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.computeSample(hwcTitle, 'cycles', ts, eventBase);
       }
@@ -438,7 +438,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * Tripipe counters.
      */
-    addTripipeCycles: function(hwcEventName, hwcTitle) {
+    addTripipeCycles(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.hwcSample('mali:shader', 'Tripipe: ' + hwcTitle, 'cycles',
             ts, eventBase);
@@ -449,17 +449,17 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * Arith counters.
      */
-    arithSample: function(ctrName, seriesName, ts, eventBase) {
+    arithSample(ctrName, seriesName, ts, eventBase) {
       return this.hwcSample('mali:arith', 'Arith: ' + ctrName, seriesName, ts,
           eventBase);
     },
-    addArithCounter: function(hwcEventName, hwcTitle) {
+    addArithCounter(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.arithSample(hwcTitle, 'count', ts, eventBase);
       }
       this.importer.registerEventHandler(hwcEventName, handler.bind(this));
     },
-    addArithCycles: function(hwcEventName, hwcTitle) {
+    addArithCycles(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.arithSample(hwcTitle, 'cycles', ts, eventBase);
       }
@@ -469,7 +469,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * Load/Store counters.
      */
-    addLSCounter: function(hwcEventName, hwcTitle) {
+    addLSCounter(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.hwcSample('mali:ls', 'LS: ' + hwcTitle, 'count', ts,
             eventBase);
@@ -480,11 +480,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * Texture counters.
      */
-    textureSample: function(ctrName, seriesName, ts, eventBase) {
+    textureSample(ctrName, seriesName, ts, eventBase) {
       return this.hwcSample('mali:texture', 'Texture: ' + ctrName,
           seriesName, ts, eventBase);
     },
-    addTexCounter: function(hwcEventName, hwcTitle) {
+    addTexCounter(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.textureSample(hwcTitle, 'count', ts, eventBase);
       }
@@ -494,7 +494,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * LSC counters.
      */
-    addLSCCounter: function(hwcEventName, hwcTitle) {
+    addLSCCounter(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.hwcSample('mali:lsc', 'LSC: ' + hwcTitle, 'count', ts,
             eventBase);
@@ -505,7 +505,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * TLB counters.
      */
-    addAXICounter: function(hwcEventName, hwcTitle) {
+    addAXICounter(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.hwcSample('mali:axi', 'AXI: ' + hwcTitle, 'count', ts,
             eventBase);
@@ -516,17 +516,17 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * MMU counters.
      */
-    mmuSample: function(ctrName, seriesName, ts, eventBase) {
+    mmuSample(ctrName, seriesName, ts, eventBase) {
       return this.hwcSample('mali:mmu', 'MMU: ' + ctrName, seriesName, ts,
           eventBase);
     },
-    addMMUCounter: function(hwcEventName, hwcTitle) {
+    addMMUCounter(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.mmuSample(hwcTitle, 'count', ts, eventBase);
       }
       this.importer.registerEventHandler(hwcEventName, handler.bind(this));
     },
-    addMMUCycles: function(hwcEventName, hwcTitle) {
+    addMMUCycles(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.mmuSample(hwcTitle, 'cycles', ts, eventBase);
       }
@@ -536,17 +536,17 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /*
      * L2 counters.
      */
-    l2Sample: function(ctrName, seriesName, ts, eventBase) {
+    l2Sample(ctrName, seriesName, ts, eventBase) {
       return this.hwcSample('mali:l2', 'L2: ' + ctrName, seriesName, ts,
           eventBase);
     },
-    addL2Counter: function(hwcEventName, hwcTitle) {
+    addL2Counter(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.l2Sample(hwcTitle, 'count', ts, eventBase);
       }
       this.importer.registerEventHandler(hwcEventName, handler.bind(this));
     },
-    addL2Cycles: function(hwcEventName, hwcTitle) {
+    addL2Cycles(hwcEventName, hwcTitle) {
       function handler(eventName, cpuNumber, pid, ts, eventBase) {
         return this.l2Sample(hwcTitle, 'cycles', ts, eventBase);
       }

@@ -9,24 +9,24 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
-  var ArrayOfIntervals = function(array) {
+  const ArrayOfIntervals = function(array) {
     this.array = array;
   };
 
   ArrayOfIntervals.prototype = {
 
-    get: function(index) {
+    get(index) {
       return this.array[index];
     },
 
-    findLowElementIndex: function(ts) {
+    findLowElementIndex(ts) {
       return tr.b.math.findLowIndexInSortedArray(
           this.array,
           function(x) { return x.lo; },
           ts);
     },
 
-    findIntervalIndex: function(ts) {
+    findIntervalIndex(ts) {
       return tr.b.math.findIndexInSortedIntervals(
           this.array,
           function(x) { return x.lo; },
@@ -34,7 +34,7 @@ tr.b.unittest.testSuite(function() {
           ts);
     },
 
-    findIndexInClosedIntervals: function(ts) {
+    findIndexInClosedIntervals(ts) {
       return tr.b.math.findIndexInSortedClosedIntervals(
           this.array,
           function(x) { return x.lo; },
@@ -42,9 +42,9 @@ tr.b.unittest.testSuite(function() {
           ts);
     },
 
-    findIntersectingIntervals: function(tsA, tsB) {
-      var array = this.array;
-      var result = [];
+    findIntersectingIntervals(tsA, tsB) {
+      const array = this.array;
+      const result = [];
       tr.b.math.iterateOverIntersectingIntervals(
           this.array,
           function(x) { return x.lo; },
@@ -55,7 +55,7 @@ tr.b.unittest.testSuite(function() {
       return result;
     },
 
-    findClosestElement: function(ts, tsDiff) {
+    findClosestElement(ts, tsDiff) {
       return tr.b.math.findClosestElementInSortedArray(
           this.array,
           function(x) { return x.lo; },
@@ -63,7 +63,7 @@ tr.b.unittest.testSuite(function() {
           tsDiff);
     },
 
-    findClosestInterval: function(ts, tsDiff) {
+    findClosestInterval(ts, tsDiff) {
       return tr.b.math.findClosestIntervalInSortedIntervals(
           this.array,
           function(x) { return x.lo; },
@@ -74,7 +74,7 @@ tr.b.unittest.testSuite(function() {
   };
 
   test('findLowElementIndex', function() {
-    var array = new ArrayOfIntervals([
+    const array = new ArrayOfIntervals([
       {lo: 10, hi: 15},
       {lo: 20, hi: 30}
     ]);
@@ -93,7 +93,7 @@ tr.b.unittest.testSuite(function() {
   });
 
   test('findIntervalIndex', function() {
-    var array = new ArrayOfIntervals([
+    const array = new ArrayOfIntervals([
       {lo: 10, hi: 15},
       {lo: 20, hi: 30}
     ]);
@@ -119,7 +119,7 @@ tr.b.unittest.testSuite(function() {
   });
 
   test('findClosedIntervalIndex', function() {
-    var array = new ArrayOfIntervals([
+    const array = new ArrayOfIntervals([
       {lo: 10, hi: 15},
       {lo: 15, hi: 20},
       {lo: 21, hi: 25}
@@ -138,12 +138,12 @@ tr.b.unittest.testSuite(function() {
   });
 
   test('findClosedInEmptyArray', function() {
-    var array = new ArrayOfIntervals([]);
+    const array = new ArrayOfIntervals([]);
     assert.strictEqual(array.findIndexInClosedIntervals(0), 0);
   });
 
   test('findIntersectingIntervals', function() {
-    var array = new ArrayOfIntervals([
+    const array = new ArrayOfIntervals([
       {lo: 10, hi: 15},
       {lo: 20, hi: 30}
     ]);
@@ -167,7 +167,7 @@ tr.b.unittest.testSuite(function() {
   });
 
   test('findClosestElement', function() {
-    var array = new ArrayOfIntervals([
+    const array = new ArrayOfIntervals([
       {lo: 10, hi: 15},
       {lo: 20, hi: 30}
     ]);
@@ -199,7 +199,7 @@ tr.b.unittest.testSuite(function() {
   });
 
   test('findClosestInterval', function() {
-    var array = new ArrayOfIntervals([
+    const array = new ArrayOfIntervals([
       {lo: 10, hi: 15},
       {lo: 20, hi: 30}
     ]);

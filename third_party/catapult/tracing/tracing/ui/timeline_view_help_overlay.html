@@ -233,11 +233,11 @@ found in the LICENSE file.
 Polymer({
   is: 'tr-ui-timeline-view-help-overlay',
 
-  ready: function() {
-    var mod = tr.isMac ? 'cmd ' : 'ctrl';
-    var spans = Polymer.dom(this.root).querySelectorAll(
+  ready() {
+    const mod = tr.isMac ? 'cmd ' : 'ctrl';
+    const spans = Polymer.dom(this.root).querySelectorAll(
         'span.mod');
-    for (var i = 0; i < spans.length; i++) {
+    for (let i = 0; i < spans.length; i++) {
       Polymer.dom(spans[i]).textContent = mod;
     }
   }

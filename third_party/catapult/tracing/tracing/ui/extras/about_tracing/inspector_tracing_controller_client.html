@@ -14,7 +14,7 @@ found in the LICENSE file.
 
 tr.exportTo('tr.ui.e.about_tracing', function() {
   function createResolvedPromise(data) {
-    var promise = new Promise(function(resolve, reject) {
+    const promise = new Promise(function(resolve, reject) {
       if (data) {
         resolve(data);
       } else {
@@ -28,8 +28,8 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
     if (typeof messageString !== 'string') {
       throw new Error('Invalid data');
     }
-    var re = /"params":\s*\{\s*"value":\s*\[([^]+)\]\s*\}\s*\}/;
-    var m = re.exec(messageString);
+    const re = /"params":\s*\{\s*"value":\s*\[([^]+)\]\s*\}\s*\}/;
+    const m = re.exec(messageString);
     if (!m) {
       throw new Error('Malformed response');
     }
@@ -55,19 +55,19 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
   InspectorTracingControllerClient.prototype = {
     __proto__: tr.ui.e.about_tracing.TracingControllerClient.prototype,
 
-    beginMonitoring: function(monitoringOptions) {
+    beginMonitoring(monitoringOptions) {
       throw new Error('Not implemented');
     },
 
-    endMonitoring: function() {
+    endMonitoring() {
       throw new Error('Not implemented');
     },
 
-    captureMonitoring: function() {
+    captureMonitoring() {
       throw new Error('Not implemented');
     },
 
-    getMonitoringStatus: function() {
+    getMonitoringStatus() {
       return createResolvedPromise({
         isMonitoring: false,
         categoryFilter: '',
@@ -77,8 +77,8 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       });
     },
 
-    getCategories: function() {
-      var res = this.conn_.req('Tracing.getCategories', {});
+    getCategories() {
+      const res = this.conn_.req('Tracing.getCategories', {});
       return res.then(function(result) {
         return result.categories;
       }, function(err) {
@@ -86,12 +86,12 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       });
     },
 
-    beginRecording: function(recordingOptions) {
+    beginRecording(recordingOptions) {
       if (this.recording_) {
         throw new Error('Already recording');
       }
       this.recording_ = 'starting';
-      var res = this.conn_.req(
+      let res = this.conn_.req(
           'Tracing.start',
           {
             categories: recordingOptions.categoryFilter,
@@ -114,19 +114,19 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       return res;
     },
 
-    onBufferUsageUpdateFromInspector_: function(params) {
+    onBufferUsageUpdateFromInspector_(params) {
       this.bufferUsage_ = params.value || params.percentFull;
     },
 
-    beginGetBufferPercentFull: function() {
+    beginGetBufferPercentFull() {
       return tr.b.timeout(100).then(() => this.bufferUsage_());
     },
 
-    onDataCollected_: function(messageString) {
+    onDataCollected_(messageString) {
       appendTraceChunksTo(this.currentTraceTextChunks_, messageString);
     },
 
-    endRecording: function() {
+    endRecording() {
       if (this.recording_ === false) {
         return createResolvedPromise();
       }
@@ -139,7 +139,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       this.conn_.setNotificationListener(
           'Tracing.dataCollected', this.onDataCollected_.bind(this));
 
-      var clearListeners = function() {
+      const clearListeners = function() {
         this.conn_.setNotificationListener(
             'Tracing.bufferUsage', undefined);
         this.conn_.setNotificationListener(
@@ -154,7 +154,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
           clearListeners();
           this.recording_ = false;
           this.currentTraceTextChunks_.push(']');
-          var traceText = this.currentTraceTextChunks_.join('');
+          const traceText = this.currentTraceTextChunks_.join('');
           this.currentTraceTextChunks_ = undefined;
           resolve(traceText);
         }
@@ -176,7 +176,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       }.bind(this));
     },
 
-    defaultTraceName: function() {
+    defaultTraceName() {
       return 'trace.json';
     }
   };

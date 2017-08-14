@@ -479,7 +479,13 @@ def _CreateParser():
       parser,
       'Remote Trybot Options (--remote)')
 
-  group.add_option('--use-buildbucket', action='store_true', default=False,
+  # TODO(dgarrett): Remove after a reasonable delay.
+  group.add_option('--use-buildbucket', action='store_true',
+                   dest='deprecated_use_buildbucket',
+                   help='Deprecated option. Ignored.')
+
+  group.add_option('--do-not-use-buildbucket', action='store_false',
+                   dest='use_buildbucket', default=True,
                    help='Use buildbucket instead of git to request'
                         'the tryjob(s).')
 
@@ -549,11 +555,8 @@ def _CreateParser():
                                'artifacts and such. This should only be '
                                'used if you are confident in what you are '
                                'doing, as it will make automated commits.')
-  parser.add_remote_option('--repo-cache', type='path',
-                           help='Directory from which to copy a repo checkout '
-                                'if our build root is empty, to avoid '
-                                'excessive GoB load with a fresh sync.'
-                                'Deprecated in favor of --git-cache-dir.')
+  parser.add_remote_option('--repo-cache', type='path', dest='_repo_cache',
+                           help='Present for backwards compatibility, ignored.')
   group.add_remote_option('--no-buildbot-tags', action='store_false',
                           dest='enable_buildbot_tags', default=True,
                           help='Suppress buildbot specific tags from log '
@@ -981,6 +984,9 @@ def ParseCommandLine(parser, argv):
   # TODO(rcui): Remove when buildbot is fixed
   args = [arg for arg in args if arg]
 
+  if options.deprecated_use_buildbucket:
+    logging.warning('--use-buildbucket is deprecated, and ignored.')
+
   if options.output_api_version:
     print(constants.REEXEC_API_VERSION)
     sys.exit(0)
@@ -1301,10 +1307,10 @@ def main(argv):
           slave_timeout = cidb_handle.GetTimeToDeadline(options.master_build_id)
 
       if slave_timeout is not None:
-        # Cut me some slack. We artificially add a a small time here to the
-        # slave_timeout because '0' is handled specially, and because we don't
-        # want to timeout while trying to set things up.
-        slave_timeout = slave_timeout + 20
+        # We artificially set a minimum slave_timeout because '0' is handled
+        # specially, and because we don't want to timeout while trying to set
+        # things up.
+        slave_timeout = max(slave_timeout, 20)
         if options.timeout == 0 or slave_timeout < options.timeout:
           logging.info('Updating slave build timeout to %d seconds enforced '
                        'by the master', slave_timeout)

@@ -23,7 +23,7 @@ found in the LICENSE file.
  * @fileoverview Base class for trace data Auditors.
  */
 tr.exportTo('tr.e.audits', function() {
-  var Auditor = tr.c.Auditor;
+  const Auditor = tr.c.Auditor;
 
   /**
    * Auditor for Chrome-specific traces.
@@ -32,7 +32,7 @@ tr.exportTo('tr.e.audits', function() {
   function ChromeAuditor(model) {
     Auditor.call(this, model);
 
-    var modelHelper = this.model.getOrCreateHelper(
+    const modelHelper = this.model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
     if (modelHelper && modelHelper.browserHelper) {
       // Must be a browserHelper in order to do audits.
@@ -45,11 +45,11 @@ tr.exportTo('tr.e.audits', function() {
   ChromeAuditor.prototype = {
     __proto__: Auditor.prototype,
 
-    runAnnotate: function() {
+    runAnnotate() {
       if (!this.modelHelper) return;
 
-      for (var pid in this.modelHelper.rendererHelpers) {
-        var rendererHelper = this.modelHelper.rendererHelpers[pid];
+      for (const pid in this.modelHelper.rendererHelpers) {
+        const rendererHelper = this.modelHelper.rendererHelpers[pid];
 
         if (rendererHelper.isChromeTracingUI) {
           rendererHelper.process.important = false;
@@ -60,12 +60,12 @@ tr.exportTo('tr.e.audits', function() {
     /**
      * Called by import to install userFriendlyCategoryDriver.
      */
-    installUserFriendlyCategoryDriverIfNeeded: function() {
+    installUserFriendlyCategoryDriverIfNeeded() {
       this.model.addUserFriendlyCategoryDriver(
           tr.e.chrome.ChromeUserFriendlyCategoryDriver);
     },
 
-    runAudit: function() {
+    runAudit() {
       if (!this.modelHelper) return;
 
       this.model.replacePIDRefsInPatchups(

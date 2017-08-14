@@ -23,21 +23,21 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.tracks', function() {
-  var EventPresenter = tr.ui.b.EventPresenter;
-  var SelectionState = tr.model.SelectionState;
+  const EventPresenter = tr.ui.b.EventPresenter;
+  const SelectionState = tr.model.SelectionState;
 
   /**
    * A track that displays an array of dots with filled letters inside them.
    * @constructor
    * @extends {Track}
    */
-  var LetterDotTrack = tr.ui.b.define(
+  const LetterDotTrack = tr.ui.b.define(
       'letter-dot-track', tr.ui.tracks.Track);
 
   LetterDotTrack.prototype = {
     __proto__: tr.ui.tracks.Track.prototype,
 
-    decorate: function(viewport) {
+    decorate(viewport) {
       tr.ui.tracks.Track.prototype.decorate.call(this, viewport);
       Polymer.dom(this).classList.add('letter-dot-track');
       this.items_ = undefined;
@@ -79,7 +79,7 @@ tr.exportTo('tr.ui.tracks', function() {
       return 7 * (window.devicePixelRatio || 1);
     },
 
-    draw: function(type, viewLWorld, viewRWorld) {
+    draw(type, viewLWorld, viewRWorld) {
       if (this.items_ === undefined) return;
 
       switch (type) {
@@ -89,42 +89,42 @@ tr.exportTo('tr.ui.tracks', function() {
       }
     },
 
-    drawLetterDots_: function(viewLWorld, viewRWorld) {
-      var ctx = this.context();
-      var pixelRatio = window.devicePixelRatio || 1;
+    drawLetterDots_(viewLWorld, viewRWorld) {
+      const ctx = this.context();
+      const pixelRatio = window.devicePixelRatio || 1;
 
-      var bounds = this.getBoundingClientRect();
-      var height = bounds.height * pixelRatio;
-      var halfHeight = height * 0.5;
-      var twoPi = Math.PI * 2;
+      const bounds = this.getBoundingClientRect();
+      const height = bounds.height * pixelRatio;
+      const halfHeight = height * 0.5;
+      const twoPi = Math.PI * 2;
 
       // Culling parameters.
-      var dt = this.viewport.currentDisplayTransform;
-      var dumpRadiusView = this.dumpRadiusView;
-      var itemRadiusWorld = dt.xViewVectorToWorld(height);
+      const dt = this.viewport.currentDisplayTransform;
+      const dumpRadiusView = this.dumpRadiusView;
+      const itemRadiusWorld = dt.xViewVectorToWorld(height);
 
       // Draw the memory dumps.
-      var items = this.items_;
-      var loI = tr.b.math.findLowIndexInSortedArray(
+      const items = this.items_;
+      const loI = tr.b.math.findLowIndexInSortedArray(
           items,
           function(item) { return item.start; },
           viewLWorld);
 
-      var oldFont = ctx.font;
+      const oldFont = ctx.font;
       ctx.font = '400 ' + Math.floor(9 * pixelRatio) + 'px Arial';
       ctx.strokeStyle = 'rgb(0,0,0)';
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'center';
 
-      var drawItems = function(selected) {
-        for (var i = loI; i < items.length; ++i) {
-          var item = items[i];
-          var x = item.start;
+      const drawItems = function(selected) {
+        for (let i = loI; i < items.length; ++i) {
+          const item = items[i];
+          const x = item.start;
           if (x - itemRadiusWorld > viewRWorld) break;
 
           if (item.selected !== selected) continue;
 
-          var xView = dt.xWorldToView(x);
+          const xView = dt.xWorldToView(x);
 
           ctx.fillStyle = EventPresenter.getSelectableItemColorAsString(item);
           ctx.beginPath();
@@ -160,7 +160,7 @@ tr.exportTo('tr.ui.tracks', function() {
       ctx.font = oldFont;
     },
 
-    addEventsToTrackMap: function(eventToTrackMap) {
+    addEventsToTrackMap(eventToTrackMap) {
       if (this.items_ === undefined) return;
 
       this.items_.forEach(function(item) {
@@ -168,11 +168,11 @@ tr.exportTo('tr.ui.tracks', function() {
       }, this);
     },
 
-    addIntersectingEventsInRangeToSelectionInWorldSpace: function(
+    addIntersectingEventsInRangeToSelectionInWorldSpace(
         loWX, hiWX, viewPixWidthWorld, selection) {
       if (this.items_ === undefined) return;
 
-      var itemRadiusWorld = viewPixWidthWorld * this.dumpRadiusView;
+      const itemRadiusWorld = viewPixWidthWorld * this.dumpRadiusView;
       tr.b.math.iterateOverIntersectingIntervals(
           this.items_,
           function(x) { return x.start - itemRadiusWorld; },
@@ -193,16 +193,16 @@ tr.exportTo('tr.ui.tracks', function() {
      * @return {boolean} Whether an event was found.
      * @private
      */
-    addEventNearToProvidedEventToSelection: function(event, offset, selection) {
+    addEventNearToProvidedEventToSelection(event, offset, selection) {
       if (this.items_ === undefined) return;
 
-      var items = this.items_;
-      var index = tr.b.findFirstIndexInArray(items, function(item) {
+      const items = this.items_;
+      const index = tr.b.findFirstIndexInArray(items, function(item) {
         return item.modelItem === event;
       });
       if (index === -1) return false;
 
-      var newIndex = index + offset;
+      const newIndex = index + offset;
       if (newIndex >= 0 && newIndex < items.length) {
         items[newIndex].addToSelection(selection);
         return true;
@@ -210,14 +210,14 @@ tr.exportTo('tr.ui.tracks', function() {
       return false;
     },
 
-    addAllEventsMatchingFilterToSelection: function(filter, selection) {
+    addAllEventsMatchingFilterToSelection(filter, selection) {
     },
 
-    addClosestEventToSelection: function(worldX, worldMaxDist, loY, hiY,
+    addClosestEventToSelection(worldX, worldMaxDist, loY, hiY,
         selection) {
       if (this.items_ === undefined) return;
 
-      var item = tr.b.math.findClosestElementInSortedArray(
+      const item = tr.b.math.findClosestElementInSortedArray(
           this.items_,
           function(x) { return x.start; },
           worldX,

@@ -12,22 +12,22 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
-  var testOptions = {
-    setUp: function() {
+  const testOptions = {
+    setUp() {
     },
-    tearDown: function() {
+    tearDown() {
     }
   };
 
   test('instantiate', function() {
-    var legendTooltip = document.createElement('chart-legend-tooltip');
+    const legendTooltip = document.createElement('chart-legend-tooltip');
     legendTooltip.description = 'Amazing description.';
     legendTooltip.direction = 'Lower';
     legendTooltip.path = 'Master/bot/test.suite/metric';
     legendTooltip.units = 'us';
 
-    var container = document.createElement('div');
-    var text = document.createElement('span');
+    const container = document.createElement('div');
+    const text = document.createElement('span');
     Polymer.dom(text).textContent =
       'this_is_a_long_mertric_name';
     Polymer.dom(container).appendChild(text);

@@ -44,6 +44,19 @@ found in the LICENSE file.
       display: flex;
       justify-content: center;
     }
+
+    .bar {
+      width: 100px;
+      height: 100px;
+    }
+    .pass {
+      background-color: #7b7;
+      width: 100%;
+    }
+    .fail {
+      background-color: #d66;
+      width: 100%;
+    }
     </style>
 
     <app-route route="{{route}}" pattern="/:jobId" data="{{data}}"></app-route>
@@ -79,7 +92,10 @@ found in the LICENSE file.
             <tr>
               <th>{{quest(questIndex)}}</th>
               <template is="dom-repeat" items="{{jobInfo.state.changes}}" as="change" index-as="changeIndex">
-                <td>{{resultValues(changeIndex, questIndex)}}</td>
+                <td class="bar">
+                  <div class="pass" style="height: {{passPercent(changeIndex, questIndex)}}%"></div>
+                  <div class="fail" style="height: {{failPercent(changeIndex, questIndex)}}%"></div>
+                </td>
               </template>
             <tr>
           </template>
@@ -118,29 +134,35 @@ found in the LICENSE file.
         }
       },
 
-      quest: function(questIndex) {
+      quest(questIndex) {
         return this.jobInfo.state.quests[questIndex];
       },
 
-      resultValues: function(changeIndex, questIndex) {
-        return this.jobInfo.state.result_values[changeIndex][questIndex];
+      passPercent(changeIndex, questIndex) {
+        const allResultValues = this.jobInfo.state.result_values;
+        const values = allResultValues[changeIndex][questIndex];
+        return 100 * values.filter(x => x == 0).length / values.length;
       },
 
-      deselected: function() {
+      failPercent(changeIndex, questIndex) {
+        return 100 - this.passPercent(changeIndex, questIndex);
+      },
+
+      deselected() {
         this.set('jobProperties', []);
       },
 
-      selected: function() {
+      selected() {
         this.loading = true;
 
-        var params = {job_id: this.data.jobId};
-        simple_xhr.send('/_ah/api/job', params,
+        const params = {job_id: this.data.jobId};
+        simple_xhr.send('/api/job', params,
             function(response) {
-              var jobInfo = response['data'];
+              const jobInfo = response.data;
               this.set('jobInfo', jobInfo);
 
-              var jobProperties = [];
-              for (let key in jobInfo) {
+              const jobProperties = [];
+              for (const key in jobInfo) {
                 jobProperties.push({name: key, value: jobInfo[key]});
               }
               this.set('jobProperties', jobProperties);

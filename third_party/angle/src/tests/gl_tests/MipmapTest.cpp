@@ -158,7 +158,8 @@ class MipmapTest : public BaseMipmapTest
 
         // Initialize the texture2D to be empty, and don't use mips.
         glBindTexture(GL_TEXTURE_2D, mTexture2D);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, getWindowWidth(), getWindowHeight(), 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, getWindowWidth(), getWindowHeight(), 0, GL_RGB,
+                     GL_UNSIGNED_BYTE, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
@@ -459,7 +460,8 @@ TEST_P(MipmapTest, DISABLED_ThreeLevelsInitData)
     int n = 1;
     while (getWindowWidth() / (1U << n) >= 1)
     {
-        glTexImage2D(GL_TEXTURE_2D, n, GL_RGB, getWindowWidth() / (1U << n), getWindowWidth() / (1U << n), 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, n, GL_RGB, getWindowWidth() / (1U << n),
+                     getWindowWidth() / (1U << n), 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
         ASSERT_GL_NO_ERROR();
         n+=1;
     }
@@ -1149,6 +1151,43 @@ TEST_P(MipmapTestES3, GenerateMipmapBaseLevelOutOfRangeImmutableTexture)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     clearAndDrawQuad(m2DProgram, getWindowWidth(), getWindowHeight());
     EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, getWindowHeight() / 2, GLColor::green);
+}
+
+// A native version of the WebGL2 test tex-base-level-bug.html
+TEST_P(MipmapTestES3, BaseLevelTextureBug)
+{
+    if (IsOpenGL() && IsAMD())
+    {
+        std::cout << "Test skipped on Windows AMD OpenGL." << std::endl;
+        return;
+    }
+
+#if defined(ANGLE_PLATFORM_APPLE)
+    // Regression in 10.12.4 needing workaround -- crbug.com/705865.
+    // Seems to be passing on AMD GPUs. Definitely not NVIDIA.
+    // Probably not Intel.
+    if (IsNVIDIA() || IsIntel())
+    {
+        std::cout << "Test skipped on macOS with NVIDIA and Intel GPUs." << std::endl;
+        return;
+    }
+#endif
+
+    glBindTexture(GL_TEXTURE_2D, mTexture);
+    glTexImage2D(GL_TEXTURE_2D, 2, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, &GLColor::red);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 2);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    ASSERT_GL_NO_ERROR();
+
+    drawQuad(m2DProgram, "position", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_GL_NO_ERROR();
+
+    drawQuad(m2DProgram, "position", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
 }
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these tests should be run against.

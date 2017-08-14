@@ -195,7 +195,7 @@ found in the LICENSE file.
       /**
        * Custom element lifecycle callback, called once this element is ready.
        */
-      ready: function() {
+      ready() {
         this.logList = [];
         this.xhr = null;
         if (this.loadOnReady) {
@@ -214,7 +214,7 @@ found in the LICENSE file.
        * @param {string} logName Log name.
        * @param {string} logFilter A regex string to filter logs.
        */
-      initialize: function(logLabel, logNamespace, logName, logFilter) {
+      initialize(logLabel, logNamespace, logName, logFilter) {
         this.logLabel = logLabel;
         this.logNamespace = logNamespace;
         this.logName = logName;
@@ -228,28 +228,28 @@ found in the LICENSE file.
        * @param {boolean} latest True to get the latest logs,
                           False to get older logs.
        */
-      getLogs: function(latest) {
+      getLogs(latest) {
         latest = ((latest == undefined) ? true : latest);
         if (this.xhr) {
           this.xhr.abort();
           this.xhr = null;
         }
         this.setState('loading');
-        var params = {
+        const params = {
           namespace: this.logNamespace,
           name: this.logName,
           size: this.MAX_LOG_REQUEST_SIZE,
           xsrf_token: this.xsrfToken
         };
         if (this.logFilter) {
-          params['filter'] = this.logFilter;
+          params.filter = this.logFilter;
         }
         if (this.logList.length > 0) {
           if (latest) {
-            params['after_timestamp'] = this.logList[0].timestamp;
+            params.after_timestamp = this.logList[0].timestamp;
           } else {
-            var lastLog = this.logList[this.logList.length - 1];
-            params['before_timestamp'] = lastLog.timestamp;
+            const lastLog = this.logList[this.logList.length - 1];
+            params.before_timestamp = lastLog.timestamp;
           }
         }
         this.xhr = simple_xhr.send('/get_logs', params,
@@ -271,18 +271,18 @@ found in the LICENSE file.
        * Updates current displaying logs with new logs.
        * @param {Array.<Object>} newLogs Array of log objects.
        */
-      updateLogs: function(newLogs) {
-        var insertBefore = true;
+      updateLogs(newLogs) {
+        let insertBefore = true;
         if (this.logList.length) {
-          var lastTimestamp = newLogs[newLogs.length - 1].timestamp;
+          const lastTimestamp = newLogs[newLogs.length - 1].timestamp;
           insertBefore = lastTimestamp >= this.logList[0].timestamp;
         }
 
-        var table = this.$.logs;
+        const table = this.$.logs;
         if (insertBefore) {
           newLogs.reverse();
         }
-        for (var i = 0; i < newLogs.length; i++) {
+        for (let i = 0; i < newLogs.length; i++) {
           this.removeLog(table, newLogs[i]);
           this.insertLog(table, newLogs[i], insertBefore);
         }
@@ -296,21 +296,21 @@ found in the LICENSE file.
        * @param {Object} log A log object.
        * @param {boolean} insertBefore true to prepend, false to append.
        */
-      insertLog: function(table, log, insertBefore) {
+      insertLog(table, log, insertBefore) {
         if (insertBefore) {
           this.logList.unshift(log);
         } else {
           this.logList.push(log);
         }
-        var row = document.createElement('tr');
-        var expandTd = document.createElement('td');
+        const row = document.createElement('tr');
+        const expandTd = document.createElement('td');
         Polymer.dom(row).appendChild(expandTd);
-        var span = document.createElement('span');
+        const span = document.createElement('span');
         span.className = 'toggle-arrow arrow-right';
         Polymer.dom(expandTd).appendChild(span);
 
-        var td = document.createElement('td');
-        var messageDiv = document.createElement('div');
+        const td = document.createElement('td');
+        const messageDiv = document.createElement('div');
         messageDiv.className = 'message';
         Polymer.dom(row).appendChild(td);
         Polymer.dom(td).appendChild(messageDiv);
@@ -324,8 +324,8 @@ found in the LICENSE file.
        * @param {Object} table Table HTML element.
        * @param {Object} log A log object.
        */
-      removeLog: function(table, log) {
-        for (var i = 0; i < this.logList.length; i++) {
+      removeLog(table, log) {
+        for (let i = 0; i < this.logList.length; i++) {
           if (log.id == this.logList[i].id) {
             this.logList.splice(i, 1);
             table.deleteRow(i);
@@ -336,8 +336,8 @@ found in the LICENSE file.
       /**
        * Toggles show/hide log.
        */
-      onLogToggleClick: function(messageDiv, e) {
-        var arrowIcon = e.target;
+      onLogToggleClick(messageDiv, e) {
+        const arrowIcon = e.target;
         if (arrowIcon.className.indexOf('arrow-right') > -1) {
           arrowIcon.className = 'toggle-arrow arrow-down';
           messageDiv.className = 'message expand';
@@ -351,7 +351,7 @@ found in the LICENSE file.
       /**
        * Specifies loading state.
        */
-      setState: function(state) {
+      setState(state) {
         switch (state) {
           case 'loading':
             this.stepLoading = true;
@@ -367,7 +367,7 @@ found in the LICENSE file.
       /**
        * Toggles show/hide log container.
        */
-      toggleView: function() {
+      toggleView() {
         if (this.$.content.style.display == '') {
           this.hide();
         } else {
@@ -379,10 +379,10 @@ found in the LICENSE file.
       /**
        * Scrolls into view if log container is out of view.
        */
-      scrollIntoView: function() {
-        var el = this.$.content;
-        var bottomOfPage = window.pageYOffset + window.innerHeight;
-        var bottomOfEl = el.offsetTop + el.offsetHeight;
+      scrollIntoView() {
+        const el = this.$.content;
+        const bottomOfPage = window.pageYOffset + window.innerHeight;
+        const bottomOfEl = el.offsetTop + el.offsetHeight;
         if (bottomOfEl > bottomOfPage) {
           el.scrollIntoView();
         }
@@ -391,7 +391,7 @@ found in the LICENSE file.
       /**
        * Refreshes log container.
        */
-      refresh: function() {
+      refresh() {
         if (this.stepLoading) {
           return;
         }
@@ -401,7 +401,7 @@ found in the LICENSE file.
       /**
        * Shows log container.
        */
-      show: function() {
+      show() {
         this.$['log-label'].icon = 'expand-less';
         this.$.content.style.display = '';
         if (!this.stepLoading) {
@@ -413,7 +413,7 @@ found in the LICENSE file.
       /**
        * Hides log container.
        */
-      hide: function() {
+      hide() {
         this.$['log-label'].icon = 'expand-more';
         this.$.content.style.display = 'none';
         this.$['refresh-btn'].disabled = true;
@@ -422,7 +422,7 @@ found in the LICENSE file.
       /**
        * Clear logs.
        */
-      clear: function() {
+      clear() {
         this.logList = [];
         Polymer.dom(this.$.logs).innerHTML = '';
       },
@@ -431,7 +431,7 @@ found in the LICENSE file.
        * Since we use absolute inner div, we'll keep the parent div updated
        * to make sure this element doesn't overlap with elements below.
        */
-      updateHeight: function() {
+      updateHeight() {
         this.$.content.style.height = (
             this.$['inner-content'].offsetHeight + 'px');
       }

@@ -14,13 +14,13 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
-  var generalModel;
+  let generalModel;
   function getOrCreateGeneralModel() {
     if (generalModel !== undefined) {
       generalModel;
     }
-    var fileUrl = '/test_data/thread_time_visualisation.json.gz';
-    var events = tr.b.getSync(fileUrl);
+    const fileUrl = '/test_data/thread_time_visualisation.json.gz';
+    const events = tr.b.getSync(fileUrl);
     generalModel = tr.c.TestUtils.newModelWithEvents([events]);
     return generalModel;
   }
@@ -34,7 +34,7 @@ tr.b.unittest.testSuite(function() {
   DCPerfTestCase.prototype = {
     __proto__: tr.b.unittest.PerfTestCase.prototype,
 
-    setUp: function(model) {
+    setUp(model) {
       this.viewportDiv = document.createElement('div');
 
       this.viewport = new tr.ui.TimelineViewport(this.viewportDiv);
@@ -42,7 +42,7 @@ tr.b.unittest.testSuite(function() {
       this.drawingContainer = new tr.ui.tracks.DrawingContainer(this.viewport);
       this.viewport.modelTrackContainer = this.drawingContainer;
 
-      var modelTrack = new tr.ui.tracks.ModelTrack(this.viewport);
+      const modelTrack = new tr.ui.tracks.ModelTrack(this.viewport);
       Polymer.dom(this.drawingContainer).appendChild(modelTrack);
 
       modelTrack.model = model;
@@ -55,17 +55,17 @@ tr.b.unittest.testSuite(function() {
       this.drawingContainer.updateCanvasSizeIfNeeded_();
 
       // Size the viewport.
-      var w = this.drawingContainer.canvas.width;
-      var min = model.bounds.min;
-      var range = model.bounds.range;
+      const w = this.drawingContainer.canvas.width;
+      const min = model.bounds.min;
+      const range = model.bounds.range;
 
-      var boost = range * 0.15;
-      var dt = new tr.ui.TimelineDisplayTransform();
+      const boost = range * 0.15;
+      const dt = new tr.ui.TimelineDisplayTransform();
       dt.xSetWorldBounds(min - boost, min + range + boost, w);
       this.viewport.setDisplayTransformImmediately(dt);
     },
 
-    runOneIteration: function() {
+    runOneIteration() {
       this.drawingContainer.draw_();
     }
   };
@@ -78,8 +78,8 @@ tr.b.unittest.testSuite(function() {
   GeneralDCPerfTestCase.prototype = {
     __proto__: DCPerfTestCase.prototype,
 
-    setUp: function() {
-      var model = getOrCreateGeneralModel();
+    setUp() {
+      const model = getOrCreateGeneralModel();
       DCPerfTestCase.prototype.setUp.call(this, model);
     }
   };
@@ -102,14 +102,14 @@ tr.b.unittest.testSuite(function() {
   AsyncDCPerfTestCase.prototype = {
     __proto__: DCPerfTestCase.prototype,
 
-    setUp: function() {
-      var model = tr.c.TestUtils.newModel(function(m) {
-        var proc = m.getOrCreateProcess(1);
-        for (var tid = 1; tid <= 5; tid++) {
-          var thread = proc.getOrCreateThread(tid);
-          for (var i = 0; i < 5000; i++) {
-            var mod = Math.floor(i / 100) % 4;
-            var slice = tr.c.TestUtils.newAsyncSliceEx({
+    setUp() {
+      const model = tr.c.TestUtils.newModel(function(m) {
+        const proc = m.getOrCreateProcess(1);
+        for (let tid = 1; tid <= 5; tid++) {
+          const thread = proc.getOrCreateThread(tid);
+          for (let i = 0; i < 5000; i++) {
+            const mod = Math.floor(i / 100) % 4;
+            const slice = tr.c.TestUtils.newAsyncSliceEx({
               name: 'Test' + i,
               colorId: tid + mod,
               id: tr.b.GUID.allocateSimple(),
@@ -123,9 +123,9 @@ tr.b.unittest.testSuite(function() {
       });
       DCPerfTestCase.prototype.setUp.call(this, model);
 
-      var w = this.drawingContainer.canvas.width;
+      const w = this.drawingContainer.canvas.width;
 
-      var dt = new tr.ui.TimelineDisplayTransform();
+      const dt = new tr.ui.TimelineDisplayTransform();
       dt.xSetWorldBounds(-2000, 54000, w);
       this.viewport.setDisplayTransformImmediately(dt);
     }

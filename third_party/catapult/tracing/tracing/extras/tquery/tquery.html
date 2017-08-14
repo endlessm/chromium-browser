@@ -42,7 +42,7 @@ tr.exportTo('tr.e.tquery', function() {
   TQuery.prototype = {
     __proto__: tr.c.ScriptingObject.prototype,
 
-    onModelChanged: function(model) {
+    onModelChanged(model) {
       this.model_ = model;
       this.selection_ = undefined;
     },
@@ -53,8 +53,8 @@ tr.exportTo('tr.e.tquery', function() {
 
     // Append a new filter expression to this query and return a query node
     // that represents the result.
-    filter: function(filterExpression) {
-      var result = new TQuery(this.model_);
+    filter(filterExpression) {
+      const result = new TQuery(this.model_);
       result.parent_ = this;
       result.filterExpression_ =
           tr.e.tquery.Filter.normalizeFilterExpression(filterExpression);
@@ -71,17 +71,18 @@ tr.exportTo('tr.e.tquery', function() {
     //  - lastNode: The last filter object in the task. It's selection property
     //              will contain the filtering result once |finalTask|
     //              completes.
-    createFilterTaskGraph_: function() {
+    createFilterTaskGraph_() {
       // List of nodes in order from the current one to the root.
-      let nodes = [this];
+      const nodes = [this];
       while (nodes[nodes.length - 1].parent_) {
         nodes.push(nodes[nodes.length - 1].parent_);
       }
 
-      var rootTask = new tr.b.Task();
-      var lastTask = rootTask;
-      for (var i = nodes.length - 1; i >= 0; i--) {
-        var node = nodes[i];
+      const rootTask = new tr.b.Task();
+      let lastTask = rootTask;
+      let node;
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        node = nodes[i];
         // Reuse any memoized result.
         if (node.selection_ !== undefined) continue;
         node.selection_ = new tr.model.EventSet();
@@ -93,14 +94,14 @@ tr.exportTo('tr.e.tquery', function() {
         } else {
           // Otherwise execute the filter expression for this node and fill
           // in its selection.
-          var prevNode = nodes[i + 1];
+          const prevNode = nodes[i + 1];
           lastTask = this.createFilterTaskForNode_(lastTask, node, prevNode);
         }
       }
-      return {rootTask: rootTask, lastTask: lastTask, lastNode: node};
+      return {rootTask, lastTask, lastNode: node};
     },
 
-    createFilterTaskForNode_: function(lastTask, node, prevNode) {
+    createFilterTaskForNode_(lastTask, node, prevNode) {
       return lastTask.after(function() {
         // TODO(skyostil): Break into subtasks.
         node.evaluateFilterExpression_(
@@ -110,19 +111,19 @@ tr.exportTo('tr.e.tquery', function() {
 
     // Applies the result of a filter expression for a given event and all
     // of its subslices and adds the matching events to an output selection.
-    evaluateFilterExpression_: function(inputSelection, outputSelection) {
-      var seenEvents = {};
+    evaluateFilterExpression_(inputSelection, outputSelection) {
+      const seenEvents = {};
       inputSelection.forEach(function(event) {
-        var context = new tr.e.tquery.Context();
+        const context = new tr.e.tquery.Context();
         context.event = event;
         this.evaluateFilterExpressionForEvent_(
             context, inputSelection, outputSelection, seenEvents);
       }.bind(this));
     },
 
-    evaluateFilterExpressionForEvent_: function(
+    evaluateFilterExpressionForEvent_(
         context, inputSelection, outputSelection, seenEvents) {
-      var event = context.event;
+      const event = context.event;
       if (inputSelection.contains(event) && !seenEvents[event.guid]) {
         seenEvents[event.guid] = true;
         if (!this.filterExpression_ ||
@@ -132,7 +133,7 @@ tr.exportTo('tr.e.tquery', function() {
       }
       if (!event.subSlices) return;
       context = context.push(event);
-      for (var i = 0; i < event.subSlices.length; i++) {
+      for (let i = 0; i < event.subSlices.length; i++) {
         context.event = event.subSlices[i];
         this.evaluateFilterExpressionForEvent_(
             context, inputSelection, outputSelection, seenEvents);
@@ -141,11 +142,11 @@ tr.exportTo('tr.e.tquery', function() {
 
     // Returns a task that fills the given selection with everything in the
     // model.
-    selectEverythingAsTask_: function(selection) {
-      var filterTask = new tr.b.Task();
-      for (let container of this.model_.getDescendantEventContainers()) {
+    selectEverythingAsTask_(selection) {
+      const filterTask = new tr.b.Task();
+      for (const container of this.model_.getDescendantEventContainers()) {
         filterTask.subTask(() => {
-          for (var event of container.childEvents()) {
+          for (const event of container.childEvents()) {
             addEventTreeToSelection(selection, event);
           }
         }, this);
@@ -155,9 +156,9 @@ tr.exportTo('tr.e.tquery', function() {
 
     // Returns a promise which will resolve into a {EventSet} representing the
     // result of this query.
-    ready: function() {
+    ready() {
       return new Promise(function(resolve, reject) {
-        var graph = this.createFilterTaskGraph_();
+        const graph = this.createFilterTaskGraph_();
         graph.lastTask = graph.lastTask.after(function() {
           resolve(this.selection_);
         }, this);
@@ -167,7 +168,7 @@ tr.exportTo('tr.e.tquery', function() {
 
     get selection() {
       if (this.selection_ === undefined) {
-        var graph = this.createFilterTaskGraph_();
+        const graph = this.createFilterTaskGraph_();
         tr.b.Task.RunSynchronously(graph.rootTask);
       }
       return this.selection_;

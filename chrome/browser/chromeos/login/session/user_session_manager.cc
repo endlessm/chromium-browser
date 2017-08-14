@@ -12,6 +12,7 @@
 
 #include "base/base_paths.h"
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -57,13 +58,12 @@
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/supervised_user_manager.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
-#include "chrome/browser/chromeos/net/tether_notification_presenter.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/chromeos/tether/tether_service.h"
 #include "chrome/browser/component_updater/ev_whitelist_component_installer.h"
 #include "chrome/browser/component_updater/sth_set_component_installer.h"
-#include "chrome/browser/cryptauth/chrome_cryptauth_service_factory.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/google/google_brand_chromeos.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
@@ -74,7 +74,6 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/easy_unlock_service.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/supervised_user/child_accounts/child_account_service.h"
 #include "chrome/browser/supervised_user/child_accounts/child_account_service_factory.h"
@@ -86,15 +85,12 @@
 #include "chrome/common/pref_names.h"
 #include "chromeos/cert_loader.h"
 #include "chromeos/chromeos_switches.h"
-#include "chromeos/components/tether/initializer.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/cryptohome/cryptohome_util.h"
 #include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
 #include "chromeos/login/auth/stub_authenticator.h"
-#include "chromeos/network/network_connect.h"
-#include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
 #include "chromeos/network/portal_detector/network_portal_detector_strategy.h"
 #include "chromeos/settings/cros_settings_names.h"
@@ -257,13 +253,13 @@ base::FilePath GetRlzDisabledFlagPath() {
 }
 #endif
 
-// Callback to GetNSSCertDatabaseForProfile. It starts CertLoader using the
-// provided NSS database. It must be called for primary user only.
+// Callback to GetNSSCertDatabaseForProfile. It passes the user-specific NSS
+// database to CertLoader. It must be called for primary user only.
 void OnGetNSSCertDatabaseForUser(net::NSSCertDatabase* database) {
   if (!CertLoader::IsInitialized())
     return;
 
-  CertLoader::Get()->StartWithNSSDB(database);
+  CertLoader::Get()->SetUserNSSDB(database);
 }
 
 // Returns new CommandLine with per-user flags.
@@ -361,6 +357,13 @@ void RestartOnTimeout() {
   LOG(WARNING) << "Restarting Chrome because the time out was reached."
                   "The session restore has not finished.";
   chrome::AttemptRestart();
+}
+
+bool IsRunningTest() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+             ::switches::kTestName) ||
+         base::CommandLine::ForCurrentProcess()->HasSwitch(
+             ::switches::kTestType);
 }
 
 }  // namespace
@@ -602,11 +605,9 @@ void UserSessionManager::InitRlz(Profile* profile) {
     return;
   }
   base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, base::TaskTraits()
-                     .WithShutdownBehavior(
-                         base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN)
-                     .WithPriority(base::TaskPriority::BACKGROUND)
-                     .MayBlock(),
+      FROM_HERE,
+      {base::MayBlock(), base::TaskPriority::BACKGROUND,
+       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::Bind(&base::PathExists, GetRlzDisabledFlagPath()),
       base::Bind(&UserSessionManager::InitRlzImpl, AsWeakPtr(), profile));
 #endif
@@ -893,15 +894,11 @@ void UserSessionManager::OnSessionRestoreStateChanged(
 
 void UserSessionManager::OnConnectionTypeChanged(
     net::NetworkChangeNotifier::ConnectionType type) {
-  bool is_running_test =
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ::switches::kTestName) ||
-      base::CommandLine::ForCurrentProcess()->HasSwitch(::switches::kTestType);
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
   if (type == net::NetworkChangeNotifier::CONNECTION_NONE ||
       !user_manager->IsUserLoggedIn() ||
       !user_manager->IsLoggedInAsUserWithGaiaAccount() ||
-      user_manager->IsLoggedInAsStub() || is_running_test) {
+      user_manager->IsLoggedInAsStub() || IsRunningTest()) {
     return;
   }
 
@@ -933,8 +930,7 @@ void UserSessionManager::OnConnectionTypeChanged(
 
 void UserSessionManager::OnProfilePrepared(Profile* profile,
                                            bool browser_launched) {
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ::switches::kTestName)) {
+  if (!IsRunningTest()) {
     // Did not log in (we crashed or are debugging), need to restore Sync.
     // TODO(nkostylev): Make sure that OAuth state is restored correctly for all
     // users once it is fully multi-profile aware. http://crbug.com/238987
@@ -1069,6 +1065,11 @@ void UserSessionManager::InitProfilePreferences(
       const AccountInfo info = account_tracker->FindAccountInfoByEmail(
           user_context.GetAccountId().GetUserEmail());
       gaia_id = info.gaia;
+
+      // Use a fake gaia id for tests that do not have it.
+      if (IsRunningTest() && gaia_id.empty())
+        gaia_id = "fake_gaia_id_" + user_context.GetAccountId().GetUserEmail();
+
       DCHECK(!gaia_id.empty());
     }
 
@@ -1211,8 +1212,12 @@ void UserSessionManager::FinalizePrepareProfile(Profile* profile) {
 
   profile->OnLogin();
 
-  session_manager::SessionManager::Get()->SetSessionState(
-      session_manager::SessionState::LOGGED_IN_NOT_ACTIVE);
+  // Skip LOGGED_IN_NOT_ACTIVE state for kiosk launching so that login dialog
+  // such as network config during launch is put on top of the login screen.
+  if (!user_manager->IsLoggedInAsKioskApp()) {
+    session_manager::SessionManager::Get()->SetSessionState(
+        session_manager::SessionState::LOGGED_IN_NOT_ACTIVE);
+  }
 
   // Send the notification before creating the browser so additional objects
   // that need the profile (e.g. the launcher) can be created first.
@@ -1232,18 +1237,9 @@ void UserSessionManager::FinalizePrepareProfile(Profile* profile) {
 
     arc::ArcServiceLauncher::Get()->OnPrimaryUserProfilePrepared(profile);
 
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            chromeos::switches::kEnableTether)) {
-      auto notification_presenter =
-          base::MakeUnique<tether::TetherNotificationPresenter>(
-              message_center::MessageCenter::Get(), NetworkConnect::Get());
-      chromeos::tether::Initializer::Init(
-          ChromeCryptAuthServiceFactory::GetForBrowserContext(profile),
-          std::move(notification_presenter), profile->GetPrefs(),
-          ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
-          NetworkHandler::Get()->network_state_handler(),
-          NetworkConnect::Get());
-    }
+    TetherService* tether_service = TetherService::Get(profile);
+    if (tether_service)
+      tether_service->StartTetherIfEnabled();
   }
 
   UpdateEasyUnlockKeys(user_context_);
@@ -1534,7 +1530,12 @@ void UserSessionManager::OnRestoreActiveSessions(
 
 void UserSessionManager::RestorePendingUserSessions() {
   if (pending_user_sessions_.empty()) {
-    user_manager::UserManager::Get()->SwitchToLastActiveUser();
+    // '>1' ignores "restart on signin" because of browser flags difference.
+    // In this case, last_session_active_account_id_ can carry account_id
+    // from the previous browser session.
+    if (user_manager::UserManager::Get()->GetLoggedInUsers().size() > 1)
+      user_manager::UserManager::Get()->SwitchToLastActiveUser();
+
     NotifyPendingUserSessionsRestoreFinished();
     return;
   }
@@ -1761,11 +1762,6 @@ void UserSessionManager::DoBrowserLaunchInternal(Profile* profile,
 
   BootTimesRecorder::Get()->AddLoginTimeMarker("BrowserLaunched", false);
 
-  // Mark user session as started before creating browser window. Otherwise,
-  // ash would not activate the created browser window because it thinks
-  // user session is blocked.
-  session_manager::SessionManager::Get()->SessionStarted();
-
   VLOG(1) << "Launching browser...";
   TRACE_EVENT0("login", "LaunchBrowser");
 
@@ -1818,11 +1814,18 @@ void UserSessionManager::DoBrowserLaunchInternal(Profile* profile,
         std::make_pair(profile, fingerprint_feature_notification_controller));
   }
 
+  base::OnceClosure login_host_finalized_callback = base::BindOnce(
+      [] { session_manager::SessionManager::Get()->SessionStarted(); });
+
   // Mark login host for deletion after browser starts.  This
   // guarantees that the message loop will be referenced by the
   // browser before it is dereferenced by the login host.
-  if (login_host)
-    login_host->Finalize();
+  if (login_host) {
+    login_host->Finalize(std::move(login_host_finalized_callback));
+  } else {
+    base::ResetAndReturn(&login_host_finalized_callback).Run();
+  }
+
   chromeos::BootTimesRecorder::Get()->LoginDone(
       user_manager::UserManager::Get()->IsCurrentUserNew());
 
@@ -1930,11 +1933,6 @@ bool UserSessionManager::TokenHandlesEnabled() {
 }
 
 void UserSessionManager::Shutdown() {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kEnableTether)) {
-    chromeos::tether::Initializer::Shutdown();
-  }
-
   token_handle_fetcher_.reset();
   token_handle_util_.reset();
   first_run::GoodiesDisplayer::Delete();

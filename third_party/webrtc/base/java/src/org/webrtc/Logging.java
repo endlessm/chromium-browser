@@ -31,7 +31,7 @@ public class Logging {
   private static volatile boolean tracingEnabled;
   private static volatile boolean loggingEnabled;
   private static enum NativeLibStatus { UNINITIALIZED, LOADED, FAILED }
-  private static volatile NativeLibStatus nativeLibStatus;
+  private static volatile NativeLibStatus nativeLibStatus = NativeLibStatus.UNINITIALIZED;
 
   private static Logger createFallbackLogger() {
     final Logger fallbackLogger = Logger.getLogger("org.webrtc.Logging");

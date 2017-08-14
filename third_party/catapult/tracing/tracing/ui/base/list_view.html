@@ -22,13 +22,13 @@ tr.exportTo('tr.ui.b', function() {
   /**
    * @constructor
    */
-  var ListView = tr.ui.b.define(
+  const ListView = tr.ui.b.define(
       'x-list-view', tr.ui.b.ContainerThatDecoratesItsChildren);
 
   ListView.prototype = {
     __proto__: tr.ui.b.ContainerThatDecoratesItsChildren.prototype,
 
-    decorate: function() {
+    decorate() {
       tr.ui.b.ContainerThatDecoratesItsChildren.prototype.decorate.call(this);
 
       Polymer.dom(this).classList.add('x-list-view');
@@ -40,7 +40,7 @@ tr.exportTo('tr.ui.b', function() {
       this.selectionChanged_ = false;
     },
 
-    decorateChild_: function(item) {
+    decorateChild_(item) {
       Polymer.dom(item).classList.add('list-item');
       item.addEventListener('click', this.onItemClicked_, true);
 
@@ -68,7 +68,7 @@ tr.exportTo('tr.ui.b', function() {
           });
     },
 
-    undecorateChild_: function(item) {
+    undecorateChild_(item) {
       this.selectionChanged_ |= item.selected;
 
       Polymer.dom(item).classList.remove('list-item');
@@ -76,18 +76,18 @@ tr.exportTo('tr.ui.b', function() {
       delete item.selected;
     },
 
-    beginDecorating_: function() {
+    beginDecorating_() {
       this.selectionChanged_ = false;
     },
 
-    doneDecoratingForNow_: function() {
+    doneDecoratingForNow_() {
       if (this.selectionChanged_) {
         tr.b.dispatchSimpleEvent(this, 'selection-changed', false);
       }
     },
 
     get selectedElement() {
-      var el = Polymer.dom(this).querySelector('.list-item[selected]');
+      const el = Polymer.dom(this).querySelector('.list-item[selected]');
       if (!el) return undefined;
       return el;
     },
@@ -107,25 +107,25 @@ tr.exportTo('tr.ui.b', function() {
       el.selected = true;
     },
 
-    getElementByIndex: function(index) {
+    getElementByIndex(index) {
       return Polymer.dom(this)
           .querySelector('.list-item:nth-child(' + index + ')');
     },
 
-    clear: function() {
-      var changed = this.selectedElement !== undefined;
+    clear() {
+      const changed = this.selectedElement !== undefined;
       tr.ui.b.ContainerThatDecoratesItsChildren.prototype.clear.call(this);
       if (changed) {
         tr.b.dispatchSimpleEvent(this, 'selection-changed', false);
       }
     },
 
-    onItemClicked_: function(e) {
-      var currentSelectedElement = this.selectedElement;
+    onItemClicked_(e) {
+      const currentSelectedElement = this.selectedElement;
       if (currentSelectedElement) {
         Polymer.dom(currentSelectedElement).removeAttribute('selected');
       }
-      var element = e.target;
+      let element = e.target;
       while (element.parentElement !== this) {
         element = element.parentElement;
       }
@@ -135,11 +135,11 @@ tr.exportTo('tr.ui.b', function() {
       tr.b.dispatchSimpleEvent(this, 'selection-changed', false);
     },
 
-    onKeyDown_: function(e) {
+    onKeyDown_(e) {
       if (this.selectedElement === undefined) return;
 
       if (e.keyCode === 38) { // Up arrow.
-        var prev = Polymer.dom(this.selectedElement).previousSibling;
+        const prev = Polymer.dom(this.selectedElement).previousSibling;
         if (prev) {
           prev.selected = true;
           tr.ui.b.scrollIntoViewIfNeeded(prev);
@@ -147,7 +147,7 @@ tr.exportTo('tr.ui.b', function() {
           return true;
         }
       } else if (e.keyCode === 40) { // Down arrow.
-        var next = Polymer.dom(this.selectedElement).nextSibling;
+        const next = Polymer.dom(this.selectedElement).nextSibling;
         if (next) {
           next.selected = true;
           tr.ui.b.scrollIntoViewIfNeeded(next);
@@ -157,8 +157,8 @@ tr.exportTo('tr.ui.b', function() {
       }
     },
 
-    addItem: function(textContent) {
-      var item = document.createElement('div');
+    addItem(textContent) {
+      const item = document.createElement('div');
       Polymer.dom(item).textContent = textContent;
       Polymer.dom(this).appendChild(item);
       return item;

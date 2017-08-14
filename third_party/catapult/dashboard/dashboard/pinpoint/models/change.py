@@ -4,7 +4,11 @@
 
 import collections
 
+from dashboard.common import namespaced_stored_object
 from dashboard.services import gitiles_service
+
+
+_REPOSITORIES_KEY = 'repositories'
 
 
 class NonLinearError(Exception):
@@ -15,7 +19,7 @@ class Change(collections.namedtuple('Change',
                                     ('base_commit', 'deps', 'patch'))):
   """A particular set of Deps with or without an additional patch applied.
 
-  For example, a Change might sync to chromium/src@9064a40 and catapult@8f26966,
+  For example, a Change might sync to src@9064a40 and catapult@8f26966,
   then apply patch 2423293002.
   """
 
@@ -27,8 +31,7 @@ class Change(collections.namedtuple('Change',
           file at that commit implies the default commits for any dependencies.
       deps: An optional iterable of Deps to override the dependencies implied
           by base_commit.
-      patch: An optional patch to apply to the Change. A string of the format:
-          <gerrit or rietveld>/<server hostname>/<change id>/<patch set>
+      patch: An optional Patch to apply to the Change.
     """
     # TODO: deps is unordered. Make it a frozenset.
     return super(Change, cls).__new__(cls, base_commit, tuple(deps), patch)
@@ -36,16 +39,24 @@ class Change(collections.namedtuple('Change',
   def __str__(self):
     string = ' '.join(str(dep) for dep in self.all_deps)
     if self.patch:
-      string += ' + ' + self.patch
+      string += ' + ' + str(self.patch)
     return string
 
   @property
   def all_deps(self):
     return tuple([self.base_commit] + list(self.deps))
 
-  @property
-  def most_specific_commit(self):
-    return self.deps[-1] if self.deps else self.base_commit
+  @classmethod
+  def FromDict(cls, data):
+    base_commit = Dep.FromDict(data['base_commit'])
+
+    kwargs = {}
+    if 'deps' in data:
+      kwargs['deps'] = tuple(Dep.FromDict(dep) for dep in data['deps'])
+    if 'patch' in data:
+      kwargs['patch'] = Patch.FromDict(data['patch'])
+
+    return cls(base_commit, **kwargs)
 
   @classmethod
   def Midpoint(cls, change_a, change_b):
@@ -88,7 +99,26 @@ class Dep(collections.namedtuple('Dep', ('repository', 'git_hash'))):
   """A git repository pinned to a particular commit."""
 
   def __str__(self):
-    return self.repository.split('/')[-1] + '@' + self.git_hash[:7]
+    return self.repository + '@' + self.git_hash[:7]
+
+  @property
+  def repository_url(self):
+    """The HTTPS URL of the repository as passed to `git clone`."""
+    repositories = namespaced_stored_object.Get(_REPOSITORIES_KEY)
+    return repositories[self.repository]['repository_url']
+
+  def Validate(self):
+    """Validate the Dep to ensure it has a valid repository and git hash.
+
+    Raises:
+      KeyError: The repository name is not in the local datastore.
+      gitiles_service.NotFoundError: The git hash is not valid.
+    """
+    gitiles_service.CommitInfo(self.repository_url, self.git_hash)
+
+  @classmethod
+  def FromDict(cls, data):
+    return cls(data['repository'], data['git_hash'])
 
   @classmethod
   def Midpoint(cls, dep_a, dep_b):
@@ -112,7 +142,7 @@ class Dep(collections.namedtuple('Dep', ('repository', 'git_hash'))):
       raise ValueError("Can't find the midpoint of Deps in differing "
                        'repositories: "%s" and "%s"' % (dep_a, dep_b))
 
-    commits = gitiles_service.CommitRange(dep_a.repository,
+    commits = gitiles_service.CommitRange(dep_a.repository_url,
                                           dep_a.git_hash, dep_b.git_hash)
     # We don't handle NotFoundErrors because we assume that all Deps either came
     # from this method or were already validated elsewhere.
@@ -121,6 +151,17 @@ class Dep(collections.namedtuple('Dep', ('repository', 'git_hash'))):
     commits = commits[1:]  # Remove dep_b from the range.
 
     return cls(dep_a.repository, commits[len(commits) / 2]['commit'])
+
+
+class Patch(collections.namedtuple('Patch', ('server', 'issue', 'patchset'))):
+  """A patch in Rietveld."""
+
+  def __str__(self):
+    return '%s/%d/%d' % (self.server, self.issue, self.patchset)
+
+  @classmethod
+  def FromDict(cls, data):
+    return cls(data['server'], data['issue'], data['patchset'])
 
 
 def _ValidateChangeLinearity(change_a, change_b):

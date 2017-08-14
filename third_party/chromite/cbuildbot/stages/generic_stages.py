@@ -23,10 +23,10 @@ try:
 except ImportError:
   mox = None
 
-from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import repository
 from chromite.cbuildbot import topology
+from chromite.lib import buildbucket_lib
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
@@ -36,6 +36,7 @@ from chromite.lib import gs
 from chromite.lib import metrics
 from chromite.lib import osutils
 from chromite.lib import parallel
+from chromite.lib import perf_uploader
 from chromite.lib import portage_util
 from chromite.lib import results_lib
 from chromite.lib import retry_util
@@ -185,6 +186,25 @@ class BuilderStage(object):
     """
     return self._run.ConstructDashboardURL(stage=stage)
 
+  def _UploadPerfValues(self, *args, **kwargs):
+    """Helper for uploading perf values.
+
+    This currently handles common checks only.  We could make perf values more
+    integrated in the overall stage running process in the future though if we
+    had more stages that cared about this.
+    """
+    # Only upload perf data for buildbots as the data from local tryjobs
+    # probably isn't useful to us.
+    if not self._run.options.buildbot:
+      return
+
+    try:
+      retry_util.RetryException(perf_uploader.PerfUploadingError, 3,
+                                perf_uploader.UploadPerfValues,
+                                *args, **kwargs)
+    except perf_uploader.PerfUploadingError:
+      logging.exception('Uploading perf data failed')
+
   def _InsertBuildStageInCIDB(self, **kwargs):
     """Insert a build stage in cidb.
 
@@ -245,6 +265,7 @@ class BuilderStage(object):
     elif result == results_lib.Results.SKIPPED:
       return constants.BUILDER_STATUS_SKIPPED
     else:
+      logging.info('Translating result %s to fail.' % result)
       return constants.BUILDER_STATUS_FAILED
 
   def _ExtractOverlays(self):
@@ -1067,7 +1088,8 @@ class ArchivingStageMixin(object):
               logging.debug('Exporting: %s' % d[constants.METADATA_TAGS])
               osutils.WriteFile(f.name, json.dumps(d[constants.METADATA_TAGS]),
                                 atomic=True, makedirs=True)
-              commands.ExportToGCloud(self._build_root, c_file, f.name)
+              commands.ExportToGCloud(self._build_root, c_file, f.name,
+                                      caller=type(self).__name__)
           else:
             logging.warn('No datastore credential file found, Skipping Export')
             return False

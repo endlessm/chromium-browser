@@ -178,7 +178,7 @@ found in the LICENSE file.
           <template is="dom-if" if="{{!anomalies.length}}">
             <template is="dom-if" if="{{!stoppageAlerts.length}}">
               <h2 class="center">All alerts triaged!</h2>
-              <img class="center" src="https://thecatapi.com/api/images/get?api_key=MjUzMDQ&amp;category=space&amp;size=small">
+              <iframe src="https://lorempixel.com/800/600/cats/" width="800" height="600"></iframe>
             </template>
           </template>
           <quick-log id="auto-triage-log" xsrf-token="{{xsrfToken}}"
@@ -299,40 +299,40 @@ found in the LICENSE file.
 
       getLabel: toggleState => (toggleState ? 'hide' : 'show'),
 
-      onSheriffChange: function(e) {
-        var sheriff = e.detail.item.label;
+      onSheriffChange(e) {
+        const sheriff = e.detail.item.label;
         if (!sheriff) {
           return;
         }
-        var params = uri.getAllParameters();
-        var oldSheriff = params['sheriff'] || 'Chromium Perf Sheriff';
+        const params = uri.getAllParameters();
+        const oldSheriff = params.sheriff || 'Chromium Perf Sheriff';
         if (oldSheriff === sheriff) {
           return;
         }
-        params['sheriff'] = sheriff;
+        params.sheriff = sheriff;
         // TODO(sullivan): changing the param should automatically update
         // everything without needing to reload.
         window.location.href = uri.getCurrentPathWithParams(params);
       },
 
-      onToggleTriaged: function(e) {
-        var params = uri.getAllParameters();
-        if (params['triaged']) {
-          delete params['triaged'];
+      onToggleTriaged(e) {
+        const params = uri.getAllParameters();
+        if (params.triaged) {
+          delete params.triaged;
         } else {
-          params['triaged'] = 'true';
+          params.triaged = 'true';
         }
         // TODO(sullivan): changing the param should automatically update
         // everything without needing to reload.
         window.location.href = uri.getCurrentPathWithParams(params);
       },
 
-      onToggleImprovements: function(e) {
-        var params = uri.getAllParameters();
-        if (params['improvements']) {
-          delete params['improvements'];
+      onToggleImprovements(e) {
+        const params = uri.getAllParameters();
+        if (params.improvements) {
+          delete params.improvements;
         } else {
-          params['improvements'] = 'true';
+          params.improvements = 'true';
         }
         // TODO(sullivan): changing the param should automatically update
         // everything without needing to reload.
@@ -345,22 +345,22 @@ found in the LICENSE file.
        * /alerts. This will perform a paged query, starting at the cursor and
        * returning up to 500 more anomalies.
        */
-      onShowMoreAnomalies: function() {
-        var params = uri.getAllParameters();
+      onShowMoreAnomalies() {
+        const params = uri.getAllParameters();
         if (this.anomalyCursor != null) {
-          params['anomaly_cursor'] = this.anomalyCursor;
+          params.anomaly_cursor = this.anomalyCursor;
         }
         this.anomaliesLoading = true;
         simple_xhr.send('/alerts', params,
             function(response) {
-              var allAnomalies =
-                  this.anomalies.concat(response['anomaly_list']);
+              const allAnomalies =
+                  this.anomalies.concat(response.anomaly_list);
               this.set('anomalies', allAnomalies);
-              this.totalAnomalyCount = response['anomaly_count'];
-              this.anomalyCursor = response['anomaly_cursor'];
-              this.moreAnomaliesExist = response['show_more_anomalies'];
-              this.sheriffList = response['sheriff_list'];
-              this.xsrfToken = response['xsrf_token'];
+              this.totalAnomalyCount = response.anomaly_count;
+              this.anomalyCursor = response.anomaly_cursor;
+              this.moreAnomaliesExist = response.show_more_anomalies;
+              this.sheriffList = response.sheriff_list;
+              this.xsrfToken = response.xsrf_token;
               this.anomaliesLoading = false;
               this.updateFromURIParameters();
             }.bind(this),
@@ -374,23 +374,23 @@ found in the LICENSE file.
        * Similar to the anomaly show more button, gets the next 500 stoppage
        * alerts.
        */
-      onShowMoreStoppageAlerts: function() {
-        var params = uri.getAllParameters();
+      onShowMoreStoppageAlerts() {
+        const params = uri.getAllParameters();
         if (this.stoppageAlertCursor != null) {
-          params['stoppage_alert_cursor'] = this.stoppageAlertCursor;
+          params.stoppage_alert_cursor = this.stoppageAlertCursor;
         }
         this.stoppageAlertsLoading = true;
         simple_xhr.send('/alerts', params,
             function(response) {
-              var allStoppageAlerts =
-                  this.stoppageAlerts.concat(response['stoppage_alert_list']);
+              const allStoppageAlerts =
+                  this.stoppageAlerts.concat(response.stoppage_alert_list);
               this.set('stoppageAlerts', allStoppageAlerts);
-              this.totalStoppageAlertCount = response['stoppage_alert_count'];
-              this.stoppageAlertCursor = response['stoppage_alert_cursor'];
+              this.totalStoppageAlertCount = response.stoppage_alert_count;
+              this.stoppageAlertCursor = response.stoppage_alert_cursor;
               this.moreStoppageAlertsExist =
-                  response['show_more_stoppage_alerts'];
-              this.sheriffList = response['sheriff_list'];
-              this.xsrfToken = response['xsrf_token'];
+                  response.show_more_stoppage_alerts;
+              this.sheriffList = response.sheriff_list;
+              this.xsrfToken = response.xsrf_token;
               this.stoppageAlertsLoading = false;
               this.updateFromURIParameters();
             }.bind(this),
@@ -400,27 +400,27 @@ found in the LICENSE file.
             }.bind(this));
       },
 
-      onPopState: function(e) {
+      onPopState(e) {
         // Pop State event will have a non-null state if this came from an
         // actual pop instead of the load event.
-        if (e['state']) {
+        if (e.state) {
           this.updateFromURIParameters();
         }
       },
 
-      onPushHistoryState: function(event, detail) {
-        var sender = event.currentTarget;
+      onPushHistoryState(event, detail) {
+        const sender = event.currentTarget;
         if (!sender) {
           return;
         }
-        var params = uri.getAllParameters();
-        params['sortby'] = sender['sortBy'];
-        params['sortdirection'] = sender['sortDirection'];
-        var newUri = uri.getCurrentPathWithParams(params);
+        const params = uri.getAllParameters();
+        params.sortby = sender.sortBy;
+        params.sortdirection = sender.sortDirection;
+        const newUri = uri.getCurrentPathWithParams(params);
         history.pushState(params, '', newUri);
       },
 
-      updateFromURIParameters: function() {
+      updateFromURIParameters() {
         this.sortBy = uri.getParameter('sortby', 'end_revision');
         this.sortDirection = uri.getParameter('sortdirection', 'down');
         this.selectedSheriffIndex = this.sheriffList.indexOf(
@@ -429,16 +429,16 @@ found in the LICENSE file.
         this.showingTriaged = uri.getParameter('triaged', false);
       },
 
-      getAlertCount: function(anomalyListLength) {
+      getAlertCount(anomalyListLength) {
         return this.getCount(false, anomalyListLength);
       },
 
-      getStoppageCount: function(stoppageAlertsListLength) {
+      getStoppageCount(stoppageAlertsListLength) {
         return this.getCount(true, stoppageAlertsListLength);
       },
 
-      getCount: function(isStoppage, trueLength) {
-        var totalCount = isStoppage ? this.totalStoppageAlertCount :
+      getCount(isStoppage, trueLength) {
+        const totalCount = isStoppage ? this.totalStoppageAlertCount :
           this.totalAnomalyCount;
         if (trueLength < totalCount) {
           return trueLength + ' of ' + totalCount;
@@ -446,32 +446,32 @@ found in the LICENSE file.
         return totalCount;
       },
 
-      ready: function() {
+      ready() {
         this.sheriff = uri.getParameter('sheriff', 'Chromium Perf Sheriff');
         this.showImprovements = uri.getParameter('improvements', false);
         this.showTriaged = uri.getParameter('triaged', false);
-        var params = {
+        const params = {
           'sheriff': this.sheriff
         };
         if (this.showImprovements) {
-          params['improvements'] = true;
+          params.improvements = true;
         }
         if (this.showTriaged) {
-          params['triaged'] = true;
+          params.triaged = true;
         }
         simple_xhr.send('/alerts', params,
             function(response) {
-              this.anomalies = response['anomaly_list'];
-              this.totalAnomalyCount = response['anomaly_count'];
-              this.stoppageAlerts = response['stoppage_alert_list'];
-              this.totalStoppageAlertCount = response['stoppage_alert_count'];
-              this.sheriffList = response['sheriff_list'];
-              this.xsrfToken = response['xsrf_token'];
-              this.moreAnomaliesExist = response['show_more_anomalies'];
+              this.anomalies = response.anomaly_list;
+              this.totalAnomalyCount = response.anomaly_count;
+              this.stoppageAlerts = response.stoppage_alert_list;
+              this.totalStoppageAlertCount = response.stoppage_alert_count;
+              this.sheriffList = response.sheriff_list;
+              this.xsrfToken = response.xsrf_token;
+              this.moreAnomaliesExist = response.show_more_anomalies;
               this.moreStoppageAlertsExist =
-                  response['show_more_stoppage_alerts'];
-              this.anomalyCursor = response['anomaly_cursor'];
-              this.stoppageAlertCursor = response['stoppage_alert_cursor'];
+                  response.show_more_stoppage_alerts;
+              this.anomalyCursor = response.anomaly_cursor;
+              this.stoppageAlertCursor = response.stoppage_alert_cursor;
               this.loading = false;
               this.updateFromURIParameters();
             }.bind(this),

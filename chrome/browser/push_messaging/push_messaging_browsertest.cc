@@ -19,10 +19,8 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
-#include "chrome/browser/browsing_data/browsing_data_remover.h"
-#include "chrome/browser/browsing_data/browsing_data_remover_factory.h"
-#include "chrome/browser/browsing_data/browsing_data_remover_test_util.h"
 #include "chrome/browser/browsing_data/chrome_browsing_data_remover_delegate.h"
+#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/engagement/site_engagement_score.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
@@ -54,10 +52,13 @@
 #include "components/gcm_driver/gcm_client.h"
 #include "components/gcm_driver/instance_id/fake_gcm_driver_for_instance_id.h"
 #include "components/gcm_driver/instance_id/instance_id_driver.h"
+#include "content/public/browser/browsing_data_remover.h"
+#include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/push_subscription_options.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/browsing_data_remover_test_util.h"
 #include "content/public/test/test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -1072,6 +1073,31 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, PushEventSuccess) {
   histogram_tester_.ExpectUniqueSample(
       "PushMessaging.DeliveryStatus",
        content::PUSH_DELIVERY_STATUS_SUCCESS, 1);
+}
+
+IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, PushEventOnShutdown) {
+  std::string script_result;
+
+  ASSERT_NO_FATAL_FAILURE(SubscribeSuccessfully());
+  PushMessagingAppIdentifier app_identifier =
+      GetAppIdentifierForServiceWorkerRegistration(0LL);
+
+  ASSERT_TRUE(RunScript("isControlled()", &script_result));
+  ASSERT_EQ("false - is not controlled", script_result);
+  LoadTestPage();  // Reload to become controlled.
+  ASSERT_TRUE(RunScript("isControlled()", &script_result));
+  ASSERT_EQ("true - is controlled", script_result);
+
+  EXPECT_TRUE(IsRegisteredKeepAliveEqualTo(false));
+  gcm::IncomingMessage message;
+  message.sender_id = GetTestApplicationServerKey();
+  message.raw_data = "testdata";
+  message.decrypted = true;
+  push_service()->Observe(chrome::NOTIFICATION_APP_TERMINATING,
+                          content::NotificationService::AllSources(),
+                          content::NotificationService::NoDetails());
+  push_service()->OnMessage(app_identifier.app_id(), message);
+  EXPECT_TRUE(IsRegisteredKeepAliveEqualTo(false));
 }
 
 IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, PushEventWithoutPayload) {
@@ -2194,13 +2220,13 @@ IN_PROC_BROWSER_TEST_F(
   ASSERT_NO_FATAL_FAILURE(SetupOrphanedPushSubscription(&app_id));
 
   // Simulate a user clearing site data (including Service Workers, crucially).
-  BrowsingDataRemover* remover =
-      BrowsingDataRemoverFactory::GetForBrowserContext(GetBrowser()->profile());
-  BrowsingDataRemoverCompletionObserver observer(remover);
+  content::BrowsingDataRemover* remover =
+      content::BrowserContext::GetBrowsingDataRemover(GetBrowser()->profile());
+  content::BrowsingDataRemoverCompletionObserver observer(remover);
   remover->RemoveAndReply(
       base::Time(), base::Time::Max(),
       ChromeBrowsingDataRemoverDelegate::DATA_TYPE_SITE_DATA,
-      BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB, &observer);
+      content::BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB, &observer);
   observer.BlockUntilCompletion();
 
   base::RunLoop run_loop;

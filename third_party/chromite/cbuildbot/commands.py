@@ -27,12 +27,10 @@ from chromite.cbuildbot import topology
 from chromite.cli.cros.tests import cros_vm_test
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
-from chromite.lib import git
 from chromite.lib import gob_util
 from chromite.lib import gs
-from chromite.lib import locking
+from chromite.lib import metrics
 from chromite.lib import osutils
-from chromite.lib import parallel
 from chromite.lib import path_util
 from chromite.lib import portage_util
 from chromite.lib import retry_util
@@ -161,78 +159,6 @@ def ValidateClobber(buildroot):
 
 
 # =========================== Main Commands ===================================
-
-
-def BuildRootGitCleanup(buildroot, prune_all=False):
-  """Put buildroot onto manifest branch. Delete branches created on last run.
-
-  Args:
-    buildroot: buildroot to clean up.
-    prune_all: If True, prune all loose objects regardless of gc.pruneExpire.
-  """
-  lock_path = os.path.join(buildroot, '.clean_lock')
-  deleted_objdirs = multiprocessing.Event()
-
-  def RunCleanupCommands(project, cwd):
-    with locking.FileLock(lock_path, verbose=False).read_lock() as lock:
-      # Calculate where the git repository is stored.
-      relpath = os.path.relpath(cwd, buildroot)
-      projects_dir = os.path.join(buildroot, '.repo', 'projects')
-      project_objects_dir = os.path.join(buildroot, '.repo', 'project-objects')
-      repo_git_store = '%s.git' % os.path.join(projects_dir, relpath)
-      repo_obj_store = '%s.git' % os.path.join(project_objects_dir, project)
-
-      try:
-        if os.path.isdir(cwd):
-          git.CleanAndDetachHead(cwd)
-
-        if os.path.isdir(repo_git_store):
-          git.GarbageCollection(repo_git_store, prune_all=prune_all)
-      except cros_build_lib.RunCommandError as e:
-        result = e.result
-        logging.PrintBuildbotStepWarnings()
-        logging.warning('\n%s', result.error)
-
-        # If there's no repository corruption, just delete the index.
-        corrupted = git.IsGitRepositoryCorrupted(repo_git_store)
-        lock.write_lock()
-        logging.warning('Deleting %s because %s failed', cwd, result.cmd)
-        osutils.RmDir(cwd, ignore_missing=True, sudo=True)
-        if corrupted:
-          # Looks like the object dir is corrupted. Delete the whole repository.
-          deleted_objdirs.set()
-          for store in (repo_git_store, repo_obj_store):
-            logging.warning('Deleting %s as well', store)
-            osutils.RmDir(store, ignore_missing=True)
-
-      # TODO: Make the deletions below smarter. Look to see what exists, instead
-      # of just deleting things we think might be there.
-
-      # Delete all branches created by cbuildbot.
-      if os.path.isdir(repo_git_store):
-        cmd = ['branch', '-D'] + list(constants.CREATED_BRANCHES)
-        # Ignore errors, since we delete branches without checking existence.
-        git.RunGit(repo_git_store, cmd, error_code_ok=True)
-
-      if os.path.isdir(cwd):
-        # Above we deleted refs/heads/<branch> for each created branch, now we
-        # need to delete the bare ref <branch> if it was created somehow.
-        for ref in constants.CREATED_BRANCHES:
-          # Ignore errors, since we delete branches without checking existence.
-          git.RunGit(cwd, ['update-ref', '-d', ref], error_code_ok=True)
-
-
-  # Cleanup all of the directories.
-  dirs = [[attrs['name'], os.path.join(buildroot, attrs['path'])] for attrs in
-          git.ManifestCheckout.Cached(buildroot).ListCheckouts()]
-  parallel.RunTasksInProcessPool(RunCleanupCommands, dirs)
-
-  # repo shares git object directories amongst multiple project paths. If the
-  # first pass deleted an object dir for a project path, then other repositories
-  # (project paths) of that same project may now be broken. Do a second pass to
-  # clean them up as well.
-  if deleted_objdirs.is_set():
-    parallel.RunTasksInProcessPool(RunCleanupCommands, dirs)
 
 
 def CleanUpMountPoints(buildroot):
@@ -487,7 +413,7 @@ def UpdateBinhostJson(buildroot):
 def Build(buildroot, board, build_autotest, usepkg, chrome_binhost_only,
           packages=(), skip_chroot_upgrade=True, noworkon=False,
           extra_env=None, chrome_root=None, noretry=False,
-          chroot_args=None, event_file=None):
+          chroot_args=None, event_file=None, run_goma=False):
   """Wrapper around build_packages.
 
   Args:
@@ -507,6 +433,8 @@ def Build(buildroot, board, build_autotest, usepkg, chrome_binhost_only,
     noretry: Do not retry package failures.
     chroot_args: The args to the chroot.
     event_file: File name that events will be logged to.
+    run_goma: Set ./build_package --run_goma option, which starts and stops
+      goma server in chroot while building packages.
   """
   cmd = ['./build_packages', '--board=%s' % board,
          '--accept_licenses=@CHROMEOS', '--withdebugsymbols']
@@ -528,6 +456,9 @@ def Build(buildroot, board, build_autotest, usepkg, chrome_binhost_only,
 
   if noretry:
     cmd.append('--nobuildretry')
+
+  if run_goma:
+    cmd.append('--run_goma')
 
   if not chroot_args:
     chroot_args = []
@@ -572,8 +503,18 @@ def GetFirmwareVersions(buildroot, board):
   result = cros_build_lib.RunCommand([updater, '-V'], enter_chroot=True,
                                      capture_output=True, log_output=True,
                                      cwd=buildroot)
-  main = re.search(r'BIOS version:\s*(?P<version>.*)', result.output)
-  ec = re.search(r'EC version:\s*(?P<version>.*)', result.output)
+  # Sometimes a firmware bundle includes a special combination of RO+RW
+  # firmware.  In this case, the RW firmware version is indicated with a "(RW)
+  # version" field.  In other cases, the "(RW) version" field is not present.
+  # Therefore, search for the "(RW)" fields first and if they aren't present,
+  # fallback to the other format. e.g. just "BIOS version:".
+  # TODO(aaboagye): Use JSON once the firmware updater supports it.
+  main = re.search(r'BIOS \(RW\) version:\s*(?P<version>.*)', result.output)
+  if not main:
+    main = re.search(r'BIOS version:\s*(?P<version>.*)', result.output)
+  ec = re.search(r'EC \(RW\) version:\s*(?P<version>.*)', result.output)
+  if not ec:
+    ec = re.search(r'EC version:\s*(?P<version>.*)', result.output)
   return (main.group('version') if main else None,
           ec.group('version') if ec else None)
 
@@ -677,8 +618,13 @@ def TestAuZip(buildroot, image_dir, extra_env=None):
                  extra_env=extra_env)
 
 
-def BuildVMImageForTesting(buildroot, board, extra_env=None):
+def BuildVMImageForTesting(buildroot, board, extra_env=None,
+                           disk_layout=None):
   cmd = ['./image_to_vm.sh', '--board=%s' % board, '--test_image']
+
+  if disk_layout:
+    cmd += ['--disk_layout=%s' % disk_layout]
+
   RunBuildScript(buildroot, cmd, extra_env=extra_env, enter_chroot=True)
 
 
@@ -1015,9 +961,13 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
     json_dump_result = None
     job_id = _HWTestCreate(cmd, debug, **swarming_args)
     if wait_for_results and job_id:
-      _HWTestWait(cmd, job_id, **swarming_args)
-      running_json_dump_flag = True
-      json_dump_result = _HWTestDumpJson(cmd, job_id, **swarming_args)
+      pass_hwtest = _HWTestWait(cmd, job_id, **swarming_args)
+      # Only dump the json output when tests don't pass, since the json output
+      # is used to decide whether we can do subsystem based partial submission.
+      running_json_dump_flag = not pass_hwtest
+      if running_json_dump_flag:
+        json_dump_result = retry_util.RetryException(
+            ValueError, 3, _HWTestDumpJson, cmd, job_id, **swarming_args)
     return HWTestSuiteResult(None, json_dump_result)
   except cros_build_lib.RunCommandError as e:
     result = e.result
@@ -1053,9 +1003,23 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
         s = ''.join(outputs)
         sys.stdout.write(s)
         sys.stdout.write('\n')
-        i = s.find(JSON_DICT_START) + len(JSON_DICT_START)
-        j = s.find(JSON_DICT_END)
-        json_dump_result = json.loads(s[i:j])
+        try:
+          # If we can't parse the JSON dump, subsystem based partial submission
+          # will be skipped due to missing information about which individual
+          # tests passed. This can happen for example when the JSON dump step
+          # fails due to connectivity issues in which case we'll have no output
+          # to parse. It's OK to just assume complete test failure in this case
+          # though: since we don't know better anyways, we need to err on the
+          # safe side and not submit any change. So we just log an error below
+          # instead of raising an exception and allow the subsequent logic to
+          # decide which failure condition to report. This is in the hope that
+          # providing more information from the RunCommandError we encountered
+          # will be useful in diagnosing the root cause of the failure.
+          json_dump_result = _HWTestParseJSONDump(s)
+        except ValueError as e:
+          logging.error(
+              'Failed to parse HWTest JSON dump string, ' +
+              'subsystem based partial submission will be skipped:  %s', e)
       else:
         for output in outputs:
           sys.stdout.write(output)
@@ -1084,6 +1048,9 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
       elif result.returncode != 0:
         to_raise = failures_lib.TestFailure(
             '** HWTest failed (code %d) **' % result.returncode)
+      elif json_dump_result is None:
+        to_raise = failures_lib.TestFailure(
+            '** Failed to decode JSON dump **')
     return HWTestSuiteResult(to_raise, json_dump_result)
 
 
@@ -1145,11 +1112,7 @@ def _GetRunSuiteArgs(build, suite, board, pool=None, num=None,
     subsystems_attr_str = ' or '.join(subsystem_attr)
 
     if suite != 'suite_attr_wrapper':
-      if type(suite) is str:
-        suite_attr_str = 'suite:%s' % suite
-      else:
-        suite_attr_str = ' or '.join(['suite:%s' % x for x in suite])
-
+      suite_attr_str = 'suite:%s' % suite
       attr_value = '(%s) and (%s)' % (suite_attr_str, subsystems_attr_str)
     else:
       attr_value = subsystems_attr_str
@@ -1160,8 +1123,9 @@ def _GetRunSuiteArgs(build, suite, board, pool=None, num=None,
     if skip_duts_check:
       args += ['--skip_duts_check']
 
-    if job_keyvals:
-      args += ['--job_keyvals', repr(job_keyvals)]
+  if job_keyvals:
+    args += ['--job_keyvals', repr(job_keyvals)]
+
   return args
 
 
@@ -1246,19 +1210,29 @@ def _HWTestCreate(cmd, debug=False, **kwargs):
 def _HWTestWait(cmd, job_id, **kwargs):
   """Wait for HWTest suite to complete.
 
+  Wait for the HWTest suite to complete. All the test related exceptions will
+  be mute(swarming client side exception), only the swarming server side
+  exception will be raised, e.g. swarming internal failure. The test related
+  exception will be raised in _HWTestDumpJson step.
+
   Args:
     cmd: Proxied run_suite command.
     job_id: The job id of the suite that was created.
     kwargs: args to be passed to RunSwarmingCommand.
+
+  Returns:
+    True if all tests pass.
   """
   # Wait on the suite
   wait_cmd = list(cmd) + ['-m', str(job_id)]
+  pass_hwtest = False
   try:
     result = swarming_lib.RunSwarmingCommandWithRetries(
         max_retry=_MAX_HWTEST_CMD_RETRY,
         error_check=swarming_lib.SwarmingRetriableErrorCheck,
         cmd=wait_cmd, capture_output=True, combine_stdout_stderr=True,
         **kwargs)
+    pass_hwtest = True
   except cros_build_lib.RunCommandError as e:
     result = e.result
     # Delay the lab-related exceptions, since those will be raised in the next
@@ -1272,6 +1246,25 @@ def _HWTestWait(cmd, job_id, **kwargs):
   for output in result.GetValue('outputs', ''):
     sys.stdout.write(output)
   sys.stdout.flush()
+
+  return pass_hwtest
+
+def _HWTestParseJSONDump(dump_output):
+  """Parses JSON dump output and returns the parsed JSON dict.
+
+  Args:
+    output: The string containing the HWTest result JSON dictionary to parse,
+            marked up with #JSON_START# and #JSON_END# start/end delimiters.
+
+  Returns:
+    Decoded JSON dict. May raise ValueError upon failure to pass the embedded
+    JSON object.
+  """
+  i = dump_output.find(JSON_DICT_START) + len(JSON_DICT_START)
+  j = dump_output.find(JSON_DICT_END)
+  if i == -1 or j == -1 or i > j:
+    raise ValueError('Invalid swarming output: %s' % dump_output)
+  return json.loads(dump_output[i:j])
 
 
 def _HWTestDumpJson(cmd, job_id, **kwargs):
@@ -1295,12 +1288,7 @@ def _HWTestDumpJson(cmd, job_id, **kwargs):
     sys.stdout.write(output)
   sys.stdout.write('\n')
   sys.stdout.flush()
-  dump_output = ''.join(result.GetValue('outputs', ''))
-  i = dump_output.find(JSON_DICT_START) + len(JSON_DICT_START)
-  j = dump_output.find(JSON_DICT_END)
-  if i == -1 or j == -1 or i > j:
-    raise ValueError('Invalid swarming output: %s' % dump_output)
-  return json.loads(dump_output[i:j])
+  return _HWTestParseJSONDump(''.join(result.GetValue('outputs', '')))
 
 
 def AbortHWTests(config_type_or_name, version, debug, suite=''):
@@ -1465,16 +1453,22 @@ class ChromeIsPinnedUprevError(failures_lib.InfrastructureFailure):
     self.new_chrome_atom = new_chrome_atom
 
 
-def MarkAndroidAsStable(buildroot, tracking_branch, boards,
-                        android_version=None):
+def MarkAndroidAsStable(buildroot, tracking_branch, android_package,
+                        android_build_branch,
+                        boards=None,
+                        android_version=None,
+                        android_gts_build_branch=None):
   """Returns the portage atom for the revved Android ebuild - see man emerge."""
-  # TODO: Consider merging this with MarkChromeAsStable.
   command = ['cros_mark_android_as_stable',
              '--tracking_branch=%s' % tracking_branch]
+  command.append('--android_package=%s' % android_package)
+  command.append('--android_build_branch=%s' % android_build_branch)
   if boards:
     command.append('--boards=%s' % ':'.join(boards))
   if android_version:
     command.append('--force_version=%s' % android_version)
+  if android_gts_build_branch:
+    command.append('--android_gts_build_branch=%s' % android_gts_build_branch)
 
   portage_atom_string = RunBuildScript(buildroot, command, chromite_cmd=True,
                                        enter_chroot=True,
@@ -1903,7 +1897,7 @@ def _UploadPathToGS(local_path, upload_urls, debug, timeout, acl=None):
 
 @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
 def ExportToGCloud(build_root, creds_file, filename, namespace=None,
-                   parent_key=None, project_id=None):
+                   parent_key=None, project_id=None, caller=None):
   """Export the given file to gCloud Datastore using export_to_gcloud
 
   Args:
@@ -1915,6 +1909,8 @@ def ExportToGCloud(build_root, creds_file, filename, namespace=None,
     parent_key: Optional, Key of parent entity to insert into, expects tuple.
     project_id: Optional, project_id of datastore to write to. Defaults to
                 datastore credentials
+    caller: Optional, name of the caller. We emit a metric for each run with
+            this value in the metric:caller field.
 
   Returns:
     If command was successfully run or not
@@ -1934,10 +1930,16 @@ def ExportToGCloud(build_root, creds_file, filename, namespace=None,
 
   try:
     cros_build_lib.RunCommand(cmd)
+    success = True
   except cros_build_lib.RunCommandError as e:
     logging.warn('Unable to export to datastore: %s', e)
-    return False
-  return True
+    success = False
+
+  metrics.Counter(constants.MON_EXPORT_TO_GCLOUD).increment(
+      fields={'caller': str(caller),
+              'success': success})
+
+  return success
 
 
 @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
@@ -2742,8 +2744,16 @@ class ChromeSDK(object):
 
     return targets
 
-  def Run(self, cmd, extra_args=None):
-    """Run a command inside the chrome-sdk context."""
+  def Run(self, cmd, extra_args=None, run_args=None):
+    """Run a command inside the chrome-sdk context.
+
+    Args:
+      cmd: Command (list) to run inside 'cros chrome-sdk'.
+      extra_args: Extra arguments for 'cros chorme-sdk'.
+      run_args: If set (dict), pass to RunCommand as kwargs.
+    """
+    if run_args is None:
+      run_args = {}
     cros_cmd = ['cros']
     if self.debug_log:
       cros_cmd += ['--log-level', 'debug']
@@ -2755,15 +2765,16 @@ class ChromeSDK(object):
       self.extra_args += ['--toolchain-url', self.toolchain_url]
     cros_cmd += ['chrome-sdk', '--board', self.board] + self.extra_args
     cros_cmd += (extra_args or []) + ['--'] + cmd
-    cros_build_lib.RunCommand(cros_cmd, cwd=self.cwd)
+    cros_build_lib.RunCommand(cros_cmd, cwd=self.cwd, **run_args)
 
-  def Ninja(self, jobs=None, debug=False, targets=None):
+  def Ninja(self, jobs=None, debug=False, targets=None, run_args=None):
     """Run 'ninja' inside a chrome-sdk context.
 
     Args:
       jobs: The number of -j jobs to run.
       debug: Whether to do a Debug build (defaults to Release).
       targets: The targets to compile.
+      run_args: If set (dict), pass to RunCommand as kwargs.
     """
     if jobs is None:
       jobs = self.DEFAULT_JOBS_GOMA if self.goma else self.DEFAULT_JOBS
@@ -2771,4 +2782,4 @@ class ChromeSDK(object):
       targets = self._GetDefaultTargets()
     flavor = 'Debug' if debug else 'Release'
     cmd = ['ninja', '-C', 'out_%s/%s' % (self.board, flavor), '-j', str(jobs)]
-    self.Run(cmd + list(targets))
+    self.Run(cmd + list(targets), run_args=run_args)

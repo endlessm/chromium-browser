@@ -13,12 +13,12 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
-  var testOptions = {
-    setUp: function() {
+  const testOptions = {
+    setUp() {
       window.originalGetQueryString_ = uri.getQueryString;
     },
 
-    tearDown: function() {
+    tearDown() {
       uri.getQueryString = window.originalGetQueryString_;
     }
   };

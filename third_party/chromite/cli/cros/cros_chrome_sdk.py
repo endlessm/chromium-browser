@@ -502,7 +502,8 @@ class ChromeSDKCommand(command.CliCommand):
              'pull toolchain components from.')
     parser.add_argument(
         '--nogoma', action='store_false', default=True, dest='goma',
-        help='Disables Goma in the shell by removing it from the PATH.')
+        help='Disables Goma in the shell by removing it from the PATH and '
+             'set use_goma=false to GN_ARGS.')
     parser.add_argument(
         '--nostart-goma', action='store_false', default=True, dest='start_goma',
         help='Skip starting goma and hope somebody else starts goma later.')
@@ -700,6 +701,9 @@ class ChromeSDKCommand(command.CliCommand):
 
     gn_args['target_sysroot'] = sysroot
     gn_args.pop('pkg_config', None)
+    # pkg_config only affects the target and comes from the sysroot.
+    # host_pkg_config is used for programs compiled for use later in the build.
+    gn_args['host_pkg_config'] = 'pkg-config'
     if options.clang:
       gn_args['is_clang'] = True
     if options.internal:
@@ -742,10 +746,15 @@ class ChromeSDKCommand(command.CliCommand):
     if goma_dir:
       gn_args['use_goma'] = True
       gn_args['goma_dir'] = goma_dir
+    elif not options.goma:
+      # If --nogoma option is explicitly set, disable goma, even if it is
+      # used in the original GN_ARGS.
+      gn_args['use_goma'] = False
 
     gn_args.pop('internal_khronos_glcts_tests', None)  # crbug.com/588080
 
-    env['GN_ARGS'] = gn_helpers.ToGNString(gn_args)
+    gn_args_env = gn_helpers.ToGNString(gn_args)
+    env['GN_ARGS'] = gn_args_env
 
     # PS1 sets the command line prompt and xterm window caption.
     full_version = sdk_ctx.version
@@ -756,6 +765,25 @@ class ChromeSDKCommand(command.CliCommand):
 
     out_dir = 'out_%s' % self.board
     env['builddir_name'] = out_dir
+
+    build_label = 'Release'
+
+    checkout_dir = (self.options.chrome_src
+                    if self.options.chrome_src else os.getcwd())
+    gn_args_file_path = os.path.join(
+        checkout_dir, out_dir, build_label, 'args.gn')
+
+    if os.path.exists(gn_args_file_path):
+      gn_args_file_contents = osutils.ReadFile(gn_args_file_path)
+      if gn_args_file_contents != gn_args_env:
+        logging.warning('Stale args.gn file (%s)', gn_args_file_path)
+        logging.warning('Please run:')
+        logging.warning('gn gen out_$SDK_BOARD/Release --args="$GN_ARGS"')
+
+    # This is used by landmines.py to prevent collisions when building both
+    # chromeos and android from shared source.
+    # For context, see crbug.com/407417
+    env['CHROMIUM_OUT_DIR'] = os.path.join(checkout_dir, out_dir)
 
     return env
 

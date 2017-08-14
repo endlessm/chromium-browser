@@ -34,166 +34,47 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.e.v8', function() {
-  // The constant variables below should be consistent with
-  // https://github.com/mlippautz/v8-heap-stats/blob/master/app/utils.js#L120
-  const INSTANCE_TYPE_GROUPS = {
-    Rest: [
-      'ACCESSOR_INFO_TYPE',
-      'ACCESSOR_PAIR_TYPE',
-      'ACCESS_CHECK_INFO_TYPE',
-      'ALLOCATION_MEMENTO_TYPE',
-      'ALLOCATION_SITE_TYPE',
-      'CALL_HANDLER_INFO_TYPE',
-      'CELL_TYPE',
-      'FIXED_INT8_ARRAY_TYPE',
-      'FIXED_UINT8_ARRAY_TYPE',
-      'FIXED_UINT8_CLAMPED_ARRAY_TYPE',
-      'FIXED_INT16_ARRAY_TYPE',
-      'FIXED_UINT16_ARRAY_TYPE',
-      'FIXED_INT32_ARRAY_TYPE',
-      'FIXED_UINT32_ARRAY_TYPE',
-      'FIXED_FLOAT32_ARRAY_TYPE',
-      'FIXED_FLOAT64_ARRAY_TYPE',
-      'FIXED_DOUBLE_ARRAY_TYPE',
-      'FOREIGN_TYPE',
-      'FUNCTION_TEMPLATE_INFO_TYPE',
-      'HEAP_NUMBER_TYPE',
-      'INTERCEPTOR_INFO_TYPE',
-      'MUTABLE_HEAP_NUMBER_TYPE',
-      'OBJECT_TEMPLATE_INFO_TYPE',
-      'ODDBALL_TYPE',
-      'PROPERTY_CELL_TYPE',
-      'PROTOTYPE_INFO_TYPE',
-      'SCRIPT_TYPE',
-      'SYMBOL_TYPE',
-      'TRANSITION_ARRAY_TYPE',
-      'TYPE_FEEDBACK_INFO_TYPE'
-    ],
-    Strings: [
-      'CONS_ONE_BYTE_STRING_TYPE',
-      'CONS_STRING_TYPE',
-      'EXTERNAL_ONE_BYTE_INTERNALIZED_STRING_TYPE',
-      'EXTERNAL_ONE_BYTE_STRING_TYPE',
-      'EXTERNAL_INTERNALIZED_STRING_TYPE',
-      'EXTERNAL_STRING_TYPE',
-      'INTERNALIZED_STRING_TYPE',
-      'ONE_BYTE_INTERNALIZED_STRING_TYPE',
-      'ONE_BYTE_STRING_TYPE',
-      'SHORT_EXTERNAL_INTERNALIZED_STRING_TYPE',
-      'SHORT_EXTERNAL_ONE_BYTE_STRING_TYPE',
-      'SHORT_EXTERNAL_ONE_BYTE_INTERNALIZED_STRING_TYPE',
-      'SHORT_EXTERNAL_STRING_TYPE',
-      'SLICED_ONE_BYTE_STRING_TYPE',
-      'SLICED_STRING_TYPE',
-      'STRING_TYPE'
-    ],
-    JS_OTHER: [
-      'JS_API_OBJECT_TYPE',
-      'JS_ARGUMENTS_TYPE',
-      'JS_ARRAY_BUFFER_TYPE',
-      'JS_ARRAY_TYPE',
-      'JS_BOUND_FUNCTION_TYPE',
-      'JS_ERROR_TYPE',
-      'JS_DATE_TYPE',
-      'JS_FUNCTION_TYPE',
-      'JS_GLOBAL_OBJECT_TYPE',
-      'JS_GLOBAL_PROXY_TYPE',
-      'JS_MAP_ITERATOR_TYPE',
-      'JS_MAP_TYPE',
-      'JS_MESSAGE_OBJECT_TYPE',
-      'JS_PROMISE_TYPE',
-      'JS_REGEXP_TYPE',
-      'JS_SPECIAL_API_OBJECT_TYPE',
-      'JS_TYPED_ARRAY_TYPE',
-      'JS_VALUE_TYPE',
-      'JS_WEAK_MAP_TYPE'
-    ],
-    FIXED_ARRAY_TYPE: [
-      '*FIXED_ARRAY_CODE_STUBS_TABLE_SUB_TYPE',
-      '*FIXED_ARRAY_COMPILATION_CACHE_TABLE_SUB_TYPE',
-      '*FIXED_ARRAY_CONTEXT_SUB_TYPE',
-      '*FIXED_ARRAY_COPY_ON_WRITE_SUB_TYPE',
-      '*FIXED_ARRAY_DEOPTIMIZATION_DATA_SUB_TYPE',
-      '*FIXED_ARRAY_DESCRIPTOR_ARRAY_SUB_TYPE',
-      '*FIXED_ARRAY_EMBEDDED_OBJECT_SUB_TYPE',
-      '*FIXED_ARRAY_ENUM_CACHE_SUB_TYPE',
-      '*FIXED_ARRAY_ENUM_INDICES_CACHE_SUB_TYPE',
-      '*FIXED_ARRAY_DEPENDENT_CODE_SUB_TYPE',
-      '*FIXED_ARRAY_DICTIONARY_ELEMENTS_SUB_TYPE',
-      '*FIXED_ARRAY_DICTIONARY_PROPERTIES_SUB_TYPE',
-      '*FIXED_ARRAY_EMPTY_PROPERTIES_DICTIONARY_SUB_TYPE',
-      '*FIXED_ARRAY_FAST_ELEMENTS_SUB_TYPE',
-      '*FIXED_ARRAY_FAST_PROPERTIES_SUB_TYPE',
-      '*FIXED_ARRAY_HANDLER_TABLE_SUB_TYPE',
-      '*FIXED_ARRAY_INTRINSIC_FUNCTION_NAMES_SUB_TYPE',
-      '*FIXED_ARRAY_JS_COLLECTION_SUB_TYPE',
-      '*FIXED_ARRAY_JS_WEAK_COLLECTION_SUB_TYPE',
-      '*FIXED_ARRAY_LITERALS_ARRAY_SUB_TYPE',
-      '*FIXED_ARRAY_MAP_CODE_CACHE_SUB_TYPE',
-      '*FIXED_ARRAY_NOSCRIPT_SHARED_FUNCTION_INFOS_SUB_TYPE',
-      '*FIXED_ARRAY_NUMBER_STRING_CACHE_SUB_TYPE',
-      '*FIXED_ARRAY_OBJECT_TO_CODE_SUB_TYPE',
-      '*FIXED_ARRAY_OPTIMIZED_CODE_LITERALS_TUB_TYPE',
-      '*FIXED_ARRAY_OPTIMIZED_CODE_MAP_SUB_TYPE',
-      '*FIXED_ARRAY_PROTOTYPE_USERS_SUB_TYPE',
-      '*FIXED_ARRAY_REGEXP_MULTIPLE_CACHE_SUB_TYPE',
-      '*FIXED_ARRAY_RETAINED_MAPS_SUB_TYPE',
-      '*FIXED_ARRAY_SCOPE_INFO_SUB_TYPE',
-      '*FIXED_ARRAY_SCRIPT_LIST_SUB_TYPE',
-      '*FIXED_ARRAY_SERIALIZED_TEMPLATES_SUB_TYPE',
-      '*FIXED_ARRAY_SHARED_FUNCTION_INFOS_SUB_TYPE',
-      '*FIXED_ARRAY_SINGLE_CHARACTER_STRING_CACHE_SUB_TYPE',
-      '*FIXED_ARRAY_STRING_SPLIT_CACHE_SUB_TYPE',
-      '*FIXED_ARRAY_STRING_TABLE_SUB_TYPE',
-      '*FIXED_ARRAY_TEMPLATE_INFO_SUB_TYPE',
-      '*FIXED_ARRAY_TEMPLATE_INSTANTIATIONS_CACHE_SUB_TYPE',
-      '*FIXED_ARRAY_TYPE_FEEDBACK_VECTOR_SUB_TYPE',
-      '*FIXED_ARRAY_TYPE_FEEDBACK_METADATA_SUB_TYPE',
-      '*FIXED_ARRAY_WEAK_NEW_SPACE_OBJECT_TO_CODE_SUB_TYPE',
-      '*FIXED_ARRAY_UNKNOWN_SUB_TYPE'
-    ],
-    CODE_TYPE: [
-      '*CODE_FUNCTION',
-      '*CODE_OPTIMIZED_FUNCTION',
-      '*CODE_BYTECODE_HANDLER',
-      '*CODE_STUB',
-      '*CODE_HANDLER',
-      '*CODE_BUILTIN',
-      '*CODE_REGEXP',
-      '*CODE_WASM_FUNCTION',
-      '*CODE_WASM_TO_JS_FUNCTION',
-      '*CODE_JS_TO_WASM_FUNCTION',
-      '*CODE_LOAD_IC',
-      '*CODE_LOAD_GLOBAL_IC',
-      '*CODE_KEYED_LOAD_IC',
-      '*CODE_CALL_IC',
-      '*CODE_STORE_IC',
-      '*CODE_KEYED_STORE_IC',
-      '*CODE_BINARY_OP_IC',
-      '*CODE_COMPARE_IC',
-      '*CODE_TO_BOOLEAN_IC'
-    ]
+  // Instance types that should not be part of the overview as they are either
+  // double-attributed (e.g. also part of some other instance type) or do not
+  // make any sense in memory profiling.
+  const IGNORED_ENTRIES = {
+    // Ignore code aging entries as they are already accounted in their
+    // respective code instance types.
+    match: full => full.startsWith('*CODE_AGE_')
   };
 
-  const INSTANCE_SUB_TYPE_NAMES = {
+  // Groups are matched on a first-matched basis, i.e., once a group matches we
+  // are done with an entry.
+  // Requires properties:
+  // - match(full): Return true iff |full| should be part of the group and
+  //   false otherwise.
+  // - keyToName(key): Returns the human readable name for |key|.
+  // - nameToKey(name): Returns the key for |name|.
+  // Optional properties:
+  // - realEntry: A string representing the actual entry in the trace. If this
+  //   entry is present an additional entry UNKNOWN will be created holding all
+  //   the unaccounted data.
+  const INSTANCE_TYPE_GROUPS = {
     FIXED_ARRAY_TYPE: {
+      match: full => full.startsWith('*FIXED_ARRAY_'),
+      realEntry: 'FIXED_ARRAY_TYPE',
       keyToName: key => key.slice('*FIXED_ARRAY_'.length)
           .slice(0, -('_SUB_TYPE'.length)),
       nameToKey: name => '*FIXED_ARRAY_' + name + '_SUB_TYPE'
     },
     CODE_TYPE: {
+      match: full => full.startsWith('*CODE_'),
+      realEntry: 'CODE_TYPE',
       keyToName: key => key.slice('*CODE_'.length),
       nameToKey: name => '*CODE_' + name
     },
+    JS_OBJECTS: {
+      match: full => full.startsWith('JS_'),
+      keyToName: key => key,
+      nameToKey: name => name
+    },
     Strings: {
-      keyToName: key => key,
-      nameToKey: name => name
-    },
-    Rest: {
-      keyToName: key => key,
-      nameToKey: name => name
-    },
-    JS_OTHER: {
+      match: full => full.endsWith('STRING_TYPE'),
       keyToName: key => key,
       nameToKey: name => name
     }
@@ -311,7 +192,7 @@ tr.exportTo('tr.ui.e.v8', function() {
     }
 
     diff(other) {
-      let entry = new Entry(this.title_, other.count_ - this.count,
+      const entry = new Entry(this.title_, other.count_ - this.count,
                              other.overall_ - this.overall,
                              other.overAllocated_ - this.overAllocated, [], []);
       entry.overallPercent = computePercentage(entry.overall, this.overall);
@@ -364,10 +245,10 @@ tr.exportTo('tr.ui.e.v8', function() {
       let unknownCount = this.count_;
       let unknownOverall = this.overall_;
       let unknownOverAllocated = this.overAllocated_;
-      let unknownHistogram = tr.b.deepCopy(this.histogram_);
-      let unknownOverAllocatedHistogram =
+      const unknownHistogram = tr.b.deepCopy(this.histogram_);
+      const unknownOverAllocatedHistogram =
           tr.b.deepCopy(this.overAllocatedHistogram_);
-      for (let entry of this.entries_.values()) {
+      for (const entry of this.entries_.values()) {
         unknownCount -= entry.count;
         unknownOverall -= entry.overall;
         unknownOverAllocated -= entry.overAllocated;
@@ -384,7 +265,7 @@ tr.exportTo('tr.ui.e.v8', function() {
     }
 
     calculatePercentage() {
-      for (let entry of this.entries_.values()) {
+      for (const entry of this.entries_.values()) {
         entry.overallPercent = computePercentage(entry.overall, this.overall_);
         entry.overAllocatedPercent =
           computePercentage(entry.overAllocated, this.overAllocated_);
@@ -400,9 +281,9 @@ tr.exportTo('tr.ui.e.v8', function() {
       } else {
         newTitle = this.title_;
       }
-      let result = new GroupedEntry(newTitle, 0, 0, 0, [], []);
-      for (let entry of this.entries_) {
-        let otherEntry = other.getEntryFromTitle(entry[0]);
+      const result = new GroupedEntry(newTitle, 0, 0, 0, [], []);
+      for (const entry of this.entries_) {
+        const otherEntry = other.getEntryFromTitle(entry[0]);
         if (otherEntry === undefined) continue;
         result.add(entry[1].diff(otherEntry));
       }
@@ -414,12 +295,12 @@ tr.exportTo('tr.ui.e.v8', function() {
   }
 
   function createSelector(targetEl, defaultValue, items, callback) {
-    let selectorEl = document.createElement('select');
+    const selectorEl = document.createElement('select');
     selectorEl.addEventListener('change', callback.bind(targetEl));
-    let defaultOptionEl = document.createElement('option');
+    const defaultOptionEl = document.createElement('option');
     for (let i = 0; i < items.length; i++) {
-      let item = items[i];
-      let optionEl = document.createElement('option');
+      const item = items[i];
+      const optionEl = document.createElement('option');
       Polymer.dom(optionEl).textContent = item.label;
       optionEl.targetPropertyValue = item.value;
       optionEl.item = item;
@@ -439,9 +320,9 @@ tr.exportTo('tr.ui.e.v8', function() {
     });
     selectorEl.__defineSetter__('selectedValue', function(v) {
       for (let i = 0; i < selectorEl.children.length; i++) {
-        let value = selectorEl.children[i].targetPropertyValue;
+        const value = selectorEl.children[i].targetPropertyValue;
         if (value === v) {
-          let changed = selectorEl.selectedIndex !== i;
+          const changed = selectorEl.selectedIndex !== i;
           if (changed) {
             selectorEl.selectedIndex = i;
             callback();
@@ -470,20 +351,20 @@ tr.exportTo('tr.ui.e.v8', function() {
   Polymer({
     is: 'tr-ui-e-v8-gc-objects-stats-table',
 
-    ready: function() {
+    ready() {
       this.$.diffOption.style.display = 'none';
       this.isolateEntries_ = [];
       this.selector1_ = undefined;
       this.selector2_ = undefined;
     },
 
-    constructDiffTable_: function(table) {
+    constructDiffTable_(table) {
       this.$.diffTable.selectionMode = tr.ui.b.TableFormat.SelectionMode.ROW;
       this.$.diffTable.tableColumns = [
         {
           title: 'Component',
-          value: function(row) {
-            let typeEl = document.createElement('span');
+          value(row) {
+            const typeEl = document.createElement('span');
             typeEl.innerText = row.title;
             return typeEl;
           },
@@ -491,19 +372,19 @@ tr.exportTo('tr.ui.e.v8', function() {
         },
         {
           title: 'Overall Memory(KB)',
-          value: function(row) {
-            let spanEl = tr.ui.b.createSpan();
+          value(row) {
+            const spanEl = tr.ui.b.createSpan();
             spanEl.innerText = row.origin.overall.toFixed(3);
             return spanEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.origin.overall - b.origin.overall;
           }
         },
         {
           title: 'diff(KB)',
-          value: function(row) {
-            let spanEl = tr.ui.b.createSpan();
+          value(row) {
+            const spanEl = tr.ui.b.createSpan();
             spanEl.innerText = plusMinus(row.overall);
             if (row.overall > 0) {
               spanEl.style.color = DIFF_COLOR.RED;
@@ -512,14 +393,14 @@ tr.exportTo('tr.ui.e.v8', function() {
             }
             return spanEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.overall - b.overall;
           }
         },
         {
           title: 'diff(%)',
-          value: function(row) {
-            let spanEl = tr.ui.b.createSpan();
+          value(row) {
+            const spanEl = tr.ui.b.createSpan();
             spanEl.innerText = addArrow(row.overallPercent);
             if (row.overall > 0) {
               spanEl.style.color = DIFF_COLOR.RED;
@@ -528,25 +409,25 @@ tr.exportTo('tr.ui.e.v8', function() {
             }
             return spanEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.overall - b.overall;
           }
         },
         {
           title: 'Over Allocated Memory(KB)',
-          value: function(row) {
-            let spanEl = tr.ui.b.createSpan();
+          value(row) {
+            const spanEl = tr.ui.b.createSpan();
             spanEl.innerText = row.origin.overAllocated.toFixed(3);
             return spanEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.origin.overAllocated - b.origin.overAllocated;
           }
         },
         {
           title: 'diff(KB)',
-          value: function(row) {
-            let spanEl = tr.ui.b.createSpan();
+          value(row) {
+            const spanEl = tr.ui.b.createSpan();
             spanEl.innerText = plusMinus(row.overAllocated);
             if (row.overAllocated > 0) {
               spanEl.style.color = DIFF_COLOR.RED;
@@ -555,14 +436,14 @@ tr.exportTo('tr.ui.e.v8', function() {
             }
             return spanEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.overAllocated - b.overAllocated;
           }
         },
         {
           title: 'diff(%)',
-          value: function(row) {
-            let spanEl = tr.ui.b.createSpan();
+          value(row) {
+            const spanEl = tr.ui.b.createSpan();
             spanEl.innerText = addArrow(row.overAllocatedPercent);
             if (row.overAllocated > 0) {
               spanEl.style.color = DIFF_COLOR.RED;
@@ -571,25 +452,25 @@ tr.exportTo('tr.ui.e.v8', function() {
             }
             return spanEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.overAllocated - b.overAllocated;
           }
         },
         {
           title: 'Count',
-          value: function(row) {
-            let spanEl = tr.ui.b.createSpan();
+          value(row) {
+            const spanEl = tr.ui.b.createSpan();
             spanEl.innerText = row.origin.count;
             return spanEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.origin.count - b.origin.count;
           }
         },
         {
           title: 'diff',
-          value: function(row) {
-            let spanEl = tr.ui.b.createSpan();
+          value(row) {
+            const spanEl = tr.ui.b.createSpan();
             spanEl.innerText = plusMinus(row.count, 0);
             if (row.count > 0) {
               spanEl.style.color = DIFF_COLOR.RED;
@@ -598,16 +479,16 @@ tr.exportTo('tr.ui.e.v8', function() {
             }
             return spanEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.count - b.count;
           }
         },
       ];
     },
 
-    buildOptions_: function() {
-      let items = [];
-      for (let isolateEntry of this.isolateEntries_) {
+    buildOptions_() {
+      const items = [];
+      for (const isolateEntry of this.isolateEntries_) {
         items.push({
           label: isolateEntry.title,
           value: isolateEntry
@@ -617,7 +498,7 @@ tr.exportTo('tr.ui.e.v8', function() {
       this.selector1_ = createSelector(
           this, '', items, this.diffOptionChanged_);
       Polymer.dom(this.$.diffOption).appendChild(this.selector1_);
-      let spanEl = tr.ui.b.createSpan();
+      const spanEl = tr.ui.b.createSpan();
       spanEl.innerText = ' VS ';
       Polymer.dom(this.$.diffOption).appendChild(spanEl);
       this.selector2_ = createSelector(
@@ -625,9 +506,9 @@ tr.exportTo('tr.ui.e.v8', function() {
       Polymer.dom(this.$.diffOption).appendChild(this.selector2_);
     },
 
-    diffOptionChanged_: function() {
-      let isolateEntry1 = this.selector1_.selectedValue;
-      let isolateEntry2 = this.selector2_.selectedValue;
+    diffOptionChanged_() {
+      const isolateEntry1 = this.selector1_.selectedValue;
+      const isolateEntry2 = this.selector2_.selectedValue;
       if (isolateEntry1 === undefined || isolateEntry2 === undefined) {
         return;
       }
@@ -640,13 +521,13 @@ tr.exportTo('tr.ui.e.v8', function() {
       this.$.diffTable.rebuild();
     },
 
-    constructTable_: function() {
+    constructTable_() {
       this.$.table.selectionMode = tr.ui.b.TableFormat.SelectionMode.ROW;
       this.$.table.tableColumns = [
         {
           title: 'Component',
-          value: function(row) {
-            let typeEl = document.createElement('span');
+          value(row) {
+            const typeEl = document.createElement('span');
             typeEl.innerText = row.title;
             return typeEl;
           },
@@ -654,56 +535,56 @@ tr.exportTo('tr.ui.e.v8', function() {
         },
         {
           title: 'Overall Memory (KB)',
-          value: function(row) {
-            let typeEl = document.createElement('span');
+          value(row) {
+            const typeEl = document.createElement('span');
             typeEl.innerText = row.overall.toFixed(3);
             return typeEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.overall - b.overall;
           }
         },
         {
           title: 'Over Allocated Memory (KB)',
-          value: function(row) {
-            let typeEl = document.createElement('span');
+          value(row) {
+            const typeEl = document.createElement('span');
             typeEl.innerText = row.overAllocated.toFixed(3);
             return typeEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.overAllocated - b.overAllocated;
           }
         },
         {
           title: 'Overall Count',
-          value: function(row) {
-            let typeEl = document.createElement('span');
+          value(row) {
+            const typeEl = document.createElement('span');
             typeEl.innerText = row.count;
             return typeEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.count - b.count;
           }
         },
         {
           title: 'Overall Memory Percent',
-          value: function(row) {
-            let typeEl = document.createElement('span');
+          value(row) {
+            const typeEl = document.createElement('span');
             typeEl.innerText = row.overallPercent.toFixed(3) + '%';
             return typeEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.overall - b.overall;
           }
         },
         {
           title: 'Overall Allocated Memory Percent',
-          value: function(row) {
-            let typeEl = document.createElement('span');
+          value(row) {
+            const typeEl = document.createElement('span');
             typeEl.innerText = row.overAllocatedPercent.toFixed(3) + '%';
             return typeEl;
           },
-          cmp: function(a, b) {
+          cmp(a, b) {
             return a.overAllocated - b.overAllocated;
           }
         }
@@ -713,10 +594,10 @@ tr.exportTo('tr.ui.e.v8', function() {
       this.$.table.sortDescending = true;
     },
 
-    buildSubEntry_: function(objects, groupEntry, keyToName) {
-      let typeGroup = INSTANCE_TYPE_GROUPS[groupEntry.title];
-      for (let instanceType of typeGroup) {
-        let e = objects[instanceType];
+    buildSubEntry_(objects, groupEntry, keyToName) {
+      const typeGroup = INSTANCE_TYPE_GROUPS[groupEntry.title];
+      for (const instanceType of typeGroup) {
+        const e = objects[instanceType];
         if (e === undefined) continue;
         delete objects[instanceType];
         let title = instanceType;
@@ -728,10 +609,10 @@ tr.exportTo('tr.ui.e.v8', function() {
       }
     },
 
-    buildUnGroupedEntries_: function(objects, objectEntry, bucketSize) {
-      for (let title of Object.getOwnPropertyNames(objects)) {
-        let obj = objects[title];
-        let groupedEntry = new GroupedEntry(title, 0, 0, 0,
+    buildUnGroupedEntries_(objects, objectEntry, bucketSize) {
+      for (const title of Object.getOwnPropertyNames(objects)) {
+        const obj = objects[title];
+        const groupedEntry = new GroupedEntry(title, 0, 0, 0,
                                             new Array(bucketSize),
                                             new Array(bucketSize));
         groupedEntry.setFromObject(obj);
@@ -739,40 +620,59 @@ tr.exportTo('tr.ui.e.v8', function() {
       }
     },
 
-    build_: function(objects, objectEntry, bucketSize) {
-      let fixedArrayObject = objects['FIXED_ARRAY_TYPE'];
-      if (fixedArrayObject === undefined) {
-        throw new Error('Fixed Array Object not found.');
-      }
-      delete objects.END;
-      delete objects.FIXED_ARRAY_TYPE;
-
-      let groupEntries = {
-        restEntry: new GroupedEntry('Rest', 0, 0, 0, new Array(bucketSize),
-                                    new Array(bucketSize)),
-        stringEntry: new GroupedEntry('Strings', 0, 0, 0, new Array(bucketSize),
-                                      new Array(bucketSize)),
-        jsEntry: new GroupedEntry('JS_OTHER', 0, 0, 0, new Array(bucketSize),
-                                  new Array(bucketSize)),
-        fixedArrayEntry: new GroupedEntry('FIXED_ARRAY_TYPE', 0, 0, 0,
+    createGroupEntries_(groupEntries, objects, bucketSize) {
+      for (const groupName of Object.getOwnPropertyNames(
+          INSTANCE_TYPE_GROUPS)) {
+        const groupEntry = new GroupedEntry(groupName, 0, 0, 0,
                                           new Array(bucketSize),
-                                          new Array(bucketSize)),
-        codeEntry: new GroupedEntry('CODE_TYPE', 0, 0, 0, new Array(bucketSize),
-                                    new Array(bucketSize))
-      };
-      for (let name of Object.getOwnPropertyNames(groupEntries)) {
-        let groupEntry = groupEntries[name];
-        let keyToName = undefined;
-        if (INSTANCE_SUB_TYPE_NAMES[groupEntry.title] !== undefined) {
-          keyToName = INSTANCE_SUB_TYPE_NAMES[groupEntry.title].keyToName;
+                                          new Array(bucketSize));
+        if (INSTANCE_TYPE_GROUPS[groupName].realEntry !== undefined) {
+          groupEntry.savedRealEntry =
+              objects[INSTANCE_TYPE_GROUPS[groupName].realEntry];
+          delete objects[INSTANCE_TYPE_GROUPS[groupName].realEntry];
         }
-        this.buildSubEntry_(objects, groupEntry, keyToName);
-        if (name === 'fixedArrayEntry') {
-          groupEntry.setFromObject(fixedArrayObject);
+        groupEntries[groupName] = groupEntry;
+      }
+    },
+
+    buildGroupEntries_(groupEntries, objectEntry) {
+      for (const groupName of Object.getOwnPropertyNames(groupEntries)) {
+        const groupEntry = groupEntries[groupName];
+        if (groupEntry.savedRealEntry !== undefined) {
+          groupEntry.setFromObject(groupEntry.savedRealEntry);
           groupEntry.accumulateUnknown('UNKNOWN');
+          delete groupEntry.savedRealEntry;
         }
         objectEntry.add(groupEntry);
       }
+    },
+
+    buildSubEntriesForGroups_(groupEntries, objects) {
+      for (const instanceType of Object.getOwnPropertyNames(objects)) {
+        if (IGNORED_ENTRIES.match(instanceType)) {
+          delete objects[instanceType];
+          continue;
+        }
+        const e = objects[instanceType];
+        for (const name of Object.getOwnPropertyNames(INSTANCE_TYPE_GROUPS)) {
+          const group = INSTANCE_TYPE_GROUPS[name];
+          if (group.match(instanceType)) {
+            groupEntries[name].add(new Entry(
+                group.keyToName(instanceType), e.count, e.overall / 1024,
+                e.over_allocated / 1024, e.histogram,
+                e.over_allocated_histogram));
+            delete objects[instanceType];
+          }
+        }
+      }
+    },
+
+    build_(objects, objectEntry, bucketSize) {
+      delete objects.END;
+      const groupEntries = {};
+      this.createGroupEntries_(groupEntries, objects, bucketSize);
+      this.buildSubEntriesForGroups_(groupEntries, objects);
+      this.buildGroupEntries_(groupEntries, objectEntry);
       this.buildUnGroupedEntries_(objects, objectEntry, bucketSize);
     },
 
@@ -780,22 +680,22 @@ tr.exportTo('tr.ui.e.v8', function() {
       slices.sortEvents(function(a, b) {
         return b.start - a.start;
       });
-      let previous = undefined;
-      for (let slice of slices) {
+      const previous = undefined;
+      for (const slice of slices) {
         if (!slice instanceof tr.e.v8.V8GCStatsThreadSlice) continue;
-        let liveObjects = slice.liveObjects;
-        let deadObjects = slice.deadObjects;
-        let isolate = liveObjects.isolate;
+        const liveObjects = slice.liveObjects;
+        const deadObjects = slice.deadObjects;
+        const isolate = liveObjects.isolate;
 
-        let isolateEntry =
+        const isolateEntry =
             new GroupedEntry(
               'Isolate_' + isolate + ' at ' + slice.start.toFixed(3) + ' ms',
               0, 0, 0, [], []);
-        let liveEntry = new GroupedEntry('live objects', 0, 0, 0, [], []);
-        let deadEntry = new GroupedEntry('dead objects', 0, 0, 0, [], []);
+        const liveEntry = new GroupedEntry('live objects', 0, 0, 0, [], []);
+        const deadEntry = new GroupedEntry('dead objects', 0, 0, 0, [], []);
 
-        let liveBucketSize = liveObjects.bucket_sizes.length;
-        let deadBucketSize = deadObjects.bucket_sizes.length;
+        const liveBucketSize = liveObjects.bucket_sizes.length;
+        const deadBucketSize = deadObjects.bucket_sizes.length;
 
         this.build_(tr.b.deepCopy(liveObjects.type_data), liveEntry,
             liveBucketSize);
@@ -816,7 +716,7 @@ tr.exportTo('tr.ui.e.v8', function() {
       }
     },
 
-    updateTable_: function() {
+    updateTable_() {
       this.constructTable_();
       this.$.table.tableRows = this.isolateEntries_;
       this.$.table.rebuild();

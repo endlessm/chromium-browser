@@ -67,6 +67,9 @@ SUBMITTED_WAIT_TIMEOUT = 3 * 60 # Time in seconds.
 # Default sleep time (second) in the apply_patch loop
 DEFAULT_APPLY_PATCH_SLEEP_TIME = 1
 
+# Default timeout (second) for computing dependency map.
+COMPUTE_DEPENDENCY_MAP_TIMEOUT = 5 * 60
+
 
 class TreeIsClosedException(Exception):
   """Raised when the tree is closed and we wanted to submit changes."""
@@ -298,6 +301,9 @@ class ValidationPool(object):
 
     # Set to False if the tree was not open when we acquired changes.
     self.tree_was_open = tree_was_open
+
+    # A set of changes filtered by throttling, default to None.
+    self.filtered_set = None
 
   def GetAppliedPatches(self):
     """Get the applied_patches instance.
@@ -624,18 +630,19 @@ class ValidationPool(object):
 
     return changes_in_manifest, changes_not_in_manifest
 
-  @classmethod
-  def _FilterDependencyErrors(cls, errors):
+  def _FilterDependencyErrors(self, errors):
     """Filter out ignorable DependencyError exceptions.
 
     If a dependency isn't marked as ready, or a dependency fails to apply,
     we only complain after REJECTION_GRACE_PERIOD has passed since the patch
     was uploaded.
 
-    This helps in two situations:
-      1) If the developer is in the middle of marking a stack of changes as
+    This helps in three situations:
+      1) crbug.com/705023: if the error is a DependencyError, and the dependent
+         CL was filtered by a throttled tree, do not reject the CL set.
+      2) If the developer is in the middle of marking a stack of changes as
          ready, we won't reject their work until the grace period has passed.
-      2) If the developer marks a big circular stack of changes as ready, and
+      3) If the developer marks a big circular stack of changes as ready, and
          some change in the middle of the stack doesn't apply, the user will
          get a chance to rebase their change before we mark all the changes as
          'not ready'.
@@ -649,10 +656,21 @@ class ValidationPool(object):
     Returns:
       List of unfiltered exceptions.
     """
-    reject_timestamp = time.time() - cls.REJECTION_GRACE_PERIOD
+    reject_timestamp = time.time() - self.REJECTION_GRACE_PERIOD
     results = []
     for error in errors:
       results.append(error)
+
+      if self.filtered_set and isinstance(error, cros_patch.DependencyError):
+        root_error = error.GetRootError()
+        if (isinstance(root_error, patch_series.PatchNotEligible) and
+            root_error.patch in self.filtered_set):
+          logging.info('Ignoring dependency errors for %s as its dependency '
+                       'change %s was filtered out by throttling.', error.patch,
+                       root_error.patch)
+          results.pop()
+          continue
+
       is_ready = error.patch.HasReadyFlag()
       if not is_ready or reject_timestamp < error.patch.approval_timestamp:
         while error is not None:
@@ -709,6 +727,11 @@ class ValidationPool(object):
       if change.pass_count > 0:
         s += ' | passed:%d' % change.pass_count
 
+      # Add the subject line of the commit message.
+      if change.commit_message:
+        s += ' | %s' % cros_build_lib.TruncateStringToLine(
+            change.commit_message, 80)
+
       logging.PrintBuildbotLink(s, change.url)
 
   def FilterChangesForThrottledTree(self):
@@ -732,6 +755,7 @@ class ValidationPool(object):
 
     removed = self.candidates[test_pool_size:]
     if removed:
+      self.filtered_set = set(removed)
       logging.info('As the tree is throttled, it only picks a random subset of '
                    'candidate changes. Changes not picked up in this run: %s ',
                    cros_patch.GetChangesAsString(removed))
@@ -891,75 +915,81 @@ class ValidationPool(object):
       A dict mapping a change (patch.GerritPatch instance) to a set of changes
       (patch.GerritPatch instances) depending on this change.
     """
-    dependency_map = {}
-
+    # 1. We want the set of nodes S = {x : x has a path to n in G}.
+    # 2. There is a path from x to n in G if and only if there is a path from
+    #    n to x in flip(G).
+    # 3. So S = {x : x has a path to n in G}
+    #         = {x : n has a path to x in flip(G)}
+    logging.info('Computing dependency map for changes: %s',
+                 cros_patch.GetChangesAsString(changes))
+    flipped_graph = {}
     for change in changes:
       gerrit_deps, cq_deps = patches.GetDepChangesForChange(change)
-
       for dep in gerrit_deps + cq_deps:
         # Maps each change to the changes directly depending on it.
-        dependency_map.setdefault(dep, set()).add(change)
+        flipped_graph.setdefault(dep, set()).add(change)
 
-    visited = set()
-    visiting = set()
-    for change in changes:
-      # Update dependency_map to map each change to all changes directly or
-      # indirectly depending on it.
-      self._UpdateDependencyMap(dependency_map, change, visiting, visited)
+    try:
+      return self.GetTransitiveDependMap(changes, flipped_graph)
+    except timeout_util.TimeoutError as e:
+      logging.error('Timeout error at getting transitive dependency map for '
+                    'changes: %s', e)
 
-    return dependency_map
+    return flipped_graph
 
-  def _UpdateDependencyMap(self, dependency_map, change, visiting, visited):
-    """For a change, find all changes depending on it and update dependency map.
-
-    The value part of a change key in the dependency map is a set of changes
-    depending on it. Some other changes may indirectly depend on this change.
-    Given the change and the dependency map, search through the dependency map
-    to find all changes (directly and indirectly) depending on this change,
-    add all the changes to the value of this change key in the dependency map.
+  @timeout_util.TimeoutDecorator(COMPUTE_DEPENDENCY_MAP_TIMEOUT)
+  def GetTransitiveDependMap(self, changes, flipped_graph):
+    """Get the transitive dependency map for given changes.
 
     Args:
-      dependency_map: A dict mapping a change (patch.GerritPatch instance)
-        to a set of changes (patch.GerritPatch instances) depending on this
-        change.
-      change: The change (patch.GerritPatch instance) to update.
-      visiting: A set of changes (patch.GerritPatch instance) in visiting
-        status in this search.
-      visited: A set of changes (patch.GerritPatch instance) has been visited
-        and updated with all changes depending on them.
+      changes: A list of changes to parse to generate the dependency map.
+      flipped_graph: A dict mapping a change (patch.GerritPatch instance) to a
+        set of changes (patch.GerritPatch instances) directly depending on it.
 
     Returns:
-      A set of changes (patch.GerritPatch instance) depending on the change,
-         or None if no change depends on this change.
+      A dict mapping a change (patch.GerritPatch instance) to a set of changes
+      (patch.GerritPatch instances) directly or indirectly depending on it.
     """
-    if change in visited:
-      return dependency_map.get(change)
+    transitive_dependency_map = {}
+    for change in changes:
+      logging.info('Getting transitive dependency map for change: %s ',
+                   change.PatchLink())
+      # Update dependency_map to map each change to all changes directly or
+      # indirectly depending on it.
+      visited = self._DepthFirstSearch(flipped_graph, change)
+      visited.remove(change)
+      if visited:
+        transitive_dependency_map[change] = visited
 
-    if change in visiting:
-      return {change}
+    return transitive_dependency_map
 
-    visiting.add(change)
+  def _DepthFirstSearch(self, graph, node):
+    """Returns a set of nodes reachable from a node in a graph.
 
-    if change in dependency_map:
-      updated_deps = set()
-      for dep in dependency_map[change]:
-        dep_deps = self._UpdateDependencyMap(
-            dependency_map, dep, visiting, visited)
+    Performs depth-first-search, keeping track of a set of visited nodes to
+    avoid exponential blowup from diamond-shaped graphs, and to avoid infinite
+    loops from cycles. Returns the set of visited nodes, including the start
+    node.
 
-        if dep_deps:
-          updated_deps.update(dep_deps)
+    Args:
+      graph: The graph as an adjacency map. It maps nodes to a collection of
+             their neighbors.
+      node: The current node we are at.
 
-      updated_deps.discard(change)
-      dependency_map[change].update(updated_deps)
+    Returns:
+      A set of nodes reachable from the start node.
+    """
+    visited = set()
+    visiting = [node]
+    while visiting:
+      node = visiting.pop()
+      visited.add(node)
+      children = graph.get(node, set())
+      # Don't re-visit nodes, or the algorithm becomes exponential-time.
+      visiting.extend(children - visited)
 
-    visiting.remove(change)
+    return visited
 
-    depends = dependency_map.get(change)
-
-    if not depends or not visiting.intersection(depends):
-      visited.add(change)
-
-    return depends
 
   @staticmethod
   def Load(filename, builder_run=None):
@@ -1813,7 +1843,7 @@ class ValidationPool(object):
       self.RemoveReady(change)
 
   def HandleValidationFailure(self, messages, changes=None, sanity=True,
-                              no_stat=None):
+                              no_stat=None, failed_hwtests=None):
     """Handles a list of validation failure messages from slave builders.
 
     This handler parses a list of failure messages from our list of builders
@@ -1830,6 +1860,7 @@ class ValidationPool(object):
         not sane, none of the changes will have their CommitReady bit modified.
       no_stat: A list of builders which failed prematurely without reporting
         status. If not None, this implies there were infrastructure issues.
+      failed_hwtests: A list of names (strings) of failed hwtests.
     """
     if changes is None:
       changes = self.applied
@@ -1858,8 +1889,8 @@ class ValidationPool(object):
     infra_fail = triage_lib.CalculateSuspects.OnlyInfraFailures(
         messages, no_stat)
     suspects = triage_lib.CalculateSuspects.FindSuspects(
-        candidates, messages, infra_fail=infra_fail, lab_fail=lab_fail,
-        sanity=sanity)
+        candidates, messages, build_root=self.build_root, infra_fail=infra_fail,
+        lab_fail=lab_fail, failed_hwtests=failed_hwtests, sanity=sanity)
 
     # Send out failure notifications for each change.
     inputs = [[change, messages, suspects, sanity, infra_fail,

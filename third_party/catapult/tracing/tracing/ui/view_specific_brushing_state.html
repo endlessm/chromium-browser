@@ -55,13 +55,13 @@ Polymer({
    * If no state has been persisted yet or there is no ancestor element with
    * a brushingStateController field, this method returns undefined.
    */
-  get: function() {
-    var viewId = this.viewId;
+  get() {
+    const viewId = this.viewId;
     if (!viewId) {
       throw new Error('Element must have a view-id attribute!');
     }
 
-    var brushingStateController =
+    const brushingStateController =
         tr.c.BrushingStateController.getControllerForElement(this);
     if (!brushingStateController) return undefined;
 
@@ -76,13 +76,13 @@ Polymer({
    * If there is no ancestor element with a brushingStateController field,
    * this method does nothing.
    */
-  set: function(state) {
-    var viewId = this.viewId;
+  set(state) {
+    const viewId = this.viewId;
     if (!viewId) {
       throw new Error('Element must have a view-id attribute!');
     }
 
-    var brushingStateController =
+    const brushingStateController =
         tr.c.BrushingStateController.getControllerForElement(this);
     if (!brushingStateController) return;
 

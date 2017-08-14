@@ -87,9 +87,9 @@ found in the LICENSE file.
       computeSuccessfulLoad: (loading, error) => !(loading || error),
 
       computeNumMonitored: benchmarks => {
-        var numMonitored = 0;
-        for (let benchmark of benchmarks) {
-          if (benchmark['monitored']) {
+        let numMonitored = 0;
+        for (const benchmark of benchmarks) {
+          if (benchmark.monitored) {
             numMonitored++;
           }
         }
@@ -97,22 +97,22 @@ found in the LICENSE file.
       },
 
       computeNumUnmonitored: benchmarks => {
-        var numUnmonitored = 0;
-        for (let benchmark of benchmarks) {
-          if (!benchmark['monitored']) {
+        let numUnmonitored = 0;
+        for (const benchmark of benchmarks) {
+          if (!benchmark.monitored) {
             numUnmonitored++;
           }
         }
         return numUnmonitored;
       },
 
-      ready: function() {
-        var params = {
+      ready() {
+        const params = {
           'master': this.master
         };
         simple_xhr.send('/benchmark_health_report', params,
             response => {
-              this.benchmarkList = response['benchmarks'];
+              this.benchmarkList = response.benchmarks;
               this.error = false;
               this.loading = false;
             },

@@ -1270,7 +1270,7 @@ class MockPatchBase(cros_test_lib.MockTestCase):
                 project='chromiumos/chromite',
                 remote=site_config.params.EXTERNAL_REMOTE,
                 tracking_branch='refs/heads/master', is_draft=False,
-                approvals=()):
+                approvals=(), commit_message=None, mock_diff_status=None):
     """Helper function to create mock GerritPatch objects."""
     if change_id is None:
       change_id = self._patch_counter()
@@ -1307,6 +1307,12 @@ class MockPatchBase(cros_test_lib.MockTestCase):
     patch.pass_count = 0
     patch.fail_count = 1
     patch.total_fail_count = 3
+    patch.commit_message = commit_message
+
+    if mock_diff_status is None:
+      mock_diff_status = {}
+    self.PatchObject(cros_patch.GerritPatch, 'GetDiffStatus',
+                     return_value=mock_diff_status)
     return patch
 
   def GetPatches(self, how_many=1, always_use_list=False, **kwargs):
@@ -1324,3 +1330,26 @@ class MockPatchBase(cros_test_lib.MockTestCase):
     if how_many == 1 and not always_use_list:
       return patches[0]
     return patches
+
+
+class DependencyErrorTests(MockPatchBase):
+  """Tests for DependencyError."""
+
+  def testGetRootError(self):
+    """Test GetRootError on nested DependencyError."""
+    p_1, p_2, p_3 = self.GetPatches(how_many=3)
+    ex_1 = cros_patch.ApplyPatchException(p_1)
+    ex_2 = cros_patch.DependencyError(p_2, ex_1)
+    ex_3 = cros_patch.DependencyError(p_3, ex_2)
+
+    self.assertEqual(ex_3.GetRootError(), ex_1)
+
+  def testGetRootErrorOnCircurlarError(self):
+    """Test GetRootError on circular"""
+    p_1, p_2, p_3 = self.GetPatches(how_many=3)
+    ex_1 = cros_patch.DependencyError(p_2, cros_patch.ApplyPatchException(p_1))
+    ex_2 = cros_patch.DependencyError(p_2, ex_1)
+    ex_3 = cros_patch.DependencyError(p_3, ex_2)
+    ex_1.error = ex_3
+
+    self.assertIsNone(ex_3.GetRootError())

@@ -10,7 +10,7 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.model', function() {
-  var Settings = tr.b.Settings;
+  const Settings = tr.b.Settings;
 
   /**
    * A way to persist settings specific to parts of a trace model.
@@ -37,17 +37,17 @@ tr.exportTo('tr.model', function() {
   }
 
   ModelSettings.prototype = {
-    buildObjectsByKeyMap_: function() {
-      var objects = [];
+    buildObjectsByKeyMap_() {
+      const objects = [];
       this.model.iterateAllPersistableObjects(function(o) {
         objects.push(o);
       });
 
-      var objectsByKey = {};
-      var NONUNIQUE_KEY = 'nonuniqueKey';
-      for (var i = 0; i < objects.length; i++) {
-        var object = objects[i];
-        var objectKey = object.getSettingsKey();
+      const objectsByKey = {};
+      const NONUNIQUE_KEY = 'nonuniqueKey';
+      for (let i = 0; i < objects.length; i++) {
+        const object = objects[i];
+        const objectKey = object.getSettingsKey();
         if (!objectKey) continue;
         if (objectsByKey[objectKey] === undefined) {
           objectsByKey[objectKey] = object;
@@ -56,7 +56,7 @@ tr.exportTo('tr.model', function() {
         objectsByKey[objectKey] = NONUNIQUE_KEY;
       }
 
-      var nonuniqueKeys = {};
+      const nonuniqueKeys = {};
       Object.keys(objectsByKey).forEach(function(objectKey) {
         if (objectsByKey[objectKey] !== NONUNIQUE_KEY) {
           return;
@@ -69,9 +69,9 @@ tr.exportTo('tr.model', function() {
       this.objectsByKey_ = objectsByKey;
     },
 
-    removeNonuniqueKeysFromSettings_: function() {
-      var settings = Settings.get('trace_model_settings', {});
-      var settingsChanged = false;
+    removeNonuniqueKeysFromSettings_() {
+      const settings = Settings.get('trace_model_settings', {});
+      let settingsChanged = false;
       Object.keys(settings).forEach(function(objectKey) {
         if (!this.nonuniqueKeys[objectKey]) {
           return;
@@ -84,42 +84,42 @@ tr.exportTo('tr.model', function() {
       }
     },
 
-    hasUniqueSettingKey: function(object) {
-      var objectKey = object.getSettingsKey();
+    hasUniqueSettingKey(object) {
+      const objectKey = object.getSettingsKey();
       if (!objectKey) return false;
       return this.objectsByKey_[objectKey] !== undefined;
     },
 
-    getSettingFor: function(object, objectLevelKey, defaultValue) {
-      var objectKey = object.getSettingsKey();
+    getSettingFor(object, objectLevelKey, defaultValue) {
+      const objectKey = object.getSettingsKey();
       if (!objectKey || !this.objectsByKey_[objectKey]) {
-        var settings = this.getEphemeralSettingsFor_(object);
-        var ephemeralValue = settings[objectLevelKey];
+        const settings = this.getEphemeralSettingsFor_(object);
+        const ephemeralValue = settings[objectLevelKey];
         if (ephemeralValue !== undefined) {
           return ephemeralValue;
         }
         return defaultValue;
       }
 
-      var settings = Settings.get('trace_model_settings', {});
+      const settings = Settings.get('trace_model_settings', {});
       if (!settings[objectKey]) {
         settings[objectKey] = {};
       }
-      var value = settings[objectKey][objectLevelKey];
+      const value = settings[objectKey][objectLevelKey];
       if (value !== undefined) {
         return value;
       }
       return defaultValue;
     },
 
-    setSettingFor: function(object, objectLevelKey, value) {
-      var objectKey = object.getSettingsKey();
+    setSettingFor(object, objectLevelKey, value) {
+      const objectKey = object.getSettingsKey();
       if (!objectKey || !this.objectsByKey_[objectKey]) {
         this.getEphemeralSettingsFor_(object)[objectLevelKey] = value;
         return;
       }
 
-      var settings = Settings.get('trace_model_settings', {});
+      const settings = Settings.get('trace_model_settings', {});
       if (!settings[objectKey]) {
         settings[objectKey] = {};
       }
@@ -130,7 +130,7 @@ tr.exportTo('tr.model', function() {
       Settings.set('trace_model_settings', settings);
     },
 
-    getEphemeralSettingsFor_: function(object) {
+    getEphemeralSettingsFor_(object) {
       if (object.guid === undefined) {
         throw new Error('Only objects with GUIDs can be persisted');
       }

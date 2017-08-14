@@ -19,8 +19,8 @@ found in the LICENSE file.
  * @fileoverview Provides the SliceGroup class.
  */
 tr.exportTo('tr.model', function() {
-  var ColorScheme = tr.b.ColorScheme;
-  var ThreadSlice = tr.model.ThreadSlice;
+  const ColorScheme = tr.b.ColorScheme;
+  const ThreadSlice = tr.model.ThreadSlice;
 
   function getSliceLo(s) {
     return s.start;
@@ -47,7 +47,7 @@ tr.exportTo('tr.model', function() {
 
     this.parentContainer_ = parentContainer;
 
-    var sliceConstructor = opt_sliceConstructor || ThreadSlice;
+    const sliceConstructor = opt_sliceConstructor || ThreadSlice;
     this.sliceConstructor = sliceConstructor;
     this.sliceConstructorSubTypes = this.sliceConstructor.subTypes;
     if (!this.sliceConstructorSubTypes) {
@@ -81,9 +81,9 @@ tr.exportTo('tr.model', function() {
       return this.parentContainer_.stableId + '.SliceGroup';
     },
 
-    getSettingsKey: function() {
+    getSettingsKey() {
       if (!this.name_) return undefined;
-      var parentKey = this.parentContainer_.getSettingsKey();
+      const parentKey = this.parentContainer_.getSettingsKey();
       if (!parentKey) return undefined;
       return parentKey + '.' + this.name;
     },
@@ -99,7 +99,7 @@ tr.exportTo('tr.model', function() {
      * Helper function that pushes the provided slice onto the slices array.
      * @param {Slice} slice The slice to be added to the slices array.
      */
-    pushSlice: function(slice) {
+    pushSlice(slice) {
       this.haveTopLevelSlicesBeenBuilt = false;
       slice.parentContainer = this.parentContainer_;
       this.slices.push(slice);
@@ -110,7 +110,7 @@ tr.exportTo('tr.model', function() {
      * Helper function that pushes the provided slices onto the slices array.
      * @param {Array.<Slice>} slices An array of slices to be added.
      */
-    pushSlices: function(slices) {
+    pushSlices(slices) {
       this.haveTopLevelSlicesBeenBuilt = false;
       slices.forEach(function(slice) {
         slice.parentContainer = this.parentContainer_;
@@ -132,21 +132,22 @@ tr.exportTo('tr.model', function() {
      * @param {Number=} opt_colorId The color of the slice, defined by
      * its palette id (see base/color_scheme.html).
      */
-    beginSlice: function(category, title, ts, opt_args, opt_tts,
+    beginSlice(category, title, ts, opt_args, opt_tts,
         opt_argsStripped, opt_colorId) {
       if (this.openPartialSlices_.length) {
-        var prevSlice = this.openPartialSlices_[
+        const prevSlice = this.openPartialSlices_[
             this.openPartialSlices_.length - 1];
         if (ts < prevSlice.start) {
           throw new Error('Slices must be added in increasing timestamp order');
         }
       }
 
-      var colorId = opt_colorId ||
+      const colorId = opt_colorId ||
           ColorScheme.getColorIdForGeneralPurposeString(title);
-      var sliceConstructorSubTypes = this.sliceConstructorSubTypes;
-      var sliceType = sliceConstructorSubTypes.getConstructor(category, title);
-      var slice = new sliceType(category, title, colorId, ts,
+      const sliceConstructorSubTypes = this.sliceConstructorSubTypes;
+      const sliceType = sliceConstructorSubTypes.getConstructor(
+          category, title);
+      const slice = new sliceType(category, title, colorId, ts,
                                 opt_args ? opt_args : {}, null,
                                 opt_tts, undefined,
                                 opt_argsStripped);
@@ -157,9 +158,9 @@ tr.exportTo('tr.model', function() {
       return slice;
     },
 
-    isTimestampValidForBeginOrEnd: function(ts) {
+    isTimestampValidForBeginOrEnd(ts) {
       if (!this.openPartialSlices_.length) return true;
-      var top = this.openPartialSlices_[this.openPartialSlices_.length - 1];
+      const top = this.openPartialSlices_[this.openPartialSlices_.length - 1];
       return ts >= top.start;
     },
 
@@ -185,12 +186,12 @@ tr.exportTo('tr.model', function() {
      * its palette id (see base/color_scheme.html).
      * @return {Slice} slice.
      */
-    endSlice: function(ts, opt_tts, opt_colorId) {
+    endSlice(ts, opt_tts, opt_colorId) {
       if (!this.openSliceCount) {
         throw new Error('endSlice called without an open slice');
       }
 
-      var slice = this.openPartialSlices_[this.openSliceCount - 1];
+      const slice = this.openPartialSlices_[this.openSliceCount - 1];
       this.openPartialSlices_.splice(this.openSliceCount - 1, 1);
       if (ts < slice.start) {
         throw new Error('Slice ' + slice.title +
@@ -221,14 +222,15 @@ tr.exportTo('tr.model', function() {
      * @param {Number=} opt_colorId The color of the slice, as defined by
      * its palette id (see base/color_scheme.html).
      */
-    pushCompleteSlice: function(category, title, ts, duration, tts,
+    pushCompleteSlice(category, title, ts, duration, tts,
         cpuDuration, opt_args, opt_argsStripped,
         opt_colorId, opt_bindId) {
-      var colorId = opt_colorId ||
+      const colorId = opt_colorId ||
           ColorScheme.getColorIdForGeneralPurposeString(title);
-      var sliceConstructorSubTypes = this.sliceConstructorSubTypes;
-      var sliceType = sliceConstructorSubTypes.getConstructor(category, title);
-      var slice = new sliceType(category, title, colorId, ts,
+      const sliceConstructorSubTypes = this.sliceConstructorSubTypes;
+      const sliceType = sliceConstructorSubTypes.getConstructor(
+          category, title);
+      const slice = new sliceType(category, title, colorId, ts,
                                 opt_args ? opt_args : {},
                                 duration, tts, cpuDuration,
                                 opt_argsStripped, opt_bindId);
@@ -245,11 +247,11 @@ tr.exportTo('tr.model', function() {
      * slices. If not provided,
      * the max timestamp for this slice is provided.
      */
-    autoCloseOpenSlices: function() {
+    autoCloseOpenSlices() {
       this.updateBounds();
-      var maxTimestamp = this.bounds.max;
-      for (var sI = 0; sI < this.slices.length; sI++) {
-        var slice = this.slices[sI];
+      const maxTimestamp = this.bounds.max;
+      for (let sI = 0; sI < this.slices.length; sI++) {
+        const slice = this.slices[sI];
         if (slice.didNotFinish) {
           slice.duration = maxTimestamp - slice.start;
         }
@@ -261,9 +263,9 @@ tr.exportTo('tr.model', function() {
      * Shifts all the timestamps inside this group forward by the amount
      * specified.
      */
-    shiftTimestampsForward: function(amount) {
-      for (var sI = 0; sI < this.slices.length; sI++) {
-        var slice = this.slices[sI];
+    shiftTimestampsForward(amount) {
+      for (let sI = 0; sI < this.slices.length; sI++) {
+        const slice = this.slices[sI];
         slice.start = (slice.start + amount);
       }
     },
@@ -271,45 +273,45 @@ tr.exportTo('tr.model', function() {
     /**
      * Updates the bounds for this group based on the slices it contains.
      */
-    updateBounds: function() {
+    updateBounds() {
       this.bounds.reset();
-      for (var i = 0; i < this.slices.length; i++) {
+      for (let i = 0; i < this.slices.length; i++) {
         this.bounds.addValue(this.slices[i].start);
         this.bounds.addValue(this.slices[i].end);
       }
     },
 
-    copySlice: function(slice) {
-      var sliceConstructorSubTypes = this.sliceConstructorSubTypes;
-      var sliceType = sliceConstructorSubTypes.getConstructor(slice.category,
+    copySlice(slice) {
+      const sliceConstructorSubTypes = this.sliceConstructorSubTypes;
+      const sliceType = sliceConstructorSubTypes.getConstructor(slice.category,
           slice.title);
-      var newSlice = new sliceType(slice.category, slice.title,
+      const newSlice = new sliceType(slice.category, slice.title,
           slice.colorId, slice.start,
           slice.args, slice.duration, slice.cpuStart, slice.cpuDuration);
       newSlice.didNotFinish = slice.didNotFinish;
       return newSlice;
     },
 
-    findTopmostSlicesInThisContainer: function* (eventPredicate, opt_this) {
+    * findTopmostSlicesInThisContainer(eventPredicate, opt_this) {
       if (!this.haveTopLevelSlicesBeenBuilt) {
         throw new Error('Nope');
       }
 
-      for (var s of this.topLevelSlices) {
+      for (const s of this.topLevelSlices) {
         yield* s.findTopmostSlicesRelativeToThisSlice(eventPredicate);
       }
     },
 
-    childEvents: function* () {
+    * childEvents() {
       yield* this.slices;
     },
 
-    childEventContainers: function* () {
+    * childEventContainers() {
     },
 
-    getSlicesOfName: function(title) {
-      var slices = [];
-      for (var i = 0; i < this.slices.length; i++) {
+    getSlicesOfName(title) {
+      const slices = [];
+      for (let i = 0; i < this.slices.length; i++) {
         if (this.slices[i].title === title) {
           slices.push(this.slices[i]);
         }
@@ -317,8 +319,8 @@ tr.exportTo('tr.model', function() {
       return slices;
     },
 
-    iterSlicesInTimeRange: function(callback, start, end) {
-      var ret = [];
+    iterSlicesInTimeRange(callback, start, end) {
+      const ret = [];
       tr.b.math.iterateOverIntersectingIntervals(
           this.topLevelSlices,
           function(s) { return s.start; },
@@ -327,14 +329,14 @@ tr.exportTo('tr.model', function() {
           end,
           function(topLevelSlice) {
             callback(topLevelSlice);
-            for (var slice of topLevelSlice.enumerateAllDescendents()) {
+            for (const slice of topLevelSlice.enumerateAllDescendents()) {
               callback(slice);
             }
           });
       return ret;
     },
 
-    findFirstSlice: function() {
+    findFirstSlice() {
       if (!this.haveTopLevelSlicesBeenBuilt) {
         throw new Error('Nope');
       }
@@ -342,9 +344,9 @@ tr.exportTo('tr.model', function() {
       return this.slices[0];
     },
 
-    findSliceAtTs: function(ts) {
+    findSliceAtTs(ts) {
       if (!this.haveTopLevelSlicesBeenBuilt) throw new Error('Nope');
-      var i = tr.b.math.findIndexInSortedClosedIntervals(
+      let i = tr.b.math.findIndexInSortedClosedIntervals(
           this.topLevelSlices,
           getSliceLo, getSliceHi,
           ts);
@@ -352,11 +354,11 @@ tr.exportTo('tr.model', function() {
         return undefined;
       }
 
-      var curSlice = this.topLevelSlices[i];
+      let curSlice = this.topLevelSlices[i];
 
       // Now recurse on slice looking for subSlice of given ts.
       while (true) {
-        var i = tr.b.math.findIndexInSortedClosedIntervals(
+        i = tr.b.math.findIndexInSortedClosedIntervals(
             curSlice.subSlices,
             getSliceLo, getSliceHi,
             ts);
@@ -367,14 +369,14 @@ tr.exportTo('tr.model', function() {
       }
     },
 
-    findNextSliceAfter: function(ts, refGuid) {
-      var i = tr.b.math.findLowIndexInSortedArray(
+    findNextSliceAfter(ts, refGuid) {
+      let i = tr.b.math.findLowIndexInSortedArray(
           this.slices, getSliceLo, ts);
       if (i === this.slices.length) {
         return undefined;
       }
       for (; i < this.slices.length; i++) {
-        var slice = this.slices[i];
+        const slice = this.slices[i];
         if (slice.start > ts) return slice;
         if (slice.guid <= refGuid) continue;
         return slice;
@@ -386,7 +388,7 @@ tr.exportTo('tr.model', function() {
      * This function assumes that if any slice has a cpu duration then
      * then the group is considered to have cpu duration.
      */
-    hasCpuDuration_: function() {
+    hasCpuDuration_() {
       if (this.slices.some(function(slice) {
         return slice.cpuDuration !== undefined;
       })) return true;
@@ -399,7 +401,7 @@ tr.exportTo('tr.model', function() {
      * a selfThreadTime and a selfTime, child slices get a parentSlice
      * reference.
      */
-    createSubSlices: function() {
+    createSubSlices() {
       this.haveTopLevelSlicesBeenBuilt = true;
       this.createSubSlicesImpl_();
       // If another source has cpu time, we can augment the cpuDuration of the
@@ -409,16 +411,16 @@ tr.exportTo('tr.model', function() {
         this.addCpuTimeToSubslices_(this.parentContainer.timeSlices);
       }
       this.slices.forEach(function(slice) {
-        var selfTime = slice.duration;
-        for (var i = 0; i < slice.subSlices.length; i++) {
+        let selfTime = slice.duration;
+        for (let i = 0; i < slice.subSlices.length; i++) {
           selfTime -= slice.subSlices[i].duration;
         }
         slice.selfTime = selfTime;
 
         if (slice.cpuDuration === undefined) return;
 
-        var cpuSelfTime = slice.cpuDuration;
-        for (var i = 0; i < slice.subSlices.length; i++) {
+        let cpuSelfTime = slice.cpuDuration;
+        for (let i = 0; i < slice.subSlices.length; i++) {
           if (slice.subSlices[i].cpuDuration !== undefined) {
             cpuSelfTime -= slice.subSlices[i].cpuDuration;
           }
@@ -426,8 +428,8 @@ tr.exportTo('tr.model', function() {
         slice.cpuSelfTime = cpuSelfTime;
       });
     },
-    createSubSlicesImpl_: function() {
-      var precisionUnit = this.model.intrinsicTimeUnit;
+    createSubSlicesImpl_() {
+      const precisionUnit = this.model.intrinsicTimeUnit;
 
 
       // Note that this doesn't check whether |child| should be added to
@@ -446,8 +448,8 @@ tr.exportTo('tr.model', function() {
 
       if (!this.slices.length) return;
 
-      var ops = [];
-      for (var i = 0; i < this.slices.length; i++) {
+      const ops = [];
+      for (let i = 0; i < this.slices.length; i++) {
         if (this.slices[i].subSlices) {
           this.slices[i].subSlices.splice(0,
               this.slices[i].subSlices.length);
@@ -455,10 +457,10 @@ tr.exportTo('tr.model', function() {
         ops.push(i);
       }
 
-      var originalSlices = this.slices;
+      const originalSlices = this.slices;
       ops.sort(function(ix, iy) {
-        var x = originalSlices[ix];
-        var y = originalSlices[iy];
+        const x = originalSlices[ix];
+        const y = originalSlices[iy];
         if (x.start !== y.start) {
           return x.start - y.start;
         }
@@ -470,18 +472,18 @@ tr.exportTo('tr.model', function() {
         return ix - iy;
       });
 
-      var slices = new Array(this.slices.length);
-      for (var i = 0; i < ops.length; i++) {
+      const slices = new Array(this.slices.length);
+      for (let i = 0; i < ops.length; i++) {
         slices[i] = originalSlices[ops[i]];
       }
 
       // Actually build the subrows.
-      var rootSlice = slices[0];
+      let rootSlice = slices[0];
       this.topLevelSlices = [];
       this.topLevelSlices.push(rootSlice);
       rootSlice.isTopLevel = true;
-      for (var i = 1; i < slices.length; i++) {
-        var slice = slices[i];
+      for (let i = 1; i < slices.length; i++) {
+        const slice = slices[i];
         while (rootSlice !== undefined &&
                (!addSliceIfBounds(rootSlice, slice))) {
           rootSlice = rootSlice.parentSlice;
@@ -496,9 +498,9 @@ tr.exportTo('tr.model', function() {
       // Keep the slices in sorted form.
       this.slices = slices;
     },
-    addCpuTimeToSubslices_: function(timeSlices) {
-      var SCHEDULING_STATE = tr.model.SCHEDULING_STATE;
-      var sliceIdx = 0;
+    addCpuTimeToSubslices_(timeSlices) {
+      const SCHEDULING_STATE = tr.model.SCHEDULING_STATE;
+      let sliceIdx = 0;
       timeSlices.forEach(function(timeSlice) {
         if (timeSlice.schedulingState === SCHEDULING_STATE.RUNNING) {
           while (sliceIdx < this.topLevelSlices.length) {
@@ -521,14 +523,14 @@ tr.exportTo('tr.model', function() {
      * Returns whether the slice ends before or at the end of the
      * time slice, signaling we are done with this slice.
      */
-    addCpuTimeToSubslice_: function(slice, timeSlice) {
+    addCpuTimeToSubslice_(slice, timeSlice) {
       // Make sure they overlap
       if (slice.start > timeSlice.end || slice.end < timeSlice.start) {
         return slice.end <= timeSlice.end;
       }
 
       // Compute actual overlap
-      var duration = timeSlice.duration;
+      let duration = timeSlice.duration;
       if (slice.start > timeSlice.start) {
         duration -= slice.start - timeSlice.start;
       }
@@ -542,7 +544,7 @@ tr.exportTo('tr.model', function() {
         slice.cpuDuration = duration;
       }
 
-      for (var i = 0; i < slice.subSlices.length; i++) {
+      for (let i = 0; i < slice.subSlices.length; i++) {
         this.addCpuTimeToSubslice_(slice.subSlices[i], timeSlice);
       }
 
@@ -615,26 +617,26 @@ tr.exportTo('tr.model', function() {
       throw new Error('Different slice constructors. Cannot merge');
     }
 
-    var result = new SliceGroup(groupA.parentContainer,
+    const result = new SliceGroup(groupA.parentContainer,
                                 groupA.sliceConstructor,
                                 groupA.name_);
 
-    var slicesA = groupA.slices;
-    var slicesB = groupB.slices;
-    var idxA = 0;
-    var idxB = 0;
-    var openA = [];
-    var openB = [];
+    const slicesA = groupA.slices;
+    const slicesB = groupB.slices;
+    let idxA = 0;
+    let idxB = 0;
+    const openA = [];
+    const openB = [];
 
-    var splitOpenSlices = function(when) {
-      for (var i = 0; i < openB.length; i++) {
-        var oldSlice = openB[i];
-        var oldEnd = oldSlice.end;
+    const splitOpenSlices = function(when) {
+      for (let i = 0; i < openB.length; i++) {
+        const oldSlice = openB[i];
+        const oldEnd = oldSlice.end;
         if (when < oldSlice.start || oldEnd < when) {
           throw new Error('slice should not be split');
         }
 
-        var newSlice = result.copySlice(oldSlice);
+        const newSlice = result.copySlice(oldSlice);
         newSlice.start = when;
         newSlice.duration = oldEnd - when;
         if (newSlice.title.indexOf(' (cont.)') === -1) {
@@ -646,12 +648,12 @@ tr.exportTo('tr.model', function() {
       }
     };
 
-    var closeOpenSlices = function(upTo) {
+    const closeOpenSlices = function(upTo) {
       while (openA.length > 0 || openB.length > 0) {
-        var nextA = openA[openA.length - 1];
-        var nextB = openB[openB.length - 1];
-        var endA = nextA && nextA.end;
-        var endB = nextB && nextB.end;
+        const nextA = openA[openA.length - 1];
+        const nextB = openB[openB.length - 1];
+        const endA = nextA && nextA.end;
+        const endB = nextB && nextB.end;
 
         if ((endA === undefined || endA > upTo) &&
             (endB === undefined || endB > upTo)) {
@@ -668,10 +670,10 @@ tr.exportTo('tr.model', function() {
     };
 
     while (idxA < slicesA.length || idxB < slicesB.length) {
-      var sA = slicesA[idxA];
-      var sB = slicesB[idxB];
-      var nextSlice;
-      var isFromB;
+      const sA = slicesA[idxA];
+      const sB = slicesB[idxB];
+      let nextSlice;
+      let isFromB;
 
       if (sA === undefined || (sB !== undefined && sA.start > sB.start)) {
         nextSlice = result.copySlice(sB);

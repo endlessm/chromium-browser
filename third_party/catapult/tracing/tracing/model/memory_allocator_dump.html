@@ -81,18 +81,18 @@ tr.exportTo('tr.model', function() {
           this.containerMemoryDump.containerName;
     },
 
-    getDescendantDumpByFullName: function(fullName) {
+    getDescendantDumpByFullName(fullName) {
       return this.containerMemoryDump.getMemoryAllocatorDumpByFullName(
           this.fullName + '/' + fullName);
     },
 
-    isDescendantOf: function(otherDump) {
+    isDescendantOf(otherDump) {
       if (this === otherDump) return true;
       if (this.parent === undefined) return false;
       return this.parent.isDescendantOf(otherDump);
     },
 
-    addNumeric: function(name, numeric) {
+    addNumeric(name, numeric) {
       if (!(numeric instanceof tr.b.Scalar)) {
         throw new Error('Numeric value must be an instance of Scalar.');
       }
@@ -102,7 +102,7 @@ tr.exportTo('tr.model', function() {
       this.numerics[name] = numeric;
     },
 
-    addDiagnostic: function(name, text) {
+    addDiagnostic(name, text) {
       if (typeof text !== 'string') {
         throw new Error('Diagnostic text must be a string.');
       }
@@ -112,14 +112,14 @@ tr.exportTo('tr.model', function() {
       this.diagnostics[name] = text;
     },
 
-    aggregateNumericsRecursively: function(opt_model) {
-      var numericNames = new Set();
+    aggregateNumericsRecursively(opt_model) {
+      const numericNames = new Set();
 
       // Aggregate descendants's numerics recursively and gather children's
       // numeric names.
       this.children.forEach(function(child) {
         child.aggregateNumericsRecursively(opt_model);
-        for (var [item, value] of Object.entries(child.numerics)) {
+        for (const [item, value] of Object.entries(child.numerics)) {
           numericNames.add(item, value);
         }
       }, this);
@@ -146,15 +146,15 @@ tr.exportTo('tr.model', function() {
 
   // TODO(petrcermak): Consider moving this to tr.v.Histogram.
   MemoryAllocatorDump.aggregateNumerics = function(numerics, opt_model) {
-    var shouldLogWarning = !!opt_model;
-    var aggregatedUnit = undefined;
-    var aggregatedValue = 0;
+    let shouldLogWarning = !!opt_model;
+    let aggregatedUnit = undefined;
+    let aggregatedValue = 0;
 
     // Aggregate the units and sum up the values of the numerics.
     numerics.forEach(function(numeric) {
       if (numeric === undefined) return;
 
-      var unit = numeric.unit;
+      const unit = numeric.unit;
       if (aggregatedUnit === undefined) {
         aggregatedUnit = unit;
       } else if (aggregatedUnit !== unit) {
@@ -194,7 +194,7 @@ tr.exportTo('tr.model', function() {
    *
    * @enum
    */
-  var MemoryAllocatorDumpInfoType = {
+  const MemoryAllocatorDumpInfoType = {
     // The provided size of a MemoryAllocatorDump was less than the aggregated
     // size of its children.
     //

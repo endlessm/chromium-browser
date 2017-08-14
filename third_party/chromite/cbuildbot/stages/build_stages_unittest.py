@@ -8,8 +8,8 @@ from __future__ import print_function
 
 import contextlib
 import os
+import tempfile
 
-from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot import chromeos_config
 from chromite.cbuildbot import commands
@@ -17,6 +17,7 @@ from chromite.cbuildbot.stages import build_stages
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.lib import auth
+from chromite.lib import buildbucket_lib
 from chromite.lib import cidb
 from chromite.lib import config_lib
 from chromite.lib import constants
@@ -279,6 +280,37 @@ class BuildPackagesStageTest(AllConfigsTestCase,
                      side_effect=Exception('unmet dependency'))
     self.RunTestsWithBotId('x86-generic-paladin')
 
+  def testFirmwareVersionsMixedImage(self):
+    """Test that firmware versions are extracted correctly."""
+    expected_main_firmware_version = 'reef_v1.1.5822-78709a5'
+    expected_ec_firmware_version = 'Google_Reef.9042.30.0'
+
+    def _HookRunCommandFirmwareUpdate(rc):
+      # A mixed RO+RW image will have separate "(RW) version" fields.
+      rc.AddCmdResult(partial_mock.ListRegex('chromeos-firmwareupdate'),
+                      output='BIOS (RW) version: %s\nEC (RW) version: %s' %
+                      (expected_main_firmware_version,
+                       expected_ec_firmware_version))
+
+    self._update_metadata = True
+    update = os.path.join(
+        self.build_root,
+        'chroot/build/x86-generic/usr/sbin/chromeos-firmwareupdate')
+    osutils.Touch(update, makedirs=True)
+
+    self._mock_configurator = _HookRunCommandFirmwareUpdate
+    self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
+    board_metadata = (self._run.attrs.metadata.GetDict()['board-metadata']
+                      .get('x86-generic'))
+    if board_metadata:
+      self.assertIn('main-firmware-version', board_metadata)
+      self.assertEqual(board_metadata['main-firmware-version'],
+                       expected_main_firmware_version)
+      self.assertIn('ec-firmware-version', board_metadata)
+      self.assertEqual(board_metadata['ec-firmware-version'],
+                       expected_ec_firmware_version)
+      self.assertFalse(self._run.attrs.metadata.GetDict()['unibuild'])
+
   def testFirmwareVersions(self):
     """Test that firmware versions are extracted correctly."""
     expected_main_firmware_version = 'reef_v1.1.5822-78709a5'
@@ -321,6 +353,61 @@ class BuildPackagesStageTest(AllConfigsTestCase,
     self._mock_configurator = _HookRunCommandFdtget
     self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
     self.assertTrue(self._run.attrs.metadata.GetDict()['unibuild'])
+
+  def testGoma(self):
+    self.PatchObject(build_stages.BuildPackagesStage,
+                     '_IsGomaUsable', return_value=True)
+    self._Prepare('x86-generic-paladin')
+    # Set dummy dir name to enable goma.
+    self._run.options.goma_dir = 'goma_dir'
+    self._run.options.managed_chrome = True
+    with tempfile.NamedTemporaryFile() as temp_goma_client_json:
+      self._run.options.goma_client_json = temp_goma_client_json.name
+
+      stage = self.ConstructStage()
+      # pylint: disable=protected-access
+      chroot_args = stage._SetupGomaIfNecessary()
+      self.assertEqual(
+          ['--goma_dir', 'goma_dir',
+           '--goma_client_json', temp_goma_client_json.name],
+          chroot_args)
+      # pylint: disable=protected-access
+      portage_env = stage._portage_extra_env
+      self.assertRegexpMatches(
+          portage_env.get('GOMA_DIR', ''), '^/home/.*/goma$')
+      self.assertIn(portage_env.get('USE', ''), 'goma')
+      self.assertEqual(
+          '/creds/service_accounts/service-account-goma-client.json',
+          portage_env.get('GOMA_SERVICE_ACCOUNT_JSON_FILE', ''))
+
+  def testGomaWithMissingCertFile(self):
+    self.PatchObject(build_stages.BuildPackagesStage,
+                     '_IsGomaUsable', return_value=True)
+    self._Prepare('x86-generic-paladin')
+    # Set dummy dir name to enable goma.
+    self._run.options.goma_dir = 'goma_dir'
+    self._run.options.managed_chrome = True
+    self._run.options.goma_client_json = 'dummy-goma-client-json-path'
+
+    stage = self.ConstructStage()
+    with self.assertRaisesRegexp(ValueError, 'json file is missing'):
+      # pylint: disable=protected-access
+      stage._SetupGomaIfNecessary()
+
+  def testGomaOnBotWithoutCertFile(self):
+    self.PatchObject(build_stages.BuildPackagesStage,
+                     '_IsGomaUsable', return_value=True)
+    self.PatchObject(cros_build_lib, 'HostIsCIBuilder', return_value=True)
+    self._Prepare('x86-generic-paladin')
+    # Set dummy dir name to enable goma.
+    self._run.options.goma_dir = 'goma_dir'
+    self._run.options.managed_chrome = True
+    stage = self.ConstructStage()
+
+    with self.assertRaisesRegexp(
+        ValueError, 'goma_client_json is not provided'):
+      # pylint: disable=protected-access
+      stage._SetupGomaIfNecessary()
 
 
 class BuildImageStageMock(partial_mock.PartialMock):
@@ -505,11 +592,6 @@ class CleanUpStageTest(generic_stages_unittest.StageTestCase):
     stage.CancelObsoleteSlaveBuilds()
 
     self.assertEqual(cancel_mock.call_count, 1)
-
-    self.assertEqual(self.fake_db.GetBuildStatus(0)['status'],
-                     constants.BUILDER_STATUS_ABORTED)
-    self.assertEqual(self.fake_db.GetBuildStatus(1)['status'],
-                     constants.BUILDER_STATUS_INFLIGHT)
 
   def testNoObsoleteSlaveBuilds(self):
     """Test no obsolete slave builds."""

@@ -282,15 +282,15 @@ found in the LICENSE file.
         showDelta: { notify: true }
       },
 
-      computeIsPositive: function(iterInfo, prop) {
+      computeIsPositive(iterInfo, prop) {
         return iterInfo.base[prop] > 0;
       },
       computeIsUndefined: x => x === undefined,
       computeSelectionIsAll: seriesGroup => seriesGroup.selection == 'all',
 
-      getTestIndexInSeriesGroup: function(seriesGroupIndex, name) {
-        var tests = this.seriesGroupList[seriesGroupIndex].tests;
-        for (var i = 0; i < tests.length; i++) {
+      getTestIndexInSeriesGroup(seriesGroupIndex, name) {
+        const tests = this.seriesGroupList[seriesGroupIndex].tests;
+        for (let i = 0; i < tests.length; i++) {
           if (name == tests[i].name) {
             return i;
           }
@@ -301,10 +301,10 @@ found in the LICENSE file.
       /**
        * Event handler for the change event of any of the checkboxes.
        */
-      onCheckboxClicked: function(event, detail) {
-        var test = event.model.test;
-        var seriesGroupIndex = this.$.grouplist.indexForElement(event.target);
-        var testIndex = this.getTestIndexInSeriesGroup(
+      onCheckboxClicked(event, detail) {
+        const test = event.model.test;
+        const seriesGroupIndex = this.$.grouplist.indexForElement(event.target);
+        const testIndex = this.getTestIndexInSeriesGroup(
             seriesGroupIndex, test.name);
         if (testIndex !== null) {
           this.set('seriesGroupList.' + seriesGroupIndex + '.tests.' +
@@ -337,10 +337,10 @@ found in the LICENSE file.
        *
        * @param {Object} seriesGroup A group of series.
        */
-      updateSeriesGroupCheckedState: function(seriesGroupIndex) {
-        var allSelected = [];
-        var allUnselected = [];
-        var seriesGroup = this.seriesGroupList[seriesGroupIndex];
+      updateSeriesGroupCheckedState(seriesGroupIndex) {
+        const allSelected = [];
+        const allUnselected = [];
+        const seriesGroup = this.seriesGroupList[seriesGroupIndex];
         seriesGroup.tests.forEach(function(test) {
           if (test.selected) {
             allSelected.push(test);
@@ -368,10 +368,10 @@ found in the LICENSE file.
       /**
        * Returns true if only important series are selected.
        */
-      importantSelected: function(tests) {
-        var hasImportant = false;
-        for (var i = 0; i < tests.length; i++) {
-          var test = tests[i];
+      importantSelected(tests) {
+        let hasImportant = false;
+        for (let i = 0; i < tests.length; i++) {
+          const test = tests[i];
           if (test.important) {
             if (!test.selected) {
               return false;
@@ -388,10 +388,10 @@ found in the LICENSE file.
        * Updates numHidden properties for a seriesGroup.  This is to show the
        * number of hidden series link.
        */
-      updateNumHidden: function(seriesGroupIndex) {
-        var numHidden = 0;
-        var numCanHide = 0;
-        var seriesGroup = this.seriesGroupList[seriesGroupIndex];
+      updateNumHidden(seriesGroupIndex) {
+        let numHidden = 0;
+        let numCanHide = 0;
+        const seriesGroup = this.seriesGroupList[seriesGroupIndex];
         seriesGroup.tests.forEach(function(test) {
           if (test.hidden) {
             numHidden++;
@@ -416,15 +416,15 @@ found in the LICENSE file.
       /**
        * Event handler for the change event of check all checkboxes.
        */
-      onCheckAllCheckboxClicked: function(event, detail) {
-        var sender = event.currentTarget;
-        var groupIndex = event.model.groupIndex;
+      onCheckAllCheckboxClicked(event, detail) {
+        const sender = event.currentTarget;
+        const groupIndex = event.model.groupIndex;
 
         this.set(
             'seriesGroupList.' + groupIndex + '.selection', (
             sender.checked ? 'all' : 'none'));
-        var tests = this.seriesGroupList[groupIndex].tests;
-        for (var i = 0; i < tests.length; i++) {
+        const tests = this.seriesGroupList[groupIndex].tests;
+        for (let i = 0; i < tests.length; i++) {
           if (tests[i].index != undefined) {
             this.set(
                 'seriesGroupList.' + groupIndex + '.tests.' + i + '.selected',
@@ -439,19 +439,19 @@ found in the LICENSE file.
       /**
        * Event handler for series group close button clicked.
        */
-      onCloseSeriesGroupClicked: function(event, detail) {
-        var model = event.model;
+      onCloseSeriesGroupClicked(event, detail) {
+        const model = event.model;
         this.fire('seriesgroupclosed', {'groupIndex': model.groupIndex});
       },
 
       /**
        * Event handler for click event of expand link.
        */
-      onExpandSeriesClicked: function(event, detail) {
-        var groupIndex = this.$.grouplist.modelForElement(
+      onExpandSeriesClicked(event, detail) {
+        const groupIndex = this.$.grouplist.modelForElement(
             event.target).groupIndex;
-        var isCollapse = event.currentTarget.text == 'less' ? true : false;
-        var seriesGroup = this.seriesGroupList[groupIndex];
+        const isCollapse = event.currentTarget.text == 'less' ? true : false;
+        const seriesGroup = this.seriesGroupList[groupIndex];
         seriesGroup.tests.forEach(function(test, index) {
           if (isCollapse) {
             if (!test.selected && !test.important) {
@@ -470,7 +470,7 @@ found in the LICENSE file.
         this.updateNumHidden(groupIndex);
       },
 
-      fireChartStateChangedEvent: function() {
+      fireChartStateChangedEvent() {
         this.fire('chartstatechanged', {
           target: this,
           stateName: 'chartstatechanged',
@@ -483,11 +483,11 @@ found in the LICENSE file.
        * Updates this.indicesToGraph to contain all traces.
        * @param {Event=} opt_noEvent The click event, not used.
        */
-      onSelectAll: function(opt_noEvent) {
+      onSelectAll(opt_noEvent) {
         this.set('indicesToGraph', []);
-        for (var i = 0; i < this.seriesGroupList.length; i++) {
-          var group = this.seriesGroupList[i];
-          for (var j = 0; j < group.tests.length; j++) {
+        for (let i = 0; i < this.seriesGroupList.length; i++) {
+          const group = this.seriesGroupList[i];
+          for (let j = 0; j < group.tests.length; j++) {
             this.set('seriesGroupList.' + i + '.tests.' + j + '.selected',
                 true);
             this.push('indicesToGraph', group.tests[j].index);
@@ -502,11 +502,11 @@ found in the LICENSE file.
        * Handler for the click event of the deselect all traces button.
        * @param {Event=} opt_noEvent The click event, not used.
        */
-      onDeselectAll: function(opt_noEvent) {
+      onDeselectAll(opt_noEvent) {
         this.set('indicesToGraph', []);
-        for (var i = 0; i < this.seriesGroupList.length; i++) {
-          var group = this.seriesGroupList[i];
-          for (var j = 0; j < group.tests.length; j++) {
+        for (let i = 0; i < this.seriesGroupList.length; i++) {
+          const group = this.seriesGroupList[i];
+          for (let j = 0; j < group.tests.length; j++) {
             this.set('seriesGroupList.' + i + '.tests.' + j + '.selected',
                 false);
           }
@@ -522,12 +522,12 @@ found in the LICENSE file.
        * Note: The property 'coreTraces' is set in graph.js.
        * @param {Event=} opt_event The click event, not used.
        */
-      onSelectCore: function(opt_noEvent) {
+      onSelectCore(opt_noEvent) {
         this.set('indicesToGraph', []);
-        for (var i = 0; i < this.seriesGroupList.length; i++) {
-          var group = this.seriesGroupList[i];
-          for (var j = 0; j < group.tests.length; j++) {
-            var test = group.tests[j];
+        for (let i = 0; i < this.seriesGroupList.length; i++) {
+          const group = this.seriesGroupList[i];
+          for (let j = 0; j < group.tests.length; j++) {
+            const test = group.tests[j];
             this.set('seriesGroupList.' + i + '.tests.' + j + '.selected',
                 test.important);
             test.selected = test.important;
@@ -539,13 +539,13 @@ found in the LICENSE file.
         this.fireChartStateChangedEvent();
       },
 
-      seriesMouseover: function(event, detail) {
+      seriesMouseover(event, detail) {
         this.fire('seriesmouseover', {
           'index': event.model.index
         });
       },
 
-      seriesMouseout: function(event, detail) {
+      seriesMouseout(event, detail) {
         this.fire('seriesmouseout', {
           'index': event.model.index
         });
@@ -556,7 +556,7 @@ found in the LICENSE file.
        * @param {number} index The index to add or remove.
        * @param {boolean} selected Whether to add the index.
        */
-      updateIndicesToGraph: function(index, selected) {
+      updateIndicesToGraph(index, selected) {
         if (selected) {
           if (this.indicesToGraph.indexOf(index) == -1) {
             this.push('indicesToGraph', index);
@@ -572,7 +572,7 @@ found in the LICENSE file.
       /**
        * Toggles legend window to collapse or expand.
        */
-      toggleLegend: function() {
+      toggleLegend() {
         this.$['collapsible-legend'].toggle();
         this.collapseLegend = !this.collapseLegend;
       }

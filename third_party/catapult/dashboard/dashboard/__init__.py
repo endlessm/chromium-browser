@@ -58,6 +58,7 @@ def PathsForDeployment():
   paths.extend(_CatapultThirdPartyLibraryPaths())
   for name in DASHBOARD_FILES:
     paths.append(os.path.join(_CATAPULT_PATH, 'dashboard', name))
+  paths.append(os.path.join(_CATAPULT_PATH, 'tracing', 'tracing_project.py'))
   paths.extend(_TracingPaths())
   return paths
 
@@ -66,6 +67,7 @@ def PathsForTesting():
   """Returns a list of Python library paths required for dashboard tests."""
   paths = []
   paths.append(os.path.join(_CATAPULT_PATH, 'dashboard'))
+  paths.append(os.path.join(_CATAPULT_PATH, 'tracing'))
   paths += _CatapultThirdPartyLibraryPaths()
   paths += _AllSdkThirdPartyLibraryPaths()
   return paths

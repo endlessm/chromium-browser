@@ -11,11 +11,9 @@ import datetime
 import itertools
 import mock
 import os
-import shutil
 import time
 import tempfile
 
-from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import chromeos_config
 from chromite.cbuildbot import lkgm_manager
 from chromite.cbuildbot import manifest_version
@@ -29,10 +27,12 @@ from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import sync_stages
 from chromite.lib import auth
+from chromite.lib import buildbucket_lib
 from chromite.lib import cidb
 from chromite.lib import clactions
 from chromite.lib import cl_messages
 from chromite.lib import constants
+from chromite.lib import cq_config
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import fake_cidb
@@ -45,7 +45,7 @@ from chromite.lib import metadata_lib
 from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
 from chromite.lib import timeout_util
-from chromite.lib import triage_lib
+
 
 # It's normal for unittests to access protected members.
 # pylint: disable=protected-access
@@ -145,96 +145,6 @@ class BootstrapStageTest(
         '--nobootstrap',
     ])
 
-
-class SyncStageRepoCacheTest(
-    generic_stages_unittest.AbstractStageTestCase):
-  """Tests the SyncStage base class."""
-  # pylint: disable=abstract-method
-
-  def setUp(self):
-    self.cache_dir = os.path.join(self.tempdir, 'cache')
-    self.sync_stage = None
-
-  def _Prepare(self, root_populated, cache_arg, cache_populated, **kwargs):
-    cmd_args = ['-r', self.build_root]
-
-    if not root_populated:
-      shutil.rmtree(os.path.join(self.build_root, '.repo'))
-
-    if cache_arg:
-      cmd_args += ['--repo-cache', self.cache_dir]
-
-    if cache_populated:
-      osutils.Touch(
-          os.path.join(self.cache_dir, '.repo', 'contents'),
-          makedirs=True)
-      osutils.Touch(
-          os.path.join(self.cache_dir, '.repo', 'nested', 'contents'),
-          makedirs=True)
-      os.symlink(
-          'contents',
-          os.path.join(self.cache_dir, '.repo', 'relative_symlink'))
-      os.symlink(
-          '/nonexistent',
-          os.path.join(self.cache_dir, '.repo', 'broken_symlink'))
-
-    super(SyncStageRepoCacheTest, self)._Prepare(cmd_args=cmd_args, **kwargs)
-    self.sync_stage = sync_stages.SyncStage(self._run)
-
-  def validateNoCache(self):
-    # This file exists only we copied from the repo cache.
-    self.assertFalse(os.path.exists(
-        os.path.join(self.build_root, '.repo', 'contents')))
-
-  def validateCache(self):
-    # This file exists only we copied from the repo cache.
-    contents = os.path.join(self.cache_dir, '.repo', 'contents')
-    nested = os.path.join(self.cache_dir, '.repo', 'nested', 'contents')
-    relative = os.path.join(self.cache_dir, '.repo', 'relative_symlink')
-    broken = os.path.join(self.cache_dir, '.repo', 'broken_symlink')
-
-    # Assert expected files exist.
-    self.assertTrue(os.path.exists(contents))
-    self.assertTrue(os.path.exists(nested))
-    self.assertTrue(os.path.exists(relative))
-    self.assertFalse(os.path.exists(broken))
-
-    # Assert symlinks are still links.
-    self.assertTrue(os.path.islink(relative))
-    self.assertTrue(os.path.islink(broken))
-
-    # Assert relative symlink is relative to the new location.
-    self.assertEqual(os.path.realpath(relative), contents)
-
-  def testInitializeRepoPopulatedNoCache(self):
-    """Tests basic SyncStage repo cache initialization code."""
-    self._Prepare(root_populated=True, cache_arg=False, cache_populated=False)
-    self.sync_stage._InitializeRepo()
-    self.validateNoCache()
-
-  def testInitializeRepoNotPopulatedNoCache(self):
-    """Tests basic SyncStage repo cache initialization code."""
-    self._Prepare(root_populated=False, cache_arg=False, cache_populated=False)
-    self.sync_stage._InitializeRepo()
-    self.validateNoCache()
-
-  def testInitializeRepoPopulatedCache(self):
-    """Tests basic SyncStage repo cache initialization code."""
-    self._Prepare(root_populated=True, cache_arg=True, cache_populated=True)
-    self.sync_stage._InitializeRepo()
-    self.validateNoCache()
-
-  def testInitializeRepoNotPopulatedCache(self):
-    """Tests basic SyncStage repo cache initialization code."""
-    self._Prepare(root_populated=False, cache_arg=True, cache_populated=True)
-    self.sync_stage._InitializeRepo()
-    self.validateCache()
-
-  def testInitializeRepoNotPopulatedEmptyCache(self):
-    """Tests basic SyncStage repo cache initialization code."""
-    self._Prepare(root_populated=False, cache_arg=True, cache_populated=False)
-    self.sync_stage._InitializeRepo()
-    self.validateNoCache()
 
 class ManifestVersionedSyncStageTest(
     generic_stages_unittest.AbstractStageTestCase):
@@ -758,35 +668,35 @@ class PreCQLauncherStageTest(MasterCQSyncTestCase):
     change = MockPatch()
     configs_to_test = chromeos_config.GetConfig().keys()[:5]
     return_string = ' '.join(configs_to_test)
-    self.PatchObject(triage_lib, 'GetOptionForChange',
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
                      return_value=return_string)
     self.assertItemsEqual(self.sync_stage.VerificationsForChange(change),
                           configs_to_test)
 
   def testVerificationsForChangeNoSuchConfig(self):
     change = MockPatch()
-    self.PatchObject(triage_lib, 'GetOptionForChange',
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
                      return_value='this_config_does_not_exist')
     self.assertItemsEqual(self.sync_stage.VerificationsForChange(change),
                           constants.PRE_CQ_DEFAULT_CONFIGS)
 
   def testVerificationsForChangeEmptyField(self):
     change = MockPatch()
-    self.PatchObject(triage_lib, 'GetOptionForChange',
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
                      return_value=' ')
     self.assertItemsEqual(self.sync_stage.VerificationsForChange(change),
                           constants.PRE_CQ_DEFAULT_CONFIGS)
 
   def testVerificationsForChangeNoneField(self):
     change = MockPatch()
-    self.PatchObject(triage_lib, 'GetOptionForChange',
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
                      return_value=None)
     self.assertItemsEqual(self.sync_stage.VerificationsForChange(change),
                           constants.PRE_CQ_DEFAULT_CONFIGS)
 
   def testOverlayVerifications(self):
     change = MockPatch(project='chromiumos/overlays/chromiumos-overlay')
-    self.PatchObject(triage_lib, 'GetOptionForChange',
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
                      return_value=None)
     configs = constants.PRE_CQ_DEFAULT_CONFIGS + [constants.BINHOST_PRE_CQ]
     self.assertItemsEqual(self.sync_stage.VerificationsForChange(change),
@@ -794,7 +704,7 @@ class PreCQLauncherStageTest(MasterCQSyncTestCase):
 
   def testRequestedDefaultVerifications(self):
     change = MockPatch()
-    self.PatchObject(triage_lib, 'GetOptionForChange',
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
                      return_value='default x86-zgb-pre-cq')
     configs = constants.PRE_CQ_DEFAULT_CONFIGS + ['x86-zgb-pre-cq']
     self.assertItemsEqual(self.sync_stage.VerificationsForChange(change),
@@ -806,7 +716,7 @@ class PreCQLauncherStageTest(MasterCQSyncTestCase):
 Third line.
 pre-cq-configs: insect-pre-cq
 """)
-    self.PatchObject(triage_lib, 'GetOptionForChange',
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
                      return_value='lumpy-pre-cq')
     self.assertItemsEqual(self.sync_stage.VerificationsForChange(change),
                           ['lumpy-pre-cq'])
@@ -817,7 +727,7 @@ pre-cq-configs: insect-pre-cq
 Third line.
 pre-cq-configs: stumpy-pre-cq
 """)
-    self.PatchObject(triage_lib, 'GetOptionForChange',
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
                      return_value='lumpy-pre-cq')
     self.assertItemsEqual(self.sync_stage.VerificationsForChange(change),
                           ['stumpy-pre-cq'])
@@ -829,7 +739,7 @@ Third line.
 pre-cq-configs: stumpy-pre-cq
 pre-cq-configs: link-pre-cq
 """)
-    self.PatchObject(triage_lib, 'GetOptionForChange',
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
                      return_value='lumpy-pre-cq')
     self.assertItemsEqual(self.sync_stage.VerificationsForChange(change),
                           ['stumpy-pre-cq', 'link-pre-cq'])
@@ -983,7 +893,7 @@ pre-cq-configs: link-pre-cq
   def testRetryInPreCQ(self):
     # Create a change that is ready to be tested.
     change = (
-        self._PrepareChangesWithPendingVerifications([['mixed-a-pre-cq']])[0])
+        self._PrepareChangesWithPendingVerifications([['chromite-pre-cq']])[0])
     change.approval_timestamp = 0
 
     # Change should be launched now.
@@ -1000,7 +910,7 @@ pre-cq-configs: link-pre-cq
     # Pretend that the build failed with an infrastructure failure so the change
     # should be retried.
     self.fake_db.InsertCLActions(
-        build_ids['mixed-a-pre-cq'],
+        build_ids['chromite-pre-cq'],
         [clactions.CLAction.FromGerritPatchAndAction(
             change, constants.CL_ACTION_FORGIVEN)])
 
@@ -1011,7 +921,7 @@ pre-cq-configs: link-pre-cq
 
   def testPreCQ(self):
     changes = self._PrepareChangesWithPendingVerifications(
-        [['mixed-a-pre-cq', 'mixed-b-pre-cq'], ['rambi-pre-cq'],
+        [['chromite-pre-cq', 'signer-pre-cq'], ['rambi-pre-cq'],
          ['rambi-pre-cq'], ['rambi-pre-cq'], ['rambi-pre-cq']])
     # After 2 runs, the changes should be screened but not
     # yet launched (due to pre-launch timeout).
@@ -1050,14 +960,14 @@ pre-cq-configs: link-pre-cq
     self.PerformSync(pre_cq_status=None, changes=changes, patch_objects=False)
     self.assertAllStatuses(changes, constants.CL_PRECQ_CONFIG_STATUS_INFLIGHT)
 
-    # Fake INFLIGHT_TIMEOUT+1 passing with rambi-pre-cq and mixed-a-pre-cq
-    # config succeeding, and mixed-b-pre-cq never launching. The first change
+    # Fake INFLIGHT_TIMEOUT+1 passing with rambi-pre-cq and chromite-pre-cq
+    # config succeeding, and signer-pre-cq never launching. The first change
     # should pass the pre-cq, the second should fail due to inflight timeout.
     fake_time = datetime.datetime.now() + datetime.timedelta(
         minutes=sync_stages.PreCQLauncherStage.INFLIGHT_TIMEOUT + 1)
     self.fake_db.SetTime(fake_time)
     self.fake_db.InsertCLActions(
-        build_ids['mixed-a-pre-cq'],
+        build_ids['chromite-pre-cq'],
         [clactions.CLAction.FromGerritPatchAndAction(
             changes[0], constants.CL_ACTION_VERIFIED)])
     for change in changes[1:3]:
@@ -1086,7 +996,7 @@ pre-cq-configs: link-pre-cq
                      runs=3)
     action_history = self.fake_db.GetActionsForChanges(changes)
     progress_map = clactions.GetPreCQProgressMap(changes, action_history)
-    self.assertEqual(progress_map[changes[0]]['mixed-b-pre-cq'][0],
+    self.assertEqual(progress_map[changes[0]]['signer-pre-cq'][0],
                      constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED)
     self.assertEqual(progress_map[changes[1]]['rambi-pre-cq'][0],
                      constants.CL_PRECQ_CONFIG_STATUS_VERIFIED)

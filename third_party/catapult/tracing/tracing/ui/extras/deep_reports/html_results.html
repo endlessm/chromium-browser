@@ -30,68 +30,68 @@ and updates the table internally.
 Polymer({
   is: 'tr-ui-e-deep-reports-html-results',
 
-  created: function() {
+  created() {
     this.hasColumnNamed_ = {};
     this.pageToRowMap_ = new WeakMap();
   },
 
-  ready: function() {
-    var table = this.$.table;
+  ready() {
+    const table = this.$.table;
     table.tableColumns = [
       {
         title: 'Label',
-        value: function(row) { return row.label; },
+        value(row) { return row.label; },
         width: '350px'
       }
     ];
     this.clear();
   },
 
-  clear: function() {
+  clear() {
     this.$.table.tableRows = [];
   },
 
-  addColumnIfNeeded_: function(columnName) {
+  addColumnIfNeeded_(columnName) {
     if (this.hasColumnNamed_[columnName]) return;
 
     this.hasColumnNamed_[columnName] = true;
 
-    var column = {
+    const column = {
       title: columnName,
-      value: function(row) {
+      value(row) {
         if (row[columnName] === undefined) return '';
         return row[columnName];
       }
     };
 
-    var columns = this.$.table.tableColumns;
+    const columns = this.$.table.tableColumns;
     columns.push(column);
 
     // Update widths.
-    var colWidthPercentage;
+    let colWidthPercentage;
     if (columns.length === 1) {
       colWidthPercentage = '100%';
     } else {
       colWidthPercentage = (100 / (columns.length - 1)).toFixed(3) + '%';
     }
 
-    for (var i = 1; i < columns.length; i++) {
+    for (let i = 1; i < columns.length; i++) {
       columns[i].width = colWidthPercentage;
     }
 
     this.$.table.tableColumns = columns;
   },
 
-  getRowForPage_: function(page) {
+  getRowForPage_(page) {
     if (!this.pageToRowMap_.has(page)) {
-      var i = page.url.lastIndexOf('/');
-      var baseName = page.url.substring(i + 1);
+      const i = page.url.lastIndexOf('/');
+      const baseName = page.url.substring(i + 1);
 
-      var link = document.createElement('a');
+      const link = document.createElement('a');
       link.href = 'trace_viewer.html#' + page.url;
       Polymer.dom(link).textContent = baseName;
 
-      var row = {
+      const row = {
         label: link,
         value: '',
         subRows: [],
@@ -106,14 +106,14 @@ Polymer({
     return this.pageToRowMap_.get(page);
   },
 
-  addValue: function(value) {
+  addValue(value) {
     /* Value is expected to be a scalar telemetry-style Value. */
     if (value.type !== 'scalar') {
       throw new Error('wat');
     }
 
     this.addColumnIfNeeded_(value.name);
-    var rowForPage = this.getRowForPage_(value.page);
+    const rowForPage = this.getRowForPage_(value.page);
     rowForPage[value.name] = value.value;
 
     // Kick table rebuild.

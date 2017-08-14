@@ -52,9 +52,9 @@ tr.exportTo('tr.ui.analysis', function() {
 
       // Group the selected memory dumps by container name and sort them
       // chronologically.
-      this.dumpsByContainerName_ = tr.b.group(
+      this.dumpsByContainerName_ = tr.b.groupIntoMap(
           this.currentSelection_.toArray(), dump => dump.containerName);
-      for (var dumps of Object.values(this.dumpsByContainerName_)) {
+      for (const dumps of this.dumpsByContainerName_.values()) {
         dumps.sort((a, b) => a.start - b.start);
       }
 
@@ -69,12 +69,12 @@ tr.exportTo('tr.ui.analysis', function() {
       return true;
     },
 
-    updateContents_: function() {
+    updateContents_() {
       Polymer.dom(this.$.content).textContent = '';
 
       if (this.dumpsByContainerName_ === undefined) return;
 
-      var containerNames = Object.keys(this.dumpsByContainerName_);
+      const containerNames = Array.from(this.dumpsByContainerName_.keys());
       if (containerNames.length === 0) return;
 
       if (containerNames.length > 1) {
@@ -84,68 +84,68 @@ tr.exportTo('tr.ui.analysis', function() {
       }
     },
 
-    buildViewForSingleContainerName_: function() {
-      var containerMemoryDumps =
-          tr.b.dictionaryValues(this.dumpsByContainerName_)[0];
-      var dumpView = this.ownerDocument.createElement(
+    buildViewForSingleContainerName_() {
+      const containerMemoryDumps = tr.b.getFirstElement(
+          this.dumpsByContainerName_.values());
+      const dumpView = this.ownerDocument.createElement(
           'tr-ui-a-stacked-pane-view');
       Polymer.dom(this.$.content).appendChild(dumpView);
       dumpView.setPaneBuilder(function() {
-        var headerPane = document.createElement(
+        const headerPane = document.createElement(
             'tr-ui-a-memory-dump-header-pane');
         headerPane.containerMemoryDumps = containerMemoryDumps;
         return headerPane;
       });
     },
 
-    buildViewForMultipleContainerNames_: function() {
+    buildViewForMultipleContainerNames_() {
       // TODO(petrcermak): Provide a more sophisticated view for this case.
-      var ownerDocument = this.ownerDocument;
+      const ownerDocument = this.ownerDocument;
 
-      var rows = tr.b.dictionaryValues(tr.b.mapItems(this.dumpsByContainerName_,
-          function(containerName, dumps) {
-            return {
-              containerName: containerName,
-              subRows: dumps,
-              isExpanded: true
-            };
-          }));
+      const rows = [];
+      for (const [containerName, dumps] of this.dumpsByContainerName_) {
+        rows.push({
+          containerName,
+          subRows: dumps,
+          isExpanded: true,
+        });
+      }
       rows.sort(function(a, b) {
         return a.containerName.localeCompare(b.containerName);
       });
 
-      var columns = [
+      const columns = [
         {
           title: 'Dump',
 
-          value: function(row) {
+          value(row) {
             if (row.subRows === undefined) {
               return this.singleDumpValue_(row);
             }
             return this.groupedDumpValue_(row);
           },
 
-          singleDumpValue_: function(row) {
-            var linkEl = ownerDocument.createElement('tr-ui-a-analysis-link');
+          singleDumpValue_(row) {
+            const linkEl = ownerDocument.createElement('tr-ui-a-analysis-link');
             linkEl.setSelectionAndContent(new tr.model.EventSet([row]));
             Polymer.dom(linkEl).appendChild(tr.v.ui.createScalarSpan(
                 row.start, {
                   unit: tr.b.Unit.byName.timeStampInMs,
-                  ownerDocument: ownerDocument
+                  ownerDocument
                 }));
             return linkEl;
           },
 
-          groupedDumpValue_: function(row) {
-            var linkEl = ownerDocument.createElement('tr-ui-a-analysis-link');
+          groupedDumpValue_(row) {
+            const linkEl = ownerDocument.createElement('tr-ui-a-analysis-link');
             linkEl.setSelectionAndContent(new tr.model.EventSet(row.subRows));
             Polymer.dom(linkEl).appendChild(tr.ui.b.createSpan({
-              ownerDocument: ownerDocument,
+              ownerDocument,
               textContent: row.subRows.length + ' memory dump' +
                   (row.subRows.length === 1 ? '' : 's') + ' in '
             }));
             Polymer.dom(linkEl).appendChild(tr.ui.b.createSpan({
-              ownerDocument: ownerDocument,
+              ownerDocument,
               textContent: row.containerName,
               bold: true
             }));
@@ -154,7 +154,7 @@ tr.exportTo('tr.ui.analysis', function() {
         }
       ];
 
-      var table = this.ownerDocument.createElement('tr-ui-b-table');
+      const table = this.ownerDocument.createElement('tr-ui-b-table');
       table.tableColumns = columns;
       table.tableRows = rows;
       table.showHeader = false;

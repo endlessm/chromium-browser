@@ -22,16 +22,16 @@ tr.exportTo('tr.ui.tracks', function() {
    * @constructor
    * @extends {ContainerTrack}
    */
-  var OtherThreadsTrack = tr.ui.b.define(
+  const OtherThreadsTrack = tr.ui.b.define(
       'other-threads-track', tr.ui.tracks.OtherThreadsTrack);
 
-  var SpacingTrack = tr.ui.tracks.SpacingTrack;
+  const SpacingTrack = tr.ui.tracks.SpacingTrack;
 
   OtherThreadsTrack.prototype = {
 
     __proto__: tr.ui.tracks.ContainerTrack.prototype,
 
-    decorate: function(viewport) {
+    decorate(viewport) {
       tr.ui.tracks.ContainerTrack.prototype.decorate.call(this, viewport);
 
       this.header_ = document.createElement('tr-ui-b-heading');
@@ -55,7 +55,7 @@ tr.exportTo('tr.ui.tracks', function() {
       this.updateContents_();
     },
 
-    onHeaderClick_: function(e) {
+    onHeaderClick_(e) {
       e.stopPropagation();
       e.preventDefault();
       this.expanded = !this.expanded;
@@ -80,14 +80,14 @@ tr.exportTo('tr.ui.tracks', function() {
       this.updateContents_();
     },
 
-    updateContents_: function() {
+    updateContents_() {
       this.detach();
       if (this.collapsible_) {
         Polymer.dom(this).appendChild(this.header_);
       }
       if (this.expanded || !this.collapsible_) {
-        for (var thread of this.threads_) {
-          var track = new tr.ui.tracks.ThreadTrack(this.viewport);
+        for (const thread of this.threads_) {
+          const track = new tr.ui.tracks.ThreadTrack(this.viewport);
           track.thread = thread;
           if (!track.hasVisibleContent) return;
 

@@ -13,15 +13,8 @@ import sys
 
 import wrapper
 
-
-def _FindChromiteDir():
-  path = os.path.dirname(os.path.realpath(__file__))
-  while not os.path.exists(os.path.join(path, 'PRESUBMIT.cfg')):
-    path = os.path.dirname(path)
-  return path
-
-
-_CHROMITE_DIR = _FindChromiteDir()
+_CHROMITE_DIR = os.path.realpath(
+    os.path.join(os.path.abspath(__file__), '..', '..'))
 
 # _VIRTUALENV_DIR contains the scripts for working with venvs
 _VIRTUALENV_DIR = os.path.join(_CHROMITE_DIR, '..', 'infra_virtualenv')
@@ -75,6 +68,7 @@ def _CreateVenvEnvironment(env_dict):
   """
   new_env_dict = env_dict.copy()
   new_env_dict[_VENV_MARKER] = '1'
+  new_env_dict.pop('PYTHONPATH', None)
   return new_env_dict
 
 

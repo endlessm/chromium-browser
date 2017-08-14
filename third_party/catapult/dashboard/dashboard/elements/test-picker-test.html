@@ -13,7 +13,7 @@ found in the LICENSE file.
 <script>
 'use strict';
 
-var MOCK_RESPONSE = {
+const MOCK_RESPONSE = {
   'select-multiple-add': {
     'has_rows': true,
     'sub_tests': {
@@ -52,11 +52,11 @@ var MOCK_RESPONSE = {
 };
 
 tr.b.unittest.testSuite(function() {
-  var testOptions = {
-    setUp: function() {
+  const testOptions = {
+    setUp() {
     },
 
-    tearDown: function() {
+    tearDown() {
       // Must comment this out to do manual tests; tearDown gets called
       // immediately after the test method finishes, and this is used to respond
       // to user input which occurs far later.
@@ -66,7 +66,7 @@ tr.b.unittest.testSuite(function() {
 
   test('instantiate', function() {
     testing_common.addXhrMock('*', JSON.stringify(MOCK_RESPONSE));
-    var testPicker = document.createElement('test-picker');
+    const testPicker = document.createElement('test-picker');
     testPicker.testSuites = {
       'endure': {
         'mas': {'Chromium': {'mac': false, 'win7': true}},
@@ -84,7 +84,7 @@ tr.b.unittest.testSuite(function() {
   }, testOptions);
 
   test('getSuiteItems', function() {
-    var testPicker = document.createElement('test-picker');
+    const testPicker = document.createElement('test-picker');
     testPicker.testSuites = {
       'endure': {
         'mas': {'Chromium': {'mac': false, 'win7': true}},
@@ -98,12 +98,12 @@ tr.b.unittest.testSuite(function() {
         'mon': ['select-multiple-add/select-multiple-add.html']
       }
     };
-    var suiteItems = testPicker.getSuiteItems();
+    const suiteItems = testPicker.getSuiteItems();
     // Test suites should be in the order of monitored, unmonitored,
     // and deprecated.
-    var expectedSuites = ['blink_perf', 'dromaeo', 'endure'];
-    var actualSuites = [];
-    for (var i = 0; i < suiteItems.length; i++) {
+    const expectedSuites = ['blink_perf', 'dromaeo', 'endure'];
+    const actualSuites = [];
+    for (let i = 0; i < suiteItems.length; i++) {
       actualSuites.push(suiteItems[i].name);
     }
     assert.deepEqual(actualSuites, expectedSuites);
@@ -124,11 +124,11 @@ tr.b.unittest.testSuite(function() {
         'mon': ['select-multiple-add/select-multiple-add.html']
       }
     };
-    testPicker.subtests.prepopulate({
-      'Chromium/mac/blink_perf': [{name: 'textarea-edit'}],
-      'Chromium/mac/blink_perf/textarea-edit': [
-        {name: 'textarea_edit.html'}]
-    });
+    testPicker.subtests.populateForTest(new Map([
+      ['Chromium/mac/blink_perf', [{name: 'textarea-edit'}]],
+      ['Chromium/mac/blink_perf/textarea-edit', [
+        {name: 'textarea_edit.html'}]],
+    ]));
 
     const suiteMenu = testPicker.getSelectionMenu(0);
     suiteMenu.selectedItem = suiteMenu.items[0];
@@ -184,16 +184,16 @@ tr.b.unittest.testSuite(function() {
 
   test('prepopulateSubtests', async function() {
     const testPicker = document.createElement('test-picker');
-    testPicker.subtests.prepopulate({foo: 'bar'});
+    testPicker.subtests.populateForTest(new Map([['foo', 'bar']]));
     assert.strictEqual(
-        await testPicker.subtests.getSubtestsForPath('foo'), 'bar');
+        await testPicker.subtests.get('foo'), 'bar');
   });
 
   test('getSubtestsForPath', async function() {
     testing_common.addXhrMock('*', JSON.stringify(['foo/bar']));
     const testPicker = document.createElement('test-picker');
     assert.deepEqual(
-        await testPicker.subtests.getSubtestsForPath('foo'), [{name: 'bar'}]);
+        await testPicker.subtests.get('foo'), [{name: 'bar'}]);
     testing_common.clearXhrMock();
   });
 
@@ -201,7 +201,7 @@ tr.b.unittest.testSuite(function() {
     testing_common.addXhrMock('*', JSON.stringify(['foo/bar']));
     const testPicker = document.createElement('test-picker');
     assert.instanceOf(
-        testPicker.subtests.getSubtestsForPath('foo'), Promise);
+        testPicker.subtests.get('foo'), Promise);
     testing_common.clearXhrMock();
   });
 });

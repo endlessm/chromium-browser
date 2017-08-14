@@ -43,9 +43,11 @@ void wrapper(const tran_low_t *in, uint8_t *out, int stride, int bd) {
 }
 
 #if CONFIG_VP9_HIGHBITDEPTH
-template <InvTxfmWithBdFunc fn>
+typedef void (*InvTxfmHighbdFunc)(const tran_low_t *in, uint16_t *out,
+                                  int stride, int bd);
+template <InvTxfmHighbdFunc fn>
 void highbd_wrapper(const tran_low_t *in, uint8_t *out, int stride, int bd) {
-  fn(in, CONVERT_TO_BYTEPTR(out), stride, bd);
+  fn(in, CAST_TO_SHORTPTR(out), stride, bd);
 }
 #endif
 
@@ -126,17 +128,39 @@ class PartialIDctTest : public ::testing::TestWithParam<PartialInvTxfmParam> {
   }
 
   void InitInput() {
-    const int max_coeff = 32766 / 4;
+    const int max_coeff = (32766 << (bit_depth_ - 8)) / 4;
     int max_energy_leftover = max_coeff * max_coeff;
     for (int j = 0; j < last_nonzero_; ++j) {
-      int16_t coeff = static_cast<int16_t>(sqrt(1.0 * max_energy_leftover) *
-                                           (rnd_.Rand16() - 32768) / 65536);
+      tran_low_t coeff = static_cast<tran_low_t>(
+          sqrt(1.0 * max_energy_leftover) * (rnd_.Rand16() - 32768) / 65536);
       max_energy_leftover -= coeff * coeff;
       if (max_energy_leftover < 0) {
         max_energy_leftover = 0;
         coeff = 0;
       }
       input_block_[vp9_default_scan_orders[tx_size_].scan[j]] = coeff;
+    }
+  }
+
+  void PrintDiff() {
+    if (memcmp(output_block_ref_, output_block_,
+               pixel_size_ * output_block_size_)) {
+      uint16_t ref, opt;
+      for (int y = 0; y < size_; y++) {
+        for (int x = 0; x < size_; x++) {
+          if (pixel_size_ == 1) {
+            ref = output_block_ref_[y * stride_ + x];
+            opt = output_block_[y * stride_ + x];
+          } else {
+            ref = reinterpret_cast<uint16_t *>(
+                output_block_ref_)[y * stride_ + x];
+            opt = reinterpret_cast<uint16_t *>(output_block_)[y * stride_ + x];
+          }
+          if (ref != opt) {
+            printf("dest[%d][%d] diff:%6d (ref),%6d (opt)\n", y, x, ref, opt);
+          }
+        }
+      }
     }
   }
 
@@ -160,23 +184,32 @@ class PartialIDctTest : public ::testing::TestWithParam<PartialInvTxfmParam> {
 };
 
 TEST_P(PartialIDctTest, RunQuantCheck) {
+  const int count_test_block = (size_ != 4) ? kCountTestBlock : 65536;
   DECLARE_ALIGNED(16, int16_t, input_extreme_block[kMaxNumCoeffs]);
   DECLARE_ALIGNED(16, tran_low_t, output_ref_block[kMaxNumCoeffs]);
 
   InitMem();
-  for (int i = 0; i < kCountTestBlock; ++i) {
+
+  for (int i = 0; i < count_test_block; ++i) {
     // Initialize a test block with input range [-mask_, mask_].
-    if (i == 0) {
-      for (int k = 0; k < input_block_size_; ++k) {
-        input_extreme_block[k] = mask_;
-      }
-    } else if (i == 1) {
-      for (int k = 0; k < input_block_size_; ++k) {
-        input_extreme_block[k] = -mask_;
+    if (size_ != 4) {
+      if (i == 0) {
+        for (int k = 0; k < input_block_size_; ++k) {
+          input_extreme_block[k] = mask_;
+        }
+      } else if (i == 1) {
+        for (int k = 0; k < input_block_size_; ++k) {
+          input_extreme_block[k] = -mask_;
+        }
+      } else {
+        for (int k = 0; k < input_block_size_; ++k) {
+          input_extreme_block[k] = rnd_.Rand8() % 2 ? mask_ : -mask_;
+        }
       }
     } else {
+      // Try all possible combinations.
       for (int k = 0; k < input_block_size_; ++k) {
-        input_extreme_block[k] = rnd_.Rand8() % 2 ? mask_ : -mask_;
+        input_extreme_block[k] = (i & (1 << k)) ? mask_ : -mask_;
       }
     }
 
@@ -275,9 +308,9 @@ TEST_P(PartialIDctTest, DISABLED_Speed) {
   vpx_usec_timer_mark(&timer);
   const int elapsed_time =
       static_cast<int>(vpx_usec_timer_elapsed(&timer) / 1000);
-  printf("idct%dx%d_%d (bitdepth %d) time: %5d ms\n", size_, size_,
-         last_nonzero_, bit_depth_, elapsed_time);
-
+  printf("idct%dx%d_%d (%s %d) time: %5d ms\n", size_, size_, last_nonzero_,
+         (pixel_size_ == 1) ? "bitdepth" : "high bitdepth", bit_depth_,
+         elapsed_time);
   ASSERT_EQ(0, memcmp(output_block_ref_, output_block_,
                       pixel_size_ * output_block_size_))
       << "Error: partial inverse transform produces different results";
@@ -452,31 +485,31 @@ const PartialInvTxfmParam neon_partial_idct_tests[] = {
              &highbd_wrapper<vpx_highbd_idct32x32_1024_add_neon>, TX_32X32,
              1024, 12, 2),
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_135_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_135_add_neon>, TX_32X32, 135, 8, 2),
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_135_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_135_add_neon>, TX_32X32, 135, 10, 2),
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_135_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_135_add_neon>, TX_32X32, 135, 12, 2),
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_34_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_34_add_neon>, TX_32X32, 34, 8, 2),
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_34_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_34_add_neon>, TX_32X32, 34, 10, 2),
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_34_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_34_add_neon>, TX_32X32, 34, 12, 2),
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_1_add_neon>, TX_32X32, 1, 8, 2),
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_1_add_neon>, TX_32X32, 1, 10, 2),
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_1_add_neon>, TX_32X32, 1, 12, 2),
   make_tuple(
       &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
@@ -488,31 +521,31 @@ const PartialInvTxfmParam neon_partial_idct_tests[] = {
       &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_256_add_neon>, TX_16X16, 256, 12, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_38_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_38_add_neon>, TX_16X16, 38, 8, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_38_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_38_add_neon>, TX_16X16, 38, 10, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_38_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_38_add_neon>, TX_16X16, 38, 12, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_10_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_10_add_neon>, TX_16X16, 10, 8, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_10_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_10_add_neon>, TX_16X16, 10, 10, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_10_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_10_add_neon>, TX_16X16, 10, 12, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_1_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_1_add_neon>, TX_16X16, 1, 8, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_1_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_1_add_neon>, TX_16X16, 1, 10, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_1_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_1_add_neon>, TX_16X16, 1, 12, 2),
   make_tuple(&vpx_highbd_fdct8x8_c,
              &highbd_wrapper<vpx_highbd_idct8x8_64_add_c>,
@@ -556,29 +589,29 @@ const PartialInvTxfmParam neon_partial_idct_tests[] = {
 #endif  // CONFIG_VP9_HIGHBITDEPTH
   make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
              &wrapper<vpx_idct32x32_1024_add_neon>, TX_32X32, 1024, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
+  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_135_add_c>,
              &wrapper<vpx_idct32x32_135_add_neon>, TX_32X32, 135, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
+  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_34_add_c>,
              &wrapper<vpx_idct32x32_34_add_neon>, TX_32X32, 34, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
+  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1_add_c>,
              &wrapper<vpx_idct32x32_1_add_neon>, TX_32X32, 1, 8, 1),
   make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
              &wrapper<vpx_idct16x16_256_add_neon>, TX_16X16, 256, 8, 1),
-  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
+  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_38_add_c>,
              &wrapper<vpx_idct16x16_38_add_neon>, TX_16X16, 38, 8, 1),
-  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
+  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_10_add_c>,
              &wrapper<vpx_idct16x16_10_add_neon>, TX_16X16, 10, 8, 1),
-  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
+  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_1_add_c>,
              &wrapper<vpx_idct16x16_1_add_neon>, TX_16X16, 1, 8, 1),
   make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
              &wrapper<vpx_idct8x8_64_add_neon>, TX_8X8, 64, 8, 1),
-  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
+  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_12_add_c>,
              &wrapper<vpx_idct8x8_12_add_neon>, TX_8X8, 12, 8, 1),
-  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
+  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_1_add_c>,
              &wrapper<vpx_idct8x8_1_add_neon>, TX_8X8, 1, 8, 1),
   make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_16_add_c>,
              &wrapper<vpx_idct4x4_16_add_neon>, TX_4X4, 16, 8, 1),
-  make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_16_add_c>,
+  make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_1_add_c>,
              &wrapper<vpx_idct4x4_1_add_neon>, TX_4X4, 1, 8, 1)
 };
 
@@ -591,13 +624,13 @@ INSTANTIATE_TEST_CASE_P(NEON, PartialIDctTest,
 const PartialInvTxfmParam sse2_partial_idct_tests[] = {
 #if CONFIG_VP9_HIGHBITDEPTH
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_1_add_sse2>, TX_32X32, 1, 8, 2),
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_1_add_sse2>, TX_32X32, 1, 10, 2),
   make_tuple(
-      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1024_add_c>,
+      &vpx_highbd_fdct32x32_c, &highbd_wrapper<vpx_highbd_idct32x32_1_add_c>,
       &highbd_wrapper<vpx_highbd_idct32x32_1_add_sse2>, TX_32X32, 1, 12, 2),
   make_tuple(
       &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
@@ -609,13 +642,13 @@ const PartialInvTxfmParam sse2_partial_idct_tests[] = {
       &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_256_add_sse2>, TX_16X16, 256, 12, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_10_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_10_add_sse2>, TX_16X16, 10, 8, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_10_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_10_add_sse2>, TX_16X16, 10, 10, 2),
   make_tuple(
-      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_256_add_c>,
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_10_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_10_add_sse2>, TX_16X16, 10, 12, 2),
   make_tuple(&vpx_highbd_fdct8x8_c,
              &highbd_wrapper<vpx_highbd_idct8x8_64_add_c>,
@@ -627,13 +660,13 @@ const PartialInvTxfmParam sse2_partial_idct_tests[] = {
       &vpx_highbd_fdct8x8_c, &highbd_wrapper<vpx_highbd_idct8x8_64_add_c>,
       &highbd_wrapper<vpx_highbd_idct8x8_64_add_sse2>, TX_8X8, 64, 12, 2),
   make_tuple(&vpx_highbd_fdct8x8_c,
-             &highbd_wrapper<vpx_highbd_idct8x8_64_add_c>,
+             &highbd_wrapper<vpx_highbd_idct8x8_12_add_c>,
              &highbd_wrapper<vpx_highbd_idct8x8_12_add_sse2>, TX_8X8, 12, 8, 2),
   make_tuple(
-      &vpx_highbd_fdct8x8_c, &highbd_wrapper<vpx_highbd_idct8x8_64_add_c>,
+      &vpx_highbd_fdct8x8_c, &highbd_wrapper<vpx_highbd_idct8x8_12_add_c>,
       &highbd_wrapper<vpx_highbd_idct8x8_12_add_sse2>, TX_8X8, 12, 10, 2),
   make_tuple(
-      &vpx_highbd_fdct8x8_c, &highbd_wrapper<vpx_highbd_idct8x8_64_add_c>,
+      &vpx_highbd_fdct8x8_c, &highbd_wrapper<vpx_highbd_idct8x8_12_add_c>,
       &highbd_wrapper<vpx_highbd_idct8x8_12_add_sse2>, TX_8X8, 12, 12, 2),
   make_tuple(&vpx_highbd_fdct4x4_c,
              &highbd_wrapper<vpx_highbd_idct4x4_16_add_c>,
@@ -647,27 +680,25 @@ const PartialInvTxfmParam sse2_partial_idct_tests[] = {
 #endif  // CONFIG_VP9_HIGHBITDEPTH
   make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
              &wrapper<vpx_idct32x32_1024_add_sse2>, TX_32X32, 1024, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
-             &wrapper<vpx_idct32x32_1024_add_sse2>, TX_32X32, 135, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
+  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_34_add_c>,
              &wrapper<vpx_idct32x32_34_add_sse2>, TX_32X32, 34, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
+  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1_add_c>,
              &wrapper<vpx_idct32x32_1_add_sse2>, TX_32X32, 1, 8, 1),
   make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
              &wrapper<vpx_idct16x16_256_add_sse2>, TX_16X16, 256, 8, 1),
-  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
+  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_10_add_c>,
              &wrapper<vpx_idct16x16_10_add_sse2>, TX_16X16, 10, 8, 1),
-  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
+  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_1_add_c>,
              &wrapper<vpx_idct16x16_1_add_sse2>, TX_16X16, 1, 8, 1),
   make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
              &wrapper<vpx_idct8x8_64_add_sse2>, TX_8X8, 64, 8, 1),
-  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
+  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_12_add_c>,
              &wrapper<vpx_idct8x8_12_add_sse2>, TX_8X8, 12, 8, 1),
-  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
+  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_1_add_c>,
              &wrapper<vpx_idct8x8_1_add_sse2>, TX_8X8, 1, 8, 1),
   make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_16_add_c>,
              &wrapper<vpx_idct4x4_16_add_sse2>, TX_4X4, 16, 8, 1),
-  make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_16_add_c>,
+  make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_1_add_c>,
              &wrapper<vpx_idct4x4_1_add_sse2>, TX_4X4, 1, 8, 1)
 };
 
@@ -680,13 +711,13 @@ INSTANTIATE_TEST_CASE_P(SSE2, PartialIDctTest,
 const PartialInvTxfmParam ssse3_partial_idct_tests[] = {
   make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
              &wrapper<vpx_idct32x32_1024_add_ssse3>, TX_32X32, 1024, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
+  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_135_add_c>,
              &wrapper<vpx_idct32x32_135_add_ssse3>, TX_32X32, 135, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
+  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_34_add_c>,
              &wrapper<vpx_idct32x32_34_add_ssse3>, TX_32X32, 34, 8, 1),
   make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
              &wrapper<vpx_idct8x8_64_add_ssse3>, TX_8X8, 64, 8, 1),
-  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
+  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_12_add_c>,
              &wrapper<vpx_idct8x8_12_add_ssse3>, TX_8X8, 12, 8, 1)
 };
 
@@ -698,27 +729,25 @@ INSTANTIATE_TEST_CASE_P(SSSE3, PartialIDctTest,
 const PartialInvTxfmParam dspr2_partial_idct_tests[] = {
   make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
              &wrapper<vpx_idct32x32_1024_add_dspr2>, TX_32X32, 1024, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
-             &wrapper<vpx_idct32x32_1024_add_dspr2>, TX_32X32, 135, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
+  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_34_add_c>,
              &wrapper<vpx_idct32x32_34_add_dspr2>, TX_32X32, 34, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
+  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1_add_c>,
              &wrapper<vpx_idct32x32_1_add_dspr2>, TX_32X32, 1, 8, 1),
   make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
              &wrapper<vpx_idct16x16_256_add_dspr2>, TX_16X16, 256, 8, 1),
-  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
+  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_10_add_c>,
              &wrapper<vpx_idct16x16_10_add_dspr2>, TX_16X16, 10, 8, 1),
-  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
+  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_1_add_c>,
              &wrapper<vpx_idct16x16_1_add_dspr2>, TX_16X16, 1, 8, 1),
   make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
              &wrapper<vpx_idct8x8_64_add_dspr2>, TX_8X8, 64, 8, 1),
-  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
+  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_12_add_c>,
              &wrapper<vpx_idct8x8_12_add_dspr2>, TX_8X8, 12, 8, 1),
-  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
+  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_1_add_c>,
              &wrapper<vpx_idct8x8_1_add_dspr2>, TX_8X8, 1, 8, 1),
   make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_16_add_c>,
              &wrapper<vpx_idct4x4_16_add_dspr2>, TX_4X4, 16, 8, 1),
-  make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_16_add_c>,
+  make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_1_add_c>,
              &wrapper<vpx_idct4x4_1_add_dspr2>, TX_4X4, 1, 8, 1)
 };
 
@@ -731,27 +760,25 @@ INSTANTIATE_TEST_CASE_P(DSPR2, PartialIDctTest,
 const PartialInvTxfmParam msa_partial_idct_tests[] = {
   make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
              &wrapper<vpx_idct32x32_1024_add_msa>, TX_32X32, 1024, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
-             &wrapper<vpx_idct32x32_1024_add_msa>, TX_32X32, 135, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
+  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_34_add_c>,
              &wrapper<vpx_idct32x32_34_add_msa>, TX_32X32, 34, 8, 1),
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
+  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1_add_c>,
              &wrapper<vpx_idct32x32_1_add_msa>, TX_32X32, 1, 8, 1),
   make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
              &wrapper<vpx_idct16x16_256_add_msa>, TX_16X16, 256, 8, 1),
-  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
+  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_10_add_c>,
              &wrapper<vpx_idct16x16_10_add_msa>, TX_16X16, 10, 8, 1),
-  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_256_add_c>,
+  make_tuple(&vpx_fdct16x16_c, &wrapper<vpx_idct16x16_1_add_c>,
              &wrapper<vpx_idct16x16_1_add_msa>, TX_16X16, 1, 8, 1),
   make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
              &wrapper<vpx_idct8x8_64_add_msa>, TX_8X8, 64, 8, 1),
-  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
+  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_12_add_c>,
              &wrapper<vpx_idct8x8_12_add_msa>, TX_8X8, 12, 8, 1),
-  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
+  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_1_add_c>,
              &wrapper<vpx_idct8x8_1_add_msa>, TX_8X8, 1, 8, 1),
   make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_16_add_c>,
              &wrapper<vpx_idct4x4_16_add_msa>, TX_4X4, 16, 8, 1),
-  make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_16_add_c>,
+  make_tuple(&vpx_fdct4x4_c, &wrapper<vpx_idct4x4_1_add_c>,
              &wrapper<vpx_idct4x4_1_add_msa>, TX_4X4, 1, 8, 1)
 };
 

@@ -19,7 +19,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/scoped_comptr.h"
-#include "base/win/windows_version.h"
 #include "printing/backend/print_backend.h"
 #include "printing/backend/print_backend_consts.h"
 #include "printing/backend/printing_info_win.h"
@@ -405,7 +404,7 @@ std::unique_ptr<DEVMODE, base::FreeDeleter> XpsTicketToDevMode(
     return dev_mode;
 
   base::win::ScopedComPtr<IStream> pt_stream;
-  HRESULT hr = StreamFromPrintTicket(print_ticket, pt_stream.Receive());
+  HRESULT hr = StreamFromPrintTicket(print_ticket, pt_stream.GetAddressOf());
   if (FAILED(hr))
     return dev_mode;
 
@@ -416,7 +415,7 @@ std::unique_ptr<DEVMODE, base::FreeDeleter> XpsTicketToDevMode(
     DEVMODE* dm = NULL;
     // Use kPTJobScope, because kPTDocumentScope breaks duplex.
     hr = printing::XPSModule::ConvertPrintTicketToDevMode(
-        provider, pt_stream.get(), kUserDefaultDevmode, kPTJobScope, &size, &dm,
+        provider, pt_stream.Get(), kUserDefaultDevmode, kPTJobScope, &size, &dm,
         NULL);
     if (SUCCEEDED(hr)) {
       // Correct DEVMODE using DocumentProperties. See documentation for
@@ -471,22 +470,6 @@ std::unique_ptr<DEVMODE, base::FreeDeleter> CreateDevModeWithColor(
   return ticket;
 }
 
-bool IsPrinterRPCSOnly(HANDLE printer) {
-  PrinterInfo5 info_5;
-  if (!info_5.Init(printer))
-    return false;
-  const wchar_t* name = info_5.get()->pPrinterName;
-  const wchar_t* port = info_5.get()->pPortName;
-  int num_languages =
-      DeviceCapabilities(name, port, DC_PERSONALITY, NULL, NULL);
-  if (num_languages != 1)
-    return false;
-  std::vector<wchar_t> buf(33, 0);
-  DeviceCapabilities(name, port, DC_PERSONALITY, buf.data(), NULL);
-  static constexpr wchar_t kRPCSLanguage[] = L"RPCS";
-  return wcscmp(buf.data(), kRPCSLanguage) == 0;
-}
-
 std::unique_ptr<DEVMODE, base::FreeDeleter> CreateDevMode(HANDLE printer,
                                                           DEVMODE* in) {
   LONG buffer_size = DocumentProperties(
@@ -501,14 +484,6 @@ std::unique_ptr<DEVMODE, base::FreeDeleter> CreateDevMode(HANDLE printer,
   std::unique_ptr<DEVMODE, base::FreeDeleter> out(
       reinterpret_cast<DEVMODE*>(calloc(buffer_size, 1)));
   DWORD flags = (in ? (DM_IN_BUFFER) : 0) | DM_OUT_BUFFER;
-
-  // Check for RPCS drivers on Windows 8+ as DocumentProperties will crash if
-  // called on one of these printers. See crbug.com/679160
-  if (base::win::GetVersion() >= base::win::VERSION_WIN8 &&
-      IsPrinterRPCSOnly(printer)) {
-    return std::unique_ptr<DEVMODE, base::FreeDeleter>();
-  }
-
   if (DocumentProperties(
           NULL, printer, const_cast<wchar_t*>(L""), out.get(), in, flags) !=
       IDOK) {

@@ -8,8 +8,8 @@ from __future__ import print_function
 
 import glob
 import os
+import tempfile
 
-from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import chroot_lib
 from chromite.cbuildbot import commands
@@ -17,6 +17,7 @@ from chromite.cbuildbot import repository
 from chromite.cbuildbot import topology
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import test_stages
+from chromite.lib import buildbucket_lib
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
@@ -92,7 +93,8 @@ class CleanUpStage(generic_stages.BuilderStage):
   def _BuildRootGitCleanup(self):
     logging.info('Cleaning up buildroot git repositories.')
     # Run git gc --auto --prune=all on all repos in CleanUpStage
-    commands.BuildRootGitCleanup(self._build_root, prune_all=True)
+    repo = self.GetRepoRepository()
+    repo.BuildRootGitCleanup(prune_all=True)
 
   def _DeleteAutotestSitePackages(self):
     """Clears any previously downloaded site-packages."""
@@ -166,8 +168,6 @@ class CleanUpStage(generic_stages.BuilderStage):
             buildbucket_ids,
             dryrun=self._run.options.debug)
 
-        build_id, db = self._run.GetCIDBHandle()
-
         result_map = buildbucket_lib.GetResultMap(cancel_content)
         for buildbucket_id, result in result_map.iteritems():
           # Check if the result contains error messages.
@@ -177,15 +177,6 @@ class CleanUpStage(generic_stages.BuilderStage):
                             "Please check the status of the build.",
                             buildbucket_id,
                             buildbucket_lib.GetErrorReason(result))
-          elif db:
-            # The build was successfully canceled by Buildbucket,
-            # change its status to 'aborted' in CIDB.
-            build = db.GetBuildStatusWithBuildbucketId(buildbucket_id)
-            if build is not None:
-              db.FinishBuild(build['id'],
-                             status=constants.BUILDER_STATUS_ABORTED,
-                             summary=('Canceled by master build %s '
-                                      'CleanUpStage' % build_id))
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
@@ -236,7 +227,12 @@ class CleanUpStage(generic_stages.BuilderStage):
       # ChromiumOs and ChromeOs waterfalls.
       if (config_lib.UseBuildbucketScheduler(self._run.config) and
           config_lib.IsMasterBuild(self._run.config)):
-        tasks.append(self.CancelObsoleteSlaveBuilds)
+
+        # TODO(dgarrett): Remove when crbug.com/719789 is fixed.
+        if self._run.config.build_type == constants.ANDROID_PFQ_TYPE:
+          logging.info('Don\'t try to cancel Android PFQs. crbug.com/719789')
+        else:
+          tasks.append(self.CancelObsoleteSlaveBuilds)
 
       parallel.RunParallelSteps(tasks)
 
@@ -405,13 +401,97 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
       logging.info('Recording packages under test')
       self.board_runattrs.SetParallel('packages_under_test', set(deps.keys()))
 
+  def _IsGomaUsable(self):
+    # We hit performance regression on release bots once, but the root cause
+    # is still unclear, because of missing logs.
+    # This temporarily guards to run goma on bots for now. The condition will
+    # be relaxed step-by-step, after logging mechanism for the future
+    # investigation is implemented.
+    # TODO(hidehiko): Enable on bots actually.
+    return False
+
+  def _SetupGomaIfNecessary(self):
+    """Sets up goma envs if necessary.
+
+    Updates related env vars, and returns args to chroot.
+
+    Returns:
+      args which should be provided to chroot in order to enable goma.
+      If goma is unusable or disabled, None is returned.
+
+    Raises:
+      ValueError: raised when 1) goma_client_json is not provided on bots, or
+      2) goma_client_json does not point a file.
+    """
+
+    # Use goma iff chrome needs to be built.
+    if (not self._run.options.managed_chrome or not self._IsGomaUsable() or
+        not self._run.options.goma_dir):
+      return None
+
+    # Sanity check of goma_client_json before updating fields.
+    if self._run.options.goma_client_json:
+      # If goma_client_json file is provided, it must be an existing file.
+      if not os.path.isfile(self._run.options.goma_client_json):
+        raise ValueError(
+            'Goma client json file is missing: %s' % (
+                self._run.options.goma_client_json))
+    else:
+      # If this script runs on bot, service account json file needs to be
+      # provided, otherwise it cannot access to goma service.
+      if cros_build_lib.HostIsCIBuilder():
+        raise ValueError(
+            'goma is enabled on bot, but goma_client_json is not provided')
+
+    chroot_args = []
+
+    # Mount goma directory into chroot.
+    chroot_args.extend(['--goma_dir', self._run.options.goma_dir])
+    # Set GOMA_DIR for portage. The path is one in the chroot.
+    self._portage_extra_env['GOMA_DIR'] = os.path.join(
+        '/home', os.environ.get('USER'), 'goma')
+
+    # Set USE flag so that chrome is built with goma.
+    useflags = self._portage_extra_env.get('USE', '').split()
+    useflags.append('goma')
+    self._portage_extra_env['USE'] = ' '.join(useflags)
+
+    if self._run.options.goma_client_json:
+      chroot_args.extend([
+          '--goma_client_json', self._run.options.goma_client_json])
+      # Set env var. The path is one in the chroot.
+      self._portage_extra_env['GOMA_SERVICE_ACCOUNT_JSON_FILE'] = (
+          '/creds/service_accounts/service-account-goma-client.json')
+
+    # Create GOMA_TMP_DIR (goma compiler_proxy's working directory), and its
+    # log directory. In report phase, logs will be uploaded to Cloud Storage,
+    # so pass the path via metadata.
+    chroot_tmp = path_util.FromChrootPath('/tmp')
+
+    # Create unique directory by mkdtemp. Expect this directory is removed
+    # in next run's clean up phase.
+    goma_tmp_dir = tempfile.mkdtemp(prefix='goma_tmp_dir.', dir=chroot_tmp)
+    self._run.attrs.metadata.UpdateWithDict({'goma_tmp_dir': goma_tmp_dir})
+
+    # Pass the path via GOMA_TMP_DIR env var so that compiler_proxy started
+    # in chroot uses it as working directory.
+    self._portage_extra_env['GOMA_TMP_DIR'] = path_util.ToChrootPath(
+        goma_tmp_dir)
+
+    # Set GLOG_log_dir, which goma programs use as their log directory.
+    goma_log_dir = os.path.join(goma_tmp_dir, 'log_dir')
+    os.mkdir(goma_log_dir)
+    self._portage_extra_env['GLOG_log_dir'] = path_util.ToChrootPath(
+        goma_log_dir)
+
+    return chroot_args
+
   def PerformStage(self):
     # If we have rietveld patches, always compile Chrome from source.
     noworkon = not self._run.options.rietveld_patches
     packages = self.GetListOfPackagesToBuild()
     self.VerifyChromeBinpkg(packages)
     self.RecordPackagesUnderTest(packages)
-
 
     try:
       event_filename = 'build-events.json'
@@ -425,7 +505,8 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
       event_file = None
       event_file_in_chroot = None
 
-
+    # Set up goma. Use goma iff chrome needs to be built.
+    chroot_args = self._SetupGomaIfNecessary()
     commands.Build(self._build_root,
                    self._current_board,
                    build_autotest=self._run.ShouldBuildAutotest(),
@@ -436,8 +517,10 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
                    chrome_root=self._run.options.chrome_root,
                    noworkon=noworkon,
                    noretry=self._run.config.nobuildretry,
+                   chroot_args=chroot_args,
                    extra_env=self._portage_extra_env,
-                   event_file=event_file_in_chroot,)
+                   event_file=event_file_in_chroot,
+                   run_goma=bool(chroot_args))
 
     if event_file and os.path.isfile(event_file):
       logging.info('Archive build-events.json file')
@@ -456,7 +539,8 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
         commands.ExportToGCloud(self._build_root,
                                 creds_file,
                                 event_file,
-                                parent_key=parent_key)
+                                parent_key=parent_key,
+                                caller=type(self).__name__)
     else:
       logging.info('No build-events.json file to archive')
 
@@ -538,7 +622,8 @@ class BuildImageStage(BuildPackagesStage):
       commands.BuildVMImageForTesting(
           self._build_root,
           self._current_board,
-          extra_env=self._portage_extra_env)
+          extra_env=self._portage_extra_env,
+          disk_layout=self._run.config.disk_layout)
 
   def _GenerateAuZip(self, image_dir):
     """Create au-generator.zip."""

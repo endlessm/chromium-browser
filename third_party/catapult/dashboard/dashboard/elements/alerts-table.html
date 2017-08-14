@@ -430,12 +430,12 @@ found in the LICENSE file.
     function findRangeIntersection(range1, range2) {
       if (range1 == null || range2 == null) return null;
 
-      var start = Math.max(range1.start, range2.start);
-      var end = Math.min(range1.end, range2.end);
+      const start = Math.max(range1.start, range2.start);
+      const end = Math.min(range1.end, range2.end);
 
       if (end < start) return null;
 
-      return { start: start, end: end };
+      return { start, end };
     }
 
     Polymer({
@@ -523,23 +523,23 @@ found in the LICENSE file.
       /**
        * Custom element lifecycle callback, called once this element is ready.
        */
-      ready: function() {
+      ready() {
       },
 
       computeIsPlural: (n) => n > 1,
 
-      getDisplayStartRev: function(item) {
-        if (item['display_start']) {
-          return item['display_start'];
+      getDisplayStartRev(item) {
+        if (item.display_start) {
+          return item.display_start;
         }
-        return item['start_revision'];
+        return item.start_revision;
       },
 
-      getDisplayEndRev: function(item) {
-        if (item['display_end']) {
-          return item['display_end'];
+      getDisplayEndRev(item) {
+        if (item.display_end) {
+          return item.display_end;
         }
-        return item['end_revision'];
+        return item.end_revision;
       },
 
       /**
@@ -547,22 +547,24 @@ found in the LICENSE file.
        * KiB as appropriate. Accepts tbmv1 and tbmv2 units. Also handles
        * showing bug-details, which is used by speed releasing.
        */
-      computeExtraColumnValue: function(item, key) {
+      computeExtraColumnValue(item, key) {
         if (key === 'absolute_delta') {
-          var unitName = item.units;
+          let unitName = item.units;
           if (tr.b.Unit.byName[unitName]) {
             return (tr.b.Unit.byName[unitName].format(item[key]));
           }
 
-          var unitInfo = tr.v.LEGACY_UNIT_INFO.get(unitName);
+          let unitInfo = tr.v.LEGACY_UNIT_INFO.get(unitName);
           if (unitInfo &&
               unitInfo.name != 'unitlessNumber' &&
               unitInfo.name != 'count') {
+            const conversionFactor = unitInfo.conversionFactor || 1;
+            const value = item[key] * conversionFactor;
             unitInfo = unitInfo.name;
-            return (tr.b.Unit.byName[unitInfo].format(item[key]));
+            return tr.b.Unit.byName[unitInfo].format(value);
           }
-  
-          var value = item[key];
+
+          let value = item[key];
           value = parseFloat(value).toFixed(3);
           if (!unitName) {
             unitName = '(unformatted)';
@@ -589,7 +591,7 @@ found in the LICENSE file.
 
       isBugDetailsKey: key => key === 'bug_details',
 
-      setAlertList: function(i, property, value) {
+      setAlertList(i, property, value) {
         this.set('alertList.' + i + '.' + property, value);
       },
 
@@ -597,7 +599,7 @@ found in the LICENSE file.
        * Initializes the table.
        * This should be called after this.alertList has been set.
        */
-      alertListChanged: function() {
+      alertListChanged() {
         // Some calls to alertListChanged can change the alert list.
         // If that happens, don't do anything.
         if (this.recursingAlertListChanged) {
@@ -617,7 +619,7 @@ found in the LICENSE file.
         });
       },
 
-      updateAlertList: function() {
+      updateAlertList() {
         this.recursingAlertListChanged = true;
         this.initRowsBasedOnQueryParameters();
         this.showAlertsGrouped();
@@ -630,15 +632,15 @@ found in the LICENSE file.
       /**
        * Displays alerts in groups.
        */
-      showAlertsGrouped: function() {
-        var groupMap = {};
-        var alertOrder = [];
+      showAlertsGrouped() {
+        const groupMap = {};
+        const alertOrder = [];
         // Normally we should modify values in alertsList via
         // this.setAlertList() but since we're planning on setting the array
         // at the end of this function, we can just modify the contents of the
         // array directly.
-        for (var i = 0; i < this.alertList.length; i++) {
-          var alert = this.alertList[i];
+        for (let i = 0; i < this.alertList.length; i++) {
+          const alert = this.alertList[i];
           if (alert.group) {
             alert.index = i;
             if (alert.group in groupMap) {
@@ -664,31 +666,31 @@ found in the LICENSE file.
         }
 
         // Preserve expanded groups
-        for (var k in groupMap) {
-          var alertsInGroup = groupMap[k];
-          var isGroupExpanded = false;
-          for (var i = 0; i < alertsInGroup.length; i++) {
+        for (const k in groupMap) {
+          const alertsInGroup = groupMap[k];
+          let isGroupExpanded = false;
+          for (let i = 0; i < alertsInGroup.length; i++) {
             isGroupExpanded = isGroupExpanded || alertsInGroup[i].expanded;
             alertsInGroup[i].expanded = false;
           }
 
           if (isGroupExpanded) {
             alertsInGroup[0].expanded = true;
-            for (var i = 0; i < alertsInGroup.length; i++) {
+            for (let i = 0; i < alertsInGroup.length; i++) {
               alertsInGroup[i].hideRow = false;
             }
           }
         }
 
-        var orderedAlertList = [];
-        for (var i = 0; i < alertOrder.length; i++) {
+        const orderedAlertList = [];
+        for (let i = 0; i < alertOrder.length; i++) {
           orderedAlertList.push.apply(
               orderedAlertList, groupMap[alertOrder[i]]);
         }
         this.set('alertList', orderedAlertList);
         this.selectAlertsInKeysParameter(orderedAlertList);
-        for (var i = 0; i < orderedAlertList.length; i++) {
-          var alert = orderedAlertList[i];
+        for (let i = 0; i < orderedAlertList.length; i++) {
+          const alert = orderedAlertList[i];
           this.setAlertList(i, 'hideRow', alert.hideRow);
           this.setAlertList(i, 'improvement', alert.improvement);
           this.setAlertList(i, 'size', alert.size);
@@ -701,15 +703,15 @@ found in the LICENSE file.
       /**
        * Toggles expansion of a group of alerts.
        */
-      onExpandGroupButtonClicked: function(event, detail) {
-        var row = event.currentTarget.closest('tr');
+      onExpandGroupButtonClicked(event, detail) {
+        const row = event.currentTarget.closest('tr');
         // alertIndex = rowIndex - 1 due to the table header row.
-        var alertIndex = row.rowIndex - 1;
-        var alert = this.alertList[alertIndex];
-        var shouldExpand = !alert.expanded;
+        const alertIndex = row.rowIndex - 1;
+        const alert = this.alertList[alertIndex];
+        const shouldExpand = !alert.expanded;
         this.setAlertList(alertIndex, 'expanded', shouldExpand);
 
-        for (var i = alertIndex + 1; i < this.alertList.length; i++) {
+        for (let i = alertIndex + 1; i < this.alertList.length; i++) {
           if (this.alertList[i].group != alert.group) break;
 
           this.setAlertList(i, 'hideRow', !shouldExpand);
@@ -719,7 +721,7 @@ found in the LICENSE file.
       /**
        *  Shows, hides and checks alert rows depending on URL parameters.
        */
-      initRowsBasedOnQueryParameters: function() {
+      initRowsBasedOnQueryParameters() {
         // When we're looking at alerts for a particular bug, we usually want
         // to see the graphs right away, but we also don't want to select too
         // many alerts at once.
@@ -733,18 +735,18 @@ found in the LICENSE file.
        * Checks the alerts enumerated in the "keys" query parameter parameter.
        * @param {array} alerts The array of alerts to modify.
        */
-      selectAlertsInKeysParameter: function(alerts) {
-        var showImprovements = uri.getParameter('improvements', false);
+      selectAlertsInKeysParameter(alerts) {
+        const showImprovements = uri.getParameter('improvements', false);
         if (!this.selectedKeys) return;
 
-        var keys = this.selectedKeys;
+        const keys = this.selectedKeys;
 
-        var keySet = {};
-        for (var k of keys) {
+        const keySet = {};
+        for (const k of keys) {
           keySet[k] = true;
         }
-        for (var i = 0; i < alerts.length; i++) {
-          var alert = alerts[i];
+        for (let i = 0; i < alerts.length; i++) {
+          const alert = alerts[i];
           if (keySet[alerts[i].key]) {
             alert.selected = true;
             alert.hideRow = false;
@@ -757,8 +759,8 @@ found in the LICENSE file.
       /**
        * Selects the first |n| alerts in the table from the top.
        */
-      selectFirstNAlerts: function(n) {
-        for (var i = 0; i < Math.min(n, this.alertList.length); i++) {
+      selectFirstNAlerts(n) {
+        for (let i = 0; i < Math.min(n, this.alertList.length); i++) {
           this.alertList[i].selected = true;
           this.alertList[i].hideRow = false;
         }
@@ -768,21 +770,21 @@ found in the LICENSE file.
        * Shows or hides the bug id column depending on whether there are any
        * triaged alerts listed in the table.
        */
-      updateBugColumn: function() {
+      updateBugColumn() {
         // We need the xsrf token to be set in the individual bug-info-span
         // element, and this can be done by setting it in the alert objects,
         // and binding xsrfToken in the template above.
-        for (var i = 0; i < this.alertList.length; i++) {
+        for (let i = 0; i < this.alertList.length; i++) {
           this.setAlertList(i, 'xsrfToken', this.xsrfToken);
         }
         // Make a list of all bug IDs that indicate an alert is triaged.
         // This includes the pseudo-bug-ids indicating invalid or ignored.
         // Note: The 'hideRow' parameter is set in static/alerts.js, and it
         // indicates that the 'triaged' query parameter is not set.
-        var alertsWithBugs = this.alertList.filter(function(alertRow) {
+        const alertsWithBugs = this.alertList.filter(function(alertRow) {
           return alertRow.bug_id && !alertRow.hideRow;
         });
-        var shouldHideBugId = alertsWithBugs.length == 0;
+        const shouldHideBugId = alertsWithBugs.length == 0;
         // Hide the bug id th element.
         if (shouldHideBugId) {
           this.$.bug_id.style.display = 'none';
@@ -790,7 +792,7 @@ found in the LICENSE file.
           this.$.bug_id.style.display = '';
         }
         // Hide or show all of the bug id data cells in the table.
-        for (var i = 0; i < this.alertList.length; i++) {
+        for (let i = 0; i < this.alertList.length; i++) {
           this.setAlertList(i, 'hide_bug_id', shouldHideBugId);
         }
       },
@@ -801,10 +803,10 @@ found in the LICENSE file.
        * @param {Event} event The event object.
        * @param {Object} detail Parameters sent with the event.
        */
-      onUntriaged: function(event, detail) {
-        var key = detail.key;
-        for (var i = 0; i < this.alertList.length; i++) {
-          if (this.alertList[i]['key'] == key) {
+      onUntriaged(event, detail) {
+        const key = detail.key;
+        for (let i = 0; i < this.alertList.length; i++) {
+          if (this.alertList[i].key == key) {
             this.setAlertList(i, 'bug_id', null);
           }
         }
@@ -813,9 +815,9 @@ found in the LICENSE file.
       /**
        * Either unchecks or checks all alerts.
        */
-      onHeaderCheckboxChange: function(event, detail) {
-        for (var i = 0; i < this.alertList.length; i++) {
-          var alert = this.alertList[i];
+      onHeaderCheckboxChange(event, detail) {
+        for (let i = 0; i < this.alertList.length; i++) {
+          const alert = this.alertList[i];
           if (event.currentTarget.checked) {
             if (!alert.hideRow) {
               this.setAlertList(i, 'selected', true);
@@ -828,7 +830,7 @@ found in the LICENSE file.
         this.onCheckboxChange();
       },
 
-      sortByChanged: function() {
+      sortByChanged() {
         // TODO(simonhatch): Similar to the async updates in alertListChanged,
         // async the sort updates since we touch alertList.
         this.async(function() {
@@ -837,7 +839,7 @@ found in the LICENSE file.
         });
       },
 
-      sortDirectionChanged: function() {
+      sortDirectionChanged() {
         // TODO(simonhatch): Similar to the async updates in alertListChanged,
         // async the sort updates since we touch alertList.
         this.async(function() {
@@ -851,12 +853,12 @@ found in the LICENSE file.
        * @param {Event} event Clicked event.
        * @param {Object} detail Detail Object.
        */
-      columnHeaderClicked: function(event, detail) {
+      columnHeaderClicked(event, detail) {
         this.sortBy = event.currentTarget.id;
-        var newDirection = 'down';
+        let newDirection = 'down';
         // Because the <th> element may have been added based on an entry in
         // this.extraColumns, this.$[this.sortBy] may not work.
-        var th = Polymer.dom(this.$.alerts).querySelector('#' + this.sortBy);
+        const th = Polymer.dom(this.$.alerts).querySelector('#' + this.sortBy);
         if (th.getAttribute('data-sort-direction') == 'down') {
           newDirection = 'up';
         }
@@ -866,9 +868,9 @@ found in the LICENSE file.
       /**
        * Update the table headers to indicate the current table sorting.
        */
-      updateHeaders: function() {
-        var headers = Polymer.dom(this.$.alerts).querySelectorAll('th');
-        for (var i = 0; i < headers.length; i++) {
+      updateHeaders() {
+        const headers = Polymer.dom(this.$.alerts).querySelectorAll('th');
+        for (let i = 0; i < headers.length; i++) {
           if (headers[i].id == this.sortBy) {
             Polymer.dom(headers[i]).setAttribute('data-sort-direction',
                 this.sortDirection);
@@ -882,9 +884,9 @@ found in the LICENSE file.
        * Sorts the alert list according to the current values of the properties
        * sortDirection and sortBy.
        */
-      sort: function() {
-        var order = this.sortDirection == 'down' ? 1 : -1;
-        var sortBy = this.sortBy;
+      sort() {
+        const order = this.sortDirection == 'down' ? 1 : -1;
+        const sortBy = this.sortBy;
 
         /**
          * Compares two alert Objects to determine which should come first.
@@ -893,17 +895,18 @@ found in the LICENSE file.
          * @return {number} A negative number if alertA is first, or a
          *      positive number otherwise.
          */
-        var compareAlerts = function(alertA, alertB) {
-          var valA = String(alertA[sortBy]).toLowerCase();
-          var valB = String(alertB[sortBy]).toLowerCase();
+        const compareAlerts = function(alertA, alertB) {
+          const valA = String(alertA[sortBy]).toLowerCase();
+          const valB = String(alertB[sortBy]).toLowerCase();
 
           // If the values can be parsed as non-zero numbers, then compare
           // numerically. Otherwise, compare lexically.
-          var parseNumber = function(str) {
+          const parseNumber = function(str) {
             return Number(str.match(/^\d*(\.\d+)?/)[0]);
           };
-          var numA = parseNumber(valA);
-          var numB = parseNumber(valB);
+          let numA = parseNumber(valA);
+          let numB = parseNumber(valB);
+          let result;
           if (numA && numB) {
             if (!alertA.improvement) {
               numA = -numA;
@@ -911,9 +914,9 @@ found in the LICENSE file.
             if (!alertB.improvement) {
               numB = -numB;
             }
-            var result = numA - numB;
+            result = numA - numB;
           } else {
-            var result = 0;
+            result = 0;
             if (valA < valB) result = -1;
             if (valA > valB) result = 1;
           }
@@ -936,10 +939,10 @@ found in the LICENSE file.
         // alertsToSort contains the headers and any alerts without a group.
         // The alertsToSort are the higher level that you see on the dashboard
         // on page load and the groupMap contains the expanded view.
-        var groupMap = {};
-        var alertsToSort = [];
-        for (var i = 0; i < this.alertList.length; i++) {
-          var alert = this.alertList[i];
+        const groupMap = {};
+        const alertsToSort = [];
+        for (let i = 0; i < this.alertList.length; i++) {
+          const alert = this.alertList[i];
           // Associate the current index with each element, to enable stable
           // sorting.
           // TODO(simonhatch): sort() always calls this.set('alertList')
@@ -962,10 +965,10 @@ found in the LICENSE file.
         // The expanded groups are sorted, and the highest ranking of each
         // is added to the alertsToSort which allows the unexpanded
         // view to be sorted as well.
-        for (var key in groupMap) {
+        for (const key in groupMap) {
           groupMap[key].sort(compareAlerts);
           alertsToSort.push(groupMap[key][0]);
-          // for (var k in groupMap[key]) {
+          // for (const k in groupMap[key]) {
           //   // Only get the first alert in a group for alertsToSort.
           //   break;
           // }
@@ -973,7 +976,7 @@ found in the LICENSE file.
 
         alertsToSort.sort(compareAlerts);
 
-        var sortedAlertList = [];
+        const sortedAlertList = [];
         alertsToSort.forEach(function(alert) {
           if (alert.group in groupMap) {
             sortedAlertList.push.apply(sortedAlertList, groupMap[alert.group]);
@@ -1001,14 +1004,14 @@ found in the LICENSE file.
        * @return {?Object} An object containing start and end revision,
        *     or null if the checked alerts don't overlap.
        */
-      getCommonRevisionRange: function(alerts) {
+      getCommonRevisionRange(alerts) {
         if (!alerts || alerts.length == 0) return null;
 
-        var commonRange = { start: -Infinity, end: Infinity };
-        for (var alert of alerts) {
-          var alertRange = {
-            start: alert['start_revision'],
-            end: alert['end_revision']
+        let commonRange = { start: -Infinity, end: Infinity };
+        for (const alert of alerts) {
+          const alertRange = {
+            start: alert.start_revision,
+            end: alert.end_revision
           };
 
           commonRange = findRangeIntersection(commonRange, alertRange);
@@ -1022,16 +1025,16 @@ found in the LICENSE file.
       /**
        * Handles shift-click selecting checkboxes and selecting rows in group.
        */
-      onRowClicked: function(event, detail) {
+      onRowClicked(event, detail) {
         if (event.shiftKey && this.previousCheckboxId &&
             this.currentCheckboxId) {
           if (this.previousCheckboxId == this.currentCheckboxId) {
             return;
           }
-          var prevIndex = 0;
-          var currentIndex = 0;
-          var isChecked = null;
-          for (var i = 0; i < this.alertList.length; i++) {
+          let prevIndex = 0;
+          let currentIndex = 0;
+          let isChecked = null;
+          for (let i = 0; i < this.alertList.length; i++) {
             if (this.alertList[i].key == this.previousCheckboxId) {
               prevIndex = i;
             } else if (this.alertList[i].key == this.currentCheckboxId) {
@@ -1041,14 +1044,14 @@ found in the LICENSE file.
           }
           // Go through and check/uncheck.
           if (prevIndex < currentIndex) {
-            for (var i = prevIndex; i < currentIndex; i++) {
+            for (let i = prevIndex; i < currentIndex; i++) {
               if (!this.alertList[i].hideRow) {
                 this.setAlertList(i, 'selected', isChecked);
                 this.updateGroupCheckboxes(this.alertList[i], i, isChecked);
               }
             }
           } else {
-            for (var i = prevIndex; i > currentIndex; i--) {
+            for (let i = prevIndex; i > currentIndex; i--) {
               if (!this.alertList[i].hideRow) {
                 this.setAlertList(i, 'selected', isChecked);
                 this.updateGroupCheckboxes(this.alertList[i], i, isChecked);
@@ -1062,9 +1065,9 @@ found in the LICENSE file.
       /**
        * Checks or unchecks hidden group member rows.
        */
-      updateGroupCheckboxes: function(alert, alertIndex, isChecked) {
+      updateGroupCheckboxes(alert, alertIndex, isChecked) {
         if (alert.rowType == 'group-header' && !alert.expanded) {
-          for (var i = alertIndex + 1; i < this.alertList.length; i++) {
+          for (let i = alertIndex + 1; i < this.alertList.length; i++) {
             if (this.alertList[i].rowType == 'group-member') {
               this.setAlertList(i, 'selected', isChecked);
             } else {
@@ -1078,12 +1081,12 @@ found in the LICENSE file.
        * Event handler for the change event of any of the checkboxes for any
        * alert in the table.
        */
-      onCheckboxChange: function(event, detail) {
+      onCheckboxChange(event, detail) {
         if (event && event.currentTarget) {
           // Checks group member rows.
-          var alertIndex = Polymer.dom(Polymer.dom(
+          const alertIndex = Polymer.dom(Polymer.dom(
               event.currentTarget).parentNode).parentNode.rowIndex - 1;
-          var alert = this.alertList[alertIndex];
+          const alert = this.alertList[alertIndex];
           this.updateGroupCheckboxes(alert, alertIndex, alert.selected);
 
           this.set('previousCheckboxId', this.currentCheckboxId);
@@ -1106,7 +1109,7 @@ found in the LICENSE file.
       /**
        * Checks the header checkbox if all checkboxes below are checked.
        */
-      updateHeaderCheckbox: function() {
+      updateHeaderCheckbox() {
         if (this.checkedAlerts.length == this.alertList.length) {
           this.$['header-checkbox'].checked = true;
         } else {
@@ -1118,8 +1121,8 @@ found in the LICENSE file.
        * Disables or enables the triage and graph buttons depending on whether
        * there are any alerts currently checked.
        */
-      maybeDisableButtons: function() {
-        var buttonsDisabled = this.checkedAlerts.length == 0;
+      maybeDisableButtons() {
+        const buttonsDisabled = this.checkedAlerts.length == 0;
         this.$['file-bug-button'].disabled = buttonsDisabled;
         this.$['graph-button'].disabled = buttonsDisabled;
       },
@@ -1129,8 +1132,8 @@ found in the LICENSE file.
        * to /short_uri with the keys. The reply is a hash of
        * the keys, which we redirect the new tab to.
        */
-      showGraphs: function() {
-        var newTab = window.open('about:blank');
+      showGraphs() {
+        const newTab = window.open('about:blank');
 
         simple_xhr.send('/short_uri',
             {'page_state': JSON.stringify(this.checkedAlerts.map(
@@ -1147,14 +1150,14 @@ found in the LICENSE file.
        * Shows the UI to file a bug on the given group of alerts.
        * @param {Event} e The event for the button click.
        */
-      showTriageDialog: function(e) {
+      showTriageDialog(e) {
         this.$.triage.alerts = this.checkedAlerts;
         this.$.triage.show();
         e.stopPropagation();
       },
 
-      getAlertIndexByKey: function(key) {
-        for (var i = 0; i < this.alertList.length; i++) {
+      getAlertIndexByKey(key) {
+        for (let i = 0; i < this.alertList.length; i++) {
           if (this.alertList[i].key == key) {
             return i;
           }
@@ -1167,14 +1170,14 @@ found in the LICENSE file.
        * for alerts that have been triaged.
        * @param {Event} e The event for button click.
        */
-      onTriaged: function(e) {
-        var triagedKeys = e.detail.alerts.map(function(alert) {
+      onTriaged(e) {
+        const triagedKeys = e.detail.alerts.map(function(alert) {
           return alert.key;
         });
-        var triagedBugId = e.detail.bugid;
+        const triagedBugId = e.detail.bugid;
         this.checkedAlerts.forEach(function(alert) {
           if (triagedKeys.indexOf(alert.key) != -1) {
-            var index = this.getAlertIndexByKey(alert.key);
+            const index = this.getAlertIndexByKey(alert.key);
             this.setAlertList(index, 'bug_id', triagedBugId);
             if (!uri.getParameter('triaged')) {
               this.setAlertList(index, 'hideRow', true);
@@ -1186,10 +1189,10 @@ found in the LICENSE file.
         this.updateBugColumn();
       },
 
-      isHighlighted: function(commonRevisionRange, alert) {
+      isHighlighted(commonRevisionRange, alert) {
         if (commonRevisionRange == null) return false;
 
-        var alertRevisionRange = {
+        const alertRevisionRange = {
           start: alert.start_revision,
           end: alert.end_revision
         };

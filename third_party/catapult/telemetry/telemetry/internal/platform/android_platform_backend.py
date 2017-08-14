@@ -22,7 +22,6 @@ from telemetry.internal.platform import linux_based_platform_backend
 from telemetry.internal.platform.power_monitor import android_dumpsys_power_monitor
 from telemetry.internal.platform.power_monitor import android_fuelgauge_power_monitor
 from telemetry.internal.platform.power_monitor import android_temperature_monitor
-from telemetry.internal.platform.power_monitor import monsoon_power_monitor
 from telemetry.internal.platform.power_monitor import (
   android_power_monitor_controller)
 from telemetry.internal.platform.power_monitor import sysfs_power_monitor
@@ -108,7 +107,6 @@ class AndroidPlatformBackend(
     self._power_monitor = (
       android_power_monitor_controller.AndroidPowerMonitorController([
         android_temperature_monitor.AndroidTemperatureMonitor(self._device),
-        monsoon_power_monitor.MonsoonPowerMonitor(self._device, self),
         android_dumpsys_power_monitor.DumpsysPowerMonitor(
           self._battery, self),
         sysfs_power_monitor.SysfsPowerMonitor(self, standalone=True),
@@ -322,6 +320,9 @@ class AndroidPlatformBackend(
   @decorators.Cache
   def GetOSVersionName(self):
     return self._device.GetProp('ro.build.id')[0]
+
+  def GetOSVersionDetailString(self):
+    return ''  # TODO(kbr): Implement this.
 
   def CanFlushIndividualFilesFromSystemCache(self):
     return False
@@ -538,7 +539,9 @@ class AndroidPlatformBackend(
   def supports_test_ca(self):
     # TODO(nednguyen): figure out how to install certificate on Android M
     # crbug.com/593152
-    return self._device.build_version_sdk <= version_codes.LOLLIPOP_MR1
+    # TODO(crbug.com/716084): enable support for test CA
+    # return self._device.build_version_sdk <= version_codes.LOLLIPOP_MR1
+    return False
 
   def InstallTestCa(self, ca_cert_path):
     """Install a randomly generated root CA on the android device.
@@ -811,7 +814,7 @@ class AndroidPlatformBackend(
         ['log', '-p', 'i', '-t', TELEMETRY_LOGCAT_TAG, message],
         check_return=True)
 
-  def WaitForTemperature(self, temp):
+  def WaitForBatteryTemperature(self, temp):
     # Temperature is in tenths of a degree C, so we convert to that scale.
     self._battery.LetBatteryCoolToTemperature(temp * 10)
 

@@ -15,10 +15,11 @@
 #import "chrome/browser/certificate_viewer.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/cocoa/browser_dialogs_views_mac.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/info_bubble_view.h"
 #import "chrome/browser/ui/cocoa/info_bubble_window.h"
+#import "chrome/browser/ui/cocoa/location_bar/location_bar_decoration.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #import "chrome/browser/ui/cocoa/page_info/permission_selector_button.h"
 #include "chrome/browser/ui/page_info/permission_menu_model.h"
@@ -29,6 +30,7 @@
 #include "chrome/grit/theme_resources.h"
 #include "components/strings/grit/components_chromium_strings.h"
 #include "components/strings/grit/components_strings.h"
+#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/ssl_host_state_delegate.h"
 #include "content/public/browser/web_contents.h"
@@ -44,6 +46,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/image/image_skia_util_mac.h"
 #import "ui/gfx/mac/coordinate_conversion.h"
 #include "ui/gfx/scoped_ns_graphics_context_save_gstate_mac.h"
 #include "ui/resources/grit/ui_resources.h"
@@ -138,6 +141,41 @@ NSPoint AnchorPointForWindow(NSWindow* parent) {
 }
 
 }  // namespace
+
+// The |InspectLinkView| objects are used to show the Cookie and Certificate
+// status and a link to inspect the underlying data.
+@interface InspectLinkView : FlippedView
+@end
+
+@implementation InspectLinkView {
+  NSButton* actionLink_;
+}
+
+- (id)initWithFrame:(NSRect)frame {
+  if (self = [super initWithFrame:frame]) {
+    [self setAutoresizingMask:NSViewWidthSizable];
+  }
+  return self;
+}
+
+- (void)setActionLink:(NSButton*)actionLink {
+  actionLink_ = actionLink;
+}
+
+- (void)setLinkText:(NSString*)linkText {
+  [actionLink_ setTitle:linkText];
+  [GTMUILocalizerAndLayoutTweaker sizeToFitView:actionLink_];
+}
+
+- (void)setLinkToolTip:(NSString*)linkToolTip {
+  [actionLink_ setToolTip:linkToolTip];
+}
+
+- (void)setLinkTarget:(NSObject*)target withAction:(SEL)action {
+  [actionLink_ setTarget:target];
+  [actionLink_ setAction:action];
+}
+@end
 
 @interface ChosenObjectDeleteButton : HoverImageButton {
  @private
@@ -241,10 +279,24 @@ bool IsInternalURL(const GURL& url) {
   return self;
 }
 
-- (LocationBarDecoration*)decorationForBubble {
+- (void)showWindow:(id)sender {
   BrowserWindowController* controller = [[self parentWindow] windowController];
-  LocationBarViewMac* location_bar = [controller locationBarBridge];
-  return location_bar ? location_bar->GetPageInfoDecoration() : nullptr;
+  LocationBarViewMac* locationBar = [controller locationBarBridge];
+  if (locationBar) {
+    decoration_ = locationBar->GetPageInfoDecoration();
+    decoration_->SetActive(true);
+  }
+
+  [super showWindow:sender];
+}
+
+- (void)close {
+  if (decoration_) {
+    decoration_->SetActive(false);
+    decoration_ = nullptr;
+  }
+
+  [super close];
 }
 
 - (Profile*)profile {
@@ -357,6 +409,11 @@ bool IsInternalURL(const GURL& url) {
   [connectionHelpButton_ setTarget:self];
   [connectionHelpButton_ setAction:@selector(openConnectionHelp:)];
 
+  if (base::i18n::IsRTL()) {
+    securitySummaryField_.alignment = NSRightTextAlignment;
+    securityDetailsField_.alignment = NSRightTextAlignment;
+  }
+
   return securitySectionView.get();
 }
 
@@ -369,14 +426,24 @@ bool IsInternalURL(const GURL& url) {
 
   // Initialize the two containers that hold the controls. The initial frames
   // are arbitrary, and will be adjusted after the controls are laid out.
-  cookiesView_ =
-      [[[FlippedView alloc] initWithFrame:[superview frame]] autorelease];
-  [cookiesView_ setAutoresizingMask:NSViewWidthSizable];
-  [siteSettingsSectionView addSubview:cookiesView_];
+  PageInfoUI::PermissionInfo info;
+  info.type = CONTENT_SETTINGS_TYPE_COOKIES;
+  info.setting = CONTENT_SETTING_ALLOW;
+  cookiesView_ = [self
+      addInspectLinkToView:siteSettingsSectionView
+               sectionIcon:PageInfoUI::GetPermissionIcon(info).ToNSImage()
+              sectionTitle:l10n_util::GetStringUTF16(IDS_PAGE_INFO_COOKIES)
+                  linkText:l10n_util::GetPluralNSStringF(
+                               IDS_PAGE_INFO_NUM_COOKIES, 0)];
+  [cookiesView_ setLinkTarget:self
+                   withAction:@selector(showCookiesAndSiteData:)];
 
   permissionsView_ =
       [[[FlippedView alloc] initWithFrame:[superview frame]] autorelease];
   [siteSettingsSectionView addSubview:permissionsView_];
+
+  // The certificate section is created on demand.
+  certificateView_ = nil;
 
   // Create the link button to view site settings. Its position will be set in
   // performLayout.
@@ -390,6 +457,78 @@ bool IsInternalURL(const GURL& url) {
   [siteSettingsButton_ setAction:@selector(showSiteSettingsData:)];
 
   return siteSettingsSectionView.get();
+}
+
+- (InspectLinkView*)addInspectLinkToView:(NSView*)superview
+                             sectionIcon:(NSImage*)imageIcon
+                            sectionTitle:(const base::string16&)titleText
+                                linkText:(NSString*)linkText {
+  // Create the subview.
+  base::scoped_nsobject<InspectLinkView> newView(
+      [[InspectLinkView alloc] initWithFrame:[superview frame]]);
+  [superview addSubview:newView];
+
+  bool isRTL = base::i18n::IsRTL();
+  NSPoint controlOrigin = NSMakePoint(kSectionHorizontalPadding, 0);
+
+  CGFloat viewWidth = NSWidth([newView frame]);
+
+  // Reset X for the icon.
+  if (isRTL) {
+    controlOrigin.x =
+        viewWidth - kPermissionImageSize - kSectionHorizontalPadding;
+  }
+
+  NSImageView* imageView = [self addImageWithSize:[imageIcon size]
+                                           toView:newView
+                                          atPoint:controlOrigin];
+  [imageView setImage:imageIcon];
+
+  NSButton* actionLink = [self addLinkButtonWithText:linkText toView:newView];
+  [newView setActionLink:actionLink];
+
+  if (isRTL) {
+    controlOrigin.x -= kPermissionImageSpacing;
+    NSTextField* sectionTitle = [self addText:titleText
+                                     withSize:[NSFont systemFontSize]
+                                         bold:NO
+                                       toView:newView
+                                      atPoint:controlOrigin];
+    [sectionTitle sizeToFit];
+
+    NSPoint sectionTitleOrigin = [sectionTitle frame].origin;
+    sectionTitleOrigin.x -= NSWidth([sectionTitle frame]);
+    [sectionTitle setFrameOrigin:sectionTitleOrigin];
+
+    // Align the icon with the text.
+    [self alignPermissionIcon:imageView withTextField:sectionTitle];
+
+    controlOrigin.y +=
+        NSHeight([sectionTitle frame]) + kPermissionLabelBottomPadding;
+    controlOrigin.x -= NSWidth([actionLink frame]) - kLinkButtonXAdjustment;
+    [actionLink setFrameOrigin:controlOrigin];
+  } else {
+    controlOrigin.x += kPermissionImageSize + kPermissionImageSpacing;
+    NSTextField* sectionTitle = [self addText:titleText
+                                     withSize:[NSFont systemFontSize]
+                                         bold:NO
+                                       toView:newView
+                                      atPoint:controlOrigin];
+    [sectionTitle sizeToFit];
+
+    // Align the icon with the text.
+    [self alignPermissionIcon:imageView withTextField:sectionTitle];
+
+    controlOrigin.y +=
+        NSHeight([sectionTitle frame]) + kPermissionLabelBottomPadding;
+    controlOrigin.x -= kLinkButtonXAdjustment;
+    [actionLink setFrameOrigin:controlOrigin];
+  }
+
+  controlOrigin.y += NSHeight([actionLink frame]);
+  [newView setFrameSize:NSMakeSize(NSWidth([newView frame]), controlOrigin.y)];
+
+  return newView.get();
 }
 
 // Handler for the link button below the list of cookies.
@@ -508,9 +647,13 @@ bool IsInternalURL(const GURL& url) {
   yPos = [self setYPositionOfView:securityDetailsField_
                                to:yPos + kSecurityParagraphSpacing];
 
-  [connectionHelpButton_ setFrameOrigin:NSMakePoint(kSectionHorizontalPadding -
-                                                        kLinkButtonXAdjustment,
-                                                    yPos)];
+  NSPoint helpOrigin =
+      NSMakePoint(kSectionHorizontalPadding - kLinkButtonXAdjustment, yPos);
+  if (base::i18n::IsRTL()) {
+    helpOrigin.x = NSWidth([contentView_ frame]) - helpOrigin.x -
+                   NSWidth(connectionHelpButton_.frame);
+  }
+  [connectionHelpButton_ setFrameOrigin:helpOrigin];
   yPos = NSMaxY([connectionHelpButton_ frame]);
 
   if (resetDecisionsButton_) {
@@ -530,10 +673,14 @@ bool IsInternalURL(const GURL& url) {
 
 - (void)layoutSiteSettingsSection {
   // Start the layout with the first element. Margins are handled by the caller.
-  CGFloat yPos = 0;
+  CGFloat yPos = kSectionVerticalPadding;
 
-  yPos =
-      [self setYPositionOfView:cookiesView_ to:yPos + kSectionVerticalPadding];
+  if (certificateView_) {
+    yPos = [self setYPositionOfView:certificateView_ to:yPos] +
+           kPermissionsVerticalSpacing;
+  }
+
+  yPos = [self setYPositionOfView:cookiesView_ to:yPos];
 
   if (permissionsPresent_) {
     // Put the permission info just below the link button.
@@ -686,37 +833,66 @@ bool IsInternalURL(const GURL& url) {
   return button.get();
 }
 
-// Set the content of the identity and identity status fields.
+// Set the content of the identity and identity status fields, and add the
+// Certificate view if applicable.
 - (void)setIdentityInfo:(const PageInfoUI::IdentityInfo&)identityInfo {
   std::unique_ptr<PageInfoUI::SecurityDescription> security_description =
       identityInfo.GetSecurityDescription();
   [securitySummaryField_
-      setStringValue:base::SysUTF16ToNSString(security_description->summary)];
+      setStringValue:SysUTF16ToNSString(security_description->summary)];
 
   [securityDetailsField_
       setStringValue:SysUTF16ToNSString(security_description->details)];
 
   certificate_ = identityInfo.certificate;
 
-  if (certificate_ && identityInfo.show_ssl_decision_revoke_button) {
-    resetDecisionsField_ =
-        [self addText:base::string16()
-             withSize:[NSFont smallSystemFontSize]
-                 bold:NO
-               toView:securitySectionView_
-              atPoint:NSMakePoint(kSectionHorizontalPadding, 0)];
-    [resetDecisionsField_
-        setStringValue:l10n_util::GetNSString(
-                           IDS_PAGEINFO_INVALID_CERTIFICATE_DESCRIPTION)];
-    [self sizeTextFieldHeightToFit:resetDecisionsField_];
+  if (certificate_) {
+    if (identityInfo.show_ssl_decision_revoke_button) {
+      resetDecisionsField_ =
+          [self addText:base::string16()
+               withSize:[NSFont smallSystemFontSize]
+                   bold:NO
+                 toView:securitySectionView_
+                atPoint:NSMakePoint(kSectionHorizontalPadding, 0)];
+      [resetDecisionsField_
+          setStringValue:l10n_util::GetNSString(
+                             IDS_PAGE_INFO_INVALID_CERTIFICATE_DESCRIPTION)];
+      [self sizeTextFieldHeightToFit:resetDecisionsField_];
 
-    resetDecisionsButton_ =
-        [self addLinkButtonWithText:
-                  l10n_util::GetNSString(
-                      IDS_PAGEINFO_RESET_INVALID_CERTIFICATE_DECISIONS_BUTTON)
-                             toView:securitySectionView_];
-    [resetDecisionsButton_ setTarget:self];
-    [resetDecisionsButton_ setAction:@selector(resetCertificateDecisions:)];
+      resetDecisionsButton_ = [self
+          addLinkButtonWithText:
+              l10n_util::GetNSString(
+                  IDS_PAGE_INFO_RESET_INVALID_CERTIFICATE_DECISIONS_BUTTON)
+                         toView:securitySectionView_];
+      [resetDecisionsButton_ setTarget:self];
+      [resetDecisionsButton_ setAction:@selector(resetCertificateDecisions:)];
+    }
+
+    if (PageInfoUI::ShouldShowCertificateLink()) {
+      bool isValid = (identityInfo.identity_status !=
+                      PageInfo::SITE_IDENTITY_STATUS_ERROR);
+      NSString* linkText = l10n_util::GetNSString(
+          isValid ? IDS_PAGE_INFO_CERTIFICATE_VALID_LINK
+                  : IDS_PAGE_INFO_CERTIFICATE_INVALID_LINK);
+
+      certificateView_ =
+          [self addInspectLinkToView:siteSettingsSectionView_
+                         sectionIcon:NSImageFromImageSkia(
+                                         PageInfoUI::GetCertificateIcon())
+                        sectionTitle:l10n_util::GetStringUTF16(
+                                         IDS_PAGE_INFO_CERTIFICATE)
+                            linkText:linkText];
+      if (isValid) {
+        [certificateView_
+            setLinkToolTip:l10n_util::GetNSStringF(
+                               IDS_PAGE_INFO_CERTIFICATE_VALID_LINK_TOOLTIP,
+                               base::UTF8ToUTF16(
+                                   certificate_->issuer().GetDisplayName()))];
+      }
+
+      [certificateView_ setLinkTarget:self
+                           withAction:@selector(showCertificateInfo:)];
+    }
   }
 
   [self performLayout];
@@ -1026,10 +1202,6 @@ bool IsInternalURL(const GURL& url) {
 }
 
 - (void)setCookieInfo:(const CookieInfoList&)cookieInfoList {
-  // A result of re-ordering of the permissions (crbug.com/444244) is
-  // that sometimes permissions may not be displayed at all, so it's
-  // incorrect to check they are set before the cookie info.
-
   // |cookieInfoList| should only ever have 2 items: first- and third-party
   // cookies.
   DCHECK_EQ(cookieInfoList.size(), 2u);
@@ -1038,85 +1210,9 @@ bool IsInternalURL(const GURL& url) {
   for (const auto& i : cookieInfoList) {
     totalAllowed += i.allowed;
   }
-  base::string16 label_text =
-      l10n_util::GetPluralStringFUTF16(IDS_PAGE_INFO_NUM_COOKIES, totalAllowed);
 
-  base::string16 sectionTitle =
-      l10n_util::GetStringUTF16(IDS_PAGE_INFO_TITLE_SITE_DATA);
-  bool isRTL = base::i18n::IsRTL();
-
-  [cookiesView_ setSubviews:[NSArray array]];
-  NSPoint controlOrigin = NSMakePoint(kSectionHorizontalPadding, 0);
-
-  CGFloat viewWidth = NSWidth([cookiesView_ frame]);
-
-  // Reset X for the cookie image.
-  if (isRTL) {
-    controlOrigin.x = viewWidth - kPermissionImageSize -
-                      kPermissionImageSpacing - kSectionHorizontalPadding;
-  }
-
-  PageInfoUI::PermissionInfo info;
-  info.type = CONTENT_SETTINGS_TYPE_COOKIES;
-  info.setting = CONTENT_SETTING_ALLOW;
-  // info.default_setting, info.source, and info.is_incognito have not been set,
-  // but GetPermissionIcon doesn't use any of those.
-  NSImage* image = PageInfoUI::GetPermissionIcon(info).ToNSImage();
-  NSImageView* imageView = [self addImageWithSize:[image size]
-                                           toView:cookiesView_
-                                          atPoint:controlOrigin];
-  [imageView setImage:image];
-
-  NSButton* cookiesButton =
-      [self addLinkButtonWithText:base::SysUTF16ToNSString(label_text)
-                           toView:cookiesView_];
-  [cookiesButton setTarget:self];
-  [cookiesButton setAction:@selector(showCookiesAndSiteData:)];
-
-  if (isRTL) {
-    controlOrigin.x -= kPermissionImageSpacing;
-    NSTextField* cookiesLabel =
-        [self addText:l10n_util::GetStringUTF16(IDS_PAGE_INFO_COOKIES)
-             withSize:[NSFont systemFontSize]
-                 bold:NO
-               toView:cookiesView_
-              atPoint:controlOrigin];
-    [cookiesLabel sizeToFit];
-
-    NSPoint cookiesLabelOrigin = [cookiesLabel frame].origin;
-    cookiesLabelOrigin.x -= NSWidth([cookiesLabel frame]);
-    [cookiesLabel setFrameOrigin:cookiesLabelOrigin];
-
-    // Align the icon with the text.
-    [self alignPermissionIcon:imageView withTextField:cookiesLabel];
-
-    controlOrigin.y +=
-        NSHeight([cookiesLabel frame]) + kPermissionLabelBottomPadding;
-    controlOrigin.x -= NSWidth([cookiesButton frame]) - kLinkButtonXAdjustment;
-    [cookiesButton setFrameOrigin:controlOrigin];
-  } else {
-    controlOrigin.x += kPermissionImageSize + kPermissionImageSpacing;
-    NSTextField* cookiesLabel =
-        [self addText:l10n_util::GetStringUTF16(IDS_PAGE_INFO_COOKIES)
-             withSize:[NSFont systemFontSize]
-                 bold:NO
-               toView:cookiesView_
-              atPoint:controlOrigin];
-    [cookiesLabel sizeToFit];
-
-    controlOrigin.y +=
-        NSHeight([cookiesLabel frame]) + kPermissionLabelBottomPadding;
-    controlOrigin.x -= kLinkButtonXAdjustment;
-    [cookiesButton setFrameOrigin:controlOrigin];
-
-    // Align the icon with the text.
-    [self alignPermissionIcon:imageView withTextField:cookiesLabel];
-  }
-
-  controlOrigin.y += NSHeight([cookiesButton frame]);
-  [cookiesView_
-      setFrameSize:NSMakeSize(NSWidth([cookiesView_ frame]), controlOrigin.y)];
-
+  [cookiesView_ setLinkText:l10n_util::GetPluralNSStringF(
+                                IDS_PAGE_INFO_NUM_COOKIES, totalAllowed)];
   [self performLayout];
 }
 
@@ -1128,9 +1224,6 @@ bool IsInternalURL(const GURL& url) {
   permissionsPresent_ = YES;
 
   if (permissionInfoList.size() > 0 || chosenObjectInfoList.size() > 0) {
-    base::string16 sectionTitle =
-        l10n_util::GetStringUTF16(IDS_PAGE_INFO_TITLE_SITE_PERMISSIONS);
-
     for (const auto& permission : permissionInfoList) {
       controlOrigin.y += kPermissionsVerticalSpacing;
       NSPoint rowBottomRight = [self addPermission:permission
@@ -1181,9 +1274,14 @@ void PageInfoUIBridge::Show(gfx::NativeWindow parent,
                             const GURL& virtual_url,
                             const security_state::SecurityInfo& security_info) {
   if (ui::MaterialDesignController::IsSecondaryUiMaterial()) {
+    BrowserWindowController* controller =
+        [BrowserWindowController browserWindowControllerForWindow:parent];
+    LocationBarViewMac* location_bar = [controller locationBarBridge];
+    LocationBarDecoration* decoration =
+        location_bar ? location_bar->GetPageInfoDecoration() : nullptr;
     chrome::ShowPageInfoBubbleViewsAtPoint(
         gfx::ScreenPointFromNSPoint(AnchorPointForWindow(parent)), profile,
-        web_contents, virtual_url, security_info);
+        web_contents, virtual_url, security_info, decoration);
     return;
   }
 
@@ -1238,4 +1336,14 @@ void PageInfoUIBridge::SetPermissionInfo(
     ChosenObjectInfoList chosen_object_info_list) {
   [bubble_controller_ setPermissionInfo:permission_info_list
                        andChosenObjects:std::move(chosen_object_info_list)];
+}
+
+void PageInfoUIBridge::DidFinishNavigation(
+    content::NavigationHandle* navigation_handle) {
+  if (!navigation_handle->IsInMainFrame() ||
+      !navigation_handle->HasCommitted()) {
+    return;
+  }
+  // If the browser navigates to another page, close the bubble.
+  [bubble_controller_ close];
 }

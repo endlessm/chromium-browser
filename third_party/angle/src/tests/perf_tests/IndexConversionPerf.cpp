@@ -125,7 +125,8 @@ void IndexConversionPerfTest::initializeBenchmark()
 
 void IndexConversionPerfTest::updateBufferData()
 {
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, mIndexData.size() * sizeof(mIndexData[0]), &mIndexData[0], GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, mIndexData.size() * sizeof(mIndexData[0]), &mIndexData[0],
+                 GL_STATIC_DRAW);
 }
 
 void IndexConversionPerfTest::destroyBenchmark()
@@ -158,10 +159,8 @@ void IndexConversionPerfTest::drawConversion()
 
     for (unsigned int it = 0; it < params.iterations; it++)
     {
-        glDrawElements(GL_TRIANGLES,
-                       static_cast<GLsizei>(params.numIndexTris * 3 - 1),
-                       GL_UNSIGNED_SHORT,
-                       reinterpret_cast<GLvoid*>(0));
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(params.numIndexTris * 3 - 1),
+                       GL_UNSIGNED_SHORT, reinterpret_cast<void *>(0));
     }
 
     ASSERT_GL_NO_ERROR();
@@ -182,7 +181,7 @@ void IndexConversionPerfTest::drawIndexRange()
     for (unsigned int it = 0; it < params.iterations; it++)
     {
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_SHORT,
-                       reinterpret_cast<GLvoid *>(offset));
+                       reinterpret_cast<void *>(offset));
     }
 
     ASSERT_GL_NO_ERROR();
@@ -191,13 +190,13 @@ void IndexConversionPerfTest::drawIndexRange()
 IndexConversionPerfParams IndexConversionPerfD3D11Params()
 {
     IndexConversionPerfParams params;
-    params.eglParameters = egl_platform::D3D11_NULL();
-    params.majorVersion = 2;
-    params.minorVersion = 0;
-    params.windowWidth = 256;
-    params.windowHeight = 256;
-    params.iterations    = 225;
-    params.numIndexTris = 3000;
+    params.eglParameters    = egl_platform::D3D11_NULL();
+    params.majorVersion     = 2;
+    params.minorVersion     = 0;
+    params.windowWidth      = 256;
+    params.windowHeight     = 256;
+    params.iterations       = 225;
+    params.numIndexTris     = 3000;
     params.indexRangeOffset = 0;
     return params;
 }

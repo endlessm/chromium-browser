@@ -84,8 +84,9 @@ class SyncChromeStage(generic_stages.BuilderStage,
         if chrome_atom_to_build:
           results_lib.Results.Record(self.name, e)
           logging.PrintBuildbotStepFailure()
-          logging.error('Chrome is pinned. Attempting to continue build for '
-                        'chrome atom %s anyway but build will ultimately fail.',
+          logging.error('Chrome is pinned. Unpinning chrome and continuing '
+                        'build for chrome atom %s. This stage will be marked '
+                        'as failed to prevent an uprev.',
                         chrome_atom_to_build)
           logging.info('Deleting pin file at %s and proceeding.',
                        CHROMEPIN_MASK_PATH)
@@ -288,6 +289,7 @@ class ChromeLKGMSyncStage(sync_stages.SyncStage):
 
   def GetNextManifest(self):
     """Override: Gets the LKGM from the Chrome tree."""
+    _, db = self._run.GetCIDBHandle()
     chrome_lkgm = commands.GetChromeLKGM(self._run.options.chrome_version)
 
     # We need a full buildspecs manager here as we need an initialized manifest
@@ -302,7 +304,8 @@ class ChromeLKGMSyncStage(sync_stages.SyncStage):
         build_names=self._run.GetBuilderIds(),
         incr_type='build',
         force=False,
-        branch=self._run.manifest_branch)
+        branch=self._run.manifest_branch,
+        db=db)
 
     manifest_manager.BootstrapFromVersion(chrome_lkgm)
     return manifest_manager.GetLocalManifest(chrome_lkgm)

@@ -11,14 +11,14 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.e.v8', function() {
-  var ThreadSlice = tr.model.ThreadSlice;
+  const ThreadSlice = tr.model.ThreadSlice;
 
   function V8GCStatsThreadSlice() {
     ThreadSlice.apply(this, arguments);
-    this.liveObjects_ = JSON.parse(this.args['live']);
-    delete this.args['live'];
-    this.deadObjects_ = JSON.parse(this.args['dead']);
-    delete this.args['dead'];
+    this.liveObjects_ = JSON.parse(this.args.live);
+    delete this.args.live;
+    this.deadObjects_ = JSON.parse(this.args.dead);
+    delete this.args.dead;
   }
 
   V8GCStatsThreadSlice.prototype = {

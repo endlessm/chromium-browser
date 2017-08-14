@@ -22,8 +22,8 @@ tr.exportTo('tr.model', function() {
   }
 
   CommentBoxAnnotation.fromDict = function(dict) {
-    var args = dict.args;
-    var location =
+    const args = dict.args;
+    const location =
         new tr.model.Location(args.location.xWorld, args.location.yComponents);
     return new tr.model.CommentBoxAnnotation(location, args.text);
   };
@@ -31,11 +31,11 @@ tr.exportTo('tr.model', function() {
   CommentBoxAnnotation.prototype = {
     __proto__: tr.model.Annotation.prototype,
 
-    onRemove: function() {
+    onRemove() {
       this.view_.removeTextArea();
     },
 
-    toDict: function() {
+    toDict() {
       return {
         typeName: 'comment_box',
         args: {
@@ -45,7 +45,7 @@ tr.exportTo('tr.model', function() {
       };
     },
 
-    createView_: function(viewport) {
+    createView_(viewport) {
       return new tr.ui.annotations.CommentBoxAnnotationView(viewport, this);
     }
   };

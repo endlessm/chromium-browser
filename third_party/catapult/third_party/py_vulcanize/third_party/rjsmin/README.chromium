@@ -1,6 +1,6 @@
 Short Name: rJSmin
 URL: http://opensource.perlig.de/rjsmin/
-Version: 1.0.10
+Version: 1.0.12
 License: Apache 2.0
 License File: NOT_SHIPPED
 Security Critical: no
@@ -13,3 +13,6 @@ The module is a re-implementation aiming for speed, so it can be used at runtime
 Modifications made:
  - Removed the bench.sh since the file doesn't have the licensing info and
    caused license checker to fail.
+ - Added a small hack to not clobber template strings. (Not a complete solution
+   since it won't handle nesting. E.g. `${'`'} foo` would probably cause
+   problems).

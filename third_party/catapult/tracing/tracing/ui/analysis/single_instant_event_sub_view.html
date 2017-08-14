@@ -25,13 +25,13 @@ Polymer({
   is: 'tr-ui-a-single-instant-event-sub-view',
   behaviors: [tr.ui.analysis.AnalysisSubView],
 
-  created: function() {
+  created() {
     this.currentSelection_ = undefined;
   },
 
   set selection(selection) {
     Polymer.dom(this.$.content).textContent = '';
-    var realView = document.createElement('tr-ui-a-single-event-sub-view');
+    const realView = document.createElement('tr-ui-a-single-event-sub-view');
     realView.setSelectionWithoutErrorChecks(selection);
 
     Polymer.dom(this.$.content).appendChild(realView);

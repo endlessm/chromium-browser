@@ -6,38 +6,94 @@
 
 from __future__ import print_function
 
-import ConfigParser
-import os
+import json
+import mock
 
 from chromite.lib import config_lib
 from chromite.lib import constants
-from chromite.lib import failures_lib
-from chromite.lib import results_lib
-from chromite.lib import triage_lib
-from chromite.cbuildbot.stages import sync_stages_unittest
-from chromite.lib import cros_build_lib
-from chromite.lib import cros_test_lib
+from chromite.lib import cq_config
+from chromite.lib import failure_message_lib
+from chromite.lib import failure_message_lib_unittest
 from chromite.lib import gerrit
-from chromite.lib import git
-from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
 from chromite.lib import patch_unittest
 from chromite.lib import portage_util
+from chromite.lib import triage_lib
 
 
 site_config = config_lib.GetConfig()
+failure_msg_helper = failure_message_lib_unittest.FailureMessageHelper()
 
 
-def GetFailedMessage(exceptions, stage='Build', internal=False,
-                     bot='daisy_spring-paladin'):
-  """Returns a BuildFailureMessage object."""
-  tracebacks = []
-  for ex in exceptions:
-    tracebacks.append(results_lib.RecordedTraceback(stage, stage, ex,
-                                                    str(ex)))
-  reason = 'failure reason string'
-  return failures_lib.BuildFailureMessage(
-      'Stage %s failed' % stage, tracebacks, internal, reason, bot)
+class GetTestSubsystemForChangeTests(patch_unittest.MockPatchBase):
+  """Tests for GetTestSubsystemForChange."""
+
+  def setUp(self):
+    self.PatchObject(cq_config.CQConfigParser, 'GetCommonConfigFileForChange')
+
+  def testGetSubsystemFromValidCommitMessage(self):
+    """Test whether we can get subsystem from commit message."""
+    change = self.MockPatch(
+        commit_message='First line\nThird line\nsubsystem: network audio\n'
+                       'subsystem: wifi')
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
+                     return_value='power light')
+    result = triage_lib.GetTestSubsystemForChange('foo/build/root', change)
+    self.assertEqual(['network', 'audio', 'wifi'], result)
+
+  def testGetSubsystemFromInvalidCommitMessage(self):
+    """Test get subsystem from config file when commit message not have it."""
+    change = self.MockPatch(
+        commit_message='First line\nThird line\n')
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
+                     return_value='power light')
+    result = triage_lib.GetTestSubsystemForChange('foo/build/root', change)
+    self.assertEqual(['power', 'light'], result)
+
+  def testGetDefaultSubsystem(self):
+    """Test if we can get default subsystem when subsystem is not specified."""
+    change = self.MockPatch(
+        commit_message='First line\nThird line\n')
+    self.PatchObject(cq_config.CQConfigParser, 'GetOption',
+                     return_value=None)
+    result = triage_lib.GetTestSubsystemForChange('foo/build/root', change)
+    self.assertEqual(['default'], result)
+
+
+class MessageHelper(object):
+  """Helper class to create failure messages for tests."""
+
+  @staticmethod
+  def GetFailedMessage(failure_messages, stage='Build', internal=False,
+                       bot='daisy_spring-paladin'):
+    """Returns a BuildFailureMessage object."""
+    return failure_message_lib.BuildFailureMessage(
+        'Stage %s failed' % stage, failure_messages, internal,
+        'failure reason string', bot)
+
+  @staticmethod
+  def GetGeneralFailure(stage='Build'):
+    return failure_msg_helper.GetStageFailureMessage(stage_name=stage)
+
+  @staticmethod
+  def GetTestLabFailure(stage='Build'):
+    return failure_msg_helper.GetStageFailureMessage(
+        exception_type='TestLabFailure',
+        exception_category=constants.EXCEPTION_CATEGORY_LAB,
+        stage_name=stage)
+
+  @staticmethod
+  def GetInfraFailure(stage='Build'):
+    return failure_msg_helper.GetStageFailureMessage(
+        exception_type='InfrastructureFailure',
+        exception_category=constants.EXCEPTION_CATEGORY_INFRA,
+        stage_name=stage)
+
+  @staticmethod
+  def GetPackageStageBuildFailure(extra_info=None, stage='Build'):
+    return failure_msg_helper.GetPackageBuildFailureMessage(
+        extra_info=extra_info,
+        stage_name=stage)
 
 
 class TestFindSuspects(patch_unittest.MockPatchBase):
@@ -61,6 +117,9 @@ class TestFindSuspects(patch_unittest.MockPatchBase):
     self.PatchObject(cros_patch.GitRepoPatch, 'GetDiffStatus')
     self.PatchObject(gerrit, 'GetGerritPatchInfoWithPatchQueries',
                      side_effect=lambda x: x)
+    self.changes = [self.overlay_patch, self.chromite_patch,
+                    self.power_manager_patch, self.kernel_patch,
+                    self.secret_patch]
 
   @staticmethod
   def _GetBuildFailure(pkg):
@@ -69,8 +128,10 @@ class TestFindSuspects(patch_unittest.MockPatchBase):
     Args:
       pkg: Package that failed to build.
     """
-    ex = cros_build_lib.RunCommandError('foo', cros_build_lib.CommandResult())
-    return failures_lib.PackageBuildFailure(ex, 'bar', [pkg])
+    extra_info_dict = {'shortname': './build_image',
+                       'failed_packages': [pkg]}
+    extra_info = json.dumps(extra_info_dict)
+    return MessageHelper.GetPackageStageBuildFailure(extra_info=extra_info)
 
   def _AssertSuspects(self, patches, suspects, pkgs=(), exceptions=(),
                       internal=False, infra_fail=False, lab_fail=False,
@@ -81,7 +142,8 @@ class TestFindSuspects(patch_unittest.MockPatchBase):
       patches: List of patches to look at.
       suspects: Expected list of suspects returned by _FindSuspects.
       pkgs: List of packages that failed with exceptions in the build.
-      exceptions: List of other exceptions that occurred during the build.
+      exceptions: List of other failure messages (instances of
+        failure_message_lib.StageFailureMessage) that occurred during the build.
       internal: Whether the failures occurred on an internal bot.
       infra_fail: Whether the build failed due to infrastructure issues.
       lab_fail: Whether the build failed due to lab infrastructure issues.
@@ -89,7 +151,7 @@ class TestFindSuspects(patch_unittest.MockPatchBase):
               the build started.
     """
     all_exceptions = list(exceptions) + [self._GetBuildFailure(x) for x in pkgs]
-    message = GetFailedMessage(all_exceptions, internal=internal)
+    message = MessageHelper.GetFailedMessage(all_exceptions, internal=internal)
     results = triage_lib.CalculateSuspects.FindSuspects(
         patches, [message], lab_fail=lab_fail, infra_fail=infra_fail,
         sanity=sanity)
@@ -123,17 +185,21 @@ class TestFindSuspects(patch_unittest.MockPatchBase):
   def testFailUnknownException(self):
     """An unknown exception should cause all patches to fail."""
     changes = [self.kernel_patch, self.power_manager_patch, self.secret_patch]
-    self._AssertSuspects(changes, changes, exceptions=[Exception('foo bar')])
-    self._AssertSuspects(changes, [], exceptions=[Exception('foo bar')],
+    self._AssertSuspects(changes, changes,
+                         exceptions=[MessageHelper.GetGeneralFailure()])
+    self._AssertSuspects(changes, [],
+                         exceptions=[MessageHelper.GetGeneralFailure()],
                          sanity=False)
 
   def testFailUnknownInternalException(self):
     """An unknown exception should cause all patches to fail."""
     suspects = [self.kernel_patch, self.power_manager_patch, self.secret_patch]
-    self._AssertSuspects(suspects, suspects, exceptions=[Exception('foo bar')],
-                         internal=True)
-    self._AssertSuspects(suspects, [], exceptions=[Exception('foo bar')],
-                         internal=True, sanity=False)
+    self._AssertSuspects(
+        suspects, suspects, exceptions=[MessageHelper.GetGeneralFailure()],
+        internal=True)
+    self._AssertSuspects(
+        suspects, [], exceptions=[MessageHelper.GetGeneralFailure()],
+        internal=True, sanity=False)
 
   def testFailUnknownCombo(self):
     """Unknown exceptions should cause all patches to fail.
@@ -144,9 +210,9 @@ class TestFindSuspects(patch_unittest.MockPatchBase):
     with self.PatchObject(portage_util, 'FindWorkonProjects',
                           return_value=self.kernel):
       self._AssertSuspects(suspects, suspects, [self.kernel_pkg],
-                           [Exception('foo bar')])
+                           [MessageHelper.GetGeneralFailure()])
       self._AssertSuspects(suspects, [self.kernel_patch], [self.kernel_pkg],
-                           [Exception('foo bar')], sanity=False)
+                           [MessageHelper.GetGeneralFailure()], sanity=False)
 
   def testFailNone(self):
     """If a message is just 'None', it should cause all patches to fail."""
@@ -208,13 +274,15 @@ class TestFindSuspects(patch_unittest.MockPatchBase):
     """Returns a list of BuildFailureMessage objects."""
     messages = []
     messages.extend(
-        [GetFailedMessage([failures_lib.TestLabFailure()])
+        [MessageHelper.GetFailedMessage([MessageHelper.GetTestLabFailure()])
          for _ in range(lab_fail)])
     messages.extend(
-        [GetFailedMessage([failures_lib.InfrastructureFailure()])
+        [MessageHelper.GetFailedMessage([MessageHelper.GetInfraFailure()])
          for _ in range(infra_fail)])
     messages.extend(
-        [GetFailedMessage(Exception()) for _ in range(other_fail)])
+        [MessageHelper.GetFailedMessage([MessageHelper.GetGeneralFailure()])
+         for _ in range(other_fail)])
+
     return messages
 
   def testOnlyLabFailures(self):
@@ -248,11 +316,60 @@ class TestFindSuspects(patch_unittest.MockPatchBase):
     self.assertTrue(
         triage_lib.CalculateSuspects.OnlyInfraFailures(messages, no_stat))
 
+    messages = self._GetMessages(lab_fail=1, infra_fail=1)
+    no_stat = []
+    # Lab failures are infrastructure failures.
+    self.assertTrue(
+        triage_lib.CalculateSuspects.OnlyInfraFailures(messages, no_stat))
+
+    messages = self._GetMessages(other_fail=1, infra_fail=1)
+    no_stat = []
+    self.assertFalse(
+        triage_lib.CalculateSuspects.OnlyInfraFailures(messages, no_stat))
+
     no_stat = ['orange']
     messages = []
     # 'Builders failed to report statuses' belong to infrastructure failures.
     self.assertTrue(
         triage_lib.CalculateSuspects.OnlyInfraFailures(messages, no_stat))
+
+  def testFindSuspectsForFailuresWithMessages(self):
+    """Test FindSuspectsForFailures with not None messages."""
+    build_root = mock.Mock()
+    failed_hwtests = mock.Mock()
+    messages = []
+    for _ in range(0, 3):
+      m = mock.Mock()
+      m.FindSuspectedChanges.return_value = self.changes[0:1]
+      messages.append(m)
+
+    suspects = triage_lib.CalculateSuspects.FindSuspectsForFailures(
+        self.changes, messages, build_root, failed_hwtests, False)
+    self.assertItemsEqual(suspects, self.changes[0:1])
+
+    suspects = triage_lib.CalculateSuspects.FindSuspectsForFailures(
+        self.changes, messages, build_root, failed_hwtests, True)
+    self.assertItemsEqual(suspects, self.changes[0:1])
+
+    for index in range(0, 3):
+      messages[index].FindSuspectedChanges.called_once_with(
+          self.changes, build_root, failed_hwtests, True)
+      messages[index].FindSuspectedChanges.called_once_with(
+          self.changes, build_root, failed_hwtests, False)
+
+  def testFindSuspectsForFailuresWithNoneMessage(self):
+    """Test FindSuspectsForFailuresWith None message."""
+    build_root = mock.Mock()
+    failed_hwtests = mock.Mock()
+    messages = [None]
+
+    suspects = triage_lib.CalculateSuspects.FindSuspectsForFailures(
+        self.changes, messages, build_root, failed_hwtests, False)
+    self.assertItemsEqual(suspects, set())
+
+    suspects = triage_lib.CalculateSuspects.FindSuspectsForFailures(
+        self.changes, messages, build_root, failed_hwtests, True)
+    self.assertItemsEqual(suspects, self.changes)
 
 
 class TestGetFullyVerifiedChanges(patch_unittest.MockPatchBase):
@@ -329,10 +446,14 @@ class TestGetFullyVerifiedChanges(patch_unittest.MockPatchBase):
     """Tests CanIgnoreFailures()."""
     # pylint: disable=protected-access
     change = self.changes[0]
-    messages = [GetFailedMessage([Exception()], stage='HWTest'),
-                GetFailedMessage([Exception()], stage='VMTest'),]
+    messages = [
+        MessageHelper.GetFailedMessage(
+            [MessageHelper.GetGeneralFailure(stage='HWTest')], stage='HWTest'),
+        MessageHelper.GetFailedMessage(
+            [MessageHelper.GetGeneralFailure(stage='VMTest')], stage='VMTest')]
     subsys_by_config = None
-    m = self.PatchObject(triage_lib, 'GetStagesToIgnoreForChange')
+    self.PatchObject(cq_config.CQConfigParser, 'GetCommonConfigFileForChange')
+    m = self.PatchObject(cq_config.CQConfigParser, 'GetStagesToIgnore')
 
     m.return_value = ('HWTest',)
     self.assertEqual(triage_lib.CalculateSuspects.CanIgnoreFailures(
@@ -351,13 +472,18 @@ class TestGetFullyVerifiedChanges(patch_unittest.MockPatchBase):
     """Tests CanIgnoreFailures with subsystem logic."""
     # pylint: disable=protected-access
     change = self.changes[0]
-    messages = [GetFailedMessage([Exception()], stage='HWTest',
-                                 bot='foo-paladin'),
-                GetFailedMessage([Exception()], stage='VMTest',
-                                 bot='foo-paladin'),
-                GetFailedMessage([Exception()], stage='HWTest',
-                                 bot='cub-paladin')]
-    m = self.PatchObject(triage_lib, 'GetStagesToIgnoreForChange')
+    messages = [
+        MessageHelper.GetFailedMessage(
+            [MessageHelper.GetGeneralFailure(stage='HWTest')], stage='HWTest',
+            bot='foo-paladin'),
+        MessageHelper.GetFailedMessage(
+            [MessageHelper.GetGeneralFailure(stage='VMTest')], stage='VMTest',
+            bot='foo-paladin'),
+        MessageHelper.GetFailedMessage(
+            [MessageHelper.GetGeneralFailure(stage='HWTest')], stage='HWTest',
+            bot='cub-paladin')]
+    self.PatchObject(cq_config.CQConfigParser, 'GetCommonConfigFileForChange')
+    m = self.PatchObject(cq_config.CQConfigParser, 'GetStagesToIgnore')
     m.return_value = ('VMTest', )
     cl_subsys = self.PatchObject(triage_lib, 'GetTestSubsystemForChange')
     cl_subsys.return_value = ['A']
@@ -383,130 +509,3 @@ class TestGetFullyVerifiedChanges(patch_unittest.MockPatchBase):
                                         'fail_subsystems': ['A']}}
     self.assertEqual(triage_lib.CalculateSuspects.CanIgnoreFailures(
         messages, change, self.build_root, subsys_by_config), (False, None))
-
-
-class GetOptionsTest(patch_unittest.MockPatchBase):
-  """Tests for functions that get options from config file."""
-
-  def GetOption(self, path, section='a', option='b'):
-    # pylint: disable=protected-access
-    return triage_lib._GetOptionFromConfigFile(path, section, option)
-
-  def testBadConfigFile(self):
-    """Test if we can handle an incorrectly formatted config file."""
-    with osutils.TempDir(set_global=True) as tempdir:
-      path = os.path.join(tempdir, 'foo.ini')
-      osutils.WriteFile(path, 'foobar')
-      self.assertRaises(ConfigParser.Error, self.GetOption, path)
-
-  def testMissingConfigFile(self):
-    """Test if we can handle a missing config file."""
-    with osutils.TempDir(set_global=True) as tempdir:
-      path = os.path.join(tempdir, 'foo.ini')
-      self.assertEqual(None, self.GetOption(path))
-
-  def testGoodConfigFile(self):
-    """Test if we can handle a good config file."""
-    with osutils.TempDir(set_global=True) as tempdir:
-      path = os.path.join(tempdir, 'foo.ini')
-      osutils.WriteFile(path, '[a]\nb: bar baz\n')
-      ignored = self.GetOption(path)
-      self.assertEqual('bar baz', ignored)
-
-  def testGetIgnoredStages(self):
-    """Test if we can get the ignored stages from a good config file."""
-    with osutils.TempDir(set_global=True) as tempdir:
-      path = os.path.join(tempdir, 'foo.ini')
-      osutils.WriteFile(path, '[GENERAL]\nignored-stages: bar baz\n')
-      ignored = self.GetOption(path, section='GENERAL', option='ignored-stages')
-      self.assertEqual('bar baz', ignored)
-
-  def testGetSubsystem(self):
-    """Test if we can get the subsystem label from a good config file."""
-    with osutils.TempDir(set_global=True) as tempdir:
-      path = os.path.join(tempdir, 'foo.ini')
-      osutils.WriteFile(path, '[GENERAL]\nsubsystem: power light\n')
-      ignored = self.GetOption(path, section='GENERAL', option='subsystem')
-      self.assertEqual('power light', ignored)
-
-  def testResultForBadConfigFile(self):
-    """Test whether the return is None when handle a malformat config file."""
-    build_root = 'foo/build/root'
-    change = self.GetPatches(how_many=1)
-    self.PatchObject(git.ManifestCheckout, 'Cached')
-    self.PatchObject(cros_patch.GitRepoPatch, 'GetCheckout',
-                     return_value=git.ProjectCheckout(attrs={}))
-    self.PatchObject(git.ProjectCheckout, 'GetPath')
-
-    with osutils.TempDir(set_global=True) as tempdir:
-      path = os.path.join(tempdir, 'COMMIT-QUEUE.ini')
-      osutils.WriteFile(path, 'foo\n')
-      self.PatchObject(triage_lib, '_GetConfigFileForChange', return_value=path)
-
-      result = triage_lib.GetOptionForChange(build_root, change, 'a', 'b')
-      self.assertEqual(None, result)
-
-  def testGetSubsystemFromValidCommitMessage(self):
-    """Test whether we can get subsystem from commit message."""
-    change = sync_stages_unittest.MockPatch(
-        commit_message='First line\nThird line\nsubsystem: network audio\n'
-                       'subsystem: wifi')
-    self.PatchObject(triage_lib, 'GetOptionForChange',
-                     return_value='power light')
-    result = triage_lib.GetTestSubsystemForChange('foo/build/root', change)
-    self.assertEqual(['network', 'audio', 'wifi'], result)
-
-  def testGetSubsystemFromInvalidCommitMessage(self):
-    """Test get subsystem from config file when commit message not have it."""
-    change = sync_stages_unittest.MockPatch(
-        commit_message='First line\nThird line\n')
-    self.PatchObject(triage_lib, 'GetOptionForChange',
-                     return_value='power light')
-    result = triage_lib.GetTestSubsystemForChange('foo/build/root', change)
-    self.assertEqual(['power', 'light'], result)
-
-  def testGetDefaultSubsystem(self):
-    """Test if we can get default subsystem when subsystem is not specified."""
-    change = sync_stages_unittest.MockPatch(
-        commit_message='First line\nThird line\n')
-    self.PatchObject(triage_lib, 'GetOptionForChange',
-                     return_value=None)
-    result = triage_lib.GetTestSubsystemForChange('foo/build/root', change)
-    self.assertEqual(['default'], result)
-
-
-class ConfigFileTest(cros_test_lib.MockTestCase):
-  """Tests for functions that read config information for a patch."""
-  # pylint: disable=protected-access
-
-  def _GetPatch(self, affected_files):
-    return sync_stages_unittest.MockPatch(
-        mock_diff_status={path: 'M' for path in affected_files})
-
-  def testAffectedSubdir(self):
-    p = self._GetPatch(['a', 'b', 'c'])
-    self.assertEqual(triage_lib._GetCommonAffectedSubdir(p, '/a/b'),
-                     '/a/b')
-
-    p = self._GetPatch(['a/a', 'a/b', 'a/c'])
-    self.assertEqual(triage_lib._GetCommonAffectedSubdir(p, '/a/b'),
-                     '/a/b/a')
-
-    p = self._GetPatch(['a/a', 'a/b', 'a/c'])
-    self.assertEqual(triage_lib._GetCommonAffectedSubdir(p, '/a/b'),
-                     '/a/b/a')
-
-  def testGetConfigFile(self):
-    p = self._GetPatch(['a/a', 'a/b', 'a/c'])
-    self.PatchObject(os.path, 'isfile', return_value=True)
-    self.assertEqual(triage_lib._GetConfigFileForChange(p, '/a/b'),
-                     '/a/b/a/COMMIT-QUEUE.ini')
-    self.assertEqual(triage_lib._GetConfigFileForChange(p, '/a/b/'),
-                     '/a/b/a/COMMIT-QUEUE.ini')
-
-
-    self.PatchObject(os.path, 'isfile', return_value=False)
-    self.assertEqual(triage_lib._GetConfigFileForChange(p, '/a/b'),
-                     '/a/b/COMMIT-QUEUE.ini')
-    self.assertEqual(triage_lib._GetConfigFileForChange(p, '/a/b/'),
-                     '/a/b/COMMIT-QUEUE.ini')

@@ -8,8 +8,6 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import unicode_literals
 
-import psutil
-
 import os
 import subprocess
 
@@ -33,27 +31,35 @@ class _GitRepo(object):
         self._get_git_command() + list(args), **kwargs)
 
   def get_commit_hash(self):
+    """Return commit hash string."""
     return self._check_output(['rev-parse', 'HEAD']).strip()
 
   def get_commit_time(self):
+    """Return commit time as UNIX timestamp int."""
     return int(self._check_output(['show', '-s', '--format=%ct', 'HEAD'])
                .strip())
 
 
 class _GitMetricCollector(object):
-  """Class for collecting metrics about a git repository."""
+  """Class for collecting metrics about a git repository.
+
+  The constructor takes the arguments: `gitdir`, `metric_path`.
+  `gitdir` is the path to the Git directory to collect metrics for and
+  may start with a tilde (expanded to a user's home directory).
+  `metric_path` is the Monarch metric path to report to.
+  """
 
   _commit_hash_metric = ts_mon.StringMetric(
       'git/hash',
       description='Current Git commit hash.')
 
-  _commit_time_metric = ts_mon.GaugeMetric(
-      'git/commit_time',
+  _timestamp_metric = ts_mon.GaugeMetric(
+      'git/timestamp',
       description='Current Git commit time as seconds since Unix Epoch.')
 
   def __init__(self, gitdir, metric_path):
     self._gitdir = gitdir
-    self._gitrepo = _GitRepo(gitdir)
+    self._gitrepo = _GitRepo(os.path.expanduser(gitdir))
     self._fields = {'repo': gitdir}
     self._metric_path = metric_path
 
@@ -61,7 +67,7 @@ class _GitMetricCollector(object):
     """Collect metrics."""
     try:
       self._collect_commit_hash_metric()
-      self._collect_commit_time_metric()
+      self._collect_timestamp_metric()
     except subprocess.CalledProcessError as e:
       logger.warning('Error collecting git metrics for %s: %s',
                      self._gitdir, e)
@@ -71,24 +77,24 @@ class _GitMetricCollector(object):
     logger.debug('Collecting Git hash %r for %r', commit_hash, self._gitdir)
     self._commit_hash_metric.set(commit_hash, self._fields)
 
-  def _collect_commit_time_metric(self):
+  def _collect_timestamp_metric(self):
     commit_time = self._gitrepo.get_commit_time()
-    logger.debug('Collecting Git commit time %r for %r',
+    logger.debug('Collecting Git timestamp %r for %r',
                  commit_time, self._gitdir)
-    self._commit_time_metric.set(commit_time, self._fields)
+    self._timestamp_metric.set(commit_time, self._fields)
 
 
-_CHROMIUMOS_DIR = os.path.expanduser('~chromeos-test/chromiumos/')
+_CHROMIUMOS_DIR = '~chromeos-test/chromiumos/'
 
 _repo_collectors = (
-  # TODO(ayatane): We cannot access chromeos-admin because we are
-  # running as non-root.
-  _GitMetricCollector(gitdir='/root/chromeos-admin/.git',
-                      metric_path='chromeos-admin'),
-  _GitMetricCollector(gitdir=_CHROMIUMOS_DIR + 'chromite/.git',
-                      metric_path='chromite'),
-  _GitMetricCollector(gitdir='/usr/local/autotest/.git',
-                      metric_path='installed_autotest'),
+    # TODO(ayatane): We cannot access chromeos-admin because we are
+    # running as non-root.
+    _GitMetricCollector(gitdir='/root/chromeos-admin/.git',
+                        metric_path='chromeos-admin'),
+    _GitMetricCollector(gitdir=_CHROMIUMOS_DIR + 'chromite/.git',
+                        metric_path='chromite'),
+    _GitMetricCollector(gitdir='/usr/local/autotest/.git',
+                        metric_path='installed_autotest'),
 )
 
 

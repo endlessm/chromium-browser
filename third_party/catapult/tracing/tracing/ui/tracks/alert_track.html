@@ -15,13 +15,13 @@ tr.exportTo('tr.ui.tracks', function() {
    * @constructor
    * @extends {LetterDotTrack}
    */
-  var AlertTrack = tr.ui.b.define(
+  const AlertTrack = tr.ui.b.define(
       'alert-track', tr.ui.tracks.LetterDotTrack);
 
   AlertTrack.prototype = {
     __proto__: tr.ui.tracks.LetterDotTrack.prototype,
 
-    decorate: function(viewport) {
+    decorate(viewport) {
       tr.ui.tracks.LetterDotTrack.prototype.decorate.call(this, viewport);
       this.heading = 'Alerts';
       this.alerts_ = undefined;

@@ -12,7 +12,7 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.model', function() {
-  var CounterSample = tr.model.CounterSample;
+  const CounterSample = tr.model.CounterSample;
 
   /**
    * A container holding all samples of a given measurement over time.
@@ -61,32 +61,32 @@ tr.exportTo('tr.model', function() {
       return this.timestamps_;
     },
 
-    getSample: function(idx) {
+    getSample(idx) {
       return this.samples_[idx];
     },
 
-    getTimestamp: function(idx) {
+    getTimestamp(idx) {
       return this.timestamps_[idx];
     },
 
-    addCounterSample: function(ts, val) {
-      var sample = new CounterSample(this, ts, val);
+    addCounterSample(ts, val) {
+      const sample = new CounterSample(this, ts, val);
       this.addSample(sample);
       return sample;
     },
 
-    addSample: function(sample) {
+    addSample(sample) {
       this.timestamps_.push(sample.timestamp);
       this.samples_.push(sample);
     },
 
-    getStatistics: function(sampleIndices) {
-      var sum = 0;
-      var min = Number.MAX_VALUE;
-      var max = -Number.MAX_VALUE;
+    getStatistics(sampleIndices) {
+      let sum = 0;
+      let min = Number.MAX_VALUE;
+      let max = -Number.MAX_VALUE;
 
-      for (var i = 0; i < sampleIndices.length; ++i) {
-        var sample = this.getSample(sampleIndices[i]).value;
+      for (let i = 0; i < sampleIndices.length; ++i) {
+        const sample = this.getSample(sampleIndices[i]).value;
 
         sum += sample;
         min = Math.min(sample, min);
@@ -94,26 +94,26 @@ tr.exportTo('tr.model', function() {
       }
 
       return {
-        min: min,
-        max: max,
+        min,
+        max,
         avg: (sum / sampleIndices.length),
         start: this.getSample(sampleIndices[0]).value,
         end: this.getSample(sampleIndices.length - 1).value
       };
     },
 
-    shiftTimestampsForward: function(amount) {
-      for (var i = 0; i < this.timestamps_.length; ++i) {
+    shiftTimestampsForward(amount) {
+      for (let i = 0; i < this.timestamps_.length; ++i) {
         this.timestamps_[i] += amount;
         this.samples_[i].timestamp = this.timestamps_[i];
       }
     },
 
-    childEvents: function* () {
+    * childEvents() {
       yield* this.samples_;
     },
 
-    childEventContainers: function* () {
+    * childEventContainers() {
     }
   };
 

@@ -15,7 +15,7 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.analysis', function() {
-  var StackedPaneImpl = {
+  const StackedPaneImpl = {
     /**
      * Request changing the child pane of this pane in the associated stacked
      * pane view. If the assigned builder is undefined, request removing the
@@ -42,12 +42,12 @@ tr.exportTo('tr.ui.analysis', function() {
      * free to change this behavior (e.g. if a pane has lots of data to display,
      * it might decide to defer rebuilding in order not to cause jank).
      */
-    appended: function() {
+    appended() {
       this.rebuild();
     }
   };
 
-  var StackedPane = [tr.ui.analysis.RebuildableBehavior, StackedPaneImpl];
+  const StackedPane = [tr.ui.analysis.RebuildableBehavior, StackedPaneImpl];
 
   return {
     StackedPane,

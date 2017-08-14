@@ -16,11 +16,11 @@ found in the LICENSE file.
 tr.exportTo('tr.ui.e.about_tracing', function() {
   // Interface used by inspector when it hands data to us from the backend.
   window.DevToolsAPI = {
-    setToolbarColors: function() { },
-    addExtensions: function() { },
-    setInspectedPageId: function() { },
+    setToolbarColors() { },
+    addExtensions() { },
+    setInspectedPageId() { },
 
-    dispatchMessage: function(payload) {
+    dispatchMessage(payload) {
       throw new Error('Should have been patched by InspectorConnection');
     }
   };
@@ -43,38 +43,38 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
   }
 
   InspectorConnection.prototype = {
-    req: function(method, params) {
-      var id = this.nextRequestId_++;
-      var msg = JSON.stringify({
-        id: id,
-        method: method,
-        params: params
+    req(method, params) {
+      const id = this.nextRequestId_++;
+      const msg = JSON.stringify({
+        id,
+        method,
+        params
       });
-      var devtoolsMessageStr = JSON.stringify(
-        {'id': id, 'method': 'dispatchProtocolMessage', 'params': [msg]});
+      const devtoolsMessageStr = JSON.stringify(
+        {id, 'method': 'dispatchProtocolMessage', 'params': [msg]});
       DevToolsHost.sendMessageToEmbedder(devtoolsMessageStr);
 
       return new Promise(function(resolve, reject) {
         this.pendingRequestResolversId_[id] = {
-          resolve: resolve,
-          reject: reject
+          resolve,
+          reject
         };
       }.bind(this));
     },
 
-    setNotificationListener: function(method, listener) {
+    setNotificationListener(method, listener) {
       this.notificationListenersByMethodName_[method] = listener;
     },
 
-    dispatchMessage_: function(payload) {
-      var isStringPayload = typeof payload === 'string';
+    dispatchMessage_(payload) {
+      const isStringPayload = typeof payload === 'string';
       // Special handling for Tracing.dataCollected because it is high
       // bandwidth.
-      var isDataCollectedMessage = isStringPayload ?
+      const isDataCollectedMessage = isStringPayload ?
           payload.includes('"method": "Tracing.dataCollected"') :
           payload.method === 'Tracing.dataCollected';
       if (isDataCollectedMessage) {
-        var listener = this.notificationListenersByMethodName_[
+        const listener = this.notificationListenersByMethodName_[
             'Tracing.dataCollected'];
         if (listener) {
           // FIXME(loislo): trace viewer should be able to process
@@ -86,9 +86,9 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
         }
       }
 
-      var message = isStringPayload ? JSON.parse(payload) : payload;
+      const message = isStringPayload ? JSON.parse(payload) : payload;
       if (message.id) {
-        var resolver = this.pendingRequestResolversId_[message.id];
+        const resolver = this.pendingRequestResolversId_[message.id];
         if (resolver === undefined) {
           return;
         }
@@ -100,11 +100,10 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
         return;
       }
 
-      if (message['method']) {
-        var listener = this.notificationListenersByMethodName_[message.method];
-        if (listener === undefined) {
-          return;
-        }
+      if (message.method) {
+        const listener = this.notificationListenersByMethodName_[
+          message.method];
+        if (listener === undefined) return;
         listener(message.params);
         return;
       }

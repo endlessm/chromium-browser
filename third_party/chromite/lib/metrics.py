@@ -14,6 +14,7 @@ from __future__ import print_function
 import collections
 import contextlib
 import datetime
+import Queue
 import ssl
 
 from functools import wraps
@@ -38,6 +39,8 @@ _SECONDS_BUCKET_FACTOR = 1.16
 
 # If none, we create metrics in this process. Otherwise, we send metrics via
 # this Queue to a dedicated flushing processes.
+# These attributes are set by chromite.lib.ts_mon_config.SetupTsMonGlobalState.
+FLUSHING_PROCESS = None
 MESSAGE_QUEUE = None
 
 MetricCall = namedtuple(
@@ -45,6 +48,12 @@ MetricCall = namedtuple(
     'metric_name metric_args metric_kwargs '
     'method method_args method_kwargs '
     'reset_after')
+
+
+def _FlushingProcessClosed():
+  """Returns whether the metrics flushing process has been closed."""
+  return (FLUSHING_PROCESS is not None and
+          FLUSHING_PROCESS.exitcode is not None)
 
 
 class ProxyMetric(object):
@@ -58,14 +67,32 @@ class ProxyMetric(object):
   def __getattr__(self, method_name):
     """Redirects all method calls to the MESSAGE_QUEUE."""
     def enqueue(*args, **kwargs):
-      MESSAGE_QUEUE.put(MetricCall(
-          metric_name=self.metric,
-          metric_args=self.metric_args,
-          metric_kwargs=self.metric_kwargs,
-          method=method_name,
-          method_args=args,
-          method_kwargs=kwargs,
-          reset_after=self.reset_after))
+      if not _FlushingProcessClosed():
+        try:
+          MESSAGE_QUEUE.put_nowait(
+              MetricCall(
+                  metric_name=self.metric,
+                  metric_args=self.metric_args,
+                  metric_kwargs=self.metric_kwargs,
+                  method=method_name,
+                  method_args=args,
+                  method_kwargs=kwargs,
+                  reset_after=self.reset_after))
+        except Queue.Full:
+          logging.warning(
+              "Metrics queue is full; skipped sending metric '%s'",
+              self.metric)
+      else:
+        try:
+          exit_code = FLUSHING_PROCESS.exitcode
+        except AttributeError:
+          exit_code = None
+        logging.warning(
+            "Flushing process has been closed (exit code %s),"
+            " skipped sending metric '%s'",
+            exit_code,
+            self.metric)
+
     return enqueue
 
 
@@ -242,15 +269,17 @@ def SecondsTimer(name, fields=None):
   f = dict(f)
   keys = f.keys()
   t0 = datetime.datetime.now()
-  yield f
-  dt = (datetime.datetime.now() - t0).total_seconds()
-  # Filter out keys that were not part of the initial key set. This is to avoid
-  # inconsistent fields.
-  # TODO(akeshet): Doing this filtering isn't super efficient. Would be better
-  # to implement some key-restricted subclass or wrapper around dict, and just
-  # yield that above rather than yielding a regular dict.
-  f = {k: f[k] for k in keys}
-  m.add(dt, fields=f)
+  try:
+    yield f
+  finally:
+    dt = (datetime.datetime.now() - t0).total_seconds()
+    # Filter out keys that were not part of the initial key set. This is to
+    # avoid inconsistent fields.
+    # TODO(akeshet): Doing this filtering isn't super efficient. Would be better
+    # to implement some key-restricted subclass or wrapper around dict, and just
+    # yield that above rather than yielding a regular dict.
+    f = {k: f[k] for k in keys}
+    m.add(dt, fields=f)
 
 
 def SecondsTimerDecorator(name, fields=None):
@@ -276,6 +305,23 @@ def SecondsTimerDecorator(name, fields=None):
     return wrapper
 
   return decorator
+
+
+@contextlib.contextmanager
+def SuccessCounter(name, fields=None):
+  """Create a counter that tracks if something succeeds."""
+  c = Counter(name)
+  f = fields or {}
+  f = f.copy()
+  keys = f.keys() + ['success']  # We add in the additional field success.
+  success = False
+  try:
+    yield f
+    success = True
+  finally:
+    f.setdefault('success', success)
+    f = {k: f[k] for k in keys}
+    c.increment(fields=f)
 
 
 class RuntimeBreakdownTimer(object):
@@ -305,6 +351,11 @@ class RuntimeBreakdownTimer(object):
         accrued in reporting all the percentages. The worst case bucketing loss
         for x steps is (x+1)/10. So, if you time across 9 steps, you should
         expect no more than 1% rounding error.
+  [experimental]
+  - .../timer/name/duration_breakdown - A Float metric, with one stream per Step
+        indicating the ratio of time spent in that step. The different steps are
+        differentiated via a field with key 'step_name'. Since some of the time
+        can be spent outside any steps, these ratios will sum to <= 1.
 
   NB: This helper can only be used if the field values are known at the
   beginning of the outer context and do not change as a result of any of the
@@ -338,6 +389,13 @@ class RuntimeBreakdownTimer(object):
           '%s/breakdown/%s' % (self._name, name),
           num_buckets=self.PERCENT_BUCKET_COUNT)
       step_metric.add(percent, fields=self._fields)
+
+      fields = dict(self._fields) if self._fields is not None else dict()
+      fields['step_name'] = name
+      # TODO(pprabhu): Convert _GetStepBreakdowns() to return ratios instead of
+      # percentage when the old PercentageDistribution reporting is deleted.
+      Float('%s/duration_breakdown' % self._name).set(percent / 100.0,
+                                                      fields=fields)
 
     unaccounted_metric = PercentageDistribution(
         '%s/breakdown_unaccounted' % self._name,

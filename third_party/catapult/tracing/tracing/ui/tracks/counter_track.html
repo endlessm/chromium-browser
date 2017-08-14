@@ -20,12 +20,12 @@ tr.exportTo('tr.ui.tracks', function() {
    * @constructor
    * @extends {ChartTrack}
    */
-  var CounterTrack = tr.ui.b.define('counter-track', tr.ui.tracks.ChartTrack);
+  const CounterTrack = tr.ui.b.define('counter-track', tr.ui.tracks.ChartTrack);
 
   CounterTrack.prototype = {
     __proto__: tr.ui.tracks.ChartTrack.prototype,
 
-    decorate: function(viewport) {
+    decorate(viewport) {
       tr.ui.tracks.ChartTrack.prototype.decorate.call(this, viewport);
       Polymer.dom(this).classList.add('counter-track');
     },
@@ -40,25 +40,25 @@ tr.exportTo('tr.ui.tracks', function() {
       this.autoSetAllAxes({expandMax: true});
     },
 
-    getModelEventFromItem: function(chartValue) {
+    getModelEventFromItem(chartValue) {
       return chartValue;
     }
   };
 
   CounterTrack.buildChartSeriesFromCounter = function(counter) {
-    var numSeries = counter.series.length;
-    var totals = counter.totals;
+    const numSeries = counter.series.length;
+    const totals = counter.totals;
 
     // Create one common axis for all series.
-    var seriesYAxis = new tr.ui.tracks.ChartSeriesYAxis(0, undefined);
+    const seriesYAxis = new tr.ui.tracks.ChartSeriesYAxis(0, undefined);
 
     // Build one chart series for each counter series.
-    var chartSeries = counter.series.map(function(series, seriesIndex) {
-      var chartPoints = series.samples.map(function(sample, sampleIndex) {
-        var total = totals[sampleIndex * numSeries + seriesIndex];
+    const chartSeries = counter.series.map(function(series, seriesIndex) {
+      const chartPoints = series.samples.map(function(sample, sampleIndex) {
+        const total = totals[sampleIndex * numSeries + seriesIndex];
         return new tr.ui.tracks.ChartPoint(sample, sample.timestamp, total);
       });
-      var renderingConfig = {
+      const renderingConfig = {
         chartType: tr.ui.tracks.ChartSeriesType.AREA,
         colorId: series.color
       };

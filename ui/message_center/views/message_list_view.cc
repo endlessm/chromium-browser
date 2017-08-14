@@ -6,6 +6,7 @@
 
 #include "base/command_line.h"
 #include "base/location.h"
+#include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/gfx/animation/slide_animation.h"
@@ -153,7 +154,7 @@ void MessageListView::UpdateNotification(MessageView* view,
   DoUpdateIfPossible();
 }
 
-gfx::Size MessageListView::GetPreferredSize() const {
+gfx::Size MessageListView::CalculatePreferredSize() const {
   // Just returns the current size. All size change must be done in
   // |DoUpdateIfPossible()| with animation , because we don't want to change
   // the size in unexpected timing.
@@ -261,7 +262,7 @@ void MessageListView::ClearAllClosableNotifications(
       continue;
     if (gfx::IntersectRects(child->bounds(), visible_scroll_rect).IsEmpty())
       continue;
-    if (child->IsPinned())
+    if (child->pinned())
       continue;
     if (deleting_views_.find(child) != deleting_views_.end() ||
         deleted_when_done_.find(child) != deleted_when_done_.end()) {
@@ -301,20 +302,35 @@ void MessageListView::OnBoundsAnimatorProgressed(
 }
 
 void MessageListView::OnBoundsAnimatorDone(views::BoundsAnimator* animator) {
+  bool need_update = false;
+
+  if (clear_all_started_) {
+    clear_all_started_ = false;
+    // TODO(yoshiki): we shouldn't touch views in OnAllNotificationsCleared().
+    // Or rename it to like OnAllNotificationsClearing().
+    for (auto& observer : observers_)
+      observer.OnAllNotificationsCleared();
+
+    // Need to update layout after deleting the views.
+    if (!deleted_when_done_.empty())
+      need_update = true;
+  }
+
+  // None of these views should be deleted.
+  DCHECK(std::all_of(deleted_when_done_.begin(), deleted_when_done_.end(),
+                     [this](views::View* view) { return Contains(view); }));
+
   for (auto* view : deleted_when_done_)
     delete view;
   deleted_when_done_.clear();
 
-  if (clear_all_started_) {
-    clear_all_started_ = false;
-    for (auto& observer : observers_)
-      observer.OnAllNotificationsCleared();
-  }
-
   if (has_deferred_task_) {
     has_deferred_task_ = false;
-    DoUpdateIfPossible();
+    need_update = true;
   }
+
+  if (need_update)
+    DoUpdateIfPossible();
 
   if (GetWidget())
     GetWidget()->SynthesizeMouseMoveEvent();
@@ -349,14 +365,16 @@ void MessageListView::DoUpdateIfPossible() {
     return;
   }
 
-  int new_height = GetHeightForWidth(child_area.width() + GetInsets().width());
-  SetSize(gfx::Size(child_area.width() + GetInsets().width(), new_height));
-
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableMessageCenterAlwaysScrollUpUponNotificationRemoval))
     AnimateNotificationsBelowTarget();
   else
     AnimateNotifications();
+
+  // Should calculate and set new size after calling AnimateNotifications()
+  // because fixed_height_ may be updated in it.
+  int new_height = GetHeightForWidth(child_area.width() + GetInsets().width());
+  SetSize(gfx::Size(child_area.width() + GetInsets().width(), new_height));
 
   adding_views_.clear();
   deleting_views_.clear();
@@ -557,6 +575,9 @@ void MessageListView::AnimateClearingOneNotification() {
   gfx::Rect new_bounds = child->bounds();
   new_bounds.set_x(new_bounds.right() + kMarginBetweenItems);
   animator_.AnimateViewTo(child, new_bounds);
+
+  // Deleting the child after animation.
+  deleted_when_done_.insert(child);
 
   // Schedule to start sliding out next notification after a short delay.
   if (!clearing_all_views_.empty()) {

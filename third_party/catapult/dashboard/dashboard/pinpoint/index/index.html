@@ -51,8 +51,8 @@ found in the LICENSE file.
     Polymer({
       is: 'index-page',
 
-      onDeselectedPage: function(e) {
-        let page = e.detail.item;
+      onDeselectedPage(e) {
+        const page = e.detail.item;
         // Need to call the the page.* functions async since this callback is
         // called sync while the route is being modified.
         if ('deselected' in page) {
@@ -60,8 +60,8 @@ found in the LICENSE file.
         }
       },
 
-      onSelectedPage: function(e) {
-        let page = e.detail.item;
+      onSelectedPage(e) {
+        const page = e.detail.item;
         // Need to call the the page.* functions async since this callback is
         // called sync while the route is being modified.
         if ('selected' in page) {
@@ -69,7 +69,7 @@ found in the LICENSE file.
         }
       },
 
-      ready: function() {
+      ready() {
       }
     });
   </script>

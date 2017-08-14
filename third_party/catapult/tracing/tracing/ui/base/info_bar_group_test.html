@@ -11,40 +11,40 @@ found in the LICENSE file.
 
 tr.b.unittest.testSuite(function() {
   test('group-instantiate', function() {
-    var infoBarGroup = document.createElement('tr-ui-b-info-bar-group');
+    const infoBarGroup = document.createElement('tr-ui-b-info-bar-group');
     infoBarGroup.addMessage(
         'Message 1',
-        [{buttonText: 'ok', onClick: function() {}}]);
+        [{buttonText: 'ok', onClick() {}}]);
     infoBarGroup.addMessage(
         'Message 2',
-        [{buttonText: 'button 2', onClick: function() {}}]);
+        [{buttonText: 'button 2', onClick() {}}]);
     this.addHTMLOutput(infoBarGroup);
   });
 
   test('group-populate-then-clear', function() {
-    var infoBarGroup = document.createElement('tr-ui-b-info-bar-group');
+    const infoBarGroup = document.createElement('tr-ui-b-info-bar-group');
     infoBarGroup.addMessage(
         'Message 1',
-        [{buttonText: 'ok', onClick: function() {}}]);
+        [{buttonText: 'ok', onClick() {}}]);
     infoBarGroup.addMessage(
         'Message 2',
-        [{buttonText: 'button 2', onClick: function() {}}]);
+        [{buttonText: 'button 2', onClick() {}}]);
     infoBarGroup.clearMessages();
     assert.strictEqual(infoBarGroup.children.length, 0);
   });
 
   test('group-populate-clear-repopulate', function() {
-    var infoBarGroup = document.createElement('tr-ui-b-info-bar-group');
+    const infoBarGroup = document.createElement('tr-ui-b-info-bar-group');
     infoBarGroup.addMessage(
         'Message 1',
-        [{buttonText: 'ok', onClick: function() {}}]);
+        [{buttonText: 'ok', onClick() {}}]);
     infoBarGroup.addMessage(
         'Message 2',
-        [{buttonText: 'button 2', onClick: function() {}}]);
+        [{buttonText: 'button 2', onClick() {}}]);
     infoBarGroup.clearMessages();
     infoBarGroup.addMessage(
         'Message 1',
-        [{buttonText: 'ok', onClick: function() {}}]);
+        [{buttonText: 'ok', onClick() {}}]);
     this.addHTMLOutput(infoBarGroup);
   });
 });

@@ -35,8 +35,7 @@ namespace {
 const ResourceFormat kRGBResourceFormat = RGBA_8888;
 
 VideoFrameExternalResources::ResourceType ResourceTypeForVideoFrame(
-    media::VideoFrame* video_frame,
-    bool use_stream_video_draw_quad) {
+    media::VideoFrame* video_frame) {
   switch (video_frame->format()) {
     case media::PIXEL_FORMAT_ARGB:
     case media::PIXEL_FORMAT_XRGB:
@@ -47,11 +46,10 @@ VideoFrameExternalResources::ResourceType ResourceTypeForVideoFrame(
                      ? VideoFrameExternalResources::RGB_RESOURCE
                      : VideoFrameExternalResources::RGBA_PREMULTIPLIED_RESOURCE;
         case GL_TEXTURE_EXTERNAL_OES:
-          if (use_stream_video_draw_quad &&
-              !video_frame->metadata()->IsTrue(
-                  media::VideoFrameMetadata::COPY_REQUIRED))
-            return VideoFrameExternalResources::STREAM_TEXTURE_RESOURCE;
-          return VideoFrameExternalResources::RGBA_RESOURCE;
+          return video_frame->metadata()->IsTrue(
+                     media::VideoFrameMetadata::COPY_REQUIRED)
+                     ? VideoFrameExternalResources::RGBA_RESOURCE
+                     : VideoFrameExternalResources::STREAM_TEXTURE_RESOURCE;
         case GL_TEXTURE_RECTANGLE_ARB:
           return VideoFrameExternalResources::RGB_RESOURCE;
         default:
@@ -174,11 +172,10 @@ VideoFrameExternalResources::VideoFrameExternalResources(
 VideoFrameExternalResources::~VideoFrameExternalResources() {}
 
 VideoResourceUpdater::VideoResourceUpdater(ContextProvider* context_provider,
-                                           ResourceProvider* resource_provider,
-                                           bool use_stream_video_draw_quad)
+                                           ResourceProvider* resource_provider)
     : context_provider_(context_provider),
       resource_provider_(resource_provider),
-      use_stream_video_draw_quad_(use_stream_video_draw_quad) {}
+      weak_ptr_factory_(this) {}
 
 VideoResourceUpdater::~VideoResourceUpdater() {
   for (const PlaneResource& plane_resource : all_resources_)
@@ -421,8 +418,9 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
     if (software_compositor) {
       external_resources.software_resources.push_back(
           plane_resource.resource_id());
-      external_resources.software_release_callback = base::Bind(
-          &RecycleResource, AsWeakPtr(), plane_resource.resource_id());
+      external_resources.software_release_callback =
+          base::Bind(&RecycleResource, weak_ptr_factory_.GetWeakPtr(),
+                     plane_resource.resource_id());
       external_resources.type = VideoFrameExternalResources::SOFTWARE_RESOURCE;
     } else {
       // VideoResourceUpdater shares a context with the compositor so
@@ -432,8 +430,9 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
                                  plane_resource.resource_id()));
       mailbox.set_color_space(output_color_space);
       external_resources.mailboxes.push_back(mailbox);
-      external_resources.release_callbacks.push_back(base::Bind(
-          &RecycleResource, AsWeakPtr(), plane_resource.resource_id()));
+      external_resources.release_callbacks.push_back(
+          base::Bind(&RecycleResource, weak_ptr_factory_.GetWeakPtr(),
+                     plane_resource.resource_id()));
       external_resources.type = VideoFrameExternalResources::RGBA_RESOURCE;
     }
     return external_resources;
@@ -535,8 +534,9 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForSoftwarePlanes(
                                plane_resource.resource_id()));
     mailbox.set_color_space(output_color_space);
     external_resources.mailboxes.push_back(mailbox);
-    external_resources.release_callbacks.push_back(base::Bind(
-        &RecycleResource, AsWeakPtr(), plane_resource.resource_id()));
+    external_resources.release_callbacks.push_back(
+        base::Bind(&RecycleResource, weak_ptr_factory_.GetWeakPtr(),
+                   plane_resource.resource_id()));
   }
 
   external_resources.type = VideoFrameExternalResources::YUV_RESOURCE;
@@ -612,7 +612,8 @@ void VideoResourceUpdater::CopyPlaneTexture(
   external_resources->mailboxes.push_back(mailbox);
 
   external_resources->release_callbacks.push_back(
-      base::Bind(&RecycleResource, AsWeakPtr(), resource->resource_id()));
+      base::Bind(&RecycleResource, weak_ptr_factory_.GetWeakPtr(),
+                 resource->resource_id()));
 }
 
 VideoFrameExternalResources VideoResourceUpdater::CreateForHardwarePlanes(
@@ -629,8 +630,7 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForHardwarePlanes(
   }
   gfx::ColorSpace resource_color_space = video_frame->ColorSpace();
 
-  external_resources.type =
-      ResourceTypeForVideoFrame(video_frame.get(), use_stream_video_draw_quad_);
+  external_resources.type = ResourceTypeForVideoFrame(video_frame.get());
   if (external_resources.type == VideoFrameExternalResources::NONE) {
     DLOG(ERROR) << "Unsupported Texture format"
                 << media::VideoPixelFormatToString(video_frame->format());
@@ -664,8 +664,8 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForHardwarePlanes(
           media::VideoFrameMetadata::WANTS_PROMOTION_HINT));
 #endif
       external_resources.mailboxes.push_back(mailbox);
-      external_resources.release_callbacks.push_back(
-          base::Bind(&ReturnTexture, AsWeakPtr(), video_frame));
+      external_resources.release_callbacks.push_back(base::Bind(
+          &ReturnTexture, weak_ptr_factory_.GetWeakPtr(), video_frame));
     }
   }
   return external_resources;

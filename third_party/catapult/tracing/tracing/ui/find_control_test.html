@@ -13,11 +13,11 @@ found in the LICENSE file.
 
 tr.b.unittest.testSuite(function() {
   test('instantiate', function() {
-    var ctl = document.createElement('tr-ui-find-control');
+    const ctl = document.createElement('tr-ui-find-control');
     ctl.controller = {
-      findNext: function() { },
-      findPrevious: function() { },
-      reset: function() {},
+      findNext() { },
+      findPrevious() { },
+      reset() {},
 
       filterHits: ['a', 'b'],
 
@@ -28,11 +28,11 @@ tr.b.unittest.testSuite(function() {
   });
 
   test('updateHitCountEl_twoResults', function() {
-    var ctl = document.createElement('tr-ui-find-control');
+    const ctl = document.createElement('tr-ui-find-control');
     ctl.controller = {
-      findNext: function() { },
-      findPrevious: function() { },
-      reset: function() {},
+      findNext() { },
+      findPrevious() { },
+      reset() {},
 
       filterHits: ['a', 'b'],
 
@@ -46,11 +46,11 @@ tr.b.unittest.testSuite(function() {
   });
 
   test('updateHitCountEl_emptyFilter', function() {
-    var ctl = document.createElement('tr-ui-find-control');
+    const ctl = document.createElement('tr-ui-find-control');
     ctl.controller = {
-      findNext: function() { },
-      findPrevious: function() { },
-      reset: function() {},
+      findNext() { },
+      findPrevious() { },
+      reset() {},
 
       filterHits: ['a', 'b'],
 

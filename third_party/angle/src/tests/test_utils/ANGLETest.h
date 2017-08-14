@@ -87,6 +87,7 @@ struct GLColor
     static const GLColor transparentBlack;
     static const GLColor white;
     static const GLColor yellow;
+    static const GLColor magenta;
 };
 
 struct GLColor32F
@@ -153,9 +154,24 @@ GLColor32F ReadColor32F(GLint x, GLint y);
     EXPECT_NEAR((a), pixel[3], abs_error); \
 }
 
+#define EXPECT_PIXEL32F_NEAR(x, y, r, g, b, a, abs_error)       \
+                                                                \
+    {                                                           \
+        GLfloat pixel[4];                                       \
+        glReadPixels((x), (y), 1, 1, GL_RGBA, GL_FLOAT, pixel); \
+        EXPECT_GL_NO_ERROR();                                   \
+        EXPECT_NEAR((r), pixel[0], abs_error);                  \
+        EXPECT_NEAR((g), pixel[1], abs_error);                  \
+        EXPECT_NEAR((b), pixel[2], abs_error);                  \
+        EXPECT_NEAR((a), pixel[3], abs_error);                  \
+    }
+
 // TODO(jmadill): Figure out how we can use GLColor's nice printing with EXPECT_NEAR.
 #define EXPECT_PIXEL_COLOR_NEAR(x, y, angleColor, abs_error) \
     EXPECT_PIXEL_NEAR(x, y, angleColor.R, angleColor.G, angleColor.B, angleColor.A, abs_error)
+
+#define EXPECT_PIXEL_COLOR32F_NEAR(x, y, angleColor, abs_error) \
+    EXPECT_PIXEL32F_NEAR(x, y, angleColor.R, angleColor.G, angleColor.B, angleColor.A, abs_error)
 
 #define EXPECT_COLOR_NEAR(expected, actual, abs_error) \
     \
@@ -166,12 +182,26 @@ GLColor32F ReadColor32F(GLint x, GLint y);
         EXPECT_NEAR(expected.A, actual.A, abs_error);  \
     \
 }
+#define EXPECT_PIXEL32F_NEAR(x, y, r, g, b, a, abs_error)       \
+                                                                \
+    {                                                           \
+        GLfloat pixel[4];                                       \
+        glReadPixels((x), (y), 1, 1, GL_RGBA, GL_FLOAT, pixel); \
+        EXPECT_GL_NO_ERROR();                                   \
+        EXPECT_NEAR((r), pixel[0], abs_error);                  \
+        EXPECT_NEAR((g), pixel[1], abs_error);                  \
+        EXPECT_NEAR((b), pixel[2], abs_error);                  \
+        EXPECT_NEAR((a), pixel[3], abs_error);                  \
+    }
+
+#define EXPECT_PIXEL_COLOR32F_NEAR(x, y, angleColor, abs_error) \
+    EXPECT_PIXEL32F_NEAR(x, y, angleColor.R, angleColor.G, angleColor.B, angleColor.A, abs_error)
 
 class EGLWindow;
 class OSWindow;
 class ANGLETest;
 
-struct TestPlatformContext final : angle::NonCopyable
+struct TestPlatformContext final : private angle::NonCopyable
 {
     bool ignoreMessages    = false;
     ANGLETest *currentTest = nullptr;
@@ -235,6 +265,7 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     void setConfigStencilBits(int bits);
     void setConfigComponentType(EGLenum componentType);
     void setMultisampleEnabled(bool enabled);
+    void setSamples(EGLint samples);
     void setDebugEnabled(bool enabled);
     void setNoErrorEnabled(bool enabled);
     void setWebGLCompatibilityEnabled(bool webglCompatibility);

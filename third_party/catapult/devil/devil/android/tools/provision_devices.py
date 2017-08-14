@@ -119,7 +119,7 @@ def ProvisionDevices(
 
   if max_battery_temp:
     steps.append(ProvisionStep(
-        lambda d: WaitForTemperature(d, max_battery_temp)))
+        lambda d: WaitForBatteryTemperature(d, max_battery_temp)))
 
   if min_battery_level:
     steps.append(ProvisionStep(
@@ -172,7 +172,8 @@ def ProvisionDevice(device, steps, blacklist, reboot_timeout=None):
     if blacklist:
       blacklist.Extend([str(device)], reason='provision_timeout')
 
-  except device_errors.CommandFailedError:
+  except (device_errors.CommandFailedError,
+          device_errors.DeviceUnreachableError):
     logger.exception('Failed to provision device %s. Adding to blacklist.',
                      str(device))
     if blacklist:
@@ -184,9 +185,12 @@ def Wipe(device, adb_key_files=None):
       device.build_version_sdk >= version_codes.MARSHMALLOW):
     WipeChromeData(device)
 
-    package = "com.google.android.gms"
-    version_name = device.GetApplicationVersion(package)
-    logger.info("Version name for %s is %s", package, version_name)
+    package = 'com.google.android.gms'
+    if device.GetApplicationPaths(package):
+      version_name = device.GetApplicationVersion(package)
+      logger.info('Version name for %s is %s', package, version_name)
+    else:
+      logger.info('Package %s is not installed', package)
   else:
     WipeDevice(device, adb_key_files)
 
@@ -443,7 +447,7 @@ def WaitForCharge(device, min_battery_level):
     battery.ChargeDeviceToLevel(min_battery_level)
 
 
-def WaitForTemperature(device, max_battery_temp):
+def WaitForBatteryTemperature(device, max_battery_temp):
   try:
     battery = battery_utils.BatteryUtils(device)
     battery.LetBatteryCoolToTemperature(max_battery_temp)
@@ -493,8 +497,11 @@ def SetDate(device):
       raise device_errors.CommandFailedError(
           'Failed to set date & time.', device_serial=str(device))
     device.EnableRoot()
+    # The following intent can take a bit to complete when ran shortly after
+    # device boot-up.
     device.BroadcastIntent(
-        intent.Intent(action='android.intent.action.TIME_SET'))
+        intent.Intent(action='android.intent.action.TIME_SET'),
+        timeout=180)
 
 
 def LogDeviceProperties(device):

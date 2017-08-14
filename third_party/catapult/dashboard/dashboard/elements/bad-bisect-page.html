@@ -80,20 +80,20 @@ found in the LICENSE file.
         }
       },
 
-      computeIsFormShowing: function(error, headline) {
+      computeIsFormShowing(error, headline) {
         return !error && !headline;
       },
 
-      computeIsHeadlineShowing: function(error, headline) {
+      computeIsHeadlineShowing(error, headline) {
         return !error && headline;
       },
 
-      updateFromURIParameters: function() {
+      updateFromURIParameters() {
         this.try_job_id = uri.getParameter('try_job_id', '');
       },
 
-      onConfirm: function() {
-        var params = {
+      onConfirm() {
+        const params = {
           'try_job_id': this.try_job_id,
           'xsrf_token': this.xsrfToken
         };
@@ -102,7 +102,7 @@ found in the LICENSE file.
 
         simple_xhr.send('/bad_bisect', params,
             function(response) {
-              this.headline = response['headline'];
+              this.headline = response.headline;
               this.loading = false;
             }.bind(this),
             function(msg) {
@@ -111,15 +111,15 @@ found in the LICENSE file.
             }.bind(this));
       },
 
-      ready: function() {
-        var params = {
+      ready() {
+        const params = {
           try_job_id: uri.getParameter('try_job_id', '')
         };
 
         simple_xhr.send('/bad_bisect', params,
             function(response) {
               this.loading = false;
-              this.xsrfToken = response['xsrf_token'];
+              this.xsrfToken = response.xsrf_token;
               this.updateFromURIParameters();
             }.bind(this),
             function(msg) {

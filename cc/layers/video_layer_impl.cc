@@ -101,10 +101,9 @@ bool VideoLayerImpl::WillDraw(DrawMode draw_mode,
     return false;
 
   if (!updater_) {
-    updater_.reset(new VideoResourceUpdater(
-        layer_tree_impl()->context_provider(),
-        layer_tree_impl()->resource_provider(),
-        layer_tree_impl()->settings().use_stream_video_draw_quad));
+    updater_.reset(
+        new VideoResourceUpdater(layer_tree_impl()->context_provider(),
+                                 layer_tree_impl()->resource_provider()));
   }
 
   VideoFrameExternalResources external_resources =
@@ -169,9 +168,10 @@ void VideoLayerImpl::AppendQuads(RenderPass* render_pass,
 
   SharedQuadState* shared_quad_state =
       render_pass->CreateAndAppendSharedQuadState();
-  shared_quad_state->SetAll(transform, rotated_size, visible_layer_rect(),
-                            clip_rect(), is_clipped(), draw_opacity(),
-                            SkBlendMode::kSrcOver, GetSortingContextId());
+  shared_quad_state->SetAll(transform, gfx::Rect(rotated_size),
+                            visible_layer_rect(), clip_rect(), is_clipped(),
+                            draw_opacity(), SkBlendMode::kSrcOver,
+                            GetSortingContextId());
 
   AppendDebugBorderQuad(
       render_pass, rotated_size, shared_quad_state, append_quads_data);

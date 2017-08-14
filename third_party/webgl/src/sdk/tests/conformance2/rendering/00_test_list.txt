@@ -3,12 +3,14 @@ blitframebuffer-filter-outofbounds.html
 blitframebuffer-filter-srgb.html
 blitframebuffer-multisampled-readbuffer.html
 --min-version 2.0.1 blitframebuffer-outside-readbuffer.html
+--min-version 2.0.1 blitframebuffer-resolve-to-back-buffer.html
 blitframebuffer-scissor-enabled.html
 blitframebuffer-size-overflow.html
 --min-version 2.0.1 blitframebuffer-srgb-and-linear-drawbuffers.html
 --min-version 2.0.1 blitframebuffer-stencil-only.html
 blitframebuffer-test.html
 canvas-resizing-with-pbo-bound.html
+--min-version 2.0.1 clearbuffer-sub-source.html
 clear-func-buffer-type-match.html
 --min-version 2.0.1 clear-srgb-color-buffer.html
 --min-version 2.0.1 clipping-wide-points.html

@@ -62,7 +62,9 @@ class Browser(app.App):
           self._browser_backend.profiling_controller_backend)
     except Exception:
       exc_info = sys.exc_info()
-      logging.exception('Failure while starting browser backend.')
+      logging.error(
+        'Failed with %s while starting the browser backend.',
+        exc_info[0].__name__)  # Show the exception name only.
       try:
         self._platform_backend.WillCloseBrowser(self, self._browser_backend)
       except Exception:
@@ -114,10 +116,15 @@ class Browser(app.App):
     logging.info('OS: %s %s',
                  self._platform_backend.platform.GetOSName(),
                  self._platform_backend.platform.GetOSVersionName())
+    os_detail = self._platform_backend.platform.GetOSVersionDetailString()
+    if os_detail:
+      logging.info('Detailed OS version: %s', os_detail)
     if self.supports_system_info:
       system_info = self.GetSystemInfo()
       if system_info.model_name:
         logging.info('Model: %s', system_info.model_name)
+      if system_info.command_line:
+        logging.info('Browser command line: %s', system_info.command_line)
       if system_info.gpu:
         for i, device in enumerate(system_info.gpu.devices):
           logging.info('GPU device %d: %s', i, device)

@@ -13,7 +13,7 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.e.cc', function() {
-  var ObjectSnapshot = tr.model.ObjectSnapshot;
+  const ObjectSnapshot = tr.model.ObjectSnapshot;
 
   /**
    * @constructor
@@ -25,11 +25,11 @@ tr.exportTo('tr.e.cc', function() {
   RenderPassSnapshot.prototype = {
     __proto__: ObjectSnapshot.prototype,
 
-    preInitialize: function() {
+    preInitialize() {
       tr.e.cc.preInitializeObject(this);
     },
 
-    initialize: function() {
+    initialize() {
       tr.e.cc.moveRequiredFieldsFromArgsToToplevel(
           this, ['quadList']);
     }

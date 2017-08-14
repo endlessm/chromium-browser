@@ -8,6 +8,7 @@ from telemetry import decorators
 from telemetry.internal import story_runner
 from telemetry.internal.util import command_line
 from telemetry.page import legacy_page_test
+from telemetry.story import expectations
 from telemetry.web_perf import timeline_based_measurement
 
 Disabled = decorators.Disabled
@@ -66,6 +67,7 @@ class Benchmark(command_line.Command):
       max_failures: The number of story run's failures before bailing
           from executing subsequent page runs. If None, we never bail.
     """
+    self._expectations = None
     self._max_failures = max_failures
     self._has_original_tbm_options = (
         self.CreateTimelineBasedMeasurementOptions.__func__ ==
@@ -264,6 +266,33 @@ class Benchmark(command_line.Command):
     if not self.page_set:
       raise NotImplementedError('This test has no "page_set" attribute.')
     return self.page_set()  # pylint: disable=not-callable
+
+  def GetBrokenExpectations(self, story_set):
+    self.InitializeExpectations()
+    if self._expectations:
+      return self._expectations.GetBrokenExpectations(story_set)
+    return []
+
+  # TODO(rnephew): Rename InitializeExpectations to GetExpectations
+  def InitializeExpectations(self):
+    """Returns StoryExpectation object.
+
+    This is a wrapper for GetExpectations. The user overrides GetExpectatoins
+    in the benchmark class to have it use the correct expectations. This is what
+    story_runner.py uses to get the expectations.
+    """
+    if not self._expectations:
+      self._expectations = self.GetExpectations()
+    return self._expectations
+
+  # TODO(rnephew): Rename GetExpectations to CreateExpectations
+  def GetExpectations(self):
+    """Returns a StoryExpectation object.
+
+    This object is used to determine what stories are disabled. This needs to be
+    overridden by the subclass. It defaults to an empty expectations object.
+    """
+    return expectations.StoryExpectations()
 
 
 def AddCommandLineArgs(parser):

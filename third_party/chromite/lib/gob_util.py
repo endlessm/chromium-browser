@@ -21,6 +21,7 @@ import socket
 import sys
 import urllib
 import urlparse
+import warnings
 from cStringIO import StringIO
 
 from chromite.lib import constants
@@ -353,14 +354,18 @@ def GetChange(host, change):
   return FetchUrlJson(host, _GetChangePath(change))
 
 
-def GetChangeReview(host, change, revision='current'):
+def GetChangeReview(host, change, revision=None):
   """Get the current review information for a change."""
+  if revision is None:
+    revision = 'current'
   path = '%s/revisions/%s/review' % (_GetChangePath(change), revision)
   return FetchUrlJson(host, path)
 
 
-def GetChangeCommit(host, change, revision='current'):
+def GetChangeCommit(host, change, revision=None):
   """Get the current review information for a change."""
+  if revision is None:
+    revision = 'current'
   path = '%s/revisions/%s/commit' % (_GetChangePath(change), revision)
   return FetchUrlJson(host, path)
 
@@ -381,9 +386,14 @@ def GetChangeDetail(host, change, o_params=None):
 
 
 def GetChangeReviewers(host, change):
-  """Get information about all reviewers attached to a change."""
-  path = '%s/reviewers' % _GetChangePath(change)
-  return FetchUrlJson(host, path)
+  """Get information about all reviewers attached to a change.
+
+  Args:
+    host: The Gerrit host to interact with.
+    change: The Gerrit change ID.
+  """
+  warnings.warn('GetChangeReviewers is deprecated; use GetReviewers instead.')
+  GetReviewers(host, change)
 
 
 def AbandonChange(host, change, msg=''):
@@ -416,8 +426,10 @@ def DeleteDraft(host, change):
                ' %r' % change)
 
 
-def SubmitChange(host, change, revision='current', wait_for_merge=True):
+def SubmitChange(host, change, revision=None, wait_for_merge=True):
   """Submits a gerrit change via Gerrit."""
+  if revision is None:
+    revision = 'current'
   path = '%s/revisions/%s/submit' % (_GetChangePath(change), revision)
   body = {'wait_for_merge': wait_for_merge}
   return FetchUrlJson(host, path, reqtype='POST', body=body, ignore_404=False)
@@ -447,8 +459,32 @@ def CheckChange(host, change, sha1=None):
                       headers=headers)
 
 
+def GetAssignee(host, change):
+  """Get assignee for a change."""
+  path = '%s/assignee' % _GetChangePath(change)
+  return FetchUrlJson(host, path)
+
+
+def AddAssignee(host, change, assignee):
+  """Add reviewers to a change.
+
+  Args:
+    host: The Gerrit host to interact with.
+    change: The Gerrit change ID.
+    assignee: Gerrit account email as a string
+  """
+  path = '%s/assignee' % _GetChangePath(change)
+  body = {'assignee': assignee}
+  return  FetchUrlJson(host, path, reqtype='PUT', body=body, ignore_404=False)
+
+
 def GetReviewers(host, change):
-  """Get information about all reviewers attached to a change."""
+  """Get information about all reviewers attached to a change.
+
+  Args:
+    host: The Gerrit host to interact with.
+    change: The Gerrit change ID.
+  """
   path = '%s/reviewers' % _GetChangePath(change)
   return FetchUrlJson(host, path)
 
@@ -487,9 +523,10 @@ def RemoveReviewers(host, change, remove=None):
                  ' reviewer "%s" from change %s' % (r, change))
 
 
-def SetReview(host, change, revision='current', msg=None, labels=None,
-              notify=None):
+def SetReview(host, change, revision=None, msg=None, labels=None, notify=None):
   """Set labels and/or add a message to a code review."""
+  if revision is None:
+    revision = 'current'
   if not msg and not labels:
     return
   path = '%s/revisions/%s/review' % (_GetChangePath(change), revision)
@@ -536,9 +573,11 @@ def SetHashtags(host, change, add, remove):
                       ignore_404=False)
 
 
-def ResetReviewLabels(host, change, label, value='0', revision='current',
+def ResetReviewLabels(host, change, label, value='0', revision=None,
                       message=None, notify=None):
   """Reset the value of a given label for all reviewers on a change."""
+  if revision is None:
+    revision = 'current'
   # This is tricky when working on the "current" revision, because there's
   # always the risk that the "current" revision will change in between API
   # calls.  So, the code dereferences the "current" revision down to a literal

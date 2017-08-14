@@ -77,7 +77,7 @@ found in the LICENSE file.
 Polymer({
   is: 'tr-ui-b-dropdown',
 
-  ready: function() {
+  ready() {
     this.$.outer.tabIndex = 0;
   },
 
@@ -85,7 +85,7 @@ Polymer({
     return this.$.icon;
   },
 
-  onOuterKeyDown_: function(e) {
+  onOuterKeyDown_(e) {
     if (e.keyCode === ' '.charCodeAt(0)) {
       this.toggle_();
       e.preventDefault();
@@ -93,9 +93,9 @@ Polymer({
     }
   },
 
-  onOuterClick_: function(e) {
-    var or = this.$.outer.getBoundingClientRect();
-    var inside = true;
+  onOuterClick_(e) {
+    const or = this.$.outer.getBoundingClientRect();
+    let inside = true;
     inside &= e.clientX >= or.left;
     inside &= e.clientX < or.right;
     inside &= e.clientY >= or.top;
@@ -106,7 +106,7 @@ Polymer({
     this.toggle_();
   },
 
-  toggle_: function() {
+  toggle_() {
     if (!this.isOpen) {
       this.show();
     } else {
@@ -114,35 +114,35 @@ Polymer({
     }
   },
 
-  show: function() {
+  show() {
     if (this.isOpen) return;
 
     Polymer.dom(this.$.outer).classList.add('open');
 
-    var ddr = this.$.outer.getBoundingClientRect();
-    var rW = Math.max(ddr.width, 150);
+    const ddr = this.$.outer.getBoundingClientRect();
+    const rW = Math.max(ddr.width, 150);
     this.$.dialog.style.minWidth = rW + 'px';
     this.$.dialog.showModal();
 
-    var ddw = this.$.outer.getBoundingClientRect().width;
-    var w = this.$.dialog.getBoundingClientRect().width;
+    const ddw = this.$.outer.getBoundingClientRect().width;
+    const w = this.$.dialog.getBoundingClientRect().width;
     this.$.dialog.style.top = ddr.bottom - 1 + 'px';
     this.$.dialog.style.left = ddr.left + 'px';
   },
 
-  onDialogClick_: function(e) {
+  onDialogClick_(e) {
     if (!this.isOpen) return;
     if (e.srcElement !== this.$.dialog) return;
     e.preventDefault();
     this.close();
   },
 
-  onDialogCancel_: function(e) {
+  onDialogCancel_(e) {
     e.preventDefault();
     this.close();
   },
 
-  close: function() {
+  close() {
     if (!this.isOpen) return;
     this.$.dialog.close();
     Polymer.dom(this.$.outer).classList.remove('open');

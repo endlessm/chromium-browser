@@ -24,7 +24,7 @@ tr.exportTo('tr.mre', function() {
     get mapFunctionHandle() { return this.mapFunctionHandle_; },
     get guid() { return this.guid_; },
 
-    asDict: function() {
+    asDict() {
       return {
         map_function_handle: this.mapFunctionHandle_.asDict(),
         guid: this.guid_.toString()
@@ -33,7 +33,7 @@ tr.exportTo('tr.mre', function() {
   };
 
   Job.fromDict = function(jobDict) {
-    var mapFunctionHandle = null;
+    let mapFunctionHandle = null;
     if (jobDict.map_function_handle !== null) {
       mapFunctionHandle = tr.mre.FunctionHandle.fromDict(
           jobDict.map_function_handle);

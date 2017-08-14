@@ -10,7 +10,6 @@ import itertools
 import mock
 import sys
 
-from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import manifest_version
@@ -18,11 +17,13 @@ from chromite.cbuildbot import prebuilts
 from chromite.cbuildbot import relevant_changes
 from chromite.cbuildbot import tree_status
 from chromite.cbuildbot.stages import completion_stages
+from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import sync_stages_unittest
 from chromite.cbuildbot.stages import sync_stages
 from chromite.lib import alerts
 from chromite.lib import auth
+from chromite.lib import buildbucket_lib
 from chromite.lib import builder_status_lib
 from chromite.lib import cidb
 from chromite.lib import clactions
@@ -30,8 +31,11 @@ from chromite.lib import cros_logging as logging
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import failures_lib
+from chromite.lib import fake_cidb
+from chromite.lib import hwtest_results
 from chromite.lib import results_lib
 from chromite.lib import patch_unittest
+from chromite.lib import timeout_util
 
 
 # pylint: disable=protected-access
@@ -65,6 +69,8 @@ class ManifestVersionedSyncCompletionStageTest(
         self._run, self.sync_stage, success=False)
     message = 'foo'
     self.PatchObject(stage, 'GetBuildFailureMessage', return_value=message)
+    get_msg_from_cidb_mock = self.PatchObject(
+        stage, 'GetBuildFailureMessageFromCIDB', return_value=message)
     update_status_mock = self.PatchObject(
         manifest_version.BuildSpecsManager, 'UpdateStatus')
 
@@ -72,6 +78,7 @@ class ManifestVersionedSyncCompletionStageTest(
     update_status_mock.assert_called_once_with(
         message='foo', success_map={self.BOT_ID: False},
         dashboard_url=mock.ANY)
+    get_msg_from_cidb_mock.assert_called_once_with()
 
   def testManifestVersionedSyncCompletedIncomplete(self):
     """Tests basic ManifestVersionedSyncStageCompleted on incomplete build."""
@@ -522,6 +529,8 @@ class BaseCommitQueueCompletionStageTest(
                      '_GetSlaveMappingAndCLActions',
                      return_value=(dict(), []))
     self.PatchObject(clactions, 'GetRelevantChangesForBuilds')
+    self.PatchObject(tree_status, 'WaitForTreeStatus',
+                     return_value=constants.TREE_OPEN)
 
   # pylint: disable=W0221
   def ConstructStage(self, tree_was_open=True):
@@ -636,7 +645,7 @@ class BaseCommitQueueCompletionStageTest(
       if handle_failure:
         stage.sync_stage.pool.handle_failure_mock.assert_called_once_with(
             mock.ANY, no_stat=set([]), sanity=sane_tot,
-            changes=handlefailure_changes)
+            changes=handlefailure_changes, failed_hwtests=mock.ANY)
 
       if handle_timeout:
         stage.sync_stage.pool.handle_timeout_mock.assert_called_once_with(
@@ -668,6 +677,9 @@ class MasterCommitQueueCompletionStageTest(BaseCommitQueueCompletionStageTest):
   def _Prepare(self, bot_id=BOT_ID, **kwargs):
     super(MasterCommitQueueCompletionStageTest, self)._Prepare(bot_id, **kwargs)
     self.assertTrue(self._run.config['master'])
+
+  def tearDown(self):
+    cidb.CIDBConnectionFactory.ClearMock()
 
   def testNoInflightBuildersWithInfraFail(self):
     """Test case where there are no inflight builders but are infra failures."""
@@ -812,6 +824,126 @@ class MasterCommitQueueCompletionStageTest(BaseCommitQueueCompletionStageTest):
     stage.SendInfraAlertIfNeeded({}, inflight, no_stat, True)
     self.assertEqual(mock_send_alert.call_count, 0)
 
+  def testCQMasterHandleFailureWithOpenTree(self):
+    """Test CQMasterHandleFailure with open tree."""
+    stage = self.ConstructStage()
+
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     'SendInfraAlertIfNeeded')
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_ShouldSubmitPartialPool',
+                     return_value=False)
+    self.PatchObject(tree_status, 'SendHealthAlert')
+    self.PatchObject(tree_status, 'WaitForTreeStatus',
+                     return_value=constants.TREE_OPEN)
+
+    stage.CQMasterHandleFailure(set(['test1']), set(), set(), False, [])
+    stage.sync_stage.pool.handle_failure_mock.assert_called_once_with(
+        mock.ANY, sanity=True, no_stat=set(), changes=self.changes,
+        failed_hwtests=None)
+
+  def testCQMasterHandleFailureWithThrottledTree(self):
+    """Test CQMasterHandleFailure with throttled tree."""
+    stage = self.ConstructStage()
+
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     'SendInfraAlertIfNeeded')
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_ShouldSubmitPartialPool',
+                     return_value=False)
+    self.PatchObject(tree_status, 'SendHealthAlert')
+    self.PatchObject(tree_status, 'WaitForTreeStatus',
+                     return_value=constants.TREE_THROTTLED)
+
+    stage.CQMasterHandleFailure(set(['test1']), set(), set(), False, [])
+    stage.sync_stage.pool.handle_failure_mock.assert_called_once_with(
+        mock.ANY, sanity=False, no_stat=set(), changes=self.changes,
+        failed_hwtests=None)
+
+  def testCQMasterHandleFailureWithClosedTree(self):
+    """Test CQMasterHandleFailure with cloased tree."""
+    stage = self.ConstructStage()
+
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     'SendInfraAlertIfNeeded')
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_ShouldSubmitPartialPool',
+                     return_value=False)
+    self.PatchObject(tree_status, 'SendHealthAlert')
+    self.PatchObject(tree_status, 'WaitForTreeStatus',
+                     side_effect=timeout_util.TimeoutError())
+
+    stage.CQMasterHandleFailure(set(['test1']), set(), set(), False, [])
+    stage.sync_stage.pool.handle_failure_mock.assert_called_once_with(
+        mock.ANY, sanity=False, no_stat=set(), changes=self.changes,
+        failed_hwtests=None)
+
+  def testCQMasterHandleFailureWithFailedHWtests(self):
+    """Test CQMasterHandleFailure with failed HWtests."""
+    stage = self.ConstructStage()
+
+    master_build_id = stage._run.attrs.metadata.GetValue('build_id')
+    db = fake_cidb.FakeCIDBConnection()
+    slave_build_id = db.InsertBuild(
+        'slave_1', constants.WATERFALL_INTERNAL, 1, 'slave_1', 'bot_hostname',
+        master_build_id=master_build_id, buildbucket_id='123')
+    cidb.CIDBConnectionFactory.SetupMockCidb(db)
+    mock_failed_hwtests = mock.Mock()
+    mock_get_hwtests = self.PatchObject(
+        hwtest_results.HWTestResultManager,
+        'GetFailedHWTestsFromCIDB', return_value=mock_failed_hwtests)
+
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     'SendInfraAlertIfNeeded')
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_ShouldSubmitPartialPool',
+                     return_value=False)
+    self.PatchObject(tree_status, 'SendHealthAlert')
+    self.PatchObject(tree_status, 'WaitForTreeStatus',
+                     return_value=constants.TREE_OPEN)
+
+    stage.CQMasterHandleFailure(set(['test1']), set(), set(), False, ['123'])
+    stage.sync_stage.pool.handle_failure_mock.assert_called_once_with(
+        mock.ANY, sanity=True, no_stat=set(), changes=self.changes,
+        failed_hwtests=mock_failed_hwtests)
+    mock_get_hwtests.assert_called_once_with(db, [slave_build_id])
+
+
+class PreCQCompletionStageTest(generic_stages_unittest.AbstractStageTestCase):
+  """PreCQCompletionStage tests"""
+  BOT_ID = 'lumpy-pre-cq'
+
+  def ConstructStage(self):
+    sync_stage = mock.Mock()
+    return completion_stages.PreCQCompletionStage(
+        self._run, sync_stage, success=True)
+
+  def _Prepare(self, bot_id=None, **kwargs):
+    super(PreCQCompletionStageTest, self)._Prepare(bot_id, **kwargs)
+
+  def testGetBuildFailureMessage(self):
+    """Test GetBuildFailureMessage."""
+    db = fake_cidb.FakeCIDBConnection()
+    cidb.CIDBConnectionFactory.SetupMockCidb(db)
+
+    build_id = db.InsertBuild('lumpy-pre-cq', constants.WATERFALL_INTERNAL, 1,
+                              'lumpy-pre-cq', 'bot_hostname',
+                              status=constants.BUILDER_STATUS_INFLIGHT)
+    stage_id = db.InsertBuildStage(build_id, 'BuildPackages', status='fail')
+    db.InsertFailure(stage_id, 'PackageBuildFailure',
+                     'Packages failed in ./build_packages: sys-apps/flashrom',
+                     exception_category='build',
+                     extra_info={"shortname": "./build_packages",
+                                 "failed_packages": ["sys-apps/flashrom"]})
+    self._Prepare(build_id=build_id)
+    stage = self.ConstructStage()
+    message = stage.GetBuildFailureMessage()
+
+    self.assertFalse(message.MatchesExceptionCategory(
+        constants.EXCEPTION_CATEGORY_LAB))
+    self.assertTrue(message.MatchesExceptionCategory(
+        constants.EXCEPTION_CATEGORY_BUILD))
+
 
 class PublishUprevChangesStageTest(
     generic_stages_unittest.AbstractStageTestCase):
@@ -821,10 +953,6 @@ class PublishUprevChangesStageTest(
   def _Prepare(self, bot_id=None, **kwargs):
     super(PublishUprevChangesStageTest, self)._Prepare(bot_id, **kwargs)
 
-    self._run.config['manifest_version'] = True
-    self._run.config['build_type'] = self.build_type
-    self._run.config['master'] = True
-
   def setUp(self):
     self.PatchObject(completion_stages.PublishUprevChangesStage,
                      '_GetPortageEnvVar')
@@ -832,18 +960,20 @@ class PublishUprevChangesStageTest(
                      '_ExtractOverlays', return_value=[['foo'], ['bar']])
     self.PatchObject(prebuilts.BinhostConfWriter, 'Perform')
     self.push_mock = self.PatchObject(commands, 'UprevPush')
-    self.build_type = constants.CHROME_PFQ_TYPE
+    self.PatchObject(generic_stages.BuilderStage, 'GetRepoRepository')
+    self.PatchObject(commands, 'UprevPackages')
 
     self._Prepare()
 
   def ConstructStage(self):
-    return completion_stages.PublishUprevChangesStage(self._run, success=True)
+    sync_stage = sync_stages.ManifestVersionedSyncStage(self._run)
+    sync_stage.pool = mock.MagicMock()
+    return completion_stages.PublishUprevChangesStage(
+        self._run, sync_stage, success=True)
 
   def testPush(self):
     """Test values for PublishUprevChanges."""
-    self._Prepare(extra_config={'build_type': constants.BUILD_FROM_SOURCE_TYPE,
-                                'push_overlays': constants.PUBLIC_OVERLAYS,
-                                'master': True},
+    self._Prepare(extra_config={'push_overlays': constants.PUBLIC_OVERLAYS},
                   extra_cmd_args=['--chrome_rev', constants.CHROME_REV_TOT])
     self._run.options.prebuilts = True
     self.RunStage()
@@ -915,11 +1045,8 @@ class PublishUprevChangesStageTest(
 
   def testAndroidPush(self):
     """Test values for PublishUprevChanges with Android PFQ."""
-    self.build_type = constants.ANDROID_PFQ_TYPE
-    self._Prepare(bot_id=constants.ANDROID_PFQ_MASTER,
-                  extra_config={'build_type': constants.BUILD_FROM_SOURCE_TYPE,
-                                'push_overlays': constants.PUBLIC_OVERLAYS,
-                                'master': True},
+    self._Prepare(bot_id=constants.MNC_ANDROID_PFQ_MASTER,
+                  extra_config={'push_overlays': constants.PUBLIC_OVERLAYS},
                   extra_cmd_args=['--android_rev',
                                   constants.ANDROID_REV_LATEST])
     self._run.options.prebuilts = True
@@ -929,3 +1056,28 @@ class PublishUprevChangesStageTest(
     self.assertTrue(self._run.attrs.metadata.GetValue('UprevvedAndroid'))
     metadata_dict = self._run.attrs.metadata.GetDict()
     self.assertFalse(metadata_dict.has_key('UprevvedChrome'))
+
+  def testPerformStageOnChromePFQ(self):
+    """Test PerformStage on ChromePFQ."""
+    stage = self.ConstructStage()
+    stage.sync_stage.pool.HasPickedUpCLs.return_value = True
+    stage.PerformStage()
+    self.push_mock.assert_called_once_with(self.build_root, ['bar'], False,
+                                           staging_branch=None)
+
+  def testPerformStageOnCQMasterWithPickedUpCLs(self):
+    """Test PerformStage on CQ-master with picked up CLs."""
+    self._Prepare(bot_id=constants.CQ_MASTER)
+    stage = self.ConstructStage()
+    stage.sync_stage.pool.HasPickedUpCLs.return_value = True
+    stage.PerformStage()
+    self.push_mock.assert_called_once_with(self.build_root, ['bar'], False,
+                                           staging_branch=None)
+
+  def testPerformStageOnCQMasterWithoutPickedUpCLs(self):
+    """Test PerformStage on CQ-master without picked up CLs."""
+    self._Prepare(bot_id=constants.CQ_MASTER)
+    stage = self.ConstructStage()
+    stage.sync_stage.pool.HasPickedUpCLs.return_value = False
+    stage.PerformStage()
+    self.push_mock.assert_not_called()

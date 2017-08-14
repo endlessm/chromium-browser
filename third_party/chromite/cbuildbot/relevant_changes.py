@@ -158,34 +158,43 @@ class TriageRelevantChanges(object):
 
   STAGE_SYNC = {COMMIT_QUEUE_SYNC, MASTER_SLAVE_LKGM_SYNC}
 
-  def __init__(self, master_build_id, db, config, version, build_root, changes,
-               buildbucket_info_dict, cidb_status_dict, completed_builds,
-               dependency_map):
+  def __init__(self, master_build_id, db, builders_array, config, metadata,
+               version, build_root, changes, buildbucket_info_dict,
+               cidb_status_dict, completed_builds, dependency_map,
+               buildbucket_client, dry_run=True):
     """Initialize an instance of TriageRelevantChanges.
 
     Args:
       master_build_id: The build_id of the master build.
       db: An instance of cidb.CIDBConnection to fetch data from CIDB.
+      builders_array: A list of expected slave build config names (strings).
       config: An instance of config_lib.BuildConfig. Config dict of this build.
+      metadata: Instance of metadata_lib.CBuildbotMetadata. Metadata of this
+                build.
       version: Current manifest version string. See the return type of
         VersionInfo.VersionString().
       build_root: Path to the build root directory.
       changes: A list of changes (GerritPatch instances) which have been applied
         to this build.
       buildbucket_info_dict: A dict mapping all slave build config names to
-        their BuildbucketInfos (See SlaveStatus.GetAllSlaveBuildbucketInfo
+        their BuildbucketInfos (See SlaveBuilerStatus.GetAllSlaveBuildbucketInfo
         for details).
       cidb_status_dict: A dict mapping all slave build config names to their
-        CIDBStatusInfos (See SlaveStatus.GetAllSlaveCIDBStatusInfo for details)
+        CIDBStatusInfos (See SlaveBuilerStatus.GetAllSlaveCIDBStatusInfo for
+        details)
       completed_builds: A set of slave build config names (strings) which
         have completed and will not be retried.
       dependency_map: A dict mapping a change (patch.GerritPatch instance) to a
         set of changes (patch.GerritPatch instances) depending on this change.
         (See ValidationPool.GetDependMapForChanges for details.)
+      buildbucket_client: Instance of buildbucket_lib.buildbucket_client.
+      dry_run: Boolean indicating whether it's a dry run. Default to True.
     """
     self.master_build_id = master_build_id
     self.db = db
+    self.builders_array = builders_array
     self.config = config
+    self.metadata = metadata
     self.version = version
     self.buildbucket_info_dict = buildbucket_info_dict
     self.cidb_status_dict = cidb_status_dict
@@ -193,6 +202,8 @@ class TriageRelevantChanges(object):
     self.build_root = build_root
     self.changes = changes
     self.dependency_map = dependency_map
+    self.buildbucket_client = buildbucket_client
+    self.dry_run = dry_run
 
     # Dict mapping slave config names to a list of stages
     self.slave_stages_dict = None
@@ -347,7 +358,7 @@ class TriageRelevantChanges(object):
     Some projects are configured with ignored-stages in COMMIT_QUEUE.ini. The CQ
     can still submit changes from these projects if all failed statges are
     listed in ignored-stages. Please refer to
-    triage_lib.GetStagesToIgnoreForChange for more details.
+    cq_config.CQConfigParser.GetStagesToIgnore for more details.
 
     1) if the builder_status is in 'pass' status, it means the build uploaded a
     'pass' builder_status but failed other steps in or after the completion
@@ -409,6 +420,12 @@ class TriageRelevantChanges(object):
     Calculate ignorable changes given the BuilderStatus, move all not ignorable
     changes and their dependencies to will_not_submit set.
     """
+    # TODO(nxia): Improve SlaveBuilderStatus to take buildbucket_info_dict
+    # and cidb_status_dict as arguments to avoid extra queries.
+    slave_builder_statuses = builder_status_lib.SlaveBuilderStatus(
+        self.master_build_id, self.db, self.config, self.metadata,
+        self.buildbucket_client, self.builders_array, self.dry_run)
+
     for build_config, bb_info in self.buildbucket_info_dict.iteritems():
       if (build_config in self.completed_builds and
           bb_info.status == constants.BUILDBUCKET_BUILDER_STATUS_COMPLETED and
@@ -430,9 +447,8 @@ class TriageRelevantChanges(object):
           # calculate ignorable changes based on the builder_status. Move not
           # ignorable changes and their dependencies to will_not_submit set.
           relevant_changes = self.slave_changes_dict[build_config]
-          builder_status = (
-              builder_status_lib.BuilderStatusManager.GetBuilderStatus(
-                  build_config, self.version))
+          builder_status = slave_builder_statuses.GetBuilderStatusForBuild(
+              build_config)
           ignorable_changes = self._GetIgnorableChanges(
               build_config, builder_status, relevant_changes)
           self.build_ignorable_changes_dict[build_config] = ignorable_changes

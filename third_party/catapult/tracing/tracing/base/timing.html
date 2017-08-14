@@ -5,96 +5,94 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/base.html">
-<link rel="import" href="/tracing/base/base64.html">
+<link rel="import" href="/tracing/base/guid.html">
+<link rel="import" href="/tracing/base/iteration_helpers.html">
 
 <script>
 'use strict';
-
 tr.exportTo('tr.b', function() {
-  var Base64 = tr.b.Base64;
+  class Mark {
+    constructor(groupName, functionName) {
+      if (tr.isHeadless) return;
 
-  function computeUserTimingMarkName(groupName, functionName, opt_args) {
-    if (groupName === undefined) {
-      throw new Error('getMeasureString should have group name');
+      this.groupName_ = groupName;
+      this.functionName_ = functionName;
+      const guid = tr.b.GUID.allocateSimple();
+      this.measureName_ = `${groupName} ${functionName}`;
+      this.startMarkName_ = `${this.measureName} ${guid} start`;
+      this.endMarkName_ = `${this.measureName} ${guid} end`;
+
+      window.performance.mark(this.startMarkName_);
     }
-    if (functionName === undefined) {
-      throw new Error('getMeasureString should have function name');
+
+    get groupName() {
+      return this.groupName_;
     }
-    var userTimingMarkName = groupName + ':' + functionName;
-    if (opt_args !== undefined) {
-      userTimingMarkName += '/';
-      userTimingMarkName += Base64.btoa(JSON.stringify(opt_args));
+
+    get functionName() {
+      return this.functionName_;
     }
-    return userTimingMarkName;
+
+    get measureName() {
+      return this.measureName_;
+    }
+
+    get startMark() {
+      return tr.b.getOnlyElement(window.performance.getEntriesByName(
+          this.startMarkName_));
+    }
+
+    get endMark() {
+      return tr.b.getOnlyElement(window.performance.getEntriesByName(
+          this.endMarkName_));
+    }
+
+    get durationMs() {
+      // There may be many measures named `this.measureName`, but the start and
+      // end mark names contain a GUID so they are unique.
+      return this.endMark.startTime - this.startMark.startTime;
+    }
+
+    end() {
+      if (tr.isHeadless) return;
+
+      window.performance.mark(this.endMarkName_);
+      window.performance.measure(
+          this.measureName_, this.startMarkName_, this.endMarkName_);
+
+      if (!(window.ga instanceof Function)) return;
+      // Google Analytics
+      ga('send', {
+        hitType: 'event',
+        eventCategory: this.groupName,
+        eventAction: this.functionName,
+        eventValue: this.durationMs,
+      });
+    }
   }
 
-  function Timing() {
-  }
-
-  Timing.nextMarkNumber = 0;
-
-  Timing.mark = function(groupName, functionName, opt_args) {
-    if (tr.isHeadless) {
-      return {
-        end: function() {}
-      };
+  class Timing {
+    static mark(groupName, functionName) {
+      return new Mark(groupName, functionName);
     }
-    var userTimingMarkName = computeUserTimingMarkName(
-        groupName, functionName, opt_args);
-    var markBeginName = 'tvcm.mark' + Timing.nextMarkNumber++;
-    var markEndName = 'tvcm.mark' + Timing.nextMarkNumber++;
-    window.performance.mark(markBeginName);
-    return {
-      end: function() {
-        window.performance.mark(markEndName);
-        window.performance.measure(userTimingMarkName,
-            markBeginName,
-            markEndName);
-      }
-    };
-  };
 
-  Timing.wrap = function(groupName, callback, opt_args) {
-    if (groupName === undefined) {
-      throw new Error('Timing.wrap should have group name');
-    }
-    if (callback.name === '') {
-      throw new Error('Anonymous function is not allowed');
-    }
-    return Timing.wrapNamedFunction(
-        groupName, callback.name, callback, opt_args);
-  };
+    static instant(groupName, functionName, opt_value) {
+      const valueString = opt_value === undefined ? '' : ' ' + opt_value;
+      // eslint-disable-next-line no-console
+      console.timeStamp(`${groupName} ${functionName}${valueString}`);
 
-  Timing.wrapNamedFunction = function(groupName, functionName, callback,
-      opt_args) {
-    function timedNamedFunction() {
-      var markedTime = Timing.mark(groupName, functionName, opt_args);
-      try {
-        callback.apply(this, arguments);
-      } finally {
-        markedTime.end();
-      }
+      if (!(window.ga instanceof Function)) return;
+      // Google Analytics
+      ga('send', {
+        hitType: 'event',
+        eventCategory: groupName,
+        eventAction: functionName,
+        eventValue: opt_value,
+      });
     }
-    return timedNamedFunction;
-  };
-
-  function TimedNamedPromise(groupName, name, executor, opt_args) {
-    var markedTime = Timing.mark(groupName, name, opt_args);
-    var promise = new Promise(executor);
-    promise.then(function(result) {
-      markedTime.end();
-      return result;
-    }, function(e) {
-      markedTime.end();
-      throw e;
-    });
-    return promise;
   }
 
   return {
-    _computeUserTimingMarkName: computeUserTimingMarkName, // export for testing
-    TimedNamedPromise,
     Timing,
   };
 });

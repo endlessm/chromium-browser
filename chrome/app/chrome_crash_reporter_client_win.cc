@@ -14,6 +14,7 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/command_line.h"
 #include "base/debug/crash_logging.h"
@@ -162,13 +163,6 @@ size_t RegisterCrashKeysHelper() {
       {"newframe_replicated_origin", kSmallSize},
       {"newframe_oopifs_possible", kSmallSize},
 
-      // Temporary for https://crbug.com/630103.
-      {"origin_mismatch_url", crash_keys::kLargeSize},
-      {"origin_mismatch_origin", crash_keys::kMediumSize},
-      {"origin_mismatch_transition", crash_keys::kSmallSize},
-      {"origin_mismatch_redirects", crash_keys::kSmallSize},
-      {"origin_mismatch_same_page", crash_keys::kSmallSize},
-
       // Temporary for https://crbug.com/612711.
       {"aci_wrong_sp_extension_id", kSmallSize},
 
@@ -188,6 +182,10 @@ size_t RegisterCrashKeysHelper() {
       {"engine_params", crash_keys::kMediumSize},
       {"engine1_params", crash_keys::kMediumSize},
       {"engine2_params", crash_keys::kMediumSize},
+
+      // Temporary for http://crbug.com/703649.
+      {"field_trial_shmem_create_error", crash_keys::kSmallSize},
+      {"field_trial_shmem_map_error", crash_keys::kSmallSize},
   };
 
   // This dynamic set of keys is used for sets of key value pairs when gathering
@@ -243,13 +241,17 @@ void ChromeCrashReporterClient::InitializeCrashReportingForProcess() {
 
   std::wstring process_type = install_static::GetSwitchValueFromCommandLine(
       ::GetCommandLine(), install_static::kProcessType);
+  std::wstring user_data_dir;
+  if (install_static::CurrentProcessNeedsProfileDir())
+    user_data_dir = install_static::GetUserDataDirectory();
   // Don't set up Crashpad crash reporting in the Crashpad handler itself, nor
   // in the fallback crash handler for the Crashpad handler process.
   if (process_type != install_static::kCrashpadHandler &&
       process_type != install_static::kFallbackHandler) {
     crash_reporter::SetCrashReporterClient(instance);
     crash_reporter::InitializeCrashpadWithEmbeddedHandler(
-        process_type.empty(), install_static::UTF16ToUTF8(process_type));
+        process_type.empty(), install_static::UTF16ToUTF8(process_type),
+        install_static::UTF16ToUTF8(user_data_dir));
   }
 }
 #endif  // NACL_WIN64
@@ -357,12 +359,13 @@ bool ChromeCrashReporterClient::GetCrashDumpLocation(
     return true;
 
   *crash_dir = install_static::GetCrashDumpLocation();
-  return true;
+  return !crash_dir->empty();
 }
 
 bool ChromeCrashReporterClient::GetCrashMetricsLocation(
     base::string16* metrics_dir) {
-  return install_static::GetUserDataDirectory(metrics_dir, nullptr);
+  *metrics_dir = install_static::GetUserDataDirectory();
+  return !metrics_dir->empty();
 }
 
 // TODO(ananta)

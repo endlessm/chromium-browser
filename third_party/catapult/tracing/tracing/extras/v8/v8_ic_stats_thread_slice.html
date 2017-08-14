@@ -11,13 +11,13 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.e.v8', function() {
-  var ThreadSlice = tr.model.ThreadSlice;
+  const ThreadSlice = tr.model.ThreadSlice;
 
   function V8ICStatsThreadSlice() {
     ThreadSlice.apply(this, arguments);
     this.icStats_ = undefined;
     if (this.args['ic-stats']) {
-      this.icStats_ = this.args['ic-stats']['data'];
+      this.icStats_ = this.args['ic-stats'].data;
       delete this.args['ic-stats'];
     }
   }

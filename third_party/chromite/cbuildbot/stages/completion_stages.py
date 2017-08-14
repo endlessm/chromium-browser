@@ -6,7 +6,6 @@
 
 from __future__ import print_function
 
-from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import chroot_lib
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import prebuilts
@@ -14,14 +13,18 @@ from chromite.cbuildbot import relevant_changes
 from chromite.cbuildbot import tree_status
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import sync_stages
+from chromite.lib import buildbucket_lib
 from chromite.lib import builder_status_lib
 from chromite.lib import clactions
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
+from chromite.lib import failure_message_lib
+from chromite.lib import hwtest_results
 from chromite.lib import metrics
 from chromite.lib import results_lib
+from chromite.lib import timeout_util
 
 
 def GetBuilderSuccessMap(builder_run, overall_success):
@@ -110,6 +113,26 @@ class ManifestVersionedSyncCompletionStage(
     # UpdateStatus.
     self.message = None
 
+    # TODO(nxia): remove self.message and use self.failure_message after we
+    # stop uploading BuilderStatus to GS.
+    self.failure_message = None
+
+  def GetBuildFailureMessageFromCIDB(self):
+    """Get message summarizing failures of this build from CIDB."""
+    build_id, db = self._run.GetCIDBHandle()
+
+    if db:
+      stage_failures = db.GetBuildsFailures([build_id])
+      failure_msg_manager = failure_message_lib.FailureMessageManager()
+      failure_messages = failure_msg_manager.ConstructStageFailureMessages(
+          stage_failures)
+
+      return builder_status_lib.SlaveBuilderStatus.CreateBuildFailureMessage(
+          self._run.config.name,
+          self._run.config.overlays,
+          self._run.ConstructDashboardURL(),
+          failure_messages)
+
   def GetBuildFailureMessage(self):
     """Returns message summarizing the failures."""
     return CreateBuildFailureMessage(self._run.config.overlays,
@@ -119,6 +142,7 @@ class ManifestVersionedSyncCompletionStage(
   def PerformStage(self):
     if not self.success:
       self.message = self.GetBuildFailureMessage()
+      self.failure_message = self.GetBuildFailureMessageFromCIDB()
 
     if not config_lib.IsPFQType(self._run.config.build_type):
       # Update the pass/fail status in the manifest-versions
@@ -144,7 +168,7 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
   def _GetLocalBuildStatus(self):
     """Return the status for this build as a dictionary."""
     status = builder_status_lib.BuilderStatus.GetCompletedStatus(self.success)
-    status_obj = builder_status_lib.BuilderStatus(status, self.message)
+    status_obj = builder_status_lib.BuilderStatus(status, self.failure_message)
     return {self._bot_id: status_obj}
 
   def _GetSlaveBuildStatus(self, manager, build_id, db, builder_names,
@@ -192,6 +216,7 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
       build_id, db = self._run.GetCIDBHandle()
       if db:
         timeout = db.GetTimeToDeadline(build_id)
+        logging.info('Got timeout for build_id %s', build_id)
       if timeout is None:
         # Catch-all: This could happen if cidb is not setup, or the deadline
         # query fails.
@@ -768,10 +793,11 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
 
     changes = self.sync_stage.pool.applied
 
+    build_id, db = self._run.GetCIDBHandle()
+
     do_partial_submission = self._ShouldSubmitPartialPool(slave_buildbucket_ids)
 
     if do_partial_submission:
-      build_id, db = self._run.GetCIDBHandle()
       changes_by_config = (
           relevant_changes.RelevantChanges.GetRelevantChangesForSlaves(
               build_id, db, self._run.config, changes, no_stat,
@@ -811,6 +837,22 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
                    'changes.')
       tot_sanity = False
 
+    if tot_sanity:
+      try:
+        status = tree_status.WaitForTreeStatus(
+            period=tree_status.DEFAULT_WAIT_FOR_TREE_STATUS_SLEEP,
+            timeout=tree_status.DEFAULT_WAIT_FOR_TREE_STATUS_TIMEOUT,
+            throttled_ok=True)
+        tot_sanity = (status == constants.TREE_OPEN)
+      except timeout_util.TimeoutError:
+        logging.warning('Timed out waiting for getting tree status in %s(s).',
+                        tree_status.DEFAULT_WAIT_FOR_TREE_STATUS_TIMEOUT)
+        tot_sanity = False
+
+      if not tot_sanity:
+        logging.info('The tree is not open now, so we are attributing '
+                     'failures to the broken tree rather than the changes.')
+
     if not self_destructed and inflight:
       # The master didn't destruct itself and some slave(s) timed out due to
       # unknown causes, so only reject infra changes (probably just chromite
@@ -819,11 +861,21 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
                                                    changes=changes)
       return
 
+    failed_hwtests = None
+    if db is not None:
+      slave_statuses = db.GetSlaveStatuses(
+          build_id, buildbucket_ids=slave_buildbucket_ids)
+      slave_build_ids = [x['id'] for x in slave_statuses]
+      failed_hwtests = (
+          hwtest_results.HWTestResultManager.GetFailedHWTestsFromCIDB(
+              db, slave_build_ids))
+
     # Some builder failed, or some builder did not report stats, or
     # the intersection of both. Let HandleValidationFailure decide
     # what changes to reject.
     self.sync_stage.pool.HandleValidationFailure(
-        messages, sanity=tot_sanity, changes=changes, no_stat=no_stat)
+        messages, sanity=tot_sanity, changes=changes, no_stat=no_stat,
+        failed_hwtests=failed_hwtests)
 
   def _GetInfraFailMessages(self, failing):
     """Returns a list of messages containing infra failures.
@@ -929,9 +981,17 @@ class PreCQCompletionStage(generic_stages.BuilderStage):
 
   def GetBuildFailureMessage(self):
     """Returns message summarizing the failures."""
-    return CreateBuildFailureMessage(self._run.config.overlays,
-                                     self._run.config.name,
-                                     self._run.ConstructDashboardURL())
+    build_id, db = self._run.GetCIDBHandle()
+    stage_failures = db.GetBuildsFailures([build_id])
+    failure_messages = (
+        failure_message_lib.FailureMessageManager.ConstructStageFailureMessages(
+            stage_failures))
+
+    return builder_status_lib.SlaveBuilderStatus.CreateBuildFailureMessage(
+        self._run.config.name,
+        self._run.config.overlays,
+        self._run.ConstructDashboardURL(),
+        failure_messages)
 
   def PerformStage(self):
     # Update Gerrit and Google Storage with the Pre-CQ status.
@@ -945,16 +1005,19 @@ class PreCQCompletionStage(generic_stages.BuilderStage):
 class PublishUprevChangesStage(generic_stages.BuilderStage):
   """Makes uprev changes from pfq live for developers."""
 
-  def __init__(self, builder_run, success, stage_push=False, **kwargs):
+  def __init__(self, builder_run, sync_stage, success, stage_push=False,
+               **kwargs):
     """Constructor.
 
     Args:
       builder_run: BuilderRun object.
+      sync_stage: An instance of sync stage.
       success: Boolean indicating whether the build succeeded.
       stage_push: Indicating whether to stage the push instead of pushing
                   it to master, default to False.
     """
     super(PublishUprevChangesStage, self).__init__(builder_run, **kwargs)
+    self.sync_stage = sync_stage
     self.success = success
     self.stage_push = stage_push
 
@@ -1050,6 +1113,12 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
       return False
 
   def PerformStage(self):
+    if (config_lib.IsMasterCQ(self._run.config) and
+        not self.sync_stage.pool.HasPickedUpCLs()):
+      logging.info('No CLs have been picked up and no slaves have been '
+                   'scheduled in this run. Will not publish uprevs.')
+      return
+
     overlays, push_overlays = self._ExtractOverlays()
 
     staging_branch = None
@@ -1086,14 +1155,15 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
     # commits.
     if (config_lib.IsCQType(self._run.config.build_type) or
         not (self.success or staging_branch is not None)):
+      repo = self.GetRepoRepository()
+
       # Clean up our root and sync down the latest changes that were
       # submitted.
-      commands.BuildRootGitCleanup(self._build_root)
+      repo.BuildRootGitCleanup(self._build_root)
 
       # Sync down the latest changes we have submitted.
       if self._run.options.sync:
         next_manifest = self._run.config.manifest
-        repo = self.GetRepoRepository()
         repo.Sync(next_manifest)
 
       # Commit an uprev locally.

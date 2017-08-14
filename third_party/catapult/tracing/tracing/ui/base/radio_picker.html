@@ -33,7 +33,7 @@ found in the LICENSE file.
 Polymer({
   is: 'tr-ui-b-radio-picker',
 
-  created: function() {
+  created() {
     this.needsInit_ = true;
     this.settingsKey_ = undefined;
     this.isReady_ = false;
@@ -44,7 +44,7 @@ Polymer({
     this.selectedKey_ = undefined;
   },
 
-  ready: function() {
+  ready() {
     this.isReady_ = true;
     this.maybeInit_();
     this.maybeRenderRadioButtons_();
@@ -74,7 +74,7 @@ Polymer({
     this.maybeInit_();
   },
 
-  maybeInit_: function() {
+  maybeInit_() {
     if (!this.needsInit_) return;
     if (this.settingsKey_ === undefined) return;
     this.needsInit_ = false;
@@ -87,9 +87,9 @@ Polymer({
       if (e.key in this.radioButtons_) {
         throw new Error(e.key + ' already exists');
       }
-      var radioButton = document.createElement('div');
-      var input = document.createElement('input');
-      var label = document.createElement('label');
+      const radioButton = document.createElement('div');
+      const input = document.createElement('input');
+      const label = document.createElement('label');
       input.type = 'radio';
       input.id = e.label;
       input.addEventListener('click', function() {
@@ -107,10 +107,10 @@ Polymer({
     this.maybeRenderRadioButtons_();
   },
 
-  maybeRenderRadioButtons_: function() {
+  maybeRenderRadioButtons_() {
     if (!this.isReady_) return;
     if (this.radioButtons_ === undefined) return;
-    for (var key in this.radioButtons_) {
+    for (const key in this.radioButtons_) {
       Polymer.dom(this.$.container).appendChild(
           this.radioButtons_[key].parentElement);
     }
@@ -119,7 +119,7 @@ Polymer({
     }
   },
 
-  select: function(key) {
+  select(key) {
     if (key === undefined || key === this.selectedKey_) {
       return;
     }

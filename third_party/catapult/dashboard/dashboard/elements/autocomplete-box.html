@@ -177,7 +177,7 @@ property 'group' sets to the header item name.
   <script>
     'use strict';
 
-    var AutocompleteBoxBehavior = {
+    const AutocompleteBoxBehavior = {
       properties: {
         items: {
           type: Array,
@@ -245,7 +245,7 @@ property 'group' sets to the header item name.
         'selectedItemChanged(selectedItem)'
       ],
 
-      itemEquals: function(itemA, itemB) {
+      itemEquals(itemA, itemB) {
         return itemA.name == itemB.name && itemA.group == itemB.group;
       },
 
@@ -253,11 +253,11 @@ property 'group' sets to the header item name.
        * When the underlying list of items changes update the selected items
        * to ensure we're not selecting things which are no longer in the list.
        */
-      itemsChanged: function(_itemsChange) {
-        var preservedSelectedItem = null;
-        var items = this.items || [];
+      itemsChanged(_itemsChange) {
+        let preservedSelectedItem = null;
+        const items = this.items || [];
         if (this.selectedItem) {
-          for (var newItem of items) {
+          for (const newItem of items) {
             if (this.itemEquals(this.selectedItem, newItem)) {
               preservedSelectedItem = newItem;
               break;
@@ -267,49 +267,50 @@ property 'group' sets to the header item name.
         this.set('selectedItem', preservedSelectedItem);
       },
 
-      selectedItemChanged: function(_selectedItemsChange) {
+      selectedItemChanged(_selectedItemsChange) {
         this.fire('dropdownselect');
       },
 
-      computeSuggestedItems: function(query, _itemsChange) {
-        var searcher = new autocomplete.Autocomplete(this.items);
+      computeSuggestedItems(query, _itemsChange) {
+        const ignoreCase = true;
+        const searcher = new autocomplete.Autocomplete(this.items, ignoreCase);
         return searcher.search(query);
       },
 
-      computeHasSuggestions: function(_suggestedItemsChange) {
+      computeHasSuggestions(_suggestedItemsChange) {
         return this.suggestedItems.length > 0;
       },
 
-      computeShowDropdown: function(_hasSuggestions, _dropdownOpen) {
+      computeShowDropdown(_hasSuggestions, _dropdownOpen) {
         return this.hasSuggestions && this.dropdownOpen;
       },
 
-      selectItem: function(item) {
+      selectItem(item) {
         if (item.head) return;
         this.set('query', '');
         this.set('dropdownOpen', false);
         this.set('selectedItem', item);
       },
 
-      maybeBackspaceSelection: function() {
+      maybeBackspaceSelection() {
         if (this.get('query') === '') {
           this.set('selectedItem', null);
         }
       },
 
-      maybeSelectLocus: function() {
-        var suggestions = this.suggestedItems || [];
+      maybeSelectLocus() {
+        const suggestions = this.suggestedItems || [];
         if (suggestions.includes(this.locusItem)) {
           this.selectItem(this.locusItem);
           this.set('dropdownOpen', false);
         }
       },
 
-      moveLocus: function(down) {
-        var delta = down ? 1 : -1;
-        var suggestions = this.suggestedItems || [];
-        var n = suggestions.length;
-        var index = suggestions.indexOf(this.locusItem);
+      moveLocus(down) {
+        const delta = down ? 1 : -1;
+        const suggestions = this.suggestedItems || [];
+        const n = suggestions.length;
+        let index = suggestions.indexOf(this.locusItem);
         if (index === -1 && !down) {
           index = 0;
         }
@@ -324,7 +325,7 @@ property 'group' sets to the header item name.
         }
       },
 
-      computeSelectedName: function(selectedItem) {
+      computeSelectedName(selectedItem) {
         if (!selectedItem) return '';
         return selectedItem.name;
       },
@@ -348,28 +349,28 @@ property 'group' sets to the header item name.
         'updateSelected(locusItem)',
       ],
 
-      shouldIgnoreSelectionEvents: function() {
+      shouldIgnoreSelectionEvents() {
         if (this.muffleSelection === undefined) this.muffleSelection = false;
         return this.muffleSelection;
       },
 
-      onClickInput: function() {
+      onClickInput() {
         // Sometimes the dropbox is closed even when the input has focus
         // tries to click on the input to re-open it so we support that:
         this.set('dropdownOpen', true);
       },
 
-      onFocusInput: function() {
+      onFocusInput() {
         this.set('dropdownOpen', true);
       },
 
-      onBlurInput: function() {
+      onBlurInput() {
         this.set('dropdownOpen', false);
       },
 
-      onInputKeydown: function(event) {
+      onInputKeydown(event) {
         this.set('dropdownOpen', true);
-        var key = event.keyCode || event.charCode;
+        const key = event.keyCode || event.charCode;
         if (key === 8 || key === 46) {  // Backspace and Delete.
           this.maybeBackspaceSelection();
         } else if (key === 40) {
@@ -383,9 +384,9 @@ property 'group' sets to the header item name.
         }
       },
 
-      scrollLocusIntoView: function() {
-        var elements = this.$.dropdown.items || [];
-        for (var element of elements) {
+      scrollLocusIntoView() {
+        const elements = this.$.dropdown.items || [];
+        for (const element of elements) {
           if (element.item === this.locusItem) {
             element.scrollIntoView(false);
             return;
@@ -393,18 +394,18 @@ property 'group' sets to the header item name.
         }
       },
 
-      onItemsChanged: function() {
+      onItemsChanged() {
         this.updateSelected();
       },
 
-      updateSelected: function() {
+      updateSelected() {
         this.muffleSelection = true;
         (() => {
           this.$.dropdown.selected = undefined;
           if (this.selectedItem === null) return;
-          var selectedItem = this.selectedItem;
-          var menuItemsArray = this.$.dropdown.items || [];
-          for (var i = 0; i < menuItemsArray.length; i++) {
+          const selectedItem = this.selectedItem;
+          const menuItemsArray = this.$.dropdown.items || [];
+          for (let i = 0; i < menuItemsArray.length; i++) {
             if (menuItemsArray[i].item === selectedItem) {
               this.$.dropdown.selected = i;
               return;
@@ -414,11 +415,11 @@ property 'group' sets to the header item name.
         this.muffleSelection = false;
       },
 
-      locusClassIfLocus: function(locusItem, anItem) {
+      locusClassIfLocus(locusItem, anItem) {
         return locusItem === anItem ? 'locus' : '';
       },
 
-      onDropdownMouseDown: function(event) {
+      onDropdownMouseDown(event) {
         // Prevent focus moving to the drop down.
         event.preventDefault();
       },
@@ -426,11 +427,11 @@ property 'group' sets to the header item name.
       /**
        * Handles item selected on drop-down menu.
        */
-      onDropdownSelect: function(event, detail) {
+      onDropdownSelect(event, detail) {
         if (this.shouldIgnoreSelectionEvents()) return;
         this.$.textbox.focus();
-        var index = this.$.dropdown.indexOf(detail.item);
-        var item = this.suggestedItems[index];
+        const index = this.$.dropdown.indexOf(detail.item);
+        const item = this.suggestedItems[index];
         this.selectItem(item);
       },
     });

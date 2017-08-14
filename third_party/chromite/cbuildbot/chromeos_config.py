@@ -58,7 +58,7 @@ class HWTestList(object):
         config_lib.CONFIG_TEMPLATE_RELEASE_BRANCH]
 
   def DefaultList(self, **kwargs):
-    """Returns a default list of HWTestConfig's for a build
+    """Returns a default list of HWTestConfigs for a build.
 
     Args:
       *kwargs: overrides for the configs
@@ -122,7 +122,12 @@ class HWTestList(object):
     return self.DefaultList(**kwargs)
 
   def AFDOList(self, **kwargs):
-    """Returns a default list of HWTestConfig's for a AFDO build.
+    """Returns a default list of HWTestConfigs for a AFDO build.
+
+    For more details on AFDO:
+    - https://gcc.gnu.org/wiki/AutoFDO
+    - https://sites.google.com/a/google.com/chromeos-toolchain-team-home2
+      -> 11. AFDO PROFILE-GUIDED OPTIMIZATIONS
 
     Args:
       *kwargs: overrides for the configs
@@ -134,7 +139,7 @@ class HWTestList(object):
     return [config_lib.HWTestConfig('perf_v2', **afdo_dict)]
 
   def DefaultListNonCanary(self, **kwargs):
-    """Return a default list of HWTestConfig's for a non-canary build.
+    """Return a default list of HWTestConfigs for a non-canary build.
 
     Optional arguments may be overridden in `kwargs`, except that
     the `blocking` setting cannot be provided.
@@ -143,7 +148,7 @@ class HWTestList(object):
             config_lib.HWTestConfig(constants.HWTEST_COMMIT_SUITE, **kwargs)]
 
   def DefaultListCQ(self, **kwargs):
-    """Return a default list of HWTestConfig's for a CQ build.
+    """Return a default list of HWTestConfigs for a CQ build.
 
     Optional arguments may be overridden in `kwargs`, except that
     the `blocking` setting cannot be provided.
@@ -157,11 +162,26 @@ class HWTestList(object):
     return self.DefaultListNonCanary(**default_dict)
 
   def DefaultListPFQ(self, **kwargs):
-    """Return a default list of HWTestConfig's for a PFQ build.
+    """Return a default list of HWTestConfigs for a PFQ build.
 
     Optional arguments may be overridden in `kwargs`, except that
     the `blocking` setting cannot be provided.
     """
+    default_dict = dict(pool=constants.HWTEST_PFQ_POOL, file_bugs=True,
+                        priority=constants.HWTEST_PFQ_PRIORITY,
+                        minimum_duts=4)
+    # Allows kwargs overrides to default_dict for pfq.
+    default_dict.update(kwargs)
+    return self.DefaultListNonCanary(**default_dict)
+
+  def DefaultListPFQInformational(self, **kwargs):
+    """Return a default list of HWTestConfigs for an inform. PFQ build.
+
+    Optional arguments may be overridden in `kwargs`, except that
+    the `blocking` setting cannot be provided.
+    """
+    # The informational PFQ does not honor to retry jobs. This reduces
+    # hwtest times and shows flakes clearer.
     default_dict = dict(pool=constants.HWTEST_PFQ_POOL, file_bugs=True,
                         priority=constants.HWTEST_PFQ_PRIORITY,
                         retry=False, max_retries=None, minimum_duts=4)
@@ -177,8 +197,7 @@ class HWTestList(object):
     list is a blocking sanity suite that verifies the build will not break dut.
     """
     sanity_dict = dict(pool=constants.HWTEST_MACH_POOL,
-                       file_bugs=True, priority=constants.HWTEST_PFQ_PRIORITY,
-                       retry=False, max_retries=None)
+                       file_bugs=True, priority=constants.HWTEST_PFQ_PRIORITY)
     sanity_dict.update(kwargs)
     sanity_dict.update(dict(num=1, minimum_duts=1, suite_min_duts=1,
                             blocking=True))
@@ -198,8 +217,7 @@ class HWTestList(object):
     """
     default_dict = dict(file_bugs=True,
                         timeout=config_lib.HWTestConfig.ASYNC_HW_TEST_TIMEOUT,
-                        priority=constants.HWTEST_PFQ_PRIORITY,
-                        retry=True, max_retries=None, minimum_duts=3)
+                        priority=constants.HWTEST_PFQ_PRIORITY, minimum_duts=3)
     # Allows kwargs overrides to default_dict for pfq.
     default_dict.update(kwargs)
 
@@ -220,8 +238,7 @@ class HWTestList(object):
     list is a blocking sanity suite that verifies the build will not break dut.
     """
     sanity_dict = dict(pool=constants.HWTEST_MACH_POOL,
-                       file_bugs=True, priority=constants.HWTEST_PFQ_PRIORITY,
-                       retry=False, max_retries=None)
+                       file_bugs=True, priority=constants.HWTEST_PFQ_PRIORITY)
     sanity_dict.update(kwargs)
     sanity_dict.update(dict(num=1, minimum_duts=1, suite_min_duts=1,
                             blocking=True))
@@ -406,11 +423,13 @@ _arm_internal_release_boards = frozenset([
     'beaglebone',
     'beaglebone_servo',
     'bob',
+    'cobblepot',
     'daisy',
     'daisy_skate',
     'daisy_spring',
     'elm',
     'gale',
+    'gonzo',
     'gru',
     'hana',
     'kevin',
@@ -418,7 +437,8 @@ _arm_internal_release_boards = frozenset([
     'nyan_big',
     'nyan_blaze',
     'nyan_kitty',
-    'loonix',
+    'lasilla-ground',
+    'lasilla-sky',
     'oak',
     'peach_pi',
     'peach_pit',
@@ -438,12 +458,14 @@ _arm_internal_release_boards = frozenset([
     'veyron_speedy',
     'veyron_tiger',
     'whirlwind',
+    'wooten',
 ])
 
 _arm_external_boards = frozenset([
     'arm-generic',
     'arm64-generic',
     'arm64-llvmpipe',
+    'tael',
 ])
 
 _x86_internal_release_boards = frozenset([
@@ -504,11 +526,11 @@ _x86_internal_release_boards = frozenset([
     'nasher',
     'newbie',
     'ninja',
+    'novato',
     'orco',
     'panther',
     'parrot',
     'parrot_ivb',
-    'pbody',
     'peppy',
     'plaso',
     'poppy',
@@ -526,6 +548,7 @@ _x86_internal_release_boards = frozenset([
     'setzer',
     'slippy',
     'snappy',
+    'soraka',
     'squawks',
     'stout',
     'strago',
@@ -550,6 +573,7 @@ _x86_internal_release_boards = frozenset([
 
 _x86_external_boards = frozenset([
     'amd64-generic',
+    'tatl',
     'x32-generic',
     'x86-generic',
 ])
@@ -582,6 +606,7 @@ _cheets_x86_boards = _cheets_boards | frozenset([
     'chell',
     'cyan',
     'edgar',
+    'eve',
     'fizz',
     'gandof',
     'glados',
@@ -593,6 +618,7 @@ _cheets_x86_boards = _cheets_boards | frozenset([
     'lulu',
     'nasher',
     'newbie',
+    'novato',
     'poppy',
     'pyro',
     'reef',
@@ -602,6 +628,7 @@ _cheets_x86_boards = _cheets_boards | frozenset([
     'sentry',
     'setzer',
     'snappy',
+    'soraka',
     'strago',
     'terra',
     'ultima',
@@ -621,14 +648,23 @@ _lakitu_boards = frozenset([
 ])
 
 _loonix_boards = frozenset([
-    'loonix',
+    'cobblepot',
+    'gonzo',
+    'lasilla-ground',
+    'lasilla-sky',
+    'wooten',
 ])
 
 _moblab_boards = frozenset([
     'guado_moblab',
 ])
 
-_nofactory_boards = _lakitu_boards | frozenset([
+_termina_boards = frozenset([
+    'tatl',
+    'tael',
+])
+
+_nofactory_boards = _lakitu_boards | _termina_boards | frozenset([
     'smaug',
 ])
 
@@ -636,14 +672,15 @@ _toolchains_from_source = frozenset([
     'x32-generic',
 ])
 
-_noimagetest_boards = _lakitu_boards | _loonix_boards
+_noimagetest_boards = _lakitu_boards | _loonix_boards | _termina_boards
 
-_nohwqual_boards = _lakitu_boards | _loonix_boards
+_nohwqual_boards = (_lakitu_boards | _loonix_boards
+                    | _termina_boards | _beaglebone_boards)
 
 _norootfs_verification_boards = frozenset([
 ])
 
-_base_layout_boards = _lakitu_boards
+_base_layout_boards = _lakitu_boards | _termina_boards
 
 _no_unittest_boards = frozenset((
 ))
@@ -653,6 +690,7 @@ _cheets_vmtest_boards = frozenset([
     'betty',
     'cyan',
     'newbie',
+    'novato',
 ])
 
 # List of boards that run VMTests but only the smoke tests, not the AU tests
@@ -662,6 +700,7 @@ _smoke_only_vmtest_boards = frozenset([
     'betty',
     'cyan',
     'newbie',
+    'novato',
 ])
 
 # This is a list of configs that should be included on the main waterfall, but
@@ -979,22 +1018,6 @@ def GeneralTemplates(site_config, ge_build_config):
   )
 
   site_config.AddTemplate(
-      'pfq',
-      build_type=constants.PFQ_TYPE,
-      build_timeout=20 * 60,
-      important=True,
-      uprev=True,
-      overlays=constants.PUBLIC_OVERLAYS,
-      manifest_version=True,
-      trybot_list=True,
-      doc='http://www.chromium.org/chromium-os/build/builder-overview#'
-          'TOC-Chrome-PFQ',
-      vm_tests=[config_lib.VMTestConfig(constants.SMOKE_SUITE_TEST_TYPE),
-                config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)],
-      vm_tests_override=TRADITIONAL_VM_TESTS_SUPPORTED,
-  )
-
-  site_config.AddTemplate(
       'paladin',
       hw_tests_override=hw_test_list.DefaultListNonCanary(
           num=constants.HWTEST_TRYBOT_NUM, pool=constants.HWTEST_TRYBOT_POOL,
@@ -1068,7 +1091,7 @@ def GeneralTemplates(site_config, ge_build_config):
   )
 
   site_config.AddTemplate(
-      'loonix',
+      'termina',
       sync_chrome=False,
       chrome_sdk=False,
       afdo_use=False,
@@ -1076,9 +1099,33 @@ def GeneralTemplates(site_config, ge_build_config):
       vm_tests=[],
       vm_tests_override=None,
       hw_tests=[],
+      signer_tests=False,
+      sign_types=None,
+      paygen=False,
+      upload_hw_test_artifacts=False,
+      upload_stripped_packages=['sys-kernel/*kernel*'],
+      image_test=False,
+      images=['base', 'test'],
+      packages=['virtual/target-os',
+                'virtual/target-os-dev',
+                'virtual/target-os-test'],
+  )
+
+  site_config.AddTemplate(
+      'loonix',
+      sync_chrome=False,
+      chrome_sdk=False,
+      afdo_use=False,
+      dev_installer_prebuilts=False,
+      vm_tests=[],
+      vm_tests_override=None,
+      # TODO(harshmodi): Re-enable this when we start using vboot
+      signer_tests=False,
+      hw_tests=[],
       paygen=False,
       upload_hw_test_artifacts=False,
       image_test=False,
+      images=remove_images(['recovery', 'factory_install'])
   )
 
   # An anchor of Laktiu' test customizations.
@@ -1096,6 +1143,7 @@ def GeneralTemplates(site_config, ge_build_config):
       'lakitu_paladin_test_customizations',
       vm_tests=[config_lib.VMTestConfig(constants.SMOKE_SUITE_TEST_TYPE),
                 config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)],
+      vm_tests_override=None,
       gce_tests=[config_lib.GCETestConfig(constants.GCE_SANITY_TEST_TYPE)],
   )
 
@@ -1121,7 +1169,7 @@ def GeneralTemplates(site_config, ge_build_config):
       rootfs_verification=False,
       paygen=False,
       signer_tests=False,
-      images=remove_images(['recovery', 'factory_install']),
+      images=remove_images(['dev', 'test', 'recovery', 'factory_install']),
   )
 
   # This adds Chrome branding.
@@ -1260,19 +1308,27 @@ def GeneralTemplates(site_config, ge_build_config):
       useflags=append_useflags(['-cros-debug']),
   )
 
-  # Because branch directories may be shared amongst builders on multiple
-  # branches, they must delete the chroot every time they run.
-  # They also potentially need to build [new] Chrome.
   site_config.AddTemplate(
       'pre_flight_branch',
       site_config.templates.internal,
       site_config.templates.official_chrome,
-      site_config.templates.pfq,
+      build_type=constants.PFQ_TYPE,
+      build_timeout=20 * 60,
+      important=True,
+      manifest_version=True,
+      branch=True,
+      master=True,
+      slave_configs=[],
+      vm_tests=[],
+      vm_tests_override=TRADITIONAL_VM_TESTS_SUPPORTED,
+      hw_tests=[],
+      hw_tests_override=[],
+      uprev=True,
       overlays=constants.BOTH_OVERLAYS,
       prebuilts=constants.PRIVATE,
-      branch=True,
       trybot_list=False,
-      sync_chrome=True,
+      doc='http://www.chromium.org/chromium-os/build/builder-overview#'
+          'TOC-Chrome-PFQ',
       active_waterfall=constants.WATERFALL_RELEASE)
 
   site_config.AddTemplate(
@@ -1342,6 +1398,7 @@ def GeneralTemplates(site_config, ge_build_config):
       site_config.templates.internal,
       site_config.templates.default_hw_tests_override,
       build_type=constants.CANARY_TYPE,
+      suite_scheduling=True,
       build_timeout=12 * 60 * 60 if is_release_branch else (7 * 60 + 50) * 60,
       useflags=append_useflags(['-cros-debug']),
       afdo_use=True,
@@ -1384,6 +1441,7 @@ def GeneralTemplates(site_config, ge_build_config):
   site_config.AddTemplate(
       'release_afdo',
       site_config.templates.release,
+      suite_scheduling=False,
       trybot_list=False,
       hw_tests=(
           hw_test_list.DefaultList(pool=constants.HWTEST_SUITES_POOL, num=4) +
@@ -1476,6 +1534,7 @@ def GeneralTemplates(site_config, ge_build_config):
       'firmware_base',
       site_config.templates.no_vmtest_builder,
       images=[],
+      hwqual=False,
       factory_toolkit=False,
       packages=['virtual/chromeos-firmware', 'chromeos-base/autotest-all'],
       usepkg_build_packages=True,
@@ -1560,6 +1619,8 @@ def CreateBoardConfigs(site_config, boards_dict, ge_build_config):
       board_config.apply(site_config.templates.loonix)
     if board in _moblab_boards:
       board_config.apply(site_config.templates.moblab)
+    if board in _termina_boards:
+      board_config.apply(site_config.templates.termina)
     if board in _nofactory_boards:
       board_config.apply(factory=False,
                          factory_toolkit=False,
@@ -1750,6 +1811,7 @@ def ToolchainBuilders(site_config, boards_dict, ge_build_config):
       'nyan_big',
       'peach_pit',
       'peppy',
+      'reef',
       'sentry',
       'squawks',
       'terra',
@@ -1885,50 +1947,6 @@ def PreCqBuilders(site_config, boards_dict, ge_build_config):
       binhost_test=True,
   )
 
-  # TODO(davidjames): Add peach_pit, nyan, and beaglebone to pre-cq.
-  # TODO(davidjames): Update daisy_spring to build images again.
-  site_config.AddGroup(
-      'mixed-a-pre-cq',
-      # daisy_spring w/kernel 3.8.
-      site_config['daisy_spring-compile-only-pre-cq'],
-      # lumpy w/kernel 3.8.
-      site_config['lumpy-compile-only-pre-cq'],
-  )
-
-  site_config.AddGroup(
-      'mixed-b-pre-cq',
-      # samus w/kernel 3.14.
-      site_config['samus-compile-only-pre-cq'],
-  )
-
-  site_config.AddGroup(
-      'mixed-c-pre-cq',
-      # brillo
-      site_config['whirlwind-compile-only-pre-cq'],
-  )
-
-  site_config.AddGroup(
-      'external-mixed-pre-cq',
-      site_config['x86-generic-no-vmtest-pre-cq'],
-      site_config['amd64-generic-no-vmtest-pre-cq'],
-  )
-
-  site_config.AddGroup(
-      'kernel-3_14-a-pre-cq',
-      site_config['x86-generic-no-vmtest-pre-cq'],
-      site_config['arm-generic-no-vmtest-pre-cq']
-  )
-
-  site_config.AddGroup(
-      'kernel-3_14-b-pre-cq',
-      site_config['whirlwind-no-vmtest-pre-cq'],
-  )
-
-  site_config.AddGroup(
-      'kernel-3_14-c-pre-cq',
-      site_config['veyron_pinky-no-vmtest-pre-cq'],
-  )
-
   # Wifi specific PreCQ.
   site_config.AddTemplate(
       'wificell_pre_cq',
@@ -1997,8 +2015,9 @@ def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
       site_config, boards_dict, ge_build_config)
   hw_test_list = HWTestList(ge_build_config)
 
+  # Generic template shared by all Android versions.
   site_config.AddTemplate(
-      'android_pfq',
+      'generic_android_pfq',
       site_config.templates.default_hw_tests_override,
       build_type=constants.ANDROID_PFQ_TYPE,
       important=True,
@@ -2006,50 +2025,105 @@ def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
       overlays=constants.BOTH_OVERLAYS,
       manifest_version=True,
       android_rev=constants.ANDROID_REV_LATEST,
-      android_import_branch='git_mnc-dr-arc-dev',
       description='Preflight Android Uprev & Build (internal)',
       vm_tests=[config_lib.VMTestConfig(constants.SMOKE_SUITE_TEST_TYPE),
                 config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)],
       vm_tests_override=None,
   )
 
-  master_config = site_config.Add(
-      'master-android-pfq',
-      site_config.templates.android_pfq,
+  # Template for Android MNC.
+  # For historical reason, we want to name MNC Android PFQ builders as
+  # $BOARD-android-pfq, so we should name this template also without mnc-
+  # prefix (see testConfigNamesMatchTemplate in chromeos_config_unittest).
+  site_config.AddTemplate(
+      'android_pfq',
+      site_config.templates.generic_android_pfq,
+      android_package='android-container',
+      android_import_branch='git_mnc-dr-arc-dev',
+  )
+
+  # Template for Android NYC.
+  site_config.AddTemplate(
+      'nyc_android_pfq',
+      site_config.templates.generic_android_pfq,
+      android_package='android-container-nyc',
+      android_import_branch='git_nyc-mr1-arc',
+      android_gts_build_branch='git_nyc-mr2-dev',
+  )
+
+  # Mixin for masters.
+  site_config.AddTemplate(
+      'master_android_pfq_mixin',
       site_config.templates.internal,
+      site_config.templates.no_vmtest_builder,
       buildslave_type=constants.GCE_WIMPY_BUILD_SLAVE_TYPE,
       boards=[],
       master=True,
-      slave_configs=[],
       push_overlays=constants.BOTH_OVERLAYS,
   )
 
-  _android_pfq_hwtest_boards = frozenset([
+  # Android MNC master.
+  mnc_master_config = site_config.Add(
+      constants.MNC_ANDROID_PFQ_MASTER,
+      site_config.templates.android_pfq,
+      site_config.templates.master_android_pfq_mixin,
+  )
+
+  # Android NYC master.
+  nyc_master_config = site_config.Add(
+      constants.NYC_ANDROID_PFQ_MASTER,
+      site_config.templates.nyc_android_pfq,
+      site_config.templates.master_android_pfq_mixin,
+  )
+
+  _mnc_hwtest_boards = frozenset([
       'cyan',
       'samus',
       'veyron_minnie',
   ])
-
-  _android_pfq_no_hwtest_boards = frozenset([
+  _mnc_no_hwtest_boards = frozenset([
       'glados-cheets',
   ])
+  _nyc_hwtest_boards = frozenset([
+      'caroline',
+      'veyron_jaq',
+  ])
+  _nyc_no_hwtest_boards = frozenset([
+      'reef',
+  ])
 
-  master_config.AddSlaves(
+  # Android MNC slaves.
+  # For historical reason, slave names do not contain "mnc".
+  mnc_master_config.AddSlaves(
       site_config.AddForBoards(
           'android-pfq',
-          _android_pfq_hwtest_boards,
+          _mnc_hwtest_boards,
           board_configs,
           site_config.templates.android_pfq,
           hw_tests=hw_test_list.SharedPoolAndroidPFQ(),
+      ) +
+      site_config.AddForBoards(
+          'android-pfq',
+          _mnc_no_hwtest_boards,
+          board_configs,
+          site_config.templates.android_pfq,
       )
   )
 
-  master_config.AddSlaves(
+  # Android NYC slaves.
+  nyc_master_config.AddSlaves(
       site_config.AddForBoards(
-          'android-pfq',
-          _android_pfq_no_hwtest_boards,
+          'nyc-android-pfq',
+          _nyc_hwtest_boards,
           board_configs,
-          site_config.templates.android_pfq,
+          site_config.templates.nyc_android_pfq,
+          hw_tests=hw_test_list.SharedPoolAndroidPFQ(),
+      ) +
+      site_config.AddForBoards(
+          'nyc-android-pfq',
+          _nyc_no_hwtest_boards,
+          board_configs,
+          site_config.templates.nyc_android_pfq,
       )
   )
 
@@ -2117,7 +2191,6 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
       'monroe',
       'nyan_big',
       'nyan_kitty',
-      'oak',
       'panther',
       'parrot',
       'peach_pit',
@@ -2143,13 +2216,24 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
   ])
 
   _paladin_experimental_boards = frozenset([
+      'caroline',
+      'cave',
+      'cobblepot',
       'fizz',
       'gale',
+      'gonzo',
+      'guado',
       'kip',
-      'loonix',
+      'lakitu-gpu',
+      'lasilla-ground',
+      'lasilla-sky',
       'poppy',
       'scarlet',
+      'tatl',
+      'veyron_jerry',
       'whirlwind',
+      'wooten',
+      'oak'
   ])
 
   _paladin_active = _paladin_important_boards | _paladin_experimental_boards
@@ -2177,8 +2261,9 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
   ])
 
   _paladin_hwtest_boards = frozenset([
+      'caroline',
+      'cave',
       'elm',
-      'kevin',
       'kip',
       'link',
       'lumpy',
@@ -2191,10 +2276,33 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
       'veyron_speedy',
       'winky',
       'wolf',
-      'x86-alex',
-      'x86-zgb',
   ])
 
+  # Pairs of similar boards to split (bvt-inline, bvt-cq) between.
+  # bvt-cq takes longer, so generally should be given to the faster board.
+  # Assigning None as the second item in a pair means bvt-cq will not be run.
+  # pylint: disable=bad-whitespace
+  _paladin_hwtest_testsharding_pairs = frozenset([
+      # bvt-inline      # bvt-cq
+      ('wolf',          'peppy'),
+      ('peach_pit',     None),
+      ('veyron_mighty', 'veyron_speedy'),
+      ('lumpy',         'stumpy'),
+      ('nyan_big',      'nyan_kitty'),
+      ('winky',         'kip'),
+      ('elm',           None),
+      ('cave',          'caroline'),
+      ('link',          None),
+  ])
+
+  # To further spread out load for ARC++ (cheets) testing, we assign
+  # specific boards to handle the arc-bvt-cq test suite.  These boards
+  # should be separate from the BVT boards, above.
+  _paladin_cheets_hwtest_boards = frozenset([
+      'cyan',
+      'veyron_minnie',
+      'kevin',
+  ])
 
   # Jetstream devices run unique hw tests
   _paladin_jetstream_hwtest_boards = frozenset([
@@ -2204,12 +2312,6 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
 
   _paladin_moblab_hwtest_boards = frozenset([
       'guado_moblab',
-  ])
-
-  # *-cheets devices run a different suite
-  _paladin_cheets_hwtest_boards = frozenset([
-      'cyan',
-      'veyron_minnie',
   ])
 
   _paladin_chroot_replace_boards = frozenset([
@@ -2283,7 +2385,7 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
           hw_tests=[
               config_lib.HWTestConfig(
                   constants.HWTEST_MOBLAB_QUICK_SUITE,
-                  num=1, timeout=120*60,
+                  num=1, timeout=90*60,
                   pool=constants.HWTEST_PALADIN_POOL)
           ],
           hw_tests_override=None)
@@ -2397,6 +2499,7 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
           prebuilts=False,
           compilecheck=True,
           unittests=False,
+          important=False,
           active_waterfall=constants.WATERFALL_INTERNAL,
       ),
   ])
@@ -2478,15 +2581,9 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
   # Shard the bvt-inline and bvt-cq hw tests between similar builders.
   # The first builder gets bvt-inline, and the second builder gets bvt-cq.
   # bvt-cq takes longer, so it usually makes sense to give it the faster board.
-  ShardHWTestsBetweenBuilders('x86-zgb-paladin', 'x86-alex-paladin')
-  ShardHWTestsBetweenBuilders('wolf-paladin', 'peppy-paladin')
-  ShardHWTestsBetweenBuilders('peach_pit-paladin', None)
-  ShardHWTestsBetweenBuilders('veyron_mighty-paladin', 'veyron_speedy-paladin')
-  ShardHWTestsBetweenBuilders('lumpy-paladin', 'stumpy-paladin')
-  ShardHWTestsBetweenBuilders('nyan_big-paladin', 'nyan_kitty-paladin')
-  ShardHWTestsBetweenBuilders('winky-paladin', 'kip-paladin')
-  ShardHWTestsBetweenBuilders('elm-paladin', None)
-  ShardHWTestsBetweenBuilders('kevin-paladin', None)
+  for board_a, board_b in _paladin_hwtest_testsharding_pairs:
+    ShardHWTestsBetweenBuilders('%s-paladin' % board_a,
+                                ('%s-paladin' % board_b) if board_b else None)
 
 
 def IncrementalBuilders(site_config, boards_dict, ge_build_config):
@@ -2658,7 +2755,9 @@ def InformationalBuilders(site_config, boards_dict, ge_build_config):
   hw_test_list = HWTestList(ge_build_config)
 
   _chrome_informational_hwtest_boards = frozenset([
+      'caroline',
       'peach_pit',
+      'reks',
       'tricky',
   ])
 
@@ -2672,7 +2771,7 @@ def InformationalBuilders(site_config, boards_dict, ge_build_config):
       internal_board_configs,
       site_config.templates.chrome_pfq_informational,
       important=False,
-      hw_tests=hw_test_list.DefaultListPFQ(
+      hw_tests=hw_test_list.DefaultListPFQInformational(
           pool=constants.HWTEST_CONTINUOUS_POOL),
   )
   informational_boards = (
@@ -2844,6 +2943,7 @@ def ChromePfqBuilders(site_config, boards_dict, ge_build_config):
       'nyan',
       'peach_pit',
       'peppy',
+      'reef',
       'tricky',
       'veyron_minnie',
       'veyron_rialto',
@@ -2851,7 +2951,8 @@ def ChromePfqBuilders(site_config, boards_dict, ge_build_config):
   ])
 
   _chrome_pfq_experimental_boards = frozenset([
-      'reef',
+      'caroline',
+      'scarlet',
   ])
 
   _chromte_pfq_tryjob_boards = (
@@ -2939,7 +3040,6 @@ def FirmwareBuilders(site_config, boards_dict, ge_build_config):
       'orco',
       'panther',
       'parrot',
-      'pbody',
       'peach_pi',
       'peach_pit',
       'peppy',
@@ -3268,7 +3368,6 @@ def ApplyCustomOverrides(site_config, ge_build_config):
 
   overwritten_configs = {
       'amd64-generic-chromium-pfq': {
-          'disk_layout': '2gb-rootfs',
           'useflags': [],
       },
 
@@ -3314,26 +3413,17 @@ def ApplyCustomOverrides(site_config, ge_build_config):
       ),
 
       'guado_labstation-release': {
-          'hw_tests': [
-              config_lib.HWTestConfig(constants.HWTEST_CANARY_SUITE,
-                                      num=1, timeout=120*60, warn_only=True,
-                                      async=True, retry=False, max_retries=None,
-                                      file_bugs=False),
-          ],
+          'hw_tests': [],
+          'hwqual':False,
           'image_test':False,
-          'images':['test'],
+          'images':['base', 'test'],
           'signer_tests':False,
           'paygen':False,
           'vm_tests':[],
       },
 
       'lumpy-chrome-pfq': {
-          'afdo_generate': True,
-          # Disable hugepages before collecting AFDO profile.
-          # Use gcc to build Chrome to get profile for x86-32 boards.
-          'useflags': append_useflags(['-transparent_hugepage', '-clang']),
-          'hw_tests': ([hw_test_list.AFDORecordTest()] +
-                       hw_test_list.SharedPoolPFQ()),
+          'hw_tests': hw_test_list.SharedPoolPFQ(),
       },
 
       'chell-chrome-pfq': {
@@ -3348,10 +3438,6 @@ def ApplyCustomOverrides(site_config, ge_build_config):
 
       'cyan-chrome-pfq': {
           'hw_tests': hw_test_list.SharedPoolAndroidPFQ(),
-      },
-
-      'daisy_skate-chrome-pfq': {
-          'hw_tests': hw_test_list.SharedPoolPFQ(),
       },
 
       'peppy-chrome-pfq': {
@@ -3485,20 +3571,35 @@ def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
       description='Create images used to power access points in WiFi lab.',
   )
 
+  # *-pre-flight-branch builders are in chromeos_release waterfall.
   site_config.Add(
-      'samus-pre-flight-branch',
+      'samus-chrome-pre-flight-branch',
       site_config.templates.pre_flight_branch,
-      master=True,
-      slave_configs=[],
-      push_overlays=constants.BOTH_OVERLAYS,
       boards=['samus'],
-      android_rev=constants.ANDROID_REV_LATEST,
-      android_import_branch='git_mnc-dr-arc-dev',
       afdo_generate=True,
       afdo_update_ebuild=True,
-      vm_tests=[],
+      sync_chrome=True,
+      chrome_rev=constants.CHROME_REV_STICKY,
       hw_tests=[hw_test_list.AFDORecordTest()],
       useflags=append_useflags(['-transparent_hugepage', '-debug_fission']),
+  )
+
+  site_config.Add(
+      'cyan-android-mnc-pre-flight-branch',
+      site_config.templates.pre_flight_branch,
+      boards=['cyan'],
+      android_rev=constants.ANDROID_REV_LATEST,
+      android_package='android-container',
+      android_import_branch='git_mnc-dr-arc-dev',
+  )
+
+  site_config.Add(
+      'reef-android-nyc-pre-flight-branch',
+      site_config.templates.pre_flight_branch,
+      boards=['reef'],
+      android_rev=constants.ANDROID_REV_LATEST,
+      android_package='android-container-nyc',
+      android_import_branch='git_nyc-mr1-arc',
   )
 
   # This is an example factory branch configuration.

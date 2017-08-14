@@ -5,7 +5,6 @@
 import logging
 import optparse
 import os
-import subprocess
 import sys
 import time
 
@@ -70,6 +69,8 @@ def ProcessCommandLineArgs(parser, args):
 def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
   def ProcessError(description=None):
     state.DumpStateUponFailure(story, results)
+    # Note: adding the FailureValue to the results object also normally
+    # cause the progress_reporter to log it in the output.
     results.AddValue(failure.FailureValue(story, sys.exc_info(), description))
   try:
     # TODO(mikecase): Remove this logging once Android perf bots are swarmed.
@@ -105,13 +106,17 @@ def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
   finally:
     has_existing_exception = (sys.exc_info() != (None, None, None))
     try:
-      state.DidRunStory(results)
-      # if state.DidRunStory raises exception, things are messed up badly and we
-      # do not need to run test.DidRunStory at that point.
+      # We attempt to stop tracing and/or metric collecting before possibly
+      # closing the browser. Closing the browser first and stopping tracing
+      # later appeared to cause issues where subsequent browser instances would
+      # not launch correctly on some devices (see: crbug.com/720317).
+      # The following normally cause tracing and/or metric collecting to stop.
       if isinstance(test, story_test.StoryTest):
         test.DidRunStory(state.platform, results)
       else:
         test.DidRunPage(state.platform)
+      # And the following normally causes the browser to be closed.
+      state.DidRunStory(results)
       # TODO(mikecase): Remove this logging once Android perf bots are swarmed.
       # crbug.com/678282
       if state.platform.GetOSName() == 'android':
@@ -182,7 +187,8 @@ def StoriesGroupedByStateClass(story_set, allow_multiple_groups):
 
 
 def Run(test, story_set, finder_options, results, max_failures=None,
-        tear_down_after_story=False, tear_down_after_story_set=False):
+        tear_down_after_story=False, tear_down_after_story_set=False,
+        expectations=None):
   """Runs a given test against a given page_set with the given options.
 
   Stop execution for unexpected exceptions such as KeyboardInterrupt.
@@ -232,14 +238,16 @@ def Run(test, story_set, finder_options, results, max_failures=None,
                 test, finder_options.Copy(), story_set)
 
           results.WillRunPage(story, storyset_repeat_counter)
-          try:
-            # Log ps on n7s to determine if adb changed processes.
-            # crbug.com/667470
-            if 'Nexus 7' in state.platform.GetDeviceTypeName():
-              ps_output = subprocess.check_output(['ps', '-ef'])
-              logging.info('Ongoing processes:\n%s', ps_output)
 
-            state.platform.WaitForTemperature(35)
+          if expectations:
+            disabled = expectations.IsStoryDisabled(story, state.platform)
+            if disabled and not finder_options.run_disabled_tests:
+              results.AddValue(skip.SkipValue(story, disabled))
+              results.DidRunPage(story)
+              continue
+
+          try:
+            state.platform.WaitForBatteryTemperature(35)
             _WaitForThermalThrottlingIfNeeded(state.platform)
             _RunStoryAndProcessErrorIfNeeded(story, results, state, test)
           except exceptions.Error:
@@ -307,15 +315,23 @@ def RunBenchmark(benchmark, finder_options):
 
   benchmark_metadata = benchmark.GetMetadata()
   possible_browser = browser_finder.FindBrowser(finder_options)
+  expectations = benchmark.InitializeExpectations()
+
   if not possible_browser:
     print ('Cannot find browser of type %s. To list out all '
            'available browsers, rerun your command with '
            '--browser=list' %  finder_options.browser_options.browser_type)
     return 1
-  if (possible_browser and
-    not decorators.IsBenchmarkEnabled(benchmark, possible_browser)):
+
+  permanently_disabled = expectations.IsBenchmarkDisabled(
+      possible_browser.platform)
+  # TODO(rnephew): Remove decorators.IsBenchmarkEnabled when deprecated.
+  temporarily_disabled = not decorators.IsBenchmarkEnabled(
+      benchmark, possible_browser)
+
+  if permanently_disabled or temporarily_disabled:
     print '%s is disabled on the selected browser' % benchmark.Name()
-    if finder_options.run_disabled_tests:
+    if finder_options.run_disabled_tests and not permanently_disabled:
       print 'Running benchmark anyway due to: --also-run-disabled-tests'
     else:
       print 'Try --also-run-disabled-tests to force the benchmark to run.'
@@ -363,8 +379,12 @@ def RunBenchmark(benchmark, finder_options):
     try:
       Run(pt, stories, finder_options, results, benchmark.max_failures,
           should_tear_down_state_after_each_story_run,
-          benchmark.ShouldTearDownStateAfterEachStorySetRun())
+          benchmark.ShouldTearDownStateAfterEachStorySetRun(),
+          expectations=expectations)
       return_code = min(254, len(results.failures))
+      # We want to make sure that all expectations are linked to real stories,
+      # this will log error messages if names do not match what is in the set.
+      benchmark.GetBrokenExpectations(stories)
     except Exception:
       exception_formatter.PrintFormattedException()
       return_code = 255

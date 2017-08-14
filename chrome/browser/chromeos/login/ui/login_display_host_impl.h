@@ -11,7 +11,6 @@
 #include <string>
 #include <vector>
 
-#include "ash/shell_observer.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/chromeos/login/app_launch_controller.h"
@@ -30,7 +29,6 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "ui/display/display_observer.h"
 #include "ui/gfx/geometry/rect.h"
-#include "ui/keyboard/keyboard_controller_observer.h"
 #include "ui/views/widget/widget_removals_observer.h"
 #include "ui/wm/public/scoped_drag_drop_disabler.h"
 
@@ -52,8 +50,6 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
                              public content::WebContentsObserver,
                              public chromeos::SessionManagerClient::Observer,
                              public chromeos::CrasAudioHandler::AudioObserver,
-                             public ash::ShellObserver,
-                             public keyboard::KeyboardControllerObserver,
                              public display::DisplayObserver,
                              public views::WidgetRemovalsObserver,
                              public chrome::MultiUserWindowManager::Observer {
@@ -67,15 +63,13 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
   OobeUI* GetOobeUI() const override;
   WebUILoginView* GetWebUILoginView() const override;
   void BeforeSessionStart() override;
-  void Finalize() override;
-  void OnCompleteLogin() override;
+  void Finalize(base::OnceClosure completion_callback) override;
   void OpenProxySettings() override;
   void SetStatusAreaVisible(bool visible) override;
-  AutoEnrollmentController* GetAutoEnrollmentController() override;
   void StartWizard(OobeScreen first_screen) override;
   WizardController* GetWizardController() override;
   AppLaunchController* GetAppLaunchController() override;
-  void StartUserAdding(const base::Closure& completion_callback) override;
+  void StartUserAdding(base::OnceClosure completion_callback) override;
   void CancelUserAdding() override;
   void StartSignInScreen(const LoginScreenContext& context) override;
   void OnPreferencesChanged() override;
@@ -121,17 +115,8 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
   // Overridden from chromeos::CrasAudioHandler::AudioObserver:
   void OnActiveOutputNodeChanged() override;
 
-  // ash::ShellObserver:
-  void OnVirtualKeyboardStateChanged(bool activated,
-                                     ash::WmWindow* root_window) override;
-
-  // Overridden from keyboard::KeyboardControllerObserver:
-  void OnKeyboardBoundsChanging(const gfx::Rect& new_bounds) override;
-  void OnKeyboardClosed() override;
-
   // Overridden from display::DisplayObserver:
   void OnDisplayAdded(const display::Display& new_display) override;
-  void OnDisplayRemoved(const display::Display& old_display) override;
   void OnDisplayMetricsChanged(const display::Display& display,
                                uint32_t changed_metrics) override;
 
@@ -206,9 +191,6 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
   gfx::Rect wallpaper_bounds_;
 
   content::NotificationRegistrar registrar_;
-
-  // The controller driving the auto-enrollment check.
-  std::unique_ptr<AutoEnrollmentController> auto_enrollment_controller_;
 
   // Sign in screen controller.
   std::unique_ptr<ExistingUserController> existing_user_controller_;
@@ -287,8 +269,8 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
   // Stored parameters for StartWizard, required to restore in case of crash.
   OobeScreen first_screen_;
 
-  // Called before host deletion.
-  base::Closure completion_callback_;
+  // Called after host deletion.
+  std::vector<base::OnceClosure> completion_callbacks_;
 
   // Active instance of authentication prewarmer.
   std::unique_ptr<AuthPrewarmer> auth_prewarmer_;
@@ -315,9 +297,6 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
   // feedback is enabled.  Otherwise, startup sound should be played
   // in any case.
   bool startup_sound_honors_spoken_feedback_ = false;
-
-  // True is subscribed as keyboard controller observer.
-  bool is_observing_keyboard_ = false;
 
   // Keeps a copy of the old Drag'n'Drop client, so that it would be disabled
   // during a login session and restored afterwards.

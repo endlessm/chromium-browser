@@ -56,7 +56,6 @@ SDK_TOOLCHAINS_OUTPUT = 'tmp/toolchain-pkgs'
 SDK_OVERLAYS_OUTPUT = 'tmp/sdk-overlays'
 
 AUTOTEST_BUILD_PATH = 'usr/local/build/autotest'
-CQ_CONFIG_FILENAME = 'COMMIT-QUEUE.ini'
 
 # Path to the lsb-release file on the device.
 LSB_RELEASE_PATH = '/etc/lsb-release'
@@ -240,6 +239,7 @@ MON_CQ_SELF_DESTRUCTION_COUNT = ('chromeos/cbuildbot/build/'
                                  'cq_self_destruction_count')
 MON_CQ_BUILD_DURATION = 'chromeos/cbuildbot/build/cq_build_durations'
 MON_CL_ACTION = 'chromeos/cbuildbot/cl_action'
+MON_LAST_SLAVE = 'chromeos/cbuildbot/last_completed_slave'
 MON_PRECQ_LAUNCH_COUNT = 'chromeos/cbuildbot/pre-cq/launch_count'
 MON_PRECQ_CL_LAUNCH_COUNT = 'chromeos/cbuildbot/pre-cq/cl_launch_count'
 MON_PRECQ_TICK_COUNT = 'chromeos/cbuildbot/pre-cq/tick_count'
@@ -257,6 +257,7 @@ MON_CL_FALSE_REJ_TOTAL = ('chromeos/cbuildbot/submitted_change/'
                           'false_rejections_total')
 MON_CL_FALSE_REJ_COUNT = ('chromeos/cbuildbot/submitted_change/'
                           'false_rejection_count')
+MON_CHROOT_USED = 'chromeos/cbuildbot/chroot_at_version'
 MON_REPO_SYNC_COUNT = 'chromeos/cbuildbot/repo/sync_count'
 MON_REPO_SYNC_RETRY_COUNT = 'chromeos/cbuildbot/repo/sync_retry_count'
 MON_REPO_SELFUPDATE_FAILURE_COUNT = ('chromeos/cbuildbot/repo/'
@@ -273,6 +274,8 @@ MON_BB_CANCEL_BATCH_BUILDS_COUNT = ('chromeos/cbuildbot/buildbucket/'
 MON_BB_CANCEL_PRE_CQ_BUILD_COUNT = ('chromeos/cbuildbot/buildbucket/'
                                     'cancel_pre_cq_build_count')
 
+MON_EXPORT_TO_GCLOUD = 'chromeos/cbuildbot/export_to_gcloud'
+
 # Sheriff-o-Matic tree which Chrome OS alerts are posted to.
 SOM_TREE = 'chromeos'
 
@@ -283,6 +286,8 @@ SOM_SEVERITY_CQ_FAILURE = 1000
 SOM_SEVERITY_PFQ_FAILURE = 1001
 SOM_SEVERITY_CANARY_FAILURE = 1002
 SOM_SEVERITY_RELEASE_FAILURE = 1003
+SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE = 1004
+SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE = 1005
 
 # List of master builds to generate Sheriff-o-Matics alerts for.
 # Waterfall, build config, SOM alert severity.
@@ -292,6 +297,43 @@ SOM_IMPORTANT_BUILDS = [
     (WATERFALL_INTERNAL, 'master-android-pfq', SOM_SEVERITY_PFQ_FAILURE),
     (WATERFALL_INTERNAL, 'master-release', SOM_SEVERITY_CANARY_FAILURE),
 ]
+SOM_BUILDS = {
+    SOM_TREE: [
+        (WATERFALL_INTERNAL, 'master-paladin', SOM_SEVERITY_CQ_FAILURE),
+        (WATERFALL_INTERNAL, 'master-android-pfq', SOM_SEVERITY_PFQ_FAILURE),
+        (WATERFALL_INTERNAL, 'master-release', SOM_SEVERITY_CANARY_FAILURE),
+    ],
+
+    # TODO: Once SoM supports alerts being added individually, this should
+    # be changed to a programatically list instead of a hardcoded list.
+    'gardener': [
+        (WATERFALL_INTERNAL, 'master-chromium-pfq', SOM_SEVERITY_PFQ_FAILURE),
+        (WATERFALL_CHROME, 'x86-alex-tot-chrome-pfq-informational',
+         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROME, 'lumpy-tot-chrome-pfq-informational',
+         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROME, 'peach_pit-tot-chrome-pfq-informational',
+         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROME, 'cyan-tot-chrome-pfq-informational',
+         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROME, 'tricky-tot-chrome-pfq-informational',
+         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROME, 'veyron_minnie-tot-chrome-pfq-informational',
+         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROMIUM, 'x86-generic-tot-chromium-pfq-informational',
+         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROMIUM, 'amd64-generic-tot-chromium-pfq-informational',
+         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROMIUM, 'daisy-tot-chromium-pfq-informational',
+         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROMIUM, 'amd64-generic-tot-asan-informational',
+         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROMIUM, 'x86-generic-telemetry',
+         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
+        (WATERFALL_CHROMIUM, 'amd64-generic-telemetry',
+         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
+    ],
+}
 
 # Re-execution API constants.
 # Used by --resume and --bootstrap to decipher which options they
@@ -348,7 +390,6 @@ INTERNAL_GOB_URL = 'https://%s' % INTERNAL_GOB_HOST
 INTERNAL_GERRIT_URL = 'https://%s' % INTERNAL_GERRIT_HOST
 
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
-ANDROID_BUILD_BRANCH = 'git_mnc-dr-arc-dev'
 ANDROID_BUILD_TARGETS = {
     # TODO(b/29509721): Workaround to roll adb with system image. We want to
     # get rid of this.
@@ -358,9 +399,9 @@ ANDROID_BUILD_TARGETS = {
     'AOSP_X86_USERDEBUG': ('linux-aosp_cheets_x86-userdebug', r'\.zip$'),
     'SDK_TOOLS': ('linux-static_sdk_tools', r'/(aapt|adb)$'),
 }
-ANDROID_GTS_BUILD_BRANCH = 'git_mnc-dev'
 ANDROID_GTS_BUILD_TARGETS = {
-    'XTS': ('linux-xts', r'\.zip$'),
+    # "gts_arm64" is the build maintained by GMS team.
+    'XTS': ('linux-gts_arm64', r'\.zip$'),
 }
 ARC_BUCKET_URL = 'gs://chromeos-arc-images/builds'
 ARC_BUCKET_ACLS = {
@@ -579,10 +620,11 @@ VALID_BUILD_TYPES = (
 
 # The default list of pre-cq configs to use.
 PRE_CQ_DEFAULT_CONFIGS = [
-    'caroline-pre-cq',                # skylake      kernel 3.18      vmtest
+    # TODO(ihf): Make caroline or newer vmtest once crbug.com/708715 is fixed.
+    'caroline-no-vmtest-pre-cq',      # skylake      kernel 3.18
     'daisy_spring-no-vmtest-pre-cq',  # arm          kernel 3.8
     'lumpy-no-vmtest-pre-cq',         # sandybridge  kernel 3.8
-    'rambi-no-vmtest-pre-cq',         # baytrail     kernel 4.4
+    'rambi-pre-cq',                   # baytrail     kernel 4.4       vmtest
     'samus-no-vmtest-pre-cq',         # broadwell    kernel 3.14
     'whirlwind-no-vmtest-pre-cq',     # brillo
     'x86-alex-no-vmtest-pre-cq',      # x86          kernel 3.8
@@ -595,10 +637,16 @@ PRE_CQ_LAUNCHER_CONFIG = 'pre-cq-launcher'
 # As of crbug.com/591117 this is the same as the config name.
 PRE_CQ_LAUNCHER_NAME = PRE_CQ_LAUNCHER_CONFIG
 
+CQ_CONFIG_FILENAME = 'COMMIT-QUEUE.ini'
+CQ_CONFIG_SECTION_GENERAL = 'GENERAL'
+CQ_CONFIG_IGNORED_STAGES = 'ignored-stages'
+CQ_CONFIG_SUBMIT_IN_PRE_CQ = 'submit-in-pre-cq'
+CQ_CONFIG_SUBSYSTEM = 'subsystem'
+
 # The COMMIT-QUEUE.ini and commit message option that overrides pre-cq configs
 # to test with.
-PRE_CQ_CONFIGS_OPTION = 'pre-cq-configs'
-PRE_CQ_CONFIGS_OPTION_REGEX = PRE_CQ_CONFIGS_OPTION + ':'
+CQ_CONFIG_PRE_CQ_CONFIGS = 'pre-cq-configs'
+CQ_CONFIG_PRE_CQ_CONFIGS_REGEX = CQ_CONFIG_PRE_CQ_CONFIGS + ':'
 
 # Define pool of machines for Hardware tests.
 HWTEST_DEFAULT_NUM = 6
@@ -664,11 +712,27 @@ HWTEST_VALID_PRIORITIES = ['Weekly',
 HWTEST_PRIORITIES_MAP = dict(
     (p, i) for i, p in enumerate(HWTEST_VALID_PRIORITIES))
 
+
+# HWTest result statuses
+HWTEST_STATUS_PASS = 'pass'
+HWTEST_STATUS_FAIL = 'fail'
+HWTEST_STATUS_ABORT = 'abort'
+HWTEST_STATUS_OTHER = 'other'
+HWTEST_STATUES_NOT_PASSED = frozenset([HWTEST_STATUS_FAIL,
+                                       HWTEST_STATUS_ABORT,
+                                       HWTEST_STATUS_OTHER])
+
 # Define HWTEST subsystem logic constants.
 SUBSYSTEMS = 'subsystems'
 SUBSYSTEM_PASS = 'subsystem_pass'
 SUBSYSTEM_FAIL = 'subsystem_fail'
 SUBSYSTEM_UNUSED = 'subsystem_unused'
+
+# Build messages
+MESSAGE_TYPE_IGNORED_REASON = 'ignored_reason'
+# MESSSGE_TYPE_IGNORED_REASON messages store the affected build as
+# the CIDB column message_value.
+MESSAGE_SUBTYPE_SELF_DESTRUCTION = 'self_destruction'
 
 # Define HWTEST job_keyvals
 DATASTORE_PARENT_KEY = 'datastore_parent_key'
@@ -1014,7 +1078,8 @@ CANARY_MASTER = 'master-release'
 PFQ_MASTER = 'master-chromium-pfq'
 BINHOST_PRE_CQ = 'binhost-pre-cq'
 WIFICELL_PRE_CQ = 'wificell-pre-cq'
-ANDROID_PFQ_MASTER = 'master-android-pfq'
+MNC_ANDROID_PFQ_MASTER = 'master-android-pfq'
+NYC_ANDROID_PFQ_MASTER = 'master-nyc-android-pfq'
 TOOLCHAIN_MASTTER = 'master-toolchain'
 
 

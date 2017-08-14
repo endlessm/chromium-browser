@@ -10,18 +10,18 @@ found in the LICENSE file.
 
 tr.b.unittest.testSuite(function() {
   test('instantiate', function() {
-    var infoBar = document.createElement('tr-ui-b-info-bar');
+    const infoBar = document.createElement('tr-ui-b-info-bar');
     infoBar.message = 'This is an info';
     infoBar.visible = true;
     this.addHTMLOutput(infoBar);
   });
 
   test('buttons', function() {
-    var infoBar = document.createElement('tr-ui-b-info-bar');
+    const infoBar = document.createElement('tr-ui-b-info-bar');
     infoBar.visible = true;
     infoBar.message = 'This is an info bar with buttons';
-    var didClick = false;
-    var button = infoBar.addButton('More info...', function() {
+    let didClick = false;
+    const button = infoBar.addButton('More info...', function() {
       didClick = true;
     });
     button.click();
@@ -30,18 +30,18 @@ tr.b.unittest.testSuite(function() {
   });
 
   test('hiding', function() {
-    var infoBar = document.createElement('tr-ui-b-info-bar');
+    const infoBar = document.createElement('tr-ui-b-info-bar');
     infoBar.message = 'This is an info bar';
     infoBar.visible = true;
     this.addHTMLOutput(infoBar);
 
-    assert.strictEqual(getComputedStyle(infoBar)['display'], 'flex');
+    assert.strictEqual(getComputedStyle(infoBar).display, 'flex');
 
     infoBar.visible = false;
-    assert.strictEqual(getComputedStyle(infoBar)['display'], 'none');
+    assert.strictEqual(getComputedStyle(infoBar).display, 'none');
 
     infoBar.visible = true;
-    assert.strictEqual(getComputedStyle(infoBar)['display'], 'flex');
+    assert.strictEqual(getComputedStyle(infoBar).display, 'flex');
   });
 });
 </script>

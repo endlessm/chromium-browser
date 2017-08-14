@@ -7,19 +7,16 @@
 from __future__ import print_function
 
 import collections
-import ConfigParser
 import contextlib
 import datetime
 import itertools
 import os
 import re
-import shutil
 import sys
 import time
 from xml.etree import ElementTree
 from xml.dom import minidom
 
-from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import chroot_lib
 from chromite.cbuildbot import lkgm_manager
 from chromite.cbuildbot import manifest_version
@@ -30,10 +27,12 @@ from chromite.cbuildbot import trybot_patch_pool
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import build_stages
+from chromite.lib import buildbucket_lib
 from chromite.lib import clactions
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import commandline
+from chromite.lib import cq_config
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
@@ -43,7 +42,6 @@ from chromite.lib import metrics
 from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
 from chromite.lib import timeout_util
-from chromite.lib import triage_lib
 from chromite.scripts import cros_mark_android_as_stable
 from chromite.scripts import cros_mark_chrome_as_stable
 
@@ -387,22 +385,6 @@ class SyncStage(generic_stages.BuilderStage):
 
   def _InitializeRepo(self):
     """Set up the RepoRepository object."""
-    # If we have no repository at all, but we have a warm cache path, copy in
-    # the warm cache. This is done so builders can try to avoid doing a sync
-    # from scratch on a new builder (especially GCE instances).
-    if (not repository.IsARepoRoot(self._build_root) and
-        self._run.options.repo_cache and
-        repository.IsARepoRoot(self._run.options.repo_cache)):
-      # If the warm cache is invalid, the wrong branch, or from the wrong
-      # manifest, Repository will repair it.
-      logging.info('Using warm cache "%s" to populate buildroot "%s"',
-                   self._run.options.repo_cache,
-                   self._build_root)
-
-      shutil.copytree(os.path.join(self._run.options.repo_cache, '.repo'),
-                      os.path.join(self._build_root, '.repo'),
-                      symlinks=True)
-
     self.repo = self.GetRepoRepository()
 
   def GetNextManifest(self):
@@ -592,6 +574,7 @@ class ManifestVersionedSyncStage(SyncStage):
     assert not self._chrome_rev, \
         'chrome_rev is unsupported on release builders.'
 
+    _, db = self._run.GetCIDBHandle()
     self.RegisterManifestManager(manifest_version.BuildSpecsManager(
         source_repo=self.repo,
         manifest_repo=self.manifest_repo,
@@ -603,6 +586,7 @@ class ManifestVersionedSyncStage(SyncStage):
         dry_run=dry_run,
         config=self._run.config,
         metadata=self._run.attrs.metadata,
+        db=db,
         buildbucket_client=self.buildbucket_client))
 
   def _SetAndroidVersionIfApplicable(self, manifest):
@@ -625,8 +609,7 @@ class ManifestVersionedSyncStage(SyncStage):
       # later. This is easier than parsing the manifest again after
       # the re-execution.
       self._run.attrs.metadata.UpdateKeyDictWithDict(
-          'version', {'android': android_version,
-                      'android-branch':  constants.ANDROID_BUILD_BRANCH})
+          'version', {'android': android_version})
 
   def _SetChromeVersionIfApplicable(self, manifest):
     """If 'chrome' is in |manifest|, write the version to the BuilderRun object.
@@ -889,7 +872,7 @@ class MasterSlaveLKGMSyncStage(ManifestVersionedSyncStage):
   def GetLatestAndroidVersion(self):
     """Returns the version of Android to uprev."""
     return cros_mark_android_as_stable.GetLatestBuild(
-        constants.ANDROID_BUCKET_URL, constants.ANDROID_BUILD_BRANCH,
+        constants.ANDROID_BUCKET_URL, self._run.config.android_import_branch,
         constants.ANDROID_BUILD_TARGETS)[0]
 
   def GetLatestChromeVersion(self):
@@ -1097,8 +1080,12 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
     """Checks out the repository to the given manifest."""
     lkgm_version = self._GetLKGMVersionFromManifest(next_manifest)
     chroot_manager = chroot_lib.ChrootManager(self._build_root)
+
     # Make sure the chroot version is valid.
-    chroot_manager.EnsureChrootAtVersion(lkgm_version)
+    using_fresh_chroot = chroot_manager.EnsureChrootAtVersion(lkgm_version)
+    metrics.Counter(constants.MON_CHROOT_USED).increment(
+        fields={'build_config': self._run.config.name,
+                'used_fresh_chroot': using_fresh_chroot})
 
     # Clear the chroot version as we are in the middle of building it.
     chroot_manager.ClearChrootVersion()
@@ -1229,7 +1216,6 @@ class PreCQLauncherStage(SyncStage):
     diff = datetime.timedelta(minutes=timeout_minutes)
     return (now - start) > diff
 
-
   @staticmethod
   def _PrintPatchStatus(patch, status):
     """Print a link to |patch| with |status| info."""
@@ -1258,13 +1244,15 @@ class PreCQLauncherStage(SyncStage):
     # Otherwise, look in appropriate COMMIT-QUEUE.ini. Otherwise, default to
     # constants.PRE_CQ_DEFAULT_CONFIGS
     lines = cros_patch.GetOptionLinesFromCommitMessage(
-        change.commit_message, constants.PRE_CQ_CONFIGS_OPTION_REGEX)
+        change.commit_message, constants.CQ_CONFIG_PRE_CQ_CONFIGS_REGEX)
     if lines is not None:
-      configs_to_test = self._ParsePreCQOption(' '.join(lines))
-    configs_to_test = configs_to_test or self._ParsePreCQOption(
-        triage_lib.GetOptionForChange(self._build_root, change, 'GENERAL',
-                                      constants.PRE_CQ_CONFIGS_OPTION))
+      configs_to_test = self._ParsePreCQsFromOption(lines)
 
+    cq_config_parser = cq_config.CQConfigParser(self._build_root, change)
+    configs_from_option = self._ParsePreCQsFromOption(
+        cq_config_parser.GetPreCQConfigs())
+
+    configs_to_test = configs_to_test or configs_from_option
     return set(configs_to_test or constants.PRE_CQ_DEFAULT_CONFIGS)
 
   def VerificationsForChange(self, change):
@@ -1276,7 +1264,7 @@ class PreCQLauncherStage(SyncStage):
     Returns:
       A set of configs to test.
     """
-    configs_to_test = set(self._ConfiguredVerificationsForChange(change))
+    configs_to_test = self._ConfiguredVerificationsForChange(change)
 
     # Add the BINHOST_PRE_CQ to any changes that affect an overlay.
     if '/overlays/' in change.project:
@@ -1284,10 +1272,17 @@ class PreCQLauncherStage(SyncStage):
 
     return configs_to_test
 
-  def _ParsePreCQOption(self, pre_cq_option):
-    """Gets a valid config list, or None, from |pre_cq_option|."""
-    if pre_cq_option and pre_cq_option.split():
-      configs_to_test = set(pre_cq_option.split())
+  def _ParsePreCQsFromOption(self, pre_cq_configs):
+    """Parse Pre-CQ configs got from option.
+
+    Args:
+      pre_cq_configs: A list of Pre-CQ configs got from option, or None.
+
+    Returns:
+      A valid Pre-CQ config list, or None.
+    """
+    if pre_cq_configs:
+      configs_to_test = set(pre_cq_configs)
 
       # Replace 'default' with the default configs.
       if 'default' in configs_to_test:
@@ -1338,12 +1333,9 @@ class PreCQLauncherStage(SyncStage):
       Boolean indicating if this change is configured to be submitted
       in the pre-CQ.
     """
-    result = None
-    try:
-      result = triage_lib.GetOptionForChange(
-          self._build_root, change, 'GENERAL', 'submit-in-pre-cq')
-    except ConfigParser.Error:
-      logging.error('%s has malformed config file', change, exc_info=True)
+    cq_config_parser = cq_config.CQConfigParser(self._build_root, change)
+    result = cq_config_parser.GetOption(constants.CQ_CONFIG_SECTION_GENERAL,
+                                        constants.CQ_CONFIG_SUBMIT_IN_PRE_CQ)
     return bool(result and result.lower() == 'yes')
 
   def GetConfigBuildbucketIdMap(self, output):
@@ -1393,12 +1385,7 @@ class PreCQLauncherStage(SyncStage):
       cmd += ['-g', cros_patch.AddPrefix(patch, patch.gerrit_number)]
       self._PrintPatchStatus(patch, 'testing')
 
-    use_buildbucket = False
     config_buildbucket_id_map = {}
-    if buildbucket_lib.GetServiceAccount(constants.CHROMEOS_SERVICE_ACCOUNT):
-      # use buildbucket to launch trybots.
-      cmd += ['--use-buildbucket']
-      use_buildbucket = True
 
     if self._run.options.debug:
       logging.debug('Would have launched tryjob with %s', cmd)
@@ -1407,9 +1394,8 @@ class PreCQLauncherStage(SyncStage):
           cmd, cwd=self._build_root, capture_output=True)
       if result and result.output:
         logging.info('cbuildbot output: %s' % result.output)
-        if use_buildbucket:
-          config_buildbucket_id_map = self.GetConfigBuildbucketIdMap(
-              result.output)
+        config_buildbucket_id_map = self.GetConfigBuildbucketIdMap(
+            result.output)
 
     actions = []
     build_id, db = self._run.GetCIDBHandle()

@@ -12,12 +12,12 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.analysis', function() {
-  var ObjectSnapshotView = tr.ui.b.define('object-snapshot-view');
+  const ObjectSnapshotView = tr.ui.b.define('object-snapshot-view');
 
   ObjectSnapshotView.prototype = {
     __proto__: HTMLDivElement.prototype,
 
-    decorate: function() {
+    decorate() {
       this.objectSnapshot_ = undefined;
     },
 
@@ -42,12 +42,12 @@ tr.exportTo('tr.ui.analysis', function() {
       this.updateContents();
     },
 
-    updateContents: function() {
+    updateContents() {
       throw new Error('Not implemented');
     }
   };
 
-  var options = new tr.b.ExtensionRegistryOptions(
+  const options = new tr.b.ExtensionRegistryOptions(
       tr.b.TYPE_BASED_REGISTRY_MODE);
   options.mandatoryBaseClass = ObjectSnapshotView;
   options.defaultMetadata = {

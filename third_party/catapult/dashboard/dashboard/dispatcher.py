@@ -6,6 +6,7 @@
 
 import webapp2
 
+from dashboard import add_histograms_queue
 from dashboard import add_point
 from dashboard import add_point_queue
 from dashboard import alerts
@@ -33,6 +34,7 @@ from dashboard import email_summary
 from dashboard import file_bug
 from dashboard import generate_benchmark_health_report
 from dashboard import get_logs
+from dashboard import get_histogram
 from dashboard import graph_csv
 from dashboard import graph_json
 from dashboard import graph_revisions
@@ -59,12 +61,15 @@ from dashboard import stoppage_alert_debugging_info
 from dashboard import test_buildbucket
 from dashboard import update_bug_with_results
 from dashboard import update_test_suites
+from dashboard.api import alerts as api_alerts
 
 
 _URL_MAPPING = [
+    ('/add_histograms_queue', add_histograms_queue.AddHistogramsQueueHandler),
     ('/add_point', add_point.AddPointHandler),
     ('/add_point_queue', add_point_queue.AddPointQueueHandler),
     ('/alerts', alerts.AlertsHandler),
+    (r'/api/alerts/(.*)', api_alerts.AlertsHandler),
     ('/associate_alerts', associate_alerts.AssociateAlertsHandler),
     ('/auto_bisect', auto_bisect.AutoBisectHandler),
     ('/auto_triage', auto_triage.AutoTriageHandler),
@@ -91,6 +96,7 @@ _URL_MAPPING = [
     ('/file_bug', file_bug.FileBugHandler),
     ('/generate_benchmark_health_report',
      generate_benchmark_health_report.GenerateBenchmarkHealthReportHandler),
+    ('/get_histogram', get_histogram.GetHistogramHandler),
     ('/get_logs', get_logs.GetLogsHandler),
     ('/graph_csv', graph_csv.GraphCsvHandler),
     ('/graph_json', graph_json.GraphJsonHandler),

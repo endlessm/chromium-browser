@@ -23,14 +23,14 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
    * Displays a LayerTreeHostImpl snapshot in a human readable form.
    * @constructor
    */
-  var LayerTreeHostImplSnapshotView = tr.ui.b.define(
+  const LayerTreeHostImplSnapshotView = tr.ui.b.define(
       'tr-ui-e-chrome-cc-layer-tree-host-impl-snapshot-view',
       tr.ui.analysis.ObjectSnapshotView);
 
   LayerTreeHostImplSnapshotView.prototype = {
     __proto__: tr.ui.analysis.ObjectSnapshotView.prototype,
 
-    decorate: function() {
+    decorate() {
       Polymer.dom(this).classList.add('tr-ui-e-chrome-cc-lthi-s-view');
 
       this.selection_ = undefined;
@@ -65,8 +65,8 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
     set objectSnapshot(objectSnapshot) {
       this.objectSnapshot_ = objectSnapshot;
 
-      var lthi = this.objectSnapshot;
-      var layerTreeImpl;
+      const lthi = this.objectSnapshot;
+      let layerTreeImpl;
       if (lthi) {
         layerTreeImpl = lthi.getTree(this.layerPicker_.whichTree);
       }
@@ -93,7 +93,7 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
       tr.b.dispatchSimpleEvent(this, 'cc-selection-change');
     },
 
-    onLayerPickerSelectionChanged_: function() {
+    onLayerPickerSelectionChanged_() {
       this.selection_ = this.layerPicker_.selection;
       this.layerView_.selection = this.selection;
       this.layerView_.layerTreeImpl = this.layerPicker_.layerTreeImpl;
@@ -102,7 +102,7 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
       tr.b.dispatchSimpleEvent(this, 'cc-selection-change');
     },
 
-    onLayerViewSelectionChanged_: function() {
+    onLayerViewSelectionChanged_() {
       this.selection_ = this.layerView_.selection;
       this.layerPicker_.selection = this.selection;
       tr.b.dispatchSimpleEvent(this, 'cc-selection-change');

@@ -65,8 +65,9 @@ jboolean SpecialLocaleHandler::LoadTemplateUrls(
     return false;
 
   for (const auto& data_url : prepopulated_list) {
-    TemplateURL* existing = template_url_service_->GetTemplateURLForKeyword(
-        data_url.get()->keyword());
+    const TemplateURL* existing =
+        template_url_service_->GetTemplateURLForKeyword(
+            data_url.get()->keyword());
     // Do not add local engines if there is already one.
     if (existing)
       continue;
@@ -99,7 +100,8 @@ void SpecialLocaleHandler::OverrideDefaultSearchProvider(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj) {
   // If the user has changed their default search provider, no-op.
-  TemplateURL* current_dsp = template_url_service_->GetDefaultSearchProvider();
+  const TemplateURL* current_dsp =
+      template_url_service_->GetDefaultSearchProvider();
   if (!current_dsp ||
       current_dsp->prepopulate_id() != TemplateURLPrepopulateData::google.id) {
     return;
@@ -116,7 +118,8 @@ void SpecialLocaleHandler::SetGoogleAsDefaultSearch(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj) {
   // If the user has changed their default search provider, no-op.
-  TemplateURL* current_dsp = template_url_service_->GetDefaultSearchProvider();
+  const TemplateURL* current_dsp =
+      template_url_service_->GetDefaultSearchProvider();
   if (!current_dsp ||
       current_dsp->prepopulate_id() != GetDesignatedSearchEngine()) {
     return;

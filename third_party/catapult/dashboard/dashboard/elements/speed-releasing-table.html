@@ -192,23 +192,23 @@ found in the LICENSE file.
         },
       },
 
-      getCurrOrRef: function(index) {
+      getCurrOrRef(index) {
         return index ? 'Reference' : 'Current';
       },
 
       /**
        * Gets the specified value given a rev, bot, test.
        */
-      getValue: function(rev, bot, test) {
-        var value = this.tableConfig.values[rev][bot][test];
+      getValue(rev, bot, test) {
+        const value = this.tableConfig.values[rev][bot][test];
         if (value === null || value === undefined) {
           return 'n/a';
         }
-        var unit = this.tableConfig.units[test];
+        const unit = this.tableConfig.units[test];
         if (tr.b.Unit.byName[unit]) {
           return (tr.b.Unit.byName[unit].format(value));
         }
-        var unitInfo = tr.v.LEGACY_UNIT_INFO.get(unit);
+        const unitInfo = tr.v.LEGACY_UNIT_INFO.get(unit);
         if (unitInfo) {
           return (tr.b.Unit.byName[unitInfo.name].format(value));
         }
@@ -219,11 +219,11 @@ found in the LICENSE file.
        * Calls this.getDelta and checks if the result is an improvement,
        * regression, or zero.
        */
-      getDeltaClassName: function(bot, test) {
+      getDeltaClassName(bot, test) {
         // Passes in true; arbitrary choice since either true, false, or any
         // other option would still result in the same positive or negative
         // result.
-        var delta = this.getDelta(bot, test, 'true');
+        let delta = this.getDelta(bot, test, 'true');
         delta = parseInt(delta, 10);
         if (delta < 0) {
           return 'improvement';
@@ -236,49 +236,50 @@ found in the LICENSE file.
       /**
        * Computes the abs/relative difference for the specified test.
        */
-      getDelta: function(bot, test, abs) {
+      getDelta(bot, test, abs) {
         if (this.tableConfig.revisions.length === 2) {
-          var revA = this.tableConfig.revisions[1];
-          var revB = this.tableConfig.revisions[0];
-          var valueA = this.tableConfig.values[revA][bot][test];
-          var valueB = this.tableConfig.values[revB][bot][test];
+          const revA = this.tableConfig.revisions[1];
+          const revB = this.tableConfig.revisions[0];
+          const valueA = this.tableConfig.values[revA][bot][test];
+          const valueB = this.tableConfig.values[revB][bot][test];
           if (valueA === null || valueA === undefined || valueB === null ||
               valueB === undefined) {
             return 'n/a';
           }
           if (abs === 'true') {
-            var difference = valueB - valueA;
-            var unit = this.tableConfig.units[test];
+            const difference = valueB - valueA;
+            const unit = this.tableConfig.units[test];
 
             if (tr.b.Unit.byName[unit]) {
               return (tr.b.Unit.byName[unit].format(difference));
             }
-            var unitInfo = tr.v.LEGACY_UNIT_INFO.get(unit);
+            const unitInfo = tr.v.LEGACY_UNIT_INFO.get(unit);
             if (unitInfo) {
               return (tr.b.Unit.byName[unitInfo.name].format(difference));
             }
             return difference;
           }
+          let relDiff;
           if (valueA === valueB) {
-            var relDiff = 0;
+            relDiff = 0;
           } else {
-            var relDiff = (valueB / valueA) - 1;
+            relDiff = (valueB / valueA) - 1;
           }
-          return (tr.b.Unit.byName['normalizedPercentage'].format(relDiff));
+          return (tr.b.Unit.byName.normalizedPercentage.format(relDiff));
         }
       },
 
-      getPrettyTestName: function(test) {
+      getPrettyTestName(test) {
         return this.tableConfig.layout[test][1];
       },
 
-      getCategory: function(test, index) {
-        var category = this.tableConfig.layout[test][0];
+      getCategory(test, index) {
+        const category = this.tableConfig.layout[test][0];
         return category;
       },
 
-      getCategoryCount: function(test) {
-        var category = this.tableConfig.layout[test][0];
+      getCategoryCount(test) {
+        const category = this.tableConfig.layout[test][0];
         return this.tableConfig.categories[category];
       },
 
@@ -303,13 +304,13 @@ found in the LICENSE file.
        * know it is the beginning of categoryC (category counts are not 0
        * based, but dom-repeat's index is).
        */
-      isFirstInCategory: function(index, test) {
-        var category = this.tableConfig.layout[test][0];
-        var keys = Object.keys(this.tableConfig.categories);
-        var categoryIndex = keys.indexOf(category);
+      isFirstInCategory(index, test) {
+        const category = this.tableConfig.layout[test][0];
+        const keys = Object.keys(this.tableConfig.categories);
+        const categoryIndex = keys.indexOf(category);
 
-        var previousCategoryTotal = 0;
-        for (var i = 0; i < categoryIndex; i++) {
+        let previousCategoryTotal = 0;
+        for (let i = 0; i < categoryIndex; i++) {
           previousCategoryTotal += this.tableConfig.categories[keys[i]];
         }
         if (index === 0 || index === previousCategoryTotal) {
@@ -323,23 +324,23 @@ found in the LICENSE file.
        * table rows. The class will add a dark line to help separate
        * categories visually.
        */
-      getIsFirstInCategoryClass: function(index, test) {
-        var isFirstInCategory = this.isFirstInCategory(index, test);
+      getIsFirstInCategoryClass(index, test) {
+        const isFirstInCategory = this.isFirstInCategory(index, test);
         if (isFirstInCategory) {
           return 'first-in-category';
         }
         return '';
       },
 
-      getURL: function(bot, test) {
+      getURL(bot, test) {
         return this.tableConfig.urlMap[bot + '/' + test];
       },
 
-      getStartMilestoneLabel: function() {
+      getStartMilestoneLabel() {
         return 'M' + this.tableConfig.displayMilestones[0];
       },
 
-      getEndMilestoneLabel: function() {
+      getEndMilestoneLabel() {
         if (this.tableConfig.displayMilestones[0] ===
             this.tableConfig.displayMilestones[1]) {
           return 'M' + (this.tableConfig.displayMilestones[1] + 1);
@@ -347,15 +348,15 @@ found in the LICENSE file.
         return 'M' + this.tableConfig.displayMilestones[1];
       },
 
-      prevMilestone: function() {
+      prevMilestone() {
         this.navigateMilestones(0);
       },
 
-      nextMilestone: function() {
+      nextMilestone() {
         this.navigateMilestones(1);
       },
 
-      navigateMilestones: function(i) {
+      navigateMilestones(i) {
         if (this.tableConfig.navigationMilestones[i] != null) {
           window.location.href = window.location.pathname + '?m=' +
                  this.tableConfig.navigationMilestones[i];
@@ -363,54 +364,54 @@ found in the LICENSE file.
         return null;
       },
 
-      getPrevMilestoneLabel: function() {
+      getPrevMilestoneLabel() {
         return this.getMilestoneLabel(0);
       },
 
-      getNextMilestoneLabel: function() {
+      getNextMilestoneLabel() {
         return this.getMilestoneLabel(1);
       },
 
-      getMilestoneLabel: function(i) {
+      getMilestoneLabel(i) {
         if (this.tableConfig.navigationMilestones[i] != null) {
           return this.tableConfig.navigationMilestones[i];
         }
         return null;
       },
 
-      ready: function() {
-        var params = {};
-        var revA = uri.getParameter('revA');
+      ready() {
+        const params = {};
+        const revA = uri.getParameter('revA');
         if (revA) {
-          params['revA'] = revA;
+          params.revA = revA;
         }
-        var revB = uri.getParameter('revB');
+        const revB = uri.getParameter('revB');
         if (revB) {
-          params['revB'] = revB;
+          params.revB = revB;
         }
-        var m = uri.getParameter('m');
+        const m = uri.getParameter('m');
         if (m) {
-          params['m'] = m;
+          params.m = m;
         }
-        var path = this.tableName;
+        const path = this.tableName;
         this.loading = true;
         simple_xhr.send('/speed_releasing/' + path, params,
             function(response) {
-              this.tableConfig.bots = response['table_bots'];
-              this.tableConfig.tests = response['table_tests'];
-              this.tableConfig.layout = response['table_layout'];
-              this.tableConfig.name = response['name'];
-              this.xsrfToken = response['xsrf_token'];
-              this.tableConfig.values = response['values'];
-              this.tableConfig.revisions = response['revisions'];
-              this.tableConfig.units = response['units'];
-              this.tableConfig.categories = response['categories'];
-              this.tableConfig.urlMap = response['urls'];
-              this.tableConfig.displayRevisions = response['display_revisions'];
+              this.tableConfig.bots = response.table_bots;
+              this.tableConfig.tests = response.table_tests;
+              this.tableConfig.layout = response.table_layout;
+              this.tableConfig.name = response.name;
+              this.xsrfToken = response.xsrf_token;
+              this.tableConfig.values = response.values;
+              this.tableConfig.revisions = response.revisions;
+              this.tableConfig.units = response.units;
+              this.tableConfig.categories = response.categories;
+              this.tableConfig.urlMap = response.urls;
+              this.tableConfig.displayRevisions = response.display_revisions;
               this.tableConfig.displayMilestones =
-                  response['display_milestones'];
+                  response.display_milestones;
               this.tableConfig.navigationMilestones =
-                  response['navigation_milestones'];
+                  response.navigation_milestones;
               this.loading = false;
             }.bind(this),
             function(msg) {

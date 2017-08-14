@@ -47,8 +47,8 @@
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
-#include "chrome/browser/download/download_service.h"
-#include "chrome/browser/download/download_service_factory.h"
+#include "chrome/browser/download/download_core_service.h"
+#include "chrome/browser/download/download_core_service_factory.h"
 #include "chrome/browser/extensions/api/tabs/tabs_event_router.h"
 #include "chrome/browser/extensions/api/tabs/tabs_windows_api.h"
 #include "chrome/browser/extensions/browser_extension_window_controller.h"
@@ -502,7 +502,7 @@ Browser::~Browser() {
   if (!browser_defaults::kBrowserAliveWithNoWindows &&
       OkToCloseWithInProgressDownloads(&num_downloads) ==
           DOWNLOAD_CLOSE_BROWSER_SHUTDOWN) {
-    DownloadService::CancelAllDownloads();
+    DownloadCoreService::CancelAllDownloads();
   }
 
   SessionService* session_service =
@@ -564,7 +564,6 @@ Browser::~Browser() {
   // away so they don't try and call back to us.
   if (select_file_dialog_.get())
     select_file_dialog_->ListenerDestroyed();
-
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -751,11 +750,7 @@ void Browser::OnWindowClosing() {
   if (tab_restore_service && is_type_tabbed() && tab_strip_model_->count())
     tab_restore_service->BrowserClosing(live_tab_context());
 
-  // TODO(sky): convert session/tab restore to use notification.
-  content::NotificationService::current()->Notify(
-      chrome::NOTIFICATION_BROWSER_CLOSING,
-      content::Source<Browser>(this),
-      content::NotificationService::NoDetails());
+  BrowserList::NotifyBrowserCloseStarted(this);
 
   if (!IsFastTabUnloadEnabled())
     tab_strip_model_->CloseAllTabs();
@@ -798,7 +793,7 @@ Browser::DownloadClosePreventionType Browser::OkToCloseWithInProgressDownloads(
     return DOWNLOAD_CLOSE_OK;
 
   int total_download_count =
-      DownloadService::NonMaliciousDownloadCountAllProfiles();
+      DownloadCoreService::NonMaliciousDownloadCountAllProfiles();
   if (total_download_count == 0)
     return DOWNLOAD_CLOSE_OK;   // No downloads; can definitely close.
 
@@ -828,12 +823,13 @@ Browser::DownloadClosePreventionType Browser::OkToCloseWithInProgressDownloads(
   // If there aren't any other windows on our profile, and we're an incognito
   // profile, and there are downloads associated with that profile,
   // those downloads would be cancelled by our window (-> profile) close.
-  DownloadService* download_service =
-      DownloadServiceFactory::GetForBrowserContext(profile());
+  DownloadCoreService* download_core_service =
+      DownloadCoreServiceFactory::GetForBrowserContext(profile());
   if ((profile_window_count == 0) &&
-      (download_service->NonMaliciousDownloadCount() > 0) &&
+      (download_core_service->NonMaliciousDownloadCount() > 0) &&
       profile()->IsOffTheRecord()) {
-    *num_downloads_blocking = download_service->NonMaliciousDownloadCount();
+    *num_downloads_blocking =
+        download_core_service->NonMaliciousDownloadCount();
     return DOWNLOAD_CLOSE_LAST_WINDOW_IN_INCOGNITO_PROFILE;
   }
 
@@ -1034,6 +1030,11 @@ void Browser::ActiveTabChanged(WebContents* old_contents,
                                WebContents* new_contents,
                                int index,
                                int reason) {
+// Mac correctly sets the initial background color of new tabs to the theme
+// background color, so it does not need this block of code. Aura should
+// implement this as well.
+// https://crbug.com/719230
+#if !defined(OS_MACOSX)
   // Copies the background color from an old WebContents to a new one that
   // replaces it on the screen. This allows the new WebContents to use the
   // old one's background color as the starting background color, before having
@@ -1049,6 +1050,7 @@ void Browser::ActiveTabChanged(WebContents* old_contents,
     if (old_view && new_view)
       new_view->SetBackgroundColor(old_view->background_color());
   }
+#endif
 
   base::RecordAction(UserMetricsAction("ActiveTabChanged"));
 
@@ -1181,7 +1183,8 @@ void Browser::TabStripEmpty() {
   //       times. This is because it does not close the window if tabs are
   //       still present.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&Browser::CloseFrame, weak_factory_.GetWeakPtr()));
+      FROM_HERE,
+      base::BindOnce(&Browser::CloseFrame, weak_factory_.GetWeakPtr()));
 
   // Instant may have visible WebContents that need to be detached before the
   // window system closes.
@@ -1308,10 +1311,7 @@ bool Browser::PreHandleGestureEvent(content::WebContents* source,
                                     const blink::WebGestureEvent& event) {
   // Disable pinch zooming in undocked dev tools window due to poor UX.
   if (app_name() == DevToolsWindow::kDevToolsApp)
-    return event.GetType() == blink::WebGestureEvent::kGesturePinchBegin ||
-           event.GetType() == blink::WebGestureEvent::kGesturePinchUpdate ||
-           event.GetType() == blink::WebGestureEvent::kGesturePinchEnd;
-
+    return blink::WebInputEvent::IsPinchGestureEventType(event.GetType());
   return false;
 }
 
@@ -1423,8 +1423,8 @@ void Browser::OnWindowDidShow() {
 
   startup_metric_utils::RecordBrowserWindowDisplay(base::TimeTicks::Now());
 
-  // Nothing to do for non-tabbed and minimized windows.
-  if (!is_type_tabbed() || window_->IsMinimized())
+  // Nothing to do for non-tabbed windows.
+  if (!is_type_tabbed())
     return;
 
   // Show any pending global error bubble.
@@ -1695,17 +1695,19 @@ bool Browser::ShouldCreateWebContents(
   return true;
 }
 
-void Browser::WebContentsCreated(WebContents* source_contents,
-                                 int opener_render_process_id,
-                                 int opener_render_frame_id,
-                                 const std::string& frame_name,
-                                 const GURL& target_url,
-                                 WebContents* new_contents) {
+void Browser::WebContentsCreated(
+    WebContents* source_contents,
+    int opener_render_process_id,
+    int opener_render_frame_id,
+    const std::string& frame_name,
+    const GURL& target_url,
+    WebContents* new_contents,
+    const base::Optional<WebContents::CreateParams>& create_params) {
   // Adopt the WebContents now, so all observers are in place, as the network
   // requests for its initial navigation will start immediately. The WebContents
   // will later be inserted into this browser using Browser::Navigate via
   // AddNewContents.
-  TabHelpers::AttachTabHelpers(new_contents);
+  TabHelpers::AttachTabHelpers(new_contents, create_params);
 
   // Make the tab show up in the task manager.
   task_manager::WebContentsTags::CreateForTabContents(new_contents);
@@ -2079,16 +2081,15 @@ void Browser::OnExtensionLoaded(content::BrowserContext* browser_context,
   command_controller_->ExtensionStateChanged();
 }
 
-void Browser::OnExtensionUnloaded(
-    content::BrowserContext* browser_context,
-    const extensions::Extension* extension,
-    extensions::UnloadedExtensionInfo::Reason reason) {
+void Browser::OnExtensionUnloaded(content::BrowserContext* browser_context,
+                                  const extensions::Extension* extension,
+                                  extensions::UnloadedExtensionReason reason) {
   command_controller_->ExtensionStateChanged();
 
   // Close any tabs from the unloaded extension, unless it's terminated,
   // in which case let the sad tabs remain.
   // Also, if tab is muted and the cause is the unloaded extension, unmute it.
-  if (reason != extensions::UnloadedExtensionInfo::REASON_TERMINATE) {
+  if (reason != extensions::UnloadedExtensionReason::TERMINATE) {
     // Iterate backwards as we may remove items while iterating.
     for (int i = tab_strip_model_->count() - 1; i >= 0; --i) {
       WebContents* web_contents = tab_strip_model_->GetWebContentsAt(i);
@@ -2210,8 +2211,9 @@ void Browser::ScheduleUIUpdate(WebContents* source,
   if (!chrome_updater_factory_.HasWeakPtrs()) {
     // No task currently scheduled, start another.
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, base::Bind(&Browser::ProcessPendingUIUpdates,
-                              chrome_updater_factory_.GetWeakPtr()),
+        FROM_HERE,
+        base::BindOnce(&Browser::ProcessPendingUIUpdates,
+                       chrome_updater_factory_.GetWeakPtr()),
         base::TimeDelta::FromMilliseconds(kUIUpdateCoalescingTimeMS));
   }
 }

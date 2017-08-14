@@ -18,14 +18,14 @@ tr.exportTo('tr.ui.tracks', function() {
    * @constructor
    * @extends {Track}
    */
-  var StackedBarsTrack = tr.ui.b.define(
+  const StackedBarsTrack = tr.ui.b.define(
       'stacked-bars-track', tr.ui.tracks.Track);
 
   StackedBarsTrack.prototype = {
 
     __proto__: tr.ui.tracks.Track.prototype,
 
-    decorate: function(viewport) {
+    decorate(viewport) {
       tr.ui.tracks.Track.prototype.decorate.call(this, viewport);
       Polymer.dom(this).classList.add('stacked-bars-track');
       this.objectInstance_ = null;
@@ -46,8 +46,8 @@ tr.exportTo('tr.ui.tracks', function() {
       this.heading_.tooltip = tooltip;
     },
 
-    addEventsToTrackMap: function(eventToTrackMap) {
-      var objectSnapshots = this.objectInstance_.snapshots;
+    addEventsToTrackMap(eventToTrackMap) {
+      const objectSnapshots = this.objectInstance_.snapshots;
       objectSnapshots.forEach(function(obj) {
         eventToTrackMap.addEvent(obj, this);
       }, this);
@@ -56,14 +56,14 @@ tr.exportTo('tr.ui.tracks', function() {
     /**
      * Used to hit-test clicks in the graph.
      */
-    addIntersectingEventsInRangeToSelectionInWorldSpace: function(
+    addIntersectingEventsInRangeToSelectionInWorldSpace(
         loWX, hiWX, viewPixWidthWorld, selection) {
       function onSnapshot(snapshot) {
         selection.push(snapshot);
       }
 
-      var snapshots = this.objectInstance_.snapshots;
-      var maxBounds = this.objectInstance_.parent.model.bounds.max;
+      const snapshots = this.objectInstance_.snapshots;
+      const maxBounds = this.objectInstance_.parent.model.bounds.max;
 
       tr.b.math.iterateOverIntersectingIntervals(
           snapshots,
@@ -93,13 +93,13 @@ tr.exportTo('tr.ui.tracks', function() {
      * @return {boolean} Whether an event was found.
      * @private
      */
-    addEventNearToProvidedEventToSelection: function(event, offset, selection) {
+    addEventNearToProvidedEventToSelection(event, offset, selection) {
       if (!(event instanceof tr.model.ObjectSnapshot)) {
         throw new Error('Unrecognized event');
       }
-      var objectSnapshots = this.objectInstance_.snapshots;
-      var index = objectSnapshots.indexOf(event);
-      var newIndex = index + offset;
+      const objectSnapshots = this.objectInstance_.snapshots;
+      const index = objectSnapshots.indexOf(event);
+      const newIndex = index + offset;
       if (newIndex >= 0 && newIndex < objectSnapshots.length) {
         selection.push(objectSnapshots[newIndex]);
         return true;
@@ -107,12 +107,12 @@ tr.exportTo('tr.ui.tracks', function() {
       return false;
     },
 
-    addAllEventsMatchingFilterToSelection: function(filter, selection) {
+    addAllEventsMatchingFilterToSelection(filter, selection) {
     },
 
-    addClosestEventToSelection: function(worldX, worldMaxDist, loY, hiY,
+    addClosestEventToSelection(worldX, worldMaxDist, loY, hiY,
         selection) {
-      var snapshot = tr.b.math.findClosestElementInSortedArray(
+      const snapshot = tr.b.math.findClosestElementInSortedArray(
           this.objectInstance_.snapshots,
           function(x) { return x.ts; },
           worldX,

@@ -5,6 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/timing.html">
 <link rel="import" href="/tracing/ui/base/dom_helpers.html">
 <link rel="import" href="/tracing/ui/base/grouping_table_groupby_picker.html">
 <link rel="import" href="/tracing/value/ui/histogram_set_view_state.html">
@@ -16,7 +17,7 @@ found in the LICENSE file.
       display: block;
     }
 
-    #help {
+    #help, #feedback {
       display: none;
       margin-left: 20px;
     }
@@ -99,6 +100,7 @@ found in the LICENSE file.
       <label for="show_all" title="When unchecked, less important histograms are hidden.">Show all</label>
 
       <a id="help">Help</a>
+      <a id="feedback">Feedback</a>
     </div>
 
     <tr-ui-b-grouping-table-groupby-picker id="picker">
@@ -139,15 +141,14 @@ tr.exportTo('tr.v.ui', function() {
       this.viewState_ = undefined;
       this.rowListener_ = this.onRowViewStateUpdate_.bind(this);
       this.baseStatisticNames_ = [];
+
+      // When onViewStateUpdate_() copies multiple properties from the viewState
+      // to polymer properties, disable onUserChange_ until all properties are
+      // copied in order to prevent nested mutations to the ViewState.
+      this.isInOnViewStateUpdate_ = false;
     },
 
     ready() {
-      // TODO(simonhatch): Not totally clear if this is the right solution or
-      // we should be routing settings through ViewState somehow. This at
-      // least fixes the broken cookies issue for #3490, and we can consult
-      // with benjhayden about the correct solution.
-      this.$.picker.settingsKey = (
-          'tr-v-ui-histogram-set-controls-groupby-picker');
       this.$.picker.addEventListener('current-groups-changed',
           this.onGroupsChanged_.bind(this));
     },
@@ -167,33 +168,73 @@ tr.exportTo('tr.v.ui', function() {
       // viewState first and then update it.
     },
 
-    onUserChange_() {
+    async onUserChange_() {
       if (!this.viewState) return;
+      if (this.isInOnViewStateUpdate_) return;
+
+      const marks = [];
+      if (this.searchQuery !== this.viewState.searchQuery) {
+        marks.push(tr.b.Timing.mark('histogram-set-controls', 'search'));
+      }
+      if (this.showAll !== this.viewState.showAll) {
+        marks.push(tr.b.Timing.mark('histogram-set-controls', 'showAll'));
+      }
+      if (this.referenceDisplayLabel !== this.viewState.referenceDisplayLabel) {
+        marks.push(tr.b.Timing.mark(
+            'histogram-set-controls', 'referenceColumn'));
+      }
+      if (this.displayStatisticName !== this.viewState.displayStatisticName) {
+        marks.push(tr.b.Timing.mark('histogram-set-controls', 'statistic'));
+      }
 
       let displayStatisticName = this.displayStatisticName;
       if (this.viewState.referenceDisplayLabel === '' &&
           this.referenceDisplayLabel !== '' &&
           this.baseStatisticNames.length) {
-        this.statisticNames = this.baseStatisticNames.concat(
-            tr.v.Histogram.getDeltaStatisticsNames(this.baseStatisticNames));
+        // The user selected a reference display label.
         displayStatisticName = `${tr.v.DELTA}${this.displayStatisticName}`;
         // Can't set this.displayStatisticName before updating viewState -- that
         // would cause an infinite loop of onUserChange_().
       }
+      if (this.referenceDisplayLabel === '' &&
+          this.viewState.referenceDisplayLabel !== '' &&
+          this.baseStatisticNames.length) {
+        // The user unset the reference display label.
+        // Ensure that displayStatisticName is not a delta statistic.
+        const deltaIndex = displayStatisticName.indexOf(tr.v.DELTA);
+        if (deltaIndex >= 0) {
+          displayStatisticName = displayStatisticName.slice(deltaIndex + 1);
+        } else if (!this.baseStatisticNames.includes(displayStatisticName)) {
+          displayStatisticName = 'avg';
+        }
+      }
 
-      this.viewState.update({
+      // Propagate updates from the user to the view state.
+      await this.viewState.update({
         searchQuery: this.searchQuery,
         showAll: this.showAll,
         referenceDisplayLabel: this.referenceDisplayLabel,
-        displayStatisticName: displayStatisticName,
+        displayStatisticName,
       });
 
-      if (this.displayStatisticName !== displayStatisticName) {
-        this.displayStatisticName = displayStatisticName;
+      if (this.referenceDisplayLabel &&
+          this.statisticNames.length === this.baseStatisticNames.length) {
+        // When a reference column is selected, delta statistics should be
+        // available.
+        this.statisticNames = this.baseStatisticNames.concat(
+            tr.v.Histogram.getDeltaStatisticsNames(this.baseStatisticNames));
+      } else if (!this.referenceDisplayLabel &&
+          this.statisticNames.length > this.baseStatisticNames.length) {
+        // When a reference column is not selected, delta statistics should not
+        // be available.
+        this.statisticNames = this.baseStatisticNames;
       }
+
+      for (const mark of marks) mark.end();
     },
 
     onViewStateUpdate_(event) {
+      this.isInOnViewStateUpdate_ = true;
       if (event.delta.searchQuery) {
         this.searchQuery = this.viewState.searchQuery;
       }
@@ -220,6 +261,8 @@ tr.exportTo('tr.v.ui', function() {
         this.$.hide_overview.style.display = anyShowing ? 'inline' : 'none';
         this.$.show_overview.style.display = anyShowing ? 'none' : 'inline';
       }
+      this.isInOnViewStateUpdate_ = false;
+      this.onUserChange_();
     },
 
     onRowViewStateUpdate_(event) {
@@ -247,7 +290,6 @@ tr.exportTo('tr.v.ui', function() {
         // groupings, then force there to be at least one grouping.
         // The histogram-set-table requires there to be at least one grouping.
         this.$.picker.currentGroupKeys = [this.$.picker.possibleGroups[0].key];
-        this.$.picker.style.display = 'none';
       }
       this.viewState.groupings = this.$.picker.currentGroups;
     },
@@ -294,6 +336,10 @@ tr.exportTo('tr.v.ui', function() {
       this.statisticNames = names;
     },
 
+    get statisticNames() {
+      return Array.from(this.$.statistic.options).map(o => o.value);
+    },
+
     set statisticNames(names) {
       this.$.statistic.style.display = (names.length < 2) ? 'none' : 'inline';
 
@@ -309,6 +355,9 @@ tr.exportTo('tr.v.ui', function() {
 
       if (names.includes(this.viewState.displayStatisticName)) {
         this.displayStatisticName = this.viewState.displayStatisticName;
+        // Polymer doesn't reset the value when the options change, so do that
+        // manually.
+        this.$.statistic.value = this.displayStatisticName;
       } else {
         this.viewState.displayStatisticName = names[0] || '';
       }
@@ -322,21 +371,31 @@ tr.exportTo('tr.v.ui', function() {
       return false;
     },
 
-    toggleOverviewLineCharts_() {
+    async toggleOverviewLineCharts_() {
       const showOverviews = !this.anyOverviewCharts_;
+      const mark = tr.b.Timing.mark('histogram-set-controls',
+          (showOverviews ? 'show' : 'hide') + 'OverviewCharts');
 
       for (const row of tr.v.ui.HistogramSetTableRowState.walkAll(
           this.viewState.tableRowStates.values())) {
-        row.isOverviewed = showOverviews;
+        await row.update({isOverviewed: showOverviews});
       }
 
       this.$.hide_overview.style.display = showOverviews ? 'inline' : 'none';
       this.$.show_overview.style.display = showOverviews ? 'none' : 'inline';
+
+      await tr.b.animationFrame();
+      mark.end();
     },
 
     set helpHref(href) {
       this.$.help.href = href;
       this.$.help.style.display = 'inline';
+    },
+
+    set feedbackHref(href) {
+      this.$.feedback.href = href;
+      this.$.feedback.style.display = 'inline';
     },
 
     downloadCSV_(event) {

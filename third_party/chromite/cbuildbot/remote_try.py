@@ -11,11 +11,11 @@ import json
 import os
 import time
 
-from chromite.cbuildbot import buildbucket_lib
-from chromite.lib import config_lib
-from chromite.lib import constants
 from chromite.cbuildbot import repository
 from chromite.cbuildbot import manifest_version
+from chromite.lib import buildbucket_lib
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import cache
@@ -95,9 +95,9 @@ class RemoteTryJob(object):
     self.repo_cache = cache.DiskCache(self.options.cache_dir)
     cwd = os.path.dirname(os.path.realpath(__file__))
     if options.committer_email is not None:
-        self.user_email = options.committer_email
+      self.user_email = options.committer_email
     else:
-        self.user_email = git.GetProjectUserEmail(cwd)
+      self.user_email = git.GetProjectUserEmail(cwd)
     logging.info('Using email:%s', self.user_email)
     # Name of the job that appears on the waterfall.
     patch_list = options.gerrit_patches + options.local_patches

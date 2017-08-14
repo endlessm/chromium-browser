@@ -33,11 +33,11 @@ CHROME_PACKAGE_NAMES = {
   'android-webview':
       ['org.chromium.webview_shell',
        android_browser_backend_settings.WebviewBackendSettings,
-       None],
-  'android-webview-shell':
+       'SystemWebViewShell.apk'],
+  'android-webview-instrumentation':
       ['org.chromium.android_webview.shell',
        android_browser_backend_settings.WebviewShellBackendSettings,
-       'AndroidWebView.apk'],
+       'WebViewInstrumentation.apk'],
   'android-chromium':
       ['org.chromium.chrome',
        android_browser_backend_settings.ChromeBackendSettings,
@@ -126,14 +126,16 @@ class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
       return browser.Browser(
           browser_backend, self._platform_backend, self._credentials_path)
     except Exception:
-      logging.exception('Failure while creating Android browser.')
-      original_exception = sys.exc_info()
+      exc_info = sys.exc_info()
+      logging.error(
+          'Failed with %s while creating Android browser.',
+          exc_info[0].__name__)
       try:
         browser_backend.Close()
       except Exception:
         logging.exception('Secondary failure while closing browser backend.')
 
-      raise original_exception[0], original_exception[1], original_exception[2]
+      raise exc_info[0], exc_info[1], exc_info[2]
 
   def SupportsOptions(self, browser_options):
     if len(browser_options.extensions_to_load) != 0:

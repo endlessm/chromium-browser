@@ -24,9 +24,9 @@ tr.exportTo('tr.ui.annotations', function() {
   XMarkerAnnotationView.prototype = {
     __proto__: tr.ui.annotations.AnnotationView.prototype,
 
-    draw: function(ctx) {
-      var dt = this.viewport_.currentDisplayTransform;
-      var viewX = dt.xWorldToView(this.annotation_.timestamp);
+    draw(ctx) {
+      const dt = this.viewport_.currentDisplayTransform;
+      const viewX = dt.xWorldToView(this.annotation_.timestamp);
 
       ctx.beginPath();
       tr.ui.b.drawLine(ctx, viewX, 0, viewX, ctx.canvas.height);

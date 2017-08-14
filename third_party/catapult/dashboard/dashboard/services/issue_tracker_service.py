@@ -4,6 +4,7 @@
 
 """Provides a layer of abstraction for the issue tracker API."""
 
+import httplib
 import json
 import logging
 
@@ -133,7 +134,7 @@ class IssueTrackerService(object):
       cc: CSV of email addresses to CC on the bug.
 
     Returns:
-      The new bug ID if successfully created, or None.
+      A dict containing the bug_id (if successful), or the error message if not.
     """
     body = {
         'title': title,
@@ -157,18 +158,24 @@ class IssueTrackerService(object):
       body: The request body parameter dictionary.
 
     Returns:
-      A bug ID if successful, or None otherwise.
+      A dict containing the bug_id (if successful), or the error message if not.
     """
     request = self._service.issues().insert(
         projectId='chromium',
         sendEmail=True,
         body=body)
     logging.info('Making create issue request with body %s', body)
-    response = self._ExecuteRequest(request)
-    if response and 'id' in response:
-      return response['id']
-    logging.error('Failed to create new bug; response %s', response)
-    return None
+    try:
+      response = self._ExecuteRequest(request, ignore_error=False)
+      if response and 'id' in response:
+        return {'bug_id': response['id']}
+      logging.error('Failed to create new bug; response %s', response)
+    except errors.HttpError as e:
+      reason = _GetErrorReason(e)
+      return {'error': reason}
+    except httplib.HTTPException as e:
+      return {'error': str(e)}
+    return {'error': 'Unknown failure creating issue.'}
 
   def GetIssueComments(self, bug_id):
     """Gets all the comments for the given bug.

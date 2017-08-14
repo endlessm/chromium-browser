@@ -69,19 +69,19 @@ tr.exportTo('tr.v.ui', function() {
   Polymer({
     is: 'tr-v-ui-scalar-context-controller',
 
-    created: function() {
+    created() {
       this.host_ = undefined;
       this.groupToContext_ = new Map();
       this.dirtyGroups_ = new Set();
     },
 
-    attached: function() {
+    attached() {
       if (this.host_) {
         throw new Error(
             'Scalar context controller is already attached to a host');
       }
 
-      let host = findParentOrHost(this);
+      const host = findParentOrHost(this);
       if (host.__scalarContextController) {
         throw new Error(
             'Multiple scalar context controllers attached to this host');
@@ -91,7 +91,7 @@ tr.exportTo('tr.v.ui', function() {
       this.host_ = host;
     },
 
-    detached: function() {
+    detached() {
       if (!this.host_) {
         throw new Error('Scalar context controller is not attached to a host');
       }
@@ -104,11 +104,11 @@ tr.exportTo('tr.v.ui', function() {
       this.host_ = undefined;
     },
 
-    getContext: function(group) {
+    getContext(group) {
       return this.groupToContext_.get(group);
     },
 
-    onScalarSpanAdded: function(group, span) {
+    onScalarSpanAdded(group, span) {
       let context = this.groupToContext_.get(group);
       if (context === undefined) {
         context = {
@@ -124,8 +124,8 @@ tr.exportTo('tr.v.ui', function() {
       this._markGroupDirtyAndScheduleUpdate(group);
     },
 
-    onScalarSpanRemoved: function(group, span) {
-      let context = this.groupToContext_.get(group);
+    onScalarSpanRemoved(group, span) {
+      const context = this.groupToContext_.get(group);
       if (!context.spans.has(span)) {
         throw new Error('Scalar span not registered with group: ' + group);
       }
@@ -133,16 +133,16 @@ tr.exportTo('tr.v.ui', function() {
       this._markGroupDirtyAndScheduleUpdate(group);
     },
 
-    onScalarSpanUpdated: function(group, span) {
-      let context = this.groupToContext_.get(group);
+    onScalarSpanUpdated(group, span) {
+      const context = this.groupToContext_.get(group);
       if (!context.spans.has(span)) {
         throw new Error('Scalar span not registered with group: ' + group);
       }
       this._markGroupDirtyAndScheduleUpdate(group);
     },
 
-    _markGroupDirtyAndScheduleUpdate: function(group) {
-      let alreadyDirty = this.dirtyGroups_.size > 0;
+    _markGroupDirtyAndScheduleUpdate(group) {
+      const alreadyDirty = this.dirtyGroups_.size > 0;
       this.dirtyGroups_.add(group);
       if (!alreadyDirty) {
         tr.b.requestAnimationFrameInThisFrameIfPossible(
@@ -150,28 +150,28 @@ tr.exportTo('tr.v.ui', function() {
       }
     },
 
-    updateContext: function() {
-      let groups = this.dirtyGroups_;
+    updateContext() {
+      const groups = this.dirtyGroups_;
       if (groups.size === 0) return;
       this.dirtyGroups_ = new Set();
 
-      for (let group of groups) {
+      for (const group of groups) {
         this.updateGroup_(group);
       }
 
-      let event = new tr.b.Event('context-updated');
+      const event = new tr.b.Event('context-updated');
       event.groups = groups;
       this.dispatchEvent(event);
     },
 
-    updateGroup_: function(group) {
-      let context = this.groupToContext_.get(group);
+    updateGroup_(group) {
+      const context = this.groupToContext_.get(group);
       if (context.spans.size === 0) {
         this.groupToContext_.delete(group);
         return;
       }
       context.range.reset();
-      for (let span of context.spans) {
+      for (const span of context.spans) {
         context.range.addValue(span.value);
       }
     }

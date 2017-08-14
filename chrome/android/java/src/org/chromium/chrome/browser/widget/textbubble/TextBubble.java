@@ -16,6 +16,8 @@ import android.view.View;
 import android.view.View.MeasureSpec;
 import android.view.View.OnTouchListener;
 import android.view.ViewGroup;
+import android.view.ViewGroup.LayoutParams;
+import android.widget.FrameLayout;
 import android.widget.PopupWindow;
 import android.widget.PopupWindow.OnDismissListener;
 import android.widget.TextView;
@@ -23,6 +25,7 @@ import android.widget.TextView;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ObserverList;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.util.AccessibilityUtil;
 import org.chromium.chrome.browser.util.MathUtils;
 
 /**
@@ -104,16 +107,23 @@ public class TextBubble implements OnTouchListener {
     @StringRes
     private final int mStringId;
 
+    /** The resource id for the accessibility string associated with the bubble. */
+    @StringRes
+    private final int mAccessibilityStringId;
+
     /**
      * Constructs a {@link TextBubble} instance.
      * @param context  Context to draw resources from.
      * @param rootView The {@link View} to use for size calculations and for display.
      * @param stringId The id of the string resource for the text that should be shown.
+     * @param accessibilityStringId The id of the string resource of the accessibility text.
      */
-    public TextBubble(Context context, View rootView, @StringRes int stringId) {
+    public TextBubble(Context context, View rootView, @StringRes int stringId,
+            @StringRes int accessibilityStringId) {
         mContext = context;
         mRootView = rootView.getRootView();
         mStringId = stringId;
+        mAccessibilityStringId = accessibilityStringId;
         mPopupWindow = new PopupWindow(mContext);
         mDrawable = new ArrowBubbleDrawable(context);
         mHandler = new Handler();
@@ -247,15 +257,19 @@ public class TextBubble implements OnTouchListener {
         int spaceAboveAnchor = mAnchorRect.top - mCachedWindowRect.top - paddingY - mMarginPx;
         int spaceBelowAnchor = mCachedWindowRect.bottom - mAnchorRect.bottom - paddingY - mMarginPx;
 
-        // Position the bubble below the anchor if it fits or, if not, it's the largest space
-        // available.  This does bias the bubbles to show below the anchors if possible.
+        // Bias based on the center of the bubble and where it is on the screen.
+        boolean idealFitsBelow = idealHeight <= spaceBelowAnchor;
+        boolean idealFitsAbove = idealHeight <= spaceAboveAnchor;
+
+        // Position the bubble in the largest available space where it can fit.  This will bias the
+        // bubbles to show below the anchor if it will not fit in either place.
         boolean positionBelow =
-                idealHeight <= spaceBelowAnchor || spaceBelowAnchor >= spaceAboveAnchor;
+                (idealFitsBelow && spaceBelowAnchor >= spaceAboveAnchor) || !idealFitsAbove;
 
         // Override the ideal bubble orientation if we are trying to maintain the current one.
         if (preferCurrentOrientation && currentPositionBelow != positionBelow) {
-            if (currentPositionBelow && idealHeight <= spaceBelowAnchor) positionBelow = true;
-            if (!currentPositionBelow && idealHeight <= spaceAboveAnchor) positionBelow = false;
+            if (currentPositionBelow && idealFitsBelow) positionBelow = true;
+            if (!currentPositionBelow && idealFitsAbove) positionBelow = false;
         }
 
         int maxContentHeight = positionBelow ? spaceBelowAnchor : spaceAboveAnchor;
@@ -302,9 +316,17 @@ public class TextBubble implements OnTouchListener {
 
     private void createContentView() {
         if (mPopupWindow.getContentView() != null) return;
+
         View view = LayoutInflater.from(mContext).inflate(R.layout.textbubble_text, null);
-        ((TextView) view).setText(mStringId);
+        ((TextView) view)
+                .setText(AccessibilityUtil.isAccessibilityEnabled() ? mAccessibilityStringId
+                                                                    : mStringId);
         mPopupWindow.setContentView(view);
+
+        // On some versions of Android, the LayoutParams aren't set until after the popup window
+        // is shown. Explicitly set the LayoutParams to avoid crashing. See crbug.com/713759.
+        view.setLayoutParams(
+                new FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
     }
 
     // OnTouchListener implementation.

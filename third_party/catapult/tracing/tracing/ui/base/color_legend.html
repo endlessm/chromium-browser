@@ -37,8 +37,8 @@ that label, using the getColorId* methods from base/color_scheme.
 Polymer({
   is: 'tr-ui-b-color-legend',
 
-  ready: function() {
-    var blackSquareCharCode = 9632;
+  ready() {
+    const blackSquareCharCode = 9632;
     this.$.square.innerText = String.fromCharCode(blackSquareCharCode);
     this.label_ = undefined;
 
@@ -61,12 +61,12 @@ Polymer({
       return;
     }
 
-    var colorId = tr.b.ColorScheme.getColorIdForGeneralPurposeString(
+    const colorId = tr.b.ColorScheme.getColorIdForGeneralPurposeString(
         label);
     this.setLabelAndColorId(label, colorId);
   },
 
-  setLabelAndColorId: function(label, colorId) {
+  setLabelAndColorId(label, colorId) {
     this.label_ = label;
 
     Polymer.dom(this.$.label).textContent = '';

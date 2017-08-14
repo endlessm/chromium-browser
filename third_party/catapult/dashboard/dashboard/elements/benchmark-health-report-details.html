@@ -120,9 +120,9 @@ found in the LICENSE file.
         }
       },
 
-      countAlerts: function(bugCheck, alerts) {
-        var count = 0;
-        for (var alert of alerts) {
+      countAlerts(bugCheck, alerts) {
+        let count = 0;
+        for (const alert of alerts) {
           if (bugCheck(alert.bug_id)) {
             count++;
           }
@@ -132,15 +132,15 @@ found in the LICENSE file.
 
       computeSuccessfulLoad: (loading, error) => !(loading || error),
 
-      computeNumInvalid: function(alerts) {
+      computeNumInvalid(alerts) {
         return this.countAlerts(this.isInvalidAlert, alerts);
       },
 
-      computeNumValid: function(alerts) {
+      computeNumValid(alerts) {
         return this.countAlerts(this.isValidAlert, alerts);
       },
 
-      computeNumUntriaged: function(alerts) {
+      computeNumUntriaged(alerts) {
         return this.countAlerts(this.isUntriagedAlert, alerts);
       },
 
@@ -151,20 +151,20 @@ found in the LICENSE file.
 
       isUntriagedAlert: bugId => (bugId == null),
 
-      ready: function() {
-        var params = {
+      ready() {
+        const params = {
           'master': this.master,
           'benchmark': this.benchmark,
           'num_days': this.numDays
         };
         simple_xhr.send('/benchmark_health_report', params,
             response => {
-              this.alerts = response['alerts'];
-              this.bots = response['bots'];
-              this.monitored = response['monitored'];
+              this.alerts = response.alerts;
+              this.bots = response.bots;
+              this.monitored = response.monitored;
               this.loading = false;
-              var bugIds = new Set();
-              for (let alert of this.alerts) {
+              const bugIds = new Set();
+              for (const alert of this.alerts) {
                 if (alert.bug_id && alert.bug_id > 0) {
                   bugIds.add(alert.bug_id);
                 }

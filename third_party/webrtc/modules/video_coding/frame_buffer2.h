@@ -97,6 +97,8 @@ class FrameBuffer {
 
     // Which other frames that have direct unfulfilled dependencies
     // on this frame.
+    // TODO(philipel): Add simple modify/access functions to prevent adding too
+    // many |dependent_frames|.
     FrameKey dependent_frames[kMaxNumDependentFrames];
     size_t num_dependent_frames = 0;
 
@@ -119,6 +121,9 @@ class FrameBuffer {
   };
 
   using FrameMap = std::map<FrameKey, FrameInfo>;
+
+  // Check that the references of |frame| are valid.
+  bool ValidReferences(const FrameObject& frame) const;
 
   // Updates the minimal and maximal playout delays
   // depending on the frame.
@@ -149,6 +154,9 @@ class FrameBuffer {
   void UpdateJitterDelay() EXCLUSIVE_LOCKS_REQUIRED(crit_);
 
   void ClearFramesAndHistory() EXCLUSIVE_LOCKS_REQUIRED(crit_);
+
+  bool HasBadRenderTiming(const FrameObject& frame, int64_t now_ms)
+      EXCLUSIVE_LOCKS_REQUIRED(crit_);
 
   FrameMap frames_ GUARDED_BY(crit_);
 

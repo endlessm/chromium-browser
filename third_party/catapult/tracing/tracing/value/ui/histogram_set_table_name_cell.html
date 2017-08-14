@@ -5,6 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/timing.html">
 <link rel="import" href="/tracing/ui/base/name_line_chart.html">
 
 <dom-module id="tr-v-ui-histogram-set-table-name-cell">
@@ -177,6 +178,11 @@ tr.exportTo('tr.v.ui', function() {
         this.title += '\n' + this.row.description;
       }
 
+      if (this.row.overviewDataRange.isEmpty ||
+          this.row.overviewDataRange.min === this.row.overviewDataRange.max) {
+        this.$.show_overview.style.display = 'none';
+      }
+
       let histogramCount = 0;
       for (const cell of this.row.columns.values()) {
         if (cell instanceof tr.v.Histogram &&
@@ -225,6 +231,7 @@ tr.exportTo('tr.v.ui', function() {
 
       if (opt_event !== undefined) {
         opt_event.stopPropagation();
+        tr.b.Timing.instant('histogram-set-table-name-cell', 'hideOverview');
         this.row.viewState.isOverviewed = this.isOverviewed;
       }
     },
@@ -234,7 +241,7 @@ tr.exportTo('tr.v.ui', function() {
       if (this.overviewChart_ === undefined) {
         const data = [];
         let unitString = undefined;
-        for (let [displayLabel, hist] of this.row.columns) {
+        for (const [displayLabel, hist] of this.row.columns) {
           data.push({x: displayLabel, y: hist.average});
           unitString = hist.unit.unitString;
         }
@@ -254,12 +261,14 @@ tr.exportTo('tr.v.ui', function() {
 
       if (opt_event !== undefined) {
         opt_event.stopPropagation();
+        tr.b.Timing.instant('histogram-set-table-name-cell', 'showOverview');
         this.row.viewState.isOverviewed = this.isOverviewed;
       }
     },
 
     openHistograms_(event) {
       event.stopPropagation();
+      tr.b.Timing.instant('histogram-set-table-name-cell', 'openHistograms');
       for (const cell of this.row.cells.values()) {
         cell.isHistogramOpen = true;
       }
@@ -269,6 +278,7 @@ tr.exportTo('tr.v.ui', function() {
 
     closeHistograms_(event) {
       event.stopPropagation();
+      tr.b.Timing.instant('histogram-set-table-name-cell', 'closeHistograms');
       for (const cell of this.row.cells.values()) {
         cell.isHistogramOpen = false;
       }
@@ -286,16 +296,7 @@ tr.exportTo('tr.v.ui', function() {
       if (event.delta.isOverviewed) {
         this.isOverviewed = this.row.viewState.isOverviewed;
       }
-      if (event.delta.cells) {
-        if (event.delta.cells.previous) {
-          for (const cellState of event.delta.cells.previous.values()) {
-            cellState.removeUpdateListener(this.cellListener_);
-          }
-        }
-        for (const cellState of event.delta.cells.current.values()) {
-          cellState.addUpdateListener(this.cellListener_);
-        }
-      }
+      // This assumes that cell states are not updated.
     },
 
     onCellStateUpdate_(event) {

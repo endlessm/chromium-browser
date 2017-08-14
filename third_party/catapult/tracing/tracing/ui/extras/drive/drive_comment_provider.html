@@ -16,22 +16,22 @@ found in the LICENSE file.
 (function() {
   function addDriveCommentWithUIState_(text, uiState) {
     gapi.client.load('drive', 'v2', function() {
-      var request = gapi.client.drive.revisions.get({
+      const request = gapi.client.drive.revisions.get({
         'fileId': tr.ui.e.drive.getDriveFileId(),
         'revisionId': 'head'
       });
       request.execute(function(resp) {
-        var anchorObject = {};
+        const anchorObject = {};
         anchorObject[tr.ui.e.drive.constants.ANCHOR_NAME] = uiState;
-        var anchor = {
+        let anchor = {
           'r': resp.id,
           'a': [anchorObject]
         };
         anchor = JSON.stringify(anchor);
         gapi.client.load('drive', 'v2', function() {
-          var request = gapi.client.drive.comments.insert({
+          const request = gapi.client.drive.comments.insert({
             'fileId': tr.ui.e.drive.getDriveFileId(),
-            'resource': {'content': text, 'anchor': anchor}
+            'resource': {'content': text, anchor}
           });
           request.execute();
         });
@@ -51,25 +51,25 @@ tr.exportTo('tr.ui.e.drive.analysis', function() {
   function DefaultCommentProvider() { }
 
   DefaultCommentProvider.prototype = {
-    attachToElement: function(attachedElement) {
+    attachToElement(attachedElement) {
       this.attachedElement_ = attachedElement;
       this.commentsCheckTimer_ = setTimeout(this.checkForComments_.bind(this),
           5000);
     },
 
-    detachFromElement: function() {
+    detachFromElement() {
       clearTimeout(this.commentsCheckTimer_);
     },
 
-    checkForComments_: function() {
+    checkForComments_() {
       this.updateComments();
       this.commentsCheckTimer_ = setTimeout(this.checkForComments_.bind(this),
           5000);
     },
 
-    updateComments: function() {
+    updateComments() {
       gapi.client.load('drive', 'v2', () => {
-        var request = gapi.client.drive.comments.list({
+        const request = gapi.client.drive.comments.list({
           'fileId': tr.ui.e.drive.getDriveFileId()
         });
         request.execute(results => {
@@ -78,9 +78,9 @@ tr.exportTo('tr.ui.e.drive.analysis', function() {
       });
     },
 
-    addComment: function(body) {
+    addComment(body) {
       gapi.client.load('drive', 'v2', () => {
-        var request = gapi.client.drive.comments.insert({
+        const request = gapi.client.drive.comments.insert({
           'fileId': tr.ui.e.drive.getDriveFileId(),
           'resource': {'content': body}
         });

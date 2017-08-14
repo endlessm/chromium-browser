@@ -84,7 +84,7 @@ tr.exportTo('tr.model', function() {
     },
 
     get stableId() {
-      var parentSliceGroup = this.parentContainer.sliceGroup;
+      const parentSliceGroup = this.parentContainer.sliceGroup;
       return parentSliceGroup.stableId + '.' +
           parentSliceGroup.slices.indexOf(this);
     },
@@ -93,16 +93,16 @@ tr.exportTo('tr.model', function() {
       return this.bind_id_;
     },
 
-    findDescendentSlice: function(targetTitle) {
+    findDescendentSlice(targetTitle) {
       if (!this.subSlices) {
         return undefined;
       }
 
-      for (var i = 0; i < this.subSlices.length; i++) {
+      for (let i = 0; i < this.subSlices.length; i++) {
         if (this.subSlices[i].title === targetTitle) {
           return this.subSlices[i];
         }
-        var slice = this.subSlices[i].findDescendentSlice(targetTitle);
+        const slice = this.subSlices[i].findDescendentSlice(targetTitle);
         if (slice) return slice;
       }
       return undefined;
@@ -113,8 +113,8 @@ tr.exportTo('tr.model', function() {
       return this.parentSlice.mostTopLevelSlice;
     },
 
-    getProcess: function() {
-      var thread = this.parentContainer;
+    getProcess() {
+      const thread = this.parentContainer;
       if (thread && thread.getProcess) {
         return thread.getProcess();
       }
@@ -122,7 +122,7 @@ tr.exportTo('tr.model', function() {
     },
 
     get model() {
-      var process = this.getProcess();
+      const process = this.getProcess();
       if (process !== undefined) {
         return this.getProcess().model;
       }
@@ -147,12 +147,12 @@ tr.exportTo('tr.model', function() {
      * [      D     ]
      *   [C1]  [C2]
      */
-    findTopmostSlicesRelativeToThisSlice: function* (eventPredicate) {
+    * findTopmostSlicesRelativeToThisSlice(eventPredicate) {
       if (eventPredicate(this)) {
         yield this;
         return;
       }
-      for (var s of this.subSlices) {
+      for (const s of this.subSlices) {
         yield* s.findTopmostSlicesRelativeToThisSlice(eventPredicate);
       }
     },
@@ -179,17 +179,17 @@ tr.exportTo('tr.model', function() {
      * to the function call order. We just need to perform a DFS, and start
      * recording the slices after we see the occurance of E.
      */
-    iterateAllSubsequentSlices: function(callback, opt_this) {
-      var parentStack = [];
-      var started = false;
+    iterateAllSubsequentSlices(callback, opt_this) {
+      const parentStack = [];
+      let started = false;
 
       // get the root node and push it to the DFS stack
-      var topmostSlice = this.mostTopLevelSlice;
+      const topmostSlice = this.mostTopLevelSlice;
       parentStack.push(topmostSlice);
 
       // Using the stack to perform DFS
       while (parentStack.length !== 0) {
-        var curSlice = parentStack.pop();
+        const curSlice = parentStack.pop();
 
         if (started) {
           callback.call(opt_this, curSlice);
@@ -197,14 +197,14 @@ tr.exportTo('tr.model', function() {
           started = (curSlice.guid === this.guid);
         }
 
-        for (var i = curSlice.subSlices.length - 1; i >= 0; i--) {
+        for (let i = curSlice.subSlices.length - 1; i >= 0; i--) {
           parentStack.push(curSlice.subSlices[i]);
         }
       }
     },
 
     get subsequentSlices() {
-      var res = [];
+      const res = [];
 
       this.iterateAllSubsequentSlices(function(subseqSlice) {
         res.push(subseqSlice);
@@ -222,7 +222,7 @@ tr.exportTo('tr.model', function() {
      *  [C] [E][F]  [H]
      * will yield D, then A, in the order from the leaves to the root.
      */
-    enumerateAllAncestors: function* () {
+    * enumerateAllAncestors() {
       let curSlice = this.parentSlice;
       while (curSlice) {
         yield curSlice;
@@ -234,14 +234,14 @@ tr.exportTo('tr.model', function() {
       return Array.from(this.enumerateAllAncestors());
     },
 
-    iterateEntireHierarchy: function(callback, opt_this) {
-      var mostTopLevelSlice = this.mostTopLevelSlice;
+    iterateEntireHierarchy(callback, opt_this) {
+      const mostTopLevelSlice = this.mostTopLevelSlice;
       callback.call(opt_this, mostTopLevelSlice);
       mostTopLevelSlice.iterateAllSubsequentSlices(callback, opt_this);
     },
 
     get entireHierarchy() {
-      var res = [];
+      const res = [];
 
       this.iterateEntireHierarchy(function(slice) {
         res.push(slice);
@@ -261,11 +261,11 @@ tr.exportTo('tr.model', function() {
      * E's ancestors, and F, G, and H are subsequent slices of E
      */
     get ancestorAndSubsequentSlices() {
-      var res = [];
+      const res = [];
 
       res.push(this);
 
-      for (var aSlice of this.enumerateAllAncestors()) {
+      for (const aSlice of this.enumerateAllAncestors()) {
         res.push(aSlice);
       }
 
@@ -276,18 +276,18 @@ tr.exportTo('tr.model', function() {
       return res;
     },
 
-    enumerateAllDescendents: function* () {
-      for (var slice of this.subSlices) {
+    * enumerateAllDescendents() {
+      for (const slice of this.subSlices) {
         yield slice;
       }
-      for (var slice of this.subSlices) {
+      for (const slice of this.subSlices) {
         yield* slice.enumerateAllDescendents();
       }
     },
 
     get descendentSlices() {
-      var res = [];
-      for (var slice of this.enumerateAllDescendents()) {
+      const res = [];
+      for (const slice of this.enumerateAllDescendents()) {
         res.push(slice);
       }
       return res;

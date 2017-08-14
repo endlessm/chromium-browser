@@ -17,35 +17,31 @@ from chromite.scripts.sysmon import git_metrics
 # pylint: disable=protected-access
 # pylint: disable=attribute-defined-outside-init
 
-class TestGitMetrics(cros_test_lib.TempDirTestCase):
-  """Tests for git metrics."""
+class TestGitMetricsWithTempdir(cros_test_lib.TempDirTestCase):
+  """Tests for git metrics using a Git fixture."""
 
   def setUp(self):
-    self._InitRepo()
-
-  def _InitRepo(self):
-    """Initializes a repo in the temp directory."""
     self.git_dir = os.path.join(self.tempdir, '.git')
-    # with osutils.ChdirContext(self.tempdir):
-    self.git_repo = git_metrics._GitRepo(self.git_dir)
-    self.git_repo._check_output(['init'])
-    self.git_repo._check_output(['commit', '--allow-empty', '-m', 'hi'])
+    with osutils.ChdirContext(self.tempdir):
+      self.git_repo = git_metrics._GitRepo(self.git_dir)
+      self.git_repo._check_output(['init'])
+      self.git_repo._check_output(['commit', '--allow-empty', '-m', 'hi'])
 
-  def testCollectGitHashTypesAreCorrect(self):
+  def test_collect_git_hash_types_are_correct(self):
     """Tests that collecting the git hash doesn't have type conflicts."""
     collector = git_metrics._GitMetricCollector(self.git_dir, '/foo/bar')
 
     # This has the side-effect of checking the types are correct.
     collector._collect_commit_hash_metric()
 
-  def testCollectGitTimeTypesAreCorrect(self):
+  def test_collect_git_time_types_are_correct(self):
     """Tests that collecting the git commit time works."""
     collector = git_metrics._GitMetricCollector(self.git_dir, '/foo/bar')
 
     # This has the side-effect of checking the types are correct.
-    collector._collect_commit_time_metric()
+    collector._collect_timestamp_metric()
 
-  def testCollectGitHashCallsSet(self):
+  def test_collect_git_hash_calls_set(self):
     collector = git_metrics._GitMetricCollector(self.git_dir, '/foo/bar')
 
     with mock.patch.object(git_metrics._GitMetricCollector,
@@ -58,14 +54,25 @@ class TestGitMetrics(cros_test_lib.TempDirTestCase):
         mock.call(commit_hash, {'repo': self.git_dir})
     ])
 
-  def testCollectGitTimeCallsSet(self):
+  def test_collect_git_time_calls_set(self):
     collector = git_metrics._GitMetricCollector(self.git_dir, '/foo/bar')
     with mock.patch.object(git_metrics._GitMetricCollector,
-                           '_commit_time_metric',
+                           '_timestamp_metric',
                            autospec=True) as time_metric:
-      collector._collect_commit_time_metric()
+      collector._collect_timestamp_metric()
 
-    commit_time = self.git_repo.get_commit_time()
+    timestamp = self.git_repo.get_commit_time()
     self.assertEqual(time_metric.set.call_args_list, [
-        mock.call(commit_time, {'repo': self.git_dir})
+        mock.call(timestamp, {'repo': self.git_dir})
     ])
+
+
+class TestMetricCollector(cros_test_lib.TestCase):
+  """Tests for _GitMetricCollector."""
+
+  def test__gitdir_expand_user(self):
+    """Test that _gitdir is expanded for user."""
+    with mock.patch.dict(os.environ, HOME='/home/arciel'):
+      collector = git_metrics._GitMetricCollector('~/solciel', 'dummy')
+    self.assertEqual(collector._gitdir, '~/solciel')
+    self.assertEqual(collector._gitrepo._gitdir, '/home/arciel/solciel')

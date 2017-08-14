@@ -52,6 +52,10 @@ TARGET_VERSION_MAP = {
     'host' : {
         'gdb' : PACKAGE_NONE,
         'ex_go' : PACKAGE_NONE,
+        'ex_compiler-rt': PACKAGE_NONE,
+        'ex_llvm-libunwind': PACKAGE_NONE,
+        'ex_libcxxabi': PACKAGE_NONE,
+        'ex_libcxx': PACKAGE_NONE,
     },
 }
 
@@ -61,6 +65,25 @@ TARGET_GO_ENABLED = (
     'armv7a-cros-linux-gnueabi',
 )
 CROSSDEV_GO_ARGS = ['--ex-pkg', 'dev-lang/go']
+
+# Enable llvm's compiler-rt for these targets.
+TARGET_COMPILER_RT_ENABLED = (
+    'armv7a-cros-linux-gnueabi',
+    'aarch64-cros-linux-gnu',
+)
+CROSSDEV_COMPILER_RT_ARGS = ['--ex-pkg', 'sys-libs/compiler-rt']
+
+TARGET_LLVM_PKGS_ENABLED = (
+    'armv7a-cros-linux-gnueabi',
+    'aarch64-cros-linux-gnu',
+    'x86_64-cros-linux-gnu',
+)
+
+LLVM_PKGS_TABLE = {
+    'ex_llvm-libunwind' : ['--ex-pkg', 'sys-libs/llvm-libunwind'],
+    'ex_libcxxabi' : ['--ex-pkg', 'sys-libs/libcxxabi'],
+    'ex_libcxx' : ['--ex-pkg', 'sys-libs/libcxx'],
+}
 
 # Overrides for {gcc,binutils}-config, pick a package with particular suffix.
 CONFIG_TARGET_SUFFIXES = {
@@ -119,8 +142,13 @@ class Crossdev(object):
         target_tuple = toolchain.GetHostTuple()
       # Build the crossdev command.
       cmd = ['crossdev', '--show-target-cfg', '--ex-gdb']
+      if target in TARGET_COMPILER_RT_ENABLED:
+        cmd.extend(CROSSDEV_COMPILER_RT_ARGS)
       if target in TARGET_GO_ENABLED:
         cmd.extend(CROSSDEV_GO_ARGS)
+      if target in TARGET_LLVM_PKGS_ENABLED:
+        for pkg in LLVM_PKGS_TABLE:
+          cmd.extend(LLVM_PKGS_TABLE[pkg])
       cmd.extend(['-t', target_tuple])
       # Catch output of crossdev.
       out = cros_build_lib.RunCommand(cmd, print_cmd=False,
@@ -174,9 +202,13 @@ class Crossdev(object):
         if pkg == 'gdb':
           # Gdb does not have selectable versions.
           cmd.append('--ex-gdb')
+        elif pkg == 'ex_compiler-rt':
+          cmd.extend(CROSSDEV_COMPILER_RT_ARGS)
         elif pkg == 'ex_go':
           # Go does not have selectable versions.
           cmd.extend(CROSSDEV_GO_ARGS)
+        elif pkg in LLVM_PKGS_TABLE:
+          cmd.extend(LLVM_PKGS_TABLE[pkg])
         elif pkg in cls.MANUAL_PKGS:
           pass
         else:

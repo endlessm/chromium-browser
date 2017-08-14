@@ -25,6 +25,7 @@
 #include "vpx_dsp/vpx_filter.h"
 #include "vpx_mem/vpx_mem.h"
 #include "vpx_ports/mem.h"
+#include "vpx_ports/vpx_timer.h"
 
 namespace {
 
@@ -300,9 +301,9 @@ void wrapper_filter_average_block2d_8_c(
     filter_average_block2d_8_c(src_ptr, src_stride, hfilter, vfilter, dst_ptr,
                                dst_stride, output_width, output_height);
   } else {
-    highbd_filter_average_block2d_8_c(CONVERT_TO_SHORTPTR(src_ptr), src_stride,
+    highbd_filter_average_block2d_8_c(CAST_TO_SHORTPTR(src_ptr), src_stride,
                                       hfilter, vfilter,
-                                      CONVERT_TO_SHORTPTR(dst_ptr), dst_stride,
+                                      CAST_TO_SHORTPTR(dst_ptr), dst_stride,
                                       output_width, output_height, use_highbd);
   }
 #else
@@ -323,8 +324,8 @@ void wrapper_filter_block2d_8_c(const uint8_t *src_ptr,
     filter_block2d_8_c(src_ptr, src_stride, hfilter, vfilter, dst_ptr,
                        dst_stride, output_width, output_height);
   } else {
-    highbd_filter_block2d_8_c(CONVERT_TO_SHORTPTR(src_ptr), src_stride, hfilter,
-                              vfilter, CONVERT_TO_SHORTPTR(dst_ptr), dst_stride,
+    highbd_filter_block2d_8_c(CAST_TO_SHORTPTR(src_ptr), src_stride, hfilter,
+                              vfilter, CAST_TO_SHORTPTR(dst_ptr), dst_stride,
                               output_width, output_height, use_highbd);
   }
 #else
@@ -459,7 +460,7 @@ class ConvolveTest : public ::testing::TestWithParam<ConvolveParam> {
     if (UUT_->use_highbd_ == 0) {
       return input_ + offset;
     } else {
-      return CONVERT_TO_BYTEPTR(input16_) + offset;
+      return CAST_TO_BYTEPTR(input16_ + offset);
     }
 #else
     return input_ + offset;
@@ -472,7 +473,7 @@ class ConvolveTest : public ::testing::TestWithParam<ConvolveParam> {
     if (UUT_->use_highbd_ == 0) {
       return output_ + offset;
     } else {
-      return CONVERT_TO_BYTEPTR(output16_) + offset;
+      return CAST_TO_BYTEPTR(output16_ + offset);
     }
 #else
     return output_ + offset;
@@ -485,7 +486,7 @@ class ConvolveTest : public ::testing::TestWithParam<ConvolveParam> {
     if (UUT_->use_highbd_ == 0) {
       return output_ref_ + offset;
     } else {
-      return CONVERT_TO_BYTEPTR(output16_ref_) + offset;
+      return CAST_TO_BYTEPTR(output16_ref_ + offset);
     }
 #else
     return output_ref_ + offset;
@@ -497,7 +498,7 @@ class ConvolveTest : public ::testing::TestWithParam<ConvolveParam> {
     if (UUT_->use_highbd_ == 0) {
       return list[index];
     } else {
-      return CONVERT_TO_SHORTPTR(list)[index];
+      return CAST_TO_SHORTPTR(list)[index];
     }
 #else
     return list[index];
@@ -509,7 +510,7 @@ class ConvolveTest : public ::testing::TestWithParam<ConvolveParam> {
     if (UUT_->use_highbd_ == 0) {
       list[index] = (uint8_t)val;
     } else {
-      CONVERT_TO_SHORTPTR(list)[index] = val;
+      CAST_TO_SHORTPTR(list)[index] = val;
     }
 #else
     list[index] = (uint8_t)val;
@@ -538,6 +539,46 @@ uint16_t *ConvolveTest::output16_ref_ = NULL;
 #endif
 
 TEST_P(ConvolveTest, GuardBlocks) { CheckGuardBlocks(); }
+
+TEST_P(ConvolveTest, DISABLED_Copy_Speed) {
+  const uint8_t *const in = input();
+  uint8_t *const out = output();
+  const int kNumTests = 5000000;
+  const int width = Width();
+  const int height = Height();
+  vpx_usec_timer timer;
+
+  vpx_usec_timer_start(&timer);
+  for (int n = 0; n < kNumTests; ++n) {
+    UUT_->copy_[0](in, kInputStride, out, kOutputStride, NULL, 0, NULL, 0,
+                   width, height);
+  }
+  vpx_usec_timer_mark(&timer);
+
+  const int elapsed_time = static_cast<int>(vpx_usec_timer_elapsed(&timer));
+  printf("convolve_copy_%dx%d_%d: %d us\n", width, height,
+         UUT_->use_highbd_ ? UUT_->use_highbd_ : 8, elapsed_time);
+}
+
+TEST_P(ConvolveTest, DISABLED_Avg_Speed) {
+  const uint8_t *const in = input();
+  uint8_t *const out = output();
+  const int kNumTests = 5000000;
+  const int width = Width();
+  const int height = Height();
+  vpx_usec_timer timer;
+
+  vpx_usec_timer_start(&timer);
+  for (int n = 0; n < kNumTests; ++n) {
+    UUT_->copy_[1](in, kInputStride, out, kOutputStride, NULL, 0, NULL, 0,
+                   width, height);
+  }
+  vpx_usec_timer_mark(&timer);
+
+  const int elapsed_time = static_cast<int>(vpx_usec_timer_elapsed(&timer));
+  printf("convolve_avg_%dx%d_%d: %d us\n", width, height,
+         UUT_->use_highbd_ ? UUT_->use_highbd_ : 8, elapsed_time);
+}
 
 TEST_P(ConvolveTest, Copy) {
   uint8_t *const in = input();
@@ -677,7 +718,7 @@ TEST_P(ConvolveTest, MatchesReferenceSubpixelFilter) {
     if (UUT_->use_highbd_ == 0) {
       ref = ref8;
     } else {
-      ref = CONVERT_TO_BYTEPTR(ref16);
+      ref = CAST_TO_BYTEPTR(ref16);
     }
 #else
     uint8_t ref[kOutputStride * kMaxDimension];
@@ -756,7 +797,7 @@ TEST_P(ConvolveTest, FilterExtremes) {
   if (UUT_->use_highbd_ == 0) {
     ref = ref8;
   } else {
-    ref = CONVERT_TO_BYTEPTR(ref16);
+    ref = CAST_TO_BYTEPTR(ref16);
   }
 #else
   uint8_t ref[kOutputStride * kMaxDimension];
@@ -876,13 +917,14 @@ TEST_P(ConvolveTest, CheckScalingFiltering) {
 using std::tr1::make_tuple;
 
 #if CONFIG_VP9_HIGHBITDEPTH
-#define WRAP(func, bd)                                                       \
-  void wrap_##func##_##bd(                                                   \
-      const uint8_t *src, ptrdiff_t src_stride, uint8_t *dst,                \
-      ptrdiff_t dst_stride, const int16_t *filter_x, int filter_x_stride,    \
-      const int16_t *filter_y, int filter_y_stride, int w, int h) {          \
-    vpx_highbd_##func(src, src_stride, dst, dst_stride, filter_x,            \
-                      filter_x_stride, filter_y, filter_y_stride, w, h, bd); \
+#define WRAP(func, bd)                                                         \
+  void wrap_##func##_##bd(                                                     \
+      const uint8_t *src, ptrdiff_t src_stride, uint8_t *dst,                  \
+      ptrdiff_t dst_stride, const int16_t *filter_x, int filter_x_stride,      \
+      const int16_t *filter_y, int filter_y_stride, int w, int h) {            \
+    vpx_highbd_##func(reinterpret_cast<const uint16_t *>(src), src_stride,     \
+                      reinterpret_cast<uint16_t *>(dst), dst_stride, filter_x, \
+                      filter_x_stride, filter_y, filter_y_stride, w, h, bd);   \
   }
 
 #if HAVE_SSE2 && ARCH_X86_64
@@ -911,6 +953,35 @@ WRAP(convolve8_avg_vert_sse2, 12)
 WRAP(convolve8_sse2, 12)
 WRAP(convolve8_avg_sse2, 12)
 #endif  // HAVE_SSE2 && ARCH_X86_64
+
+#if HAVE_AVX2
+WRAP(convolve_copy_avx2, 8)
+WRAP(convolve_avg_avx2, 8)
+WRAP(convolve8_horiz_avx2, 8)
+WRAP(convolve8_avg_horiz_avx2, 8)
+WRAP(convolve8_vert_avx2, 8)
+WRAP(convolve8_avg_vert_avx2, 8)
+WRAP(convolve8_avx2, 8)
+WRAP(convolve8_avg_avx2, 8)
+
+WRAP(convolve_copy_avx2, 10)
+WRAP(convolve_avg_avx2, 10)
+WRAP(convolve8_avx2, 10)
+WRAP(convolve8_horiz_avx2, 10)
+WRAP(convolve8_vert_avx2, 10)
+WRAP(convolve8_avg_avx2, 10)
+WRAP(convolve8_avg_horiz_avx2, 10)
+WRAP(convolve8_avg_vert_avx2, 10)
+
+WRAP(convolve_copy_avx2, 12)
+WRAP(convolve_avg_avx2, 12)
+WRAP(convolve8_avx2, 12)
+WRAP(convolve8_horiz_avx2, 12)
+WRAP(convolve8_vert_avx2, 12)
+WRAP(convolve8_avg_avx2, 12)
+WRAP(convolve8_avg_horiz_avx2, 12)
+WRAP(convolve8_avg_vert_avx2, 12)
+#endif  // HAVE_AVX2
 
 #if HAVE_NEON
 WRAP(convolve_copy_neon, 8)
@@ -1057,18 +1128,48 @@ INSTANTIATE_TEST_CASE_P(SSSE3, ConvolveTest,
                         ::testing::ValuesIn(kArrayConvolve8_ssse3));
 #endif
 
-#if HAVE_AVX2 && HAVE_SSSE3
+#if HAVE_AVX2
+#if CONFIG_VP9_HIGHBITDEPTH
+const ConvolveFunctions convolve8_avx2(
+    wrap_convolve_copy_avx2_8, wrap_convolve_avg_avx2_8,
+    wrap_convolve8_horiz_avx2_8, wrap_convolve8_avg_horiz_avx2_8,
+    wrap_convolve8_vert_avx2_8, wrap_convolve8_avg_vert_avx2_8,
+    wrap_convolve8_avx2_8, wrap_convolve8_avg_avx2_8, wrap_convolve8_horiz_c_8,
+    wrap_convolve8_avg_horiz_c_8, wrap_convolve8_vert_c_8,
+    wrap_convolve8_avg_vert_c_8, wrap_convolve8_c_8, wrap_convolve8_avg_c_8, 8);
+const ConvolveFunctions convolve10_avx2(
+    wrap_convolve_copy_avx2_10, wrap_convolve_avg_avx2_10,
+    wrap_convolve8_horiz_avx2_10, wrap_convolve8_avg_horiz_avx2_10,
+    wrap_convolve8_vert_avx2_10, wrap_convolve8_avg_vert_avx2_10,
+    wrap_convolve8_avx2_10, wrap_convolve8_avg_avx2_10,
+    wrap_convolve8_horiz_c_10, wrap_convolve8_avg_horiz_c_10,
+    wrap_convolve8_vert_c_10, wrap_convolve8_avg_vert_c_10, wrap_convolve8_c_10,
+    wrap_convolve8_avg_c_10, 10);
+const ConvolveFunctions convolve12_avx2(
+    wrap_convolve_copy_avx2_12, wrap_convolve_avg_avx2_12,
+    wrap_convolve8_horiz_avx2_12, wrap_convolve8_avg_horiz_avx2_12,
+    wrap_convolve8_vert_avx2_12, wrap_convolve8_avg_vert_avx2_12,
+    wrap_convolve8_avx2_12, wrap_convolve8_avg_avx2_12,
+    wrap_convolve8_horiz_c_12, wrap_convolve8_avg_horiz_c_12,
+    wrap_convolve8_vert_c_12, wrap_convolve8_avg_vert_c_12, wrap_convolve8_c_12,
+    wrap_convolve8_avg_c_12, 12);
+const ConvolveParam kArrayConvolve8_avx2[] = { ALL_SIZES(convolve8_avx2),
+                                               ALL_SIZES(convolve10_avx2),
+                                               ALL_SIZES(convolve12_avx2) };
+INSTANTIATE_TEST_CASE_P(AVX2, ConvolveTest,
+                        ::testing::ValuesIn(kArrayConvolve8_avx2));
+#else   // !CONFIG_VP9_HIGHBITDEPTH
 const ConvolveFunctions convolve8_avx2(
     vpx_convolve_copy_c, vpx_convolve_avg_c, vpx_convolve8_horiz_avx2,
     vpx_convolve8_avg_horiz_ssse3, vpx_convolve8_vert_avx2,
     vpx_convolve8_avg_vert_ssse3, vpx_convolve8_avx2, vpx_convolve8_avg_ssse3,
     vpx_scaled_horiz_c, vpx_scaled_avg_horiz_c, vpx_scaled_vert_c,
     vpx_scaled_avg_vert_c, vpx_scaled_2d_c, vpx_scaled_avg_2d_c, 0);
-
 const ConvolveParam kArrayConvolve8_avx2[] = { ALL_SIZES(convolve8_avx2) };
 INSTANTIATE_TEST_CASE_P(AVX2, ConvolveTest,
                         ::testing::ValuesIn(kArrayConvolve8_avx2));
-#endif  // HAVE_AVX2 && HAVE_SSSE3
+#endif  // CONFIG_VP9_HIGHBITDEPTH
+#endif  // HAVE_AVX2
 
 #if HAVE_NEON
 #if CONFIG_VP9_HIGHBITDEPTH
@@ -1138,4 +1239,16 @@ const ConvolveParam kArrayConvolve8_msa[] = { ALL_SIZES(convolve8_msa) };
 INSTANTIATE_TEST_CASE_P(MSA, ConvolveTest,
                         ::testing::ValuesIn(kArrayConvolve8_msa));
 #endif  // HAVE_MSA
+
+#if HAVE_VSX
+const ConvolveFunctions convolve8_vsx(
+    vpx_convolve_copy_vsx, vpx_convolve_avg_vsx, vpx_convolve8_horiz_vsx,
+    vpx_convolve8_avg_horiz_vsx, vpx_convolve8_vert_vsx,
+    vpx_convolve8_avg_vert_vsx, vpx_convolve8_vsx, vpx_convolve8_avg_vsx,
+    vpx_scaled_horiz_c, vpx_scaled_avg_horiz_c, vpx_scaled_vert_c,
+    vpx_scaled_avg_vert_c, vpx_scaled_2d_c, vpx_scaled_avg_2d_c, 0);
+const ConvolveParam kArrayConvolve_vsx[] = { ALL_SIZES(convolve8_vsx) };
+INSTANTIATE_TEST_CASE_P(VSX, ConvolveTest,
+                        ::testing::ValuesIn(kArrayConvolve_vsx));
+#endif  // HAVE_VSX
 }  // namespace

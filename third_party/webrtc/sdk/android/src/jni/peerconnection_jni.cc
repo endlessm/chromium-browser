@@ -73,7 +73,11 @@
 #include "webrtc/sdk/android/src/jni/classreferenceholder.h"
 #include "webrtc/sdk/android/src/jni/jni_helpers.h"
 #include "webrtc/sdk/android/src/jni/native_handle_impl.h"
-#include "webrtc/system_wrappers/include/field_trial_default.h"
+#include "webrtc/sdk/android/src/jni/rtcstatscollectorcallbackwrapper.h"
+// Adding 'nogncheck' to disable the gn include headers check.
+// We don't want to depend on 'system_wrappers:field_trial_default' because
+// clients should be able to provide their own implementation.
+#include "webrtc/system_wrappers/include/field_trial_default.h" // nogncheck
 #include "webrtc/system_wrappers/include/logcat_trace_context.h"
 #include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/voice_engine/include/voe_base.h"
@@ -654,6 +658,9 @@ class SdpObserverWrapper : public T {
     jobject j_sdp = JavaSdpFromNativeSdp(jni(), desc);
     jni()->CallVoidMethod(*j_observer_global_, m, j_sdp);
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
+    // OnSuccess transfers ownership of the description (there's a TODO to make
+    // it use unique_ptr...).
+    delete desc;
   }
 
  protected:
@@ -1132,7 +1139,7 @@ JOW(jlong, PeerConnectionFactory_nativeCreateObserver)(
   return (jlong)new PCOJava(jni, j_observer);
 }
 
-JOW(void, PeerConnectionFactory_initializeAndroidGlobals)
+JOW(void, PeerConnectionFactory_nativeInitializeAndroidGlobals)
 (JNIEnv* jni,
  jclass,
  jobject context,
@@ -1142,7 +1149,7 @@ JOW(void, PeerConnectionFactory_initializeAndroidGlobals)
   if (!factory_static_initialized) {
     RTC_DCHECK(j_application_context == nullptr);
     j_application_context = NewGlobalRef(jni, context);
-    webrtc::JVM::Initialize(GetJVM(), context);
+    webrtc::JVM::Initialize(GetJVM());
     factory_static_initialized = true;
   }
 }
@@ -1192,6 +1199,13 @@ JOW(void, PeerConnectionFactory_stopInternalTracingCapture)(
 
 JOW(void, PeerConnectionFactory_shutdownInternalTracer)(JNIEnv* jni, jclass) {
   rtc::tracing::ShutdownInternalTracer();
+}
+
+JOW(void, AudioTrack_nativeSetVolume)
+(JNIEnv*, jclass, jlong j_p, jdouble volume) {
+  rtc::scoped_refptr<AudioSourceInterface> source(
+      reinterpret_cast<AudioTrackInterface*>(j_p)->GetSource());
+  source->SetVolume(volume);
 }
 
 // Helper struct for working around the fact that CreatePeerConnectionFactory()
@@ -2116,14 +2130,22 @@ JOW(jobject, PeerConnection_nativeGetReceivers)(JNIEnv* jni, jobject j_pc) {
   return j_receivers;
 }
 
-JOW(bool, PeerConnection_nativeGetStats)(
-    JNIEnv* jni, jobject j_pc, jobject j_observer, jlong native_track) {
+JOW(bool, PeerConnection_nativeOldGetStats)
+(JNIEnv* jni, jobject j_pc, jobject j_observer, jlong native_track) {
   rtc::scoped_refptr<StatsObserverWrapper> observer(
       new rtc::RefCountedObject<StatsObserverWrapper>(jni, j_observer));
   return ExtractNativePC(jni, j_pc)->GetStats(
       observer,
       reinterpret_cast<MediaStreamTrackInterface*>(native_track),
       PeerConnectionInterface::kStatsOutputLevelStandard);
+}
+
+JOW(void, PeerConnection_nativeNewGetStats)
+(JNIEnv* jni, jobject j_pc, jobject j_callback) {
+  rtc::scoped_refptr<RTCStatsCollectorCallbackWrapper> callback(
+      new rtc::RefCountedObject<RTCStatsCollectorCallbackWrapper>(jni,
+                                                                  j_callback));
+  ExtractNativePC(jni, j_pc)->GetStats(callback);
 }
 
 JOW(bool, PeerConnection_nativeStartRtcEventLog)(

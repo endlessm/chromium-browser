@@ -42,7 +42,7 @@ found in the LICENSE file.
 tr.exportTo('tr.ui', function() {
   Polymer({
     is: 'tracing-ui-metrics-debugger-app',
-    created: function() {
+    created() {
       this.metrics_ = [];
       tr.metrics.MetricRegistry.getAllRegisteredTypeInfos().forEach(
           function(m) {
@@ -57,8 +57,8 @@ tr.exportTo('tr.ui', function() {
       this.settingsKey_ = 'metrics-debugger-app-metric-name';
     },
 
-    ready: function() {
-      var metricSelector = tr.ui.b.createSelector(
+    ready() {
+      const metricSelector = tr.ui.b.createSelector(
           this, 'currentMetricName_',
           this.settingsKey_,
           this.metrics_[0].value,
@@ -67,7 +67,7 @@ tr.exportTo('tr.ui', function() {
           metricSelector);
 
       this.$.load_trace.addEventListener('change', function(event) {
-        var file = event.target.files[0];
+        const file = event.target.files[0];
         this.onTraceFileSelected_(file);
       }.bind(this));
       this.$.run_metric.addEventListener(
@@ -77,14 +77,14 @@ tr.exportTo('tr.ui', function() {
           }.bind(this));
     },
 
-    onRunMetricClicked_: function() {
+    onRunMetricClicked_() {
       if (this.activeTrace_ === undefined) {
         tr.ui.b.Overlay.showError('You must load a trace first!');
         return;
       }
-      var result = new tr.mre.MreResult();
-      var model = this.activeTrace_.model;
-      var options = {metrics: [this.currentMetricName_]};
+      const result = new tr.mre.MreResult();
+      const model = this.activeTrace_.model;
+      const options = {metrics: [this.currentMetricName_]};
       try {
         tr.metrics.metricMapFunction(result, model, options);
         this.set(
@@ -95,7 +95,7 @@ tr.exportTo('tr.ui', function() {
       }
     },
 
-    onTraceFileSelected_: function(file) {
+    onTraceFileSelected_(file) {
       tr.ui.b.readFile(file).then(
           function(data) {
             this.setActiveTrace(file.name, data);
@@ -105,19 +105,19 @@ tr.exportTo('tr.ui', function() {
           });
     },
 
-    setActiveTrace: function(filename, data) {
-      var model = new tr.Model();
-      var importOptions = new tr.importer.ImportOptions();
+    setActiveTrace(filename, data) {
+      const model = new tr.Model();
+      const importOptions = new tr.importer.ImportOptions();
       importOptions.pruneEmptyContainers = false;
       importOptions.showImportWarnings = true;
       importOptions.trackDetailedModelStats = true;
 
-      var i = new tr.importer.Import(model, importOptions);
+      const i = new tr.importer.Import(model, importOptions);
       i.importTracesWithProgressDialog([data]).then(
           function() {
             this.activeTrace_ = {
-              filename: filename,
-              model: model,
+              filename,
+              model,
             };
             Polymer.dom(this.$.trace_info).textContent = 'Trace file ' +
                 filename + ' is loaded.';

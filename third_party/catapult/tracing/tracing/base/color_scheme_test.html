@@ -11,7 +11,7 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
-  var ColorScheme = tr.b.ColorScheme;
+  const ColorScheme = tr.b.ColorScheme;
 
   function isValidColorId(colorId) {
     return typeof(colorId) === 'number' &&
@@ -44,6 +44,19 @@ tr.b.unittest.testSuite(function() {
         ColorScheme.getColorIdForGeneralPurposeString('NOT_A_RESERVED_NAME')));
     assert.isTrue(isValidColorId(
         ColorScheme.getColorIdForGeneralPurposeString('constructor')));
+  });
+
+  test('getAnotherColorId', function() {
+    const colorId = ColorScheme.getColorIdForGeneralPurposeString('black');
+    assert.isTrue(isValidColorId(
+        ColorScheme.getAnotherColorId(colorId, 300)));
+  });
+
+  test('getVariantColorId', function() {
+    const colorId = ColorScheme.getColorIdForGeneralPurposeString('black');
+    const offset = ColorScheme.properties.brightenedOffsets[0];
+    assert.isTrue(isValidColorId(
+        ColorScheme.getVariantColorId(colorId, offset)));
   });
 });
 </script>

@@ -6,15 +6,13 @@
 
 from __future__ import print_function
 
-import ConfigParser
 import glob
 import os
 import pprint
 import re
 
-from chromite.lib import failures_lib
 from chromite.lib import constants
-from chromite.lib import cros_build_lib
+from chromite.lib import cq_config
 from chromite.lib import cros_logging as logging
 from chromite.lib import gerrit
 from chromite.lib import git
@@ -54,21 +52,6 @@ def _GetAffectedImmediateSubdirs(change, git_repo):
   """
   return set([os.path.join(git_repo, path.split(os.path.sep)[0])
               for path in change.GetDiffStatus(git_repo)])
-
-
-def _GetCommonAffectedSubdir(change, git_repo):
-  """Gets the longest common path of changes in |change|.
-
-  Args:
-    change: GitRepoPatch to examine.
-    git_repo: Path to checkout of git repository.
-
-  Returns:
-    An absolute path in |git_repo|.
-  """
-  affected_paths = [os.path.join(git_repo, path)
-                    for path in change.GetDiffStatus(git_repo)]
-  return cros_build_lib.GetCommonPathPrefix(affected_paths)
 
 
 def GetAffectedOverlays(change, manifest, all_overlays):
@@ -141,102 +124,6 @@ def GetAffectedPackagesForOverlayChange(change, manifest, overlays):
   return packages
 
 
-def _GetOptionFromConfigFile(config_path, section, option):
-  """Get |option| from |section| in |config_path|.
-
-  Args:
-    config_path: Filename to look at.
-    section: Section header name.
-    option: Option name.
-
-  Returns:
-    The value of the option.
-  """
-  parser = ConfigParser.SafeConfigParser()
-  parser.read(config_path)
-  if parser.has_option(section, option):
-    return parser.get(section, option)
-
-
-def _GetConfigFileForChange(change, checkout_path):
-  """Gets the path of the config file for |change|.
-
-  This function takes into account the files that are modified by |change| to
-  determine the commit queue config file within |checkout_path| that should be
-  used for this change. The config file used is the one in the common ancestor
-  directory to all changed files, or the nearest parent directory. See
-  http://chromium.org/chromium-os/build/bypassing-tests-on-a-per-project-basis
-
-  Args:
-    change: Change to examine, as a GitRepoPatch object.
-    checkout_path: Full absolute path to a checkout of the repository that
-                   |change| applies to.
-
-  Returns:
-    Path to the config file to be read for |change|. The returned path will
-    be within |checkout_path|. If no config files in common subdirectories
-    were found, a config file path in the root of the checkout will be
-    returned, in which case the file is not guaranteed to exist.
-  """
-  current_dir = _GetCommonAffectedSubdir(change, checkout_path)
-  while True:
-    config_file = os.path.join(current_dir, constants.CQ_CONFIG_FILENAME)
-    if os.path.isfile(config_file) or checkout_path.startswith(current_dir):
-      return config_file
-    assert current_dir not in ('/', '')
-    current_dir = os.path.dirname(current_dir)
-
-
-def GetOptionForChange(build_root, change, section, option):
-  """Get |option| from |section| in the config file for |change|.
-
-  Args:
-    build_root: The root of the checkout.
-    change: Change to examine, as a GitRepoPatch object.
-    section: Section header name.
-    option: Option name.
-
-  Returns:
-    The value of the option.
-  """
-  manifest = git.ManifestCheckout.Cached(build_root)
-  checkout = change.GetCheckout(manifest)
-  if checkout:
-    dirname = checkout.GetPath(absolute=True)
-    config_path = _GetConfigFileForChange(change, dirname)
-    result = None
-    try:
-      result = _GetOptionFromConfigFile(config_path, section, option)
-    except ConfigParser.Error:
-      logging.error('%s has malformed config file', change, exc_info=True)
-    return result
-
-
-def GetStagesToIgnoreForChange(build_root, change):
-  """Get a list of stages that the CQ should ignore for a given |change|.
-
-  The list of stage name prefixes to ignore for each project is specified in a
-  config file inside the project, named COMMIT-QUEUE.ini. The file would look
-  like this:
-
-  [GENERAL]
-    ignored-stages: HWTest VMTest
-
-  The CQ will submit changes to the given project even if the listed stages
-  failed. These strings are stage name prefixes, meaning that "HWTest" would
-  match any HWTest stage (e.g. "HWTest [bvt]" or "HWTest [foo]")
-
-  Args:
-    build_root: The root of the checkout.
-    change: Change to examine, as a PatchQuery object.
-
-  Returns:
-    A list of stages to ignore for the given |change|.
-  """
-  result = GetOptionForChange(build_root, change, 'GENERAL', 'ignored-stages')
-  return result.split() if result else []
-
-
 def GetTestSubsystemForChange(build_root, change):
   """Get a list of subsystem that a given |change| affects.
 
@@ -262,9 +149,10 @@ def GetTestSubsystemForChange(build_root, change):
     if lines:
       subsystems = [x for x in re.split("[, ]", ' '.join(lines)) if x]
   if not subsystems:
-    result = GetOptionForChange(build_root, change, 'GENERAL', 'subsystem')
-    subsystems = result.split() if result else []
+    cq_config_parser = cq_config.CQConfigParser(build_root, change)
+    subsystems = cq_config_parser.GetSubsystems()
   return subsystems if subsystems else ['default']
+
 
 class CategorizeChanges(object):
   """A collection of methods to help categorize GerritPatch changes.
@@ -483,21 +371,30 @@ class CalculateSuspects(object):
     return [x for x, y in zip(changes, reloaded_changes) if y.WasVetoed()]
 
   @classmethod
-  def _FindPackageBuildFailureSuspects(cls, changes, messages, sanity):
-    """Figure out what CLs are at fault for a set of build failures.
+  def FindSuspectsForFailures(cls, changes, messages, build_root,
+                              failed_hwtests, sanity):
+    """Find suspects for the given failure messages and hwtests.
 
     Args:
-        changes: A list of cros_patch.GerritPatch instances to consider.
-        messages: A list of failure messages. We will only look at the ones of
-                  type BuildFailureMessage.
-        sanity: The sanity checker builder passed and the tree was open when
-                the build started.
+      changes: A list of cros_patch.GerritPatch instances.
+      messages: A list of failure_message_lib.BuildFailureMessage or NoneType
+        instances from the failed slaves.
+      build_root: The path to the build root.
+      failed_hwtests: A list of names of failed hwtests got from CIDB (see the
+        return type of HWTestResultManager.GetFailedHWTestsFromCIDB) or a
+        NoneType instance.
+      sanity: The sanity checker builder passed and the tree was open when
+              the build started and ended.
+
+    Returns:
+      A set of cros_patch.GerritPatch instances as suspects. If messages contain
+      NoneType message and sanity is True, return all changes as suspects.
     """
     suspects = set()
     for message in messages:
       if message:
-        suspects.update(
-            message.FindPackageBuildFailureSuspects(changes, sanity))
+        suspects.update(message.FindSuspectedChanges(
+            changes, build_root, failed_hwtests, sanity))
       elif sanity:
         suspects.update(changes)
     return suspects
@@ -509,29 +406,61 @@ class CalculateSuspects(object):
     return [x for x in changes if x.project in constants.INFRA_PROJECTS]
 
   @classmethod
-  def _MatchesFailureType(cls, messages, fail_type, strict=True):
-    """Returns True if all failures are instances of |fail_type|.
+  def _MatchesExceptionCategory(cls, messages, exception_category, strict=True):
+    """Returns True if all failure messages are in the exception_category.
 
     Args:
-      messages: A list of BuildFailureMessage or NoneType objects
-        from the failed slaves.
-      fail_type: The exception class to look for.
+      messages: A list of BuildFailureMessage or NoneType objects from the
+        failed slaves.
+      exception_category: The exception category to match, must be one of
+        constants.EXCEPTION_CATEGORY_ALL_CATEGORIES.
       strict: If False, treat NoneType message as a match.
 
     Returns:
-      True if all objects in |messages| are non-None and all failures are
-      instances of |fail_type|.
+      When strict is True, returns True if all objects in |messages| are
+      non-None and are in the |exception_category|, else False. When strict is
+      False, returns True if all the objects in |messages| are in the
+      |exception_category|, else False.
     """
     return ((not strict or all(messages)) and
-            all(x.MatchesFailureType(fail_type) for x in messages if x))
+            all(x.MatchesExceptionCategory(exception_category)
+                for x in messages if x))
+
+  @classmethod
+  def _MatchesExceptionCategories(cls, messages, exception_categories,
+                                  strict=True):
+    """Returns True if all failure messages are in the exception_categories.
+
+    Args:
+      messages: A list of BuildFailureMessage or NoneType objects from the
+        failed slaves.
+      exception_categories: A list of exception categories to match, every item
+        must be one of constants.EXCEPTION_CATEGORY_ALL_CATEGORIES.
+      strict: If False, treat NoneType message as a match.
+
+    Returns:
+      When strict is True, returns True if all objects in |messages| are
+      non-None and are in the |exception_category|, else False. When strict is
+      False, returns True if all the objects in |messages| are in the
+      |exception_categories|, else False.
+    """
+    if strict and not all(messages):
+      return False
+
+    for x in messages:
+      if (x is not None and
+          not any(x.MatchesExceptionCategory(c) for c in exception_categories)):
+        return False
+
+    return True
 
   @classmethod
   def OnlyLabFailures(cls, messages, no_stat):
     """Determine if the cause of build failure was lab failure.
 
     Args:
-      messages: A list of BuildFailureMessage or NoneType objects
-        from the failed slaves.
+      messages: A list of BuildFailureMessage or NoneType objects from the
+        failed slaves.
       no_stat: A list of builders which failed prematurely without reporting
         status.
 
@@ -539,16 +468,18 @@ class CalculateSuspects(object):
       True if the build failed purely due to lab failures.
     """
     # If any builder failed prematuely, lab failure was not the only cause.
-    return (not no_stat and
-            cls._MatchesFailureType(messages, failures_lib.TestLabFailure))
+    return (not no_stat and cls._MatchesExceptionCategory(
+        messages, constants.EXCEPTION_CATEGORY_LAB))
 
   @classmethod
   def OnlyInfraFailures(cls, messages, no_stat):
     """Determine if the cause of build failure was infrastructure failure.
 
+    All failures in 'lab' and 'infra' categories are infra failures.
+
     Args:
-      messages: A list of BuildFailureMessage or NoneType objects
-        from the failed slaves.
+      messages: A list of BuildFailureMessage or NoneType objects from the
+        failed slaves.
       no_stat: A list of builders which failed prematurely without reporting
         status.
 
@@ -557,19 +488,21 @@ class CalculateSuspects(object):
     """
     # "Failed to report status" and "NoneType" messages are considered
     # infra failures.
-    return ((not messages and no_stat) or
-            cls._MatchesFailureType(
-                messages, failures_lib.InfrastructureFailure, strict=False))
+    return ((not messages and no_stat) or cls._MatchesExceptionCategories(
+        messages,
+        [constants.EXCEPTION_CATEGORY_INFRA, constants.EXCEPTION_CATEGORY_LAB],
+        strict=False))
 
   @classmethod
   def FindSuspects(cls, changes, messages, infra_fail=False, lab_fail=False,
-                   sanity=True):
+                   build_root=None, failed_hwtests=None, sanity=True):
     """Find out what changes probably caused our failure.
 
-    In cases where there were no internal failures, we can assume that the
-    external failures are at fault. Otherwise, this function just defers to
-    _FindPackageBuildFailureSuspects and GetBlamedChanges as needed.
-    If the failures don't match either case, just fail everything.
+    1) if there're bad changes to blame, return the bad changes as the suspects;
+    2) else if there're only internal lab failures, return an empty suspects;
+    3) else if there're only internal infra failures, return infra changes as
+    the suspects;
+    4) else, find and return suspects by analyzing the failures.
 
     Args:
       changes: A list of cros_patch.GerritPatch instances to consider.
@@ -578,8 +511,12 @@ class CalculateSuspects(object):
       infra_fail: The build failed purely due to infrastructure failures.
       lab_fail: The build failed purely due to test lab infrastructure
         failures.
+      build_root: The path to the build root.
+      failed_hwtests: A list of names of failed hwtests got from CIDB (see the
+        return type of HWTestResultManager.GetFailedHWTestsFromCIDB) or a
+        NoneType instance.
       sanity: The sanity checker builder passed and the tree was open when
-              the build started.
+        the build started and ended.
 
     Returns:
        A set of changes as suspects.
@@ -605,7 +542,8 @@ class CalculateSuspects(object):
           'issue(s). Will only reject chromite changes')
       return set(cls.FilterChangesForInfraFail(changes))
 
-    return cls._FindPackageBuildFailureSuspects(changes, messages, sanity)
+    return cls.FindSuspectsForFailures(
+        changes, messages, build_root, failed_hwtests, sanity)
 
   @classmethod
   def CanIgnoreFailures(cls, messages, change, build_root,
@@ -639,7 +577,9 @@ class CalculateSuspects(object):
 
     for message in messages:
       failing_stages.update(message.GetFailingStages())
-    ignored_stages = GetStagesToIgnoreForChange(build_root, change)
+
+    cq_config_parser = cq_config.CQConfigParser(build_root, change)
+    ignored_stages = cq_config_parser.GetStagesToIgnore()
     if ignored_stages and failing_stages.issubset(ignored_stages):
       return (True, constants.STRATEGY_CQ_PARTIAL)
 

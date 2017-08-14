@@ -26,13 +26,13 @@ found in the LICENSE file.
 Polymer({
   is: 'tr-ui-a-user-expectation-related-samples-table',
 
-  ready: function() {
+  ready() {
     this.samples_ = [];
     this.$.table.tableColumns = [
       {
         title: 'Event(s)',
-        value: function(row) {
-          var typeEl = document.createElement('span');
+        value(row) {
+          const typeEl = document.createElement('span');
           typeEl.innerText = row.type;
           if (row.tooltip) {
             typeEl.title = row.tooltip;
@@ -44,8 +44,8 @@ Polymer({
       {
         title: 'Link',
         width: '100%',
-        value: function(row) {
-          var linkEl = document.createElement('tr-ui-a-analysis-link');
+        value(row) {
+          const linkEl = document.createElement('tr-ui-a-analysis-link');
           if (row.name) {
             linkEl.setSelectionAndContent(row.selection, row.name);
           } else {
@@ -57,13 +57,13 @@ Polymer({
     ];
   },
 
-  hasRelatedSamples: function() {
+  hasRelatedSamples() {
     return (this.samples_ && this.samples_.length > 0);
   },
 
   set selection(eventSet) {
     this.samples_ = [];
-    var samples = new tr.model.EventSet;
+    const samples = new tr.model.EventSet;
     eventSet.forEach(function(ue) {
       samples.addEventSet(ue.associatedSamples);
     }.bind(this));
@@ -78,8 +78,8 @@ Polymer({
     this.updateContents_();
   },
 
-  updateContents_: function() {
-    var table = this.$.table;
+  updateContents_() {
+    const table = this.$.table;
     if (this.samples_ && this.samples_.length > 0) {
       table.tableRows = this.samples_.slice();
     } else {

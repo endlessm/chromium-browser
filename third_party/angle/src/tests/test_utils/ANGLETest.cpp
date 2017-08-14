@@ -29,6 +29,7 @@ const GLColor GLColor::red              = GLColor(255u, 0u, 0u, 255u);
 const GLColor GLColor::transparentBlack = GLColor(0u, 0u, 0u, 0u);
 const GLColor GLColor::white            = GLColor(255u, 255u, 255u, 255u);
 const GLColor GLColor::yellow           = GLColor(255u, 255u, 0, 255u);
+const GLColor GLColor::magenta          = GLColor(255u, 0u, 255u, 255u);
 
 namespace
 {
@@ -430,7 +431,7 @@ void ANGLETest::drawQuad(GLuint program,
     glDrawArrays(GL_TRIANGLES, 0, 6);
 
     glDisableVertexAttribArray(positionLocation);
-    glVertexAttribPointer(positionLocation, 4, GL_FLOAT, GL_FALSE, 0, NULL);
+    glVertexAttribPointer(positionLocation, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
 
     if (previousProgram != static_cast<GLint>(program))
     {
@@ -475,7 +476,7 @@ void ANGLETest::drawIndexedQuad(GLuint program,
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, indices);
 
     glDisableVertexAttribArray(positionLocation);
-    glVertexAttribPointer(positionLocation, 4, GL_FLOAT, GL_FALSE, 0, NULL);
+    glVertexAttribPointer(positionLocation, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
 
     if (static_cast<GLuint>(activeProgram) != program)
     {
@@ -488,7 +489,7 @@ GLuint ANGLETest::compileShader(GLenum type, const std::string &source)
     GLuint shader = glCreateShader(type);
 
     const char *sourceArray[1] = { source.c_str() };
-    glShaderSource(shader, 1, sourceArray, NULL);
+    glShaderSource(shader, 1, sourceArray, nullptr);
     glCompileShader(shader);
 
     GLint compileResult;
@@ -506,7 +507,7 @@ GLuint ANGLETest::compileShader(GLenum type, const std::string &source)
         else
         {
             std::vector<GLchar> infoLog(infoLogLength);
-            glGetShaderInfoLog(shader, static_cast<GLsizei>(infoLog.size()), NULL, &infoLog[0]);
+            glGetShaderInfoLog(shader, static_cast<GLsizei>(infoLog.size()), nullptr, &infoLog[0]);
 
             std::cerr << "shader compilation failed: " << &infoLog[0];
         }
@@ -599,7 +600,9 @@ void ANGLETest::checkD3D11SDKLayersMessages()
 
 static bool checkExtensionExists(const char *allExtensions, const std::string &extName)
 {
-    return strstr(allExtensions, extName.c_str()) != nullptr;
+    const std::string paddedExtensions = std::string(" ") + allExtensions + std::string(" ");
+    return paddedExtensions.find(std::string(" ") + extName + std::string(" ")) !=
+           std::string::npos;
 }
 
 bool ANGLETest::extensionEnabled(const std::string &extName)
@@ -680,6 +683,11 @@ void ANGLETest::setConfigComponentType(EGLenum componentType)
 void ANGLETest::setMultisampleEnabled(bool enabled)
 {
     mEGLWindow->setMultisample(enabled);
+}
+
+void ANGLETest::setSamples(EGLint samples)
+{
+    mEGLWindow->setSamples(samples);
 }
 
 void ANGLETest::setDebugEnabled(bool enabled)
@@ -781,7 +789,7 @@ bool ANGLETest::DestroyTestWindow()
     {
         mOSWindow->destroy();
         delete mOSWindow;
-        mOSWindow = NULL;
+        mOSWindow = nullptr;
     }
 
     mGLESLibrary.reset(nullptr);
