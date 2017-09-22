@@ -126,7 +126,7 @@ DiagnosticMap is a dictionary mapping strings to Diagnostic dictionaries.
 ## Diagnostics
 
 The only field that is required for all Diagnostics, `type`, must be one of
- * `Generic`
+ * `GenericSet`
  * `RelatedEventSet`
  * `Breakdown`
  * `RelatedHistogramSet`
@@ -137,6 +137,7 @@ The only field that is required for all Diagnostics, `type`, must be one of
  * `RevisionInfo`
  * `BuildbotInfo`
  * `Scalar`
+ * `Ownership`
 
 If a Diagnostic is in the root array of the JSON, then it is shared, so it may be
 referenced by multiple Histograms. Shared Diagnostics must contain a string
@@ -206,12 +207,13 @@ to compare or merge results across similar bots.
 ### OwnershipInfo
 
  * `owners`: an array of strings containing email addresses
+ * `component`: a string, a Monorail component
 
-### Generic
+### GenericSet
 
 This allows metrics to store arbitrary untyped data in Histograms.
 
- * `value`: can contain any JSON data.
+ * `values`: array of any JSON data.
 
 ### Scalar
 
@@ -258,3 +260,10 @@ specific event or set of events in a trace.
 
  * `events`: array of dictionaries containing `stableId`, `title`, `start`,
    `duration` fields of Events
+
+### DateRange
+
+This is a Range of Dates.
+
+ * `min`: Unix timestamp in ms
+ * `max`: optional Unix timestamp in ms

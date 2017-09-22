@@ -188,7 +188,7 @@ class DeployChrome(object):
     # Developers sometimes run session_manager manually, in which case we'll
     # need to help shut the chrome processes down.
     try:
-      with timeout_util.Timeout(KILL_PROC_MAX_WAIT):
+      with timeout_util.Timeout(self.options.process_timeout):
         while self._ChromeFileInUse():
           logging.warning('The chrome binary on the device is in use.')
           logging.warning('Killing chrome and session_manager processes...\n')
@@ -200,7 +200,8 @@ class DeployChrome(object):
           logging.info('Rechecking the chrome binary...')
     except timeout_util.TimeoutError:
       msg = ('Could not kill processes after %s seconds.  Please exit any '
-             'running chrome processes and try again.' % KILL_PROC_MAX_WAIT)
+             'running chrome processes and try again.'
+             % self.options.process_timeout)
       raise DeployFailure(msg)
 
   def _MountRootfsAsWritable(self, error_code_ok=True):
@@ -244,12 +245,19 @@ class DeployChrome(object):
       logging.warning('The device has less than 100MB free.  deploy_chrome may '
                       'hang during the transfer.')
 
+  def _ShouldUseCompression(self):
+    """Checks if compression should be used for rsync."""
+    if self.options.compress == 'always':
+      return True
+    elif self.options.compress == 'never':
+      return False
+    elif self.options.compress == 'auto':
+      return not self.device.HasGigabitEthernet()
+
   def _Deploy(self):
     old_dbus_checksums = self._GetDBusChecksums()
 
     logging.info('Copying Chrome to %s on device...', self.options.target_dir)
-    # Show the output (status) for this command.
-    dest_path = _CHROME_DIR
     # CopyToDevice will fall back to scp if rsync is corrupted on stateful.
     # This does not work for deploy.
     if not self.device.HasRsync():
@@ -259,6 +267,7 @@ class DeployChrome(object):
     self.device.CopyToDevice('%s/' % os.path.abspath(self.staging_dir),
                              self.options.target_dir,
                              mode='rsync', inplace=True,
+                             compress=self._ShouldUseCompression(),
                              debug_level=logging.INFO,
                              verbose=self.options.verbose)
 
@@ -266,7 +275,7 @@ class DeployChrome(object):
       if p.mode:
         # Set mode if necessary.
         self.device.RunCommand('chmod %o %s/%s' % (
-            p.mode, dest_path, p.src if not p.dest else p.dest))
+            p.mode, self.options.target_dir, p.src if not p.dest else p.dest))
 
     new_dbus_checksums = self._GetDBusChecksums()
     if old_dbus_checksums != new_dbus_checksums:
@@ -445,6 +454,9 @@ def _CreateParser():
                           "Overrides the default arguments.")
   group.add_argument('--ping', action='store_true', default=False,
                      help='Ping the device before connection attempt.')
+  group.add_argument('--process-timeout', type=int,
+                     default=KILL_PROC_MAX_WAIT,
+                     help='Timeout for process shutdown.')
 
   group = parser.add_argument_group(
       'Metadata Overrides (Advanced)',
@@ -480,6 +492,11 @@ def _CreateParser():
   # is used as-is, and not normalized.  Used by the Chrome ebuild to skip
   # fetching the SDK toolchain.
   parser.add_argument('--strip-bin', default=None, help=argparse.SUPPRESS)
+  parser.add_argument('--compress', action='store', default='auto',
+                      choices=('always', 'never', 'auto'),
+                      help='Choose the data compression behavior. Default '
+                           'is set to "auto", that disables compression if '
+                           'the target device has a gigabit ethernet port.')
   return parser
 
 

@@ -18,6 +18,7 @@ import glob
 import os
 import pwd
 import re
+import resource
 import sys
 import urlparse
 
@@ -240,6 +241,8 @@ def EnterChroot(chroot_path, cache_dir, chrome_root, chrome_root_mount,
     cmd.append('--')
     cmd.extend(additional_args)
 
+  # ThinLTO opens lots of files at the same time.
+  resource.setrlimit(resource.RLIMIT_NOFILE, (32768, 32768))
   ret = cros_build_lib.RunCommand(cmd, print_cmd=False, error_code_ok=True,
                                   mute_output=False)
   # If we were in interactive mode, ignore the exit code; it'll be whatever
@@ -585,13 +588,22 @@ def main(argv):
 
   host = os.uname()[4]
   if host != 'x86_64':
-    parser.error(
+    cros_build_lib.Die(
         "cros_sdk is currently only supported on x86_64; you're running"
         " %s.  Please find a x86_64 machine." % (host,))
 
   _ReportMissing(osutils.FindMissingBinaries(NEEDED_TOOLS))
   if options.proxy_sim:
     _ReportMissing(osutils.FindMissingBinaries(PROXY_NEEDED_TOOLS))
+
+  if (sdk_latest_version == '<unknown>' or
+      bootstrap_latest_version == '<unknown>'):
+    cros_build_lib.Die(
+        'No SDK version was found. '
+        'Are you in a Chromium source tree instead of Chromium OS?\n\n'
+        'Please change to a directory inside your Chromium OS source tree\n'
+        'and retry.  If you need to setup a Chromium OS source tree, see\n'
+        '  http://www.chromium.org/chromium-os/developer-guide')
 
   _ReExecuteIfNeeded([sys.argv[0]] + argv)
   if options.ns_pid:

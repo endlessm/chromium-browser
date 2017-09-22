@@ -169,6 +169,12 @@ class ChromiumOSFlashUpdater(BaseUpdater):
   UPDATE_CHECK_INTERVAL_PROGRESSBAR = 0.5
   UPDATE_CHECK_INTERVAL_NORMAL = 10
 
+  # Update engine perf files
+  REMOTE_UPDATE_ENGINE_PERF_SCRIPT_PATH = \
+      '/mnt/stateful_partition/unencrypted/preserve/' \
+      'update_engine_performance_monitor.py'
+  REMOTE_UPDATE_ENGINE_PERF_RESULTS_PATH = '/var/log/perf_data_results.json'
+
 
   def __init__(self, device, payload_dir, dev_dir='', tempdir=None,
                original_payload_dir=None, do_rootfs_update=True,
@@ -228,9 +234,12 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     self.device_static_dir = os.path.join(self.device.work_dir, 'static')
     self.device_restore_dir = os.path.join(self.device.work_dir, 'old')
     self.stateful_update_bin = None
-    # Auto-update by specifying exact payload filename you staged
+    # autoupdate_EndToEndTest uses exact payload filename for update
     self.payload_filename = payload_filename
 
+  @property
+  def is_au_endtoendtest(self):
+    return self.payload_filename is not None
 
   def CheckPayloads(self):
     """Verify that all required payloads are in |self.payload_dir|."""
@@ -531,9 +540,9 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     self.device.CopyToDevice(payload, device_payload_dir, mode='scp',
                              log_output=True, **self._cmd_kwargs)
 
-    # If Rootfs was staged by Google Storage URI rather than build_name we
-    # need to strip partial paths and rename it.
-    if self.payload_filename:
+    if self.is_au_endtoendtest:
+      # If rootfs was staged by Google Storage URI rather than build_name we
+      # need to strip partial paths and rename it.
       expected_path = os.path.join(device_payload_dir,
                                    ds_wrapper.ROOTFS_FILENAME)
 
@@ -554,6 +563,7 @@ class ChromiumOSFlashUpdater(BaseUpdater):
                   'transferred to device...')
     need_transfer, stateful_update_bin = self._GetStatefulUpdateScript()
     if need_transfer:
+      logging.info('Copying stateful_update_bin to device...')
       # stateful_update is a tiny uncompressed text file, so use rsync.
       self.device.CopyToWorkDir(stateful_update_bin, mode='rsync',
                                 log_output=True, **self._cmd_kwargs)
@@ -596,9 +606,27 @@ class ChromiumOSFlashUpdater(BaseUpdater):
   def ResetStatefulPartition(self):
     """Clear any pending stateful update request."""
     logging.debug('Resetting stateful partition...')
-    self.device.RunCommand(['sh', self.stateful_update_bin,
-                            '--stateful_change=reset'],
-                           **self._cmd_kwargs)
+    try:
+      self.device.RunCommand(['sh', self.stateful_update_bin,
+                              '--stateful_change=reset'],
+                             **self._cmd_kwargs)
+    except cros_build_lib.RunCommandError as e:
+      if self.is_au_endtoendtest and not self.device.HasRsync():
+        # If we have updated backwards from a build with ext4 crytpo to a
+        # build without ext4 crypto the DUT gets powerwashed. So the stateful
+        # bin, payloads, and devserver files are no longer accessible.
+        # See crbug.com/689105. Rsync will no longer be available either so we
+        # will need to use scp for the rest of the update.
+        logging.warning('Exception while resetting stateful: %s', e)
+        if self.CheckRestoreStateful():
+          logging.info('Stateful files and devserver code now back on '
+                       'the device. Trying to reset stateful again.')
+          self.device.RunCommand(['sh', self.stateful_update_bin,
+                                  '--stateful_change=reset'],
+                                 **self._cmd_kwargs)
+
+      else:
+        raise
 
   def RevertBootPartition(self):
     """Revert the boot partition."""
@@ -614,6 +642,10 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     ds = ds_wrapper.RemoteDevServerWrapper(
         self.device, devserver_bin, static_dir=self.device_static_dir,
         log_dir=self.device.work_dir)
+
+    perf_id = None
+    if self.is_au_endtoendtest:
+      perf_id = self._StartPerformanceMonitoring()
 
     try:
       ds.Start()
@@ -639,8 +671,14 @@ class ChromiumOSFlashUpdater(BaseUpdater):
 
       # Loop until update is complete.
       while True:
-        op, progress = self.GetUpdateStatus(self.device,
-                                            ['CURRENT_OP', 'PROGRESS'])
+
+        #TODO(dhaddock): Remove retry when M61 is stable. See crbug.com/744212.
+        op, progress = retry_util.RetryException(cros_build_lib.RunCommandError,
+                                                 MAX_RETRY,
+                                                 self.GetUpdateStatus,
+                                                 self.device,
+                                                 ['CURRENT_OP', 'PROGRESS'],
+                                                 delay_sec=DELAY_SEC_FOR_RETRY)
         logging.info('Waiting for update...status: %s at progress %s',
                      op, progress)
 
@@ -690,6 +728,8 @@ class ChromiumOSFlashUpdater(BaseUpdater):
           os.path.join(self.tempdir, '_'.join([os.path.basename(
               self.REMOTE_HOSTLOG_FILE_PATH), 'rootfs'])),
           **self._cmd_kwargs_omit_error)
+      if perf_id is not None:
+        self._StopPerformanceMonitoring(perf_id)
 
   def UpdateStateful(self, use_original_build=False):
     """Update the stateful partition of the device.
@@ -812,18 +852,64 @@ class ChromiumOSFlashUpdater(BaseUpdater):
   def _CollectDevServerHostLog(self, devserver):
     """Write the host_log events from the remote DUTs devserver to a file.
 
+    We retry several times as some DUTs are slow immediately after
+    starting up a devserver and return no hostlog on the first call(s).
+
     Args:
       devserver: The remote devserver wrapper for the running devserver.
     """
+
+    for _ in range(0, MAX_RETRY):
+      try:
+        host_log_url = devserver.GetDevServerHostLogURL(ip='127.0.0.1',
+                                                        port=devserver.port,
+                                                        host='127.0.0.1')
+
+        # Save the hostlog.
+        self.device.RunCommand(['curl', host_log_url, '-o',
+                                self.REMOTE_HOSTLOG_FILE_PATH],
+                               **self._cmd_kwargs)
+
+        # Copy it back.
+        tmphostlog = os.path.join(self.tempdir, 'hostlog')
+        self.device.CopyFromDevice(self.REMOTE_HOSTLOG_FILE_PATH, tmphostlog,
+                                   **self._cmd_kwargs_omit_error)
+
+        # Check that it is not empty.
+        with open(tmphostlog, 'r') as out_log:
+          hostlog_data = json.loads(out_log.read())
+
+        if not hostlog_data:
+          logging.info('Hostlog empty. Trying again...')
+          time.sleep(DELAY_SEC_FOR_RETRY)
+        else:
+          break
+
+      except cros_build_lib.RunCommandError as e:
+        logging.debug('Exception raised while trying to write the hostlog: '
+                      '%s', e)
+
+  def _StartPerformanceMonitoring(self):
+    """Start update_engine performance monitoring script in rootfs update."""
+    if self._clobber_stateful:
+      return None
+
+    cmd = ['python', self.REMOTE_UPDATE_ENGINE_PERF_SCRIPT_PATH, '--start-bg']
     try:
-      host_log_url = devserver.GetDevServerHostLogURL(ip='127.0.0.1',
-                                                      port=devserver.port,
-                                                      host='127.0.0.1')
-      self.device.RunCommand(['curl', host_log_url, '-o',
-                              self.REMOTE_HOSTLOG_FILE_PATH],
-                             **self._cmd_kwargs)
+      perf_id = self.device.RunCommand(cmd).output.strip()
+      logging.info('update_engine_performance_monitors pid is %s.', perf_id)
+      return perf_id
     except cros_build_lib.RunCommandError as e:
-      logging.debug('Exception raised while trying to write the hostlog: %s', e)
+      logging.debug('Could not start performance monitoring script: %s', e)
+    return None
+
+  def _StopPerformanceMonitoring(self, pid):
+    """Stop the performance monitoring script and save results to file."""
+    cmd = ['python', self.REMOTE_UPDATE_ENGINE_PERF_SCRIPT_PATH, '--stop-bg',
+           pid]
+    perf_json_data = self.device.RunCommand(cmd).output.strip()
+    self.device.RunCommand(['echo', json.dumps(perf_json_data), '>',
+                            self.REMOTE_UPDATE_ENGINE_PERF_RESULTS_PATH])
 
 class ChromiumOSUpdater(ChromiumOSFlashUpdater):
   """Used to auto-update Cros DUT with image.
@@ -1147,12 +1233,14 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
     """Post-check for stateful update for CrOS host."""
     logging.debug('Start post check for stateful update...')
     self.device.Reboot(timeout_sec=self.REBOOT_TIMEOUT)
-    for folder in self.REMOTE_STATEFUL_PATH_TO_CHECK:
-      test_file_path = os.path.join(folder, self.REMOTE_STATEFUL_TEST_FILENAME)
-      # If stateful update succeeds, these test files should not exist.
-      if self.device.IfFileExists(test_file_path,
-                                  **self._cmd_kwargs_omit_error):
-        raise StatefulUpdateError('failed to post-check stateful update.')
+    if self._clobber_stateful:
+      for folder in self.REMOTE_STATEFUL_PATH_TO_CHECK:
+        test_file_path = os.path.join(folder,
+                                      self.REMOTE_STATEFUL_TEST_FILENAME)
+        # If stateful update succeeds, these test files should not exist.
+        if self.device.IfFileExists(test_file_path,
+                                    **self._cmd_kwargs_omit_error):
+          raise StatefulUpdateError('failed to post-check stateful update.')
 
   def PreSetupRootfsUpdate(self):
     """Pre-setup for rootfs update for CrOS host."""
@@ -1175,6 +1263,7 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
                                    self.REMOTE_DEVSERVER_FILENAME)
       if not self.device.IfFileExists(
           devserver_bin, **self._cmd_kwargs_omit_error):
+        logging.info('Devserver files not found on device. Resending them...')
         self.TransferDevServerPackage()
         self.TransferStatefulUpdate()
 
@@ -1215,15 +1304,16 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
                               'active kernel partition.')
 
     self.inactive_kernel = inactive_kernel
-    # The issue is that certain AU tests leave the TPM in a bad state which
-    # most commonly shows up in provisioning.  Executing this 'crossystem'
-    # command before rebooting clears the problem state during the reboot.
-    # It's also worth mentioning that this isn't a complete fix:  The bad
-    # TPM state in theory might happen some time other than during
-    # provisioning.  Also, the bad TPM state isn't supposed to happen at
-    # all; this change is just papering over the real bug.
-    self._RetryCommand('crossystem clear_tpm_owner_request=1',
-                       **self._cmd_kwargs_omit_error)
+    if not self.is_au_endtoendtest:
+      # The issue is that certain AU tests leave the TPM in a bad state which
+      # most commonly shows up in provisioning.  Executing this 'crossystem'
+      # command before rebooting clears the problem state during the reboot.
+      # It's also worth mentioning that this isn't a complete fix:  The bad
+      # TPM state in theory might happen some time other than during
+      # provisioning.  Also, the bad TPM state isn't supposed to happen at
+      # all; this change is just papering over the real bug.
+      self._RetryCommand('crossystem clear_tpm_owner_request=1',
+                         **self._cmd_kwargs_omit_error)
     self.device.Reboot(timeout_sec=self.REBOOT_TIMEOUT)
 
   def PostCheckCrOSUpdate(self):
@@ -1247,7 +1337,7 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
                           self.update_version,
                           self._GetReleaseVersion()))
 
-    if self.payload_filename:
+    if self.is_au_endtoendtest and not self._clobber_stateful:
       logging.debug('Doing one final update check to get post update hostlog.')
       self.PostRebootUpdateCheck()
 

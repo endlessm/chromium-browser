@@ -83,6 +83,10 @@ class CopyTextureTest : public ANGLETest
     PFNGLCOPYSUBTEXTURECHROMIUMPROC glCopySubTextureCHROMIUM = nullptr;
 };
 
+class CopyTextureTestDest : public CopyTextureTest
+{
+};
+
 class CopyTextureTestES3 : public CopyTextureTest
 {
 };
@@ -651,10 +655,17 @@ TEST_P(CopyTextureTest, CubeMapTarget)
 }
 
 // Test that copying to non-zero mipmaps works
-TEST_P(CopyTextureTestES3, CopyToMipmap)
+TEST_P(CopyTextureTest, CopyToMipmap)
 {
     if (!checkExtensions())
     {
+        return;
+    }
+
+    if (getClientMajorVersion() < 3 && !extensionEnabled("GL_OES_fbo_render_mipmap"))
+    {
+        std::cout << "Test skipped because ES3 or GL_OES_fbo_render_mipmap is missing."
+                  << std::endl;
         return;
     }
 
@@ -664,38 +675,334 @@ TEST_P(CopyTextureTestES3, CopyToMipmap)
         return;
     }
 
-    GLColor pixels = GLColor::red;
+    GLColor pixels[] = {GLColor::red, GLColor::red, GLColor::red, GLColor::red};
 
     GLTexture textures[2];
 
-    const GLint sourceLevel = 1;
-    const GLint destLevel   = 2;
-
     glBindTexture(GL_TEXTURE_2D, textures[0]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-    glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &pixels);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 
     glBindTexture(GL_TEXTURE_2D, textures[1]);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     glTexImage2D(GL_TEXTURE_2D, 2, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
-    glCopySubTextureCHROMIUM(textures[0], sourceLevel, GL_TEXTURE_2D, textures[1], destLevel, 0, 0,
-                             0, 0, 1, 1, false, false, false);
+    std::vector<std::pair<GLint, GLint>> soureDestPairs;
+    soureDestPairs.push_back(std::make_pair(0, 1));
+
+    // ES3 allows copying from non-zero mips
+    if (getClientMajorVersion() >= 3)
+    {
+        soureDestPairs.push_back(std::make_pair(1, 2));
+    }
+
+    for (const auto &sourceDestPair : soureDestPairs)
+    {
+        const GLint sourceLevel = sourceDestPair.first;
+        const GLint destLevel   = sourceDestPair.second;
+
+        glCopyTextureCHROMIUM(textures[0], sourceLevel, GL_TEXTURE_2D, textures[1], destLevel,
+                              GL_RGBA, GL_UNSIGNED_BYTE, false, false, false);
+
+        EXPECT_GL_NO_ERROR();
+
+        GLFramebuffer fbo;
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[1],
+                               destLevel);
+
+        // Check that FB is complete.
+        EXPECT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+
+        EXPECT_PIXEL_COLOR_EQ(0, 0, pixels[0]);
+
+        EXPECT_GL_NO_ERROR();
+    }
+}
+
+// Test to ensure that CopyTexture works with LUMINANCE texture as a destination
+TEST_P(CopyTextureTestDest, Luminance)
+{
+    if (!checkExtensions())
+    {
+        return;
+    }
+
+    GLColor originalPixels(50u, 100u, 150u, 200u);
+    GLColor expectedPixels(50u, 50u, 50u, 255u);
+
+    // ReadPixels doesn't work with LUMINANCE (non-renderable), so we copy again back to an RGBA
+    // texture to verify contents.
+    glBindTexture(GL_TEXTURE_2D, mTextures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &originalPixels);
+    glBindTexture(GL_TEXTURE_2D, mTextures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 1, 1, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, nullptr);
+
+    glCopyTextureCHROMIUM(mTextures[1], 0, GL_TEXTURE_2D, mTextures[0], 0, GL_LUMINANCE,
+                          GL_UNSIGNED_BYTE, false, false, false);
 
     EXPECT_GL_NO_ERROR();
 
-    GLFramebuffer fbo;
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures[1],
-                           destLevel);
-
-    // Check that FB is complete.
-    EXPECT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
-
-    EXPECT_PIXEL_COLOR_EQ(0, 0, pixels);
+    glCopyTextureCHROMIUM(mTextures[0], 0, GL_TEXTURE_2D, mTextures[1], 0, GL_RGBA,
+                          GL_UNSIGNED_BYTE, false, false, false);
 
     EXPECT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expectedPixels);
+}
+
+// Test to ensure that CopyTexture works with LUMINANCE texture as a destination with
+// UnpackPremultiply parameter
+TEST_P(CopyTextureTestDest, LuminanceMultiply)
+{
+    if (!checkExtensions())
+    {
+        return;
+    }
+
+    GLColor originalPixels(50u, 100u, 150u, 200u);
+    GLColor expectedPixels(39u, 39u, 39u, 255u);
+
+    // ReadPixels doesn't work with LUMINANCE (non-renderable), so we copy again back to an RGBA
+    // texture to verify contents.
+    glBindTexture(GL_TEXTURE_2D, mTextures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &originalPixels);
+    glBindTexture(GL_TEXTURE_2D, mTextures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 1, 1, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, nullptr);
+
+    glCopyTextureCHROMIUM(mTextures[1], 0, GL_TEXTURE_2D, mTextures[0], 0, GL_LUMINANCE,
+                          GL_UNSIGNED_BYTE, false, true, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    glCopyTextureCHROMIUM(mTextures[0], 0, GL_TEXTURE_2D, mTextures[1], 0, GL_RGBA,
+                          GL_UNSIGNED_BYTE, false, false, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expectedPixels);
+}
+
+// Test to ensure that CopyTexture works with LUMINANCE texture as a destination with
+// UnpackUnmultiply parameter
+TEST_P(CopyTextureTestDest, LuminanceUnmultiply)
+{
+    if (!checkExtensions())
+    {
+        return;
+    }
+
+    GLColor originalPixels(50u, 100u, 150u, 200u);
+    GLColor expectedPixels(64u, 64u, 64u, 255u);
+
+    // ReadPixels doesn't work with LUMINANCE (non-renderable), so we copy again back to an RGBA
+    // texture to verify contents.
+    glBindTexture(GL_TEXTURE_2D, mTextures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &originalPixels);
+    glBindTexture(GL_TEXTURE_2D, mTextures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 1, 1, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, nullptr);
+
+    glCopyTextureCHROMIUM(mTextures[1], 0, GL_TEXTURE_2D, mTextures[0], 0, GL_LUMINANCE,
+                          GL_UNSIGNED_BYTE, false, false, true);
+
+    EXPECT_GL_NO_ERROR();
+
+    glCopyTextureCHROMIUM(mTextures[0], 0, GL_TEXTURE_2D, mTextures[1], 0, GL_RGBA,
+                          GL_UNSIGNED_BYTE, false, false, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expectedPixels);
+}
+
+// Test to ensure that CopyTexture works with LUMINANCE_ALPHA texture as a destination
+TEST_P(CopyTextureTestDest, LuminanceAlpha)
+{
+    if (!checkExtensions())
+    {
+        return;
+    }
+
+    GLColor originalPixels(50u, 100u, 150u, 200u);
+    GLColor expectedPixels(50u, 50u, 50u, 200u);
+
+    // ReadPixels doesn't work with LUMINANCE_ALPHA (non-renderable), so we copy again back to an
+    // RGBA texture to verify contents.
+    glBindTexture(GL_TEXTURE_2D, mTextures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &originalPixels);
+    glBindTexture(GL_TEXTURE_2D, mTextures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, 1, 1, 0, GL_LUMINANCE_ALPHA,
+                 GL_UNSIGNED_BYTE, nullptr);
+
+    glCopyTextureCHROMIUM(mTextures[1], 0, GL_TEXTURE_2D, mTextures[0], 0, GL_LUMINANCE_ALPHA,
+                          GL_UNSIGNED_BYTE, false, false, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    glCopyTextureCHROMIUM(mTextures[0], 0, GL_TEXTURE_2D, mTextures[1], 0, GL_RGBA,
+                          GL_UNSIGNED_BYTE, false, false, false);
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expectedPixels);
+}
+
+// Test to ensure that CopyTexture works with LUMINANCE_ALPHA texture as a destination with
+// UnpackPremultiply parameter
+TEST_P(CopyTextureTestDest, LuminanceAlphaMultiply)
+{
+    if (!checkExtensions())
+    {
+        return;
+    }
+
+    GLColor originalPixels(50u, 100u, 150u, 200u);
+    GLColor expectedPixels(39u, 39u, 39u, 200u);
+
+    // ReadPixels doesn't work with LUMINANCE_ALPHA (non-renderable), so we copy again back to an
+    // RGBA texture to verify contents.
+    glBindTexture(GL_TEXTURE_2D, mTextures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &originalPixels);
+    glBindTexture(GL_TEXTURE_2D, mTextures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, 1, 1, 0, GL_LUMINANCE_ALPHA,
+                 GL_UNSIGNED_BYTE, nullptr);
+
+    glCopyTextureCHROMIUM(mTextures[1], 0, GL_TEXTURE_2D, mTextures[0], 0, GL_LUMINANCE_ALPHA,
+                          GL_UNSIGNED_BYTE, false, true, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    glCopyTextureCHROMIUM(mTextures[0], 0, GL_TEXTURE_2D, mTextures[1], 0, GL_RGBA,
+                          GL_UNSIGNED_BYTE, false, false, false);
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expectedPixels);
+}
+
+// Test to ensure that CopyTexture works with LUMINANCE_ALPHA texture as a destination with
+// UnpackUnmultiplyAlpha parameter
+TEST_P(CopyTextureTestDest, LuminanceAlphaUnmultiply)
+{
+    if (!checkExtensions())
+    {
+        return;
+    }
+
+    GLColor originalPixels(50u, 100u, 150u, 200u);
+    GLColor expectedPixels(64u, 64u, 64u, 200u);
+
+    // ReadPixels doesn't work with LUMINANCE_ALPHA (non-renderable), so we copy again back to an
+    // RGBA texture to verify contents.
+    glBindTexture(GL_TEXTURE_2D, mTextures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &originalPixels);
+    glBindTexture(GL_TEXTURE_2D, mTextures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, 1, 1, 0, GL_LUMINANCE_ALPHA,
+                 GL_UNSIGNED_BYTE, nullptr);
+
+    glCopyTextureCHROMIUM(mTextures[1], 0, GL_TEXTURE_2D, mTextures[0], 0, GL_LUMINANCE_ALPHA,
+                          GL_UNSIGNED_BYTE, false, false, true);
+
+    EXPECT_GL_NO_ERROR();
+
+    glCopyTextureCHROMIUM(mTextures[0], 0, GL_TEXTURE_2D, mTextures[1], 0, GL_RGBA,
+                          GL_UNSIGNED_BYTE, false, false, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expectedPixels);
+}
+
+// Test to ensure that CopyTexture works with ALPHA texture as a destination
+TEST_P(CopyTextureTestDest, Alpha)
+{
+    if (!checkExtensions())
+    {
+        return;
+    }
+
+    GLColor originalPixels(50u, 100u, 150u, 155u);
+    GLColor expectedPixels(0u, 0u, 0u, 155u);
+
+    // ReadPixels doesn't work with ALPHA (non-renderable), so we copy again back to an RGBA
+    // texture to verify contents.
+    glBindTexture(GL_TEXTURE_2D, mTextures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &originalPixels);
+    glBindTexture(GL_TEXTURE_2D, mTextures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, 1, 1, 0, GL_ALPHA, GL_UNSIGNED_BYTE, nullptr);
+
+    glCopyTextureCHROMIUM(mTextures[1], 0, GL_TEXTURE_2D, mTextures[0], 0, GL_ALPHA,
+                          GL_UNSIGNED_BYTE, false, false, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    glCopyTextureCHROMIUM(mTextures[0], 0, GL_TEXTURE_2D, mTextures[1], 0, GL_RGBA,
+                          GL_UNSIGNED_BYTE, false, false, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expectedPixels);
+}
+
+// Test to ensure that CopyTexture works with ALPHA texture as a destination with
+// UnpackPremultiplyAlpha parameter
+TEST_P(CopyTextureTestDest, AlphaMultiply)
+{
+    if (!checkExtensions())
+    {
+        return;
+    }
+
+    GLColor originalPixels(50u, 100u, 150u, 155u);
+    GLColor expectedPixels(0u, 0u, 0u, 155u);
+
+    // ReadPixels doesn't work with ALPHA (non-renderable), so we copy again back to an RGBA
+    // texture to verify contents.
+    glBindTexture(GL_TEXTURE_2D, mTextures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &originalPixels);
+    glBindTexture(GL_TEXTURE_2D, mTextures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, 1, 1, 0, GL_ALPHA, GL_UNSIGNED_BYTE, nullptr);
+
+    glCopyTextureCHROMIUM(mTextures[1], 0, GL_TEXTURE_2D, mTextures[0], 0, GL_ALPHA,
+                          GL_UNSIGNED_BYTE, false, true, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    glCopyTextureCHROMIUM(mTextures[0], 0, GL_TEXTURE_2D, mTextures[1], 0, GL_RGBA,
+                          GL_UNSIGNED_BYTE, false, false, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expectedPixels);
+}
+
+// Test to ensure that CopyTexture works with ALPHA texture as a destination with
+// UnpackUnmultiplyAlpha parameter
+TEST_P(CopyTextureTestDest, AlphaUnmultiply)
+{
+    if (!checkExtensions())
+    {
+        return;
+    }
+
+    GLColor originalPixels(50u, 100u, 150u, 155u);
+    GLColor expectedPixels(0u, 0u, 0u, 155u);
+
+    // ReadPixels doesn't work with ALPHA (non-renderable), so we copy again back to an RGBA
+    // texture to verify contents.
+    glBindTexture(GL_TEXTURE_2D, mTextures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &originalPixels);
+    glBindTexture(GL_TEXTURE_2D, mTextures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, 1, 1, 0, GL_ALPHA, GL_UNSIGNED_BYTE, nullptr);
+
+    glCopyTextureCHROMIUM(mTextures[1], 0, GL_TEXTURE_2D, mTextures[0], 0, GL_ALPHA,
+                          GL_UNSIGNED_BYTE, false, false, true);
+
+    EXPECT_GL_NO_ERROR();
+
+    glCopyTextureCHROMIUM(mTextures[0], 0, GL_TEXTURE_2D, mTextures[1], 0, GL_RGBA,
+                          GL_UNSIGNED_BYTE, false, false, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expectedPixels);
 }
 
 // Test the newly added ES3 unorm formats
@@ -792,7 +1099,7 @@ TEST_P(CopyTextureTestES3, ES3UnormFormats)
                         GL_UNSIGNED_BYTE, false, true, false, GLColor(0, 0, 0, 128));
 
     // New sRGB dest formats
-    if (IsOpenGLES())
+    if (IsOpenGLES() || IsOpenGL())
     {
         std::cout << "Skipping GL_SRGB and GL_SRGB_ALPHA because it is not implemented yet."
                   << std::endl;
@@ -800,12 +1107,12 @@ TEST_P(CopyTextureTestES3, ES3UnormFormats)
     else
     {
         testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128), GL_SRGB,
-                            GL_UNSIGNED_BYTE, false, false, false, GLColor(128, 64, 32, 255));
+                            GL_UNSIGNED_BYTE, false, false, false, GLColor(55, 13, 4, 255));
         testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128), GL_SRGB,
-                            GL_UNSIGNED_BYTE, false, true, false, GLColor(64, 32, 16, 255));
+                            GL_UNSIGNED_BYTE, false, true, false, GLColor(13, 4, 1, 255));
         testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128),
                             GL_SRGB_ALPHA_EXT, GL_UNSIGNED_BYTE, false, false, false,
-                            GLColor(128, 64, 32, 128));
+                            GLColor(55, 13, 4, 128));
     }
 }
 
@@ -927,7 +1234,7 @@ TEST_P(CopyTextureTestES3, ES3FloatFormats)
                         GL_R11F_G11F_B10F, GL_FLOAT, false, false, true,
                         GLColor32F(1.0f, 0.5f, 0.25f, 1.0f));
 
-    if (IsD3D11() || IsOpenGL() || IsOpenGLES())
+    if (IsOpenGL() || IsOpenGLES())
     {
         std::cout << "Skipping GL_RGB9_E5 because it is not implemented yet." << std::endl;
     }
@@ -1068,6 +1375,7 @@ TEST_P(CopyTextureTestES3, ES3UintFormats)
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these
 // tests should be run against.
 ANGLE_INSTANTIATE_TEST(CopyTextureTest, ES2_D3D9(), ES2_D3D11(), ES2_OPENGL(), ES2_OPENGLES());
+ANGLE_INSTANTIATE_TEST(CopyTextureTestDest, ES2_D3D11());
 ANGLE_INSTANTIATE_TEST(CopyTextureTestES3, ES3_D3D11(), ES3_OPENGL(), ES3_OPENGLES());
 
 }  // namespace angle

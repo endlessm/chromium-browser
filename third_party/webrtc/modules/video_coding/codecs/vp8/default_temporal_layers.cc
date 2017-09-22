@@ -15,17 +15,18 @@
 #include <algorithm>
 #include <vector>
 
-#include "webrtc/base/checks.h"
 #include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/modules/video_coding/include/video_codec_interface.h"
 #include "webrtc/modules/video_coding/codecs/vp8/include/vp8_common_types.h"
+#include "webrtc/modules/video_coding/include/video_codec_interface.h"
+#include "webrtc/rtc_base/checks.h"
 
 #include "vpx/vpx_encoder.h"
 #include "vpx/vp8cx.h"
 
 namespace webrtc {
 
-TemporalLayers::FrameConfig::FrameConfig() {}
+TemporalLayers::FrameConfig::FrameConfig()
+    : FrameConfig(kNone, kNone, kNone, false) {}
 
 TemporalLayers::FrameConfig::FrameConfig(TemporalLayers::BufferFlags last,
                                          TemporalLayers::BufferFlags golden,
@@ -48,7 +49,9 @@ TemporalLayers::FrameConfig::FrameConfig(TemporalLayers::BufferFlags last,
       last_buffer_flags(last),
       golden_buffer_flags(golden),
       arf_buffer_flags(arf),
-      freeze_entropy(freeze_entropy) {}
+      layer_sync(false),
+      freeze_entropy(freeze_entropy),
+      pattern_idx(0) {}
 
 namespace {
 

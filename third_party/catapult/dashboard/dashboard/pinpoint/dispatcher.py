@@ -11,11 +11,12 @@ from dashboard.pinpoint import handlers
 
 _URL_MAPPING = [
     # Public API.
-    webapp2.Route(r'/api/isolated', handlers.Isolated),
-    webapp2.Route(r'/api/isolated/<builder_name>/<git_hash>/<target>',
-                  handlers.Isolated),
+    webapp2.Route(r'/api/isolate', handlers.Isolate),
+    webapp2.Route(r'/api/isolate/<builder_name>/<git_hash>/<target>',
+                  handlers.Isolate),
     webapp2.Route(r'/api/job', handlers.Job),
     webapp2.Route(r'/api/jobs', handlers.Jobs),
+    webapp2.Route(r'/api/login', handlers.Login),
     webapp2.Route(r'/api/new', handlers.New),
 
     # Used internally by Pinpoint. Not accessible from the public API.

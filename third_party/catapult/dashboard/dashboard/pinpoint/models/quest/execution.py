@@ -57,7 +57,7 @@ class Execution(object):
   def result_arguments(self):
     """A dict of information passed on to the next Execution.
 
-    For example, the Build Execution passes the isolated hash to the Test
+    For example, the Build Execution passes the isolate hash to the Test
     Execution.
     """
     assert self.completed
@@ -69,6 +69,10 @@ class Execution(object):
 
     try:
       self._Poll()
+    except StandardError:
+      # StandardError most likely indicates a bug in the code.
+      # We should fail fast to aid debugging.
+      raise
     except Exception as e:  # pylint: disable=broad-except
       # We allow broad exception handling here, because we log the exception and
       # display it in the UI.

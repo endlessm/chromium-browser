@@ -51,11 +51,6 @@ DEFAULT_TARGET_VERSION_MAP = {
 TARGET_VERSION_MAP = {
     'host' : {
         'gdb' : PACKAGE_NONE,
-        'ex_go' : PACKAGE_NONE,
-        'ex_compiler-rt': PACKAGE_NONE,
-        'ex_llvm-libunwind': PACKAGE_NONE,
-        'ex_libcxxabi': PACKAGE_NONE,
-        'ex_libcxx': PACKAGE_NONE,
     },
 }
 
@@ -1089,7 +1084,8 @@ def _ProcessSysrootWrappers(_target, output_dir, srcpath):
     contents = osutils.ReadFile(sysroot_wrapper).splitlines()
     for num in xrange(len(contents)):
       if '@CCACHE_DEFAULT@' in contents[num]:
-        contents[num] = 'use_ccache = False'
+        assert 'True' in contents[num]
+        contents[num] = contents[num].replace('True', 'False')
         break
     # Can't update the wrapper in place since it's a hardlink to a file in /.
     os.unlink(sysroot_wrapper)

@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <algorithm>
 #include <set>
 #include <string>
 #include <vector>
@@ -37,7 +38,8 @@
 #include "chrome/browser/chromeos/boot_times_recorder.h"
 #include "chrome/browser/chromeos/first_run/first_run.h"
 #include "chrome/browser/chromeos/first_run/goodies_displayer.h"
-#include "chrome/browser/chromeos/input_method/input_method_util.h"
+#include "chrome/browser/chromeos/lock_screen_apps/state_controller.h"
+#include "chrome/browser/chromeos/logging.h"
 #include "chrome/browser/chromeos/login/auth/chrome_cryptohome_authenticator.h"
 #include "chrome/browser/chromeos/login/chrome_restart_request.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_app_launcher.h"
@@ -62,7 +64,6 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/tether/tether_service.h"
-#include "chrome/browser/component_updater/ev_whitelist_component_installer.h"
 #include "chrome/browser/component_updater/sth_set_component_installer.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/google/google_brand_chromeos.h"
@@ -120,6 +121,7 @@
 #include "rlz/features/features.h"
 #include "ui/base/ime/chromeos/input_method_descriptor.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
+#include "ui/base/ime/chromeos/input_method_util.h"
 #include "ui/message_center/message_center.h"
 #include "url/gurl.h"
 
@@ -676,6 +678,7 @@ void UserSessionManager::SetAppModeChromeClientOAuthInfo(
 
 void UserSessionManager::DoBrowserLaunch(Profile* profile,
                                          LoginDisplayHost* login_host) {
+  ui_shown_time_ = base::Time::Now();
   DoBrowserLaunchInternal(profile, login_host, false /* locale_pref_checked */);
 }
 
@@ -765,8 +768,10 @@ bool UserSessionManager::RestartToApplyPerSessionFlagsIfNeed(
   if (!session_manager_client->SupportsRestartToApplyUserFlags())
     return false;
 
-  if (ProfileHelper::IsSigninProfile(profile))
+  if (ProfileHelper::IsSigninProfile(profile) ||
+      ProfileHelper::IsLockScreenAppProfile(profile)) {
     return false;
+  }
 
   // Kiosk sessions keeps the startup flags.
   if (user_manager::UserManager::Get() &&
@@ -874,6 +879,20 @@ void UserSessionManager::OnSessionRestoreStateChanged(
 
   login_manager->RemoveObserver(this);
 
+  // Terminate user session if merge session fails for an online sign-in.
+  // Otherwise, auth token dependent code would be in an invalid state.
+  // Important piece such as policy code might be broken because of this and
+  // subject to an exploit. See http://crbug.com/677312.
+  const bool is_online_signin =
+      user_context_.GetAuthFlow() == UserContext::AUTH_FLOW_GAIA_WITH_SAML ||
+      user_context_.GetAuthFlow() == UserContext::AUTH_FLOW_GAIA_WITHOUT_SAML;
+  if (is_online_signin && state == OAuth2LoginManager::SESSION_RESTORE_FAILED) {
+    LOG(ERROR)
+        << "Session restore failed for online sign-in, terminating session.";
+    chrome::AttemptUserExit();
+    return;
+  }
+
   if (exit_after_session_restore_ &&
       (state  == OAuth2LoginManager::SESSION_RESTORE_DONE ||
        state  == OAuth2LoginManager::SESSION_RESTORE_FAILED ||
@@ -968,7 +987,7 @@ void UserSessionManager::CreateUserSession(const UserContext& user_context,
 void UserSessionManager::PreStartSession() {
   // Switch log file as soon as possible.
   if (base::SysInfo::IsRunningOnChromeOS())
-    logging::RedirectChromeLogging(*(base::CommandLine::ForCurrentProcess()));
+    logging::RedirectChromeLogging(*base::CommandLine::ForCurrentProcess());
 }
 
 void UserSessionManager::StoreUserContextDataBeforeProfileIsCreated() {
@@ -1080,6 +1099,8 @@ void UserSessionManager::InitProfilePreferences(
         SigninManagerFactory::GetForProfile(profile);
     signin_manager->SetAuthenticatedAccountInfo(
         gaia_id, user_context.GetAccountId().GetUserEmail());
+    VLOG(1) << "Seed SigninManagerBase with the authenticated account info"
+            << ", success=" << signin_manager->IsAuthenticated();
 
     // Backfill GAIA ID in user prefs stored in Local State.
     std::string tmp_gaia_id;
@@ -1160,7 +1181,7 @@ void UserSessionManager::UserProfileInitialized(Profile* profile,
       // NOTIFICATION_PROFILE_CREATED which marks user profile as initialized.
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
-          base::Bind(
+          base::BindOnce(
               &UserSessionManager::CompleteProfileCreateAfterAuthTransfer,
               AsWeakPtr(), profile));
     }
@@ -1171,8 +1192,8 @@ void UserSessionManager::UserProfileInitialized(Profile* profile,
     // Call FinalizePrepareProfile directly and skip RestoreAuthSessionImpl
     // because there is no need to merge session for Active Directory users.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&UserSessionManager::FinalizePrepareProfile,
-                              AsWeakPtr(), profile));
+        FROM_HERE, base::BindOnce(&UserSessionManager::FinalizePrepareProfile,
+                                  AsWeakPtr(), profile));
     return;
   }
 
@@ -1234,12 +1255,14 @@ void UserSessionManager::FinalizePrepareProfile(Profile* profile) {
     InitializeCerts(profile);
     InitializeCRLSetFetcher(user);
     InitializeCertificateTransparencyComponents(user);
+    if (lock_screen_apps::StateController::IsEnabled())
+      lock_screen_apps::StateController::Get()->SetPrimaryProfile(profile);
 
     arc::ArcServiceLauncher::Get()->OnPrimaryUserProfilePrepared(profile);
 
     TetherService* tether_service = TetherService::Get(profile);
     if (tether_service)
-      tether_service->StartTetherIfEnabled();
+      tether_service->StartTetherIfPossible();
   }
 
   UpdateEasyUnlockKeys(user_context_);
@@ -1320,8 +1343,9 @@ bool UserSessionManager::InitializeUserSession(Profile* profile) {
       base::Bind(&UserSessionManager::ChildAccountStatusReceivedCallback,
                  weak_factory_.GetWeakPtr(), profile));
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::Bind(&UserSessionManager::StopChildStatusObserving,
-                            weak_factory_.GetWeakPtr(), profile),
+      FROM_HERE,
+      base::BindOnce(&UserSessionManager::StopChildStatusObserving,
+                     weak_factory_.GetWeakPtr(), profile),
       base::TimeDelta::FromMilliseconds(kFlagsFetchingLoginTimeoutMs));
 
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
@@ -1494,8 +1518,6 @@ void UserSessionManager::InitializeCertificateTransparencyComponents(
   if (!username_hash.empty() && cus) {
     const base::FilePath path =
         ProfileHelper::GetProfilePathByUserIdHash(username_hash);
-    // EV whitelist.
-    RegisterEVWhitelistComponent(cus, path);
     // STH set fetcher.
     RegisterSTHSetComponent(cus, path);
   }
@@ -1609,10 +1631,12 @@ void UserSessionManager::UpdateEasyUnlockKeys(const UserContext& user_context) {
   if (user_context.GetKey()->GetSecret().empty())
     return;
 
-  const base::ListValue* device_list = NULL;
+  const base::ListValue* device_list = nullptr;
   EasyUnlockService* easy_unlock_service = EasyUnlockService::GetForUser(*user);
   if (easy_unlock_service) {
-    device_list = easy_unlock_service->GetRemoteDevices();
+    device_list = easy_unlock_service->IsChromeOSLoginEnabled()
+                      ? easy_unlock_service->GetRemoteDevices()
+                      : nullptr;
     easy_unlock_service->SetHardlockState(
         EasyUnlockScreenlockStateHandler::NO_HARDLOCK);
   }
@@ -1642,7 +1666,7 @@ void UserSessionManager::AttemptRestart(Profile* profile) {
   // Restart unconditionally in case if we are stuck somewhere in a session
   // restore process. http://crbug.com/520346.
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::Bind(RestartOnTimeout),
+      FROM_HERE, base::BindOnce(RestartOnTimeout),
       base::TimeDelta::FromSeconds(kMaxRestartDelaySeconds));
 
   if (CheckEasyUnlockKeyOps(base::Bind(&UserSessionManager::AttemptRestart,

@@ -11,6 +11,10 @@
 #include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 namespace ios_internal {
 
 AlertCoordinator* ErrorCoordinator(NSError* error,
@@ -31,6 +35,27 @@ AlertCoordinator* ErrorCoordinator(NSError* error,
   return alertCoordinator;
 }
 
+NSString* DialogMessageFromError(NSError* error) {
+  NSMutableString* errorMessage = [[NSMutableString alloc] init];
+  if (error.userInfo[NSLocalizedDescriptionKey]) {
+    [errorMessage appendString:error.localizedDescription];
+  } else {
+    [errorMessage appendString:@"--"];
+  }
+  [errorMessage appendString:@" ("];
+  NSError* errorCursor = error;
+  for (int errorDepth = 0; errorDepth < 3 && errorCursor; ++errorDepth) {
+    if (errorDepth > 0) {
+      [errorMessage appendString:@", "];
+    }
+    [errorMessage
+        appendFormat:@"%@: %" PRIdNS, errorCursor.domain, errorCursor.code];
+    errorCursor = errorCursor.userInfo[NSUnderlyingErrorKey];
+  }
+  [errorMessage appendString:@")"];
+  return [errorMessage copy];
+}
+
 AlertCoordinator* ErrorCoordinatorNoItem(NSError* error,
                                          UIViewController* viewController) {
   DCHECK(error);
@@ -42,19 +67,13 @@ AlertCoordinator* ErrorCoordinatorNoItem(NSError* error,
       error.code == kCFURLErrorCannotConnectToHost) {
     errorMessage =
         l10n_util::GetNSString(IDS_IOS_SYNC_ERROR_INTERNET_DISCONNECTED);
-  } else if ([error.userInfo objectForKey:NSLocalizedDescriptionKey]) {
-    errorMessage = [NSString stringWithFormat:@"%@ (%@ %" PRIdNS ")",
-                                              error.localizedDescription,
-                                              error.domain, error.code];
   } else {
-    // If the error has no NSLocalizedDescriptionKey in its user info, then
-    // |error.localizedDescription| contains the error domain and code.
-    errorMessage = error.localizedDescription;
+    errorMessage = DialogMessageFromError(error);
   }
-  AlertCoordinator* alertCoordinator = [[[AlertCoordinator alloc]
-      initWithBaseViewController:viewController
-                           title:title
-                         message:errorMessage] autorelease];
+  AlertCoordinator* alertCoordinator =
+      [[AlertCoordinator alloc] initWithBaseViewController:viewController
+                                                     title:title
+                                                   message:errorMessage];
   return alertCoordinator;
 }
 

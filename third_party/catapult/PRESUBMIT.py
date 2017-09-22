@@ -47,6 +47,10 @@ _RIETVELD_BUG_ID_RE = re.compile(r'[1-9]\d*')
 _RIETVELD_REPOSITORY_NAMES = frozenset({'chromium', 'v8', 'angleproject'})
 
 def CheckChangeLogBug(input_api, output_api):
+  if not input_api.change.issue:
+    # If there is no change issue, there won't be a bug yet. Skip the check.
+    return []
+
   # Show a presubmit message if there is no Bug line or an empty Bug line.
   if not input_api.change.BugsFromDescription():
     return [output_api.PresubmitNotifyResult(
@@ -92,9 +96,12 @@ def CheckChange(input_api, output_api):
   results = []
   try:
     sys.path += [input_api.PresubmitLocalPath()]
-    from catapult_build import js_checks
+
+    from catapult_build import bin_checks
     from catapult_build import html_checks
+    from catapult_build import js_checks
     from catapult_build import repo_checks
+
     results += input_api.canned_checks.PanProjectChecks(
         input_api, output_api, excluded_paths=_EXCLUDED_PATHS)
     results += CheckChangeLogBug(input_api, output_api)
@@ -103,6 +110,8 @@ def CheckChange(input_api, output_api):
     results += html_checks.RunChecks(
         input_api, output_api, excluded_paths=_EXCLUDED_PATHS)
     results += repo_checks.RunChecks(input_api, output_api)
+    results += bin_checks.RunChecks(
+        input_api, output_api, excluded_paths=_EXCLUDED_PATHS)
   finally:
     sys.path.remove(input_api.PresubmitLocalPath())
   return results

@@ -55,7 +55,8 @@ class FakeCIDBConnection(object):
   def InsertBuild(self, builder_name, waterfall, build_number,
                   build_config, bot_hostname, master_build_id=None,
                   timeout_seconds=None, status=constants.BUILDER_STATUS_PASSED,
-                  important=None, buildbucket_id=None):
+                  important=None, buildbucket_id=None, milestone_version=None,
+                  platform_version=None):
     """Insert a build row.
 
     Note this API slightly differs from cidb as we pass status to avoid having
@@ -81,7 +82,9 @@ class FakeCIDBConnection(object):
            'finish_time': datetime.datetime.now(),
            'important': important,
            'buildbucket_id': buildbucket_id,
-           'final': False}
+           'final': False,
+           'milestone_version': milestone_version,
+           'platform_version': platform_version}
     self.buildTable.append(row)
     return build_id
 
@@ -276,16 +279,48 @@ class FakeCIDBConnection(object):
 
     self.buildStageTable[build_stage_id]['status'] = status
 
-  def GetActionsForChanges(self, changes):
-    """Gets all the actions for the given changes."""
-    clauses = set()
-    for change in changes:
-      change_source = 'internal' if change.internal else 'external'
-      clauses.add((int(change.gerrit_number), change_source))
+  def GetActionsForChanges(self, changes, ignore_patch_number=True,
+                           status=None, action=None, start_time=None):
+    """Gets all the actions for the given changes.
+
+    Args:
+      changes: A list of GerritChangeTuple, GerritPatchTuple or GerritPatch
+        specifying the changes to whose actions should be fetched.
+      ignore_patch_number: Boolean indicating whether to ignore patch_number of
+        the changes. If ignore_patch_number is False, only get the actions with
+        matched patch_number. Default to True.
+      status: If provided, only return the actions with build is |status| (a
+        member of constants.BUILDER_ALL_STATUSES). Default to None.
+      action: If provided, only return the actions is |action| (a member of
+        constants.CL_ACTIONS). Default to None.
+      start_time: If provided, only return the actions with timestamp >=
+        start_time. Default to None.
+
+    Returns:
+      A list of CLAction instances, in action id order.
+    """
     values = []
     for row in self.GetActionHistory():
-      if (row.change_number, row.change_source) in clauses:
+      if start_time is not None and row.timestamp < start_time:
+        continue
+      if status is not None and row.status != status:
+        continue
+      if action is not None and row.action != action:
+        continue
+
+      for change in changes:
+        change_source = 'internal' if change.internal else 'external'
+
+        if (change_source != row.change_source or
+            int(change.gerrit_number) != row.change_number):
+          continue
+        if (not ignore_patch_number and
+            int(change.patch_number) != row.patch_number):
+          continue
+
         values.append(row)
+        break
+
     return values
 
   def GetActionHistory(self, *args, **kwargs):
@@ -303,7 +338,8 @@ class FakeCIDBConnection(object):
           item['patch_number'],
           item['change_source'],
           item['timestamp'],
-          item['buildbucket_id'])
+          item['buildbucket_id'],
+          self.buildTable[item['build_id']]['status'])
       values.append(row)
 
     return clactions.CLActionHistory(clactions.CLAction(*row) for row in values)
@@ -379,12 +415,13 @@ class FakeCIDBConnection(object):
 
   def GetBuildHistory(self, build_config, num_results,
                       ignore_build_id=None, start_date=None, end_date=None,
-                      starting_build_number=None, milestone_version=None):
+                      starting_build_number=None, milestone_version=None,
+                      platform_version=None):
     """Returns the build history for the given |build_config|."""
     builds = [b for b in self.buildTable
               if b['build_config'] == build_config]
     # Reverse sort as that's what's expected.
-    builds = sorted(builds[-num_results:], reverse=True)
+    builds = sorted(builds, reverse=True)
 
     # Filter results.
     if ignore_build_id is not None:
@@ -402,9 +439,32 @@ class FakeCIDBConnection(object):
                 if b['build_number'] >= starting_build_number]
     if milestone_version is not None:
       builds = [b for b in builds
-                if b['milestone_version'] == milestone_version]
+                if b.get('milestone_version') == milestone_version]
+    if platform_version is not None:
+      builds = [b for b in builds
+                if b.get('platform_version') == platform_version]
 
-    return builds
+    if num_results != -1:
+      return builds[:num_results]
+    else:
+      return builds
+
+  def GetPlatformVersions(self, build_config, num_results=-1,
+                          starting_milestone_version=None):
+    """Get the platform versions for a build_config."""
+    builds = [b for b in self.buildTable
+              if b['build_config'] == build_config]
+
+    if starting_milestone_version is not None:
+      builds = [b for b in builds if int(b.get('milestone_version')) >=
+                int(starting_milestone_version)]
+
+    versions = [b['platform_version'] for b in builds]
+
+    if num_results != -1:
+      return versions[:num_results]
+    else:
+      return versions
 
   def GetTimeToDeadline(self, build_id):
     """Gets the time remaining until deadline."""

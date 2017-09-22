@@ -178,7 +178,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     test = Test()
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
-    story_runner.Run(test, story_set, options, results)
+    story_runner.Run(test, story_set, options, results,
+        metadata=EmptyMetadataForTest())
     self.assertEquals(2, test.run_count)
     self.assertEquals(2, len(GetSuccessfulPageRuns(results)))
     self.assertEquals(1, len(results.failures))
@@ -213,7 +214,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     test = Test(needs_browser_restart_after_each_page=True)
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
-    story_runner.Run(test, story_set, options, results)
+    story_runner.Run(test, story_set, options, results,
+        metadata=EmptyMetadataForTest())
     self.assertEquals(2, len(GetSuccessfulPageRuns(results)))
     self.assertEquals(2, test.browser_starts)
     self.assertFormattedExceptionIsEmpty()
@@ -242,7 +244,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
       with tempfile.NamedTemporaryFile(delete=False) as f:
         page = page_module.Page(
             'file://blank.html', story_set, base_dir=util.GetUnittestDataDir(),
-            credentials_path=f.name)
+            credentials_path=f.name,
+            name='blank.html')
         page.credentials = "test"
         story_set.AddStory(page)
 
@@ -266,7 +269,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
       options.suppress_gtest_report = True
       SetUpStoryRunnerArguments(options)
       results = results_options.CreateResults(EmptyMetadataForTest(), options)
-      story_runner.Run(test, story_set, options, results)
+      story_runner.Run(test, story_set, options, results,
+          metadata=EmptyMetadataForTest())
     finally:
       os.remove(f.name)
 
@@ -277,7 +281,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     story_set = story.StorySet()
     page = page_module.Page(
         'file://blank.html', story_set, base_dir=util.GetUnittestDataDir(),
-        shared_page_state_class=shared_page_state.SharedTabletPageState)
+        shared_page_state_class=shared_page_state.SharedTabletPageState,
+        name='blank.html')
     story_set.AddStory(page)
 
     class TestUserAgent(legacy_page_test.LegacyPageTest):
@@ -299,7 +304,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     options.suppress_gtest_report = True
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
-    story_runner.Run(test, story_set, options, results)
+    story_runner.Run(test, story_set, options, results,
+        metadata=EmptyMetadataForTest())
 
     self.assertTrue(hasattr(test, 'hasRun') and test.hasRun)
 
@@ -308,7 +314,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
   def testOneTab(self):
     story_set = story.StorySet()
     page = page_module.Page(
-        'file://blank.html', story_set, base_dir=util.GetUnittestDataDir())
+        'file://blank.html', story_set, base_dir=util.GetUnittestDataDir(),
+        name='blank.html')
     story_set.AddStory(page)
 
     class TestOneTab(legacy_page_test.LegacyPageTest):
@@ -326,7 +333,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     options.suppress_gtest_report = True
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
-    story_runner.Run(test, story_set, options, results)
+    story_runner.Run(test, story_set, options, results,
+        metadata=EmptyMetadataForTest())
 
   @decorators.Disabled('chromeos')  # crbug.com/652385
   def testTrafficSettings(self):
@@ -364,7 +372,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     options.suppress_gtest_report = True
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
-    story_runner.Run(test, story_set, options, results)
+    story_runner.Run(test, story_set, options, results,
+        metadata=EmptyMetadataForTest())
     # Slow page should be slower than fast page by at least 300 ms (roundtrip
     # time of 2G) - 2 ms (roundtrip time of Wifi)
     self.assertGreater(latencies_by_page_in_ms['slow'],
@@ -375,7 +384,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
   def testBrowserBeforeLaunch(self):
     story_set = story.StorySet()
     page = page_module.Page(
-        'file://blank.html', story_set, base_dir=util.GetUnittestDataDir())
+        'file://blank.html', story_set, base_dir=util.GetUnittestDataDir(),
+        name='blank.html')
     story_set.AddStory(page)
 
     class TestBeforeLaunch(legacy_page_test.LegacyPageTest):
@@ -402,7 +412,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     options.suppress_gtest_report = True
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
-    story_runner.Run(test, story_set, options, results)
+    story_runner.Run(test, story_set, options, results,
+        metadata=EmptyMetadataForTest())
 
   def testRunPageWithStartupUrl(self):
     num_times_browser_closed = [0]
@@ -416,7 +427,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     story_set = story.StorySet()
     page = page_module.Page(
         'file://blank.html', story_set, base_dir=util.GetUnittestDataDir(),
-        startup_url='about:blank', shared_page_state_class=TestSharedState)
+        startup_url='about:blank', shared_page_state_class=TestSharedState,
+        name='blank.html')
     story_set.AddStory(page)
 
     class Measurement(legacy_page_test.LegacyPageTest):
@@ -436,7 +448,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     test = Measurement()
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
-    story_runner.Run(test, story_set, options, results)
+    story_runner.Run(test, story_set, options, results,
+        metadata=EmptyMetadataForTest())
     self.assertEquals('about:blank', options.browser_options.startup_url)
     # _StopBrowser should be called 2 times:
     # 1. browser restarts after page 1 run
@@ -447,7 +460,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
   def testCleanUpPage(self):
     story_set = story.StorySet()
     page = page_module.Page(
-        'file://blank.html', story_set, base_dir=util.GetUnittestDataDir())
+        'file://blank.html', story_set, base_dir=util.GetUnittestDataDir(),
+        name='blank.html')
     story_set.AddStory(page)
 
     class Test(legacy_page_test.LegacyPageTest):
@@ -469,7 +483,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     options.suppress_gtest_report = True
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
-    story_runner.Run(test, story_set, options, results)
+    story_runner.Run(test, story_set, options, results,
+        metadata=EmptyMetadataForTest())
     assert test.did_call_clean_up
 
   # Ensure skipping the test if shared state cannot be run on the browser.
@@ -487,7 +502,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     story_set.AddStory(page_module.Page(
         url='file://blank.html', page_set=story_set,
         base_dir=util.GetUnittestDataDir(),
-        shared_page_state_class=UnrunnableSharedState))
+        shared_page_state_class=UnrunnableSharedState,
+        name='blank.html'))
 
     class Test(legacy_page_test.LegacyPageTest):
 
@@ -509,7 +525,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     options.suppress_gtest_report = True
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
-    story_runner.Run(test, story_set, options, results)
+    story_runner.Run(test, story_set, options, results,
+        metadata=EmptyMetadataForTest())
     self.assertFalse(test.will_navigate_to_page_called)
     self.assertEquals(1, len(GetSuccessfulPageRuns(results)))
     self.assertEquals(1, len(results.skipped_values))
@@ -518,7 +535,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
   def testRunPageWithProfilingFlag(self):
     story_set = story.StorySet()
     story_set.AddStory(page_module.Page(
-        'file://blank.html', story_set, base_dir=util.GetUnittestDataDir()))
+        'file://blank.html', story_set, base_dir=util.GetUnittestDataDir(),
+        name='blank.html'))
 
     class Measurement(legacy_page_test.LegacyPageTest):
 
@@ -536,7 +554,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     try:
       SetUpStoryRunnerArguments(options)
       results = results_options.CreateResults(EmptyMetadataForTest(), options)
-      story_runner.Run(Measurement(), story_set, options, results)
+      story_runner.Run(Measurement(), story_set, options, results,
+          metadata=EmptyMetadataForTest())
       self.assertEquals(1, len(GetSuccessfulPageRuns(results)))
       self.assertEquals(0, len(results.failures))
       self.assertEquals(0, len(results.all_page_specific_values))
@@ -562,7 +581,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
     story_runner.Run(test, story_set, options, results,
-                     max_failures=max_failures)
+                     max_failures=max_failures,
+                     metadata=EmptyMetadataForTest())
     return results
 
   def testSingleTabMeansCrashWillCauseFailureValue(self):
@@ -601,7 +621,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
 
-    story_runner.Run(test, story_set, options, results)
+    story_runner.Run(test, story_set, options, results,
+        metadata=EmptyMetadataForTest())
 
     self.longMessage = True
     self.assertIn('Example Domain', body[0],
@@ -630,8 +651,10 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
         raise exceptions.AppCrashException
 
     story_set = story.StorySet()
-    story_set.AddStory(page_module.Page('file://blank.html', story_set))
-    failing_page = FailingTestPage('chrome://version', story_set)
+    story_set.AddStory(page_module.Page('file://blank.html', story_set,
+                                        name='blank.html'))
+    failing_page = FailingTestPage('chrome://version', story_set,
+                                   name='failing')
     story_set.AddStory(failing_page)
     options = options_for_unittests.GetCopy()
     options.output_formats = ['none']
@@ -640,7 +663,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
     story_runner.Run(DummyTest(), story_set, options, results,
-                     max_failures=2)
+                     max_failures=2,
+                     metadata=EmptyMetadataForTest())
     self.assertEquals(1, len(results.failures))
     if not platform_screenshot_supported[0] and tab_screenshot_supported[0]:
       self.assertEquals(1, len(results.pages_to_profiling_files))
@@ -665,8 +689,10 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
         raise exceptions.AppCrashException
 
     story_set = story.StorySet()
-    story_set.AddStory(page_module.Page('file://blank.html', story_set))
-    failing_page = FailingTestPage('chrome://version', story_set)
+    story_set.AddStory(page_module.Page('file://blank.html', story_set,
+                                        name='blank.html'))
+    failing_page = FailingTestPage('chrome://version', story_set,
+                                   name='failing')
     story_set.AddStory(failing_page)
     options = options_for_unittests.GetCopy()
     options.output_formats = ['none']
@@ -674,7 +700,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     SetUpStoryRunnerArguments(options)
     results = results_options.CreateResults(EmptyMetadataForTest(), options)
     story_runner.Run(DummyTest(), story_set, options, results,
-                     max_failures=2)
+                     max_failures=2,
+                     metadata=EmptyMetadataForTest())
     self.assertEquals(1, len(results.failures))
     self.assertEquals(0, len(results.pages_to_profiling_files))
 
@@ -696,13 +723,16 @@ class FakePageRunEndToEndTests(unittest.TestCase):
         raise exceptions.AppCrashException
 
     story_set = story.StorySet()
-    story_set.AddStory(page_module.Page('file://blank.html', story_set))
-    failing_page = FailingTestPage('chrome://version', story_set)
+    story_set.AddStory(page_module.Page('file://blank.html', story_set,
+                                        name='blank.html'))
+    failing_page = FailingTestPage('chrome://version', story_set,
+                                   name='failing')
     story_set.AddStory(failing_page)
     results = results_options.CreateResults(
         EmptyMetadataForTest(), self.options)
     story_runner.Run(DummyTest(), story_set, self.options, results,
-                     max_failures=2)
+                     max_failures=2,
+                     metadata=EmptyMetadataForTest())
     self.assertEquals(1, len(results.failures))
     self.assertEquals(0, len(results.pages_to_profiling_files))
 
@@ -721,14 +751,17 @@ class FakePageRunEndToEndTests(unittest.TestCase):
       def RunNavigateSteps(self, action_runner):
         raise exceptions.AppCrashException
     story_set = story.StorySet()
-    story_set.AddStory(page_module.Page('file://blank.html', story_set))
-    failing_page = FailingTestPage('chrome://version', story_set)
+    story_set.AddStory(page_module.Page('file://blank.html', story_set,
+                                        name='blank.html'))
+    failing_page = FailingTestPage('chrome://version', story_set,
+                                   name='failing')
     story_set.AddStory(failing_page)
 
     results = results_options.CreateResults(
         EmptyMetadataForTest(), self.options)
     story_runner.Run(DummyTest(), story_set, self.options, results,
-                     max_failures=2)
+                     max_failures=2,
+                     metadata=EmptyMetadataForTest())
     self.assertEquals(1, len(results.failures))
     self.assertEquals(1, len(results.pages_to_profiling_files))
     self.assertIn(failing_page,

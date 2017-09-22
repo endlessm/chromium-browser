@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 import collections
 import logging
+import time
 from collections import defaultdict
 
 from tracing.metrics import metric_runner
@@ -144,7 +145,7 @@ class Options(object):
   """A class to be used to configure TimelineBasedMeasurement.
 
   This is created and returned by
-  Benchmark.CreateTimelineBasedMeasurementOptions.
+  Benchmark.CreateCoreTimelineBasedMeasurementOptions.
 
   By default, all the timeline based metrics in telemetry/web_perf/metrics are
   used (see _GetAllLegacyTimelineBasedMetrics above).
@@ -316,8 +317,12 @@ class TimelineBasedMeasurement(story_test.StoryTest):
       'trackDetailedModelStats': True
     }
 
+    start = time.time()
     mre_result = metric_runner.RunMetric(
-        trace_value.filename, metrics, extra_import_options)
+        trace_value.filename, metrics, extra_import_options,
+        report_progress=False)
+    logging.warning('Processing resulting traces took %.3f seconds' % (
+        time.time() - start))
     page = results.current_page
 
     failure_dicts = mre_result.failures
@@ -325,7 +330,8 @@ class TimelineBasedMeasurement(story_test.StoryTest):
       results.AddValue(
           common_value_helpers.TranslateMreFailure(d, page))
 
-    results.value_set.extend(mre_result.pairs.get('histograms', []))
+    results.histograms.ImportDicts(mre_result.pairs.get('histograms', []))
+    results.histograms.ResolveRelatedHistograms()
 
     for d in mre_result.pairs.get('scalars', []):
       results.AddValue(common_value_helpers.TranslateScalarValue(d, page))

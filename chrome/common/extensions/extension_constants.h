@@ -209,11 +209,6 @@ extern const char kSwitchAccessExtensionPath[];
 // Name of the manifest file in an extension when a special manifest is used
 // for guest mode.
 extern const char kGuestManifestFilename[];
-// Extension id, path (relative to |chrome::DIR_RESOURCES|) and IME engine
-// id for the builtin-in Braille IME extension.
-extern const char kBrailleImeExtensionId[];
-extern const char kBrailleImeExtensionPath[];
-extern const char kBrailleImeEngineId[];
 // Path to preinstalled Connectivity Diagnostics extension.
 extern const char kConnectivityDiagnosticsPath[];
 extern const char kConnectivityDiagnosticsLauncherPath[];
@@ -229,6 +224,10 @@ extern const char kWallpaperManagerId[];
 extern const char kWebstoreWidgetAppId[];
 // The extension id of the new ZIP unpacker extension.
 extern const char kZIPUnpackerExtensionId[];
+// The extension id of the zip archiver extension.
+extern const char kZipArchiverExtensionId[];
+// Path to preinstalled zip archiver extension.
+extern const char kZipArchiverExtensionPath[];
 #endif
 
 // What causes an extension to be installed? Used in histograms, so don't

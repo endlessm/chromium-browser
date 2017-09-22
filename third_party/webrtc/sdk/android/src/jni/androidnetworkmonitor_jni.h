@@ -11,14 +11,14 @@
 #ifndef WEBRTC_SDK_ANDROID_SRC_JNI_ANDROIDNETWORKMONITOR_JNI_H_
 #define WEBRTC_SDK_ANDROID_SRC_JNI_ANDROIDNETWORKMONITOR_JNI_H_
 
-#include "webrtc/base/networkmonitor.h"
+#include "webrtc/rtc_base/networkmonitor.h"
 
 #include <stdint.h>
 
 #include <map>
 
+#include "webrtc/rtc_base/thread_checker.h"
 #include "webrtc/sdk/android/src/jni/jni_helpers.h"
-#include "webrtc/base/thread_checker.h"
 
 namespace webrtc_jni {
 
@@ -53,7 +53,8 @@ class AndroidNetworkMonitor : public rtc::NetworkMonitorBase,
  public:
   AndroidNetworkMonitor();
 
-  static void SetAndroidContext(JNIEnv* jni, jobject context);
+  // TODO(sakal): Remove once down stream dependencies have been updated.
+  static void SetAndroidContext(JNIEnv* jni, jobject context) {}
 
   void Start() override;
   void Stop() override;

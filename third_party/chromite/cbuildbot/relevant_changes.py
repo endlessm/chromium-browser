@@ -6,13 +6,25 @@
 
 from __future__ import print_function
 
+import datetime
+
+from chromite.cbuildbot.stages import artifact_stages
 from chromite.lib import builder_status_lib
 from chromite.lib import clactions
 from chromite.lib import constants
+from chromite.lib import config_lib
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import patch as cros_patch
 from chromite.lib import triage_lib
+
+
+# Limit (hours) for looking back cl actions in the history for history-aware
+# submission.
+CLACTION_LOOKBACK_LIMIT_HOUR = 48
+
+
+site_config = config_lib.GetConfig()
 
 
 class RelevantChanges(object):
@@ -62,7 +74,8 @@ class RelevantChanges(object):
 
   @classmethod
   def GetRelevantChangesForSlaves(cls, master_build_id, db, config, changes,
-                                  no_stat, slave_buildbucket_ids,
+                                  builds_not_passed_sync_stage,
+                                  slave_buildbucket_ids,
                                   include_master=False):
     """Compile a set of relevant changes for each slave.
 
@@ -71,7 +84,8 @@ class RelevantChanges(object):
       db: Instance of cidb.CIDBConnection.
       config: Instance of config_lib.BuildConfig of this build.
       changes: A list of GerritPatch instances to examine.
-      no_stat: Set of builder names of slave builders that had status None.
+      builds_not_passed_sync_stage: Set of build config names of slaves that
+        didn't pass the sync stages.
       slave_buildbucket_ids: A list of buildbucket_ids (strings) of slave builds
                              scheduled by Buildbucket.
       include_master: Boolean indicating whether to include the master build in
@@ -94,11 +108,11 @@ class RelevantChanges(object):
     for k, v in changes_by_build_id.iteritems():
       changes_by_config[config_map[k]] = v
 
-    for config in no_stat:
-      # If a slave is in |no_stat|, it means that the slave never
-      # finished applying the changes in the sync stage. Hence the CL
-      # pickup actions for this slave may be
-      # inaccurate. Conservatively assume all changes are relevant.
+    for config in builds_not_passed_sync_stage:
+      # If a slave did not passed the sync stage, it means that the slave never
+      # finished applying the changes in the sync stage. Hence the CL pickup
+      # actions for this slave may be inaccurate. Conservatively assume all
+      # changes are relevant.
       changes_by_config[config] = set(changes)
 
     return changes_by_config
@@ -131,6 +145,70 @@ class RelevantChanges(object):
         # If message_subtype==subsystem_unused, keep d as an empty dict.
     return subsys_by_config
 
+  @classmethod
+  def GetPreviouslyPassedSlavesForChanges(
+      cls, master_build_id, db, changes, change_relevant_slaves_dict,
+      history_lookback_limit=CLACTION_LOOKBACK_LIMIT_HOUR):
+    """Get slaves passed in history (not from current run) for changes.
+
+    If a previous slave build:
+    1) inserted constants.CL_ACTION_RELEVANT_TO_SLAVE cl action for a change;
+    2) is a passed build;
+    3) is a relevant slave of the change
+    this slave is considered as a previously passed slave.
+
+    Args:
+      master_build_id: The build id of current master to get current slaves.
+      db: An instance of cidb.CIDBConnection.
+      changes: A list of cros_patch.GerritPatch instance to check.
+      change_relevant_slaves_dict: A dict mapping changes to their relevant
+        slaves in current run.
+      history_lookback_limit: Limit (hours) for looking back cl actions in the
+        histor. If it's None, do not force the limit.
+        Default to CLACTION_LOOKBACK_LIMIT_HOUR.
+
+    Returns:
+      A dict mapping changes (cros_patch.GerritPatch instances) to sets of
+      of build config name (strings) of their relevant slaves which passed in
+      history.
+    """
+    assert db, 'No database connection to use.'
+    current_slaves = db.GetSlaveStatuses(master_build_id)
+    current_slave_build_ids = [x['id'] for x in current_slaves]
+
+    valid_configs = set()
+    for relevant_slaves in change_relevant_slaves_dict.values():
+      valid_configs.update(relevant_slaves)
+
+    changes_dict = {clactions.GerritPatchTuple(int(change.gerrit_number),
+                                               int(change.patch_number),
+                                               change.internal):
+                    change for change in changes}
+
+    start_time = None
+    if history_lookback_limit is not None:
+      start_time = (datetime.datetime.now() -
+                    datetime.timedelta(hours=history_lookback_limit))
+
+    actions = db.GetActionsForChanges(
+        changes,
+        ignore_patch_number=False,
+        status=constants.BUILDER_STATUS_PASSED,
+        action=constants.CL_ACTION_RELEVANT_TO_SLAVE,
+        start_time=start_time)
+
+    change_passed_slaves_dict = {}
+    for action in actions:
+      if (action.build_config in valid_configs and
+          action.build_id not in current_slave_build_ids):
+        change = changes_dict.get(action.patch)
+        if change:
+          change_passed_slaves_dict.setdefault(change, set()).add(
+              action.build_config)
+
+    return change_passed_slaves_dict
+
+
 class TriageRelevantChanges(object):
   """Class to triage relevant changes within a CQ run..
 
@@ -155,8 +233,10 @@ class TriageRelevantChanges(object):
   # Get stage names from stage classes instead of duplicating them here.
   COMMIT_QUEUE_SYNC = 'CommitQueueSync'
   MASTER_SLAVE_LKGM_SYNC = 'MasterSlaveLKGMSync'
-
   STAGE_SYNC = {COMMIT_QUEUE_SYNC, MASTER_SLAVE_LKGM_SYNC}
+
+  STAGE_UPLOAD_PREBUILTS = (
+      artifact_stages.UploadPrebuiltsStage.StageNamePrefix())
 
   def __init__(self, master_build_id, db, builders_array, config, metadata,
                version, build_root, changes, buildbucket_info_dict,
@@ -223,6 +303,12 @@ class TriageRelevantChanges(object):
     # failures in the build.
     self.build_ignorable_changes_dict = {}
 
+    # A dict mapping changes to their relevant slaves (build_configs).
+    self.change_relevant_slaves_dict = None
+
+    # A dict mapping changes to their passed slaves (build_configs) in history.
+    self.change_passed_slaves_dict = None
+
     self._UpdateSlaveInfo()
 
   def _UpdateSlaveInfo(self):
@@ -233,6 +319,12 @@ class TriageRelevantChanges(object):
         self.slave_stages_dict)
     self.slave_subsys_dict = RelevantChanges.GetSubsysResultForSlaves(
         self.master_build_id, self.db)
+    self.change_relevant_slaves_dict = cros_build_lib.InvertDictionary(
+        self.slave_changes_dict)
+    self.change_passed_slaves_dict = (
+        RelevantChanges.GetPreviouslyPassedSlavesForChanges(
+            self.master_build_id, self.db, self.changes,
+            self.change_relevant_slaves_dict))
 
   @staticmethod
   def GetDependChanges(changes, dependency_map):
@@ -304,20 +396,19 @@ class TriageRelevantChanges(object):
     return accepted_stages.intersection(desired_stages)
 
   @classmethod
-  def GetBuildsPassedAnyOfStages(cls, slave_stages_dict, desired_stages):
+  def GetBuildsPassedAnyOfStages(cls, build_stages_dict, desired_stages):
     """Get builds which have passed any stage from desired_stages.
 
     Args:
-      slave_stages_dict: A dict mapping slaves config names to their stage lists
-        (see GetSlaveStages for details).
+      build_stages_dict: A dict mapping build config names to their stage lists.
       desired_stages: A set of desired stages (strings).
 
     Returns:
       A set of build config names (strings) which have passed any stage in
       desired_stages.
     """
-    return set(slave_config
-               for slave_config, stages in slave_stages_dict.iteritems()
+    return set(build_config
+               for build_config, stages in build_stages_dict.iteritems()
                if cls.PassedAnyOfStages(stages, desired_stages))
 
   def _GetRelevantChanges(self, slave_stages_dict):
@@ -336,14 +427,15 @@ class TriageRelevantChanges(object):
       containing all the applied changes.
     """
     # If a build passed the sync stage, the picked up change stats are recorded.
-    stat_builds = self.GetBuildsPassedAnyOfStages(
+    builds_passed_sync_stage = self.GetBuildsPassedAnyOfStages(
         slave_stages_dict, self.STAGE_SYNC)
-    no_stat_builds = set(self.buildbucket_info_dict.keys()) - stat_builds
+    builds_not_passed_sync_stage = (set(self.buildbucket_info_dict.keys()) -
+                                    builds_passed_sync_stage)
     slave_buildbucket_ids = [bb_info.buildbucket_id
                              for bb_info in self.buildbucket_info_dict.values()]
     slave_changes_dict = RelevantChanges.GetRelevantChangesForSlaves(
         self.master_build_id, self.db, self.config, self.changes,
-        no_stat_builds, slave_buildbucket_ids)
+        builds_not_passed_sync_stage, slave_buildbucket_ids)
 
     # Some slaves may not pick up any changes, update the value to set()
     for slave_config in self.buildbucket_info_dict:
@@ -408,17 +500,43 @@ class TriageRelevantChanges(object):
     self.will_not_submit.update(will_not_submit)
     self.might_submit.difference_update(will_not_submit)
 
+  def _GetWillNotSubmitChanges(self, build_config, changes):
+    """Get changes which will not be submitted because of the failed build.
+
+    Get a list of changes which will not be submitted because the build_config
+    is relevant to the changes, and the build of this build_config didn't pass
+    in current run and the failures are not ignorable, and there's no passed
+    build of this build_config in history.
+
+    Args:
+      build_config: The build config name (string) of the failed build.
+      changes: A list of cros_patch.GerritPatch instances to check.
+
+    Returns:
+      A list of changes (cros_patch.GerritPatch) which will not be submitted.
+    """
+    will_not_submit_changes = set()
+    for change in changes:
+      if (build_config in self.change_relevant_slaves_dict.get(change, set())
+          and build_config not in self.change_passed_slaves_dict.get(
+              change, set())):
+        will_not_submit_changes.add(change)
+
+    return will_not_submit_changes
+
   def _ProcessCompletedBuilds(self):
     """Process completed and not retriable builds.
 
     This method goes through all the builds which completed without SUCCESS
     result and will not be retried.
-    1) if the failed build didn't pass the sync stage, move all changes to
-    will_not_submit set;
+    1) if the failed build didn't pass the sync stage, iterate all changes,
+    move the changes which didn't pass this build config in history to
+    will_not_submit (as well as their dependencies).
     2) else, get BuilderStatus for the build (if there's no BuilderStatus
     pickle file in GS, a BuilderStatus with 'missing' status will be returned).
-    Calculate ignorable changes given the BuilderStatus, move all not ignorable
-    changes and their dependencies to will_not_submit set.
+    Find not ignorable changes given the BuilderStatus, iterate the changes in
+    not ignorable changes, move the changes which didn't pass this build config
+    in history to will_not_submit (as well as their dependencies).
     """
     # TODO(nxia): Improve SlaveBuilderStatus to take buildbucket_info_dict
     # and cidb_status_dict as arguments to avoid extra queries.
@@ -430,22 +548,33 @@ class TriageRelevantChanges(object):
       if (build_config in self.completed_builds and
           bb_info.status == constants.BUILDBUCKET_BUILDER_STATUS_COMPLETED and
           bb_info.result != constants.BUILDBUCKET_BUILDER_RESULT_SUCCESS):
-        # This build didn't succeed and cannot be retired.
-        logging.info('Process relevant changes of build %s status %s result %s',
-                     build_config, bb_info.status, bb_info.result)
+        # This build didn't succeed and cannot be retried.
+        logging.info('Processing relevant changes of build %s status %s '
+                     'result %s', build_config, bb_info.status, bb_info.result)
 
         stages = self.slave_stages_dict[build_config]
         if not self.PassedAnyOfStages(stages, self.STAGE_SYNC):
-          # The build didn't pass any of the sync stages. Will not submit all
-          # changes as the build failed to pick relevant changes in a passed
-          # sync stage.
-          self._UpdateWillNotSubmitChanges(set(self.changes))
-          logging.info('Build %s didn\'t pass any stage in %s, will not submit '
-                       'any changes.', build_config, list(self.STAGE_SYNC))
+          # The build_config didn't pass any of the sync stages. Find changes
+          # which don't have valid passed builds of this build_config in
+          # history. Move the changes and their dependencies to will_not_submit
+          # set.
+          will_not_submit_changes = self._GetWillNotSubmitChanges(
+              build_config, self.changes)
+          depend_changes = self.GetDependChanges(
+              will_not_submit_changes, self.dependency_map)
+          will_not_submit_changes |= depend_changes
+
+          if will_not_submit_changes:
+            self._UpdateWillNotSubmitChanges(will_not_submit_changes)
+            logging.info('Build %s didn\'t pass any stage in %s. Will not'
+                         ' submit changes: %s', build_config, self.STAGE_SYNC,
+                         cros_patch.GetChangesAsString(will_not_submit_changes))
         else:
           # The build passed the required sync stage. Get builder_status and
-          # calculate ignorable changes based on the builder_status. Move not
-          # ignorable changes and their dependencies to will_not_submit set.
+          # get not ignorable changes based on the builder_status. Find changes
+          # in the not ignorable changes don't have valid passed builds of this
+          # build_config hi history. Move the changes and their dependencies to
+          # will_not_submit set.
           relevant_changes = self.slave_changes_dict[build_config]
           builder_status = slave_builder_statuses.GetBuilderStatusForBuild(
               build_config)
@@ -453,71 +582,94 @@ class TriageRelevantChanges(object):
               build_config, builder_status, relevant_changes)
           self.build_ignorable_changes_dict[build_config] = ignorable_changes
           not_ignorable_changes = relevant_changes - ignorable_changes
-          depend_changes = self.GetDependChanges(
-              not_ignorable_changes, self.dependency_map)
-          will_not_submit = not_ignorable_changes | depend_changes
 
-          if will_not_submit:
-            self._UpdateWillNotSubmitChanges(will_not_submit)
+          will_not_submit_changes = self._GetWillNotSubmitChanges(
+              build_config, not_ignorable_changes)
+          depend_changes = self.GetDependChanges(
+              will_not_submit_changes, self.dependency_map)
+          will_not_submit_changes = will_not_submit_changes | depend_changes
+
+          if will_not_submit_changes:
+            self._UpdateWillNotSubmitChanges(will_not_submit_changes)
             logging.info('Build %s failed with not ignorable failures, will not'
                          ' submit changes: %s', build_config,
-                         cros_patch.GetChangesAsString(will_not_submit))
+                         cros_patch.GetChangesAsString(will_not_submit_changes))
 
         if not self.might_submit:
           # No need to process other completed builds, might_submit is empty.
           return
 
-  def _GetChangeToSlavesDict(self, slave_changes_dict):
-    """Get change to relevant slaves dict.
+  def _ChangeVerifiedByCurrentBuild(self, change, build_config,
+                                    buildbucket_info_dict,
+                                    build_ignorable_changes_dict):
+    """Whether the change can by verified by the current build of build_config.
+
+    A change can be verified by the build if it satisfies the conditions:
+    1) the build successfully completed; OR
+    2) the build failed but its failures can be ignored by the change.
 
     Args:
-      slave_changes_dict: A dict mapping all slave config names (strings) to
-        sets of changes (GerritPatch instances) which are relevant to the slave
-        builds (See return type of _GetRelevantChanges for details).
-
-    Returns:
-      A dict mapping changes (GerritPatch instances) to sets of slave config
-      names (strings) which are relevant to changes.
-    """
-    change_slaves_dict = {}
-    for slave, changes in slave_changes_dict.iteritems():
-      for change in changes:
-        change_slaves_dict.setdefault(change, set()).add(slave)
-
-    return change_slaves_dict
-
-  def _ChangeCanBeSubmitted(self, change, relevant_slave_configs,
-                            build_ignorable_changes_dict):
-    """Verify whether the change can be submitted given its relevant slaves.
-
-    A change can be submitted if it satisfies either of the conditions:
-    1) all of its relevant slaves successfully completed;
-    2) all of its relevant slaves completed, and the slaves marked as 'FAILURE'
-    either uploaded 'passed' BuilderStatus pickle to GS or only contain failures
-    which can be ignored by the change.
-
-    Args:
-      change: A change (GerritPatch instance) to check.
-      relevant_slave_configs: A list of relevant slave config names (string) of
-        this change.
+      change: An instance of cros_patch.GerritPatch to check.
+      build_config: The build config name (string) (relevant to the change) to
+        verify.
+      buildbucket_info_dict: A dict mapping all slave build config names to
+        their BuildbucketInfos (See SlaveBuilerStatus.GetAllSlaveBuildbucketInfo
+        for details).
       build_ignorable_changes_dict: A dict mapping build config name (string) to
         a set of changes (GerritPatch instances) which can ignore the failures
         in the build.
 
     Returns:
+      True if the change can be verified by the current build of build_config;
+      else, False.
+    """
+    bb_info = buildbucket_info_dict.get(build_config)
+    ignorable_changes = build_ignorable_changes_dict.get(build_config, set())
+    if bb_info.status != constants.BUILDBUCKET_BUILDER_STATUS_COMPLETED:
+      return False
+    if bb_info.result != constants.BUILDBUCKET_BUILDER_RESULT_SUCCESS:
+      #If the build uploaded 'passed' BuilderStatus pickle or the build
+      # only contains failures which can be ignored by this change, change is
+      # in the value set for build_config in build_ignorable_changes_dict.
+      if change not in ignorable_changes:
+        return False
+
+    return True
+
+  def _ChangeCanBeSubmitted(self, change, relevant_slave_configs,
+                            buildbucket_info_dict, build_ignorable_changes_dict,
+                            change_passed_slaves_dict):
+    """Whether the change can be submitted by current cq or cq history.
+
+    A change can NOT be submitted if at least one of its relevant slaves
+    satisfies the conditions:
+    1) the relevant build_config failed in current build with not ignorable
+      failures; AND
+    2) no passed build for the relevant build_config in cq history.
+
+    Args:
+      change: A change (GerritPatch instance) to check.
+      relevant_slave_configs: A list of relevant slave config names (string) of
+        this change.
+      buildbucket_info_dict: A dict mapping all slave build config names to
+        their BuildbucketInfos (See SlaveBuilerStatus.GetAllSlaveBuildbucketInfo
+        for details).
+      build_ignorable_changes_dict: A dict mapping build config name (string) to
+        a set of changes (GerritPatch instances) which can ignore the failures
+        in the build.
+      change_passed_slaves_dict: A dict mapping changes (cros_patch.GerritPatch)
+        to their passed slaves (build_config name strings) in history.
+
+    Returns:
       True if the change can be submitted given the statues of its relevant
       slaves; else, False.
     """
-    for slave_config in relevant_slave_configs:
-      bb_info = self.buildbucket_info_dict[slave_config]
-      if bb_info.status != constants.BUILDBUCKET_BUILDER_STATUS_COMPLETED:
+    for build_config in relevant_slave_configs:
+      if (not self._ChangeVerifiedByCurrentBuild(change, build_config,
+                                                 buildbucket_info_dict,
+                                                 build_ignorable_changes_dict)
+          and build_config not in change_passed_slaves_dict.get(change, set())):
         return False
-      if bb_info.result != constants.BUILDBUCKET_BUILDER_RESULT_SUCCESS:
-        # If the build uploaded 'passed' BuilderStatus pickle or the build
-        # only contains failures which can be ignored by this change, change is
-        # in the value set for slave_config in build_ignorable_changes_dict.
-        if change not in build_ignorable_changes_dict.get(slave_config, set()):
-          return False
 
     return True
 
@@ -526,33 +678,64 @@ class TriageRelevantChanges(object):
 
     This method goes through all the changes in current might_submit set. For
     each change, get a set of its relevant slaves. If all the relevant slaves
-    have completed with success, move the change to will_submit set.
+    can either be verified by current CQ or passed in CQ history, move the
+    change to will_submit set.
     """
     if not self.might_submit:
       return
 
-    change_slaves_dict = self._GetChangeToSlavesDict(self.slave_changes_dict)
-    changes_to_submit = set()
+    logging.info('Processing changes in might submit set.')
+    will_submit_changes = set()
     for change in self.might_submit:
+      relevant_slaves = self.change_relevant_slaves_dict.get(change, set())
       if self._ChangeCanBeSubmitted(
-          change, change_slaves_dict.get(change, set()),
-          self.build_ignorable_changes_dict):
-        changes_to_submit.add(change)
+          change, relevant_slaves, self.buildbucket_info_dict,
+          self.build_ignorable_changes_dict, self.change_passed_slaves_dict):
+        will_submit_changes.add(change)
 
-    if changes_to_submit:
-      self.will_submit.update(changes_to_submit)
-      self.might_submit.difference_update(changes_to_submit)
+    if will_submit_changes:
+      self.will_submit.update(will_submit_changes)
+      self.might_submit.difference_update(will_submit_changes)
       logging.info('Moving %s to will_submit set, because their relevant builds'
-                   ' completed successfully or all failures are ignorable. ',
-                   cros_patch.GetChangesAsString(changes_to_submit))
+                   ' completed successfully or all failures are ignorable or '
+                   'passed in CQ history.',
+                   cros_patch.GetChangesAsString(will_submit_changes))
 
-  def ShouldWait(self):
-    """Process builds and relevant changes, decide whether to wait on slaves.
+  def _AllCompletedSlavesPassedUploadPrebuiltsStage(self):
+    """Check if all completed slaves have passed the UploadPrebuiltsStage."""
+    for build_config in self.completed_builds:
+      # compilecheck builds don't run UploadPrebuiltsStage
+      if (not site_config[build_config].compilecheck and
+          not self.PassedAnyOfStages(self.slave_stages_dict[build_config],
+                                     {self.STAGE_UPLOAD_PREBUILTS})):
+        logging.info("Completed build %s didn't pass stage %s. "
+                     "The master can't publish uprevs now.",
+                     build_config, self.STAGE_UPLOAD_PREBUILTS)
+        return False
+
+    return True
+
+  def _AllUncompletedSlavesPassedUploadPrebuiltsStage(self):
+    """Check if all uncompleted slaves have passed the UploadPrebuiltsStage."""
+    for build_config in set(self.builders_array) - self.completed_builds:
+      # compilecheck builds don't run UploadPrebuiltsStage
+      if (not site_config[build_config].compilecheck and
+          not self.PassedAnyOfStages(self.slave_stages_dict[build_config],
+                                     {self.STAGE_UPLOAD_PREBUILTS})):
+        logging.info("Uncompleted build %s haven't passed stage %s. "
+                     "The master can't publish uprevs now.",
+                     build_config, self.STAGE_UPLOAD_PREBUILTS)
+        return False
+
+    return True
+
+  def ShouldSelfDestruct(self):
+    """Process builds and relevant changes, decide whether to self-destruct.
 
     Returns:
-      True if the master should wait for running slaves to finish testing
-      changes in might_submit set; False if the master shouldn't wait for any
-      not completed slaves.
+      A tuple of (boolean indicating if the master should self-destruct,
+                  boolean indicating if the master should self-destruct with
+                  with success)
     """
     self._ProcessCompletedBuilds()
     self._ProcessMightSubmitChanges()
@@ -567,7 +750,19 @@ class TriageRelevantChanges(object):
                  len(self.will_not_submit),
                  cros_patch.GetChangesAsString(self.will_not_submit))
 
-    if not self.might_submit:
-      return False
+    # The master should wait for all the necessary slaves to pass the
+    # UploadPrebuiltsStage so the master can publish prebuilts after
+    # self-destruction with success. More context: crbug.com/703819
+    all_completed_slaves_passed = (
+        self._AllCompletedSlavesPassedUploadPrebuiltsStage())
+    all_uncompleted_slaves_passed = (
+        self._AllUncompletedSlavesPassedUploadPrebuiltsStage())
+    should_self_destruct = (bool(not self.might_submit) and
+                            (not all_completed_slaves_passed or
+                             all_uncompleted_slaves_passed))
+    should_self_destruct_with_success = (bool(not self.might_submit) and
+                                         bool(not self.will_not_submit) and
+                                         all_completed_slaves_passed and
+                                         all_uncompleted_slaves_passed)
 
-    return True
+    return should_self_destruct, should_self_destruct_with_success

@@ -19,7 +19,6 @@ import signal
 import socket
 import StringIO
 import sys
-import time
 import __builtin__
 
 from chromite.lib import constants
@@ -30,7 +29,6 @@ from chromite.lib import cros_test_lib
 from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import partial_mock
-from chromite.lib import retry_util
 from chromite.lib import signals as cros_signals
 
 
@@ -144,7 +142,7 @@ class RunCommandMock(partial_mock.PartialCmdMock):
 
   def RunCommand(self, cmd, *args, **kwargs):
     result = self._results['RunCommand'].LookupResult(
-        (cmd,), hook_args=(cmd,) + args, hook_kwargs=kwargs)
+        (cmd,), kwargs=kwargs, hook_args=(cmd,) + args, hook_kwargs=kwargs)
 
     popen_mock = PopenMock()
     popen_mock.AddCmdResult(partial_mock.Ignore(), result.returncode,
@@ -726,174 +724,6 @@ class TestRunCommandOutput(cros_test_lib.TempDirTestCase,
     self.assertNotEqual('', cm.exception.result.error)
 
 
-class TestRetries(cros_test_lib.MockTempDirTestCase):
-  """Tests of GenericRetry and relatives."""
-
-  def testGenericRetry(self):
-    """Test basic semantics of retry and success recording."""
-    source = iter(xrange(5)).next
-
-    def f():
-      val = source()
-      if val < 4:
-        raise ValueError()
-      return val
-
-    s = []
-    def sf(attempt):
-      s.append(attempt)
-
-    handler = lambda ex: isinstance(ex, ValueError)
-
-    self.assertRaises(ValueError, retry_util.GenericRetry, handler, 3, f,
-                      success_functor=sf)
-    self.assertEqual(s, [])
-
-    self.assertEqual(4, retry_util.GenericRetry(handler, 1, f,
-                                                success_functor=sf))
-    self.assertEqual(s, [1])
-
-    self.assertRaises(StopIteration, retry_util.GenericRetry, handler, 3, f,
-                      success_functor=sf)
-    self.assertEqual(s, [1])
-
-  def testGenericRetryBadArgs(self):
-    """Test bad retry related arguments to GenericRetry raise ValueError."""
-    def always_raise():
-      raise Exception('Not a ValueError')
-
-    self.assertRaises(ValueError, retry_util.GenericRetry, lambda ex: True,
-                      -1, always_raise)
-    self.assertRaises(ValueError, retry_util.GenericRetry, lambda ex: True,
-                      3, always_raise, backoff_factor=0.9)
-    self.assertRaises(ValueError, retry_util.GenericRetry, lambda ex: True,
-                      3, always_raise, sleep=-1)
-
-  def testRaisedException(self):
-    """Test which exception gets raised by repeated failure."""
-
-    def getTestFunction():
-      """Get function that fails once with ValueError, Then AssertionError."""
-      source = itertools.count()
-      def f():
-        if source.next() == 0:
-          raise ValueError()
-        else:
-          raise AssertionError()
-      return f
-
-    handler = lambda ex: True
-
-    with self.assertRaises(ValueError):
-      retry_util.GenericRetry(handler, 3, getTestFunction())
-
-    with self.assertRaises(AssertionError):
-      retry_util.GenericRetry(handler, 3, getTestFunction(),
-                              raise_first_exception_on_failure=False)
-
-  def testSuccessFunctorException(self):
-    """Exceptions in |success_functor| should not be retried."""
-    def sf(_):
-      assert False
-
-    with self.assertRaises(AssertionError):
-      retry_util.GenericRetry(lambda: True, 1, lambda: None, success_functor=sf)
-
-  def testRetryExceptionBadArgs(self):
-    """Verify we reject non-classes or tuples of classes"""
-    self.assertRaises(TypeError, retry_util.RetryException, '', 3, map)
-    self.assertRaises(TypeError, retry_util.RetryException, 123, 3, map)
-    self.assertRaises(TypeError, retry_util.RetryException, None, 3, map)
-    self.assertRaises(TypeError, retry_util.RetryException, [None], 3, map)
-
-  def testRetryException(self):
-    """Verify we retry only when certain exceptions get thrown"""
-    source, source2 = iter(xrange(6)).next, iter(xrange(6)).next
-    def f():
-      val = source2()
-      self.assertEqual(val, source())
-      if val < 2:
-        raise OSError()
-      if val < 5:
-        raise ValueError()
-      return val
-    self.assertRaises(OSError, retry_util.RetryException,
-                      (OSError, ValueError), 2, f)
-    self.assertRaises(ValueError, retry_util.RetryException,
-                      (OSError, ValueError), 1, f)
-    self.assertEqual(5, retry_util.RetryException(ValueError, 1, f))
-    self.assertRaises(StopIteration, retry_util.RetryException,
-                      ValueError, 3, f)
-
-  def testRetryWithBackoff(self):
-    sleep_history = []
-    def mock_sleep(x):
-      sleep_history.append(x)
-    self.PatchObject(time, 'sleep', new=mock_sleep)
-    def always_fails():
-      raise ValueError()
-    handler = lambda x: True
-    with self.assertRaises(ValueError):
-      retry_util.GenericRetry(handler, 5, always_fails, sleep=1,
-                              backoff_factor=2)
-
-    self.assertEqual(sleep_history, [1, 2, 4, 8, 16])
-
-  def testBasicRetry(self):
-    # pylint: disable=E1101
-    path = os.path.join(self.tempdir, 'script')
-    paths = {
-        'stop': os.path.join(self.tempdir, 'stop'),
-        'store': os.path.join(self.tempdir, 'store'),
-    }
-    osutils.WriteFile(
-        path,
-        "import sys\n"
-        "val = int(open(%(store)r).read())\n"
-        "stop_val = int(open(%(stop)r).read())\n"
-        "open(%(store)r, 'w').write(str(val + 1))\n"
-        "print val\n"
-        "sys.exit(0 if val == stop_val else 1)\n" % paths)
-
-    os.chmod(path, 0o755)
-
-    def _setup_counters(start, stop):
-      sleep_mock.reset_mock()
-      osutils.WriteFile(paths['store'], str(start))
-      osutils.WriteFile(paths['stop'], str(stop))
-
-    def _check_counters(sleep, sleep_cnt):
-      calls = [mock.call(sleep * (x + 1)) for x in range(sleep_cnt)]
-      sleep_mock.assert_has_calls(calls)
-
-    sleep_mock = self.PatchObject(time, 'sleep')
-
-    _setup_counters(0, 0)
-    command = ['python2', path]
-    kwargs = {'redirect_stdout': True, 'print_cmd': False}
-    self.assertEqual(cros_build_lib.RunCommand(command, **kwargs).output, '0\n')
-    _check_counters(0, 0)
-
-    func = retry_util.RunCommandWithRetries
-
-    _setup_counters(2, 2)
-    self.assertEqual(func(0, command, sleep=0, **kwargs).output, '2\n')
-    _check_counters(0, 0)
-
-    _setup_counters(0, 2)
-    self.assertEqual(func(2, command, sleep=1, **kwargs).output, '2\n')
-    _check_counters(1, 2)
-
-    _setup_counters(0, 1)
-    self.assertEqual(func(1, command, sleep=2, **kwargs).output, '1\n')
-    _check_counters(2, 1)
-
-    _setup_counters(0, 3)
-    self.assertRaises(cros_build_lib.RunCommandError,
-                      func, 2, command, sleep=3, **kwargs)
-    _check_counters(3, 2)
-
-
 class TestTimedSection(cros_test_lib.TestCase):
   """Tests for TimedSection context manager."""
 
@@ -1434,6 +1264,31 @@ class GroupNamedtuplesByKeyTests(cros_test_lib.TestCase):
     self.assertDictEqual(
         cros_build_lib.GroupNamedtuplesByKey(input_iter, 'test'),
         expected_result)
+
+
+class InvertDictionayTests(cros_test_lib.TestCase):
+  """Tests for InvertDictionary."""
+
+  def testInvertDictionary(self):
+    """Test InvertDictionary."""
+    changes = ['change_1', 'change_2', 'change_3', 'change_4']
+    slaves = ['slave_1', 'slave_2', 'slave_3', 'slave_4']
+    slave_changes_dict = {
+        slaves[0]: set(changes[0:1]),
+        slaves[1]: set(changes[0:2]),
+        slaves[2]: set(changes[2:4]),
+        slaves[3]: set()
+    }
+    change_slaves_dict = cros_build_lib.InvertDictionary(
+        slave_changes_dict)
+
+    expected_dict = {
+        changes[0]: set(slaves[0:2]),
+        changes[1]: set([slaves[1]]),
+        changes[2]: set([slaves[2]]),
+        changes[3]: set([slaves[2]])
+    }
+    self.assertDictEqual(change_slaves_dict, expected_dict)
 
 
 class Test_iflatten_instance(cros_test_lib.TestCase):

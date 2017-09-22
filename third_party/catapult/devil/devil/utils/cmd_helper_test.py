@@ -7,6 +7,7 @@
 
 import unittest
 import subprocess
+import sys
 import time
 
 from devil import devil_env
@@ -157,8 +158,11 @@ class _MockProcess(object):
         self._output_seq_index = 0
       else:
         self._output_seq_index += 1
-      return (self._output_sequence[self._output_seq_index].select_fds,
-              None, None)
+      if self._output_seq_index < len(self._output_sequence):
+        return (self._output_sequence[self._output_seq_index].select_fds,
+                None, None)
+      else:
+        return([], None, None)
 
     def time_side_effect(*_args, **_kwargs):
       return self._output_sequence[self._output_seq_index].ts
@@ -175,11 +179,12 @@ class _MockProcess(object):
 
     # Set up but *do not start* the mocks.
     self._mocks = [
-      mock.patch('fcntl.fcntl'),
       mock.patch('os.read', new=mock_read),
       mock.patch('select.select', new=mock_select),
       mock.patch('time.time', new=mock_time),
     ]
+    if sys.platform != 'win32':
+      self._mocks.append(mock.patch('fcntl.fcntl'))
 
   def __enter__(self):
     for m in self._mocks:

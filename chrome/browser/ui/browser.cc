@@ -64,7 +64,6 @@
 #include "chrome/browser/lifetime/keep_alive_types.h"
 #include "chrome/browser/lifetime/scoped_keep_alive.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
-#include "chrome/browser/memory/tab_manager_web_contents_data.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/pepper_broker_infobar_delegate.h"
 #include "chrome/browser/permissions/permission_request_manager.h"
@@ -75,6 +74,7 @@
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/repost_form_warning_controller.h"
+#include "chrome/browser/resource_coordinator/tab_manager_web_contents_data.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/sessions/session_service.h"
@@ -146,6 +146,7 @@
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
 #include "chrome/browser/ui/window_sizer/window_sizer.h"
 #include "chrome/browser/upgrade_detector.h"
+#include "chrome/browser/vr/vr_tab_helper.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/custom_handlers/protocol_handler.h"
@@ -154,8 +155,6 @@
 #include "chrome/common/ssl_insecure_content.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
-#include "chrome/grit/generated_resources.h"
-#include "chrome/grit/locale_settings.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
@@ -1066,12 +1065,6 @@ void Browser::ActiveTabChanged(WebContents* old_contents,
 
   exclusive_access_manager_->OnTabDetachedFromView(old_contents);
 
-  // Discarded tabs always get reloaded.
-  // TODO(georgesak): Validate the usefulness of this. And if needed then move
-  // to TabManager.
-  if (g_browser_process->GetTabManager()->IsTabDiscarded(new_contents))
-    chrome::Reload(this, WindowOpenDisposition::CURRENT_TAB);
-
   // If we have any update pending, do it now.
   if (chrome_updater_factory_.HasWeakPtrs() && old_contents)
     ProcessPendingUIUpdates();
@@ -1458,22 +1451,18 @@ WebContents* Browser::OpenURLFromTab(WebContents* source,
     nav_params.window_action = chrome::NavigateParams::SHOW_WINDOW;
   nav_params.user_gesture = params.user_gesture;
 
-  PopupBlockerTabHelper* popup_blocker_helper = NULL;
-  if (source)
-    popup_blocker_helper = PopupBlockerTabHelper::FromWebContents(source);
-
-  if (popup_blocker_helper) {
-    if ((params.disposition == WindowOpenDisposition::NEW_POPUP ||
-         params.disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB ||
-         params.disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB ||
-         params.disposition == WindowOpenDisposition::NEW_WINDOW) &&
-        !params.user_gesture &&
-        !base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kDisablePopupBlocking)) {
-      if (popup_blocker_helper->MaybeBlockPopup(
-              nav_params, blink::mojom::WindowFeatures())) {
-        return NULL;
-      }
+  PopupBlockerTabHelper* popup_blocker_helper =
+      source ? PopupBlockerTabHelper::FromWebContents(source) : nullptr;
+  if ((params.disposition == WindowOpenDisposition::NEW_POPUP ||
+       params.disposition == WindowOpenDisposition::NEW_FOREGROUND_TAB ||
+       params.disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB ||
+       params.disposition == WindowOpenDisposition::NEW_WINDOW) &&
+      popup_blocker_helper &&
+      PopupBlockerTabHelper::ConsiderForPopupBlocking(
+          source, params.user_gesture, &params)) {
+    if (popup_blocker_helper->MaybeBlockPopup(nav_params,
+                                              blink::mojom::WindowFeatures())) {
+      return nullptr;
     }
   }
 
@@ -1673,6 +1662,7 @@ void Browser::ShowRepostFormWarningDialog(WebContents* source) {
 
 bool Browser::ShouldCreateWebContents(
     content::WebContents* web_contents,
+    content::RenderFrameHost* opener,
     content::SiteInstance* source_site_instance,
     int32_t route_id,
     int32_t main_frame_route_id,
@@ -1687,7 +1677,7 @@ bool Browser::ShouldCreateWebContents(
       content::mojom::WindowContainerType::BACKGROUND) {
     // If a BackgroundContents is created, suppress the normal WebContents.
     return !MaybeCreateBackgroundContents(
-        source_site_instance, opener_url, route_id, main_frame_route_id,
+        source_site_instance, opener, opener_url, route_id, main_frame_route_id,
         main_frame_widget_route_id, frame_name, target_url, partition_id,
         session_storage_namespace);
   }
@@ -1695,19 +1685,17 @@ bool Browser::ShouldCreateWebContents(
   return true;
 }
 
-void Browser::WebContentsCreated(
-    WebContents* source_contents,
-    int opener_render_process_id,
-    int opener_render_frame_id,
-    const std::string& frame_name,
-    const GURL& target_url,
-    WebContents* new_contents,
-    const base::Optional<WebContents::CreateParams>& create_params) {
+void Browser::WebContentsCreated(WebContents* source_contents,
+                                 int opener_render_process_id,
+                                 int opener_render_frame_id,
+                                 const std::string& frame_name,
+                                 const GURL& target_url,
+                                 WebContents* new_contents) {
   // Adopt the WebContents now, so all observers are in place, as the network
   // requests for its initial navigation will start immediately. The WebContents
   // will later be inserted into this browser using Browser::Navigate via
   // AddNewContents.
-  TabHelpers::AttachTabHelpers(new_contents, create_params);
+  TabHelpers::AttachTabHelpers(new_contents);
 
   // Make the tab show up in the task manager.
   task_manager::WebContentsTags::CreateForTabContents(new_contents);
@@ -1796,6 +1784,11 @@ void Browser::RegisterProtocolHandler(WebContents* web_contents,
                                       bool user_gesture) {
   content::BrowserContext* context = web_contents->GetBrowserContext();
   if (context->IsOffTheRecord())
+    return;
+
+  // Permission request UI cannot currently be rendered binocularly in VR mode,
+  // so we suppress the UI. crbug.com/736568
+  if (vr::VrTabHelper::IsInVr(web_contents))
     return;
 
   ProtocolHandler handler =
@@ -2551,6 +2544,7 @@ bool Browser::ShouldStartShutdown() const {
 
 bool Browser::MaybeCreateBackgroundContents(
     content::SiteInstance* source_site_instance,
+    content::RenderFrameHost* opener,
     const GURL& opener_url,
     int32_t route_id,
     int32_t main_frame_route_id,
@@ -2608,7 +2602,7 @@ bool Browser::MaybeCreateBackgroundContents(
   BackgroundContents* contents = nullptr;
   if (allow_js_access) {
     contents = service->CreateBackgroundContents(
-        source_site_instance, route_id, main_frame_route_id,
+        source_site_instance, opener, route_id, main_frame_route_id,
         main_frame_widget_route_id, profile_, frame_name,
         base::ASCIIToUTF16(extension->id()), partition_id,
         session_storage_namespace);
@@ -2620,7 +2614,7 @@ bool Browser::MaybeCreateBackgroundContents(
     contents = service->CreateBackgroundContents(
         content::SiteInstance::Create(
             source_site_instance->GetBrowserContext()),
-        MSG_ROUTING_NONE, MSG_ROUTING_NONE, MSG_ROUTING_NONE, profile_,
+        nullptr, MSG_ROUTING_NONE, MSG_ROUTING_NONE, MSG_ROUTING_NONE, profile_,
         frame_name, base::ASCIIToUTF16(extension->id()), partition_id,
         session_storage_namespace);
 

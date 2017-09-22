@@ -25,10 +25,11 @@ class TestConsumeMessages(cros_test_lib.MockTestCase):
     # Every call to "time.time()" will look like 1 second has passed.
     # Nb. we only want to mock out ts_mon_config's view of time, otherwise
     # things like Process.join(10) won't sleep.
-    time_mock = self.PatchObject(ts_mon_config, 'time')
-    time_mock.time.side_effect = itertools.count(0)
+    self.time_mock = self.PatchObject(ts_mon_config, 'time')
+    self.time_mock.time.side_effect = itertools.count(0)
     self.flush_mock = self.PatchObject(ts_mon_config.metrics, 'Flush')
     self.PatchObject(ts_mon_config, 'SetupTsMonGlobalState')
+    self.PatchObject(ts_mon_config, '_WasSetup', True)
     self.mock_metric = self.PatchObject(metrics, 'Boolean')
 
 
@@ -37,7 +38,7 @@ class TestConsumeMessages(cros_test_lib.MockTestCase):
     q = Queue.Queue()
     q.put(None)
 
-    ts_mon_config._ConsumeMessages(q, [''], {})
+    ts_mon_config._SetupAndConsumeMessages(q, [''], {})
 
     ts_mon_config.SetupTsMonGlobalState.assert_called_once_with(
         '', auto_flush=False)
@@ -52,7 +53,7 @@ class TestConsumeMessages(cros_test_lib.MockTestCase):
                              False))
     q.put(None)
 
-    ts_mon_config._ConsumeMessages(q, [''], {})
+    ts_mon_config._SetupAndConsumeMessages(q, [''], {})
 
     self.assertEqual(2, ts_mon_config.time.time.call_count)
     ts_mon_config.time.sleep.assert_called_once_with(
@@ -72,7 +73,7 @@ class TestConsumeMessages(cros_test_lib.MockTestCase):
                              False))
     q.put(None)
 
-    ts_mon_config._ConsumeMessages(q, [''], {})
+    ts_mon_config._SetupAndConsumeMessages(q, [''], {})
 
     self.assertEqual(3, ts_mon_config.time.time.call_count)
     ts_mon_config.time.sleep.assert_called_once_with(
@@ -106,7 +107,7 @@ class TestConsumeMessages(cros_test_lib.MockTestCase):
     self.assertEqual(0, processes[0].exitcode)
 
   def testCatchesException(self):
-    """Tests that the _ConsumeMessages loop catches exceptions."""
+    """Tests that the _SetupAndConsumeMessages loop catches exceptions."""
     q = Queue.Queue()
 
     class RaisesException(object):
@@ -120,15 +121,16 @@ class TestConsumeMessages(cros_test_lib.MockTestCase):
                              False))
     q.put(None)
 
-    mock_logging = self.PatchObject(ts_mon_config.logging, 'exception')
+    exception_log = self.PatchObject(ts_mon_config.logging, 'exception')
 
-    ts_mon_config._ConsumeMessages(q, [''], {})
+    ts_mon_config._SetupAndConsumeMessages(q, [''], {})
 
-    self.assertEqual(1, mock_logging.call_count)
-    self.assertEqual(2, ts_mon_config.time.time.call_count)
-    ts_mon_config.time.sleep.assert_called_once_with(
-        ts_mon_config.FLUSH_INTERVAL - 1)
-    ts_mon_config.metrics.Flush.assert_called_once_with(reset_after=[])
+    self.assertEqual(1, exception_log.call_count)
+    # time.time is called once because we check if we need to Flush() before
+    # receiving the None message.
+    self.assertEqual(1, ts_mon_config.time.time.call_count)
+    self.assertEqual(0, ts_mon_config.time.sleep.call_count)
+    self.assertEqual(0, ts_mon_config.metrics.Flush.call_count)
 
   def testResetAfter(self):
     """Tests that metrics with reset_after set are cleared after."""
@@ -139,10 +141,32 @@ class TestConsumeMessages(cros_test_lib.MockTestCase):
                              reset_after=True))
     q.put(None)
 
-    ts_mon_config._ConsumeMessages(q, [''], {})
+    ts_mon_config._SetupAndConsumeMessages(q, [''], {})
 
     self.assertEqual(
         [self.mock_metric.return_value],
         ts_mon_config.metrics.Flush.call_args[1]['reset_after'])
     self.mock_metric.return_value.mock_name.assert_called_once_with(
         'arg1', kwarg1='value1')
+
+  def testSubprocessQuitsWhenNotSetup(self):
+    self.PatchObject(ts_mon_config.logging, 'exception')
+    self.PatchObject(ts_mon_config, '_WasSetup', False)
+    ts_mon_config._SetupAndConsumeMessages(None, [''], {})
+    self.assertEqual(False, ts_mon_config._WasSetup)
+    # The entry should not have been consumed by _ConsumeMessages
+    self.assertEqual(0, ts_mon_config.logging.exception.call_count)
+
+  def testSetOnceMetricKeepsEmitting(self):
+    """Tests that a metric which is set once emits many times if left alone."""
+    self.PatchObject(ts_mon_config, 'FLUSH_INTERVAL', 0)
+    self.time_mock.time.side_effect = [1, 2, 3, 4, 5]
+    q = Queue.Queue()
+    q.put(metrics.MetricCall('Boolean', [], {},
+                             '__class__', [], {},
+                             False))
+    try:
+      ts_mon_config.MetricConsumer(q).Consume()
+    except StopIteration:
+      pass # No more time calls left.
+    self.assertEqual(self.flush_mock.call_count, 5)

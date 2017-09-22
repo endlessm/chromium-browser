@@ -205,21 +205,6 @@ def _FilterForBasic(artifacts):
   return [i for i in _FilterForImages(artifacts) if i.image_channel is None]
 
 
-def _FilterForNpo(artifacts):
-  """Return the NPO images in a list of artifacts.
-
-  Return the N Plus One images in the given list.
-
-  Args:
-    artifacts: The list of artifacts to filter.
-
-  Returns:
-    List of NPO images.
-  """
-  return [i for i in _FilterForImages(artifacts)
-          if i.image_channel == 'nplusone-channel']
-
-
 def _FilterForUnsignedImageArchives(artifacts):
   """Return only instances of UnsignedImageArchive from a list of artifacts."""
   return filter(gspaths.IsUnsignedImageArchive, artifacts)
@@ -501,7 +486,6 @@ class _PaygenBuild(object):
     """
     premp_basic = _FilterForBasic(_FilterForPremp(images))
     mp_basic = _FilterForBasic(_FilterForMp(images))
-    npo = _FilterForNpo(images)
 
     # Make sure there is no more than one of each of our basic types.
     for i in (premp_basic, mp_basic):
@@ -510,7 +494,7 @@ class _PaygenBuild(object):
         raise BuildCorrupt(msg)
 
     # Make sure there were no unexpected types of images.
-    if len(images) != len(premp_basic + mp_basic + npo):
+    if len(images) != len(premp_basic + mp_basic):
       msg = '%s has unexpected unfiltered images: %s' % (build, images)
       raise BuildCorrupt(msg)
 
@@ -1461,7 +1445,7 @@ def CreatePayloads(build, work_dir, site_config,
                       skip_duts_check=skip_duts_check).CreatePayloads()
 
 def ScheduleAutotestTests(suite_name, board, build, skip_duts_check,
-                          debug):
+                          debug, job_keyvals=None):
   """Run the appropriate command to schedule the Autotests we have prepped.
 
   Args:
@@ -1470,6 +1454,7 @@ def ScheduleAutotestTests(suite_name, board, build, skip_duts_check,
   build: A string representing the name of the archive build.
   skip_duts_check: A boolean indicating to not check minimum available DUTs.
   debug: A boolean indicating whether or not we are in debug mode.
+  job_keyvals: A dict of job keyvals to be injected to suite control file.
   """
   timeout_mins = config_lib.HWTestConfig.SHARED_HW_TEST_TIMEOUT / 60
   cmd_result = commands.RunHWTestSuite(
@@ -1484,7 +1469,8 @@ def ScheduleAutotestTests(suite_name, board, build, skip_duts_check,
       timeout_mins=timeout_mins,
       suite_min_duts=2,
       debug=debug,
-      skip_duts_check=skip_duts_check)
+      skip_duts_check=skip_duts_check,
+      job_keyvals=job_keyvals)
 
   if cmd_result.to_raise:
     if isinstance(cmd_result.to_raise, failures_lib.TestWarning):

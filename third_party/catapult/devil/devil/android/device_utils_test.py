@@ -142,6 +142,21 @@ class MockTempFile(object):
     return self.file.name
 
 
+class MockLogger(mock.Mock):
+  def __init__(self, *args, **kwargs):
+    super(MockLogger, self).__init__(*args, **kwargs)
+    # TODO(perezju): Consider adding traps for error, info, etc.
+    self.warnings = []
+
+  def warning(self, message, *args):
+    self.warnings.append(message % args)
+
+
+def PatchLogger():
+  return mock.patch(
+      'devil.android.device_utils.logger', new_callable=MockLogger)
+
+
 class _PatchedFunction(object):
 
   def __init__(self, patched=None, mocked=None):
@@ -383,7 +398,7 @@ class DeviceUtilsGetApplicationPathsInternalTest(DeviceUtilsTest):
       self.assertEquals([],
           self.device._GetApplicationPathsInternal('not.installed.app'))
 
-  def testGetApplicationPathsInternal_garbageFirstLine(self):
+  def testGetApplicationPathsInternal_garbageOutputRaises(self):
     with self.assertCalls(
         (self.call.device.GetProp('ro.build.version.sdk', cache=True), '19'),
         (self.call.device.RunShellCommand(
@@ -391,6 +406,15 @@ class DeviceUtilsGetApplicationPathsInternalTest(DeviceUtilsTest):
          ['garbage first line'])):
       with self.assertRaises(device_errors.CommandFailedError):
         self.device._GetApplicationPathsInternal('android')
+
+  def testGetApplicationPathsInternal_outputWarningsIgnored(self):
+    with self.assertCalls(
+        (self.call.device.GetProp('ro.build.version.sdk', cache=True), '19'),
+        (self.call.device.RunShellCommand(
+            ['pm', 'path', 'not.installed.app'], check_return=True),
+         ['WARNING: some warning message from pm'])):
+      self.assertEquals([],
+          self.device._GetApplicationPathsInternal('not.installed.app'))
 
   def testGetApplicationPathsInternal_fails(self):
     with self.assertCalls(
@@ -1058,7 +1082,7 @@ class DeviceUtilsRunShellCommandTest(DeviceUtilsTest):
   def testRunShellCommand_largeOutput_enabled(self):
     cmd = 'echo $VALUE'
     temp_file = MockTempFile('/sdcard/temp-123')
-    cmd_redirect = '( %s )>%s' % (cmd, temp_file.name)
+    cmd_redirect = '( %s )>%s 2>&1' % (cmd, temp_file.name)
     with self.assertCalls(
         (mock.call.devil.android.device_temp_file.DeviceTempFile(self.adb),
             temp_file),
@@ -1079,7 +1103,7 @@ class DeviceUtilsRunShellCommandTest(DeviceUtilsTest):
   def testRunShellCommand_largeOutput_disabledTrigger(self):
     cmd = 'echo $VALUE'
     temp_file = MockTempFile('/sdcard/temp-123')
-    cmd_redirect = '( %s )>%s' % (cmd, temp_file.name)
+    cmd_redirect = '( %s )>%s 2>&1' % (cmd, temp_file.name)
     with self.assertCalls(
         (self.call.adb.Shell(cmd), self.ShellError('', None)),
         (mock.call.devil.android.device_temp_file.DeviceTempFile(self.adb),
@@ -2749,6 +2773,26 @@ class DeviceUtilsRestartAdbdTest(DeviceUtilsTest):
 
 
 class DeviceUtilsGrantPermissionsTest(DeviceUtilsTest):
+  def _PmGrantShellCall(self, package, permissions):
+    fragment = 'p=%s;for q in %s;' % (package, ' '.join(sorted(permissions)))
+    results = []
+    for permission, result in sorted(permissions.iteritems()):
+      if result:
+        output, status = result + '\n', 1
+      else:
+        output, status = '', 0
+      results.append(
+          '{output}{sep}{permission}{sep}{status}{sep}\n'.format(
+              output=output,
+              permission=permission,
+              status=status,
+              sep=device_utils._SHELL_OUTPUT_SEPARATOR
+          ))
+    return (
+        self.call.device.RunShellCommand(
+            AnyStringWith(fragment),
+            shell=True, raw_output=True, large_output=True, check_return=True),
+        ''.join(results))
 
   def testGrantPermissions_none(self):
     self.device.GrantPermissions('package', [])
@@ -2759,40 +2803,52 @@ class DeviceUtilsGrantPermissionsTest(DeviceUtilsTest):
       self.device.GrantPermissions('package', ['p1'])
 
   def testGrantPermissions_one(self):
-    permissions_cmd = 'pm grant package p1'
     with self.patch_call(self.call.device.build_version_sdk,
                          return_value=version_codes.MARSHMALLOW):
       with self.assertCalls(
-          (self.call.device.RunShellCommand(
-              permissions_cmd, shell=True, check_return=True), [])):
+          self._PmGrantShellCall('package', {'p1': 0})):
         self.device.GrantPermissions('package', ['p1'])
 
   def testGrantPermissions_multiple(self):
-    permissions_cmd = 'pm grant package p1&&pm grant package p2'
     with self.patch_call(self.call.device.build_version_sdk,
                          return_value=version_codes.MARSHMALLOW):
       with self.assertCalls(
-          (self.call.device.RunShellCommand(
-              permissions_cmd, shell=True, check_return=True), [])):
+          self._PmGrantShellCall('package', {'p1': 0, 'p2': 0})):
         self.device.GrantPermissions('package', ['p1', 'p2'])
 
   def testGrantPermissions_WriteExtrnalStorage(self):
-    permissions_cmd = (
-        'pm grant package android.permission.WRITE_EXTERNAL_STORAGE&&'
-        'pm grant package android.permission.READ_EXTERNAL_STORAGE')
-    with self.patch_call(self.call.device.build_version_sdk,
-                         return_value=version_codes.MARSHMALLOW):
-      with self.assertCalls(
-          (self.call.device.RunShellCommand(
-              permissions_cmd, shell=True, check_return=True), [])):
-        self.device.GrantPermissions(
-            'package', ['android.permission.WRITE_EXTERNAL_STORAGE'])
+    WRITE = 'android.permission.WRITE_EXTERNAL_STORAGE'
+    READ = 'android.permission.READ_EXTERNAL_STORAGE'
+    with PatchLogger() as logger:
+      with self.patch_call(self.call.device.build_version_sdk,
+                           return_value=version_codes.MARSHMALLOW):
+        with self.assertCalls(
+            self._PmGrantShellCall('package', {READ: 0, WRITE: 0})):
+          self.device.GrantPermissions('package', [WRITE])
+      self.assertEqual(logger.warnings, [])
 
   def testGrantPermissions_BlackList(self):
-    with self.patch_call(self.call.device.build_version_sdk,
-                         return_value=version_codes.MARSHMALLOW):
-      self.device.GrantPermissions(
-          'package', ['android.permission.ACCESS_MOCK_LOCATION'])
+    with PatchLogger() as logger:
+      with self.patch_call(self.call.device.build_version_sdk,
+                           return_value=version_codes.MARSHMALLOW):
+        with self.assertCalls(
+            self._PmGrantShellCall('package', {'p1': 0})):
+          self.device.GrantPermissions(
+              'package', ['p1', 'foo.permission.C2D_MESSAGE'])
+      self.assertEqual(logger.warnings, [])
+
+  def testGrantPermissions_unchangeablePermision(self):
+    error_message = (
+        'Operation not allowed: java.lang.SecurityException: '
+        'Permission UNCHANGEABLE is not a changeable permission type')
+    with PatchLogger() as logger:
+      with self.patch_call(self.call.device.build_version_sdk,
+                           return_value=version_codes.MARSHMALLOW):
+        with self.assertCalls(
+            self._PmGrantShellCall('package', {'UNCHANGEABLE': error_message})):
+          self.device.GrantPermissions('package', ['UNCHANGEABLE'])
+      self.assertEqual(
+          logger.warnings, [mock.ANY, AnyStringWith('UNCHANGEABLE')])
 
 
 class DeviecUtilsIsScreenOn(DeviceUtilsTest):
@@ -2901,6 +2957,46 @@ class DeviecUtilsLoadCacheData(DeviceUtilsTest):
       data = json.loads(self.device.DumpCacheData())
       data['token'] = 'TOKEN'
       self.assertTrue(self.device.LoadCacheData(json.dumps(data)))
+
+
+class DeviceUtilsGetIMEITest(DeviceUtilsTest):
+
+  def testSuccessfulDumpsys(self):
+    dumpsys_output = (
+        'Phone Subscriber Info:'
+        '  Phone Type = GSM'
+        '  Device ID = 123454321')
+    with self.assertCalls(
+        (self.call.device.GetProp('ro.build.version.sdk', cache=True), '19'),
+        (self.call.adb.Shell('dumpsys iphonesubinfo'), dumpsys_output)):
+      self.assertEquals(self.device.GetIMEI(), '123454321')
+
+  def testSuccessfulServiceCall(self):
+    service_output = """
+        Result: Parcel(\n'
+          0x00000000: 00000000 0000000f 00350033 00360033 '........7.6.5.4.'
+          0x00000010: 00360032 00370030 00300032 00300039 '3.2.1.0.1.2.3.4.'
+          0x00000020: 00380033 00000039                   '5.6.7...        ')
+    """
+    with self.assertCalls(
+        (self.call.device.GetProp('ro.build.version.sdk', cache=True), '24'),
+        (self.call.adb.Shell('service call iphonesubinfo 1'), service_output)):
+      self.assertEquals(self.device.GetIMEI(), '765432101234567')
+
+  def testNoIMEI(self):
+    with self.assertCalls(
+        (self.call.device.GetProp('ro.build.version.sdk', cache=True), '19'),
+        (self.call.adb.Shell('dumpsys iphonesubinfo'), 'no device id')):
+      with self.assertRaises(device_errors.CommandFailedError):
+        self.device.GetIMEI()
+
+  def testAdbError(self):
+    with self.assertCalls(
+        (self.call.device.GetProp('ro.build.version.sdk', cache=True), '24'),
+        (self.call.adb.Shell('service call iphonesubinfo 1'),
+         self.ShellError())):
+      with self.assertRaises(device_errors.CommandFailedError):
+        self.device.GetIMEI()
 
 
 if __name__ == '__main__':

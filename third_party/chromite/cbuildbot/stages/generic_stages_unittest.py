@@ -25,7 +25,9 @@ from chromite.lib import cidb
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
+from chromite.lib import fake_cidb
 from chromite.lib import failures_lib
+from chromite.lib import failure_message_lib
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import partial_mock
@@ -498,6 +500,99 @@ class BuilderStageTest(AbstractStageTestCase):
         DEFAULT_BUILD_STAGE_ID,
         constants.BUILDER_STATUS_FAILED)
 
+class BuilderStageGetBuildFailureMessage(AbstractStageTestCase):
+  """Test GetBuildFailureMessage in BuilderStage."""
+
+  def setUp(self):
+    self._Prepare(waterfall=constants.WATERFALL_EXTERNAL)
+    # Many tests modify the global results_lib.Results instance.
+    results_lib.Results.Clear()
+
+  def tearDown(self):
+    cidb.CIDBConnectionFactory.ClearMock()
+
+  def ConstructStage(self):
+    return generic_stages.BuilderStage(self._run)
+
+  def testGetBuildFailureMessageFromCIDB(self):
+    """Test GetBuildFailureMessageFromCIDB."""
+    db = fake_cidb.FakeCIDBConnection()
+    cidb.CIDBConnectionFactory.SetupMockCidb(db)
+
+    build_id = db.InsertBuild('lumpy-pre-cq', constants.WATERFALL_INTERNAL, 1,
+                              'lumpy-pre-cq', 'bot_hostname',
+                              status=constants.BUILDER_STATUS_INFLIGHT)
+    stage_id = db.InsertBuildStage(build_id, 'BuildPackages', status='fail')
+    db.InsertFailure(stage_id, 'PackageBuildFailure',
+                     'Packages failed in ./build_packages: sys-apps/flashrom',
+                     exception_category='build',
+                     extra_info={"shortname": "./build_packages",
+                                 "failed_packages": ["sys-apps/flashrom"]})
+    self._Prepare(build_id=build_id)
+    stage = self.ConstructStage()
+    message = stage.GetBuildFailureMessageFromCIDB(build_id, db)
+
+    self.assertFalse(message.MatchesExceptionCategories(
+        {constants.EXCEPTION_CATEGORY_LAB}))
+    self.assertTrue(message.MatchesExceptionCategories(
+        {constants.EXCEPTION_CATEGORY_BUILD}))
+
+  def testGetBuildFailureMessageFromResults(self):
+    """Test GetBuildFailureMessageFromResults."""
+    ex = failures_lib.StepFailure()
+    results_lib.Results.Record('CommitQueueSync', ex)
+    stage = self.ConstructStage()
+    build_failure_msg = stage.GetBuildFailureMessageFromResults()
+    self.assertEqual(build_failure_msg.builder, self.BOT_ID)
+    self.assertTrue(isinstance(build_failure_msg.failure_messages[0],
+                               failure_message_lib.StageFailureMessage))
+
+  def testGetBuildFailureMessageWithDB(self):
+    """Test GetBuildFailureMessage with DB instance."""
+    stage = self.ConstructStage()
+    message = 'foo'
+    get_msg_from_cidb = self.PatchObject(
+        stage, 'GetBuildFailureMessageFromCIDB', return_value=message)
+    get_msg_from_results = self.PatchObject(
+        stage, 'GetBuildFailureMessageFromResults', return_value=message)
+
+    stage.GetBuildFailureMessage()
+    get_msg_from_cidb.assert_not_called()
+    get_msg_from_results.assert_called_once_with()
+
+  def testGetBuildFailureMessageWithoutDB(self):
+    """Test GetBuildFailureMessage without DB instance."""
+    db = fake_cidb.FakeCIDBConnection()
+    cidb.CIDBConnectionFactory.SetupMockCidb(db)
+    stage = self.ConstructStage()
+    master_build_id = stage._run.attrs.metadata.GetValue('build_id')
+    message = 'foo'
+    get_msg_from_cidb = self.PatchObject(
+        stage, 'GetBuildFailureMessageFromCIDB', return_value=message)
+    get_msg_from_results = self.PatchObject(
+        stage, 'GetBuildFailureMessageFromResults', return_value=message)
+
+    stage.GetBuildFailureMessage()
+    get_msg_from_cidb.assert_called_once_with(master_build_id, db)
+    get_msg_from_results.assert_not_called()
+
+  def testMeaningfulMessage(self):
+    """Tests that all essential components are in the message."""
+    stage = self.ConstructStage()
+
+    exception = Exception('failed!')
+    stage_failure_message = failures_lib.GetStageFailureMessageFromException(
+        'TacoStage', 1, exception, stage_prefix_name='TacoStage')
+    self.PatchObject(
+        results_lib.Results, 'GetStageFailureMessage',
+        return_value=[stage_failure_message])
+
+    msg = stage.GetBuildFailureMessage()
+    self.assertTrue(stage._run.config.name in msg.message_summary)
+    self.assertTrue(stage._run.ConstructDashboardURL() in msg.message_summary)
+    self.assertTrue('TacoStage' in msg.message_summary)
+    self.assertTrue(str(exception) in msg.message_summary)
+
 
 class MasterConfigBuilderStageTest(AbstractStageTestCase):
   """Tests for BuilderStage on master build."""
@@ -576,6 +671,37 @@ class MasterConfigBuilderStageTest(AbstractStageTestCase):
     stage = self.ConstructStage()
     stage._run.config.master = False
     self.assertIsNone(stage.GetScheduledSlaveBuildbucketIds())
+
+  def testGetSlaveConfigs(self):
+    """Verify that _GetSlaveConfigs filters out experimental builders."""
+    stage = self.ConstructStage()
+
+    slave_configs = stage._GetSlaveConfigs()
+    slave_config_names = [config['name'] for config in slave_configs]
+    self.assertIn('arm-generic-paladin', slave_config_names)
+
+    self._run.attrs.metadata.UpdateWithDict(
+        {constants.METADATA_EXPERIMENTAL_BUILDERS: ['arm-generic-paladin']}
+    )
+    slave_configs = stage._GetSlaveConfigs()
+    slave_config_names = [config['name'] for config in slave_configs]
+    self.assertNotIn('arm-generic-paladin', slave_config_names)
+
+  def testGetSlaveConfigMap(self):
+    """Verify that _GetSlaveConfigMap filters out experimental builders."""
+    stage = self.ConstructStage()
+
+    slave_config_map = stage._GetSlaveConfigMap()
+    self.assertIn('arm-generic-paladin', slave_config_map)
+
+    self._run.attrs.metadata.UpdateWithDict({
+        constants.METADATA_EXPERIMENTAL_BUILDERS: ['arm-generic-paladin']
+    })
+    slave_config_map = stage._GetSlaveConfigMap(important_only=True)
+    self.assertNotIn('arm-generic-paladin', slave_config_map)
+    slave_config_map = stage._GetSlaveConfigMap(important_only=False)
+    self.assertIn('arm-generic-paladin', slave_config_map)
+
 
 class BoardSpecificBuilderStageTest(AbstractStageTestCase):
   """Tests option/config settings on board-specific stages."""

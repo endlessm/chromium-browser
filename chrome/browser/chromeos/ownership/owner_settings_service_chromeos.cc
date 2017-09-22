@@ -7,7 +7,6 @@
 #include <keyhi.h>
 #include <stdint.h>
 
-#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -17,6 +16,7 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/task_scheduler/post_task.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_checker.h"
@@ -421,11 +421,8 @@ void OwnerSettingsServiceChromeOS::FixupLocalOwnerPolicy(
     settings->mutable_allow_new_users()->set_allow_new_users(true);
 
   em::UserWhitelistProto* whitelist_proto = settings->mutable_user_whitelist();
-  if (whitelist_proto->user_whitelist().end() ==
-      std::find(whitelist_proto->user_whitelist().begin(),
-                whitelist_proto->user_whitelist().end(), user_id)) {
+  if (!base::ContainsValue(whitelist_proto->user_whitelist(), user_id))
     whitelist_proto->add_user_whitelist(user_id);
-  }
 }
 
 // static
@@ -715,8 +712,10 @@ void OwnerSettingsServiceChromeOS::StorePendingChanges() {
                      &settings);
   has_pending_fixups_ = false;
 
+  scoped_refptr<base::TaskRunner> task_runner =
+      base::CreateTaskRunnerWithTraits({base::MayBlock()});
   bool rv = AssembleAndSignPolicyAsync(
-      content::BrowserThread::GetBlockingPool(), std::move(policy),
+      task_runner.get(), std::move(policy),
       base::Bind(&OwnerSettingsServiceChromeOS::OnPolicyAssembledAndSigned,
                  store_settings_factory_.GetWeakPtr()));
   if (!rv)

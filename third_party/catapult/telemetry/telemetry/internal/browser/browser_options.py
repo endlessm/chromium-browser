@@ -49,6 +49,9 @@ class BrowserFinderOptions(optparse.Values):
 
     self.no_performance_mode = False
 
+    # Whether to use the new Golang implementation of web page replay.
+    self.use_wpr_go = False
+
   def __repr__(self):
     return str(sorted(self.__dict__.items()))
 
@@ -73,6 +76,10 @@ class BrowserFinderOptions(optparse.Values):
         dest='chrome_root',
         help='Where to look for chrome builds. '
              'Defaults to searching parent dirs by default.')
+    group.add_option('--use-wpr-go', dest='use_wpr_go',
+                      action='store_true',
+                      help='use the format of the new Golang implementation of '
+                           'web page replay.')
     group.add_option('--chromium-output-directory',
         dest='chromium_output_dir',
         help='Where to look for build artifacts. '
@@ -114,16 +121,32 @@ class BrowserFinderOptions(optparse.Values):
     group.add_option('--print-bootstrap-deps',
                      action='store_true',
                      help='Output bootstrap deps list.')
+    group.add_option(
+        '--extra-chrome-categories', dest='extra_chrome_categories', type=str,
+        help='Filter string to enable additional chrome tracing categories. See'
+             ' documentation here: https://cs.chromium.org/chromium/src/base/'
+             'trace_event/trace_config.h?rcl='
+             'c8db6c6371ca047c24d41f3972d5819bc83d83ae&l=125')
+    group.add_option(
+        '--extra-atrace-categories', dest='extra_atrace_categories', type=str,
+        help='Comma-separated list of extra atrace categories. Use atrace'
+             ' --list_categories to get full list.')
     parser.add_option_group(group)
 
     # Platform options
     group = optparse.OptionGroup(parser, 'Platform options')
-    group.add_option('--no-performance-mode', action='store_true',
+    group.add_option(
+        '--no-performance-mode', action='store_true',
         help='Some platforms run on "full performance mode" where the '
         'test is executed at maximum CPU speed in order to minimize noise '
         '(specially important for dashboards / continuous builds). '
         'This option prevents Telemetry from tweaking such platform settings.')
+    group.add_option(
+        '--webview-embedder-apk',
+        help='When running tests on android webview, more than one apk needs to'
+        ' be installed. The apk running the test is said to embed webview.')
     parser.add_option_group(group)
+
 
     # Remote platform options
     group = optparse.OptionGroup(parser, 'Remote platform options')

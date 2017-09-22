@@ -201,6 +201,9 @@ class VMTestStage(generic_stages.BoardSpecificBuilderStage,
 
   def PerformStage(self):
     # These directories are used later to archive test artifacts.
+    if not self._run.options.vmtests:
+      return
+
     test_results_root = commands.CreateTestRoot(self._build_root)
     test_basename = constants.VM_TEST_RESULTS % dict(attempt=self._attempt)
     try:
@@ -286,7 +289,14 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
 
   PERF_RESULTS_EXTENSION = 'results'
 
-  def __init__(self, builder_run, board, suite_config, suffix=None, **kwargs):
+  def __init__(
+      self, builder_run, board, model, suite_config, suffix=None, **kwargs):
+    if board is not model:
+      if suffix is None:
+        suffix = ' [%s]' % (model)
+      else:
+        suffix = '%s [%s]' % (suffix, model)
+
     suffix = self.UpdateSuffix(suite_config.suite, suffix)
     super(HWTestStage, self).__init__(builder_run, board,
                                       suffix=suffix,
@@ -296,6 +306,8 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
 
     self.suite_config = suite_config
     self.wait_for_results = True
+
+    self._model = model
 
   # Disable complaint about calling _HandleStageException.
   # pylint: disable=W0212
@@ -441,8 +453,9 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
       skip_duts_check = True
 
     build_id, db = self._run.GetCIDBHandle()
+
     cmd_result = commands.RunHWTestSuite(
-        build, self.suite_config.suite, self._current_board,
+        build, self.suite_config.suite, self._model,
         pool=self.suite_config.pool, num=self.suite_config.num,
         file_bugs=self.suite_config.file_bugs,
         wait_for_results=self.wait_for_results,
@@ -454,8 +467,7 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
         suite_min_duts=self.suite_config.suite_min_duts,
         offload_failures_only=self.suite_config.offload_failures_only,
         debug=debug, subsystems=subsystems, skip_duts_check=skip_duts_check,
-        job_keyvals={constants.DATASTORE_PARENT_KEY:
-                     ('Build', build_id, 'BuildStage', self._build_stage_id)})
+        job_keyvals=self.GetJobKeyvals())
 
     if config_lib.IsCQType(self._run.config.build_type):
       self.ReportHWTestResults(cmd_result.json_dump_result, build_id, db)

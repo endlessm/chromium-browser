@@ -14,7 +14,6 @@
 #include <iterator>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "base/command_line.h"
 #include "base/debug/crash_logging.h"
@@ -27,6 +26,7 @@
 #include "components/crash/content/app/crashpad.h"
 #include "components/crash/core/common/crash_keys.h"
 #include "components/version_info/channel.h"
+#include "gpu/config/gpu_crash_keys.h"
 
 namespace {
 
@@ -51,12 +51,6 @@ constexpr char kBrowserUnpinTrace[] = "browser-unpin-trace";
 // https://crbug.com/579504.
 constexpr char kApValue[] = "ap";
 constexpr char kCohortName[] = "cohort-name";
-
-constexpr char kGPUVendorID[] = "gpu-venid";
-constexpr char kGPUDeviceID[] = "gpu-devid";
-constexpr char kGPUDriverVersion[] = "gpu-driver";
-constexpr char kGPUPixelShaderVersion[] = "gpu-psver";
-constexpr char kGPUVertexShaderVersion[] = "gpu-vsver";
 
 constexpr char kHungRendererOutstandingAckCount[] = "hung-outstanding-acks";
 constexpr char kHungRendererOutstandingEventType[] =
@@ -109,11 +103,14 @@ size_t RegisterCrashKeysHelper() {
       {kBrowserUnpinTrace, kMediumSize},
       {kApValue, kSmallSize},
       {kCohortName, kSmallSize},
-      {kGPUVendorID, kSmallSize},
-      {kGPUDeviceID, kSmallSize},
-      {kGPUDriverVersion, kSmallSize},
-      {kGPUPixelShaderVersion, kSmallSize},
-      {kGPUVertexShaderVersion, kSmallSize},
+
+      // gpu
+      {gpu::crash_keys::kGPUVendorID, kSmallSize},
+      {gpu::crash_keys::kGPUDeviceID, kSmallSize},
+      {gpu::crash_keys::kGPUDriverVersion, kSmallSize},
+      {gpu::crash_keys::kGPUPixelShaderVersion, kSmallSize},
+      {gpu::crash_keys::kGPUVertexShaderVersion, kSmallSize},
+      {gpu::crash_keys::kGPUGLContextIsVirtual, kSmallSize},
 
       // browser/:
       {kThirdPartyModulesLoaded, kSmallSize},
@@ -173,19 +170,21 @@ size_t RegisterCrashKeysHelper() {
       {"postmessage_script_info", kLargeSize},
 
       // Temporary for https://crbug.com/668633.
-      {"swdh_set_hosted_version_worker_pid", crash_keys::kSmallSize},
-      {"swdh_set_hosted_version_host_pid", crash_keys::kSmallSize},
-      {"swdh_set_hosted_version_is_new_process", crash_keys::kSmallSize},
-      {"swdh_set_hosted_version_restart_count", crash_keys::kSmallSize},
+      {"swdh_set_hosted_version_worker_pid", kSmallSize},
+      {"swdh_set_hosted_version_host_pid", kSmallSize},
+      {"swdh_set_hosted_version_is_new_process", kSmallSize},
+      {"swdh_set_hosted_version_restart_count", kSmallSize},
 
       // Temporary for https://crbug.com/697745.
-      {"engine_params", crash_keys::kMediumSize},
-      {"engine1_params", crash_keys::kMediumSize},
-      {"engine2_params", crash_keys::kMediumSize},
+      {"engine_params", kMediumSize},
+      {"engine1_params", kMediumSize},
+      {"engine2_params", kMediumSize},
 
-      // Temporary for http://crbug.com/703649.
-      {"field_trial_shmem_create_error", crash_keys::kSmallSize},
-      {"field_trial_shmem_map_error", crash_keys::kSmallSize},
+      // Temporary for https://crbug.com/685996.
+      {"user-cloud-policy-manager-connect-trace", kMediumSize},
+
+      // TODO(asvitkine): Remove after fixing https://crbug.com/736675
+      {"bad_histogram", kMediumSize},
   };
 
   // This dynamic set of keys is used for sets of key value pairs when gathering
@@ -241,17 +240,13 @@ void ChromeCrashReporterClient::InitializeCrashReportingForProcess() {
 
   std::wstring process_type = install_static::GetSwitchValueFromCommandLine(
       ::GetCommandLine(), install_static::kProcessType);
-  std::wstring user_data_dir;
-  if (install_static::CurrentProcessNeedsProfileDir())
-    user_data_dir = install_static::GetUserDataDirectory();
   // Don't set up Crashpad crash reporting in the Crashpad handler itself, nor
   // in the fallback crash handler for the Crashpad handler process.
   if (process_type != install_static::kCrashpadHandler &&
       process_type != install_static::kFallbackHandler) {
     crash_reporter::SetCrashReporterClient(instance);
     crash_reporter::InitializeCrashpadWithEmbeddedHandler(
-        process_type.empty(), install_static::UTF16ToUTF8(process_type),
-        install_static::UTF16ToUTF8(user_data_dir));
+        process_type.empty(), install_static::UTF16ToUTF8(process_type));
   }
 }
 #endif  // NACL_WIN64
@@ -359,13 +354,12 @@ bool ChromeCrashReporterClient::GetCrashDumpLocation(
     return true;
 
   *crash_dir = install_static::GetCrashDumpLocation();
-  return !crash_dir->empty();
+  return true;
 }
 
 bool ChromeCrashReporterClient::GetCrashMetricsLocation(
     base::string16* metrics_dir) {
-  *metrics_dir = install_static::GetUserDataDirectory();
-  return !metrics_dir->empty();
+  return install_static::GetUserDataDirectory(metrics_dir, nullptr);
 }
 
 // TODO(ananta)

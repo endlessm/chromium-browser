@@ -25,7 +25,6 @@ from chromite.cbuildbot import remote_try
 from chromite.cbuildbot import repository
 from chromite.cbuildbot import tee
 from chromite.cbuildbot import topology
-from chromite.cbuildbot import tree_status
 from chromite.cbuildbot import trybot_patch_pool
 from chromite.cbuildbot.stages import completion_stages
 from chromite.lib import builder_status_lib
@@ -39,13 +38,13 @@ from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
 from chromite.lib import git
-from chromite.lib import graphite
 from chromite.lib import gob_util
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import retry_stats
 from chromite.lib import sudo
 from chromite.lib import timeout_util
+from chromite.lib import tree_status
 from chromite.lib import ts_mon_config
 
 
@@ -428,8 +427,7 @@ def _CreateParser():
   parser.add_remote_option('--profile',
                            help='Name of profile to sub-specify board variant.')
   parser.add_option('-c', '--config_repo',
-                    help='Cloneable path to the git repository containing '
-                         'the site configuration to use.')
+                    help='Deprecated option. Do not use!')
   # TODO(crbug.com/279618): Running GOMA is under development. Following
   # flags are added for development purpose due to repository dependency,
   # but not officially supported yet.
@@ -625,8 +623,12 @@ def _CreateParser():
                           default=True, help="Don't sync before building.")
   group.add_remote_option('--notests', action='store_false', dest='tests',
                           default=True,
-                          help='Override values from buildconfig and run no '
-                               'tests.')
+                          help='Override values from buildconfig, run no '
+                               'tests, and build no autotest and artifacts.')
+  group.add_remote_option('--novmtests', action='store_false', dest='vmtests',
+                          default=True,
+                          help='Override values from buildconfig, run no '
+                               'vmtests.')
   group.add_remote_option('--noimagetests', action='store_false',
                           dest='image_test', default=True,
                           help='Override values from buildconfig and run no '
@@ -702,6 +704,10 @@ def _CreateParser():
                    help='Used for compatibility checks w/tryjobs running in '
                         'older chromite instances')
   group.add_option('--sourceroot', type='path', default=constants.SOURCE_ROOT)
+  group.add_option('--ts-mon-task-num', type='int', default=0,
+                   help='The task number of this process. Defaults to 0. '
+                        'This argument is useful for running multiple copies '
+                        'of cbuildbot without their metrics colliding.')
   group.add_remote_option('--test-bootstrap', action='store_true',
                           default=False,
                           help='Causes cbuildbot to bootstrap itself twice, '
@@ -1036,7 +1042,7 @@ def _GetRunEnvironment(options, build_config):
 
 
 def _SetupConnections(options, build_config):
-  """Set up CIDB and graphite connections using the appropriate Setup call.
+  """Set up CIDB connections using the appropriate Setup call.
 
   Args:
     options: Command line options structure.
@@ -1053,7 +1059,8 @@ def _SetupConnections(options, build_config):
 
   if run_type == _ENVIRONMENT_PROD:
     cidb.CIDBConnectionFactory.SetupProdCidb()
-    context = ts_mon_config.SetupTsMonGlobalState('cbuildbot', indirect=True)
+    context = ts_mon_config.SetupTsMonGlobalState(
+        'cbuildbot', indirect=True, task_num=options.ts_mon_task_num)
   elif run_type == _ENVIRONMENT_DEBUG:
     cidb.CIDBConnectionFactory.SetupDebugCidb()
     context = ts_mon_config.TrivialContextManager()
@@ -1064,44 +1071,8 @@ def _SetupConnections(options, build_config):
   db = cidb.CIDBConnectionFactory.GetCIDBConnectionForBuilder()
   topology.FetchTopologyFromCIDB(db)
 
-  if run_type == _ENVIRONMENT_PROD:
-    graphite.ESMetadataFactory.SetupProd()
-    graphite.StatsFactory.SetupProd()
-  elif run_type == _ENVIRONMENT_DEBUG:
-    graphite.ESMetadataFactory.SetupReadOnly()
-    graphite.StatsFactory.SetupDebug()
-  else:
-    graphite.ESMetadataFactory.SetupReadOnly()
-    graphite.StatsFactory.SetupMock()
-
   return context
 
-
-def _FetchInitialBootstrapConfigRepo(repo_url, branch_name):
-  """Fetch the TOT site config repo, if necessary to start bootstrap."""
-
-  # If we are part of a repo checkout, the manifest stages control things.
-  if git.FindRepoDir(constants.SOURCE_ROOT):
-    return
-
-  # We must be part of a bootstrap chromite checkout, probably on a buildbot.
-
-  # If the config directory already exists, we have started the bootstrap
-  # process. Assume the boostrap stage did the right thing, and leave the config
-  # directory alone.
-  if os.path.exists(constants.SITE_CONFIG_DIR):
-    return
-
-  # We are part of a clean chromite checkout (buildbot always cleans chromite
-  # before launching us), so create the initial site config checkout.
-  logging.info('Fetching Config Repo: %s', repo_url)
-  git.Clone(constants.SITE_CONFIG_DIR, repo_url)
-
-  if branch_name:
-    git.RunGit(constants.SITE_CONFIG_DIR, ['checkout', branch_name])
-
-  # Clear the cached SiteConfig, if there was one.
-  config_lib.ClearConfigCache()
 
 # TODO(build): This function is too damn long.
 def main(argv):
@@ -1114,13 +1085,8 @@ def main(argv):
   parser = _CreateParser()
   options, args = ParseCommandLine(parser, argv)
 
-  if options.buildbot and options.config_repo:
-    _FetchInitialBootstrapConfigRepo(options.config_repo, options.branch)
-
   if options.config_repo:
-    # Ensure expected config file is present.
-    if not os.path.exists(constants.SITE_CONFIG_FILE):
-      cros_build_lib.Die('Unabled to find: %s', constants.SITE_CONFIG_FILE)
+    cros_build_lib.Die('Deprecated usage. Ping crbug.com/735696 you need it.')
 
   # Fetch our site_config now, because we need it to do anything else.
   site_config = config_lib.GetConfig()
@@ -1163,7 +1129,19 @@ def main(argv):
 
     print('Submitting tryjob...')
     with _SetupConnections(options, build_config):
-      tryjob = remote_try.RemoteTryJob(options, args, patch_pool.local_patches)
+      description = options.remote_description
+      if description is None:
+        description = remote_try.DefaultDescription(
+            options.branch,
+            options.gerrit_patches+options.local_patches)
+
+      tryjob = remote_try.RemoteTryJob(args, patch_pool.local_patches,
+                                       options.pass_through_args,
+                                       options.cache_dir,
+                                       description,
+                                       options.committer_email,
+                                       options.use_buildbucket,
+                                       options.slaves)
       tryjob.Submit(testjob=options.test_tryjob, dryrun=False)
     print('Tryjob submitted!')
     print(('Go to %s to view the status of your job.'

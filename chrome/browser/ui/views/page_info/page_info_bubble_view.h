@@ -88,6 +88,9 @@ class PageInfoBubbleView : public content::WebContentsObserver,
   // Returns the type of the bubble being shown.
   static BubbleType GetShownBubbleType();
 
+  // Returns a weak reference to the page info bubble being shown.
+  static views::BubbleDialogDelegateView* GetPageInfoBubble();
+
  private:
   friend class test::PageInfoBubbleViewTestApi;
 
@@ -101,6 +104,8 @@ class PageInfoBubbleView : public content::WebContentsObserver,
   // WebContentsObserver implementation.
   void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
   void WebContentsDestroyed() override;
+  void WasHidden() override;
+  void DidStartNavigation(content::NavigationHandle* handle) override;
 
   // PermissionSelectorRowObserver implementation.
   void OnPermissionChanged(
@@ -111,10 +116,10 @@ class PageInfoBubbleView : public content::WebContentsObserver,
 
   // views::BubbleDialogDelegateView implementation.
   base::string16 GetWindowTitle() const override;
+  void AddedToWidget() override;
   bool ShouldShowCloseButton() const override;
   void OnWidgetDestroying(views::Widget* widget) override;
   int GetDialogButtons() const override;
-  const gfx::FontList& GetTitleFontList() const override;
 
   // views::ButtonListener implementation.
   void ButtonPressed(views::Button* button, const ui::Event& event) override;

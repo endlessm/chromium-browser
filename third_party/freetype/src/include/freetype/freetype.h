@@ -575,7 +575,8 @@ FT_BEGIN_HEADER
   /* <Note>                                                                */
   /*    When a new face is created (either through @FT_New_Face or         */
   /*    @FT_Open_Face), the library looks for a Unicode charmap within     */
-  /*    the list and automatically activates it.                           */
+  /*    the list and automatically activates it.  If there is no Unicode   */
+  /*    charmap, FreeType doesn't set an `active' charmap.                 */
   /*                                                                       */
   /* <Also>                                                                */
   /*    See @FT_CharMapRec for the publicly accessible fields of a given   */
@@ -1529,7 +1530,13 @@ FT_BEGIN_HEADER
   /*    values of the corresponding fields in @FT_FaceRec.  Some values    */
   /*    like ascender or descender are rounded for historical reasons;     */
   /*    more precise values (for outline fonts) can be derived by scaling  */
-  /*    the corresponding @FT_FaceRec values manually.                     */
+  /*    the corresponding @FT_FaceRec values manually, with code similar   */
+  /*    to the following.                                                  */
+  /*                                                                       */
+  /*    {                                                                  */
+  /*      scaled_ascender = FT_MulFix( face->root.ascender,                */
+  /*                                   size_metrics->y_scale );            */
+  /*    }                                                                  */
   /*                                                                       */
   /*    Note that due to glyph hinting and the selected rendering mode     */
   /*    these values are usually not exact; consequently, they must be     */
@@ -1794,9 +1801,9 @@ FT_BEGIN_HEADER
   /*                                                                       */
   /*        <load glyph with `FT_Load_Glyph'>                              */
   /*                                                                       */
-  /*        if ( prev_rsb_delta - slot->lsb_delta >= 32 )                  */
+  /*        if ( prev_rsb_delta - slot->lsb_delta >  32 )                  */
   /*          origin_x -= 64;                                              */
-  /*        else if ( prev_rsb_delta - slot->lsb_delta < -32 )             */
+  /*        else if ( prev_rsb_delta - slot->lsb_delta < -31 )             */
   /*          origin_x += 64;                                              */
   /*                                                                       */
   /*        prev_rsb_delta = slot->rsb_delta;                              */
@@ -4327,6 +4334,9 @@ FT_BEGIN_HEADER
   /*    `a' rounded to the nearest 16.16 fixed integer, halfway cases away */
   /*    from zero.                                                         */
   /*                                                                       */
+  /* <Note>                                                                */
+  /*    The function uses wrap-around arithmetic.                          */
+  /*                                                                       */
   FT_EXPORT( FT_Fixed )
   FT_RoundFix( FT_Fixed  a );
 
@@ -4344,6 +4354,9 @@ FT_BEGIN_HEADER
   /*                                                                       */
   /* <Return>                                                              */
   /*    `a' rounded towards plus infinity.                                 */
+  /*                                                                       */
+  /* <Note>                                                                */
+  /*    The function uses wrap-around arithmetic.                          */
   /*                                                                       */
   FT_EXPORT( FT_Fixed )
   FT_CeilFix( FT_Fixed  a );

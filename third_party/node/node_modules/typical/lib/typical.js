@@ -170,7 +170,7 @@ function isPrimitive (input) {
 }
 
 /**
- * Returns true if the input is a string, number, symbol, boolean, null or undefined value.
+ * Returns true if the input is a Promise.
  * @param {*} - the input to test
  * @returns {boolean}
  * @static

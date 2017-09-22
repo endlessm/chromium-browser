@@ -21,6 +21,7 @@ from chromite.lib import gs
 from chromite.lib import gs_unittest
 from chromite.lib import osutils
 from chromite.lib import partial_mock
+from gn_helpers import gn_helpers
 
 
 # pylint: disable=W0212
@@ -305,7 +306,7 @@ class RunThroughTest(cros_test_lib.MockTempDirTestCase,
       gn_args_file_dir = os.path.join(self.chrome_src_dir, out_dir, build_label)
       gn_args_file_path = os.path.join(gn_args_file_dir, 'args.gn')
       osutils.SafeMakedirs(gn_args_file_dir)
-      osutils.WriteFile(gn_args_file_path, 'no match')
+      osutils.WriteFile(gn_args_file_path, 'foo = "no match"')
 
       self.SetupCommandMock()
       self.cmd_mock.inst.Run()
@@ -325,6 +326,27 @@ class RunThroughTest(cros_test_lib.MockTempDirTestCase,
 
       osutils.SafeMakedirs(gn_args_file_dir)
       osutils.WriteFile(gn_args_file_path, self.cmd_mock.env['GN_ARGS'])
+
+      self.cmd_mock.inst.Run()
+
+      self.AssertLogsContain(logs, 'Stale args.gn file', inverted=True)
+
+  def testGnArgsStalenessIgnoreStripped(self):
+    """Verifies the GN args ignore stripped args."""
+    with cros_test_lib.LoggingCapturer() as logs:
+      self.SetupCommandMock()
+      self.cmd_mock.inst.Run()
+
+      out_dir = 'out_%s' % SDKFetcherMock.BOARD
+      build_label = 'Release'
+      gn_args_file_dir = os.path.join(self.chrome_src_dir, out_dir, build_label)
+      gn_args_file_path = os.path.join(gn_args_file_dir, 'args.gn')
+
+      osutils.SafeMakedirs(gn_args_file_dir)
+      gn_args_dict = gn_helpers.FromGNArgs(self.cmd_mock.env['GN_ARGS'])
+      # 'dcheck_always_on' should be ignored.
+      gn_args_dict['dcheck_always_on'] = True
+      osutils.WriteFile(gn_args_file_path, gn_helpers.ToGNString(gn_args_dict))
 
       self.cmd_mock.inst.Run()
 
@@ -389,8 +411,13 @@ class GomaTest(cros_test_lib.MockTempDirTestCase,
 class VersionTest(cros_test_lib.MockTempDirTestCase):
   """Tests the determination of which SDK version to use."""
 
-  VERSION = '3543.2.0'
+  VERSION = '3543.0.0'
   FULL_VERSION = 'R55-%s' % VERSION
+  RECENT_VERSION_MISSING = '3542.0.0'
+  RECENT_VERSION_FOUND = '3541.0.0'
+  FULL_VERSION_RECENT = 'R55-%s' % RECENT_VERSION_FOUND
+  NON_CANARY_VERSION = '3543.2.1'
+  FULL_VERSION_NON_CANARY = 'R55-%s' % NON_CANARY_VERSION
   BOARD = 'lumpy'
 
   VERSION_BASE = ('gs://chromeos-image-archive/%s-release/LATEST-%s'
@@ -409,37 +436,6 @@ class VersionTest(cros_test_lib.MockTempDirTestCase):
     self.sdk = cros_chrome_sdk.SDKFetcher(
         os.path.join(self.tempdir, 'cache'), self.BOARD)
 
-  def SetUpDefaultVersion(self, current, target, newest):
-    self.PatchObject(cros_chrome_sdk.SDKFetcher, 'GetDefaultVersion',
-                     return_value=current)
-    self.PatchObject(cros_chrome_sdk.SDKFetcher, '_GetRepoCheckoutVersion',
-                     return_value=target)
-    self.PatchObject(cros_chrome_sdk.SDKFetcher, '_GetNewestManifestVersion',
-                     return_value=newest)
-    return self.sdk.UpdateDefaultVersion()
-
-  def testUpdateDefaultVersionNormal(self):
-    """Updating default version with no cached default version."""
-    self.sdk_mock.UnMockAttr('UpdateDefaultVersion')
-    target, updated = self.SetUpDefaultVersion(None, self.VERSION, '3544.0.0')
-    self.assertEquals(target, self.VERSION)
-    self.assertEquals(updated, True)
-
-  def testUpdateDefaultVersionTooNew(self):
-    """Version in chromeos_version.sh isn't uploaded yet."""
-    self.sdk_mock.UnMockAttr('UpdateDefaultVersion')
-    target, updated = self.SetUpDefaultVersion(None, '3543.10.0', self.VERSION)
-    self.assertEquals(target, self.VERSION)
-    self.assertEquals(updated, True)
-
-  def testUpdateDefaultVersionNoUpdate(self):
-    """Nothing to update because the target version did not change."""
-    self.sdk_mock.UnMockAttr('UpdateDefaultVersion')
-    target, updated = self.SetUpDefaultVersion(self.VERSION, self.VERSION,
-                                               None)
-    self.assertEquals(target, self.VERSION)
-    self.assertEquals(updated, False)
-
   def testUpdateDefaultChromeVersion(self):
     """We pick up the right LKGM version from the Chrome tree."""
     dir_struct = [
@@ -456,6 +452,35 @@ class VersionTest(cros_test_lib.MockTempDirTestCase):
     self.sdk.UpdateDefaultVersion()
     self.assertEquals(self.sdk.GetDefaultVersion(),
                       self.VERSION)
+
+  def testFullVersion(self):
+    """Test full version calculation."""
+    self.sdk_mock.UnMockAttr('GetFullVersion')
+    self.gs_mock.AddCmdResult(
+        partial_mock.ListRegex('cat .*/LATEST-%s' % self.VERSION),
+        output=self.FULL_VERSION)
+    self.assertEquals(
+        self.FULL_VERSION,
+        self.sdk.GetFullVersion(self.VERSION))
+
+  def testFullVersionFromRecentLatest(self):
+    """Test full version calculation when there is no matching LATEST- file."""
+    def _RaiseGSNoSuchKey(*_args, **_kwargs):
+      raise gs.GSNoSuchKey('file does not exist')
+    self.sdk_mock.UnMockAttr('GetFullVersion')
+    self.gs_mock.AddCmdResult(
+        partial_mock.ListRegex('cat .*/LATEST-%s' % self.VERSION),
+        side_effect=_RaiseGSNoSuchKey)
+    self.gs_mock.AddCmdResult(
+        partial_mock.ListRegex(
+            'cat .*/LATEST-%s' % self.RECENT_VERSION_MISSING),
+        side_effect=_RaiseGSNoSuchKey)
+    self.gs_mock.AddCmdResult(
+        partial_mock.ListRegex('cat .*/LATEST-%s' % self.RECENT_VERSION_FOUND),
+        output=self.FULL_VERSION_RECENT)
+    self.assertEquals(
+        self.FULL_VERSION_RECENT,
+        self.sdk.GetFullVersion(self.VERSION))
 
   def testFullVersionCaching(self):
     """Test full version calculation and caching."""
@@ -485,17 +510,39 @@ class VersionTest(cros_test_lib.MockTempDirTestCase):
         self.FULL_VERSION + '2',
         self.sdk.GetFullVersion(self.VERSION))
 
-  def testBadVersion(self):
-    """We raise an exception for a bad version."""
+  def testNoLatestVersion(self):
+    """We raise an exception when there is no recent latest version."""
     self.sdk_mock.UnMockAttr('GetFullVersion')
     self.gs_mock.AddCmdResult(
-        partial_mock.ListRegex('cat .*/LATEST-%s' % self.VERSION),
+        partial_mock.ListRegex('cat .*/LATEST-*'),
         output='', error=self.CAT_ERROR, returncode=1)
     self.gs_mock.AddCmdResult(
         partial_mock.ListRegex('ls .*%s' % self.VERSION),
         output='', error=self.LS_ERROR, returncode=1)
     self.assertRaises(cros_chrome_sdk.MissingSDK, self.sdk.GetFullVersion,
                       self.VERSION)
+
+  def testNonCanaryFullVersion(self):
+    """Test full version calculation for a non canary version."""
+    self.sdk_mock.UnMockAttr('GetFullVersion')
+    self.gs_mock.AddCmdResult(
+        partial_mock.ListRegex('cat .*/LATEST-%s' % self.NON_CANARY_VERSION),
+        output=self.FULL_VERSION_NON_CANARY)
+    self.assertEquals(
+        self.FULL_VERSION_NON_CANARY,
+        self.sdk.GetFullVersion(self.NON_CANARY_VERSION))
+
+  def testNonCanaryNoLatestVersion(self):
+    """We raise an exception when there is no matching latest non canary."""
+    self.sdk_mock.UnMockAttr('GetFullVersion')
+    self.gs_mock.AddCmdResult(
+        partial_mock.ListRegex('cat .*/LATEST-%s' % self.NON_CANARY_VERSION),
+        output='', error=self.CAT_ERROR, returncode=1)
+    # Set any other query to return a valid version, but we don't expect that
+    # to occur for non canary versions.
+    self.gs_mock.SetDefaultCmdResult(output=self.FULL_VERSION_NON_CANARY)
+    self.assertRaises(cros_chrome_sdk.MissingSDK, self.sdk.GetFullVersion,
+                      self.NON_CANARY_VERSION)
 
   def testDefaultEnvBadBoard(self):
     """We don't use the version in the environment if board doesn't match."""

@@ -19,7 +19,6 @@ import time
 from xml.dom import minidom
 
 from chromite.cbuildbot import lkgm_manager
-from chromite.cbuildbot import tree_status
 from chromite.cbuildbot import patch_series
 from chromite.lib import config_lib
 from chromite.lib import constants
@@ -31,9 +30,11 @@ from chromite.lib import failures_lib
 from chromite.lib import gerrit
 from chromite.lib import git
 from chromite.lib import gob_util
+from chromite.lib import metrics
 from chromite.lib import parallel
 from chromite.lib import patch as cros_patch
 from chromite.lib import timeout_util
+from chromite.lib import tree_status
 from chromite.lib import triage_lib
 
 
@@ -64,12 +65,8 @@ CQ_PIPELINE_CONFIGS = {CQ_CONFIG, PRE_CQ_LAUNCHER_CONFIG}
 # normal.  Setting timeout to 3 minutes to be safe-ish.
 SUBMITTED_WAIT_TIMEOUT = 3 * 60 # Time in seconds.
 
-# Default sleep time (second) in the apply_patch loop
-DEFAULT_APPLY_PATCH_SLEEP_TIME = 1
-
 # Default timeout (second) for computing dependency map.
 COMPUTE_DEPENDENCY_MAP_TIMEOUT = 5 * 60
-
 
 class TreeIsClosedException(Exception):
   """Raised when the tree is closed and we wanted to submit changes."""
@@ -394,12 +391,16 @@ class ValidationPool(object):
     for helper in self._helper_pool:
       changes = helper.Query(gerrit_query, sort='lastUpdated')
       changes.reverse()
+      logging.info('Queried changes: %s', cros_patch.GetChangesAsString(
+          changes))
 
       if ready_fn:
         # The query passed in may include a dictionary of flags to use for
         # revalidating the query results. We need to do this because Gerrit
         # caches are sometimes stale and need sanity checking.
         changes = [x for x in changes if ready_fn(x)]
+        logging.info('Ready changes: %s', cros_patch.GetChangesAsString(
+            changes))
 
       # Tell users to publish drafts before marking them commit ready.
       for change in changes:
@@ -458,14 +459,13 @@ class ValidationPool(object):
     # We choose a longer wait here as we haven't committed to anything yet. By
     # doing this here we can reduce the number of builder cycles.
     timeout = cls.DEFAULT_TIMEOUT
-    if builder_run is not None:
-      build_id, db = builder_run.GetCIDBHandle()
-      if db:
-        time_to_deadline = db.GetTimeToDeadline(build_id)
-        if time_to_deadline is not None:
-          # We must leave enough time before the deadline to allow us to extend
-          # the deadline in case we hit this timeout.
-          timeout = time_to_deadline - cls.EXTENSION_TIMEOUT_BUFFER
+    build_id, db = builder_run.GetCIDBHandle()
+    if db:
+      time_to_deadline = db.GetTimeToDeadline(build_id)
+      if time_to_deadline is not None:
+        # We must leave enough time before the deadline to allow us to extend
+        # the deadline in case we hit this timeout.
+        timeout = time_to_deadline - cls.EXTENSION_TIMEOUT_BUFFER
 
     end_time = time.time() + timeout
     status = constants.TREE_OPEN
@@ -488,6 +488,11 @@ class ValidationPool(object):
 
       gerrit_query, ready_fn = query
       tree_was_open = (status == constants.TREE_OPEN)
+
+      experimental_builders = tree_status.GetExperimentalBuilders()
+      builder_run.attrs.metadata.UpdateWithDict({
+          constants.METADATA_EXPERIMENTAL_BUILDERS: experimental_builders
+      })
 
       pool = ValidationPool(overlays, repo.directory, build_number,
                             builder_name, True, dryrun, builder_run=builder_run,
@@ -833,6 +838,7 @@ class ValidationPool(object):
       # Slaves do not need to create transactions and should simply
       # apply the changes serially, based on the order that the
       # changes were listed on the manifest.
+      self.applied_patches.FetchChanges(self.candidates, manifest=manifest)
       for change in self.candidates:
         try:
           # pylint: disable=E1123
@@ -843,8 +849,6 @@ class ValidationPool(object):
           raise
         else:
           applied.append(change)
-        finally:
-          time.sleep(DEFAULT_APPLY_PATCH_SLEEP_TIME)
 
     self.RecordPatchesInMetadataAndDatabase(applied)
     self.PrintLinksToChanges(applied)
@@ -1505,7 +1509,13 @@ class ValidationPool(object):
     self._InsertCLActionToDatabase(change, action, reason)
 
   def RemoveReady(self, change, reason=None):
-    """Remove the commit ready and trybot ready bits for |change|."""
+    """Remove the commit ready and trybot ready bits for |change|.
+
+    Args:
+      change: An instance of cros_patch.GerritPatch.
+      reason: The reason to remove the ready bit for the |change|. None by
+        default.
+    """
     try:
       self._helper_pool.ForChange(change).RemoveReady(
           change, dryrun=self.dryrun)
@@ -1521,6 +1531,10 @@ class ValidationPool(object):
       timestamp = int(time.time())
       metadata.RecordCLAction(change, constants.CL_ACTION_KICKED_OUT,
                               timestamp)
+
+    if reason in constants.SUSPECT_REASONS:
+      metrics.Counter(constants.MON_CL_REJECT_COUNT).increment(
+          fields={'reason': reason})
 
     self._InsertCLActionToDatabase(change, constants.CL_ACTION_KICKED_OUT,
                                    reason)
@@ -1599,7 +1613,8 @@ class ValidationPool(object):
       self._HandleApplyFailure(self.changes_that_failed_to_apply_earlier)
 
   def SubmitPartialPool(self, changes, messages, changes_by_config,
-                        subsys_by_config, failing, inflight, no_stat):
+                        subsys_by_config, passed_in_history_slaves_by_change,
+                        failing, inflight, no_stat):
     """If the build failed, push any CLs that don't care about the failure.
 
     In this function we calculate what CLs are definitely innocent and submit
@@ -1612,12 +1627,14 @@ class ValidationPool(object):
 
     Args:
       changes: A list of GerritPatch instances to examine.
-      messages: A list of BuildFailureMessage or NoneType objects from
-        the failed slaves.
+      messages: A list of build_failure_message.BuildFailureMessage or NoneType
+        objects from the failed slaves.
       changes_by_config: A dictionary of relevant changes indexed by the
         config names.
       subsys_by_config: A dictionary of pass/fail HWTest subsystems indexed
         by the config names.
+      passed_in_history_slaves_by_change: A dict mapping changes to their
+        relevant slaves (build config name strings) which passed in history.
       failing: Names of the builders that failed.
       inflight: Names of the builders that timed out.
       no_stat: Set of builder names of slave builders that had status None.
@@ -1626,8 +1643,9 @@ class ValidationPool(object):
       A set of the non-submittable changes.
     """
     fully_verified = triage_lib.CalculateSuspects.GetFullyVerifiedChanges(
-        changes, changes_by_config, subsys_by_config, failing, inflight,
-        no_stat, messages, self.build_root)
+        changes, changes_by_config, subsys_by_config,
+        passed_in_history_slaves_by_change, failing, inflight, no_stat,
+        messages, self.build_root)
     fully_verified_cls = fully_verified.keys()
     if fully_verified_cls:
       logging.info('The following changes will be submitted using '
@@ -1823,8 +1841,8 @@ class ValidationPool(object):
     Args:
       change: The change to mark as failed.
       messages: A list of build failure messages from supporting builders.
-          These must be BuildFailureMessage objects.
-      suspects: The list of changes that are suspected of breaking the build.
+          These must be build_failure_message.BuildFailureMessage objects.
+      suspects: An instance of triage_lib.SuspectChanges.
       sanity: A boolean indicating whether the build was considered sane. If
         not sane, none of the changes will have their CommitReady bit modified.
       infra_fail: The build failed purely due to infrastructure failures.
@@ -1832,7 +1850,7 @@ class ValidationPool(object):
       no_stat: A list of builders which failed prematurely without reporting
         status.
     """
-    retry = not sanity or lab_fail or change not in suspects
+    retry = not sanity or lab_fail or change not in suspects.keys()
     msg = cl_messages.CreateValidationFailureMessage(
         self.pre_cq_trybot, change, suspects, messages,
         sanity, infra_fail, lab_fail, no_stat, retry)
@@ -1840,7 +1858,7 @@ class ValidationPool(object):
     if retry:
       self.MarkForgiven(change)
     else:
-      self.RemoveReady(change)
+      self.RemoveReady(change, reason=suspects.get(change))
 
   def HandleValidationFailure(self, messages, changes=None, sanity=True,
                               no_stat=None, failed_hwtests=None):
@@ -1853,7 +1871,8 @@ class ValidationPool(object):
 
     Args:
       messages: A list of build failure messages from supporting builders.
-          These must be BuildFailureMessage objects or NoneType objects.
+          These must be build_failure_message.BuildFailureMessage objects or
+          NoneType objects.
       changes: A list of cros_patch.GerritPatch instances to mark as failed.
         By default, mark all of the changes as failed.
       sanity: A boolean indicating whether the build was considered sane. If
@@ -1868,18 +1887,24 @@ class ValidationPool(object):
     candidates = []
 
     if self.pre_cq_trybot:
-      _, db = self._run.GetCIDBHandle()
+      build_id, db = self._run.GetCIDBHandle()
       action_history = []
       if db:
         action_history = db.GetActionsForChanges(changes)
 
-      for change in changes:
-        # Don't reject changes that have already passed the pre-cq.
-        pre_cq_status = clactions.GetCLPreCQStatus(
-            change, action_history)
-        if pre_cq_status == constants.CL_STATUS_PASSED:
-          continue
-        candidates.append(change)
+      cancelled_pre_cqs = clactions.GetCancelledPreCQBuilds(action_history)
+      cancelled_build_ids = set([x.build_id for x in cancelled_pre_cqs])
+      if build_id in cancelled_build_ids:
+        logging.info('This Pre-CQ build was cancelled on demand, do not blame '
+                     'on CLs.')
+      else:
+        for change in changes:
+          # Don't reject changes that have already passed the pre-cq.
+          pre_cq_status = clactions.GetCLPreCQStatus(
+              change, action_history)
+          if pre_cq_status == constants.CL_STATUS_PASSED:
+            continue
+          candidates.append(change)
     else:
       candidates.extend(changes)
 

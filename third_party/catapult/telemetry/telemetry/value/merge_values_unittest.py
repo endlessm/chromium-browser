@@ -16,11 +16,14 @@ class TestBase(unittest.TestCase):
   def setUp(self):
     story_set = story.StorySet(base_dir=os.path.dirname(__file__))
     story_set.AddStory(
-        page_module.Page('http://www.bar.com/', story_set, story_set.base_dir))
+        page_module.Page('http://www.bar.com/', story_set, story_set.base_dir,
+                         name='http://www.bar.com/'))
     story_set.AddStory(
-        page_module.Page('http://www.baz.com/', story_set, story_set.base_dir))
+        page_module.Page('http://www.baz.com/', story_set, story_set.base_dir,
+                         name='http://www.baz.com/'))
     story_set.AddStory(
-        page_module.Page('http://www.foo.com/', story_set, story_set.base_dir))
+        page_module.Page('http://www.foo.com/', story_set, story_set.base_dir,
+                         name='http://www.foo.com/'))
     self.story_set = story_set
 
   @property
@@ -88,7 +91,7 @@ class MergeValueTest(TestBase):
                       improvement_direction=improvement_direction.UP)]
 
     merged_values = merge_values.MergeLikeValuesFromSamePage(
-      all_values, key_func=lambda v: v.page.display_name)
+      all_values, key_func=lambda v: v.page.name)
     # Sort the results so that their order is predictable for the subsequent
     # assertions.
     merged_values.sort(key=lambda x: x.page.url)

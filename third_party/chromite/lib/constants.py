@@ -233,6 +233,25 @@ EXCEPTION_CATEGORY_ALL_CATEGORIES = (
     EXCEPTION_CATEGORY_LAB,
 )
 
+# Suspect reasons for rejecting changes in validation_pool.
+SUSPECT_REASON_BAD_CHANGE = 'bad_change'
+SUSPECT_REASON_INFRA_FAIL = 'infra_fail'
+SUSPECT_REASON_BUILD_FAIL = 'build_fail'
+SUSPECT_REASON_TEST_FAIL = 'test_fail'
+SUSPECT_REASON_OVERLAY_CHANGE = 'overlay_change'
+SUSPECT_REASON_UNKNOWN = 'unknown'
+
+# A dict mapping suspect reasons to their blame priorities.
+# Lower values have higher blame priorities.
+SUSPECT_REASONS = {
+    SUSPECT_REASON_BAD_CHANGE: 1,
+    SUSPECT_REASON_INFRA_FAIL: 2,
+    SUSPECT_REASON_BUILD_FAIL: 3,
+    SUSPECT_REASON_TEST_FAIL: 4,
+    SUSPECT_REASON_OVERLAY_CHANGE: 5,
+    SUSPECT_REASON_UNKNOWN: 6,
+}
+
 # Monarch metric names
 MON_CQ_WALL_CLOCK_SECS = 'chromeos/cbuildbot/cq_wall_clock_seconds'
 MON_CQ_SELF_DESTRUCTION_COUNT = ('chromeos/cbuildbot/build/'
@@ -273,8 +292,8 @@ MON_BB_CANCEL_BATCH_BUILDS_COUNT = ('chromeos/cbuildbot/buildbucket/'
                                     'cancel_batch_builds_count')
 MON_BB_CANCEL_PRE_CQ_BUILD_COUNT = ('chromeos/cbuildbot/buildbucket/'
                                     'cancel_pre_cq_build_count')
-
 MON_EXPORT_TO_GCLOUD = 'chromeos/cbuildbot/export_to_gcloud'
+MON_CL_REJECT_COUNT = ('chromeos/cbuildbot/change/rejected_count')
 
 # Sheriff-o-Matic tree which Chrome OS alerts are posted to.
 SOM_TREE = 'chromeos'
@@ -291,16 +310,12 @@ SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE = 1005
 
 # List of master builds to generate Sheriff-o-Matics alerts for.
 # Waterfall, build config, SOM alert severity.
-SOM_IMPORTANT_BUILDS = [
-    (WATERFALL_INTERNAL, 'master-paladin', SOM_SEVERITY_CQ_FAILURE),
-    (WATERFALL_INTERNAL, 'master-chromium-pfq', SOM_SEVERITY_PFQ_FAILURE),
-    (WATERFALL_INTERNAL, 'master-android-pfq', SOM_SEVERITY_PFQ_FAILURE),
-    (WATERFALL_INTERNAL, 'master-release', SOM_SEVERITY_CANARY_FAILURE),
-]
 SOM_BUILDS = {
     SOM_TREE: [
         (WATERFALL_INTERNAL, 'master-paladin', SOM_SEVERITY_CQ_FAILURE),
         (WATERFALL_INTERNAL, 'master-android-pfq', SOM_SEVERITY_PFQ_FAILURE),
+        (WATERFALL_INTERNAL, 'master-nyc-android-pfq',
+         SOM_SEVERITY_PFQ_FAILURE),
         (WATERFALL_INTERNAL, 'master-release', SOM_SEVERITY_CANARY_FAILURE),
     ],
 
@@ -308,8 +323,6 @@ SOM_BUILDS = {
     # be changed to a programatically list instead of a hardcoded list.
     'gardener': [
         (WATERFALL_INTERNAL, 'master-chromium-pfq', SOM_SEVERITY_PFQ_FAILURE),
-        (WATERFALL_CHROME, 'x86-alex-tot-chrome-pfq-informational',
-         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
         (WATERFALL_CHROME, 'lumpy-tot-chrome-pfq-informational',
          SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
         (WATERFALL_CHROME, 'peach_pit-tot-chrome-pfq-informational',
@@ -390,7 +403,9 @@ INTERNAL_GOB_URL = 'https://%s' % INTERNAL_GOB_HOST
 INTERNAL_GERRIT_URL = 'https://%s' % INTERNAL_GERRIT_HOST
 
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
-ANDROID_BUILD_TARGETS = {
+ANDROID_MNC_BUILD_BRANCH = 'git_mnc-dr-arc-dev'
+ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc'
+ANDROID_COMMON_BUILD_TARGETS = {
     # TODO(b/29509721): Workaround to roll adb with system image. We want to
     # get rid of this.
     'ARM': ('linux-cheets_arm-user', r'(\.zip|/adb)$'),
@@ -398,6 +413,15 @@ ANDROID_BUILD_TARGETS = {
     'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
     'AOSP_X86_USERDEBUG': ('linux-aosp_cheets_x86-userdebug', r'\.zip$'),
     'SDK_TOOLS': ('linux-static_sdk_tools', r'/(aapt|adb)$'),
+}
+ANDROID_MNC_BUILD_TARGETS = {
+    # No MNC-specific targets exist, only NYC-specific. Declare the target
+    # dictionary for consistency.
+}
+ANDROID_NYC_BUILD_TARGETS = {
+    'SDK_GOOGLE_X86_USERDEBUG': ('linux-sdk_google_cheets_x86-userdebug',
+                                 r'\.zip$'),
+    'X86_64': ('linux-cheets_x86_64-user', r'\.zip$'),
 }
 ANDROID_GTS_BUILD_TARGETS = {
     # "gts_arm64" is the build maintained by GMS team.
@@ -407,8 +431,10 @@ ARC_BUCKET_URL = 'gs://chromeos-arc-images/builds'
 ARC_BUCKET_ACLS = {
     'ARM': 'googlestorage_acl_arm.txt',
     'X86': 'googlestorage_acl_x86.txt',
+    'X86_64': 'googlestorage_acl_x86.txt',
     'X86_USERDEBUG': 'googlestorage_acl_x86.txt',
     'AOSP_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
+    'SDK_GOOGLE_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
     'SDK_TOOLS': 'googlestorage_acl_public.txt',
     'XTS': 'googlestorage_acl_cts.txt',
 }
@@ -431,6 +457,7 @@ ANDROID_SYMBOLS_FILE = 'android-symbols.zip'
 ARC_BUILDS_NEED_ARTIFACTS_RENAMED = {
     'X86_USERDEBUG',
     'AOSP_X86_USERDEBUG',
+    'SDK_GOOGLE_X86_USERDEBUG',
 }
 
 GOB_COOKIE_PATH = os.path.expanduser('~/.git-credential-cache/cookie')
@@ -620,14 +647,16 @@ VALID_BUILD_TYPES = (
 
 # The default list of pre-cq configs to use.
 PRE_CQ_DEFAULT_CONFIGS = [
-    # TODO(ihf): Make caroline or newer vmtest once crbug.com/708715 is fixed.
-    'caroline-no-vmtest-pre-cq',      # skylake      kernel 3.18
-    'daisy_spring-no-vmtest-pre-cq',  # arm          kernel 3.8
+    # Betty is the designated board to run vmtest on N.
+    'betty-pre-cq',                   # vm board                       vmtest
+    'cyan-no-vmtest-pre-cq',          # braswell     kernel 3.18
+    'daisy_spring-no-vmtest-pre-cq',  # arm32        kernel 3.8
     'lumpy-no-vmtest-pre-cq',         # sandybridge  kernel 3.8
-    'rambi-pre-cq',                   # baytrail     kernel 4.4       vmtest
+    'kevin-no-vmtest-pre-cq',         # arm64        kernel 4.4
+    'nyan_blaze-no-vmtest-pre-cq',    # arm32        kernel 3.10
+    'reef-no-vmtest-pre-cq',          # apollolake   kernel 4.4        vulkan
     'samus-no-vmtest-pre-cq',         # broadwell    kernel 3.14
     'whirlwind-no-vmtest-pre-cq',     # brillo
-    'x86-alex-no-vmtest-pre-cq',      # x86          kernel 3.8
 ]
 
 # The name of the pre-cq launching config.
@@ -642,6 +671,7 @@ CQ_CONFIG_SECTION_GENERAL = 'GENERAL'
 CQ_CONFIG_IGNORED_STAGES = 'ignored-stages'
 CQ_CONFIG_SUBMIT_IN_PRE_CQ = 'submit-in-pre-cq'
 CQ_CONFIG_SUBSYSTEM = 'subsystem'
+CQ_CONFIG_UNION_PRE_CQ_SUB_CONFIGS = 'union-pre-cq-sub-configs'
 
 # The COMMIT-QUEUE.ini and commit message option that overrides pre-cq configs
 # to test with.
@@ -660,7 +690,12 @@ HWTEST_CHROME_PERF_POOL = 'chromeperf'
 HWTEST_TRYBOT_POOL = HWTEST_SUITES_POOL
 HWTEST_WIFICELL_PRE_CQ_POOL = 'wificell-pre-cq'
 HWTEST_CONTINUOUS_POOL = 'continuous'
+HWTEST_CTS_POOL = 'cts'
+HWTEST_GTS_POOL = HWTEST_CTS_POOL
 
+
+# How many total test retries should be done for a suite.
+HWTEST_MAX_RETRIES = 5
 
 # Defines for the various hardware test suites:
 #   AU: Blocking suite run against all canaries; tests basic AU
@@ -673,7 +708,7 @@ HWTEST_CONTINUOUS_POOL = 'continuous'
 #   CANARY:  Non-blocking suite run only against the canaries.
 #   AFDO:  Non-blocking suite run only AFDO builders.
 #   MOBLAB: Blocking Suite run only on *_moblab builders.
-HWTEST_ARC_COMMIT_SUITE = 'arc-bvt-cq'
+HWTEST_ARC_COMMIT_SUITE = 'bvt-arc'
 HWTEST_ARC_CANARY_SUITE = 'arc-bvt-perbuild'
 HWTEST_AU_SUITE = 'au'
 HWTEST_BVT_SUITE = 'bvt-inline'
@@ -686,7 +721,11 @@ HWTEST_MOBLAB_QUICK_SUITE = 'moblab_quick'
 HWTEST_SANITY_SUITE = 'sanity'
 HWTEST_TOOLCHAIN_SUITE = 'toolchain-tests'
 HWTEST_PROVISION_SUITE = 'bvt-provision'
-
+HWTEST_CTS_QUAL_SUITE = 'arc-cts-qual'
+HWTEST_GTS_QUAL_SUITE = 'arc-gts-qual'
+# Non-blocking informational hardware tests for Chrome, run throughout the
+# day on tip-of-trunk Chrome rather than on the daily Chrome branch.
+HWTEST_CHROME_INFORMATIONAL = 'chrome-informational'
 
 # Additional timeout to wait for autotest to abort a suite if the test takes
 # too long to run. This is meant to be overly conservative as a timeout may
@@ -735,7 +774,9 @@ MESSAGE_TYPE_IGNORED_REASON = 'ignored_reason'
 MESSAGE_SUBTYPE_SELF_DESTRUCTION = 'self_destruction'
 
 # Define HWTEST job_keyvals
-DATASTORE_PARENT_KEY = 'datastore_parent_key'
+JOB_KEYVAL_DATASTORE_PARENT_KEY = 'datastore_parent_key'
+JOB_KEYVAL_CIDB_BUILD_ID = 'cidb_build_id'
+JOB_KEYVAL_CIDB_BUILD_STAGE_ID = 'cidb_build_stage_id'
 
 # Defines VM Test types.
 FULL_AU_TEST_TYPE = 'full_suite'
@@ -874,6 +915,10 @@ CL_ACTION_VALIDATION_PENDING_PRE_CQ = 'validation_pending_pre_cq'
 # irrelevant to that slave build.
 CL_ACTION_IRRELEVANT_TO_SLAVE = 'irrelevant_to_slave'
 
+# Recorded by CQ slaves builds when a picked-up CL is determined to be
+# relevant to that slave build.
+CL_ACTION_RELEVANT_TO_SLAVE = 'relevant_to_slave'
+
 # Recorded by pre-cq-launcher when it launches a tryjob with a particular
 # config. The |reason| field of the action will be the config.
 CL_ACTION_TRYBOT_LAUNCHING = 'trybot_launching'
@@ -897,6 +942,7 @@ CL_ACTIONS = (CL_ACTION_PICKED_UP,
               CL_ACTION_SCREENED_FOR_PRE_CQ,
               CL_ACTION_VALIDATION_PENDING_PRE_CQ,
               CL_ACTION_IRRELEVANT_TO_SLAVE,
+              CL_ACTION_RELEVANT_TO_SLAVE,
               CL_ACTION_TRYBOT_LAUNCHING,
               CL_ACTION_SPECULATIVE,
               CL_ACTION_FORGIVEN,
@@ -927,10 +973,27 @@ CL_PRECQ_CONFIG_STATUSES = (CL_PRECQ_CONFIG_STATUS_PENDING,
 
 # CL submission, rejection, or forgiven reasons (i.e. strategies).
 STRATEGY_CQ_SUCCESS = 'strategy:cq-success'
-STRATEGY_CQ_PARTIAL = 'strategy:cq-submit-partial-pool'
-STRATEGY_CQ_PARTIAL_SUBSYSTEM = 'strategy:cq-submit-partial-pool-pass-subsystem'
 STRATEGY_PRECQ_SUBMIT = 'strategy:pre-cq-submit'
 STRATEGY_NONMANIFEST = 'strategy:non-manifest-submit'
+
+# Strategy for CQ parital pool submission
+STRATEGY_CQ_PARTIAL_NOT_TESTED = 'strategy:cq-submit-partial-pool-not-tested'
+STRATEGY_CQ_PARTIAL_CQ_HISTORY = 'strategy:cq-submit-partial-pool-cq-history'
+STRATEGY_CQ_PARTIAL_IGNORED_STAGES = (
+    'strategy:cq-submit-partial-pool-ignored-stages')
+STRATEGY_CQ_PARTIAL_SUBSYSTEM = 'strategy:cq-submit-partial-pool-pass-subsystem'
+STRATEGY_CQ_PARTIAL_BUILDS_PASSED = (
+    'strategy:cq-submit-partial-pool-builds-passed')
+
+# A dict mapping CQ parital pool submission strategies to their priorities;
+# lower values have higher priorities.
+STRATEGY_CQ_PARTIAL_REASONS = {
+    STRATEGY_CQ_PARTIAL_NOT_TESTED: 1,
+    STRATEGY_CQ_PARTIAL_CQ_HISTORY: 2,
+    STRATEGY_CQ_PARTIAL_IGNORED_STAGES: 3,
+    STRATEGY_CQ_PARTIAL_SUBSYSTEM: 4,
+    STRATEGY_CQ_PARTIAL_BUILDS_PASSED: 5
+}
 
 # CQ types.
 CQ = 'cq'
@@ -1102,14 +1165,6 @@ EXTRA_BUCKETS_FILES_BLACKLIST = [
 # How long does the AFDO_record autotest have to generate the AFDO perf data.
 AFDO_GENERATE_TIMEOUT = 100 * 60
 
-# Stats dashboard elastic search and statsd constants.
-# Host and port information specified in topology.py.
-ELASTIC_SEARCH_INDEX = 'metadata_index'
-ELASTIC_SEARCH_USE_HTTP = False
-
-STATSD_PROD_PREFIX = 'chromite'
-STATSD_DEBUG_PREFIX = 'chromite_debug'
-
 # Manual Uprev PFQ constants.
 STAGING_PFQ_BRANCH_PREFIX = 'staging_pfq_branch_'
 PFQ_REF = 'pfq'
@@ -1140,6 +1195,12 @@ BUILDBUCKET_BUILD_RETRY_LIMIT = 2
 # Builder_run metadata keys
 METADATA_SCHEDULED_SLAVES = 'scheduled_slaves'
 METADATA_UNSCHEDULED_SLAVES = 'unscheduled_slaves'
+# List of builders marked as experimental through the tree status, not all the
+# experimental builders for a run.
+METADATA_EXPERIMENTAL_BUILDERS = 'experimental_builders'
 
 # Metadata key to indicate whether a build is self-destructed.
 SELF_DESTRUCTED_BUILD = 'self_destructed_build'
+
+# Metadata key to indicate whether a build is self-destructed with success.
+SELF_DESTRUCTED_WITH_SUCCESS_BUILD = 'self_destructed_with_success_build'

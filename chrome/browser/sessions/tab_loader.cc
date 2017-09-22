@@ -110,6 +110,7 @@ TabLoader::~TabLoader() {
   DCHECK(shared_tab_loader_ == this);
   shared_tab_loader_ = nullptr;
   base::MemoryCoordinatorClientRegistry::GetInstance()->Unregister(this);
+  SessionRestore::OnTabLoaderFinishedLoadingTabs();
 }
 
 void TabLoader::StartLoading(const std::vector<RestoredTab>& tabs) {

@@ -35,6 +35,7 @@ from chromite.lib import path_util
 from chromite.lib import portage_util
 from chromite.lib import retry_util
 from chromite.lib import timeout_util
+from chromite.lib import tree_status
 from chromite.scripts import pushimage
 
 site_config = config_lib.GetConfig()
@@ -59,7 +60,7 @@ _TEST_FAILED = 'FAILED'
 _SWARMING_ADDITIONAL_TIMEOUT = 60 * 60
 _DEFAULT_HWTEST_TIMEOUT_MINS = 1440
 _SWARMING_EXPIRATION = 20 * 60
-_RUN_SUITE_PATH = '/usr/local/autotest/site_utils/run_suite.py'
+RUN_SUITE_PATH = '/usr/local/autotest/site_utils/run_suite.py'
 _ABORT_SUITE_PATH = '/usr/local/autotest/site_utils/abort_suite.py'
 _MAX_HWTEST_CMD_RETRY = 10
 # Be very careful about retrying suite creation command as
@@ -707,7 +708,7 @@ def RunTestSuite(buildroot, board, image_path, results_dir, test_type,
       cmd.append('--suite=gce-sanity')
     elif test_type == constants.TELEMETRY_SUITE_TEST_TYPE:
       cmd.append('--only_verify')
-      cmd.append('--suite=telemetry_unit')
+      cmd.append('--suite=telemetry_unit_server')
     else:
       cmd.append('--quick_update')
 
@@ -950,7 +951,7 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
     if json_dump cmd is not called, None will be returned.
   """
   try:
-    cmd = [_RUN_SUITE_PATH]
+    cmd = [RUN_SUITE_PATH]
     cmd += _GetRunSuiteArgs(build, suite, board, pool, num, file_bugs,
                             priority, timeout_mins, retry, max_retries,
                             minimum_duts, suite_min_duts, offload_failures_only,
@@ -960,14 +961,20 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
     running_json_dump_flag = False
     json_dump_result = None
     job_id = _HWTestCreate(cmd, debug, **swarming_args)
-    if wait_for_results and job_id:
-      pass_hwtest = _HWTestWait(cmd, job_id, **swarming_args)
-      # Only dump the json output when tests don't pass, since the json output
-      # is used to decide whether we can do subsystem based partial submission.
-      running_json_dump_flag = not pass_hwtest
-      if running_json_dump_flag:
-        json_dump_result = retry_util.RetryException(
-            ValueError, 3, _HWTestDumpJson, cmd, job_id, **swarming_args)
+    if job_id:
+      if wait_for_results:
+        pass_hwtest = _HWTestWait(cmd, job_id, **swarming_args)
+      suite_details_link = tree_status.ConstructViceroySuiteDetailsURL(
+          job_id=job_id)
+      logging.PrintBuildbotLink('Suite details', suite_details_link)
+      if wait_for_results:
+        # Only dump the json output when tests don't pass, since the json
+        # output is used to decide whether we can do subsystem based partial
+        # submission.
+        running_json_dump_flag = not pass_hwtest
+        if running_json_dump_flag:
+          json_dump_result = retry_util.RetryException(
+              ValueError, 3, _HWTestDumpJson, cmd, job_id, **swarming_args)
     return HWTestSuiteResult(None, json_dump_result)
   except cros_build_lib.RunCommandError as e:
     result = e.result
@@ -1431,6 +1438,7 @@ class AndroidIsPinnedUprevError(failures_lib.InfrastructureFailure):
       new_android_atom: The Android atom that we failed to
                         uprev to, due to Android being pinned.
     """
+    assert new_android_atom
     msg = ('Failed up uprev to Android version %s as Android was pinned.' %
            new_android_atom)
     super(AndroidIsPinnedUprevError, self).__init__(msg)

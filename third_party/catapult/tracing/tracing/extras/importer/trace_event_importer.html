@@ -13,7 +13,9 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/base/unit.html">
 <link rel="import" href="/tracing/base/utils.html">
 <link rel="import" href="/tracing/extras/importer/heap_dump_trace_event_importer.html">
+<link rel="import" href="/tracing/extras/importer/legacy_heap_dump_trace_event_importer.html">
 <link rel="import" href="/tracing/extras/importer/oboe.html">
+<link rel="import" href="/tracing/extras/importer/profiling_dictionary_reader.html">
 <link rel="import" href="/tracing/extras/importer/trace_code_entry.html">
 <link rel="import" href="/tracing/extras/importer/trace_code_map.html">
 <link rel="import" href="/tracing/extras/importer/v8/codemap.html">
@@ -49,6 +51,10 @@ tr.exportTo('tr.e.importer', function() {
   const deepCopy = tr.b.deepCopy;
   const ColorScheme = tr.b.ColorScheme;
   const HeapDumpTraceEventImporter = tr.e.importer.HeapDumpTraceEventImporter;
+  const LegacyHeapDumpTraceEventImporter =
+      tr.e.importer.LegacyHeapDumpTraceEventImporter;
+  const StreamingEventExpander = tr.e.importer.StreamingEventExpander;
+  const ProfilingDictionaryReader = tr.e.importer.ProfilingDictionaryReader;
 
   function getEventColor(event, opt_customName) {
     if (event.cname) {
@@ -169,6 +175,10 @@ tr.exportTo('tr.e.importer', function() {
 
     // Dump ID -> PID -> [process memory dump events].
     this.allMemoryDumpEvents_ = {};
+
+    // Unpacks size, count, stackId and heapId from 'P' events. Also remembers
+    // stack frame and type information.
+    this.heapProfileExpander = new ProfilingDictionaryReader();
 
     // PID -> Object type ID -> Object type name.
     this.objectTypeNameMap_ = {};
@@ -1734,7 +1744,7 @@ tr.exportTo('tr.e.importer', function() {
                 name,
                 getEventColor(events[0].event),
                 this.toModelTimeFromUs_(events[0].event.ts),
-                tr.b.concatenateObjects(events[0].event.args,
+                Object.assign({}, events[0].event.args,
                     events[events.length - 1].event.args),
                 this.toModelTimeFromUs_(event.ts - events[0].event.ts),
                 true, undefined, undefined, events[0].event.argsStripped);
@@ -1887,13 +1897,12 @@ tr.exportTo('tr.e.importer', function() {
               // Include args for both END and BEGIN for a matched pair.
               function concatenateArguments(args1, args2) {
                 if (args1.params === undefined || args2.params === undefined) {
-                  return tr.b.concatenateObjects(args1, args2);
+                  return Object.assign({}, args1, args2);
                 }
                 // Make an argument object to hold the combined params.
                 const args3 = {};
-                args3.params = tr.b.concatenateObjects(args1.params,
-                    args2.params);
-                return tr.b.concatenateObjects(args1, args2, args3);
+                args3.params = Object.assign({}, args1.params, args2.params);
+                return Object.assign({}, args1, args2, args3);
               }
               const endArgs = eventStateEntry.end.event.args || {};
               sliceArgs = concatenateArguments(sliceArgs, endArgs);
@@ -2503,9 +2512,32 @@ tr.exportTo('tr.e.importer', function() {
       }, this);
     },
 
+    // Takes an object of type: PID -> [process memory dump events]
+    // Returns smallest timestamp among events or Infinity if there are none.
+    minimalTimestampInPidToEvents_(pidToEvents) {
+      let smallestTs = Infinity;
+      for (const events of Object.values(pidToEvents)) {
+        for (const event of events) {
+          if (event.ts < smallestTs) {
+            smallestTs = event.ts;
+          }
+        }
+      }
+      return smallestTs;
+    },
+
     createMemoryDumps_() {
-      for (const dumpId in this.allMemoryDumpEvents_) {
-        this.createGlobalMemoryDump_(this.allMemoryDumpEvents_[dumpId], dumpId);
+      // We must create the global dumps in chronological order since later
+      // heap dumps can depend on earlier ones. Not all events within a single
+      // global dump have the same timestamp but events for two different
+      // global dumps can not be interspersed. However, for consistency,
+      // we sort the global dumps by the earliest timestamp present in an event
+      // in that dump.
+      const pairs = Object.entries(this.allMemoryDumpEvents_);
+      const key = x => this.minimalTimestampInPidToEvents_(x);
+      pairs.sort((x, y) => key(x[1]) - key(y[1]));
+      for (const [dumpId, pidToEvents] of pairs) {
+        this.createGlobalMemoryDump_(pidToEvents, dumpId);
       }
     },
 
@@ -2786,8 +2818,31 @@ tr.exportTo('tr.e.importer', function() {
     },
 
     parseMemoryDumpHeapDumps_(processMemoryDump, dumps, pid, dumpId) {
-      const rawHeapDumps = dumps.heaps;
-      if (rawHeapDumps === undefined) return;
+      const idPrefix = 'p' + pid + ':';
+      let importer;
+      if (dumps.heaps) {
+        const processTypeMap = this.objectTypeNameMap_[pid];
+        if (processTypeMap === undefined) {
+          this.model_.importWarning({
+            type: 'memory_dump_parse_error',
+            message: 'Missing mapping from object type IDs to names.'
+          });
+        }
+        importer = new LegacyHeapDumpTraceEventImporter(this.model_,
+            processMemoryDump, processTypeMap, idPrefix, dumpId, dumps.heaps);
+      } else if (dumps.heaps_v2) {
+        const data = dumps.heaps_v2;
+        this.heapProfileExpander = this.heapProfileExpander.expandData(data);
+        // TODO(hjd): Unify how we are reading & inflating stack frame data.
+        this.addNewStackFramesFromExpander_(this.heapProfileExpander, idPrefix);
+        importer = new HeapDumpTraceEventImporter(this.heapProfileExpander,
+            this.model_.stackFrames, processMemoryDump, idPrefix, this.model_);
+      }
+
+      if (!importer) return;
+
+      const heapDumps = importer.parse();
+      if (!heapDumps) return;
 
       if (processMemoryDump.heapDumps !== undefined) {
         this.model_.importWarning({
@@ -2799,35 +2854,24 @@ tr.exportTo('tr.e.importer', function() {
         return;
       }
 
-      const processTypeMap = this.objectTypeNameMap_[pid];
-      if (processTypeMap === undefined) {
-        this.model_.importWarning({
-          type: 'memory_dump_parse_error',
-          message: 'Missing mapping from object type IDs to names.'
-        });
-      }
-
-      const idPrefix = 'p' + pid + ':';
-      const heapDumps = {};
-
-      const importer = new HeapDumpTraceEventImporter(
-          this.model_, processMemoryDump, processTypeMap, idPrefix, dumpId);
-
-      for (const allocatorName in rawHeapDumps) {
-        const rawHeapDump = rawHeapDumps[allocatorName];
-        const heapDump = importer.parseRawHeapDump(rawHeapDump, allocatorName);
-
-        // Throw away heap dumps with no entries. This can happen if all raw
-        // entries in the trace are skipped for some reason (e.g. invalid leaf
-        // stack frame ID).
-        if (heapDump !== undefined && heapDump.entries.length > 0) {
-          heapDumps[allocatorName] = heapDump;
-        }
-      }
-
       if (Object.keys(heapDumps).length > 0) {
         processMemoryDump.heapDumps = heapDumps;
       }
+    },
+
+    addNewStackFramesFromExpander_(expander, idPrefix) {
+      const nodeMap = expander.getNewMap('nodes');
+      const newStackFrames = {};
+      for (const [id, stackFrame] of nodeMap.entries()) {
+        if (!this.model_.stackFrames[idPrefix + id]) {
+          newStackFrames[id] = {
+            id,
+            name: expander.getString(stackFrame.name_sid),
+          };
+          if (stackFrame.parent) newStackFrames[id].parent = stackFrame.parent;
+        }
+      }
+      this.importStackFrames_(newStackFrames, idPrefix);
     },
 
     parseMemoryDumpLevelOfDetail_(levelsOfDetail, dumps, pid,

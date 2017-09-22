@@ -9,6 +9,9 @@
 
 #include "base/macros.h"
 #include "base/optional.h"
+#include "ui/base/accelerators/accelerator.h"
+#include "ui/events/event.h"
+#include "ui/gfx/native_widget_types.h"
 #include "ui/views/bubble/bubble_dialog_delegate.h"
 #include "ui/views/mouse_watcher.h"
 #include "ui/views/views_export.h"
@@ -45,57 +48,66 @@ class VIEWS_EXPORT TrayBubbleView : public BubbleDialogDelegateView,
     typedef TrayBubbleView::AnchorAlignment AnchorAlignment;
 
     Delegate() {}
-    virtual ~Delegate() {}
+    virtual ~Delegate();
 
     // Called when the view is destroyed. Any pointers to the view should be
     // cleared when this gets called.
-    virtual void BubbleViewDestroyed() = 0;
+    virtual void BubbleViewDestroyed();
 
     // Called when the mouse enters/exits the view.
     // Note: This event will only be called if the mouse gets actively moved by
     // the user to enter the view.
-    virtual void OnMouseEnteredView() = 0;
-    virtual void OnMouseExitedView() = 0;
+    virtual void OnMouseEnteredView();
+    virtual void OnMouseExitedView();
+
+    // Called to register/unregister accelerators for TrayBubbleView.
+    // TrayBubbleView wants to register those accelerators at the global level.
+    // Those accelerators are used to activate TrayBubbleView, i.e. those
+    // accelerators need to be processed even if TrayBubbleView is not active.
+    // UnregisterAllAccelerators can be called even if RegisterAccelerators is
+    // not called.
+    virtual void RegisterAccelerators(
+        const std::vector<ui::Accelerator>& accelerators,
+        TrayBubbleView* tray_bubble_view);
+    virtual void UnregisterAllAccelerators(TrayBubbleView* tray_bubble_view);
 
     // Called from GetAccessibleNodeData(); should return the appropriate
     // accessible name for the bubble.
-    virtual base::string16 GetAccessibleNameForBubble() = 0;
+    virtual base::string16 GetAccessibleNameForBubble();
 
-    // Called before Widget::Init() on |bubble_widget|. Allows |params| to be
-    // modified.
-    // TODO(jamescook): Eliminate this method. It was introduced to let mash set
-    // the widget container back when mash could not use aura::Window. Now the
-    // anchor view should be sufficient.
-    virtual void OnBeforeBubbleWidgetInit(Widget* anchor_widget,
-                                          Widget* bubble_widget,
-                                          Widget::InitParams* params) const = 0;
+    // Should return true if extra keyboard accessibility is enabled.
+    // TrayBubbleView will put focus on the default item if extra keyboard
+    // accessibility is enabled.
+    virtual bool ShouldEnableExtraKeyboardAccessibility();
 
     // Called when a bubble wants to hide/destroy itself (e.g. last visible
     // child view was closed).
-    virtual void HideBubble(const TrayBubbleView* bubble_view) = 0;
+    virtual void HideBubble(const TrayBubbleView* bubble_view);
+
+    // Called to process the gesture events that happened on the TrayBubbleView.
+    // Swiping down on the opened TrayBubbleView to close the bubble.
+    virtual void ProcessGestureEventForBubble(ui::GestureEvent* event);
 
    private:
     DISALLOW_COPY_AND_ASSIGN(Delegate);
   };
 
   struct VIEWS_EXPORT InitParams {
-    InitParams(AnchorAlignment anchor_alignment, int min_width, int max_width);
+    InitParams();
     InitParams(const InitParams& other);
-    AnchorAlignment anchor_alignment;
-    int min_width;
-    int max_width;
-    int max_height;
-    bool can_activate;
-    bool close_on_deactivate;
+    Delegate* delegate = nullptr;
+    gfx::NativeWindow parent_window = nullptr;
+    View* anchor_view = nullptr;
+    AnchorAlignment anchor_alignment = ANCHOR_ALIGNMENT_BOTTOM;
+    int min_width = 0;
+    int max_width = 0;
+    int max_height = 0;
+    bool close_on_deactivate = true;
     // If not provided, the bg color will be derived from the NativeTheme.
     base::Optional<SkColor> bg_color;
   };
 
-  // Constructs and returns a TrayBubbleView. |init_params| may be modified.
-  static TrayBubbleView* Create(views::View* anchor,
-                                Delegate* delegate,
-                                InitParams* init_params);
-
+  explicit TrayBubbleView(const InitParams& init_params);
   ~TrayBubbleView() override;
 
   // Returns whether a tray bubble is active.
@@ -120,8 +132,10 @@ class VIEWS_EXPORT TrayBubbleView : public BubbleDialogDelegateView,
   // Returns the border insets. Called by TrayEventFilter.
   gfx::Insets GetBorderInsets() const;
 
-  // Called when the delegate is destroyed.
-  void reset_delegate() { delegate_ = NULL; }
+  // Called when the delegate is destroyed. This must be called before the
+  // delegate is actually destroyed. TrayBubbleView will do clean up in
+  // ResetDelegate.
+  void ResetDelegate();
 
   Delegate* delegate() { return delegate_; }
 
@@ -147,17 +161,18 @@ class VIEWS_EXPORT TrayBubbleView : public BubbleDialogDelegateView,
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  void OnGestureEvent(ui::GestureEvent* event) override;
 
   // Overridden from MouseWatcherListener
   void MouseMovedOutOfHost() override;
 
- protected:
-  TrayBubbleView(views::View* anchor,
-                 Delegate* delegate,
-                 const InitParams& init_params);
+  // Overridden from ui::AcceleratorTarget
+  bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
 
+ protected:
   // Overridden from views::BubbleDialogDelegateView.
   int GetDialogButtons() const override;
+  void SizeToContents() override;
 
   // Overridden from views::View.
   void ChildPreferredSizeChanged(View* child) override;
@@ -165,6 +180,12 @@ class VIEWS_EXPORT TrayBubbleView : public BubbleDialogDelegateView,
       const ViewHierarchyChangedDetails& details) override;
 
  private:
+  void CloseBubbleView();
+  void ActivateAndStartNavigation(const ui::KeyEvent& key_event);
+
+  // Focus the default item if no item is focused.
+  void FocusDefaultIfNeeded();
+
   InitParams params_;
   BoxLayout* layout_;
   Delegate* delegate_;

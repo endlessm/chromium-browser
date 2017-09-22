@@ -23,6 +23,7 @@ from chromite.lib import cros_test_lib
 from chromite.lib import hwtest_results
 from chromite.lib import osutils
 from chromite.lib import parallel
+from chromite.lib import patch_unittest
 
 
 # pylint: disable=protected-access
@@ -459,7 +460,8 @@ class DataSeries0Test(CIDBIntegrationTest):
                                         'change_source': 'external',
                                         'patch_number': 1L,
                                         'reason': '',
-                                        'buildbucket_id': None})
+                                        'buildbucket_id': None,
+                                        'status': 'pass'})
 
   def _start_and_finish_time_checks(self, db):
     """Sanity checks that correct data was recorded, and can be retrieved."""
@@ -899,6 +901,48 @@ class BuildTableTest(CIDBIntegrationTest):
         bot_db.GetSlaveStatuses(build_id, buildbucket_ids=[]))
     self.assertListEqual(build_bb_id_list, [])
 
+  def _InsertBuildAndUpdateMetadata(self, bot_db, build_config, milestone,
+                                    platform):
+    build_id = bot_db.InsertBuild(build_config,
+                                  constants.WATERFALL_INTERNAL,
+                                  _random(),
+                                  build_config,
+                                  'bot_hostname')
+    metadata = metadata_lib.CBuildbotMetadata(metadata_dict={
+        'version': {
+            'milestone': milestone,
+            'platform': platform
+        }
+    })
+    return bot_db.UpdateMetadata(build_id, metadata)
+
+  def testGetPlatformVersions(self):
+    """Test GetPlatformVersions."""
+    self._PrepareDatabase()
+    bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
+    self._InsertBuildAndUpdateMetadata(
+        bot_db, 'master-release', '59', '9352.0.0')
+    self._InsertBuildAndUpdateMetadata(
+        bot_db, 'master-release', '60', '9462.0.0')
+    self._InsertBuildAndUpdateMetadata(
+        bot_db, 'master-release', '60', '9475.0.0')
+    self._InsertBuildAndUpdateMetadata(
+        bot_db, 'master-release', '61', '9623.0.0')
+
+    r = bot_db.GetPlatformVersions('master-paladin')
+    self.assertItemsEqual(r, [])
+
+    r = bot_db.GetPlatformVersions('master-release')
+    self.assertItemsEqual(r, ['9352.0.0', '9462.0.0', '9475.0.0', '9623.0.0'])
+
+    r = bot_db.GetPlatformVersions('master-release',
+                                   starting_milestone_version=60)
+    self.assertItemsEqual(r, ['9462.0.0', '9475.0.0', '9623.0.0'])
+
+    r = bot_db.GetPlatformVersions('master-release', num_results=1,
+                                   starting_milestone_version=60)
+    self.assertItemsEqual(r, ['9462.0.0'])
+
 
 class HWTestResultTableTest(CIDBIntegrationTest):
   """Tests for hwTestResultTable."""
@@ -941,6 +985,116 @@ class HWTestResultTableTest(CIDBIntegrationTest):
                           expected_result_3)
 
     self.assertItemsEqual(bot_db.GetHWTestResultsForBuilds([3]), [])
+
+
+class CLActionTableTest(CIDBIntegrationTest, patch_unittest.MockPatchBase):
+  """Tests for CLActionTable."""
+
+  def setUp(self):
+    self.changes = self.GetPatches(how_many=3)
+    self.actions = [
+        clactions.CLAction.FromGerritPatchAndAction(
+            self.changes[0], constants.CL_ACTION_PICKED_UP),
+        clactions.CLAction.FromGerritPatchAndAction(
+            self.changes[1], constants.CL_ACTION_RELEVANT_TO_SLAVE),
+        clactions.CLAction.FromGerritPatchAndAction(
+            self.changes[2], constants.CL_ACTION_IRRELEVANT_TO_SLAVE)]
+
+    self.build_config_1 = 'build_config_1'
+    self.build_config_2 = 'build_config_2'
+
+  def _AssertAction(self, cl_action, build_config, change,
+                    status=None, action=None, start_time=None):
+    self.assertEqual(cl_action.build_config, build_config)
+    self.assertEqual(cl_action.change_number, int(change.gerrit_number))
+    self.assertEqual(cl_action.patch_number, int(change.patch_number))
+    if status is not None:
+      self.assertEqual(cl_action.status, status)
+    if action is not None:
+      self.assertEqual(cl_action.action, action)
+    if start_time is not None:
+      self.assertTrue(cl_action.timestamp >= start_time)
+
+  def testGetActionsForChanges(self):
+    """Test GetActionsForChanges."""
+    self._PrepareDatabase()
+    bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
+
+    # b_id_1 in flight status
+    b_id_1 = bot_db.InsertBuild(
+        self.build_config_1, constants.WATERFALL_INTERNAL, _random(),
+        self.build_config_1, 'bot_hostname', buildbucket_id='bb_id_1')
+
+    # b_id_2 in pass status
+    b_id_2 = bot_db.InsertBuild(
+        self.build_config_2, constants.WATERFALL_INTERNAL, _random(),
+        self.build_config_2, 'bot_hostname', buildbucket_id='bb_id_2')
+    bot_db.FinishBuild(b_id_2, status=constants.BUILDER_STATUS_PASSED)
+
+
+    ts_1 = datetime.datetime.now() - datetime.timedelta(days=3)
+    format_ts_1 = ts_1.strftime('%Y-%m-%d %H:%M:%S')
+    ts_2 = datetime.datetime.now()
+    format_ts_2 = ts_2.strftime('%Y-%m-%d %H:%M:%S')
+    bot_db.InsertCLActions(b_id_1, self.actions[0:2], format_ts_1)
+    bot_db.InsertCLActions(b_id_1, self.actions[2:3], format_ts_2)
+    bot_db.InsertCLActions(b_id_2, self.actions[0:2], format_ts_1)
+    bot_db.InsertCLActions(b_id_2, self.actions[2:3], format_ts_2)
+
+    # Test GetActionsForChanges on a single change
+    result = bot_db.GetActionsForChanges(self.changes[0:1])
+    self.assertEqual(len(result), 2)
+    self._AssertAction(result[0], self.build_config_1, self.changes[0])
+    self._AssertAction(result[1], self.build_config_2, self.changes[0])
+
+    # Test GetActionsForChanges on multi changes
+    result = bot_db.GetActionsForChanges(self.changes[0:2])
+    self.assertEqual(len(result), 4)
+    self._AssertAction(result[0], self.build_config_1, self.changes[0])
+    self._AssertAction(result[1], self.build_config_1, self.changes[1])
+    self._AssertAction(result[2], self.build_config_2, self.changes[0])
+    self._AssertAction(result[3], self.build_config_2, self.changes[1])
+
+    # Test GetActionsForChanges with ignore_patch_number
+    change_1 = self.MockPatch(change_id=int(self.changes[0].gerrit_number),
+                              patch_number=10)
+    result = bot_db.GetActionsForChanges([change_1])
+    self.assertEqual(len(result), 2)
+    result = bot_db.GetActionsForChanges([change_1], ignore_patch_number=False)
+    self.assertEqual(len(result), 0)
+
+    # Test GetActionsForChanges with status
+    result = bot_db.GetActionsForChanges(
+        self.changes[0:1], status=constants.BUILDER_STATUS_PASSED)
+    self.assertEqual(len(result), 1)
+    self._AssertAction(result[0], self.build_config_2, self.changes[0],
+                       status=constants.BUILDER_STATUS_PASSED)
+
+    # Test GetActionsForChanges with action
+    result = bot_db.GetActionsForChanges(
+        self.changes[0:2], action=constants.CL_ACTION_RELEVANT_TO_SLAVE)
+    self.assertEqual(len(result), 2)
+    self._AssertAction(result[0], self.build_config_1, self.changes[1],
+                       action=constants.CL_ACTION_RELEVANT_TO_SLAVE)
+    self._AssertAction(result[1], self.build_config_2, self.changes[1],
+                       action=constants.CL_ACTION_RELEVANT_TO_SLAVE)
+
+    # Test GetActionsForChanges with start_time
+    now = datetime.datetime.now()
+    result = bot_db.GetActionsForChanges(self.changes, start_time=now)
+    self.assertEqual(len(result), 0)
+
+    two_days_ago = now - datetime.timedelta(hours=48)
+    result = bot_db.GetActionsForChanges(self.changes, start_time=two_days_ago)
+    self.assertEqual(len(result), 2)
+    self._AssertAction(result[0], self.build_config_1, self.changes[2],
+                       start_time=two_days_ago)
+    self._AssertAction(result[1], self.build_config_2, self.changes[2],
+                       start_time=two_days_ago)
+
+    four_days_ago = now - datetime.timedelta(hours=96)
+    result = bot_db.GetActionsForChanges(self.changes, start_time=four_days_ago)
+    self.assertEqual(len(result), 6)
 
 
 class DataSeries1Test(CIDBIntegrationTest):

@@ -20,14 +20,24 @@ from telemetry.value import scalar
 from telemetry.value import skip
 from telemetry.value import trace
 from tracing.trace_data import trace_data
+from tracing.value import histogram as histogram_module
+from tracing.value import histogram_set
+from tracing.value.diagnostics import diagnostic
+from tracing.value.diagnostics import reserved_infos
 
 
 class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
   def setUp(self):
     story_set = story.StorySet(base_dir=os.path.dirname(__file__))
-    story_set.AddStory(page_module.Page("http://www.bar.com/", story_set, story_set.base_dir))
-    story_set.AddStory(page_module.Page("http://www.baz.com/", story_set, story_set.base_dir))
-    story_set.AddStory(page_module.Page("http://www.foo.com/", story_set, story_set.base_dir))
+    story_set.AddStory(page_module.Page("http://www.bar.com/", story_set,
+                                        story_set.base_dir,
+                                        name='http://www.bar.com/'))
+    story_set.AddStory(page_module.Page("http://www.baz.com/", story_set,
+                                        story_set.base_dir,
+                                        name='http://www.baz.com/'))
+    story_set.AddStory(page_module.Page("http://www.foo.com/", story_set,
+                                        story_set.base_dir,
+                                        name='http://www.foo.com/'))
     self.story_set = story_set
 
   @property
@@ -68,6 +78,31 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     self.assertEqual(2, len(results.all_page_runs))
     self.assertTrue(results.all_page_runs[0].skipped)
     self.assertTrue(results.all_page_runs[1].ok)
+
+  def testPassesNoSkips(self):
+    results = page_test_results.PageTestResults()
+    results.WillRunPage(self.pages[0])
+    results.AddValue(
+        failure.FailureValue(self.pages[0], self.CreateException()))
+    results.DidRunPage(self.pages[0])
+
+    results.WillRunPage(self.pages[1])
+    results.DidRunPage(self.pages[1])
+
+    results.WillRunPage(self.pages[2])
+    results.AddValue(skip.SkipValue(self.pages[2], 'testing reason'))
+    results.DidRunPage(self.pages[2])
+
+    self.assertEqual(set([self.pages[0]]), results.pages_that_failed)
+    self.assertEqual(set([self.pages[1], self.pages[2]]),
+                     results.pages_that_succeeded)
+    self.assertEqual(set([self.pages[1]]),
+                     results.pages_that_succeeded_and_not_skipped)
+
+    self.assertEqual(3, len(results.all_page_runs))
+    self.assertTrue(results.all_page_runs[0].failed)
+    self.assertTrue(results.all_page_runs[1].ok)
+    self.assertTrue(results.all_page_runs[2].skipped)
 
   def testBasic(self):
     results = page_test_results.PageTestResults()
@@ -381,14 +416,78 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     self.assertEquals(output_stream.output_data,
       "{\n  \"enabled\": false,\n  \"benchmark_name\": \"benchmark_name\"\n}\n")
 
+  def testAddSharedDiagnostic(self):
+    results = page_test_results.PageTestResults()
+    results.WillRunPage(self.pages[0])
+    results.DidRunPage(self.pages[0])
+    results.CleanUp()
+    results.histograms.AddSharedDiagnostic(
+        reserved_infos.TELEMETRY.name,
+        histogram_module.TelemetryInfo())
+
+    benchmark_metadata = benchmark.BenchmarkMetadata(
+      'benchmark_name', 'benchmark_description')
+    results.PopulateHistogramSet(benchmark_metadata)
+
+    histogram_dicts = results.AsHistogramDicts()
+    self.assertEquals(1, len(histogram_dicts))
+
+    diag = diagnostic.Diagnostic.FromDict(histogram_dicts[0])
+    self.assertIsInstance(diag, histogram_module.TelemetryInfo)
+
+  def testPopulateHistogramSet_UsesScalarValueData(self):
+    results = page_test_results.PageTestResults()
+    results.WillRunPage(self.pages[0])
+    results.AddValue(scalar.ScalarValue(
+        self.pages[0], 'a', 'seconds', 3,
+        improvement_direction=improvement_direction.UP))
+    results.DidRunPage(self.pages[0])
+    results.CleanUp()
+
+    benchmark_metadata = benchmark.BenchmarkMetadata(
+      'benchmark_name', 'benchmark_description')
+    results.PopulateHistogramSet(benchmark_metadata)
+
+    histogram_dicts = results.AsHistogramDicts()
+    self.assertEquals(1, len(histogram_dicts))
+
+    h = histogram_module.Histogram.FromDict(histogram_dicts[0])
+    self.assertEquals('a', h.name)
+
+  def testPopulateHistogramSet_UsesHistogramSetData(self):
+    original_diagnostic = histogram_module.TelemetryInfo()
+
+    results = page_test_results.PageTestResults()
+    results.WillRunPage(self.pages[0])
+    results.histograms.AddHistogram(histogram_module.Histogram('foo', 'count'))
+    results.histograms.AddSharedDiagnostic(
+        reserved_infos.TELEMETRY.name, original_diagnostic)
+    results.DidRunPage(self.pages[0])
+    results.CleanUp()
+
+    benchmark_metadata = benchmark.BenchmarkMetadata(
+      'benchmark_name', 'benchmark_description')
+    results.PopulateHistogramSet(benchmark_metadata)
+
+    histogram_dicts = results.AsHistogramDicts()
+    self.assertEquals(2, len(histogram_dicts))
+
+    hs = histogram_set.HistogramSet()
+    hs.ImportDicts(histogram_dicts)
+
+    diag = hs.LookupDiagnostic(original_diagnostic.guid)
+    self.assertIsInstance(diag, histogram_module.TelemetryInfo)
+
 
 class PageTestResultsFilterTest(unittest.TestCase):
   def setUp(self):
     story_set = story.StorySet(base_dir=os.path.dirname(__file__))
     story_set.AddStory(
-        page_module.Page('http://www.foo.com/', story_set, story_set.base_dir))
+        page_module.Page('http://www.foo.com/', story_set, story_set.base_dir,
+                         name='http://www.foo.com'))
     story_set.AddStory(
-        page_module.Page('http://www.bar.com/', story_set, story_set.base_dir))
+        page_module.Page('http://www.bar.com/', story_set, story_set.base_dir,
+                         name='http://www.bar.com/'))
     self.story_set = story_set
 
   @property

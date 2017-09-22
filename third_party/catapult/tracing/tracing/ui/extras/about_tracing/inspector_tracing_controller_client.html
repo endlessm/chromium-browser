@@ -91,14 +91,36 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
         throw new Error('Already recording');
       }
       this.recording_ = 'starting';
+
+      // The devtools and tracing endpoints have slightly different parameter
+      // configurations. Noteably, recordMode has different spelling
+      // requirements.
+      function RewriteRecordMode(recordMode) {
+        if (recordMode === 'record-until-full') {
+          return 'recordUntilFull';
+        }
+        if (recordMode === 'record-continuously') {
+          return 'recordContinuously';
+        }
+        if (recordMode === 'record-as-much-as-possible') {
+          return 'recordAsMuchAsPossible';
+        }
+        return 'unsupported record mode';
+      }
+
+      const traceConfigStr = {
+        includedCategories: recordingOptions.included_categories,
+        excludedCategories: recordingOptions.excluded_categories,
+        recordMode: RewriteRecordMode(recordingOptions.record_mode),
+        enableSystrace: recordingOptions.enable_systrace
+      };
+      if ('memory_dump_config' in recordingOptions) {
+        traceConfigStr.memoryDumpConfig = recordingOptions.memory_dump_config;
+      }
       let res = this.conn_.req(
           'Tracing.start',
           {
-            categories: recordingOptions.categoryFilter,
-            options:
-                [recordingOptions.tracingRecordMode,
-                  (recordingOptions.useSampling ? 'enable-sampling' : '')
-                ].join(','),
+            traceConfig: traceConfigStr,
             bufferUsageReportingInterval: 1000
           });
       res = res.then(

@@ -38,14 +38,6 @@ stage_install_rpm() {
   # For now duplication is going to help us avoid merge conflicts
   # as changes are frequently merged to older branches related to SxS effort.
   if [ "$CHANNEL" != "stable" ]; then
-    # This would ideally be compiled into the app, but that's a bit too
-    # intrusive of a change for these limited use channels, so we'll just hack
-    # it into the wrapper script. The user can still override since it seems to
-    # work to specify --user-data-dir multiple times on the command line, with
-    # the last occurrence winning.
-    local SXS_USER_DATA_DIR="\${XDG_CONFIG_HOME:-\${HOME}/.config}/${PACKAGE}-${CHANNEL}"
-    local DEFAULT_FLAGS="--user-data-dir=\"${SXS_USER_DATA_DIR}\""
-
     # Avoid file collisions between channels.
     local PACKAGE="${PACKAGE}-${CHANNEL}"
     local INSTALLDIR="${INSTALLDIR}-${CHANNEL}"
@@ -98,7 +90,7 @@ do_package() {
   fi
 
   # Use find-requires script to make sure the dependencies are complete
-  # (especially libc and libstdc++ versions).
+  # (especially libc versions).
   DETECTED_DEPENDS="$(echo "${BUILDDIR}/chrome" | /usr/lib/rpm/find-requires)"
 
   # Compare the expected dependency list to the generated list.
@@ -131,9 +123,9 @@ do_package() {
   # lsb implies many dependencies.
   #
   # nss (bundled) is optional in LSB 4.0. Also specify a more recent version
-  # for security and stability updates.
-  #
-  # libstdc++.so.6 is for C++11 support.
+  # for security and stability updates. While we depend on libnss3.so and not
+  # libssl3.so, force the dependency on libssl3 to ensure the NSS version is
+  # 3.28 or later, since libssl3 should always be packaged with libnss3.
   #
   # wget is for uploading crash reports with Breakpad.
   #
@@ -153,8 +145,8 @@ do_package() {
   # TODO(thestig): Use the liberation-fonts package once its available on all
   # supported distros.
   DEPENDS="lsb >= 4.0, \
-  libnss3.so(NSS_3.19.1)${PKG_ARCH}, \
-  libstdc++.so.6(GLIBCXX_3.4.18)${PKG_ARCH}, \
+  libnss3.so(NSS_3.22)${PKG_ARCH}, \
+  libssl3.so(NSS_3.28)${PKG_ARCH}, \
   wget, \
   xdg-utils, \
   zlib, \

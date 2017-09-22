@@ -13,15 +13,25 @@ def _AddToPathIfNeeded(path):
 
 
 def UpdateSysPathIfNeeded():
-  p = TracingProject()
-  _AddToPathIfNeeded(p.catapult_path)
-  _AddToPathIfNeeded(p.py_vulcanize_path)
-  _AddToPathIfNeeded(p.vinn_path)
+  for path in GetDependencyPaths():
+    _AddToPathIfNeeded(path)
 
-  _AddToPathIfNeeded(os.path.join(p.catapult_third_party_path, 'WebOb'))
-  _AddToPathIfNeeded(os.path.join(p.catapult_third_party_path, 'Paste'))
-  _AddToPathIfNeeded(os.path.join(p.catapult_third_party_path, 'six'))
-  _AddToPathIfNeeded(os.path.join(p.catapult_third_party_path, 'webapp2'))
+
+def GetDependencyPaths():
+  # TODO(#3703): Separate the paths that are only used by the dev server into
+  # another call.
+  p = TracingProject()
+  return [
+      p.catapult_path,
+      p.py_vulcanize_path,
+      p.vinn_path,
+      os.path.join(p.catapult_third_party_path, 'WebOb'),
+      os.path.join(p.catapult_third_party_path, 'Paste'),
+      os.path.join(p.catapult_third_party_path, 'six'),
+      os.path.join(p.catapult_third_party_path, 'webapp2'),
+      os.path.join(p.catapult_path, 'common', 'py_utils'),
+      os.path.join(p.tracing_third_party_path, 'symbols')
+  ]
 
 
 def _FindAllFilesRecursive(source_paths):
@@ -87,6 +97,7 @@ class TracingProject(object):
   mre_path = os.path.join(tracing_src_path, 'mre')
 
   metrics_path = os.path.join(tracing_src_path, 'metrics')
+  diagnostics_path = os.path.join(tracing_src_path, 'value', 'diagnostics')
 
   value_ui_path = os.path.join(tracing_src_path, 'value', 'ui')
   metrics_ui_path = os.path.join(tracing_src_path, 'metrics', 'ui')
@@ -150,6 +161,16 @@ class TracingProject(object):
     all_metrics_module_filenames.sort()
     return [os.path.relpath(x, self.tracing_root_path)
             for x in all_metrics_module_filenames]
+
+  def FindAllDiagnosticsModuleRelPaths(self):
+    all_filenames = _FindAllFilesRecursive([self.tracing_src_path])
+    all_diagnostics_module_filenames = []
+    for x in all_filenames:
+      if x.startswith(self.diagnostics_path) and not _IsFilenameATest(x):
+        all_diagnostics_module_filenames.append(x)
+    all_diagnostics_module_filenames.sort()
+    return [os.path.relpath(x, self.tracing_root_path)
+            for x in all_diagnostics_module_filenames]
 
   def FindAllD8TestModuleRelPaths(self):
     return self.FindAllTestModuleRelPaths(pred=self.IsD8CompatibleFile)

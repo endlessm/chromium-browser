@@ -2,10 +2,15 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import datetime
 import json
 import math
 import random
 import uuid
+
+from tracing.value.diagnostics import diagnostic
+from tracing.value.diagnostics import diagnostic_ref
+from tracing.value.diagnostics import reserved_infos
 
 
 # pylint: disable=too-many-lines
@@ -16,9 +21,6 @@ import uuid
 # between platforms, whereas ECMA Script specifies this value for all platforms.
 # The specific value should not matter in normal practice.
 JS_MAX_VALUE = 1.7976931348623157e+308
-
-
-MERGED_FROM_DIAGNOSTIC_KEY = 'merged from'
 
 
 # Converts the given percent to a string in the following format:
@@ -124,6 +126,7 @@ def Percentile(ary, percent):
 
 
 class Range(object):
+
   def __init__(self):
     self._empty = True
     self._min = None
@@ -153,6 +156,12 @@ class Range(object):
   def center(self):
     return (self._min + self._max) * 0.5
 
+  @property
+  def duration(self):
+    if self.empty:
+      return 0
+    return self._max - self._min
+
   def AddValue(self, x):
     if self._empty:
       self._empty = False
@@ -163,9 +172,16 @@ class Range(object):
     self._max = max(x, self._max)
     self._min = min(x, self._min)
 
+  def AddRange(self, other):
+    if other.empty:
+      return
+    self.AddValue(other.min)
+    self.AddValue(other.max)
+
 
 # This class computes statistics online in O(1).
 class RunningStatistics(object):
+
   def __init__(self):
     self._count = 0
     self._mean = 0.0
@@ -315,81 +331,51 @@ class RunningStatistics(object):
     return result
 
 
-class Diagnostic(object):
-  def __init__(self):
-    self._guid = None
+class Ownership(diagnostic.Diagnostic):
+
+  def __init__(self, emails, component=None):
+    super(Ownership, self).__init__()
+
+    emails = emails or []
+
+    self._emails = emails[:]
+
+    if (component is None) or isinstance(component, basestring):
+      self._component = component
+    else:
+      raise TypeError('component must be None or string')
+
+  def __eq__(self, other):
+    if self.component != other.component:
+      return False
+    if self.emails != other.emails:
+      return False
+
+    return True
+
+  def __ne__(self, other):
+    return not self == other
 
   @property
-  def guid(self):
-    if self._guid is None:
-      self._guid = str(uuid.uuid4())
-    return self._guid
-
-  @guid.setter
-  def guid(self, g):
-    assert self._guid is None
-    self._guid = g
+  def emails(self):
+    return self._emails[:]
 
   @property
-  def is_inline(self):
-    return self._guid is None
+  def component(self):
+    return self._component
 
-  def AsDictOrReference(self):
-    if self._guid:
-      return self._guid
-    return self.AsDict()
+  def _AsDictInto(self, dct):
+    dct['emails'] = self.emails
 
-  def AsDict(self):
-    dct = {'type': self.__class__.__name__}
-    if self._guid:
-      dct['guid'] = self._guid
-    self._AsDictInto(dct)
-    return dct
-
-  def _AsDictInto(self, unused_dct):
-    raise NotImplementedError
+    if self.component is not None:
+      dct['component'] = self.component
 
   @staticmethod
   def FromDict(dct):
-    if dct['type'] not in Diagnostic.REGISTRY:
-      raise ValueError('Unrecognized diagnostic type: ' + dct['type'])
-    diagnostic = Diagnostic.REGISTRY[dct['type']].FromDict(dct)
-    if 'guid' in dct:
-      diagnostic.guid = dct['guid']
-    return diagnostic
+    return Ownership(dct.get('emails'), dct.get('component'))
 
-  def Inline(self):
-    """Inlines a shared diagnostic.
+class Breakdown(diagnostic.Diagnostic):
 
-    Any diagnostic that has a guid will be serialized as a reference, because it
-    is assumed that diagnostics with guids are shared. This method removes the
-    guid so that the diagnostic will be serialized by value.
-
-    Inling is used for example in the dashboard, where certain types of shared
-    diagnostics that vary on a per-upload basis are inlined for efficiency
-    reasons.
-    """
-    self._guid = None
-
-  def CanAddDiagnostic(self, unused_other_diagnostic, unused_name,
-                       unused_parent_hist, unused_other_parent_hist):
-    return False
-
-  def AddDiagnostic(self, unused_other_diagnostic, unused_name,
-                    unused_parent_hist, unused_other_parent_hist):
-    raise Exception('Abstract virtual method: subclasses must override '
-                    'this method if they override canAddDiagnostic')
-
-
-Diagnostic.REGISTRY = {}
-
-def RegisterDiagnosticTypes(baseclass=Diagnostic):
-  for subclass in baseclass.__subclasses__():  # pylint: disable=no-member
-    Diagnostic.REGISTRY[subclass.__name__] = subclass
-    RegisterDiagnosticTypes(subclass)
-
-
-class Breakdown(Diagnostic):
   def __init__(self):
     super(Breakdown, self).__init__()
     self._values = {}
@@ -440,26 +426,111 @@ class Breakdown(Diagnostic):
       yield name, value
 
 
-# A Generic diagnostic can contain any Plain-Ol'-Data objects that can be
-# serialized using JSON.stringify(): null, boolean, number, string, array, dict.
-class Generic(Diagnostic):
-  def __init__(self, value):
-    super(Generic, self).__init__()
-    self._value = value
+# A GenericSet diagnostic can contain any Plain-Ol'-Data objects that can be
+# serialized using json.dumps(): None, boolean, number, string, list, dict.
+# Dicts, lists, and booleans are deduplicated by their JSON representation.
+# Dicts and lists are not hashable.
+# (1 == True) and (0 == False) in Python, but not in JSON.
+class GenericSet(diagnostic.Diagnostic):
 
-  @property
-  def value(self):
-    return self._value
+  def __init__(self, values):
+    super(GenericSet, self).__init__()
+
+    # Use a list because Python sets cannot store dicts or lists because they
+    # are not hashable.
+    self._values = list(values)
+
+    # Cache a set to facilitate comparing and merging GenericSets.
+    # Dicts, lists, and booleans are serialized; other types are not.
+    self._comparable_set = None
+
+  def __iter__(self):
+    for value in self._values:
+      yield value
+
+  def __len__(self):
+    return len(self._values)
+
+  def __eq__(self, other):
+    return self._GetComparableSet() == other._GetComparableSet()
+
+  def _GetComparableSet(self):
+    if self._comparable_set is None:
+      self._comparable_set = set()
+      for value in self:
+        if isinstance(value, (dict, list, bool)):
+          self._comparable_set.add(json.dumps(value, sort_keys=True))
+        else:
+          self._comparable_set.add(value)
+    return self._comparable_set
+
+  def CanAddDiagnostic(self, other_diagnostic, unused_name=None,
+                       unused_parent_hist=None, unused_other_parent_hist=None):
+    return isinstance(other_diagnostic, GenericSet)
+
+  def AddDiagnostic(self, other_diagnostic, unused_name=None,
+                    unused_parent_hist=None, unused_other_parent_hist=None):
+    comparable_set = self._GetComparableSet()
+    for value in other_diagnostic:
+      if isinstance(value, (dict, list, bool)):
+        json_value = json.dumps(value, sort_keys=True)
+        if json_value not in comparable_set:
+          self._values.append(value)
+          self._comparable_set.add(json_value)
+      elif value not in comparable_set:
+        self._values.append(value)
+        self._comparable_set.add(value)
 
   def _AsDictInto(self, dct):
-    dct['value'] = self.value
+    dct['values'] = list(self)
 
   @staticmethod
   def FromDict(dct):
-    return Generic(dct['value'])
+    return GenericSet(dct['values'])
 
+
+class DateRange(diagnostic.Diagnostic):
+
+  def __init__(self, ms):
+    super(DateRange, self).__init__()
+    self._range = Range()
+    self._range.AddValue(ms)
+
+  @property
+  def min_date(self):
+    return datetime.datetime.fromtimestamp(self._range.min / 1000)
+
+  @property
+  def max_date(self):
+    return datetime.datetime.fromtimestamp(self._range.max / 1000)
+
+  @property
+  def duration_ms(self):
+    return self._range.duration
+
+  def _AsDictInto(self, dct):
+    dct['min'] = self._range.min
+    if self.duration_ms == 0:
+      return
+    dct['max'] = self._range.max
+
+  @staticmethod
+  def FromDict(dct):
+    dr = DateRange(dct['min'])
+    if 'max' in dct:
+      dr._range.AddValue(dct['max'])
+    return dr
+
+  def CanAddDiagnostic(self, other_diagnostic, unused_name=None,
+                       unused_parent_hist=None, unused_other_parent_hist=None):
+    return isinstance(other_diagnostic, DateRange)
+
+  def AddDiagnostic(self, other_diagnostic, unused_name=None,
+                    unused_parent_hist=None, unused_other_parent_hist=None):
+    self._range.AddRange(other_diagnostic._range)
 
 class HistogramRef(object):
+
   def __init__(self, guid):
     self._guid = guid
 
@@ -468,7 +539,8 @@ class HistogramRef(object):
     return self._guid
 
 
-class RelatedHistogramSet(Diagnostic):
+class RelatedHistogramSet(diagnostic.Diagnostic):
+
   def __init__(self, histograms=()):
     super(RelatedHistogramSet, self).__init__()
     self._histograms_by_guid = {}
@@ -511,7 +583,8 @@ class RelatedHistogramSet(Diagnostic):
     return RelatedHistogramSet(HistogramRef(guid) for guid in d['guids'])
 
 
-class RelatedHistogramMap(Diagnostic):
+class RelatedHistogramMap(diagnostic.Diagnostic):
+
   def __init__(self):
     super(RelatedHistogramMap, self).__init__()
     self._histograms_by_name = {}
@@ -559,6 +632,7 @@ class RelatedHistogramMap(Diagnostic):
 
 
 class RelatedHistogramBreakdown(RelatedHistogramMap):
+
   def __init__(self):
     super(RelatedHistogramBreakdown, self).__init__()
     self._color_scheme = None
@@ -589,26 +663,30 @@ class RelatedHistogramBreakdown(RelatedHistogramMap):
     return result
 
 
-class TagMap(Diagnostic):
-  NAME = 'tagmap'
+class TagMap(diagnostic.Diagnostic):
 
   def __init__(self, info):
     super(TagMap, self).__init__()
-    self._tags_to_story_display_names = dict(
+    self._tags_to_story_names = dict(
         (k, set(v)) for k, v in info.get(
-            'tagsToStoryDisplayNames', {}).iteritems())
+            'tagsToStoryNames', {}).iteritems())
 
   def _AsDictInto(self, d):
-    d['tagsToStoryDisplayNames'] = dict(
-        (k, list(v)) for k, v in self.tags_to_story_display_names.iteritems())
+    d['tagsToStoryNames'] = dict(
+        (k, list(v)) for k, v in self.tags_to_story_names.iteritems())
 
   @staticmethod
   def FromDict(d):
     return TagMap(d)
 
   @property
-  def tags_to_story_display_names(self):
-    return self._tags_to_story_display_names
+  def tags_to_story_names(self):
+    return self._tags_to_story_names
+
+  def AddTagAndStoryDisplayName(self, tag, story_display_name):
+    if not tag in self.tags_to_story_names:
+      self.tags_to_story_names[tag] = set()
+    self.tags_to_story_names[tag].add(story_display_name)
 
   def CanAddDiagnostic(self, other_diagnostic, unused_name,
                        unused_parent_hist, unused_other_parent_hist):
@@ -617,16 +695,15 @@ class TagMap(Diagnostic):
   def AddDiagnostic(self, other_diagnostic, unused_name,
                     unused_parent_hist, unused_other_parent_hist):
     for name, story_display_names in\
-        other_diagnostic.tags_to_story_display_names.iteritems():
-      if not name in self.tags_to_story_display_names:
-        self.tags_to_story_display_names[name] = set()
+        other_diagnostic.tags_to_story_names.iteritems():
+      if not name in self.tags_to_story_names:
+        self.tags_to_story_names[name] = set()
 
       for t in story_display_names:
-        self.tags_to_story_display_names[name].add(t)
+        self.tags_to_story_names[name].add(t)
 
 
-class BuildbotInfo(Diagnostic):
-  NAME = 'buildbot'
+class BuildbotInfo(diagnostic.Diagnostic):
 
   def __init__(self, info):
     super(BuildbotInfo, self).__init__()
@@ -636,6 +713,24 @@ class BuildbotInfo(Diagnostic):
     self._buildbot_name = info.get('buildbotName', '')
     self._build_number = info.get('buildNumber', 0)
     self._log_uri = info.get('logUri', '')
+
+  def __eq__(self, other):
+    if self.display_master_name != other.display_master_name:
+      return False
+    if self.display_bot_name != other.display_bot_name:
+      return False
+    if self.buildbot_master_name != other.buildbot_master_name:
+      return False
+    if self.buildbot_name != other.buildbot_name:
+      return False
+    if self.build_number != other.build_number:
+      return False
+    if self.log_uri != other.log_uri:
+      return False
+    return True
+
+  def __ne__(self, other):
+    return not self == other
 
   def _AsDictInto(self, d):
     d['displayMasterName'] = self.display_master_name
@@ -674,9 +769,7 @@ class BuildbotInfo(Diagnostic):
     return self._log_uri
 
 
-class RevisionInfo(Diagnostic):
-
-  NAME = 'revisions'
+class RevisionInfo(diagnostic.Diagnostic):
 
   def __init__(self, info):
     super(RevisionInfo, self).__init__()
@@ -737,8 +830,7 @@ class RevisionInfo(Diagnostic):
 
 
 # TODO(benjhayden): Unify this with telemetry's IterationInfo.
-class TelemetryInfo(Diagnostic):
-  NAME = 'telemetry'
+class TelemetryInfo(diagnostic.Diagnostic):
 
   def __init__(self):
     super(TelemetryInfo, self).__init__()
@@ -750,6 +842,28 @@ class TelemetryInfo(Diagnostic):
     self._story_grouping_keys = {}
     self._story_url = ''
     self._storyset_repeat_counter = None
+
+  def __eq__(self, other):
+    if self.benchmark_name != other.benchmark_name:
+      return False
+    if self.benchmark_start != other.benchmark_start:
+      return False
+    if self.label != other.label:
+      return False
+    if self.legacy_tir_label != other.legacy_tir_label:
+      return False
+    if self.story_display_name != other.story_display_name:
+      return False
+    if self.story_grouping_keys != other.story_grouping_keys:
+      return False
+    if self.story_url != other.story_url:
+      return False
+    if self.storyset_repeat_counter != other.storyset_repeat_counter:
+      return False
+    return True
+
+  def __ne__(self, other):
+    return not self == other
 
   def AddInfo(self, info):
     if 'benchmarkName' in info:
@@ -815,8 +929,7 @@ class TelemetryInfo(Diagnostic):
     return info
 
 
-class DeviceInfo(Diagnostic):
-  NAME = 'device'
+class DeviceInfo(diagnostic.Diagnostic):
 
   def __init__(self):
     super(DeviceInfo, self).__init__()
@@ -826,6 +939,24 @@ class DeviceInfo(Diagnostic):
     self._gpu_info = None
     self._arch = None
     self._ram = 0
+
+  def __eq__(self, other):
+    if self.chrome_version != other.chrome_version:
+      return False
+    if self.os_name != other.os_name:
+      return False
+    if self.os_version != other.os_version:
+      return False
+    if self.gpu_info != other.gpu_info:
+      return False
+    if self.arch != other.arch:
+      return False
+    if self.ram != other.ram:
+      return False
+    return True
+
+  def __ne__(self, other):
+    return not self == other
 
   @staticmethod
   def FromDict(d):
@@ -895,7 +1026,8 @@ class DeviceInfo(Diagnostic):
     self._ram = v
 
 
-class RelatedEventSet(Diagnostic):
+class RelatedEventSet(diagnostic.Diagnostic):
+
   def __init__(self):
     super(RelatedEventSet, self).__init__()
     self._events_by_stable_id = {}
@@ -921,22 +1053,8 @@ class RelatedEventSet(Diagnostic):
     d['events'] = [event for event in self]
 
 
-RegisterDiagnosticTypes()
+class UnmergeableDiagnosticSet(diagnostic.Diagnostic):
 
-
-class DiagnosticRef(object):
-  def __init__(self, guid):
-    self._guid = guid
-
-  @property
-  def guid(self):
-    return self._guid
-
-  def AsDict(self):
-    return self.guid
-
-
-class UnmergeableDiagnosticSet(Diagnostic):
   def __init__(self, diagnostics):
     super(UnmergeableDiagnosticSet, self).__init__()
     self._diagnostics = diagnostics
@@ -945,8 +1063,8 @@ class UnmergeableDiagnosticSet(Diagnostic):
     return len(self._diagnostics)
 
   def __iter__(self):
-    for diagnostic in self._diagnostics:
-      yield diagnostic
+    for diag in self._diagnostics:
+      yield diag
 
   def CanAddDiagnostic(self, unused_other_diagnostic, unused_name,
                        unused_parent_hist, unused_other_parent_hist):
@@ -957,11 +1075,11 @@ class UnmergeableDiagnosticSet(Diagnostic):
     if isinstance(other_diagnostic, UnmergeableDiagnosticSet):
       self._diagnostics.extend(other_diagnostic._diagnostics)
       return
-    for diagnostic in self:
-      if diagnostic.CanAddDiagnostic(other_diagnostic, name, parent_hist,
-                                     other_parent_hist):
-        diagnostic.AddDiagnostic(other_diagnostic, name, parent_hist,
-                                 other_parent_hist)
+    for diag in self:
+      if diag.CanAddDiagnostic(other_diagnostic, name, parent_hist,
+                               other_parent_hist):
+        diag.AddDiagnostic(other_diagnostic, name, parent_hist,
+                           other_parent_hist)
         return
     self._diagnostics.append(other_diagnostic)
 
@@ -972,14 +1090,37 @@ class UnmergeableDiagnosticSet(Diagnostic):
   def FromDict(dct):
     def RefOrDiagnostic(d):
       if isinstance(d, basestring):
-        return DiagnosticRef(d)
-      return Diagnostic.FromDict(d)
+        return diagnostic_ref.DiagnosticRef(d)
+      return diagnostic.Diagnostic.FromDict(d)
 
     return UnmergeableDiagnosticSet(
         [RefOrDiagnostic(d) for d in dct['diagnostics']])
 
 
 class DiagnosticMap(dict):
+
+  def __init__(self, *args, **kwargs):
+    self._allow_reserved_names = True
+    dict.__init__(self, *args, **kwargs)
+
+  def DisallowReservedNames(self):
+    self._allow_reserved_names = False
+
+  def __setitem__(self, name, diag):
+    if not isinstance(name, basestring):
+      raise TypeError('name must be string')
+    if not isinstance(diag, (diagnostic.Diagnostic,
+                             diagnostic_ref.DiagnosticRef)):
+      raise TypeError('diag must be Diagnostic or DiagnosticRef')
+    if (not self._allow_reserved_names and
+        not isinstance(diag, UnmergeableDiagnosticSet) and
+        not isinstance(diag, diagnostic_ref.DiagnosticRef)):
+      expected_type = reserved_infos.GetTypeForName(name)
+      if expected_type and diag.__class__.__name__ != expected_type:
+        raise TypeError('Diagnostics names "%s" must be %s, not %s' %
+                        (name, expected_type, diag.__class__.__name__))
+    dict.__setitem__(self, name, diag)
+
   @staticmethod
   def FromDict(dct):
     dm = DiagnosticMap()
@@ -989,32 +1130,32 @@ class DiagnosticMap(dict):
   def AddDicts(self, dct):
     for name, diagnostic_dict in dct.iteritems():
       if isinstance(diagnostic_dict, basestring):
-        self[name] = DiagnosticRef(diagnostic_dict)
+        self[name] = diagnostic_ref.DiagnosticRef(diagnostic_dict)
       else:
-        self[name] = Diagnostic.FromDict(diagnostic_dict)
+        self[name] = diagnostic.Diagnostic.FromDict(diagnostic_dict)
 
   def ResolveSharedDiagnostics(self, histograms, required=False):
-    for name, diagnostic in self.iteritems():
-      if not isinstance(diagnostic, DiagnosticRef):
+    for name, diag in self.iteritems():
+      if not isinstance(diag, diagnostic_ref.DiagnosticRef):
         continue
-      guid = diagnostic.guid
-      diagnostic = histograms.LookupDiagnostic(guid)
-      if isinstance(diagnostic, Diagnostic):
-        self[name] = diagnostic
+      guid = diag.guid
+      diag = histograms.LookupDiagnostic(guid)
+      if isinstance(diag, diagnostic.Diagnostic):
+        self[name] = diag
       elif required:
         raise ValueError('Unable to find shared Diagnostic ' + guid)
 
   def AsDict(self):
     dct = {}
-    for name, diagnostic in self.iteritems():
-      dct[name] = diagnostic.AsDictOrReference()
+    for name, diag in self.iteritems():
+      dct[name] = diag.AsDictOrReference()
     return dct
 
   def Merge(self, other, parent_hist, other_parent_hist):
-    merged_from = self.get(MERGED_FROM_DIAGNOSTIC_KEY)
+    merged_from = self.get(reserved_infos.MERGED_FROM.name)
     if merged_from is None:
       merged_from = RelatedHistogramSet()
-      self[MERGED_FROM_DIAGNOSTIC_KEY] = merged_from
+      self[reserved_infos.MERGED_FROM.name] = merged_from
     merged_from.Add(other_parent_hist)
 
     for name, other_diagnostic in other.iteritems():
@@ -1035,6 +1176,7 @@ MAX_DIAGNOSTIC_MAPS = 16
 
 
 class HistogramBin(object):
+
   def __init__(self, rang):
     self._range = rang
     self._count = 0
@@ -1099,6 +1241,7 @@ ExtendUnitNames()
 
 
 class Scalar(object):
+
   def __init__(self, unit, value):
     assert unit in UNIT_NAMES
     self._unit = unit
@@ -1136,6 +1279,7 @@ DEFAULT_SUMMARY_OPTIONS = {
 
 
 class Histogram(object):
+
   def __init__(self, name, unit, bin_boundaries=None):
     assert unit in UNIT_NAMES
 
@@ -1150,6 +1294,7 @@ class Histogram(object):
     self._description = ''
     self._name = name
     self._diagnostics = DiagnosticMap()
+    self._diagnostics.DisallowReservedNames()
     self._nan_diagnostic_maps = []
     self._num_nans = 0
     self._running = None
@@ -1634,82 +1779,3 @@ DEFAULT_BOUNDARIES_FOR_UNIT = {
     'count': HistogramBinBoundaries.CreateExponential(1, 1e3, 20),
     'sigma': HistogramBinBoundaries.CreateLinear(-5, 5, 50),
 }
-
-
-class HistogramSet(object):
-  def __init__(self, histograms=()):
-    self._histograms_by_guid = {}
-    self._shared_diagnostics_by_guid = {}
-    for hist in histograms:
-      self.AddHistogram(hist)
-
-  @property
-  def shared_diagnostics(self):
-    return self._shared_diagnostics_by_guid.itervalues()
-
-  def AddHistogram(self, hist, diagnostics=None):
-    if hist.guid in self._histograms_by_guid:
-      raise ValueError('Cannot add same Histogram twice')
-
-    if diagnostics:
-      for name, diagnostic in diagnostics.iteritems():
-        hist.diagnostics[name] = diagnostic
-
-    self._histograms_by_guid[hist.guid] = hist
-
-  def AddSharedDiagnostic(self, name, diagnostic):
-    self._shared_diagnostics_by_guid[diagnostic.guid] = diagnostic
-
-    for hist in self:
-      hist.diagnostics[name] = diagnostic
-
-  def GetFirstHistogram(self):
-    for histogram in self._histograms_by_guid.itervalues():
-      return histogram
-
-  def GetHistogramsNamed(self, name):
-    return [h for h in self if h.name == name]
-
-  def LookupHistogram(self, guid):
-    return self._histograms_by_guid.get(guid)
-
-  def LookupDiagnostic(self, guid):
-    return self._shared_diagnostics_by_guid.get(guid)
-
-  def ResolveRelatedHistograms(self):
-    histograms = self
-    def HandleDiagnosticMap(dm):
-      for diagnostic in dm.itervalues():
-        if isinstance(diagnostic, (RelatedHistogramSet, RelatedHistogramMap)):
-          diagnostic.Resolve(histograms)
-
-    for hist in self:
-      hist.diagnostics.ResolveSharedDiagnostics(self)
-      HandleDiagnosticMap(hist.diagnostics)
-      for dm in hist.nan_diagnostic_maps:
-        HandleDiagnosticMap(dm)
-      for hbin in hist.bins:
-        for dm in hbin.diagnostic_maps:
-          HandleDiagnosticMap(dm)
-
-  def __len__(self):
-    return len(self._histograms_by_guid)
-
-  def __iter__(self):
-    for hist in self._histograms_by_guid.itervalues():
-      yield hist
-
-  def ImportDicts(self, dicts):
-    for d in dicts:
-      if 'type' in d and d['type'] in Diagnostic.REGISTRY:
-        self._shared_diagnostics_by_guid[d['guid']] = Diagnostic.FromDict(d)
-      else:
-        self.AddHistogram(Histogram.FromDict(d))
-
-  def AsDicts(self):
-    dcts = []
-    for d in self._shared_diagnostics_by_guid.itervalues():
-      dcts.append(d.AsDict())
-    for h in self:
-      dcts.append(h.AsDict())
-    return dcts

@@ -3,12 +3,40 @@
 # Install the repository signing key (see also:
 # https://www.google.com/linuxrepositories/)
 install_rpm_key() {
+  KEY_PACKAGE="gpg-pubkey-d38b4796-570c8cd3"
   # Check to see if all keys already exists.
-  rpm -q gpg-pubkey-7fac5991-4615767f \
-         gpg-pubkey-d38b4796-570c8cd3 > /dev/null 2>&1
+  # Make sure all the most recent signing subkeys are installed.
+  NEED_KEYS=0
+
+  # 2016 signing subkey
+  rpm -q ${KEY_PACKAGE} --qf '%{Pubkeys:armor}\n' | \
+    gpg --with-colons - 2>/dev/null | \
+    grep -q 1397BC53640DB551
+  if [ "$?" -ne "0" ]; then
+    NEED_KEYS=1
+  fi
+
+  # 2017 signing subkey
+  rpm -q ${KEY_PACKAGE} --qf '%{Pubkeys:armor}\n' | \
+    gpg --with-colons - 2>/dev/null | \
+    grep -q 6494C6D6997C215E
+  if [ "$?" -ne "0" ]; then
+    NEED_KEYS=1
+  fi
+
+  if [ $NEED_KEYS -ne 1 ]; then
+    return
+  fi
+
+  # Make sure no older version of the key is installed because it appears
+  # 'rpm --import' won't overwrite an existing key package.
+  rpm -q ${KEY_PACKAGE} >/dev/null 2>&1
   if [ "$?" -eq "0" ]; then
-    # Key already exists
-    return 0
+    # Note, if this is run during the package install, it will fail because rpm
+    # can't recursively run rpm, but it should work when run later as part of
+    # the installed cron job (and probably nothing needs the new keys before
+    # then).
+    rpm -e --allmatches ${KEY_PACKAGE} >/dev/null 2>&1 || return
   fi
 
   # RPM on Mandriva 2009 is dumb and does not understand "rpm --import -"
@@ -110,8 +138,42 @@ ZACEAhWjj2K1wP7ODGTQrrM4q4sIw1l3l7yO9aXXN7likAAddT4WEpGV0CiorReO
 J1y/sKJRJSI/npN1UK7wMazZ+yzhxN0qzG8sqREKJQnNuuGQQ/qIGb/oe4dPO0Fi
 hAUGkWoa0bgtGVijN5fQSbMbV50kZYqaa9GnNQRnchmZb+pK2xLcK85hD1np37/A
 m5o2ggoONj3qI3JaRHsZaOs1qPQcyd46OyIFUpHJIfk4nezDCoQYd93bWUGqDwxI
-/n/CsdO0365yqDO/ADscehlVqdAupVv2
-=dmoF
+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
+aM6t68Uq8rsabeJYsZG4
+=lzV/
 -----END PGP PUBLIC KEY BLOCK-----
 KEYDATA
     rpm --import "$TMPKEY"
@@ -131,18 +193,24 @@ determine_rpm_package_manager() {
     RELEASE=$(lsb_release -i 2> /dev/null | sed 's/:\t/:/' | cut -d ':' -f 2-)
     case $RELEASE in
     "Fedora")
-      PACKAGEMANAGER=yum
+      PACKAGEMANAGERS=(yum)
       ;;
-    "Mageia"|"MandrivaLinux")
-      PACKAGEMANAGER=urpmi
+    "Mageia")
+      PACKAGEMANAGERS=(urpmi)
+      if [ "$(lsb_release -rs 2> /dev/null)" -ge "6" ]; then
+        PACKAGEMANAGERS=(yum urpmi)
+      fi
+      ;;
+    "MandrivaLinux")
+      PACKAGEMANAGERS=(urpmi)
       ;;
     "SUSE LINUX")
-      PACKAGEMANAGER=yast
+      PACKAGEMANAGERS=(yast)
       ;;
     esac
   fi
 
-  if [ "$PACKAGEMANAGER" ]; then
+  if [ "$PACKAGEMANAGERS" ]; then
     return
   fi
 
@@ -152,21 +220,21 @@ determine_rpm_package_manager() {
     eval $(sed -e '/DISTRIB_ID/!d' /etc/lsb-release)
     case $DISTRIB_ID in
     MandrivaLinux)
-      PACKAGEMANAGER=urpmi
+      PACKAGEMANAGERS=(urpmi)
       ;;
     esac
   fi
 
-  if [ "$PACKAGEMANAGER" ]; then
+  if [ "$PACKAGEMANAGERS" ]; then
     return
   fi
 
   if [ -f "/etc/fedora-release" ] || [ -f "/etc/redhat-release" ]; then
-    PACKAGEMANAGER=yum
+    PACKAGEMANAGERS=(yum)
   elif [ -f "/etc/SuSE-release" ]; then
-    PACKAGEMANAGER=yast
+    PACKAGEMANAGERS=(yast)
   elif [ -f "/etc/mandriva-release" ]; then
-    PACKAGEMANAGER=urpmi
+    PACKAGEMANAGERS=(urpmi)
   fi
 }
 
@@ -273,17 +341,20 @@ update_bad_repo() {
 
   determine_rpm_package_manager
 
-  case $PACKAGEMANAGER in
-  "yum")
-    update_repo_file "$YUM_REPO_FILE"
-    ;;
-  "yast")
-    update_repo_file "$ZYPPER_REPO_FILE"
-    ;;
-  "urpmi")
-    update_urpmi_cfg
-    ;;
-  esac
+  for PACKAGEMANAGER in ${PACKAGEMANAGERS[*]}
+  do
+    case $PACKAGEMANAGER in
+    "yum")
+      update_repo_file "$YUM_REPO_FILE"
+      ;;
+    "yast")
+      update_repo_file "$ZYPPER_REPO_FILE"
+      ;;
+    "urpmi")
+      update_urpmi_cfg
+      ;;
+    esac
+  done
 }
 
 update_repo_file() {

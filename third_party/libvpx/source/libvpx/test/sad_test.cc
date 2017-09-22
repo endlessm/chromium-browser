@@ -644,19 +644,50 @@ INSTANTIATE_TEST_CASE_P(C, SADx4Test, ::testing::ValuesIn(x4d_c_tests));
 #if HAVE_NEON
 const SadMxNParam neon_tests[] = {
   SadMxNParam(64, 64, &vpx_sad64x64_neon),
+  SadMxNParam(64, 32, &vpx_sad64x32_neon),
   SadMxNParam(32, 32, &vpx_sad32x32_neon),
+  SadMxNParam(16, 32, &vpx_sad16x32_neon),
   SadMxNParam(16, 16, &vpx_sad16x16_neon),
   SadMxNParam(16, 8, &vpx_sad16x8_neon),
   SadMxNParam(8, 16, &vpx_sad8x16_neon),
   SadMxNParam(8, 8, &vpx_sad8x8_neon),
+  SadMxNParam(8, 4, &vpx_sad8x4_neon),
+  SadMxNParam(4, 8, &vpx_sad4x8_neon),
   SadMxNParam(4, 4, &vpx_sad4x4_neon),
 };
 INSTANTIATE_TEST_CASE_P(NEON, SADTest, ::testing::ValuesIn(neon_tests));
 
+const SadMxNAvgParam avg_neon_tests[] = {
+  SadMxNAvgParam(64, 64, &vpx_sad64x64_avg_neon),
+  SadMxNAvgParam(64, 32, &vpx_sad64x32_avg_neon),
+  SadMxNAvgParam(32, 64, &vpx_sad32x64_avg_neon),
+  SadMxNAvgParam(32, 32, &vpx_sad32x32_avg_neon),
+  SadMxNAvgParam(32, 16, &vpx_sad32x16_avg_neon),
+  SadMxNAvgParam(16, 32, &vpx_sad16x32_avg_neon),
+  SadMxNAvgParam(16, 16, &vpx_sad16x16_avg_neon),
+  SadMxNAvgParam(16, 8, &vpx_sad16x8_avg_neon),
+  SadMxNAvgParam(8, 16, &vpx_sad8x16_avg_neon),
+  SadMxNAvgParam(8, 8, &vpx_sad8x8_avg_neon),
+  SadMxNAvgParam(8, 4, &vpx_sad8x4_avg_neon),
+  SadMxNAvgParam(4, 8, &vpx_sad4x8_avg_neon),
+  SadMxNAvgParam(4, 4, &vpx_sad4x4_avg_neon),
+};
+INSTANTIATE_TEST_CASE_P(NEON, SADavgTest, ::testing::ValuesIn(avg_neon_tests));
+
 const SadMxNx4Param x4d_neon_tests[] = {
   SadMxNx4Param(64, 64, &vpx_sad64x64x4d_neon),
+  SadMxNx4Param(64, 32, &vpx_sad64x32x4d_neon),
+  SadMxNx4Param(32, 64, &vpx_sad32x64x4d_neon),
   SadMxNx4Param(32, 32, &vpx_sad32x32x4d_neon),
+  SadMxNx4Param(32, 16, &vpx_sad32x16x4d_neon),
+  SadMxNx4Param(16, 32, &vpx_sad16x32x4d_neon),
   SadMxNx4Param(16, 16, &vpx_sad16x16x4d_neon),
+  SadMxNx4Param(16, 8, &vpx_sad16x8x4d_neon),
+  SadMxNx4Param(8, 16, &vpx_sad8x16x4d_neon),
+  SadMxNx4Param(8, 8, &vpx_sad8x8x4d_neon),
+  SadMxNx4Param(8, 4, &vpx_sad8x4x4d_neon),
+  SadMxNx4Param(4, 8, &vpx_sad4x8x4d_neon),
+  SadMxNx4Param(4, 4, &vpx_sad4x4x4d_neon),
 };
 INSTANTIATE_TEST_CASE_P(NEON, SADx4Test, ::testing::ValuesIn(x4d_neon_tests));
 #endif  // HAVE_NEON
@@ -934,5 +965,29 @@ const SadMxNParam vsx_tests[] = {
   SadMxNParam(16, 8, &vpx_sad16x8_vsx),
 };
 INSTANTIATE_TEST_CASE_P(VSX, SADTest, ::testing::ValuesIn(vsx_tests));
+
+const SadMxNAvgParam avg_vsx_tests[] = {
+  SadMxNAvgParam(64, 64, &vpx_sad64x64_avg_vsx),
+  SadMxNAvgParam(64, 32, &vpx_sad64x32_avg_vsx),
+  SadMxNAvgParam(32, 64, &vpx_sad32x64_avg_vsx),
+  SadMxNAvgParam(32, 32, &vpx_sad32x32_avg_vsx),
+  SadMxNAvgParam(32, 16, &vpx_sad32x16_avg_vsx),
+  SadMxNAvgParam(16, 32, &vpx_sad16x32_avg_vsx),
+  SadMxNAvgParam(16, 16, &vpx_sad16x16_avg_vsx),
+  SadMxNAvgParam(16, 8, &vpx_sad16x8_avg_vsx),
+};
+INSTANTIATE_TEST_CASE_P(VSX, SADavgTest, ::testing::ValuesIn(avg_vsx_tests));
+
+const SadMxNx4Param x4d_vsx_tests[] = {
+  SadMxNx4Param(64, 64, &vpx_sad64x64x4d_vsx),
+  SadMxNx4Param(64, 32, &vpx_sad64x32x4d_vsx),
+  SadMxNx4Param(32, 64, &vpx_sad32x64x4d_vsx),
+  SadMxNx4Param(32, 32, &vpx_sad32x32x4d_vsx),
+  SadMxNx4Param(32, 16, &vpx_sad32x16x4d_vsx),
+  SadMxNx4Param(16, 32, &vpx_sad16x32x4d_vsx),
+  SadMxNx4Param(16, 16, &vpx_sad16x16x4d_vsx),
+  SadMxNx4Param(16, 8, &vpx_sad16x8x4d_vsx),
+};
+INSTANTIATE_TEST_CASE_P(VSX, SADx4Test, ::testing::ValuesIn(x4d_vsx_tests));
 #endif  // HAVE_VSX
 }  // namespace

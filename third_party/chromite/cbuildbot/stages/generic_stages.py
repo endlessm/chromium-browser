@@ -27,11 +27,13 @@ from chromite.cbuildbot import commands
 from chromite.cbuildbot import repository
 from chromite.cbuildbot import topology
 from chromite.lib import buildbucket_lib
+from chromite.lib import builder_status_lib
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
+from chromite.lib import failure_message_lib
 from chromite.lib import gs
 from chromite.lib import metrics
 from chromite.lib import osutils
@@ -347,6 +349,59 @@ class BuilderStage(object):
 
     return buildbucket_ids
 
+  def GetBuildFailureMessageFromCIDB(self, build_id, db):
+    """Get message summarizing failures of this build from CIDB.
+
+    Args:
+      build_id: The build id of the master build.
+      db: An instance of cidb.CIDBConnection.
+
+    Returns:
+      An instance of build_failure_message.BuildFailureMessage.
+    """
+    stage_failures = db.GetBuildsFailures([build_id])
+    failure_msg_manager = failure_message_lib.FailureMessageManager()
+    failure_messages = failure_msg_manager.ConstructStageFailureMessages(
+        stage_failures)
+
+    return builder_status_lib.BuilderStatusManager.CreateBuildFailureMessage(
+        self._run.config.name,
+        self._run.config.overlays,
+        self._run.ConstructDashboardURL(),
+        failure_messages)
+
+  def GetBuildFailureMessageFromResults(self):
+    """Get message summarizing failures of this build from result_lib.Results.
+
+    Returns:
+      An instance of build_failure_message.BuildFailureMessage.
+    """
+    failure_messages = results_lib.Results.GetStageFailureMessage()
+    return builder_status_lib.BuilderStatusManager.CreateBuildFailureMessage(
+        self._run.config.name,
+        self._run.config.overlays,
+        self._run.ConstructDashboardURL(),
+        failure_messages)
+
+  def GetBuildFailureMessage(self):
+    """Get message summarizing failure of this build."""
+    build_id, db = self._run.GetCIDBHandle()
+    if db is not None:
+      return self.GetBuildFailureMessageFromCIDB(build_id, db)
+    else:
+      return self.GetBuildFailureMessageFromResults()
+
+  def GetJobKeyvals(self):
+    """Get job keyvals for the build stage."""
+    build_id, _ = self._run.GetCIDBHandle()
+    job_keyvals = {
+        constants.JOB_KEYVAL_DATASTORE_PARENT_KEY:
+            ('Build', build_id, 'BuildStage', self._build_stage_id),
+        constants.JOB_KEYVAL_CIDB_BUILD_ID: build_id,
+        constants.JOB_KEYVAL_CIDB_BUILD_STAGE_ID: self._build_stage_id,
+    }
+    return job_keyvals
+
   def _Print(self, msg):
     """Prints a msg to stderr."""
     sys.stdout.flush()
@@ -407,8 +462,15 @@ class BuilderStage(object):
     Raises:
       See config_lib.Config.GetSlavesForMaster for details.
     """
-    return self._run.site_config.GetSlavesForMaster(
+    experimental_builders = self._run.attrs.metadata.GetValueWithDefault(
+        constants.METADATA_EXPERIMENTAL_BUILDERS, [])
+    slave_configs = self._run.site_config.GetSlavesForMaster(
         self._run.config, self._run.options)
+    slave_configs = [
+        config for config in slave_configs
+        if config['name'] not in experimental_builders
+    ]
+    return slave_configs
 
   def _GetSlaveConfigMap(self, important_only=True):
     """Get slave config map for the current build config.
@@ -424,9 +486,18 @@ class BuilderStage(object):
     Raises:
       See config_lib.Config.GetSlaveConfigMapForMaster for details.
     """
-    return self._run.site_config.GetSlaveConfigMapForMaster(
+
+    slave_config_map = self._run.site_config.GetSlaveConfigMapForMaster(
         self._run.config, self._run.options,
         important_only=important_only)
+    if important_only:
+      experimental_builders = self._run.attrs.metadata.GetValueWithDefault(
+          constants.METADATA_EXPERIMENTAL_BUILDERS, [])
+      slave_config_map = {
+          k: v for k, v in slave_config_map.iteritems()
+          if k not in experimental_builders
+      }
+    return slave_config_map
 
   def _BeginStepForBuildbot(self, tag=None):
     """Called before a stage is performed.
@@ -660,7 +731,8 @@ class BuilderStage(object):
         elapsed_time = time.time() - start_time
 
       self._RecordResult(self.name, result, description, prefix=self._prefix,
-                         board=board, time=elapsed_time)
+                         board=board, time=elapsed_time,
+                         build_stage_id=self._build_stage_id)
       self._FinishBuildStageInCIDBAndMonarch(cidb_result, elapsed_time)
       if isinstance(result, BaseException) and self._build_stage_id is not None:
         _, db = self._run.GetCIDBHandle()

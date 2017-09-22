@@ -11,6 +11,7 @@ import os
 import random
 import sys
 import tempfile
+import time
 import traceback
 
 from py_utils import cloud_storage  # pylint: disable=import-error
@@ -25,15 +26,18 @@ from telemetry.value import skip
 from telemetry.value import trace
 
 from tracing.value import convert_chart_json
+from tracing.value import histogram_set
 
 class TelemetryInfo(object):
   def __init__(self):
     self._benchmark_name = None
     self._benchmark_start_ms = None
+    self._benchmark_interrupted = False
     self._label = None
-    self._story_display_name = ''
+    self._story_name = ''
     self._story_grouping_keys = {}
     self._storyset_repeat_counter = 0
+    self._trace_start_ms = None
 
   @property
   def benchmark_name(self):
@@ -56,6 +60,14 @@ class TelemetryInfo(object):
     self._benchmark_start_ms = benchmark_start_ms
 
   @property
+  def trace_start_ms(self):
+    return self._trace_start_ms
+
+  @property
+  def benchmark_interrupted(self):
+    return self._benchmark_interrupted
+
+  @property
   def label(self):
     return self._label
 
@@ -66,7 +78,7 @@ class TelemetryInfo(object):
 
   @property
   def story_display_name(self):
-    return self._story_display_name
+    return self._story_name
 
   @property
   def story_grouping_keys(self):
@@ -76,8 +88,12 @@ class TelemetryInfo(object):
   def storyset_repeat_counter(self):
     return self._storyset_repeat_counter
 
+  def InterruptBenchmark(self):
+    self._benchmark_interrupted = True
+
   def WillRunStory(self, story, storyset_repeat_counter):
-    self._story_display_name = story.display_name
+    self._trace_start_ms = 1000 * time.time()
+    self._story_name = story.name
     if story.grouping_keys:
       self._story_grouping_keys = story.grouping_keys
     self._storyset_repeat_counter = storyset_repeat_counter
@@ -92,9 +108,10 @@ class TelemetryInfo(object):
     d['benchmarkStartMs'] = self.benchmark_start_ms
     if self.label:
       d['label'] = self.label
-    d['storyDisplayName'] = self.story_display_name
+    d['storyDisplayName'] = self._story_name
     d['storyGroupingKeys'] = self.story_grouping_keys
     d['storysetRepeatCounter'] = self.storyset_repeat_counter
+    d['traceStartMs'] = self.trace_start_ms
     return d
 
 
@@ -141,10 +158,7 @@ class PageTestResults(object):
     self._pages_to_profiling_files = collections.defaultdict(list)
     self._pages_to_profiling_files_cloud_url = collections.defaultdict(list)
 
-    # You'd expect this to be a set(), but Values are dictionaries, which are
-    # unhashable. We could wrap Values with custom __eq/hash__, but we don't
-    # actually need set-ness in python.
-    self._value_set = []
+    self._histograms = histogram_set.HistogramSet()
 
     self._telemetry_info = TelemetryInfo()
 
@@ -156,12 +170,16 @@ class PageTestResults(object):
     return self._telemetry_info
 
   @property
-  def value_set(self):
-    return self._value_set
+  def histograms(self):
+    return self._histograms
 
-  def AsHistogramDicts(self, benchmark_metadata):
-    if self.value_set:
-      return self.value_set
+  def AsHistogramDicts(self):
+    return self.histograms.AsDicts()
+
+  def PopulateHistogramSet(self, benchmark_metadata):
+    if len(self.histograms):
+      return
+
     chart_json = chart_json_output_formatter.ResultsAsChartDict(
         benchmark_metadata, self.all_page_specific_values,
         self.all_summary_values)
@@ -181,7 +199,8 @@ class PageTestResults(object):
       logging.error('Error converting chart json to Histograms:\n' +
           vinn_result.stdout)
       return []
-    return json.loads(vinn_result.stdout)
+    self.histograms.ImportDicts(json.loads(vinn_result.stdout))
+    self.histograms.ResolveRelatedHistograms()
 
   def __copy__(self):
     cls = self.__class__
@@ -233,9 +252,22 @@ class PageTestResults(object):
 
   @property
   def pages_that_succeeded(self):
-    """Returns the set of pages that succeeded."""
+    """Returns the set of pages that succeeded.
+
+    Note: This also includes skipped pages.
+    """
     pages = set(run.story for run in self.all_page_runs)
     pages.difference_update(self.pages_that_failed)
+    return pages
+
+  @property
+  def pages_that_succeeded_and_not_skipped(self):
+    """Returns the set of pages that succeeded and werent skipped."""
+    skipped_stories = [x.page.name for x in self.skipped_values]
+    pages = self.pages_that_succeeded
+    for page in self.pages_that_succeeded:
+      if page.name in skipped_stories:
+        pages.remove(page)
     return pages
 
   @property
@@ -409,7 +441,7 @@ class PageTestResults(object):
               bucket, remote_path, file_handle.GetAbsPath())
           sys.stderr.write(
               'View generated profiler files online at %s for page %s\n' %
-              (cloud_url, page.display_name))
+              (cloud_url, page.name))
           self._pages_to_profiling_files_cloud_url[page].append(cloud_url)
         except cloud_storage.PermissionError as e:
           logging.error('Cannot upload profiling files to cloud storage due to '

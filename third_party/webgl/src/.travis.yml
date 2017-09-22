@@ -1,3 +1,4 @@
+dist: trusty
 sudo: required
 
 language: python
@@ -6,10 +7,8 @@ python:
   - "2.7"
 
 before_script:
-  - sudo apt-get install python-demjson
   - sudo apt-get install libxml2-utils
   - pip install --upgrade setuptools
   - pip install html5lib
-  - easy_install demjson
 
 script: ./sdk/tests/py/lint/lint.py -p

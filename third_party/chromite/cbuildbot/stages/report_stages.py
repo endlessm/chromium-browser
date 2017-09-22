@@ -13,7 +13,7 @@ import sys
 
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import tree_status
+from chromite.cbuildbot import goma_util
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import completion_stages
 from chromite.cbuildbot.stages import generic_stages
@@ -26,7 +26,6 @@ from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
 from chromite.lib import git
-from chromite.lib import graphite
 from chromite.lib import gs
 from chromite.lib import metadata_lib
 from chromite.lib import metrics
@@ -36,8 +35,8 @@ from chromite.lib import portage_util
 from chromite.lib import results_lib
 from chromite.lib import retry_stats
 from chromite.lib import toolchain
+from chromite.lib import tree_status
 from chromite.lib import triage_lib
-from chromite.scripts import upload_goma_info
 
 
 site_config = config_lib.GetConfig()
@@ -178,6 +177,32 @@ def GetChildConfigListMetadata(child_configs, config_status_map):
   return child_config_list
 
 
+def _UploadAndLinkGomaLogIfNecessary(
+    stage_name, goma_dir, goma_client_json, goma_tmp_dir):
+  """Uploads the logs for goma, if needed. Also create a link to the visualizer.
+
+  If |goma_tmp_dir| is given, |goma_dir| and |goma_client_json| must not be
+  None.
+
+  Args:
+    stage_name: Name of the stage where goma is used.
+    goma_dir: Path to goma installed directory.
+    goma_client_json: Path to the service account json file.
+    goma_tmp_dir: Goma's working directory.
+  """
+  if not goma_tmp_dir:
+    return
+
+  goma = goma_util.Goma(goma_dir, goma_client_json, goma_tmp_dir=goma_tmp_dir)
+  # Just in case, stop the goma. E.g. In case of timeout, we do not want to
+  # keep goma compiler_proxy running.
+  goma.Stop()
+  goma_url = goma.UploadLogs()
+  if goma_url:
+    logging.PrintBuildbotLink(
+        stage_name + ' Goma compiler_proxy log', goma_url)
+
+
 class BuildStartStage(generic_stages.BuilderStage):
   """The first stage to run.
 
@@ -226,9 +251,6 @@ class BuildStartStage(generic_stages.BuilderStage):
       logging.info('Already have build_id %s, not inserting an entry.',
                    d['build_id'])
       return
-
-    graphite.StatsFactory.GetInstance().Counter('build_started').increment(
-        self._run.config['name'] or 'NO_CONFIG')
 
     # Note: In other build stages we use self._run.GetCIDBHandle to fetch
     # a cidb handle. However, since we don't yet have a build_id, we can't
@@ -613,12 +635,12 @@ class ReportStage(generic_stages.BuilderStage,
 
   def _SendPreCQInfraAlertMessageIfNeeded(self):
     """Send alerts on Pre-CQ infra failures."""
-    msg = completion_stages.CreateBuildFailureMessage(
-        self._run.config.overlays,
-        self._run.config.name,
-        self._run.ConstructDashboardURL())
+    msg = self.GetBuildFailureMessage()
     pre_cq = self._run.config.pre_cq
-    if pre_cq and msg.HasFailureType(failures_lib.InfrastructureFailure):
+    if (pre_cq and
+        msg.HasExceptionCategories(
+            {constants.EXCEPTION_CATEGORY_INFRA,
+             constants.EXCEPTION_CATEGORY_LAB})):
       name = self._run.config.name
       title = 'pre-cq infra failures'
       body = ['%s failed on %s' % (name, cros_build_lib.GetHostName()),
@@ -866,6 +888,10 @@ class ReportStage(generic_stages.BuilderStage,
       if build_id is not None:
         details_link = tree_status.ConstructViceroyBuildDetailsURL(build_id)
         logging.PrintBuildbotLink('Build details', details_link)
+        suite_details_link = tree_status.ConstructViceroySuiteDetailsURL(
+            build_id=build_id)
+        logging.PrintBuildbotLink('Build details', details_link)
+        logging.PrintBuildbotLink('Suite details', suite_details_link)
 
       # Generate links to archived artifacts if there are any.  All the
       # archived artifacts for one run/config are in one location, so the link
@@ -995,13 +1021,18 @@ class ReportStage(generic_stages.BuilderStage,
     results_lib.Results.Report(
         sys.stdout, current_version=(self._run.attrs.release_tag or ''))
 
-    # Upload goma log if used. Currently BuildPackage uses this.
-    # TODO(hidehiko): Report another log set, when SimpleChrome starts to use
-    # goma on bots, too.
-    goma_tmp_dir = self._run.attrs.metadata.GetValueWithDefault('goma_tmp_dir')
-    if goma_tmp_dir:
-      upload_goma_info.GomaLogUploader(
-          goma_log_dir=os.path.join(goma_tmp_dir, 'log_dir')).Upload()
+    # Upload goma log if used for BuildPackage and TestSimpleChrome.
+    _UploadAndLinkGomaLogIfNecessary(
+        'BuildPackages',
+        self._run.options.goma_dir,
+        self._run.options.goma_client_json,
+        self._run.attrs.metadata.GetValueWithDefault('goma_tmp_dir'))
+    _UploadAndLinkGomaLogIfNecessary(
+        'TestSimpleChromeWorkflow',
+        self._run.options.goma_dir,
+        self._run.options.goma_client_json,
+        self._run.attrs.metadata.GetValueWithDefault(
+            'goma_tmp_dir_for_simple_chrome'))
 
     if db:
       status_for_db = final_status
@@ -1154,34 +1185,31 @@ class DetectRelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
 
     return subsystem_set
 
-  def _RecordIrrelevantChanges(self, changes):
-    """Records |changes| irrelevant to the slave build into cidb.
+  def _RecordActionForChanges(self, changes, action):
+    """Records |changes| action to the slave build into cidb.
 
     Args:
       builder_run: BuilderRun instance for this build.
-      changes: A set of irrelevant changes to record.
+      changes: A set of changes to record.
+      action: The action for the changes to record (must be one of
+        constants.CL_ACTIONS).
     """
-    if not changes:
-      logging.info('All changes are considered relevant to this build.')
-      return
-
-    logging.info('The following changes are irrelevant to this build: %s',
-                 cros_patch.GetChangesAsString(changes))
-
     build_id, db = self._run.GetCIDBHandle()
     if db:
       cl_actions = [clactions.CLAction.FromGerritPatchAndAction(
-          change, constants.CL_ACTION_IRRELEVANT_TO_SLAVE)
-                    for change in changes]
+          change, action) for change in changes]
       db.InsertCLActions(build_id, cl_actions)
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     """Run DetectRelevantChangesStage."""
-    irrelevant_changes = None
+    irrelevant_changes = set()
+    relevant_changes = set(self.changes)
+
     if not self._run.config.master:
       # Slave writes the irrelevant changes to current board to metadata.
       irrelevant_changes = self._GetIrrelevantChangesBoardBase(self.changes)
+      relevant_changes = relevant_changes - irrelevant_changes
       change_dict_list = [c.GetAttributeDict() for c in irrelevant_changes]
       change_dict_list = sorted(change_dict_list,
                                 key=lambda x: (x[cros_patch.ATTR_GERRIT_NUMBER],
@@ -1200,9 +1228,19 @@ class DetectRelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
         # irrelevant changes to metadata in the DetectRelevantChanges stage.
 
         # Record the irrelevant changes to CIDB.
-        self._RecordIrrelevantChanges(irrelevant_changes)
+        self._RecordActionForChanges(
+            irrelevant_changes, constants.CL_ACTION_IRRELEVANT_TO_SLAVE)
 
-    relevant_changes = list(set(self.changes) - irrelevant_changes)
+        if not irrelevant_changes:
+          logging.info('No changes are considered irrelevant to this build.')
+        else:
+          logging.info('The following changes are irrelevant to this build: %s',
+                       cros_patch.GetChangesAsString(irrelevant_changes))
+
+        # Record the relevant changes to CIDB.
+        self._RecordActionForChanges(
+            relevant_changes, constants.CL_ACTION_RELEVANT_TO_SLAVE)
+
     if relevant_changes:
       logging.info('Below are the relevant changes for board: %s.',
                    self._current_board)

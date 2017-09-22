@@ -5,14 +5,17 @@
 import logging
 import os
 
+import py_utils
 from py_utils import binary_manager
 from py_utils import dependency_util
 import dependency_manager
+from dependency_manager import base_config
+
 from devil import devil_env
+
 
 from telemetry.core import exceptions
 from telemetry.core import util
-from telemetry.core import platform as platform_module
 
 
 TELEMETRY_PROJECT_CONFIG = os.path.join(
@@ -98,9 +101,8 @@ def FetchBinaryDependencies(platform, client_configs,
   host_platform = None
   fetch_devil_deps = False
   if platform.GetOSName() == 'android':
-    host_platform = '%s_%s' % (
-        platform_module.GetHostPlatform().GetOSName(),
-        platform_module.GetHostPlatform().GetArchName())
+    host_platform = '%s_%s' % (py_utils.GetHostOsName(),
+        py_utils.GetHostArchName())
     dep_manager.PrefetchPaths(host_platform)
     # TODO(aiolos): this is a hack to prefetch the devil deps.
     if host_platform == 'linux_x86_64':
@@ -151,3 +153,33 @@ def _FetchReferenceBrowserBinary(platform):
   else:
     manager.FetchPath(
         'chrome_stable', os_name, arch_name)
+
+
+def UpdateDependency(dependency, dep_local_path, version,
+                     os_name=None, arch_name=None):
+  config = os.path.join(util.GetTelemetryDir(), 'telemetry', 'internal',
+      'binary_dependencies.json')
+
+  if not os_name:
+    assert not arch_name, 'arch_name is specified but not os_name'
+    os_name = py_utils.GetHostOsName()
+    arch_name = py_utils.GetHostArchName()
+  else:
+    assert arch_name, 'os_name is specified but not arch_name'
+
+  dep_platform = '%s_%s' % (os_name, arch_name)
+
+  c = base_config.BaseConfig(config, writable=True)
+  try:
+    old_version = c.GetVersion(dependency, dep_platform)
+    print 'Updating from version: {}'.format(old_version)
+  except ValueError:
+    raise RuntimeError(
+        ('binary_dependencies.json entry for %s missing or invalid; please add '
+        'it first! (need download_path and path_within_archive)') %
+        dep_platform)
+
+  if dep_local_path:
+    c.AddCloudStorageDependencyUpdateJob(
+        dependency, dep_platform, dep_local_path, version=version,
+        execute_job=True)

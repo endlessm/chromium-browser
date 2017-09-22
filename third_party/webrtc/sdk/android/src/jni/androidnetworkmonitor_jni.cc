@@ -14,11 +14,11 @@
 // This was added in Lollipop to dlfcn.h
 #define RTLD_NOLOAD 4
 
+#include "webrtc/rtc_base/bind.h"
+#include "webrtc/rtc_base/checks.h"
+#include "webrtc/rtc_base/ipaddress.h"
 #include "webrtc/sdk/android/src/jni/classreferenceholder.h"
 #include "webrtc/sdk/android/src/jni/jni_helpers.h"
-#include "webrtc/base/bind.h"
-#include "webrtc/base/checks.h"
-#include "webrtc/base/ipaddress.h"
 
 namespace webrtc_jni {
 
@@ -27,7 +27,6 @@ enum AndroidSdkVersion {
   SDK_VERSION_MARSHMALLOW = 23
 };
 
-jobject AndroidNetworkMonitor::application_context_ = nullptr;
 int AndroidNetworkMonitor::android_sdk_int_ = 0;
 
 static NetworkType GetNetworkTypeFromJava(JNIEnv* jni, jobject j_network_type) {
@@ -163,14 +162,6 @@ std::string NetworkInformation::ToString() const {
   return ss.str();
 }
 
-// static
-void AndroidNetworkMonitor::SetAndroidContext(JNIEnv* jni, jobject context) {
-  if (application_context_) {
-    jni->DeleteGlobalRef(application_context_);
-  }
-  application_context_ = NewGlobalRef(jni, context);
-}
-
 AndroidNetworkMonitor::AndroidNetworkMonitor()
     : j_network_monitor_class_(jni(),
                                FindClass(jni(), "org/webrtc/NetworkMonitor")),
@@ -178,13 +169,10 @@ AndroidNetworkMonitor::AndroidNetworkMonitor()
           jni(),
           jni()->CallStaticObjectMethod(
               *j_network_monitor_class_,
-              GetStaticMethodID(
-                  jni(),
-                  *j_network_monitor_class_,
-                  "init",
-                  "(Landroid/content/Context;)Lorg/webrtc/NetworkMonitor;"),
-              application_context_)) {
-  RTC_DCHECK(application_context_ != nullptr);
+              GetStaticMethodID(jni(),
+                                *j_network_monitor_class_,
+                                "getInstance",
+                                "()Lorg/webrtc/NetworkMonitor;"))) {
   CHECK_EXCEPTION(jni()) << "Error during NetworkMonitor.init";
   if (android_sdk_int_ <= 0) {
     jmethodID m = GetStaticMethodID(jni(), *j_network_monitor_class_,
@@ -240,6 +228,10 @@ rtc::NetworkBindingResult AndroidNetworkMonitor::BindSocketToNetwork(
     int socket_fd,
     const rtc::IPAddress& address) {
   RTC_CHECK(thread_checker_.CalledOnValidThread());
+
+  if (socket_fd == 0 /* NETWORK_UNSPECIFIED */) {
+    return rtc::NetworkBindingResult::NOT_IMPLEMENTED;
+  }
 
   jmethodID network_binding_supported_id = GetMethodID(
       jni(), *j_network_monitor_class_, "networkBindingSupported", "()Z");

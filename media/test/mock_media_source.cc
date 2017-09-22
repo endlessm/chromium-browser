@@ -4,6 +4,8 @@
 
 #include "media/test/mock_media_source.h"
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "media/base/test_data_util.h"
 #include "media/base/timestamp_constants.h"
@@ -11,7 +13,6 @@
 namespace media {
 
 constexpr char kSourceId[] = "SourceId";
-const size_t kAppendWholeFile = std::numeric_limits<size_t>::max();
 
 MockMediaSource::MockMediaSource(const std::string& filename,
                                  const std::string& mimetype,
@@ -21,6 +22,7 @@ MockMediaSource::MockMediaSource(const std::string& filename,
       mimetype_(mimetype),
       chunk_demuxer_(new ChunkDemuxer(
           base::Bind(&MockMediaSource::DemuxerOpened, base::Unretained(this)),
+          base::Bind(&base::DoNothing),
           base::Bind(&MockMediaSource::OnEncryptedMediaInitData,
                      base::Unretained(this)),
           &media_log_)),
@@ -30,8 +32,8 @@ MockMediaSource::MockMediaSource(const std::string& filename,
   if (initial_append_size_ == kAppendWholeFile)
     initial_append_size_ = file_data_->data_size();
 
-  DCHECK_GT(initial_append_size_, 0u);
-  DCHECK_LE(initial_append_size_, file_data_->data_size());
+  CHECK_GT(initial_append_size_, 0u);
+  CHECK_LE(initial_append_size_, file_data_->data_size());
 }
 
 MockMediaSource::~MockMediaSource() {}
@@ -48,7 +50,7 @@ void MockMediaSource::Seek(base::TimeDelta seek_time,
   chunk_demuxer_->ResetParserState(kSourceId, base::TimeDelta(),
                                    kInfiniteDuration, &last_timestamp_offset_);
 
-  DCHECK_LT(new_position, file_data_->data_size());
+  CHECK_LT(new_position, file_data_->data_size());
   current_position_ = new_position;
 
   AppendData(seek_append_size);
@@ -59,9 +61,9 @@ void MockMediaSource::Seek(base::TimeDelta seek_time) {
 }
 
 void MockMediaSource::AppendData(size_t size) {
-  DCHECK(chunk_demuxer_);
-  DCHECK_LT(current_position_, file_data_->data_size());
-  DCHECK_LE(current_position_ + size, file_data_->data_size());
+  CHECK(chunk_demuxer_);
+  CHECK_LT(current_position_, file_data_->data_size());
+  CHECK_LE(current_position_ + size, file_data_->data_size());
 
   ASSERT_TRUE(chunk_demuxer_->AppendData(
       kSourceId, file_data_->data() + current_position_, size,
@@ -138,6 +140,10 @@ void MockMediaSource::DemuxerOpenedTask() {
       kSourceId, base::Bind(&MockMediaSource::InitSegmentReceived,
                             base::Unretained(this)));
 
+  chunk_demuxer_->SetParseWarningCallback(
+      kSourceId,
+      base::Bind(&MockMediaSource::OnParseWarningMock, base::Unretained(this)));
+
   AppendData(initial_append_size_);
 }
 
@@ -170,7 +176,7 @@ ChunkDemuxer::Status MockMediaSource::AddId() {
 void MockMediaSource::OnEncryptedMediaInitData(
     EmeInitDataType init_data_type,
     const std::vector<uint8_t>& init_data) {
-  DCHECK(!init_data.empty());
+  CHECK(!init_data.empty());
   CHECK(!encrypted_media_init_data_cb_.is_null());
   encrypted_media_init_data_cb_.Run(init_data_type, init_data);
 }

@@ -112,7 +112,7 @@ def GetApprovalSummary(_opts, cls):
       if not cat in approvs:
         # Ignore the extended categories in the summary view.
         continue
-      elif approvs[cat] is '':
+      elif approvs[cat] == '':
         approvs[cat] = val
       elif val < 0:
         approvs[cat] = min(approvs[cat], val)
@@ -130,7 +130,7 @@ def PrettyPrintCl(opts, cl, lims=None, show_approvals=True):
   if show_approvals and not opts.verbose:
     approvs = GetApprovalSummary(opts, cl)
     for cat in GERRIT_SUMMARY_CATS:
-      if approvs[cat] is '':
+      if approvs[cat] in ('', 0):
         functor = lambda x: x
       elif approvs[cat] < 0:
         functor = red
@@ -210,6 +210,8 @@ def FilteredQuery(opts, query):
 
     ret.append(cl)
 
+  if opts.sort == 'unsorted':
+    return ret
   if opts.sort == 'number':
     key = lambda x: int(x[opts.sort])
   else:
@@ -505,7 +507,8 @@ Actions:"""
                       help=('Gerrit (on borg) instance to query (default: %s)' %
                             (site_config.params.EXTERNAL_GOB_INSTANCE)))
   parser.add_argument('--sort', default='number',
-                      help='Key to sort on (number, project)')
+                      help='Key to sort on (number, project); use "unsorted" '
+                           'to disable')
   parser.add_argument('--raw', default=False, action='store_true',
                       help='Return raw results (suitable for scripting)')
   parser.add_argument('--json', default=False, action='store_true',

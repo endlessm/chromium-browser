@@ -18,12 +18,32 @@ found in the LICENSE file.
         display: flex;
         margin: 5px;
       }
+
+      #feedback {
+        text-align: right;
+      }
+
+      #loading_error {
+        color: red;
+        display: none;
+        font-weight: bold;
+      }
     </style>
+
+    <div id="feedback">
+      <a href="https://goo.gl/forms/BJM8ZKW3m8ZC7tYZ2">Send feedback</a>
+    </div>
 
     <div id="nav-container">
       <test-picker id="test-picker" xsrf-token="{{xsrfToken}}"
                    test-suites="{{testSuites}}"></test-picker>
     </div>
+
+    <div id="loading_error">
+      Some charts failed to load. Either they don't exist, or they are
+      empty, or they are accessible only for signed-in google.com accounts.
+    </div>
+
     <section id="charts-container"></section>
 
     <div id="toasts" hidden>
@@ -156,6 +176,11 @@ found in the LICENSE file.
             const element = d.SeriesGroup.fromLegacyChartStateElement(
                 legacyElement);
             elements.push(element);
+            element.then(seriesGroup => {
+              if (seriesGroup.anyMissing) {
+                this.$.loading_error.style.display = 'block';
+              }
+            });
           }
           chartStates.push(Promise.all(elements));
         }

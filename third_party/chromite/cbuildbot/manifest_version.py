@@ -17,13 +17,13 @@ from xml.dom import minidom
 
 from chromite.cbuildbot import build_status
 from chromite.cbuildbot import repository
+from chromite.lib import buildbucket_lib
 from chromite.lib import builder_status_lib
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
-from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import timeout_util
 
@@ -593,16 +593,26 @@ class BuildSpecsManager(object):
 
     Returns:
       A dict mapping build_config names (strings) to
-        builder_status_lib.BuilderStatus instances.
+        builder_status_lib.BuilderStatus instances; or an empty dict if no
+        slaves were scheduled.
     """
-    logging.info('Getting slave BuilderStatuses for %s', master_build_id)
+    if (self.config is not None and
+        self.metadata is not None and
+        config_lib.UseBuildbucketScheduler(self.config)):
+      scheduled_buildbucket_info_dict = buildbucket_lib.GetBuildInfoDict(
+          self.metadata)
+      builders_array = scheduled_buildbucket_info_dict.keys()
+
+    logging.info('Getting slave BuilderStatuses for builders array: %s',
+                 builders_array)
+
+    if not builders_array:
+      return {}
+
     start_time = datetime.datetime.now()
 
     def _PrintRemainingTime(remaining):
       logging.info('%s until timeout...', remaining)
-
-    # Check for build completion until all builders report in.
-    builds_timed_out = False
 
     slave_status = build_status.SlaveStatus(
         start_time, builders_array, master_build_id, db,
@@ -621,8 +631,30 @@ class BuildSpecsManager(object):
           period=self.SLEEP_TIMEOUT,
           side_effect_func=_PrintRemainingTime)
     except timeout_util.TimeoutError:
-      builds_timed_out = True
+      logging.error('Not all builds finished before timeout (%d minutes)'
+                    ' reached.', int((timeout / 60) + 0.5))
 
+    if self.metadata:
+      experimental_builders = self.metadata.GetValueWithDefault(
+          constants.METADATA_EXPERIMENTAL_BUILDERS)
+      builders_array = [
+          builder for builder in builders_array
+          if builder not in experimental_builders
+      ]
+    return self._GetSlaveBuilderStatus(master_build_id, db, builders_array)
+
+  def _GetSlaveBuilderStatus(self, master_build_id, db, builders_array):
+    """Get BuilderStatus for slaves.
+
+    Args:
+      master_build_id: The build id of the master build.
+      db: An instance of cidb.CIDBConnection.
+      builders_array: A list of build configs of the slaves.
+
+    Returns:
+      A dict mapping build configs (strings) to their
+        builder_status_lib.BuilderStatus instances.
+    """
     slave_builder_statuses = builder_status_lib.SlaveBuilderStatus(
         master_build_id, db, self.config, self.metadata,
         self.buildbucket_client, builders_array, self.dry_run)
@@ -639,11 +671,6 @@ class BuildSpecsManager(object):
           ' BuilderStatus.dashboard_url %s ' %
           (builder, builder_status.status, message,
            builder_status.dashboard_url))
-
-    if builds_timed_out:
-      logging.error('Not all builds finished before timeout (%d minutes)'
-                    ' reached.', int((timeout / 60) + 0.5))
-
     return slave_builder_status_dict
 
   def GetLatestPassingSpec(self):
@@ -734,72 +761,6 @@ class BuildSpecsManager(object):
     self.RefreshManifestCheckout()
     raise GenerateBuildSpecException(last_error)
 
-  def _UploadStatus(self, version, status, message=None, fail_if_exists=False,
-                    dashboard_url=None):
-    """Upload build status to Google Storage.
-
-    Args:
-      version: Version number to use. Must be a string.
-      status: Status string.
-      message: A failures_lib.BuildFailureMessage object with details
-               of builder failure, or None (default).
-      fail_if_exists: If set, fail if the status already exists.
-      dashboard_url: Optional url linking to builder dashboard for this build.
-    """
-    data = builder_status_lib.BuilderStatus(
-        status, message, dashboard_url).AsPickledDict()
-
-    gs_version = None
-    # This HTTP header tells Google Storage to return the PreconditionFailed
-    # error message if the file already exists. Unfortunately, with new versions
-    # of gsutil, PreconditionFailed is sometimes returned erroneously, so we've
-    # replaced this check with # an Exists check below instead.
-    # TODO(davidjames): Revert CL:223267 when Google Storage is fixed.
-    #if fail_if_exists:
-    #  gs_version = 0
-
-    logging.info('Recording status %s for %s', status, self.build_names)
-    for build_name in self.build_names:
-      url = builder_status_lib.BuilderStatusManager.GetStatusUrl(
-          build_name, version)
-
-      ctx = gs.GSContext(dry_run=self.dry_run)
-      # Check if the file already exists.
-      if fail_if_exists and not self.dry_run and ctx.Exists(url):
-        raise GenerateBuildSpecException('Builder already inflight')
-      # Do the actual upload.
-      ctx.Copy('-', url, input=data, version=gs_version)
-
-  def UploadStatus(self, success, message=None, dashboard_url=None):
-    """Uploads the status of the build for the current build spec.
-
-    Args:
-      success: True for success, False for failure
-      message: A failures_lib.BuildFailureMessage object with details
-               of builder failure, or None (default).
-      dashboard_url: Optional url linking to builder dashboard for this build.
-    """
-    status = builder_status_lib.BuilderStatus.GetCompletedStatus(success)
-    self._UploadStatus(self.current_version, status, message=message,
-                       dashboard_url=dashboard_url)
-
-  def SetInFlight(self, version, dashboard_url=None, fail_if_exists=True):
-    """Marks the buildspec as inflight in Google Storage.
-
-    Args:
-      version: Version number to use. Must be a string.
-      dashboard_url: Optional url linking to builder dashboard for this build.
-      fail_if_exists: If set, fail if the status already exists.
-    """
-    try:
-      self._UploadStatus(version, constants.BUILDER_STATUS_INFLIGHT,
-                         fail_if_exists=fail_if_exists,
-                         dashboard_url=dashboard_url)
-    except gs.GSContextPreconditionFailed:
-      raise GenerateBuildSpecException('Builder already inflight')
-    except gs.GSContextException as e:
-      raise GenerateBuildSpecException(e)
-
   def _SetPassSymlinks(self, success_map):
     """Marks the buildspec as passed by creating a symlink in passed dir.
 
@@ -822,15 +783,13 @@ class BuildSpecsManager(object):
     """Pushes any changes you have in the manifest directory."""
     _PushGitChanges(self.manifest_dir, commit_message, dry_run=self.dry_run)
 
-  def UpdateStatus(self, success_map, message=None, retries=NUM_RETRIES,
-                   dashboard_url=None):
+  def UpdateStatus(self, success_map, message=None, retries=NUM_RETRIES):
     """Updates the status of the build for the current build spec.
 
     Args:
       success_map: Map of config names to whether they succeeded.
       message: Message accompanied with change in status.
       retries: Number of retries for updating the status
-      dashboard_url: Optional url linking to builder dashboard for this build.
     """
     last_error = None
     if message:
@@ -849,6 +808,7 @@ class BuildSpecsManager(object):
         self._SetPassSymlinks(success_map)
 
         self.PushSpecChanges(commit_message)
+        return
       except cros_build_lib.RunCommandError as e:
         last_error = ('Failed to update the status for %s during remote'
                       ' command: %s' % (self.build_names[0],
@@ -856,10 +816,6 @@ class BuildSpecsManager(object):
         logging.error(last_error)
         logging.error('Retrying to update the status:  Retry %d/%d', index + 1,
                       retries)
-      else:
-        # Upload status to Google Storage as well.
-        self.UploadStatus(success, message=message, dashboard_url=dashboard_url)
-        return
 
     # Cleanse any failed local changes and throw an exception.
     self.RefreshManifestCheckout()

@@ -11,17 +11,17 @@
 #include "base/metrics/histogram_macros.h"
 #include "cc/output/copy_output_request.h"
 #include "cc/output/copy_output_result.h"
-#include "components/viz/display_compositor/gl_helper.h"
+#include "components/viz/common/gl_helper.h"
 #include "content/browser/compositor/image_transport_factory.h"
 #include "content/browser/media/capture/desktop_capture_device_uma_types.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/service_manager_connection.h"
-#include "device/wake_lock/public/interfaces/wake_lock_provider.mojom.h"
 #include "media/base/video_util.h"
 #include "media/capture/content/thread_safe_capture_oracle.h"
 #include "media/capture/content/video_capture_oracle.h"
 #include "media/capture/video_capture_types.h"
 #include "services/device/public/interfaces/constants.mojom.h"
+#include "services/device/public/interfaces/wake_lock_provider.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "skia/ext/image_operations.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -34,7 +34,6 @@
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/dip_util.h"
 #include "ui/compositor/layer.h"
-#include "ui/wm/public/activation_client.h"
 
 namespace content {
 
@@ -230,9 +229,9 @@ void AuraWindowCaptureMachine::Capture(base::TimeTicks event_time) {
           event, gfx::Rect(), event_time, &frame, &capture_frame_cb)) {
     std::unique_ptr<cc::CopyOutputRequest> request =
         cc::CopyOutputRequest::CreateRequest(
-            base::Bind(&AuraWindowCaptureMachine::DidCopyOutput,
-                       weak_factory_.GetWeakPtr(), std::move(frame), event_time,
-                       start_time, capture_frame_cb));
+            base::BindOnce(&AuraWindowCaptureMachine::DidCopyOutput,
+                           weak_factory_.GetWeakPtr(), std::move(frame),
+                           event_time, start_time, capture_frame_cb));
     gfx::Rect window_rect = gfx::Rect(desktop_window_->bounds().width(),
                                       desktop_window_->bounds().height());
     request->set_area(window_rect);
@@ -326,7 +325,7 @@ bool AuraWindowCaptureMachine::ProcessCopyOutputResponse(
     return false;
   }
 
-  cc::TextureMailbox texture_mailbox;
+  viz::TextureMailbox texture_mailbox;
   std::unique_ptr<cc::SingleReleaseCallback> release_callback;
   result->TakeTexture(&texture_mailbox, &release_callback);
   DCHECK(texture_mailbox.IsTexture());

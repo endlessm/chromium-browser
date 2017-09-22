@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import optparse
+import platform
 import py_utils
 import re
 import sys
@@ -249,7 +250,7 @@ class AtraceAgent(tracing_agents.TracingAgent):
     """Reads the output from atrace and stops the trace."""
     dump_cmd = self._tracer_args + ['--async_dump']
     result = self._device_utils.RunShellCommand(
-        dump_cmd, raw_output=True, check_return=True)
+        dump_cmd, raw_output=True, large_output=True, check_return=True)
 
     data_start = re.search(TRACE_START_REGEXP, result)
     if data_start:
@@ -277,10 +278,10 @@ class AtraceAgent(tracing_agents.TracingAgent):
       sys.exit(1)
 
     if _FIX_MISSING_TGIDS:
-      # Issue printf command to device and patch tgids
+      # Gather proc data from device and patch tgids
       procfs_dump = self._device_utils.RunShellCommand(
-          'printf "%s\n" /proc/[0-9]*/task/[0-9]*',
-          shell=True, check_return=True)
+          'echo -n /proc/[0-9]*/task/[0-9]*',
+          shell=True, check_return=True)[0].split(' ')
       pid2_tgid = extract_tgids(procfs_dump)
       trace_data = fix_missing_tgids(trace_data, pid2_tgid)
 
@@ -414,7 +415,10 @@ class AtraceConfig(tracing_agents.TracingConfig):
     self.trace_buf_size = trace_buf_size
     self.kfuncs = kfuncs
     self.app_name = app_name
-    self.compress_trace_data = compress_trace_data
+    # Trace compression is broken on Windows.
+    # TODO: Fix https://crbug.com/739751.
+    self.compress_trace_data = \
+        compress_trace_data and platform.system() != 'Windows'
     self.from_file = from_file
     self.device_serial_number = device_serial_number
     self.trace_time = trace_time

@@ -11,6 +11,7 @@ from telemetry.timeline import chrome_trace_category_filter
 from telemetry.util import wpr_modes
 from telemetry.web_perf import timeline_based_measurement as tbm_module
 from telemetry.web_perf.metrics import smoothness
+from tracing.value import histogram
 
 class TestTimelinebasedMeasurementPage(page_module.Page):
 
@@ -18,7 +19,8 @@ class TestTimelinebasedMeasurementPage(page_module.Page):
                trigger_jank=False, trigger_slow=False,
                trigger_scroll_gesture=False):
     super(TestTimelinebasedMeasurementPage, self).__init__(
-        'file://interaction_enabled_page.html', ps, base_dir)
+        'file://interaction_enabled_page.html', ps, base_dir,
+        name='interaction_enabled_page.html')
     self._trigger_animation = trigger_animation
     self._trigger_jank = trigger_jank
     self._trigger_slow = trigger_slow
@@ -42,7 +44,8 @@ class FailedTimelinebasedMeasurementPage(page_module.Page):
 
   def __init__(self, ps, base_dir):
     super(FailedTimelinebasedMeasurementPage, self).__init__(
-        'file://interaction_enabled_page.html', ps, base_dir)
+        'file://interaction_enabled_page.html', ps, base_dir,
+        name='interaction_enabled_page.html')
 
   def RunPageInteractions(self, action_runner):
     action_runner.TapElement('#does-not-exist')
@@ -127,17 +130,20 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     results = self.RunMeasurement(tbm, ps, self._options)
 
     self.assertEquals(0, len(results.failures))
-    self.assertEquals(2, len(results.value_set))
-    diagnostics = results.value_set[1]['diagnostics']
-    self.assertEquals(1, len(diagnostics))
-    telemetry_info = results.value_set[0]
-    self.assertEquals(telemetry_info['guid'], diagnostics['telemetry'])
-    self.assertEqual('TelemetryInfo', telemetry_info['type'])
-    self.assertEqual('', telemetry_info['benchmarkName'])
+
+    self.assertEquals(1, len(results.histograms))
+    telemetry_infos = results.histograms.GetSharedDiagnosticsOfType(
+        histogram.TelemetryInfo)
+    self.assertEquals(1, len(telemetry_infos))
+    telemetry_info = telemetry_infos[0]
+    self.assertEqual('', telemetry_info.benchmark_name)
     self.assertEqual('interaction_enabled_page.html',
-                     telemetry_info['storyDisplayName'])
-    self.assertNotIn('storyGroupingKeys', telemetry_info)
-    self.assertEqual(0, telemetry_info['storysetRepeatCounter'])
+                     telemetry_info.story_display_name)
+    self.assertEqual(0, telemetry_info.storyset_repeat_counter)
+    hist = list(results.histograms)[0]
+    trace_start = hist.diagnostics.get('trace start')
+    self.assertIsInstance(trace_start, histogram.DateRange)
+
     v_foo = results.FindAllPageSpecificValuesNamed('foo_avg')
     self.assertEquals(len(v_foo), 1)
     self.assertEquals(v_foo[0].value, 50)

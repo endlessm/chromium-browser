@@ -10,6 +10,18 @@ found in the LICENSE file.
 <script>
 'use strict';
 tr.exportTo('tr.v', function() {
+  function deleteMergedToDiagnostics(histogramArrayMap) {
+    for (const [name, histograms] of histogramArrayMap) {
+      if (histograms instanceof Array) {
+        for (const histogram of histograms) {
+          histogram.diagnostics.delete(tr.v.d.RESERVED_NAMES.MERGED_TO);
+        }
+      } else if (histograms instanceof Map) {
+        deleteMergedToDiagnostics(histograms);
+      }
+    }
+  }
+
   /*
    * See also HistogramSet.groupHistogramsRecursively().
    * See also tr.v.ui.HistogramSetTableRow.
@@ -24,7 +36,6 @@ tr.exportTo('tr.v', function() {
       this.depth = 0;
       this.subRows = [];
       this.columns = new Map();
-      this.overviewDataRange_ = undefined;
       this.mergeRelationshipsForColumn_ = new Map();
     }
 
@@ -69,23 +80,7 @@ tr.exportTo('tr.v', function() {
       // Delete "merged to" diagnostics from the original Histograms, or else
       // they'll accumulate as the user re-groups them, and slow down future
       // mergeRelationships operations.
-      for (const row of HistogramSetHierarchy.walkAll(rootRows)) {
-        // Walk directly down to the leaves in order to avoid touching
-        // original Histograms more than once.
-        if (row.subRows.length) continue;
-
-        for (const hist of row.columns.values()) {
-          if (!(hist instanceof tr.v.Histogram)) continue;
-
-          const mergedFrom = hist.diagnostics.get(
-              tr.v.MERGED_FROM_DIAGNOSTIC_KEY);
-          if (mergedFrom !== undefined) {
-            for (const other of mergedFrom) {
-              other.diagnostics.delete(tr.v.MERGED_TO_DIAGNOSTIC_KEY);
-            }
-          }
-        }
-      }
+      deleteMergedToDiagnostics(histogramArrayMap);
 
       for (const row of HistogramSetHierarchy.walkAll(rootRows)) {
         row.maybeRebin_();
@@ -165,7 +160,7 @@ tr.exportTo('tr.v', function() {
           // if the rows will only be able to display (unmergeable).
           const unmergeableHistograms = new tr.v.HistogramSet([histogram]);
           const mergedFrom = existing.diagnostics.get(
-              tr.v.d.MERGED_FROM_DIAGNOSTIC_KEY);
+              tr.v.d.RESERVED_NAMES.MERGED_FROM);
           if (mergedFrom !== undefined) {
             for (const origHist of mergedFrom) {
               unmergeableHistograms.addHistogram(origHist);
@@ -261,7 +256,7 @@ tr.exportTo('tr.v', function() {
             }
 
             const mergedFrom = testHist.diagnostics.get(
-                tr.v.d.MERGED_FROM_DIAGNOSTIC_KEY);
+                tr.v.d.RESERVED_NAMES.MERGED_FROM);
             if (mergedFrom !== undefined) {
               for (const origHist of mergedFrom) {
                 if (histograms.lookupHistogram(origHist.guid) !== undefined) {
@@ -283,30 +278,9 @@ tr.exportTo('tr.v', function() {
         clone.subRows = filteredSubRows;
         // Don't need to clone Histograms.
         clone.columns = row.columns;
-        clone.overviewDataRange_ = row.overviewDataRange_;
         results.push(clone);
       }
       return results;
-    }
-
-    get overviewDataRange() {
-      if (this.overviewDataRange_ === undefined) {
-        this.overviewDataRange_ = new tr.b.math.Range();
-        for (const [displayLabel, hist] of this.columns) {
-          if (hist instanceof tr.v.Histogram &&
-              hist.average !== undefined) {
-            this.overviewDataRange_.addValue(hist.average);
-          }
-
-          for (const subRow of this.subRows) {
-            const subHist = subRow.columns.get(displayLabel);
-            if (!(subHist instanceof tr.v.Histogram)) continue;
-            if (subHist.average === undefined) continue;
-            this.overviewDataRange_.addValue(subHist.average);
-          }
-        }
-      }
-      return this.overviewDataRange_;
     }
   }
 

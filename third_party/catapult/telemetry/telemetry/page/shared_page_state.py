@@ -87,8 +87,17 @@ class SharedPageState(story.SharedState):
       self.platform.network_controller.Close()
     self.platform.network_controller.InitializeIfNeeded(
         use_live_traffic=use_live_traffic)
+    use_wpr_go = False
+    if wpr_mode == wpr_modes.WPR_RECORD:
+      use_wpr_go = self._finder_options.use_wpr_go
+    elif self._finder_options.use_wpr_go:
+      raise ValueError('Cannot set --use-wpr-go for non recording mode')
+    elif wpr_mode == wpr_modes.WPR_REPLAY:
+      use_wpr_go = (story_set.wpr_archive_info and
+                    story_set.wpr_archive_info.is_using_wpr_go_archives)
     self.platform.network_controller.Open(wpr_mode,
-                                          browser_options.extra_wpr_args)
+                                          browser_options.extra_wpr_args,
+                                          use_wpr_go=use_wpr_go)
     self.platform.Initialize()
 
   @property
@@ -141,6 +150,7 @@ class SharedPageState(story.SharedState):
   def DidRunStory(self, results):
     if self._finder_options.profiler:
       self._StopProfiling(results)
+    self._AllowInteractionForStage('after-run-story')
     # We might hang while trying to close the connection, and need to guarantee
     # the page will get cleaned up to avoid future tests failing in weird ways.
     try:
@@ -163,8 +173,14 @@ class SharedPageState(story.SharedState):
   def platform(self):
     return self._possible_browser.platform
 
+  def _AllowInteractionForStage(self, stage):
+    if self._finder_options.pause == stage:
+      raw_input('Pausing for interaction at %s... Press Enter to continue.' %
+                stage)
+
   def _StartBrowser(self, page):
     assert self._browser is None
+    self._AllowInteractionForStage('before-start-browser')
     self._possible_browser.SetCredentialsPath(page.credentials_path)
 
     self._test.WillStartBrowser(self.platform)
@@ -176,6 +192,7 @@ class SharedPageState(story.SharedState):
     if self._first_browser:
       self._first_browser = False
       self.browser.credentials.WarnIfMissingCredentials(page)
+    self._AllowInteractionForStage('after-start-browser')
 
   def WillRunStory(self, page):
     if not self.platform.tracing_controller.is_tracing_running:
@@ -242,6 +259,7 @@ class SharedPageState(story.SharedState):
           download_bandwidth_kbps=s.download_bandwidth_kbps,
           upload_bandwidth_kbps=s.upload_bandwidth_kbps)
 
+    self._AllowInteractionForStage('before-run-story')
     # Start profiling if needed.
     if self._finder_options.profiler:
       self._StartProfiling(self._current_page)

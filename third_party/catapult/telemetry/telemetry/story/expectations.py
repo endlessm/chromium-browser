@@ -25,7 +25,7 @@ class StoryExpectations(object):
     self._Freeze()
 
   def GetBrokenExpectations(self, story_set):
-    story_set_story_names = [s.display_name for s in story_set.stories]
+    story_set_story_names = [s.name for s in story_set.stories]
     invalid_story_names = []
     for story_name in self._expectations:
       if story_name not in story_set_story_names:
@@ -66,7 +66,7 @@ class StoryExpectations(object):
 
     self._disabled_platforms.append((conditions, reason))
 
-  def IsBenchmarkDisabled(self, platform):
+  def IsBenchmarkDisabled(self, platform, finder_options):
     """Returns the reason the benchmark was disabled, or None if not disabled.
 
     Args:
@@ -74,7 +74,7 @@ class StoryExpectations(object):
     """
     for conditions, reason in self._disabled_platforms:
       for condition in conditions:
-        if condition.ShouldDisable(platform):
+        if condition.ShouldDisable(platform, finder_options):
           logging.info('Benchmark permanently disabled on %s due to %s.',
                        condition, reason)
           return reason
@@ -92,13 +92,17 @@ class StoryExpectations(object):
       reason: Reason for disabling the story.
     """
     assert reason, 'A reason for disabling must be given.'
-    assert len(story_name) < 50, (
-        "Story name exceeds limit of 50 characters. This limit is in place to "
-        "encourage Telemetry benchmark owners to use short, simple story names "
-        "(e.g. 'google_search_images', not "
-        "'http://www.google.com/images/1234/abc')."
+    # TODO(rnephew): Remove http check when old stories that use urls as names
+    # are removed.
+    if not story_name.startswith('http'):
+      # Decrease to 50 after we shorten names of existing tests.
+      assert len(story_name) < 75, (
+          "Story name exceeds limit of 75 characters. This limit is in place to"
+          " encourage Telemetry benchmark owners to use short, simple story "
+          "names (e.g. 'google_search_images', not "
+          "'http://www.google.com/images/1234/abc')."
 
-    )
+      )
     assert not self._frozen, ('Cannot disable stories on a frozen '
                               'StoryExpectation object.')
     for condition in conditions:
@@ -107,27 +111,27 @@ class StoryExpectations(object):
       self._expectations[story_name] = []
     self._expectations[story_name].append((conditions, reason))
 
-  def IsStoryDisabled(self, story, platform):
+  def IsStoryDisabled(self, story, platform, finder_options):
     """Returns the reason the story was disabled, or None if not disabled.
 
     Args:
-      story: Story object that contains a display_name property.
+      story: Story object that contains a name property.
       platform: A platform object.
 
     Returns:
       Reason if disabled, None otherwise.
     """
-    for conditions, reason in self._expectations.get(story.display_name, []):
+    for conditions, reason in self._expectations.get(story.name, []):
       for condition in conditions:
-        if condition.ShouldDisable(platform):
+        if condition.ShouldDisable(platform, finder_options):
           logging.info('%s is disabled on %s due to %s.',
-                       story.display_name, condition, reason)
+                       story.name, condition, reason)
           return reason
     return None
 
 
 class _TestCondition(object):
-  def ShouldDisable(self, platform):
+  def ShouldDisable(self, platform, finder_options):
     raise NotImplementedError
 
   def __str__(self):
@@ -139,7 +143,8 @@ class _TestConditionByPlatformList(_TestCondition):
     self._platforms = platforms
     self._name = name
 
-  def ShouldDisable(self, platform):
+  def ShouldDisable(self, platform, finder_options):
+    del finder_options  # Unused.
     return platform.GetOSName() in self._platforms
 
   def __str__(self):
@@ -147,7 +152,8 @@ class _TestConditionByPlatformList(_TestCondition):
 
 
 class _AllTestCondition(_TestCondition):
-  def ShouldDisable(self, _):
+  def ShouldDisable(self, platform, finder_options):
+    del platform, finder_options  # Unused.
     return True
 
   def __str__(self):
@@ -156,7 +162,8 @@ class _AllTestCondition(_TestCondition):
 
 class _TestConditionAndroidSvelte(_TestCondition):
   """Matches android devices with a svelte (low-memory) build."""
-  def ShouldDisable(self, platform):
+  def ShouldDisable(self, platform, finder_options):
+    del finder_options  # Unused.
     return platform.GetOSName() == 'android' and platform.IsSvelte()
 
   def __str__(self):
@@ -168,12 +175,20 @@ class _TestConditionByAndroidModel(_TestCondition):
     self._model = model
     self._name = name if name else model
 
-  def ShouldDisable(self, platform):
+  def ShouldDisable(self, platform, finder_options):
     return (platform.GetOSName() == 'android' and
             self._model in platform.GetDeviceTypeName())
 
   def __str__(self):
     return self._name
+
+class _TestConditionAndroidWebview(_TestCondition):
+  def ShouldDisable(self, platform, finder_options):
+    return (platform.GetOSName() == 'android' and
+            finder_options.browser_type == 'android-webview')
+
+  def __str__(self):
+    return 'Android Webview'
 
 
 ALL = _AllTestCondition()
@@ -192,3 +207,4 @@ ANDROID_NEXUS7 = _TestConditionByAndroidModel('Nexus 7')
 ANDROID_ONE = _TestConditionByAndroidModel(
     'W6210', 'Cherry Mobile Android One')
 ANDROID_SVELTE = _TestConditionAndroidSvelte()
+ANDROID_WEBVIEW = _TestConditionAndroidWebview()

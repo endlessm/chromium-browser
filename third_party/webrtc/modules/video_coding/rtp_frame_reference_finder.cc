@@ -13,10 +13,10 @@
 #include <algorithm>
 #include <limits>
 
-#include "webrtc/base/checks.h"
-#include "webrtc/base/logging.h"
 #include "webrtc/modules/video_coding/frame_object.h"
 #include "webrtc/modules/video_coding/packet_buffer.h"
+#include "webrtc/rtc_base/checks.h"
+#include "webrtc/rtc_base/logging.h"
 
 namespace webrtc {
 namespace video_coding {
@@ -264,11 +264,10 @@ RtpFrameReferenceFinder::FrameDecision RtpFrameReferenceFinder::ManageFrameVp8(
   // Find if there has been a gap in fully received frames and save the picture
   // id of those frames in |not_yet_received_frames_|.
   if (AheadOf<uint16_t, kPicIdLength>(frame->picture_id, last_picture_id_)) {
-    last_picture_id_ = Add<kPicIdLength>(last_picture_id_, 1);
-    while (last_picture_id_ != frame->picture_id) {
-      not_yet_received_frames_.insert(last_picture_id_);
+    do {
       last_picture_id_ = Add<kPicIdLength>(last_picture_id_, 1);
-    }
+      not_yet_received_frames_.insert(last_picture_id_);
+    } while (last_picture_id_ != frame->picture_id);
   }
 
   // Clean up info for base layers that are too old.

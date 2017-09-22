@@ -62,9 +62,9 @@ class PartialIDctTest : public ::testing::TestWithParam<PartialInvTxfmParam> {
   virtual ~PartialIDctTest() {}
   virtual void SetUp() {
     rnd_.Reset(ACMRandom::DeterministicSeed());
-    ftxfm_ = GET_PARAM(0);
-    full_itxfm_ = GET_PARAM(1);
-    partial_itxfm_ = GET_PARAM(2);
+    fwd_txfm_ = GET_PARAM(0);
+    full_inv_txfm_ = GET_PARAM(1);
+    partial_inv_txfm_ = GET_PARAM(2);
     tx_size_ = GET_PARAM(3);
     last_nonzero_ = GET_PARAM(4);
     bit_depth_ = GET_PARAM(5);
@@ -128,12 +128,12 @@ class PartialIDctTest : public ::testing::TestWithParam<PartialInvTxfmParam> {
   }
 
   void InitInput() {
-    const int max_coeff = (32766 << (bit_depth_ - 8)) / 4;
-    int max_energy_leftover = max_coeff * max_coeff;
+    const int64_t max_coeff = (32766 << (bit_depth_ - 8)) / 4;
+    int64_t max_energy_leftover = max_coeff * max_coeff;
     for (int j = 0; j < last_nonzero_; ++j) {
       tran_low_t coeff = static_cast<tran_low_t>(
           sqrt(1.0 * max_energy_leftover) * (rnd_.Rand16() - 32768) / 65536);
-      max_energy_leftover -= coeff * coeff;
+      max_energy_leftover -= static_cast<int64_t>(coeff) * coeff;
       if (max_energy_leftover < 0) {
         max_energy_leftover = 0;
         coeff = 0;
@@ -161,6 +161,14 @@ class PartialIDctTest : public ::testing::TestWithParam<PartialInvTxfmParam> {
           }
         }
       }
+
+      printf("\ninput_block_:\n");
+      for (int y = 0; y < size_; y++) {
+        for (int x = 0; x < size_; x++) {
+          printf("%6d,", input_block_[y * size_ + x]);
+        }
+        printf("\n");
+      }
     }
   }
 
@@ -177,9 +185,9 @@ class PartialIDctTest : public ::testing::TestWithParam<PartialInvTxfmParam> {
   int output_block_size_;
   int bit_depth_;
   int mask_;
-  FwdTxfmFunc ftxfm_;
-  InvTxfmWithBdFunc full_itxfm_;
-  InvTxfmWithBdFunc partial_itxfm_;
+  FwdTxfmFunc fwd_txfm_;
+  InvTxfmWithBdFunc full_inv_txfm_;
+  InvTxfmWithBdFunc partial_inv_txfm_;
   ACMRandom rnd_;
 };
 
@@ -213,7 +221,7 @@ TEST_P(PartialIDctTest, RunQuantCheck) {
       }
     }
 
-    ftxfm_(input_extreme_block, output_ref_block, size_);
+    fwd_txfm_(input_extreme_block, output_ref_block, size_);
 
     // quantization with minimum allowed step sizes
     input_block_[0] = (output_ref_block[0] / 4) * 4;
@@ -223,9 +231,9 @@ TEST_P(PartialIDctTest, RunQuantCheck) {
     }
 
     ASM_REGISTER_STATE_CHECK(
-        full_itxfm_(input_block_, output_block_ref_, stride_, bit_depth_));
+        full_inv_txfm_(input_block_, output_block_ref_, stride_, bit_depth_));
     ASM_REGISTER_STATE_CHECK(
-        partial_itxfm_(input_block_, output_block_, stride_, bit_depth_));
+        partial_inv_txfm_(input_block_, output_block_, stride_, bit_depth_));
     ASSERT_EQ(0, memcmp(output_block_ref_, output_block_,
                         pixel_size_ * output_block_size_))
         << "Error: partial inverse transform produces different results";
@@ -238,9 +246,9 @@ TEST_P(PartialIDctTest, ResultsMatch) {
     InitInput();
 
     ASM_REGISTER_STATE_CHECK(
-        full_itxfm_(input_block_, output_block_ref_, stride_, bit_depth_));
+        full_inv_txfm_(input_block_, output_block_ref_, stride_, bit_depth_));
     ASM_REGISTER_STATE_CHECK(
-        partial_itxfm_(input_block_, output_block_, stride_, bit_depth_));
+        partial_inv_txfm_(input_block_, output_block_, stride_, bit_depth_));
     ASSERT_EQ(0, memcmp(output_block_ref_, output_block_,
                         pixel_size_ * output_block_size_))
         << "Error: partial inverse transform produces different results";
@@ -255,9 +263,9 @@ TEST_P(PartialIDctTest, AddOutputBlock) {
     }
 
     ASM_REGISTER_STATE_CHECK(
-        full_itxfm_(input_block_, output_block_ref_, stride_, bit_depth_));
+        full_inv_txfm_(input_block_, output_block_ref_, stride_, bit_depth_));
     ASM_REGISTER_STATE_CHECK(
-        partial_itxfm_(input_block_, output_block_, stride_, bit_depth_));
+        partial_inv_txfm_(input_block_, output_block_, stride_, bit_depth_));
     ASSERT_EQ(0, memcmp(output_block_ref_, output_block_,
                         pixel_size_ * output_block_size_))
         << "Error: Transform results are not correctly added to output.";
@@ -278,9 +286,9 @@ TEST_P(PartialIDctTest, SingleExtremeCoeff) {
       input_block_[vp9_default_scan_orders[tx_size_].scan[i]] = coeff;
 
       ASM_REGISTER_STATE_CHECK(
-          full_itxfm_(input_block_, output_block_ref_, stride_, bit_depth_));
+          full_inv_txfm_(input_block_, output_block_ref_, stride_, bit_depth_));
       ASM_REGISTER_STATE_CHECK(
-          partial_itxfm_(input_block_, output_block_, stride_, bit_depth_));
+          partial_inv_txfm_(input_block_, output_block_, stride_, bit_depth_));
       ASSERT_EQ(0, memcmp(output_block_ref_, output_block_,
                           pixel_size_ * output_block_size_))
           << "Error: Fails with single coeff of " << coeff << " at " << i
@@ -297,12 +305,12 @@ TEST_P(PartialIDctTest, DISABLED_Speed) {
 
   for (int i = 0; i < kCountSpeedTestBlock; ++i) {
     ASM_REGISTER_STATE_CHECK(
-        full_itxfm_(input_block_, output_block_ref_, stride_, bit_depth_));
+        full_inv_txfm_(input_block_, output_block_ref_, stride_, bit_depth_));
   }
   vpx_usec_timer timer;
   vpx_usec_timer_start(&timer);
   for (int i = 0; i < kCountSpeedTestBlock; ++i) {
-    partial_itxfm_(input_block_, output_block_, stride_, bit_depth_);
+    partial_inv_txfm_(input_block_, output_block_, stride_, bit_depth_);
   }
   libvpx_test::ClearSystemState();
   vpx_usec_timer_mark(&timer);
@@ -469,7 +477,9 @@ const PartialInvTxfmParam c_partial_idct_tests[] = {
 INSTANTIATE_TEST_CASE_P(C, PartialIDctTest,
                         ::testing::ValuesIn(c_partial_idct_tests));
 
-#if HAVE_NEON && !CONFIG_EMULATE_HARDWARE
+#if !CONFIG_EMULATE_HARDWARE
+
+#if HAVE_NEON
 const PartialInvTxfmParam neon_partial_idct_tests[] = {
 #if CONFIG_VP9_HIGHBITDEPTH
   make_tuple(&vpx_highbd_fdct32x32_c,
@@ -617,9 +627,9 @@ const PartialInvTxfmParam neon_partial_idct_tests[] = {
 
 INSTANTIATE_TEST_CASE_P(NEON, PartialIDctTest,
                         ::testing::ValuesIn(neon_partial_idct_tests));
-#endif  // HAVE_NEON && !CONFIG_EMULATE_HARDWARE
+#endif  // HAVE_NEON
 
-#if HAVE_SSE2 && !CONFIG_EMULATE_HARDWARE
+#if HAVE_SSE2
 // 32x32_135_ is implemented using the 1024 version.
 const PartialInvTxfmParam sse2_partial_idct_tests[] = {
 #if CONFIG_VP9_HIGHBITDEPTH
@@ -650,6 +660,15 @@ const PartialInvTxfmParam sse2_partial_idct_tests[] = {
   make_tuple(
       &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_10_add_c>,
       &highbd_wrapper<vpx_highbd_idct16x16_10_add_sse2>, TX_16X16, 10, 12, 2),
+  make_tuple(
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_1_add_c>,
+      &highbd_wrapper<vpx_highbd_idct16x16_1_add_sse2>, TX_16X16, 1, 8, 2),
+  make_tuple(
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_1_add_c>,
+      &highbd_wrapper<vpx_highbd_idct16x16_1_add_sse2>, TX_16X16, 1, 10, 2),
+  make_tuple(
+      &vpx_highbd_fdct16x16_c, &highbd_wrapper<vpx_highbd_idct16x16_1_add_c>,
+      &highbd_wrapper<vpx_highbd_idct16x16_1_add_sse2>, TX_16X16, 1, 12, 2),
   make_tuple(&vpx_highbd_fdct8x8_c,
              &highbd_wrapper<vpx_highbd_idct8x8_64_add_c>,
              &highbd_wrapper<vpx_highbd_idct8x8_64_add_sse2>, TX_8X8, 64, 8, 2),
@@ -668,6 +687,12 @@ const PartialInvTxfmParam sse2_partial_idct_tests[] = {
   make_tuple(
       &vpx_highbd_fdct8x8_c, &highbd_wrapper<vpx_highbd_idct8x8_12_add_c>,
       &highbd_wrapper<vpx_highbd_idct8x8_12_add_sse2>, TX_8X8, 12, 12, 2),
+  make_tuple(&vpx_highbd_fdct8x8_c, &highbd_wrapper<vpx_highbd_idct8x8_1_add_c>,
+             &highbd_wrapper<vpx_highbd_idct8x8_1_add_sse2>, TX_8X8, 1, 8, 2),
+  make_tuple(&vpx_highbd_fdct8x8_c, &highbd_wrapper<vpx_highbd_idct8x8_1_add_c>,
+             &highbd_wrapper<vpx_highbd_idct8x8_1_add_sse2>, TX_8X8, 1, 10, 2),
+  make_tuple(&vpx_highbd_fdct8x8_c, &highbd_wrapper<vpx_highbd_idct8x8_1_add_c>,
+             &highbd_wrapper<vpx_highbd_idct8x8_1_add_sse2>, TX_8X8, 1, 12, 2),
   make_tuple(&vpx_highbd_fdct4x4_c,
              &highbd_wrapper<vpx_highbd_idct4x4_16_add_c>,
              &highbd_wrapper<vpx_highbd_idct4x4_16_add_sse2>, TX_4X4, 16, 8, 2),
@@ -677,6 +702,12 @@ const PartialInvTxfmParam sse2_partial_idct_tests[] = {
   make_tuple(
       &vpx_highbd_fdct4x4_c, &highbd_wrapper<vpx_highbd_idct4x4_16_add_c>,
       &highbd_wrapper<vpx_highbd_idct4x4_16_add_sse2>, TX_4X4, 16, 12, 2),
+  make_tuple(&vpx_highbd_fdct4x4_c, &highbd_wrapper<vpx_highbd_idct4x4_1_add_c>,
+             &highbd_wrapper<vpx_highbd_idct4x4_1_add_sse2>, TX_4X4, 1, 8, 2),
+  make_tuple(&vpx_highbd_fdct4x4_c, &highbd_wrapper<vpx_highbd_idct4x4_1_add_c>,
+             &highbd_wrapper<vpx_highbd_idct4x4_1_add_sse2>, TX_4X4, 1, 10, 2),
+  make_tuple(&vpx_highbd_fdct4x4_c, &highbd_wrapper<vpx_highbd_idct4x4_1_add_c>,
+             &highbd_wrapper<vpx_highbd_idct4x4_1_add_sse2>, TX_4X4, 1, 12, 2),
 #endif  // CONFIG_VP9_HIGHBITDEPTH
   make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
              &wrapper<vpx_idct32x32_1024_add_sse2>, TX_32X32, 1024, 8, 1),
@@ -705,27 +736,40 @@ const PartialInvTxfmParam sse2_partial_idct_tests[] = {
 INSTANTIATE_TEST_CASE_P(SSE2, PartialIDctTest,
                         ::testing::ValuesIn(sse2_partial_idct_tests));
 
-#endif  // HAVE_SSE2 && !CONFIG_EMULATE_HARDWARE
+#endif  // HAVE_SSE2
 
-#if HAVE_SSSE3 && !CONFIG_EMULATE_HARDWARE
+#if HAVE_SSSE3
 const PartialInvTxfmParam ssse3_partial_idct_tests[] = {
-  make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
-             &wrapper<vpx_idct32x32_1024_add_ssse3>, TX_32X32, 1024, 8, 1),
   make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_135_add_c>,
              &wrapper<vpx_idct32x32_135_add_ssse3>, TX_32X32, 135, 8, 1),
   make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_34_add_c>,
              &wrapper<vpx_idct32x32_34_add_ssse3>, TX_32X32, 34, 8, 1),
-  make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_64_add_c>,
-             &wrapper<vpx_idct8x8_64_add_ssse3>, TX_8X8, 64, 8, 1),
   make_tuple(&vpx_fdct8x8_c, &wrapper<vpx_idct8x8_12_add_c>,
              &wrapper<vpx_idct8x8_12_add_ssse3>, TX_8X8, 12, 8, 1)
 };
 
 INSTANTIATE_TEST_CASE_P(SSSE3, PartialIDctTest,
                         ::testing::ValuesIn(ssse3_partial_idct_tests));
-#endif  // HAVE_SSSE3 && ARCH_X86_64 && !CONFIG_EMULATE_HARDWARE
+#endif  // HAVE_SSSE3
 
-#if HAVE_DSPR2 && !CONFIG_EMULATE_HARDWARE && !CONFIG_VP9_HIGHBITDEPTH
+#if HAVE_SSE4_1 && CONFIG_VP9_HIGHBITDEPTH
+const PartialInvTxfmParam sse4_1_partial_idct_tests[] = {
+  make_tuple(
+      &vpx_highbd_fdct4x4_c, &highbd_wrapper<vpx_highbd_idct4x4_16_add_c>,
+      &highbd_wrapper<vpx_highbd_idct4x4_16_add_sse4_1>, TX_4X4, 16, 8, 2),
+  make_tuple(
+      &vpx_highbd_fdct4x4_c, &highbd_wrapper<vpx_highbd_idct4x4_16_add_c>,
+      &highbd_wrapper<vpx_highbd_idct4x4_16_add_sse4_1>, TX_4X4, 16, 10, 2),
+  make_tuple(
+      &vpx_highbd_fdct4x4_c, &highbd_wrapper<vpx_highbd_idct4x4_16_add_c>,
+      &highbd_wrapper<vpx_highbd_idct4x4_16_add_sse4_1>, TX_4X4, 16, 12, 2)
+};
+
+INSTANTIATE_TEST_CASE_P(SSE4_1, PartialIDctTest,
+                        ::testing::ValuesIn(sse4_1_partial_idct_tests));
+#endif  // HAVE_SSE4_1 && CONFIG_VP9_HIGHBITDEPTH
+
+#if HAVE_DSPR2 && !CONFIG_VP9_HIGHBITDEPTH
 const PartialInvTxfmParam dspr2_partial_idct_tests[] = {
   make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
              &wrapper<vpx_idct32x32_1024_add_dspr2>, TX_32X32, 1024, 8, 1),
@@ -753,9 +797,9 @@ const PartialInvTxfmParam dspr2_partial_idct_tests[] = {
 
 INSTANTIATE_TEST_CASE_P(DSPR2, PartialIDctTest,
                         ::testing::ValuesIn(dspr2_partial_idct_tests));
-#endif  // HAVE_DSPR2 && !CONFIG_EMULATE_HARDWARE && !CONFIG_VP9_HIGHBITDEPTH
+#endif  // HAVE_DSPR2 && !CONFIG_VP9_HIGHBITDEPTH
 
-#if HAVE_MSA && !CONFIG_EMULATE_HARDWARE && !CONFIG_VP9_HIGHBITDEPTH
+#if HAVE_MSA && !CONFIG_VP9_HIGHBITDEPTH
 // 32x32_135_ is implemented using the 1024 version.
 const PartialInvTxfmParam msa_partial_idct_tests[] = {
   make_tuple(&vpx_fdct32x32_c, &wrapper<vpx_idct32x32_1024_add_c>,
@@ -784,6 +828,8 @@ const PartialInvTxfmParam msa_partial_idct_tests[] = {
 
 INSTANTIATE_TEST_CASE_P(MSA, PartialIDctTest,
                         ::testing::ValuesIn(msa_partial_idct_tests));
-#endif  // HAVE_MSA && !CONFIG_EMULATE_HARDWARE && !CONFIG_VP9_HIGHBITDEPTH
+#endif  // HAVE_MSA && !CONFIG_VP9_HIGHBITDEPTH
+
+#endif  // !CONFIG_EMULATE_HARDWARE
 
 }  // namespace

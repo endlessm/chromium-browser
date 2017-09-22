@@ -72,7 +72,6 @@
 #include "chrome/browser/downgrade/user_data_downgrade.h"
 #include "chrome/child/v8_breakpad_support_win.h"
 #include "chrome/common/child_process_logging.h"
-#include "chrome/install_static/install_util.h"
 #include "sandbox/win/src/sandbox.h"
 #include "ui/base/resource/resource_bundle_win.h"
 #endif
@@ -138,6 +137,7 @@
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
 #include "components/crash/content/app/breakpad_linux.h"
+#include "v8/include/v8.h"
 #endif
 
 #if defined(OS_LINUX)
@@ -192,6 +192,9 @@ extern int NaClMain(const content::MainFunctionParams&);
 extern int CloudPrintServiceProcessMain(const content::MainFunctionParams&);
 
 namespace {
+
+base::LazyInstance<ChromeMainDelegate::ServiceCatalogFactory>::Leaky
+    g_service_catalog_factory = LAZY_INSTANCE_INITIALIZER;
 
 #if defined(OS_WIN)
 // Early versions of Chrome incorrectly registered a chromehtml: URL handler,
@@ -387,18 +390,23 @@ struct MainFunction {
 // Initializes the user data dir. Must be called before InitializeLocalState().
 void InitializeUserDataDir(base::CommandLine* command_line) {
 #if defined(OS_WIN)
+  wchar_t user_data_dir_buf[MAX_PATH], invalid_user_data_dir_buf[MAX_PATH];
+
+  using GetUserDataDirectoryThunkFunction =
+      void (*)(wchar_t*, size_t, wchar_t*, size_t);
   HMODULE elf_module = GetModuleHandle(chrome::kChromeElfDllName);
   if (elf_module) {
     // If we're in a test, chrome_elf won't be loaded.
-
-    base::FilePath user_data_dir(install_static::GetUserDataDirectory());
-    // An empty user data directory means a failure (no fallback/default could
-    // be retrieved either).
-    CHECK(!user_data_dir.empty());
-    base::FilePath invalid_user_data_dir(
-        install_static::GetInvalidUserDataDirectory());
-    if (!invalid_user_data_dir.empty()) {
-      chrome::SetInvalidSpecifiedUserDataDir(invalid_user_data_dir);
+    GetUserDataDirectoryThunkFunction get_user_data_directory_thunk =
+        reinterpret_cast<GetUserDataDirectoryThunkFunction>(
+            GetProcAddress(elf_module, "GetUserDataDirectoryThunk"));
+    get_user_data_directory_thunk(
+        user_data_dir_buf, arraysize(user_data_dir_buf),
+        invalid_user_data_dir_buf, arraysize(invalid_user_data_dir_buf));
+    base::FilePath user_data_dir(user_data_dir_buf);
+    if (invalid_user_data_dir_buf[0] != 0) {
+      chrome::SetInvalidSpecifiedUserDataDir(
+          base::FilePath(invalid_user_data_dir_buf));
       command_line->AppendSwitchPath(switches::kUserDataDir, user_data_dir);
     }
     CHECK(PathService::OverrideAndCreateIfNeeded(chrome::DIR_USER_DATA,
@@ -523,6 +531,12 @@ ChromeMainDelegate::ChromeMainDelegate(base::TimeTicks exe_entry_point_ticks) {
 ChromeMainDelegate::~ChromeMainDelegate() {
 }
 
+// static
+void ChromeMainDelegate::InstallServiceCatalogFactory(
+    ServiceCatalogFactory factory) {
+  g_service_catalog_factory.Get() = std::move(factory);
+}
+
 bool ChromeMainDelegate::BasicStartupComplete(int* exit_code) {
 #if defined(OS_CHROMEOS)
   chromeos::BootTimesRecorder::Get()->SaveChromeMainStats();
@@ -560,6 +574,9 @@ bool ChromeMainDelegate::BasicStartupComplete(int* exit_code) {
 
 #if defined(OS_WIN) && !defined(CHROME_MULTIPLE_DLL_BROWSER)
   v8_breakpad_support::SetUp();
+#endif
+#if defined(OS_LINUX) && !defined(OS_ANDROID)
+  breakpad::SetFirstChanceExceptionHandler(v8::V8::TryHandleSignal);
 #endif
 
 #if defined(OS_POSIX)
@@ -868,6 +885,16 @@ void ChromeMainDelegate::PreSandboxStartup() {
     ResourceBundle::InitSharedInstanceWithPakFileRegion(base::File(pak_fd),
                                                         pak_region);
 
+    // Load secondary locale .pak file if it exists.
+    pak_fd = global_descriptors->MaybeGet(kAndroidSecondaryLocalePakDescriptor);
+    if (pak_fd != -1) {
+      pak_region = global_descriptors->GetRegion(
+          kAndroidSecondaryLocalePakDescriptor);
+      ResourceBundle::GetSharedInstance().
+          LoadSecondaryLocaleDataWithPakFileRegion(
+              base::File(pak_fd), pak_region);
+    }
+
     int extra_pak_keys[] = {
       kAndroidChrome100PercentPakDescriptor,
       kAndroidUIResourcesPakDescriptor,
@@ -1128,6 +1155,8 @@ service_manager::ProcessType ChromeMainDelegate::OverrideProcessType() {
 }
 
 std::unique_ptr<base::Value> ChromeMainDelegate::CreateServiceCatalog() {
+  if (!g_service_catalog_factory.Get().is_null())
+    return g_service_catalog_factory.Get().Run();
 #if BUILDFLAG(ENABLE_PACKAGE_MASH_SERVICES)
   const auto& command_line = *base::CommandLine::ForCurrentProcess();
 #if defined(OS_CHROMEOS)

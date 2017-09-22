@@ -19,13 +19,8 @@ To Run This Test
 """
 
 _BISECT_DEBUG_INFO = """
-Debug Info
+Debug information about this bisect:
   %(issue_url)s
-"""
-
-_BISECT_TRY_JOB = """
-Is this bisect wrong?
-  https://chromeperf.appspot.com/bad_bisect?try_job_id=%(_tryjob_id)s
 """
 
 _MEMORY_BENCHMARKS = [
@@ -41,10 +36,15 @@ Please refer to the following doc on diagnosing memory regressions:
   %s
 """ % _MEMORY_DOC_URL
 
+_BISECT_ADDRESSING_DOC_URL = ('http://g.co/ChromePerformanceRegressions')
+
+_BISECT_ADDRESSING_DOC_INFO = """
+More information on addressing performance regressions:
+  %s
+""" % _BISECT_ADDRESSING_DOC_URL
+
 _BISECT_FOOTER = """
-| O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
-|  X  | for more information addressing perf regression bugs. For feedback,
-| / \\ | file a bug with component Speed>Bisection.  Thank you!"""
+For feedback, file a bug with component Speed>Bisection"""
 
 _BISECT_SUSPECTED_COMMIT = """
 Suspected Commit
@@ -344,12 +344,11 @@ def _GenerateReport(results_data):
     result += _BISECT_MEMORY_DOC_INFO
 
   result += _BISECT_TO_RUN % results_data
+  result += _BISECT_ADDRESSING_DOC_INFO
   result += _BISECT_DEBUG_INFO % results_data
-
-  if '_tryjob_id' in results_data:
-    result += _BISECT_TRY_JOB % results_data
   result += '\n'
   result += _BISECT_FOOTER
+  result = result.encode('utf-8')
 
   return result
 

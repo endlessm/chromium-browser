@@ -438,19 +438,16 @@ bool VirtualObject::MergeFields(size_t i, Node* at, MergeCache* cache,
   int value_input_count = static_cast<int>(cache->fields().size());
   Node* rep = GetField(i);
   if (!rep || !IsCreatedPhi(i)) {
-    Type* phi_type = Type::None();
     for (Node* input : cache->fields()) {
       CHECK_NOT_NULL(input);
       CHECK(!input->IsDead());
-      Type* input_type = NodeProperties::GetType(input);
-      phi_type = Type::Union(phi_type, input_type, graph->zone());
     }
     Node* control = NodeProperties::GetControlInput(at);
     cache->fields().push_back(control);
     Node* phi = graph->NewNode(
         common->Phi(MachineRepresentation::kTagged, value_input_count),
         value_input_count + 1, &cache->fields().front());
-    NodeProperties::SetType(phi, phi_type);
+    NodeProperties::SetType(phi, Type::Any());
     SetField(i, phi, true);
 
 #ifdef DEBUG
@@ -836,7 +833,10 @@ bool EscapeStatusAnalysis::CheckUsesForEscape(Node* uses, Node* rep,
       case IrOpcode::kPlainPrimitiveToFloat64:
       case IrOpcode::kStringCharAt:
       case IrOpcode::kStringCharCodeAt:
+      case IrOpcode::kSeqStringCharCodeAt:
       case IrOpcode::kStringIndexOf:
+      case IrOpcode::kStringToLowerCaseIntl:
+      case IrOpcode::kStringToUpperCaseIntl:
       case IrOpcode::kObjectIsDetectableCallable:
       case IrOpcode::kObjectIsNaN:
       case IrOpcode::kObjectIsNonCallable:
@@ -860,13 +860,9 @@ bool EscapeStatusAnalysis::CheckUsesForEscape(Node* uses, Node* rep,
         }
         break;
       default:
-        if (use->op()->EffectInputCount() == 0 &&
-            uses->op()->EffectInputCount() > 0 &&
-            !IrOpcode::IsJsOpcode(use->opcode())) {
-          V8_Fatal(__FILE__, __LINE__,
-                   "Encountered unaccounted use by #%d (%s)\n", use->id(),
-                   use->op()->mnemonic());
-        }
+        DCHECK(use->op()->EffectInputCount() > 0 ||
+               uses->op()->EffectInputCount() == 0 ||
+               IrOpcode::IsJsOpcode(use->opcode()));
         if (SetEscaped(rep)) {
           TRACE("Setting #%d (%s) to escaped because of use by #%d (%s)\n",
                 rep->id(), rep->op()->mnemonic(), use->id(),
@@ -1535,8 +1531,8 @@ void EscapeAnalysis::ProcessCheckMaps(Node* node) {
         // CheckMapsValue operator that takes the load-eliminated map value as
         // input.
         if (value->opcode() == IrOpcode::kHeapConstant &&
-            params.maps().contains(ZoneHandleSet<Map>(
-                Handle<Map>::cast(OpParameter<Handle<HeapObject>>(value))))) {
+            params.maps().contains(ZoneHandleSet<Map>(bit_cast<Handle<Map>>(
+                OpParameter<Handle<HeapObject>>(value))))) {
           TRACE("CheckMaps #%i seems to be redundant (until now).\n",
                 node->id());
           return;

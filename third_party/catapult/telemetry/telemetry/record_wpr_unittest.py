@@ -21,7 +21,8 @@ class MockPage(page_module.Page):
   def __init__(self, story_set, url):
     super(MockPage, self).__init__(url=url,
                                    page_set=story_set,
-                                   base_dir=util.GetUnittestDataDir())
+                                   base_dir=util.GetUnittestDataDir(),
+                                   name=url)
     self.func_calls = []
 
   def RunNavigateSteps(self, action_runner):
@@ -144,6 +145,8 @@ class RecordWprUnitTests(tab_test_case.TabTestCase):
     flags = ['--browser', self._browser.browser_type,
              '--remote', self._test_options.cros_remote,
              '--device', self._device]
+    if self._browser.browser_type == 'exact':
+      flags += ['--browser-executable', self._test_options.browser_executable]
     if self._test_options.chrome_root:
       flags += ['--chrome-root', self._test_options.chrome_root]
     return flags

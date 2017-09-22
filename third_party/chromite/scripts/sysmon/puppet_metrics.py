@@ -6,94 +6,106 @@
 
 from __future__ import absolute_import
 from __future__ import print_function
-from __future__ import unicode_literals
 
 import time
 
 import yaml
 
 from chromite.lib import cros_logging as logging
-from infra_libs import ts_mon
+from chromite.lib import metrics
+
 
 logger = logging.getLogger(__name__)
 
-LAST_RUN_FILE = '/var/lib/puppet/state/last_run_summary.yaml'
+LAST_RUN_FILE = '/var/lib/cros_puppet/state/last_run_summary.yaml'
 
-_config_version_metric = ts_mon.GaugeMetric(
+_config_version_metric = metrics.GaugeMetric(
     'puppet/version/config',
     description='The version of the puppet configuration.'
     '  By default this is the time that the configuration was parsed')
-_puppet_version_metric = ts_mon.StringMetric(
+_puppet_version_metric = metrics.StringMetric(
     'puppet/version/puppet',
     description='Version of puppet client installed.')
-_events_metric = ts_mon.GaugeMetric(
+_events_metric = metrics.GaugeMetric(
     'puppet/events',
     description='Number of changes the puppet client made to the system in its'
     ' last run, by success or failure')
-_resources_metric = ts_mon.GaugeMetric(
+_resources_metric = metrics.GaugeMetric(
     'puppet/resources',
     description='Number of resources known by the puppet client in its last'
     ' run')
-_times_metric = ts_mon.FloatMetric(
+_times_metric = metrics.FloatMetric(
     'puppet/times',
-    description='Time taken to perform various parts of the last puppet run',
-    units=ts_mon.MetricsDataUnits.SECONDS)
-_age_metric = ts_mon.FloatMetric(
+    description='Time taken to perform various parts of the last puppet run')
+_age_metric = metrics.FloatMetric(
     'puppet/age',
-    description='Time since last run',
-    units=ts_mon.MetricsDataUnits.SECONDS)
+    description='Time since last run')
 
 
 class _PuppetRunSummary(object):
   """Puppet run summary information."""
 
-  def __init__(self, summary_file):
-    self.filename = summary_file
-    with open(self.filename) as file_:
-      self._data = yaml.safe_load(file_)
+  def __init__(self, f):
+    """Instantiate instance.
+
+    Args:
+      f: file object to read summary from
+    """
+    self._data = yaml.safe_load(f)
 
   @property
-  def versions(self):
+  def _versions(self):
     """Return mapping of version information."""
     return self._data.get('version', {})
 
   @property
   def config_version(self):
     """Return config version as int."""
-    return self.versions.get('config', -1)
+    return self._versions.get('config', -1)
 
   @property
   def puppet_version(self):
     """Return Puppet version as string."""
-    return self.versions.get('puppet', '')
+    return self._versions.get('puppet', '')
 
   @property
   def events(self):
     """Return mapping of events information."""
-    return self._data.get('events', {})
+    events = self._data.get('events', {})
+    events.pop('total', None)
+    return events
 
   @property
   def resources(self):
     """Return mapping of resources information."""
-    return self._data.get('resources', {})
+    resources = self._data.get('resources', {})
+    total = resources.pop('total', 0)
+    resources['other'] = max(0, total - sum(resources.itervalues()))
+    return resources
 
   @property
   def times(self):
     """Return mapping of time information."""
-    return self._data.get(time, {})
+    times = self._data.get('time', {})
+    times.pop('last_run', None)
+    total = times.pop('total', None)
+    times['other'] = max(0, total - sum(times.itervalues()))
+    return times
 
   @property
   def last_run_time(self):
     """Return last run time as UNIX seconds or None."""
-    return self.times.get('last_run')
+    times = self._data.get('time', {})
+    return times.get('last_run')
 
 
 def collect_puppet_summary():
   """Send Puppet run summary metrics."""
   try:
-    summary = _PuppetRunSummary(LAST_RUN_FILE)
+    with open(LAST_RUN_FILE) as f:
+      summary = _PuppetRunSummary(f)
   except Exception as e:
-    logger.warning('Error loading Puppet run summary: %s', e)
+    logger.warning(u'Error loading Puppet run summary: %s', e)
   else:
     _config_version_metric.set(summary.config_version)
     _puppet_version_metric.set(str(summary.puppet_version))

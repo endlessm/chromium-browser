@@ -294,7 +294,7 @@ TEST_P(WebGLCompatibilityTest, EnableExtensionUintIndices)
                      "void main() { gl_FragColor = vec4(0, 1, 0, 1); }")
     glUseProgram(program.get());
 
-    glDrawElements(GL_TRIANGLES, 2, GL_UNSIGNED_INT, nullptr);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
     EXPECT_GL_ERROR(GL_INVALID_ENUM);
 
     if (extensionRequestable("GL_OES_element_index_uint"))
@@ -303,7 +303,7 @@ TEST_P(WebGLCompatibilityTest, EnableExtensionUintIndices)
         EXPECT_GL_NO_ERROR();
         EXPECT_TRUE(extensionEnabled("GL_OES_element_index_uint"));
 
-        glDrawElements(GL_TRIANGLES, 2, GL_UNSIGNED_INT, nullptr);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
         EXPECT_GL_NO_ERROR();
     }
 }
@@ -573,6 +573,35 @@ TEST_P(WebGLCompatibilityTest, ForbidsClientSideElementBuffer)
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
 }
 
+// Test that client-side array buffers are forbidden even if the program doesn't use the attribute
+TEST_P(WebGLCompatibilityTest, ForbidsClientSideArrayBufferEvenNotUsedOnes)
+{
+    const std::string &vert =
+        "void main()\n"
+        "{\n"
+        "    gl_Position = vec4(1.0);\n"
+        "}\n";
+
+    const std::string &frag =
+        "precision highp float;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = vec4(1.0);\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, vert, frag);
+
+    glUseProgram(program.get());
+
+    const auto &vertices = GetQuadVertices();
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 4, vertices.data());
+    glEnableVertexAttribArray(0);
+
+    ASSERT_GL_NO_ERROR();
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
 // Tests the WebGL requirement of having the same stencil mask, writemask and ref for fron and back
 TEST_P(WebGLCompatibilityTest, RequiresSameStencilMaskAndRef)
 {
@@ -837,6 +866,82 @@ TEST_P(WebGLCompatibilityTest, BlendWithConstantColor)
     }
 }
 
+// Test that binding/querying uniforms and attributes with invalid names generates errors
+TEST_P(WebGLCompatibilityTest, InvalidAttributeAndUniformNames)
+{
+    const std::string validAttribName =
+        "abcdefghijklmnopqrstuvwxyz_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    const std::string validUniformName =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_1234567890";
+    std::vector<char> invalidSet = {'"', '$', '`', '@', '\''};
+    if (getClientMajorVersion() < 3)
+    {
+        invalidSet.push_back('\\');
+    }
+
+    std::string vert = "attribute float ";
+    vert += validAttribName;
+    vert +=
+        ";\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = vec4(1.0);\n"
+        "}\n";
+
+    std::string frag =
+        "precision highp float;\n"
+        "uniform vec4 ";
+    frag += validUniformName;
+    frag +=
+        ";\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = vec4(1.0);\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, vert, frag);
+    EXPECT_GL_NO_ERROR();
+
+    for (char invalidChar : invalidSet)
+    {
+        std::string invalidName = validAttribName + invalidChar;
+        glGetAttribLocation(program, invalidName.c_str());
+        EXPECT_GL_ERROR(GL_INVALID_VALUE)
+            << "glGetAttribLocation unexpectedly succeeded for name \"" << invalidName << "\".";
+
+        glBindAttribLocation(program, 0, invalidName.c_str());
+        EXPECT_GL_ERROR(GL_INVALID_VALUE)
+            << "glBindAttribLocation unexpectedly succeeded for name \"" << invalidName << "\".";
+    }
+
+    for (char invalidChar : invalidSet)
+    {
+        std::string invalidName = validUniformName + invalidChar;
+        glGetUniformLocation(program, invalidName.c_str());
+        EXPECT_GL_ERROR(GL_INVALID_VALUE)
+            << "glGetUniformLocation unexpectedly succeeded for name \"" << invalidName << "\".";
+    }
+
+    for (char invalidChar : invalidSet)
+    {
+        std::string invalidAttribName = validAttribName + invalidChar;
+        const char *invalidVert[] = {
+            "attribute float ",
+            invalidAttribName.c_str(),
+            ";\n",
+            "void main()\n",
+            "{\n",
+            "    gl_Position = vec4(1.0);\n",
+            "}\n",
+        };
+
+        GLuint shader = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(shader, static_cast<GLsizei>(ArraySize(invalidVert)), invalidVert, nullptr);
+        EXPECT_GL_ERROR(GL_INVALID_VALUE);
+        glDeleteShader(shader);
+    }
+}
+
 // Test the checks for OOB reads in the vertex buffers, instanced version
 TEST_P(WebGL2CompatibilityTest, DrawArraysBufferOutOfBoundsInstanced)
 {
@@ -904,7 +1009,7 @@ TEST_P(WebGL2CompatibilityTest, DrawArraysBufferOutOfBoundsInstanced)
     ASSERT_GL_NO_ERROR();
 }
 
-// Test that at least one attribute has a zero divisor for WebGL
+// Test that having no attributes with a zero divisor is valid in WebGL2
 TEST_P(WebGL2CompatibilityTest, InstancedDrawZeroDivisor)
 {
     const std::string &vert =
@@ -935,12 +1040,8 @@ TEST_P(WebGL2CompatibilityTest, InstancedDrawZeroDivisor)
     glEnableVertexAttribArray(posLocation);
     glVertexAttribDivisor(posLocation, 1);
 
-    // Test touching the last element is valid.
     glVertexAttribPointer(0, 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, nullptr);
     glDrawArraysInstanced(GL_POINTS, 0, 1, 4);
-    ASSERT_GL_ERROR(GL_INVALID_OPERATION);
-
-    glVertexAttribDivisor(posLocation, 0);
     ASSERT_GL_NO_ERROR();
 }
 
@@ -1407,6 +1508,28 @@ TEST_P(WebGLCompatibilityTest, BuiltInInvariant)
     EXPECT_EQ(0u, program);
 
     program = CompileProgram(vertexShaderVariant, fragmentShaderInvariantGlPointCoord);
+    EXPECT_EQ(0u, program);
+}
+
+// Tests global namespace conflicts between uniforms and attributes.
+// Based on WebGL test conformance/glsl/misc/shaders-with-name-conflicts.html.
+TEST_P(WebGLCompatibilityTest, GlobalNamesConflict)
+{
+    const std::string vertexShader =
+        "attribute vec4 foo;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = foo;\n"
+        "}";
+    const std::string fragmentShader =
+        "precision mediump float;\n"
+        "uniform vec4 foo;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = foo;\n"
+        "}";
+
+    GLuint program = CompileProgram(vertexShader, fragmentShader);
     EXPECT_EQ(0u, program);
 }
 
@@ -1959,6 +2082,52 @@ TEST_P(WebGLCompatibilityTest, RGBA16FTextures)
     }
 }
 
+// Test that when GL_CHROMIUM_color_buffer_float_rgb[a] is enabled, sized GL_RGB[A]_32F formats are
+// accepted by glTexImage2D
+TEST_P(WebGLCompatibilityTest, SizedRGBA32FFormats)
+{
+    if (getClientMajorVersion() != 2)
+    {
+        std::cout << "Test skipped because it is only valid for WebGL1 contexts." << std::endl;
+        return;
+    }
+
+    if (!extensionRequestable("GL_OES_texture_float"))
+    {
+        std::cout << "Test skipped because GL_OES_texture_float is not requestable." << std::endl;
+        return;
+    }
+    glRequestExtensionANGLE("GL_OES_texture_float");
+    ASSERT_GL_NO_ERROR();
+
+    GLTexture texture;
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 1, 1, 0, GL_RGBA, GL_FLOAT, nullptr);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, 1, 1, 0, GL_RGB, GL_FLOAT, nullptr);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    if (extensionRequestable("GL_CHROMIUM_color_buffer_float_rgba"))
+    {
+        glRequestExtensionANGLE("GL_CHROMIUM_color_buffer_float_rgba");
+        ASSERT_GL_NO_ERROR();
+
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 1, 1, 0, GL_RGBA, GL_FLOAT, nullptr);
+        EXPECT_GL_NO_ERROR();
+    }
+
+    if (extensionRequestable("GL_CHROMIUM_color_buffer_float_rgb"))
+    {
+        glRequestExtensionANGLE("GL_CHROMIUM_color_buffer_float_rgb");
+        ASSERT_GL_NO_ERROR();
+
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, 1, 1, 0, GL_RGB, GL_FLOAT, nullptr);
+        EXPECT_GL_NO_ERROR();
+    }
+}
+
 // This tests that rendering feedback loops works as expected with WebGL 2.
 // Based on WebGL test conformance2/rendering/rendering-sampling-feedback-loop.html
 TEST_P(WebGL2CompatibilityTest, RenderingFeedbackLoopWithDrawBuffers)
@@ -2170,8 +2339,8 @@ TEST_P(WebGL2CompatibilityTest, TextureCopyingFeedbackLoop3D)
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
 }
 
-// Verify that errors are generated when there isn not a defined conversion between the clear type
-// and the buffer type.
+// Verify that errors are generated when there isn't a defined conversion between the clear type and
+// the buffer type.
 TEST_P(WebGL2CompatibilityTest, ClearBufferTypeCompatibity)
 {
     if (IsD3D11())
@@ -2266,6 +2435,29 @@ TEST_P(WebGL2CompatibilityTest, ClearBufferTypeCompatibity)
     EXPECT_GL_NO_ERROR();
 }
 
+// Test the interaction of WebGL compatibility clears with default framebuffers
+TEST_P(WebGL2CompatibilityTest, ClearBufferDefaultFramebuffer)
+{
+    constexpr float clearFloat[]       = {0.0f, 0.0f, 0.0f, 0.0f};
+    constexpr int clearInt[]           = {0, 0, 0, 0};
+    constexpr unsigned int clearUint[] = {0, 0, 0, 0};
+
+    // glClear works as usual, this is also a regression test for a bug where we
+    // iterated on maxDrawBuffers for default framebuffers, triggering an assert
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_GL_NO_ERROR();
+
+    // Default framebuffers are normalized uints, so only glClearBufferfv works.
+    glClearBufferfv(GL_COLOR, 0, clearFloat);
+    EXPECT_GL_NO_ERROR();
+
+    glClearBufferiv(GL_COLOR, 0, clearInt);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glClearBufferuiv(GL_COLOR, 0, clearUint);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
 // Verify that errors are generate when trying to blit from an image to itself
 TEST_P(WebGL2CompatibilityTest, BlitFramebufferSameImage)
 {
@@ -2331,6 +2523,435 @@ TEST_P(WebGL2CompatibilityTest, BlitFramebufferSameImage)
                       GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT,
                       GL_NEAREST);
     ASSERT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+// Verify that errors are generated when the fragment shader output doesn't match the bound color
+// buffer types
+TEST_P(WebGL2CompatibilityTest, FragmentShaderColorBufferTypeMissmatch)
+{
+    const std::string vertexShader =
+        "#version 300 es\n"
+        "void main() {\n"
+        "    gl_Position = vec4(0, 0, 0, 1);\n"
+        "}\n";
+
+    const std::string fragmentShader =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "layout(location = 0) out vec4 floatOutput;\n"
+        "layout(location = 1) out uvec4 uintOutput;\n"
+        "layout(location = 2) out ivec4 intOutput;\n"
+        "void main() {\n"
+        "    floatOutput = vec4(0, 0, 0, 1);\n"
+        "    uintOutput = uvec4(0, 0, 0, 1);\n"
+        "    intOutput = ivec4(0, 0, 0, 1);\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, vertexShader, fragmentShader);
+    glUseProgram(program.get());
+
+    GLuint floatLocation = glGetFragDataLocation(program, "floatOutput");
+    GLuint uintLocation  = glGetFragDataLocation(program, "uintOutput");
+    GLuint intLocation   = glGetFragDataLocation(program, "intOutput");
+
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    GLRenderbuffer floatRenderbuffer;
+    glBindRenderbuffer(GL_RENDERBUFFER, floatRenderbuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, 1, 1);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + floatLocation, GL_RENDERBUFFER,
+                              floatRenderbuffer);
+
+    GLRenderbuffer uintRenderbuffer;
+    glBindRenderbuffer(GL_RENDERBUFFER, uintRenderbuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8UI, 1, 1);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + uintLocation, GL_RENDERBUFFER,
+                              uintRenderbuffer);
+
+    GLRenderbuffer intRenderbuffer;
+    glBindRenderbuffer(GL_RENDERBUFFER, intRenderbuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8I, 1, 1);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + intLocation, GL_RENDERBUFFER,
+                              intRenderbuffer);
+
+    ASSERT_GL_NO_ERROR();
+
+    GLint maxDrawBuffers = 0;
+    glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+    std::vector<GLenum> drawBuffers(static_cast<size_t>(maxDrawBuffers), GL_NONE);
+    drawBuffers[floatLocation] = GL_COLOR_ATTACHMENT0 + floatLocation;
+    drawBuffers[uintLocation]  = GL_COLOR_ATTACHMENT0 + uintLocation;
+    drawBuffers[intLocation]   = GL_COLOR_ATTACHMENT0 + intLocation;
+
+    glDrawBuffers(maxDrawBuffers, drawBuffers.data());
+
+    // Check that the correct case generates no errors
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_NO_ERROR();
+
+    // Unbind some buffers and verify that there are still no errors
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + uintLocation, GL_RENDERBUFFER,
+                              0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + intLocation, GL_RENDERBUFFER,
+                              0);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_NO_ERROR();
+
+    // Swap the int and uint buffers to and verify that an error is generated
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + uintLocation, GL_RENDERBUFFER,
+                              intRenderbuffer);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + intLocation, GL_RENDERBUFFER,
+                              uintRenderbuffer);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // Swap the float and uint buffers to and verify that an error is generated
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + uintLocation, GL_RENDERBUFFER,
+                              floatRenderbuffer);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + floatLocation, GL_RENDERBUFFER,
+                              uintRenderbuffer);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + intLocation, GL_RENDERBUFFER,
+                              intRenderbuffer);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+// Verify that errors are generated when the vertex shader intput doesn't match the bound attribute
+// types
+TEST_P(WebGL2CompatibilityTest, VertexShaderAttributeTypeMissmatch)
+{
+    const std::string vertexShader =
+        "#version 300 es\n"
+        "in vec4 floatInput;\n"
+        "in uvec4 uintInput;\n"
+        "in ivec4 intInput;\n"
+        "void main() {\n"
+        "    gl_Position = vec4(floatInput.x, uintInput.x, intInput.x, 1);\n"
+        "}\n";
+
+    const std::string fragmentShader =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 outputColor;\n"
+        "void main() {\n"
+        "    outputColor = vec4(0, 0, 0, 1);"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, vertexShader, fragmentShader);
+    glUseProgram(program.get());
+
+    GLint floatLocation = glGetAttribLocation(program, "floatInput");
+    GLint uintLocation  = glGetAttribLocation(program, "uintInput");
+    GLint intLocation   = glGetAttribLocation(program, "intInput");
+
+    // Default attributes are of float types
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // Set the default attributes to the correct types, should succeed
+    glVertexAttribI4ui(uintLocation, 0, 0, 0, 1);
+    glVertexAttribI4i(intLocation, 0, 0, 0, 1);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_NO_ERROR();
+
+    // Change the default float attribute to an integer, should fail
+    glVertexAttribI4ui(floatLocation, 0, 0, 0, 1);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // Use a buffer for some attributes
+    GLBuffer buffer;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glBufferData(GL_ARRAY_BUFFER, 1024, nullptr, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(floatLocation);
+    glVertexAttribPointer(floatLocation, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_NO_ERROR();
+
+    // Use a float pointer attrib for a uint input
+    glEnableVertexAttribArray(uintLocation);
+    glVertexAttribPointer(uintLocation, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // Use a uint pointer for the uint input
+    glVertexAttribIPointer(uintLocation, 4, GL_UNSIGNED_INT, 0, nullptr);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_NO_ERROR();
+}
+
+// Tests the WebGL removal of undefined behavior when attachments aren't written to.
+TEST_P(WebGLCompatibilityTest, DrawBuffers)
+{
+    // Make sure we can use at least 4 attachments for the tests.
+    bool useEXT = false;
+    if (getClientMajorVersion() < 3)
+    {
+        if (!extensionRequestable("GL_EXT_draw_buffers"))
+        {
+            std::cout << "Test skipped because draw buffers are not available" << std::endl;
+            return;
+        }
+
+        glRequestExtensionANGLE("GL_EXT_draw_buffers");
+        useEXT = true;
+        EXPECT_GL_NO_ERROR();
+    }
+
+    GLint maxDrawBuffers = 0;
+    glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+    if (maxDrawBuffers < 4)
+    {
+        std::cout << "Test skipped because MAX_DRAW_BUFFERS is too small." << std::endl;
+        return;
+    }
+
+    // Clears all the renderbuffers to red.
+    auto ClearEverythingToRed = [](GLRenderbuffer *renderbuffers) {
+        GLFramebuffer clearFBO;
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, clearFBO);
+
+        glClearColor(1, 0, 0, 1);
+        for (int i = 0; i < 4; ++i)
+        {
+            glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
+                                      renderbuffers[i]);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
+        ASSERT_GL_NO_ERROR();
+    };
+
+    // Checks that the renderbuffers specified by mask have the correct color
+    auto CheckColors = [](GLRenderbuffer *renderbuffers, int mask, GLColor color) {
+        GLFramebuffer readFBO;
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, readFBO);
+
+        for (int i = 0; i < 4; ++i)
+        {
+            if (mask & (1 << i))
+            {
+                glFramebufferRenderbuffer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                          GL_RENDERBUFFER, renderbuffers[i]);
+                EXPECT_PIXEL_COLOR_EQ(0, 0, color);
+            }
+        }
+        ASSERT_GL_NO_ERROR();
+    };
+
+    // Depending on whether we are using the extension or ES3, a different entrypoint must be called
+    auto DrawBuffers = [](bool useEXT, int numBuffers, GLenum *buffers) {
+        if (useEXT)
+        {
+            glDrawBuffersEXT(numBuffers, buffers);
+        }
+        else
+        {
+            glDrawBuffers(numBuffers, buffers);
+        }
+    };
+
+    // Initialized the test framebuffer
+    GLFramebuffer drawFBO;
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawFBO);
+
+    GLRenderbuffer renderbuffers[4];
+    for (int i = 0; i < 4; ++i)
+    {
+        glBindRenderbuffer(GL_RENDERBUFFER, renderbuffers[i]);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, 1, 1);
+        glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_RENDERBUFFER,
+                                  renderbuffers[i]);
+    }
+
+    ASSERT_GL_NO_ERROR();
+
+    const char *vertESSL1 =
+        "attribute vec4 a_pos;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = a_pos;\n"
+        "}\n";
+    const char *vertESSL3 =
+        "#version 300 es\n"
+        "in vec4 a_pos;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = a_pos;\n"
+        "}\n";
+
+    GLenum allDrawBuffers[] = {
+        GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3,
+    };
+
+    GLenum halfDrawBuffers[] = {
+        GL_NONE, GL_NONE, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3,
+    };
+
+    // Test that when using gl_FragColor, only the first attachment is written to.
+    const char *fragESSL1 =
+        "precision highp float;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n"
+        "}\n";
+    ANGLE_GL_PROGRAM(programESSL1, vertESSL1, fragESSL1);
+
+    {
+        ClearEverythingToRed(renderbuffers);
+
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawFBO);
+        DrawBuffers(useEXT, 4, allDrawBuffers);
+        drawQuad(programESSL1, "a_pos", 0.5, 1.0, true);
+        ASSERT_GL_NO_ERROR();
+
+        CheckColors(renderbuffers, 0b0001, GLColor::green);
+        CheckColors(renderbuffers, 0b1110, GLColor::red);
+    }
+
+    // Test that when using gl_FragColor, but the first draw buffer is 0, then no attachment is
+    // written to.
+    {
+        ClearEverythingToRed(renderbuffers);
+
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawFBO);
+        DrawBuffers(useEXT, 4, halfDrawBuffers);
+        drawQuad(programESSL1, "a_pos", 0.5, 1.0, true);
+        ASSERT_GL_NO_ERROR();
+
+        CheckColors(renderbuffers, 0b1111, GLColor::red);
+    }
+
+    // Test what happens when rendering to a subset of the outputs. There is a behavior difference
+    // between the extension and ES3. In the extension gl_FragData is implicitly declared as an
+    // array of size MAX_DRAW_BUFFERS, so the WebGL spec stipulates that elements not written to
+    // should default to 0. On the contrary, in ES3 outputs are specified one by one, so
+    // attachments not declared in the shader should not be written to.
+    const char *writeOddOutputsVert;
+    const char *writeOddOutputsFrag;
+    GLColor unwrittenColor;
+    if (useEXT)
+    {
+        // In the extension, when an attachment isn't written to, it should get 0's
+        unwrittenColor      = GLColor(0, 0, 0, 0);
+        writeOddOutputsVert = vertESSL1;
+        writeOddOutputsFrag =
+            "#extension GL_EXT_draw_buffers : require\n"
+            "precision highp float;\n"
+            "void main()\n"
+            "{\n"
+            "    gl_FragData[1] = vec4(0.0, 1.0, 0.0, 1.0);\n"
+            "    gl_FragData[3] = vec4(0.0, 1.0, 0.0, 1.0);\n"
+            "}\n";
+    }
+    else
+    {
+        // In ES3 if an attachment isn't declared, it shouldn't get written and should be red
+        // because of the preceding clears.
+        unwrittenColor      = GLColor::red;
+        writeOddOutputsVert = vertESSL3;
+        writeOddOutputsFrag =
+            "#version 300 es\n"
+            "precision highp float;\n"
+            "layout(location = 1) out vec4 output1;"
+            "layout(location = 3) out vec4 output2;"
+            "void main()\n"
+            "{\n"
+            "    output1 = vec4(0.0, 1.0, 0.0, 1.0);\n"
+            "    output2 = vec4(0.0, 1.0, 0.0, 1.0);\n"
+            "}\n";
+    }
+    ANGLE_GL_PROGRAM(writeOddOutputsProgram, writeOddOutputsVert, writeOddOutputsFrag);
+
+    // Test that attachments not written to get the "unwritten" color
+    {
+        ClearEverythingToRed(renderbuffers);
+
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawFBO);
+        DrawBuffers(useEXT, 4, allDrawBuffers);
+        drawQuad(writeOddOutputsProgram, "a_pos", 0.5, 1.0, true);
+        ASSERT_GL_NO_ERROR();
+
+        CheckColors(renderbuffers, 0b1010, GLColor::green);
+        CheckColors(renderbuffers, 0b0101, unwrittenColor);
+    }
+
+    // Test that attachments not written to get the "unwritten" color but that even when the
+    // extension is used, disabled attachments are not written at all and stay red.
+    {
+        ClearEverythingToRed(renderbuffers);
+
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawFBO);
+        DrawBuffers(useEXT, 4, halfDrawBuffers);
+        drawQuad(writeOddOutputsProgram, "a_pos", 0.5, 1.0, true);
+        ASSERT_GL_NO_ERROR();
+
+        CheckColors(renderbuffers, 0b1000, GLColor::green);
+        CheckColors(renderbuffers, 0b0100, unwrittenColor);
+        CheckColors(renderbuffers, 0b0011, GLColor::red);
+    }
+}
+
+// Linking should fail when corresponding vertex/fragment uniform blocks have different precision
+// qualifiers.
+TEST_P(WebGL2CompatibilityTest, UniformBlockPrecisionMismatch)
+{
+    const std::string vertexShader =
+        "#version 300 es\n"
+        "uniform Block { mediump vec4 val; };\n"
+        "void main() { gl_Position = val; }\n";
+    const std::string fragmentShader =
+        "#version 300 es\n"
+        "uniform Block { highp vec4 val; };\n"
+        "out highp vec4 out_FragColor;\n"
+        "void main() { out_FragColor = val; }\n";
+
+    GLuint vs = CompileShader(GL_VERTEX_SHADER, vertexShader);
+    ASSERT_NE(0u, vs);
+    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, fragmentShader);
+    ASSERT_NE(0u, fs);
+
+    GLuint program = glCreateProgram();
+
+    glAttachShader(program, vs);
+    glDeleteShader(vs);
+    glAttachShader(program, fs);
+    glDeleteShader(fs);
+
+    glLinkProgram(program);
+    GLint linkStatus;
+    glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    ASSERT_EQ(0, linkStatus);
+
+    glDeleteProgram(program);
+}
+
+// Test no attribute vertex shaders
+TEST_P(WebGL2CompatibilityTest, NoAttributeVertexShader)
+{
+    const std::string vertexShader =
+        "#version 300 es\n"
+        "void main()\n"
+        "{\n"
+        "\n"
+        "    ivec2 xy = ivec2(gl_VertexID % 2, (gl_VertexID / 2 + gl_VertexID / 3) % 2);\n"
+        "    gl_Position = vec4(vec2(xy) * 2. - 1., 0, 1);\n"
+        "}";
+    const std::string fragmentShader =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 result;\n"
+        "void main()\n"
+        "{\n"
+        "    result = vec4(0, 1, 0, 1);\n"
+        "}";
+
+    ANGLE_GL_PROGRAM(program, vertexShader, fragmentShader);
+    glUseProgram(program);
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 }
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these

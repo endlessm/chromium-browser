@@ -25,15 +25,23 @@ APP_LIST_EXPORT extern const base::Feature kEnableAnswerCard;
 // may be loaded via mock URLs and are not shown to the user.
 APP_LIST_EXPORT extern const base::Feature kEnableAnswerCardDarkRun;
 
+// Enables background blur for the app list, lock screen, and tab switcher.
+APP_LIST_EXPORT extern const base::Feature kEnableBackgroundBlur;
+
 // Enables the fullscreen app list.
 APP_LIST_EXPORT extern const base::Feature kEnableFullscreenAppList;
 
+// Enables the Play Store app search.
+APP_LIST_EXPORT extern const base::Feature kEnablePlayStoreAppSearch;
+
 bool APP_LIST_EXPORT IsAnswerCardEnabled();
 bool APP_LIST_EXPORT IsAnswerCardDarkRunEnabled();
+bool APP_LIST_EXPORT IsBackgroundBlurEnabled();
 bool APP_LIST_EXPORT IsFullscreenAppListEnabled();
-int APP_LIST_EXPORT AnswerCardMaxWidth();
-int APP_LIST_EXPORT AnswerCardMaxHeight();
+bool APP_LIST_EXPORT IsTouchFriendlySearchResultsPageEnabled();
+bool APP_LIST_EXPORT IsPlayStoreAppSearchEnabled();
 std::string APP_LIST_EXPORT AnswerServerUrl();
+std::string APP_LIST_EXPORT AnswerServerQuerySuffix();
 
 }  // namespace features
 }  // namespace app_list

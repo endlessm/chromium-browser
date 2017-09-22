@@ -123,14 +123,9 @@ void EnableHighDPISupport() {
   // does not have EnableChildWindowDpiMessage, necessary for correct non-client
   // area scaling across monitors.
   bool allowed_platform = base::win::GetVersion() >= base::win::VERSION_WIN10;
-  const base::CommandLine* command_line =
-      base::CommandLine::ForCurrentProcess();
-  bool per_monitor_dpi_switch =
-      !command_line->HasSwitch(switches::kDisablePerMonitorDpi);
   PROCESS_DPI_AWARENESS process_dpi_awareness =
-      allowed_platform && per_monitor_dpi_switch
-          ? PROCESS_PER_MONITOR_DPI_AWARE
-          : PROCESS_SYSTEM_DPI_AWARE;
+      allowed_platform ? PROCESS_PER_MONITOR_DPI_AWARE
+                       : PROCESS_SYSTEM_DPI_AWARE;
   if (!SetProcessDpiAwarenessWrapper(process_dpi_awareness)) {
     SetProcessDPIAwareWrapper();
   }
@@ -244,10 +239,8 @@ int main() {
 
   if (process_type == crash_reporter::switches::kCrashpadHandler) {
     crash_reporter::SetupFallbackCrashHandling(*command_line);
-    base::string16 user_data_dir = install_static::GetUserDataDirectory();
     return crash_reporter::RunAsCrashpadHandler(
-        *base::CommandLine::ForCurrentProcess(), base::FilePath(user_data_dir),
-        switches::kProcessType, switches::kUserDataDir);
+        *base::CommandLine::ForCurrentProcess(), switches::kProcessType);
   } else if (process_type == crash_reporter::switches::kFallbackCrashHandler) {
     return RunFallbackCrashHandler(*command_line);
   }

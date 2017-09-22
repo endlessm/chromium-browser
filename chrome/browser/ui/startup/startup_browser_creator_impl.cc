@@ -133,16 +133,17 @@ namespace {
 // Utility functions ----------------------------------------------------------
 
 enum LaunchMode {
-  LM_TO_BE_DECIDED = 0,       // Possibly direct launch or via a shortcut.
-  LM_AS_WEBAPP,               // Launched as a installed web application.
-  LM_WITH_URLS,               // Launched with urls in the cmd line.
-  LM_SHORTCUT_NONE,           // Not launched from a shortcut.
-  LM_SHORTCUT_NONAME,         // Launched from shortcut but no name available.
-  LM_SHORTCUT_UNKNOWN,        // Launched from user-defined shortcut.
-  LM_SHORTCUT_QUICKLAUNCH,    // Launched from the quick launch bar.
-  LM_SHORTCUT_DESKTOP,        // Launched from a desktop shortcut.
-  LM_SHORTCUT_TASKBAR,        // Launched from the taskbar.
-  LM_LINUX_MAC_BEOS           // Other OS buckets start here.
+  LM_TO_BE_DECIDED = 0,     // Possibly direct launch or via a shortcut.
+  LM_AS_WEBAPP,             // Launched as a installed web application.
+  LM_WITH_URLS,             // Launched with urls in the cmd line.
+  LM_OTHER,                 // Not launched from a shortcut.
+  LM_SHORTCUT_NONAME,       // Launched from shortcut but no name available.
+  LM_SHORTCUT_UNKNOWN,      // Launched from user-defined shortcut.
+  LM_SHORTCUT_QUICKLAUNCH,  // Launched from the quick launch bar.
+  LM_SHORTCUT_DESKTOP,      // Launched from a desktop shortcut.
+  LM_SHORTCUT_TASKBAR,      // Launched from the taskbar.
+  LM_USER_EXPERIMENT,       // Launched after acceptance of a user experiment.
+  LM_LINUX_MAC_BEOS         // Other OS buckets start here.
 };
 
 #if defined(OS_WIN)
@@ -157,12 +158,8 @@ LaunchMode GetLaunchShortcutKind() {
       return LM_SHORTCUT_NONAME;
     base::string16 shortcut(si.lpTitle);
     // The windows quick launch path is not localized.
-    if (shortcut.find(L"\\Quick Launch\\") != base::string16::npos) {
-      if (base::win::GetVersion() >= base::win::VERSION_WIN7)
-        return LM_SHORTCUT_TASKBAR;
-      else
-        return LM_SHORTCUT_QUICKLAUNCH;
-    }
+    if (shortcut.find(L"\\Quick Launch\\") != base::string16::npos)
+      return LM_SHORTCUT_TASKBAR;
     std::unique_ptr<base::Environment> env(base::Environment::Create());
     std::string appdata_path;
     env->GetVar("USERPROFILE", &appdata_path);
@@ -171,7 +168,7 @@ LaunchMode GetLaunchShortcutKind() {
       return LM_SHORTCUT_DESKTOP;
     return LM_SHORTCUT_UNKNOWN;
   }
-  return LM_SHORTCUT_NONE;
+  return LM_OTHER;
 }
 #else
 // TODO(cpu): Port to other platforms.
@@ -330,7 +327,8 @@ StartupBrowserCreatorImpl::~StartupBrowserCreatorImpl() {
 bool StartupBrowserCreatorImpl::Launch(Profile* profile,
                                        const std::vector<GURL>& urls_to_open,
                                        bool process_startup) {
-  UMA_HISTOGRAM_COUNTS_100("Startup.BrowserLaunchURLCount",
+  UMA_HISTOGRAM_COUNTS_100(
+      "Startup.BrowserLaunchURLCount",
       static_cast<base::HistogramBase::Sample>(urls_to_open.size()));
   RecordRapporOnStartupURLs(urls_to_open);
 
@@ -367,8 +365,13 @@ bool StartupBrowserCreatorImpl::Launch(Profile* profile,
   if (OpenApplicationWindow(profile)) {
     RecordLaunchModeHistogram(LM_AS_WEBAPP);
   } else {
-    RecordLaunchModeHistogram(urls_to_open.empty() ?
-                              LM_TO_BE_DECIDED : LM_WITH_URLS);
+    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kTryChromeAgain)) {
+      RecordLaunchModeHistogram(LM_USER_EXPERIMENT);
+    } else {
+      RecordLaunchModeHistogram(urls_to_open.empty() ? LM_TO_BE_DECIDED
+                                                     : LM_WITH_URLS);
+    }
 
     if (StartupBrowserCreator::UseConsolidatedFlow())
       ProcessLaunchUrlsUsingConsolidatedFlow(process_startup, urls_to_open);
@@ -622,9 +625,9 @@ void StartupBrowserCreatorImpl::ProcessLaunchUrlsUsingConsolidatedFlow(
   bool is_incognito_or_guest =
       profile_->GetProfileType() != Profile::ProfileType::REGULAR_PROFILE;
   bool is_post_crash_launch = HasPendingUncleanExit(profile_);
-  StartupTabs tabs =
-      DetermineStartupTabs(StartupTabProviderImpl(), cmd_line_tabs,
-                           is_incognito_or_guest, is_post_crash_launch);
+  StartupTabs tabs = DetermineStartupTabs(
+      StartupTabProviderImpl(), cmd_line_tabs, process_startup,
+      is_incognito_or_guest, is_post_crash_launch);
 
   // Return immediately if we start an async restore, since the remainder of
   // that process is self-contained.
@@ -671,6 +674,7 @@ void StartupBrowserCreatorImpl::ProcessLaunchUrlsUsingConsolidatedFlow(
 StartupTabs StartupBrowserCreatorImpl::DetermineStartupTabs(
     const StartupTabProvider& provider,
     const StartupTabs& cmd_line_tabs,
+    bool process_startup,
     bool is_incognito_or_guest,
     bool is_post_crash_launch) {
   // Only the New Tab Page or command line URLs may be shown in incognito mode.
@@ -699,6 +703,14 @@ StartupTabs StartupBrowserCreatorImpl::DetermineStartupTabs(
       provider.GetDistributionFirstRunTabs(browser_creator_);
   if (!distribution_tabs.empty())
     return distribution_tabs;
+
+  // This is a launch from a prompt presented to an inactive user who chose to
+  // open Chrome and is being brought to a specific URL for this one launch.
+  // Launch the browser with the desired welcome back URL in the foreground and
+  // the other ordinary URLs (e.g., a restored session) in the background.
+  StartupTabs welcome_back_tabs =
+      provider.GetWelcomeBackTabs(profile_, browser_creator_, process_startup);
+  AppendTabs(welcome_back_tabs, &tabs);
 
   // Policies for onboarding (e.g., first run) may show promotional and
   // introductory content depending on a number of system status factors,

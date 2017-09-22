@@ -19,6 +19,7 @@ namespace sh
 {
 
 class TIntermBlock;
+class TIntermNode;
 class TranslatorESSL;
 
 class ShaderCompileTreeTest : public testing::Test
@@ -37,7 +38,8 @@ class ShaderCompileTreeTest : public testing::Test
 
     bool hasWarning() const;
 
-    const std::vector<sh::Uniform> getUniforms();
+    const std::vector<sh::Uniform> &getUniforms() const;
+    const std::vector<sh::Attribute> &getAttributes() const;
 
     virtual void initResources(ShBuiltInResources *resources) {}
     virtual ::GLenum getShaderType() const     = 0;
@@ -53,6 +55,10 @@ class ShaderCompileTreeTest : public testing::Test
 
     TPoolAllocator mAllocator;
 };
+
+// Returns true if the node is some kind of a zero node - either constructor or a constant union
+// node.
+bool IsZero(TIntermNode *node);
 
 }  // namespace sh
 

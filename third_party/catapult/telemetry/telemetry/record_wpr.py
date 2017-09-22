@@ -8,7 +8,6 @@ import sys
 
 from telemetry import benchmark
 from telemetry import story
-from telemetry.core import discover
 from telemetry.internal.browser import browser_options
 from telemetry.internal.results import results_options
 from telemetry.internal import story_runner
@@ -19,6 +18,7 @@ from telemetry.util import wpr_modes
 from telemetry.web_perf import timeline_based_measurement
 from telemetry.web_perf import timeline_based_page_test
 
+from py_utils import discover
 import py_utils
 
 DEFAULT_LOG_FORMAT = (
@@ -131,6 +131,7 @@ class WprRecorder(object):
     self._base_dir = base_dir
     self._record_page_test = RecorderPageTest()
     self._options = self._CreateOptions()
+    self._expectations = None
 
     self._benchmark = _MaybeGetInstanceOfClass(target, base_dir,
                                                benchmark.Benchmark)
@@ -144,6 +145,7 @@ class WprRecorder(object):
         test = timeline_based_page_test.TimelineBasedPageTest(test)
       # This must be called after the command line args are added.
       self._record_page_test.page_test = test
+      self._expectations = self._benchmark.GetExpectations()
 
     self._page_set_base_dir = (
         self._options.page_set_base_dir if self._options.page_set_base_dir
@@ -159,11 +161,15 @@ class WprRecorder(object):
     options.browser_options.wpr_mode = wpr_modes.WPR_RECORD
     return options
 
-  def CreateResults(self):
+  def _CreateBenchmarkMetadata(self):
     if self._benchmark is not None:
       benchmark_metadata = self._benchmark.GetMetadata()
     else:
       benchmark_metadata = benchmark.BenchmarkMetadata('record_wpr')
+    return benchmark_metadata
+
+  def CreateResults(self):
+    benchmark_metadata = self._CreateBenchmarkMetadata()
 
     return results_options.CreateResults(benchmark_metadata, self._options)
 
@@ -229,10 +235,13 @@ class WprRecorder(object):
   def Record(self, results):
     assert self._story_set.wpr_archive_info, (
       'Pageset archive_data_file path must be specified.')
+    self._story_set.wpr_archive_info.is_using_wpr_go_archives = \
+        self._options.use_wpr_go
     self._story_set.wpr_archive_info.AddNewTemporaryRecording()
     self._record_page_test.CustomizeBrowserOptions(self._options)
     story_runner.Run(self._record_page_test, self._story_set,
-        self._options, results)
+        self._options, results, expectations=self._expectations,
+        metadata=self._CreateBenchmarkMetadata())
 
   def HandleResults(self, results, upload_to_cloud_storage):
     if results.failures or results.skipped_values:
@@ -240,7 +249,7 @@ class WprRecorder(object):
                       'has not been updated for these pages.')
     results.PrintSummary()
     self._story_set.wpr_archive_info.AddRecordedStories(
-        results.pages_that_succeeded,
+        results.pages_that_succeeded_and_not_skipped,
         upload_to_cloud_storage,
         target_platform=self._record_page_test.platform)
 
@@ -266,6 +275,7 @@ def Main(environment, **log_config_kwargs):
                       action='store_true', help='list all benchmark names.')
   parser.add_argument('--upload', action='store_true',
                       help='upload to cloud storage.')
+
   args, extra_args = parser.parse_known_args()
 
   if args.list_benchmarks or args.list_stories:

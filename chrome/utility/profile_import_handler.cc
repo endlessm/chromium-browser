@@ -26,7 +26,6 @@ ProfileImportHandler::~ProfileImportHandler() {}
 
 // static
 void ProfileImportHandler::Create(
-    const service_manager::BindSourceInfo& source_info,
     chrome::mojom::ProfileImportRequest request) {
   mojo::MakeStrongBinding(base::MakeUnique<ProfileImportHandler>(),
                           std::move(request));
@@ -59,8 +58,9 @@ void ProfileImportHandler::StartImport(
       *localized_strings,
       ThreadSafeProfileImportObserverPtr::Create(std::move(observer)));
   import_thread_->task_runner()->PostTask(
-      FROM_HERE, base::Bind(&Importer::StartImport, importer_,
-                            source_profile, items, base::RetainedRef(bridge_)));
+      FROM_HERE,
+      base::BindOnce(&Importer::StartImport, importer_, source_profile, items,
+                     base::RetainedRef(bridge_)));
 }
 
 void ProfileImportHandler::CancelImport() {
@@ -79,5 +79,5 @@ void ProfileImportHandler::ImporterCleanup() {
   importer_ = NULL;
   bridge_ = NULL;
   import_thread_.reset();
-  content::UtilityThread::Get()->ReleaseProcessIfNeeded();
+  content::UtilityThread::Get()->ReleaseProcess();
 }

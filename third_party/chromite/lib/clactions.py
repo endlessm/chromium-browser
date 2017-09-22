@@ -42,7 +42,7 @@ assert len(_PRECQ_STATUS_TO_ACTION) == len(_PRECQ_ACTION_TO_STATUS), \
 
 CL_ACTION_COLUMNS = ['id', 'build_id', 'action', 'reason',
                      'build_config', 'change_number', 'patch_number',
-                     'change_source', 'timestamp', 'buildbucket_id']
+                     'change_source', 'timestamp', 'buildbucket_id', 'status']
 
 _CLActionTuple = collections.namedtuple('_CLActionTuple', CL_ACTION_COLUMNS)
 
@@ -113,11 +113,6 @@ class CLAction(_CLActionTuple):
   """An action or history log entry for a particular CL."""
 
   @classmethod
-  def GetCLAction(cls, **kwargs):
-    kwargs.setdefault('buildbucket_id', None)
-    return CLAction(**kwargs)
-
-  @classmethod
   def FromGerritPatchAndAction(cls, change, action, reason=None,
                                timestamp=None, buildbucket_id=None):
     """Creates a CLAction instance from a change and action.
@@ -132,7 +127,7 @@ class CLAction(_CLActionTuple):
     return CLAction(None, None, action, reason, None,
                     int(change.gerrit_number), int(change.patch_number),
                     BoolToChangeSource(change.internal), timestamp,
-                    buildbucket_id)
+                    buildbucket_id, None)
 
   @classmethod
   def FromMetadataEntry(cls, entry):
@@ -148,8 +143,7 @@ class CLAction(_CLActionTuple):
                     int(change_dict['gerrit_number']),
                     int(change_dict['patch_number']),
                     BoolToChangeSource(change_dict['internal']),
-                    entry[2],
-                    None)
+                    entry[2], None, None)
 
   def AsMetadataEntry(self):
     """Get a tuple representation, suitable for metadata.json."""
@@ -327,21 +321,29 @@ def GetOldPreCQBuildActions(change, action_history,
 
   actions_for_old_patches = ActionsForOldPatches(change, action_history)
   cancelled_builds = GetCancelledPreCQBuilds(action_history)
+  cancelled_buildbucket_ids = set([x.buildbucket_id for x in cancelled_builds])
 
   old_pre_cq_build_actions = [
       a for a in actions_for_old_patches
       if (a.action == constants.CL_ACTION_TRYBOT_LAUNCHING and
           a.buildbucket_id is not None and
-          a.buildbucket_id not in cancelled_builds and
+          a.buildbucket_id not in cancelled_buildbucket_ids and
           a.timestamp is not None and
           a.timestamp > min_timestamp)]
 
   return old_pre_cq_build_actions
 
 def GetCancelledPreCQBuilds(action_history):
-  """Get buildbucket_id set of cancelled pre-cq builds."""
-  return set([a.buildbucket_id
-              for a in action_history
+  """Get cancelled pre-cq builds.
+
+  Args:
+    action_history: List of clactions.CLAction instances.
+
+  Returns:
+    A set of clactions.CLAction instances with action
+    constants.CL_ACTION_TRYBOT_CANCELLED.
+  """
+  return set([a for a in action_history
               if a.buildbucket_id is not None and
               a.action == constants.CL_ACTION_TRYBOT_CANCELLED])
 

@@ -20,16 +20,16 @@
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/convert_from.h"
 #include "third_party/libyuv/include/libyuv/video_common.h"
-#include "webrtc/base/bind.h"
-#include "webrtc/base/checks.h"
-#include "webrtc/base/logging.h"
-#include "webrtc/base/scoped_ref_ptr.h"
-#include "webrtc/base/thread.h"
-#include "webrtc/base/timeutils.h"
 #include "webrtc/common_video/h264/h264_bitstream_parser.h"
 #include "webrtc/common_video/include/i420_buffer_pool.h"
 #include "webrtc/modules/video_coding/include/video_codec_interface.h"
 #include "webrtc/modules/video_coding/utility/vp8_header_parser.h"
+#include "webrtc/rtc_base/bind.h"
+#include "webrtc/rtc_base/checks.h"
+#include "webrtc/rtc_base/logging.h"
+#include "webrtc/rtc_base/scoped_ref_ptr.h"
+#include "webrtc/rtc_base/thread.h"
+#include "webrtc/rtc_base/timeutils.h"
 #include "webrtc/sdk/android/src/jni/androidmediacodeccommon.h"
 #include "webrtc/sdk/android/src/jni/classreferenceholder.h"
 #include "webrtc/sdk/android/src/jni/native_handle_impl.h"
@@ -55,7 +55,7 @@ namespace webrtc_jni {
 // Logging macros.
 #define TAG_DECODER "MediaCodecVideoDecoder"
 #ifdef TRACK_BUFFER_TIMING
-#define ALOGV(...)
+#define ALOGV(...) \
   __android_log_print(ANDROID_LOG_VERBOSE, TAG_DECODER, __VA_ARGS__)
 #else
 #define ALOGV(...)
@@ -180,24 +180,25 @@ class MediaCodecVideoDecoder : public webrtc::VideoDecoder,
   std::vector<jobject> input_buffers_;
 };
 
-MediaCodecVideoDecoder::MediaCodecVideoDecoder(
-    JNIEnv* jni, VideoCodecType codecType, jobject render_egl_context) :
-    codecType_(codecType),
-    render_egl_context_(render_egl_context),
-    key_frame_required_(true),
-    inited_(false),
-    sw_fallback_required_(false),
-    codec_thread_(new Thread()),
-    j_media_codec_video_decoder_class_(
-        jni,
-        FindClass(jni, "org/webrtc/MediaCodecVideoDecoder")),
-          j_media_codec_video_decoder_(
-              jni,
-              jni->NewObject(*j_media_codec_video_decoder_class_,
-                   GetMethodID(jni,
-                              *j_media_codec_video_decoder_class_,
-                              "<init>",
-                              "()V"))) {
+MediaCodecVideoDecoder::MediaCodecVideoDecoder(JNIEnv* jni,
+                                               VideoCodecType codecType,
+                                               jobject render_egl_context)
+    : codecType_(codecType),
+      render_egl_context_(render_egl_context),
+      key_frame_required_(true),
+      inited_(false),
+      sw_fallback_required_(false),
+      codec_thread_(Thread::Create()),
+      j_media_codec_video_decoder_class_(
+          jni,
+          FindClass(jni, "org/webrtc/MediaCodecVideoDecoder")),
+      j_media_codec_video_decoder_(
+          jni,
+          jni->NewObject(*j_media_codec_video_decoder_class_,
+                         GetMethodID(jni,
+                                     *j_media_codec_video_decoder_class_,
+                                     "<init>",
+                                     "()V"))) {
   codec_thread_->SetName("MediaCodecVideoDecoder", NULL);
   RTC_CHECK(codec_thread_->Start()) << "Failed to start MediaCodecVideoDecoder";
 

@@ -91,6 +91,11 @@ _CATAPULT_TESTS = [
         'disabled': ['android'],
     },
     {
+        'name': 'Native Heap Symbolizer Tests',
+        'path': 'tracing/bin/run_symbolizer_tests',
+        'disabled': ['android'],
+    },
+    {
         'name': 'Py-vulcanize Tests',
         'path': 'third_party/py_vulcanize/bin/run_py_tests',
         'additional_args': ['--no-install-hooks'],
@@ -102,7 +107,7 @@ _CATAPULT_TESTS = [
     },
     {
         'name': 'Telemetry Tests with Stable Browser (Desktop)',
-        'path': 'telemetry/bin/run_tests',
+        'path': 'catapult_build/fetch_telemetry_deps_and_run_tests',
         'additional_args': [
             '--browser=reference',
             '--start-xvfb'
@@ -112,7 +117,7 @@ _CATAPULT_TESTS = [
     },
     {
         'name': 'Telemetry Tests with Stable Browser (Android)',
-        'path': 'telemetry/bin/run_tests',
+        'path': 'catapult_build/fetch_telemetry_deps_and_run_tests',
         'additional_args': [
             '--browser=reference',
             '--device=android',

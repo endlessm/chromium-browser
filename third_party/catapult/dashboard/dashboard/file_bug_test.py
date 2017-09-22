@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import datetime
 import json
 import unittest
 
@@ -151,6 +152,7 @@ class FileBugTest(testing_common.TestCase):
     self.assertIn('<input name="cc" type="text" value="foo@chromium.org">',
                   str(response.html('form')[0]))
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   def testInternalBugLabel(self):
     # If any of the alerts are marked as internal-only, which should happen
     # when the corresponding test is internal-only, then the create bug dialog
@@ -164,6 +166,7 @@ class FileBugTest(testing_common.TestCase):
         '/file_bug?summary=s&description=d&keys=%s' % alert_keys[0].urlsafe())
     self.assertIn('Restrict-View-Google', response.body)
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   def testGet_SetsBugLabelsComponents(self):
     self.SetCurrentUser('internal@chromium.org')
     alert_keys = self._AddSampleAlerts()
@@ -178,6 +181,7 @@ class FileBugTest(testing_common.TestCase):
     self.assertIn('Performance-Sheriff', response.body)
     self.assertIn('Blink&gt;Javascript', response.body)
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   @mock.patch(
       'google.appengine.api.app_identity.get_default_version_hostname',
       mock.MagicMock(return_value='chromeperf.appspot.com'))
@@ -203,6 +207,7 @@ class FileBugTest(testing_common.TestCase):
         ])
     return response
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   @mock.patch.object(
       file_bug, '_GetAllCurrentVersionsFromOmahaProxy',
       mock.MagicMock(return_value=[]))
@@ -231,10 +236,11 @@ class FileBugTest(testing_common.TestCase):
     comment = self.service.add_comment_args[1]
     self.assertIn(
         'https://chromeperf.appspot.com/group_report?bug_id=277761', comment)
-    self.assertIn('https://chromeperf.appspot.com/group_report?keys=', comment)
+    self.assertIn('https://chromeperf.appspot.com/group_report?sid=', comment)
     self.assertIn(
         '\n\n\nBot(s) for this bug\'s original alert(s):\n\nlinux', comment)
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   @mock.patch.object(
       file_bug, '_GetAllCurrentVersionsFromOmahaProxy',
       mock.MagicMock(return_value=[
@@ -257,6 +263,7 @@ class FileBugTest(testing_common.TestCase):
     self._PostSampleBug()
     self.assertIn('M-2', self.service.new_bug_kwargs['labels'])
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   @unittest.skip('Flaky; see #1555.')
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
@@ -282,6 +289,7 @@ class FileBugTest(testing_common.TestCase):
     self._PostSampleBug()
     self.assertIn('M-2', self.service.new_bug_kwargs['labels'])
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   @mock.patch.object(
       file_bug, '_GetAllCurrentVersionsFromOmahaProxy',
       mock.MagicMock(return_value=[
@@ -304,6 +312,7 @@ class FileBugTest(testing_common.TestCase):
     labels = self.service.new_bug_kwargs['labels']
     self.assertEqual(0, len([x for x in labels if x.startswith(u'M-')]))
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   @mock.patch.object(
       file_bug, '_GetAllCurrentVersionsFromOmahaProxy',
       mock.MagicMock(return_value=[
@@ -327,6 +336,7 @@ class FileBugTest(testing_common.TestCase):
     self._PostSampleBug(is_clankium=True)
     self.assertIn('M-2', self.service.new_bug_kwargs['labels'])
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
       mock.MagicMock(return_value=testing_common.FakeResponseObject(
@@ -338,6 +348,7 @@ class FileBugTest(testing_common.TestCase):
     labels = self.service.new_bug_kwargs['labels']
     self.assertEqual(0, len([x for x in labels if x.startswith(u'M-')]))
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
       mock.MagicMock(return_value=testing_common.FakeResponseObject(
@@ -347,6 +358,7 @@ class FileBugTest(testing_common.TestCase):
     self._PostSampleBug()
     self.assertIn('Foo>Bar', self.service.new_bug_kwargs['components'])
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
       mock.MagicMock(return_value=testing_common.FakeResponseObject(
@@ -363,6 +375,7 @@ class FileBugTest(testing_common.TestCase):
     self._PostSampleBug()
     self.assertIn('M-1', self.service.new_bug_kwargs['labels'])
 
+  @mock.patch.object(utils, 'ServiceAccountHttp', mock.MagicMock())
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
       mock.MagicMock(return_value=testing_common.FakeResponseObject(
@@ -380,6 +393,162 @@ class FileBugTest(testing_common.TestCase):
     self.assertEqual(0, len([x for x in labels if x.startswith(u'M-')]))
     self.assertEqual(1, mock_warn.call_count)
 
+  def testGet_WithOwnersPreFilled(self):
+    ownership_samples = [
+        {
+            'type': 'Ownership',
+            'guid': 'eb212e80-db58-4cbd-b331-c2245ecbb826',
+            'emails': ['alice@chromium.org']
+        },
+        {
+            'type': 'Ownership',
+            'guid': 'eb212e80-db58-4cbd-b331-c2245ecbb827',
+            'emails': ['bob@chromium.org']
+        }
+    ]
+
+    now_datetime = datetime.datetime.now()
+
+    test_paths = ['ChromiumPerf/linux/scrolling/first_paint',
+                  'ChromiumPerf/linux/scrolling/mean_frame_time']
+    test_keys = [utils.TestKey(test_path) for test_path in test_paths]
+
+    sheriff_key = sheriff.Sheriff(
+        id='Sheriff',
+        labels=['Performance-Sheriff', 'Cr-Blink-Javascript']).put()
+
+    anomaly_1 = anomaly.Anomaly(
+        start_revision=1476193324, end_revision=1476201840, test=test_keys[0],
+        median_before_anomaly=100, median_after_anomaly=200,
+        sheriff=sheriff_key, ownership=ownership_samples[0],
+        timestamp=now_datetime).put()
+
+    anomaly_2 = anomaly.Anomaly(
+        start_revision=1476193320, end_revision=1476201870, test=test_keys[1],
+        median_before_anomaly=100, median_after_anomaly=200,
+        sheriff=sheriff_key, ownership=ownership_samples[1],
+        timestamp=now_datetime - datetime.timedelta(10)).put()
+
+    response = self.testapp.post(
+        '/file_bug',
+        [
+            ('keys', '%s,%s' % (anomaly_1.urlsafe(), anomaly_2.urlsafe())),
+            ('summary', 's'),
+            ('description', 'd\n'),
+            ('label', 'one'),
+            ('label', 'two'),
+            ('component', 'Foo>Bar'),
+        ])
+
+    self.assertIn(
+        '<input type="text" name="owner" value="alice@chromium.org">',
+        response.body)
+
+    response_changed_order = self.testapp.post(
+        '/file_bug',
+        [
+            ('keys', '%s,%s' % (anomaly_2.urlsafe(), anomaly_1.urlsafe())),
+            ('summary', 's'),
+            ('description', 'd\n'),
+            ('label', 'one'),
+            ('label', 'two'),
+            ('component', 'Foo>Bar'),
+        ])
+
+    self.assertIn(
+        '<input type="text" name="owner" value="alice@chromium.org">',
+        response_changed_order.body)
+
+  def testGet_OwnersNotFilledWhenNoOwnership(self):
+    test_key = utils.TestKey('ChromiumPerf/linux/scrolling/first_paint')
+    sheriff_key = sheriff.Sheriff(
+        id='Sheriff',
+        labels=['Performance-Sheriff', 'Cr-Blink-Javascript']).put()
+
+    anomaly_entity = anomaly.Anomaly(
+        start_revision=1476193324, end_revision=1476201840, test=test_key,
+        median_before_anomaly=100, median_after_anomaly=200,
+        sheriff=sheriff_key).put()
+
+    response = self.testapp.post(
+        '/file_bug',
+        [
+            ('keys', '%s' % (anomaly_entity.urlsafe())),
+            ('summary', 's'),
+            ('description', 'd\n'),
+            ('label', 'one'),
+            ('label', 'two'),
+            ('component', 'Foo>Bar'),
+        ])
+
+    self.assertIn(
+        '<input type="text" name="owner" value="">',
+        response.body)
+
+  def testGet_OwnersNotFilledWhenOwnersEmpty(self):
+    ownership_data = {
+        'emails': [],
+        'type': 'Ownership',
+        'guid': 'eb212e80-db58-4cbd-b331-c2245ecbb827',
+    }
+
+    test_key = utils.TestKey('ChromiumPerf/linux/scrolling/first_paint')
+    sheriff_key = sheriff.Sheriff(
+        id='Sheriff',
+        labels=['Performance-Sheriff', 'Cr-Blink-Javascript']).put()
+
+    anomaly_entity = anomaly.Anomaly(
+        start_revision=1476193320, end_revision=1476201870, test=test_key,
+        median_before_anomaly=100, median_after_anomaly=200,
+        sheriff=sheriff_key, ownership=ownership_data).put()
+
+    response = self.testapp.post(
+        '/file_bug',
+        [
+            ('keys', '%s' % (anomaly_entity.urlsafe())),
+            ('summary', 's'),
+            ('description', 'd\n'),
+            ('label', 'one'),
+            ('label', 'two'),
+            ('component', 'Foo>Bar'),
+        ])
+
+    self.assertIn(
+        '<input type="text" name="owner" value="">',
+        response.body)
+
+  def testGet_WithOwnershipComponent(self):
+    ownership_data = {
+        'emails': [],
+        'type': 'Ownership',
+        'guid': 'eb212e80-db58-4cbd-b331-c2245ecbb827',
+        'component': 'Abc>Xyz'
+    }
+
+    test_key = utils.TestKey('ChromiumPerf/linux/scrolling/first_paint')
+    sheriff_key = sheriff.Sheriff(
+        id='Sheriff',
+        labels=['Performance-Sheriff', 'Cr-Blink-Javascript']).put()
+
+    anomaly_entity = anomaly.Anomaly(
+        start_revision=1476193320, end_revision=1476201870, test=test_key,
+        median_before_anomaly=100, median_after_anomaly=200,
+        sheriff=sheriff_key, ownership=ownership_data).put()
+
+    response = self.testapp.post(
+        '/file_bug',
+        [
+            ('keys', '%s' % (anomaly_entity.urlsafe())),
+            ('summary', 's'),
+            ('description', 'd\n'),
+            ('label', 'one'),
+            ('label', 'two'),
+            ('component', 'Foo>Bar'),
+        ])
+
+    self.assertIn(
+        '<input type="checkbox" checked name="component" value="Abc&gt;Xyz">',
+        response.body)
 
 if __name__ == '__main__':
   unittest.main()

@@ -20,6 +20,7 @@ from chromite.lib import config_lib
 from chromite.lib import fake_cidb
 from chromite.lib import metadata_lib
 from chromite.lib import patch_unittest
+from chromite.lib import tree_status
 
 
 # pylint: disable=protected-access
@@ -202,6 +203,7 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
     self.metadata = metadata_lib.CBuildbotMetadata()
     self.db = fake_cidb.FakeCIDBConnection()
     self.buildbucket_client = mock.Mock()
+    self.PatchObject(tree_status, 'GetExperimentalBuilders', return_value=[])
 
   def _GetSlaveStatus(self, start_time=None, builders_array=None,
                       master_build_id=None, db=None, config=None,
@@ -305,6 +307,17 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
     }
 
     self.assertDictEqual(expected_map, slave_status.dependency_map)
+
+  def testGetExpectedBuilders(self):
+    """Tests _GetExpectedBuilders does not return experimental builders."""
+    slave_status = self._GetSlaveStatus(builders_array=['build1', 'build2'])
+    self.assertItemsEqual(slave_status._GetExpectedBuilders(),
+                          ['build1', 'build2'])
+
+    self.metadata.UpdateWithDict({
+        constants.METADATA_EXPERIMENTAL_BUILDERS: ['build1']
+    })
+    self.assertItemsEqual(slave_status._GetExpectedBuilders(), ['build2'])
 
   def testGetMissingBuilds(self):
     """Tests GetMissingBuilds returns the missing builders."""
@@ -548,6 +561,11 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
                      set(['completed_success', 'completed_failure',
                           'completed_canceled']))
 
+  def testGetCompletedBuildsWithBuildbucketAndRetriableBuilds(self):
+    """Tests GetCompletedBuilds with Buildbucket and retriable builds."""
+    self._Mock_GetSlaveStatusesFromCIDB(CIDBStatusInfos.GetFullCIDBStatusInfo())
+    self._Mock_GetSlaveStatusesFromBuildbucket(
+        BuildbucketInfos.GetFullBuildbucketInfoDict())
     self._Mock_GetRetriableBuilds(builds=set(['completed_failure']))
     slave_status = self._GetSlaveStatus(
         builders_array=self._GetFullBuildConfigs(),
@@ -555,6 +573,25 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
 
     self.assertEqual(slave_status._GetCompletedBuilds(),
                      set(['completed_success', 'completed_canceled']))
+
+  def testGetCompletedBuildsWithBuildbucketOnlyCompletedInCIDB(self):
+    """Tests when builds only completed in CIDB not Buildbucket."""
+    self._Mock_GetSlaveStatusesFromCIDB(CIDBStatusInfos.GetFullCIDBStatusInfo())
+    buildbucket_info_dict = {
+        'scheduled': BuildbucketInfos.GetScheduledBuild(),
+        'started': BuildbucketInfos.GetStartedBuild(),
+        'completed_success': BuildbucketInfos.GetSuccessBuild(),
+        'completed_failure': BuildbucketInfos.GetStartedBuild(),
+        'completed_canceled': BuildbucketInfos.GetCanceledBuild()
+    }
+
+    self._Mock_GetSlaveStatusesFromBuildbucket(buildbucket_info_dict)
+    slave_status = self._GetSlaveStatus(
+        builders_array=self._GetFullBuildConfigs(),
+        config=self.master_cq_config)
+
+    self.assertEqual(slave_status._GetCompletedBuilds(),
+                     set(['completed_success', 'completed_failure']))
 
   def testGetBuildsToRetry(self):
     """Test GetBuildsToRetry."""
@@ -959,6 +996,42 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
 
     self.assertTrue(slave_status.ShouldWait())
 
+  def testShouldWaitExperimentalBuildersStillBuilding(self):
+    """Tests that ShouldWait says not to wait on experimental builders."""
+    cidb_status = {
+        'build1': CIDBStatusInfos.GetInflightBuild(),
+        'build2': CIDBStatusInfos.GetFailedBuild()
+    }
+    self._Mock_GetSlaveStatusesFromCIDB(cidb_status)
+
+    slave_status = self._GetSlaveStatus(
+        builders_array=['build1', 'build2'])
+
+    self.assertTrue(slave_status.ShouldWait())
+
+    self.metadata.UpdateWithDict({
+        constants.METADATA_EXPERIMENTAL_BUILDERS: ['build1']
+    })
+    self.assertFalse(slave_status.ShouldWait())
+
+  def testUpdateSlaveStatusUpdatesExperimentalBuilders(self):
+    """Tests that UpdateSlaveStatus updates the experimental builders list."""
+    cidb_status = {
+        'build1': CIDBStatusInfos.GetInflightBuild(),
+        'build2': CIDBStatusInfos.GetFailedBuild()
+    }
+    self._Mock_GetSlaveStatusesFromCIDB(cidb_status)
+
+    slave_status = self._GetSlaveStatus(
+        builders_array=['build1', 'build2'])
+
+    with mock.patch.object(tree_status, 'GetExperimentalBuilders') as m:
+      m.return_value = ['build1']
+      slave_status.UpdateSlaveStatus()
+      self.assertItemsEqual(slave_status.metadata.GetValueWithDefault(
+          constants.METADATA_EXPERIMENTAL_BUILDERS, []), ['build1'])
+
+
   def testShouldWaitBuildersStillBuildingWithBuildbucket(self):
     """ShouldWait says yes because builders still in started status."""
     cidb_status = {
@@ -1036,7 +1109,7 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
     relevant_changes.TriageRelevantChanges.__init__ = mock.Mock(
         return_value=None)
     self.PatchObject(relevant_changes.TriageRelevantChanges,
-                     'ShouldWait', return_value=False)
+                     'ShouldSelfDestruct', return_value=(True, False))
     self.PatchObject(build_status.SlaveStatus,
                      '_Completed', return_value=False)
     self.PatchObject(build_status.SlaveStatus,
@@ -1052,6 +1125,8 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
     self.assertFalse(slave_status.ShouldWait())
     self.assertTrue(slave_status.metadata.GetValueWithDefault(
         constants.SELF_DESTRUCTED_BUILD, False))
+    self.assertFalse(slave_status.metadata.GetValueWithDefault(
+        constants.SELF_DESTRUCTED_WITH_SUCCESS_BUILD, False))
 
     build_messages = self.db.GetBuildMessages(self.master_build_id)
     self.assertEqual(len(build_messages), 3)
@@ -1067,7 +1142,7 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
     relevant_changes.TriageRelevantChanges.__init__ = mock.Mock(
         return_value=None)
     self.PatchObject(relevant_changes.TriageRelevantChanges,
-                     'ShouldWait', return_value=True)
+                     'ShouldSelfDestruct', return_value=(False, False))
     self.PatchObject(build_status.SlaveStatus,
                      '_Completed',
                      return_value=False)
@@ -1084,6 +1159,8 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
     self.assertTrue(slave_status.ShouldWait())
     self.assertFalse(slave_status.metadata.GetValueWithDefault(
         constants.SELF_DESTRUCTED_BUILD, False))
+    self.assertFalse(slave_status.metadata.GetValueWithDefault(
+        constants.SELF_DESTRUCTED_WITH_SUCCESS_BUILD, False))
 
   def testRetryBuilds(self):
     """Test RetryBuilds."""
@@ -1106,7 +1183,7 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
         'failure': BuildbucketInfos.GetFailureBuild(),
         'canceled': BuildbucketInfos.GetCanceledBuild(),
     }
-    slave_status.buildbucket_info_dict = updated_buildbucket_info_dict
+    slave_status.new_buildbucket_info_dict = updated_buildbucket_info_dict
     content = {
         'build':{
             'status': 'SCHEDULED',

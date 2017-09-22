@@ -26,10 +26,9 @@ class MockSessionManagerClient : public SessionManagerClient {
   MOCK_CONST_METHOD1(HasObserver, bool(const Observer*));
   MOCK_CONST_METHOD0(IsScreenLocked, bool(void));
   MOCK_METHOD0(EmitLoginPromptVisible, void(void));
-  MOCK_METHOD3(RestartJob,
-               void(int,
-                    const std::vector<std::string>&,
-                    const VoidDBusMethodCallback&));
+  void RestartJob(int socket_fd,
+                  const std::vector<std::string>& argv,
+                  VoidDBusMethodCallback callback) override;
   MOCK_METHOD1(StartSession, void(const cryptohome::Identification&));
   MOCK_METHOD0(StopSession, void(void));
   MOCK_METHOD0(NotifySupervisedUserCreationStarted, void(void));
@@ -43,6 +42,9 @@ class MockSessionManagerClient : public SessionManagerClient {
   MOCK_METHOD1(BlockingRetrieveDevicePolicy,
                RetrievePolicyResponseType(std::string*));
   MOCK_METHOD2(RetrievePolicyForUser,
+               void(const cryptohome::Identification&,
+                    const RetrievePolicyCallback&));
+  MOCK_METHOD2(RetrievePolicyForUserWithoutSession,
                void(const cryptohome::Identification&,
                     const RetrievePolicyCallback&));
   MOCK_METHOD2(BlockingRetrievePolicyForUser,
@@ -70,8 +72,9 @@ class MockSessionManagerClient : public SessionManagerClient {
                     const std::vector<std::string>&));
   MOCK_METHOD1(GetServerBackedStateKeys, void(const StateKeysCallback&));
   MOCK_METHOD1(CheckArcAvailability, void(const ArcCallback&));
-  MOCK_METHOD4(StartArcInstance,
-               void(const cryptohome::Identification&,
+  MOCK_METHOD5(StartArcInstance,
+               void(ArcStartupMode,
+                    const cryptohome::Identification&,
                     bool,
                     bool,
                     const StartArcInstanceCallback&));

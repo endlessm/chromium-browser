@@ -220,6 +220,7 @@ tr.exportTo('tr.v.ui', function() {
         this.histogramSpan_.viewState = this.viewState;
         this.histogramSpan_.referenceHistogram = this.referenceHistogram;
         this.histogramSpan_.histogram = this.histogram;
+        this.histogramSpan_.alpha = this.row.rootViewState.alpha;
       }
 
       this.viewState.isOpen = open;
@@ -242,8 +243,18 @@ tr.exportTo('tr.v.ui', function() {
 
     onRootStateUpdate_(event) {
       if (event.delta.displayStatisticName ||
-          event.delta.referenceDisplayLabel) {
+          event.delta.referenceDisplayLabel ||
+          event.delta.alpha) {
         this.updateContents_();
+      }
+      if (this.row.viewState.isOverviewed &&
+          (event.delta.sortColumnIndex ||
+           event.delta.sortDescending ||
+           event.delta.displayStatisticName ||
+           event.delta.referenceDisplayLabel)) {
+        this.$.overview_container.removeChild(this.overviewChart_);
+        this.overviewChart_ = undefined;
+        this.showOverview();
       }
     },
 
@@ -306,13 +317,15 @@ tr.exportTo('tr.v.ui', function() {
       if (this.histogramSpan_) {
         // Reset in case HistogramSetViewState.referenceDisplayLabel changed.
         this.histogramSpan_.referenceHistogram = referenceHistogram;
+
+        this.histogramSpan_.alpha = this.row.rootViewState.alpha;
       }
 
       if ((referenceHistogram instanceof tr.v.Histogram) &&
           (this.histogram.unit === referenceHistogram.unit) &&
           (referenceHistogram.numValues > 0)) {
         this.$.scalar.significance = this.histogram.getDifferenceSignificance(
-            referenceHistogram);
+            referenceHistogram, this.row.rootViewState.alpha);
       }
 
       const statName = this.histogram.getAvailableStatisticName(
@@ -329,18 +342,40 @@ tr.exportTo('tr.v.ui', function() {
       this.$.overview_container.style.display = 'block';
       if (this.overviewChart_ !== undefined) return;
 
+      this.row.sortSubRows();
+      let referenceDisplayLabel =
+        this.row.rootViewState.referenceDisplayLabel;
+      if (referenceDisplayLabel === this.displayLabel_) {
+        referenceDisplayLabel = undefined;
+      }
+      const displayStatisticName = this.row.rootViewState.displayStatisticName;
       const data = [];
       let unitString;
+
       for (const subRow of this.row.subRows) {
         const subHist = subRow.columns.get(this.displayLabel_);
         if (!(subHist instanceof tr.v.Histogram)) continue;
-        data.push({x: subRow.name, y: subHist.average});
-        unitString = subHist.unit.unitString;
+
+        if (unitString === undefined) unitString = subHist.unit.unitString;
+
+        const refHist = subRow.columns.get(referenceDisplayLabel);
+        const statName = subHist.getAvailableStatisticName(
+            displayStatisticName, refHist);
+        const statScalar = subHist.getStatisticScalar(
+            statName, refHist);
+
+        if (statScalar !== undefined) {
+          data.push({
+            x: subRow.name,
+            y: statScalar.value,
+          });
+        }
       }
       if (data.length < 2) return;
 
       this.overviewChart_ = new tr.ui.b.NameLineChart();
       this.$.overview_container.appendChild(this.overviewChart_);
+      this.overviewChart_.displayXInHover = true;
       this.overviewChart_.hideLegend = true;
       this.overviewChart_.yAxisLabel = unitString;
       this.overviewChart_.overrideDataRange = this.row.overviewDataRange;

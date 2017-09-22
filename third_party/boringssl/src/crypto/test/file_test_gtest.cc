@@ -23,6 +23,8 @@
 
 #include <gtest/gtest.h>
 
+#include <openssl/err.h>
+
 
 std::string GetTestData(const char *path);
 
@@ -66,7 +68,7 @@ class StringLineReader : public FileTest::LineReader {
 void FileTestGTest(const char *path, std::function<void(FileTest *)> run_test) {
   std::unique_ptr<StringLineReader> reader(
       new StringLineReader(GetTestData(path)));
-  FileTest t(std::move(reader));
+  FileTest t(std::move(reader), nullptr);
 
   while (true) {
     switch (t.ReadNext()) {
@@ -81,5 +83,8 @@ void FileTestGTest(const char *path, std::function<void(FileTest *)> run_test) {
 
     SCOPED_TRACE(testing::Message() << path << ", line " << t.start_line());
     run_test(&t);
+
+    // Clean up the error queue for the next test.
+    ERR_clear_error();
   }
 }

@@ -18,6 +18,7 @@
 #include "angle_test_configs.h"
 #include "common/angleutils.h"
 #include "common/vector_utils.h"
+#include "platform/Platform.h"
 #include "shader_utils.h"
 #include "system_utils.h"
 
@@ -109,6 +110,7 @@ GLColor MakeGLColor(TR r, TG g, TB b, TA a)
 }
 
 bool operator==(const GLColor &a, const GLColor &b);
+bool operator!=(const GLColor &a, const GLColor &b);
 std::ostream &operator<<(std::ostream &ostream, const GLColor &color);
 GLColor ReadColor(GLint x, GLint y);
 
@@ -128,6 +130,9 @@ GLColor32F ReadColor32F(GLint x, GLint y);
 
 #define EXPECT_PIXEL_EQ(x, y, r, g, b, a) \
     EXPECT_EQ(angle::MakeGLColor(r, g, b, a), angle::ReadColor(x, y))
+
+#define EXPECT_PIXEL_NE(x, y, r, g, b, a) \
+    EXPECT_NE(angle::MakeGLColor(r, g, b, a), angle::ReadColor(x, y))
 
 #define EXPECT_PIXEL_32F_EQ(x, y, r, g, b, a) \
     EXPECT_EQ(angle::MakeGLColor32F(r, g, b, a), angle::ReadColor32F(x, y))
@@ -199,19 +204,19 @@ GLColor32F ReadColor32F(GLint x, GLint y);
 
 class EGLWindow;
 class OSWindow;
-class ANGLETest;
+class ANGLETestBase;
 
 struct TestPlatformContext final : private angle::NonCopyable
 {
     bool ignoreMessages    = false;
-    ANGLETest *currentTest = nullptr;
+    ANGLETestBase *currentTest = nullptr;
 };
 
-class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
+class ANGLETestBase
 {
   protected:
-    ANGLETest();
-    ~ANGLETest();
+    ANGLETestBase(const angle::PlatformParameters &params);
+    virtual ~ANGLETestBase();
 
   public:
     static bool InitTestWindow();
@@ -222,13 +227,14 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     virtual void overrideWorkaroundsD3D(angle::WorkaroundsD3D *workaroundsD3D) {}
 
   protected:
-    virtual void SetUp();
-    virtual void TearDown();
+    void ANGLETestSetUp();
+    void ANGLETestTearDown();
 
     virtual void swapBuffers();
 
     void setupQuadVertexBuffer(GLfloat positionAttribZ, GLfloat positionAttribXYScale);
     void setupIndexedQuadVertexBuffer(GLfloat positionAttribZ, GLfloat positionAttribXYScale);
+    void setupIndexedQuadIndexBuffer();
 
     void drawQuad(GLuint program, const std::string &positionAttribName, GLfloat positionAttribZ);
     void drawQuad(GLuint program,
@@ -248,6 +254,11 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
                          const std::string &positionAttribName,
                          GLfloat positionAttribZ,
                          GLfloat positionAttribXYScale);
+    void drawIndexedQuad(GLuint program,
+                         const std::string &positionAttribName,
+                         GLfloat positionAttribZ,
+                         GLfloat positionAttribXYScale,
+                         bool useBufferObject);
 
     static GLuint compileShader(GLenum type, const std::string &source);
     static bool extensionEnabled(const std::string &extName);
@@ -270,9 +281,10 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     void setNoErrorEnabled(bool enabled);
     void setWebGLCompatibilityEnabled(bool webglCompatibility);
     void setBindGeneratesResource(bool bindGeneratesResource);
-    void setVulkanLayersEnabled(bool enabled);
+    void setDebugLayersEnabled(bool enabled);
     void setClientArraysEnabled(bool enabled);
     void setRobustResourceInit(bool enabled);
+    void setContextProgramCacheEnabled(bool enabled);
 
     // Some EGL extension tests would like to defer the Context init until the test body.
     void setDeferContextInit(bool enabled);
@@ -291,6 +303,8 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
 
     static OSWindow *GetOSWindow() { return mOSWindow; }
 
+    angle::PlatformMethods mPlatformMethods;
+
   private:
     bool destroyEGLContext();
 
@@ -304,6 +318,7 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
 
     // Used for indexed quad rendering
     GLuint mQuadVertexBuffer;
+    GLuint mQuadIndexBuffer;
 
     TestPlatformContext mPlatformContext;
 
@@ -316,6 +331,16 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
 
     // For loading and freeing platform
     static std::unique_ptr<angle::Library> mGLESLibrary;
+};
+
+class ANGLETest : public ANGLETestBase, public ::testing::TestWithParam<angle::PlatformParameters>
+{
+  protected:
+    ANGLETest();
+
+  public:
+    void SetUp() override;
+    void TearDown() override;
 };
 
 class ANGLETestEnvironment : public testing::Environment

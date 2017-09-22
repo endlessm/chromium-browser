@@ -14,8 +14,12 @@ const base::Feature kEnableAnswerCard{"EnableAnswerCard",
                                       base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kEnableAnswerCardDarkRun{"EnableAnswerCardDarkRun",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kEnableBackgroundBlur{"EnableBackgroundBlur",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kEnableFullscreenAppList{"EnableFullscreenAppList",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
+                                             base::FEATURE_ENABLED_BY_DEFAULT};
+const base::Feature kEnablePlayStoreAppSearch{
+    "EnablePlayStoreAppSearch", base::FEATURE_DISABLED_BY_DEFAULT};
 
 bool IsAnswerCardEnabled() {
   static const bool enabled = base::FeatureList::IsEnabled(kEnableAnswerCard);
@@ -28,25 +32,34 @@ bool IsAnswerCardDarkRunEnabled() {
   return enabled;
 }
 
+bool IsBackgroundBlurEnabled() {
+  static const bool enabled =
+      base::FeatureList::IsEnabled(kEnableBackgroundBlur);
+  return enabled;
+}
+
 bool IsFullscreenAppListEnabled() {
   // Not using local static variable to allow tests to change this value.
   return base::FeatureList::IsEnabled(kEnableFullscreenAppList);
 }
 
-int APP_LIST_EXPORT AnswerCardMaxWidth() {
-  static const int max_width = base::GetFieldTrialParamByFeatureAsInt(
-      kEnableAnswerCard, "CardMaxWidth", 640);
-  return max_width;
+bool IsTouchFriendlySearchResultsPageEnabled() {
+  return IsFullscreenAppListEnabled() ||
+         (IsAnswerCardEnabled() && !IsAnswerCardDarkRunEnabled());
 }
 
-int APP_LIST_EXPORT AnswerCardMaxHeight() {
-  static const int max_height = base::GetFieldTrialParamByFeatureAsInt(
-      kEnableAnswerCard, "CardMaxHeight", 288);
-  return max_height;
+bool IsPlayStoreAppSearchEnabled() {
+  // Not using local static variable to allow tests to change this value.
+  return base::FeatureList::IsEnabled(kEnablePlayStoreAppSearch);
 }
 
 std::string AnswerServerUrl() {
   return base::GetFieldTrialParamValueByFeature(kEnableAnswerCard, "ServerUrl");
+}
+
+std::string AnswerServerQuerySuffix() {
+  return base::GetFieldTrialParamValueByFeature(kEnableAnswerCard,
+                                                "QuerySuffix");
 }
 
 }  // namespace features

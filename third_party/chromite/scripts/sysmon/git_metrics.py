@@ -6,13 +6,12 @@
 
 from __future__ import absolute_import
 from __future__ import print_function
-from __future__ import unicode_literals
 
 import os
 import subprocess
 
 from chromite.lib import cros_logging as logging
-from infra_libs import ts_mon
+from chromite.lib import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +38,21 @@ class _GitRepo(object):
     return int(self._check_output(['show', '-s', '--format=%ct', 'HEAD'])
                .strip())
 
+  def get_unstaged_changes(self):
+    """Return number of unstaged changes as (added, deleted)."""
+    added_total, deleted_total = 0, 0
+    # output looks like:
+    # '1\t2\tfoo\n3\t4\tbar\n'
+    # '-\t-\tbinary_file\n'
+    output = self._check_output(['diff-index', '--numstat', 'HEAD'])
+    stats_strings = (line.split() for line in output.splitlines())
+    for added, deleted, _path in stats_strings:
+      if added != '-':
+        added_total += int(added)
+      if deleted != '-':
+        deleted_total += int(deleted)
+    return added_total, deleted_total
+
 
 class _GitMetricCollector(object):
   """Class for collecting metrics about a git repository.
@@ -49,13 +63,17 @@ class _GitMetricCollector(object):
   `metric_path` is the Monarch metric path to report to.
   """
 
-  _commit_hash_metric = ts_mon.StringMetric(
+  _commit_hash_metric = metrics.StringMetric(
       'git/hash',
       description='Current Git commit hash.')
 
-  _timestamp_metric = ts_mon.GaugeMetric(
+  _timestamp_metric = metrics.GaugeMetric(
       'git/timestamp',
       description='Current Git commit time as seconds since Unix Epoch.')
+
+  _unstaged_changes_metric = metrics.GaugeMetric(
+      'git/unstaged_changes',
+      description='Unstaged Git changes.')
 
   def __init__(self, gitdir, metric_path):
     self._gitdir = gitdir
@@ -68,20 +86,28 @@ class _GitMetricCollector(object):
     try:
       self._collect_commit_hash_metric()
       self._collect_timestamp_metric()
+      self._collect_unstaged_changes_metric()
     except subprocess.CalledProcessError as e:
-      logger.warning('Error collecting git metrics for %s: %s',
+      logger.warning(u'Error collecting git metrics for %s: %s',
                      self._gitdir, e)
 
   def _collect_commit_hash_metric(self):
     commit_hash = self._gitrepo.get_commit_hash()
-    logger.debug('Collecting Git hash %r for %r', commit_hash, self._gitdir)
+    logger.debug(u'Collecting Git hash %r for %r', commit_hash, self._gitdir)
     self._commit_hash_metric.set(commit_hash, self._fields)
 
   def _collect_timestamp_metric(self):
     commit_time = self._gitrepo.get_commit_time()
-    logger.debug('Collecting Git timestamp %r for %r',
+    logger.debug(u'Collecting Git timestamp %r for %r',
                  commit_time, self._gitdir)
     self._timestamp_metric.set(commit_time, self._fields)
+
+  def _collect_unstaged_changes_metric(self):
+    added, deleted = self._gitrepo.get_unstaged_changes()
+    self._unstaged_changes_metric.set(
+        added, fields=dict(change_type='added', **self._fields))
+    self._unstaged_changes_metric.set(
+        deleted, fields=dict(change_type='deleted', **self._fields))
 
 
 _CHROMIUMOS_DIR = '~chromeos-test/chromiumos/'

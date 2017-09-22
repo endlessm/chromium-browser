@@ -45,6 +45,9 @@ to the classpath for downstream development. See "additional_entries" below.
     <classpathentry kind="src" path="chrome/test/chromedriver/test/webview_shell/java/src"/>
     <classpathentry kind="src" path="chromecast/browser/android/apk/src"/>
     <classpathentry kind="src" path="components/autofill/android/java/src"/>
+    <classpathentry kind="src" path="components/background_task_scheduler/android/java/src"/>
+    <classpathentry kind="src" path="components/background_task_scheduler/android/javatests/src"/>
+    <classpathentry kind="src" path="components/background_task_scheduler/android/junit/src"/>
     <classpathentry kind="src" path="components/bookmarks/common/android/java/src"/>
     <classpathentry kind="src" path="components/cronet/android/api/src"/>
     <classpathentry kind="src" path="components/cronet/android/java/src"/>
@@ -62,6 +65,8 @@ to the classpath for downstream development. See "additional_entries" below.
     <classpathentry kind="src" path="components/offline_items_collection/core/android/java/src"/>
     <classpathentry kind="src" path="components/payments/content/android/java/src"/>
     <classpathentry kind="src" path="components/policy/android/java/src"/>
+    <classpathentry kind="src" path="components/policy/android/javatests/src"/>
+    <classpathentry kind="src" path="components/policy/android/junit/src"/>
     <classpathentry kind="src" path="components/precache/android/java/src"/>
     <classpathentry kind="src" path="components/precache/android/javatests/src"/>
     <classpathentry kind="src" path="components/safe_json/android/java/src"/>
@@ -221,7 +226,7 @@ to the classpath for downstream development. See "additional_entries" below.
     <classpathentry kind="src" path="out/Debug/remoting_apk/gen"/>
     <classpathentry kind="src" path="out/Debug/webview_instrumentation_test_apk/gen"/>
     <classpathentry kind="lib" path="third_party/android_tools/sdk/extras/google/gcm/gcm-client/dist/gcm.jar" sourcepath="third_party/android_tools/sdk/extras/google/gcm/gcm-client/src"/>
-    <classpathentry kind="lib" path="third_party/android_tools/sdk/platforms/android-25/android.jar" sourcepath="third_party/android_tools/sdk/sources/">
+    <classpathentry kind="lib" path="third_party/android_tools/sdk/platforms/android-26/android.jar" sourcepath="third_party/android_tools/sdk/sources/">
         <attributes>
             <attribute name="javadoc_location" value="http://developer.android.com/reference/"/>
         </attributes>
@@ -306,6 +311,7 @@ to the classpath for downstream development. See "additional_entries" below.
     <classpathentry kind="lib" path="out/Debug/lib.java/third_party/android_support_test_runner/rules_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/third_party/WebKit/public/blink_headers_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/ui/accessibility/ui_accessibility_java.jar"/>
+    <classpathentry kind="lib" path="out/Debug/lib.java/ui/android/ui_full_java.interface.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/ui/android/ui_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/ui/base/mojo/mojo_bindings_java.jar"/>
 

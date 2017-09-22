@@ -6,7 +6,6 @@
 
 from __future__ import absolute_import
 from __future__ import print_function
-from __future__ import unicode_literals
 
 import errno
 import os
@@ -15,78 +14,59 @@ import time
 import psutil
 
 from chromite.lib import cros_logging as logging
-from infra_libs import ts_mon
+from chromite.lib import metrics
 
 logger = logging.getLogger(__name__)
 
 
-_cpu_count_metric = ts_mon.GaugeMetric(
+_cpu_count_metric = metrics.GaugeMetric(
     'dev/cpu/count',
     description='Number of CPU cores.')
-_cpu_time_metric = ts_mon.FloatMetric(
+_cpu_time_metric = metrics.FloatMetric(
     'dev/cpu/time',
     description='percentage of time spent by the CPU '
     'in different states.')
 
-_disk_free_metric = ts_mon.GaugeMetric(
+_disk_free_metric = metrics.GaugeMetric(
     'dev/disk/free',
-    description='Available bytes on disk partition.',
-    units=ts_mon.MetricsDataUnits.BYTES)
-_disk_total_metric = ts_mon.GaugeMetric(
+    description='Available bytes on disk partition.')
+_disk_total_metric = metrics.GaugeMetric(
     'dev/disk/total',
-    description='Total bytes on disk partition.',
-    units=ts_mon.MetricsDataUnits.BYTES)
+    description='Total bytes on disk partition.')
 
-_inodes_free_metric = ts_mon.GaugeMetric(
+_inodes_free_metric = metrics.GaugeMetric(
     'dev/inodes/free',
     description='Number of available inodes on '
     'disk partition (unix only).')
-_inodes_total_metric = ts_mon.GaugeMetric(
+_inodes_total_metric = metrics.GaugeMetric(
     'dev/inodes/total',
     description='Number of possible inodes on '
     'disk partition (unix only)')
 
-_mem_free_metric = ts_mon.GaugeMetric(
+_mem_free_metric = metrics.GaugeMetric(
     'dev/mem/free',
     description='Amount of memory available to a '
     'process (in Bytes). Buffers are considered '
-    'free memory.',
-    units=ts_mon.MetricsDataUnits.BYTES)
+    'free memory.')
 
-_mem_total_metric = ts_mon.GaugeMetric(
+_mem_total_metric = metrics.GaugeMetric(
     'dev/mem/total',
-    description='Total physical memory in Bytes.',
-    units=ts_mon.MetricsDataUnits.BYTES)
+    description='Total physical memory in Bytes.')
 
 _BOOT_TIME = psutil.boot_time()
 
-_disk_read_metric = ts_mon.CounterMetric(
+_disk_read_metric = metrics.CounterMetric(
     'dev/disk/read', start_time=_BOOT_TIME,
-    description='Number of Bytes read on disk.',
-    units=ts_mon.MetricsDataUnits.BYTES)
-_disk_write_metric = ts_mon.CounterMetric(
+    description='Number of Bytes read on disk.')
+_disk_write_metric = metrics.CounterMetric(
     'dev/disk/write', start_time=_BOOT_TIME,
-    description='Number of Bytes written on disk.',
-    units=ts_mon.MetricsDataUnits.BYTES)
+    description='Number of Bytes written on disk.')
 
-_uptime_metric = ts_mon.GaugeMetric(
+_uptime_metric = metrics.GaugeMetric(
     'dev/uptime',
-    description='Machine uptime, in seconds.',
-    units=ts_mon.MetricsDataUnits.SECONDS)
+    description='Machine uptime, in seconds.')
 
-_proc_count_metric = ts_mon.GaugeMetric(
-    'dev/proc/count',
-    description='Number of processes currently running.')
-_autoserv_proc_count_metric = ts_mon.GaugeMetric(
-    'dev/proc/autoserv_count',
-    description='Number of autoserv processes currently running.')
-_sysmon_proc_count_metric = ts_mon.GaugeMetric(
-    'dev/proc/sysmon_count',
-    description='Number of sysmon processes currently running.')
-_apache_proc_count_metric = ts_mon.GaugeMetric(
-    'dev/proc/apache_count',
-    description='Number of apache processes currently running.')
-_load_average_metric = ts_mon.FloatMetric(
+_load_average_metric = metrics.FloatMetric(
     'dev/proc/load_average',
     description='Number of processes currently '
     'in the system run queue.')
@@ -97,24 +77,24 @@ _load_average_metric = ts_mon.FloatMetric(
 # drift, unusually high metrics pipeline delay, completely wrong clocks, etc).
 #
 # It is important to gather this metric right before the flush.
-_unix_time_metric = ts_mon.GaugeMetric(
+_unix_time_metric = metrics.GaugeMetric(
     'dev/unix_time',
     description='Number of milliseconds since epoch'
     ' based on local machine clock.')
 
-_os_name_metric = ts_mon.StringMetric(
+_os_name_metric = metrics.StringMetric(
     'proc/os/name',
     description='OS name on the machine')
 
-_os_version_metric = ts_mon.StringMetric(
+_os_version_metric = metrics.StringMetric(
     'proc/os/version',
     description='OS version on the machine')
 
-_os_arch_metric = ts_mon.StringMetric(
+_os_arch_metric = metrics.StringMetric(
     'proc/os/arch',
     description='OS architecture on this machine')
 
-_python_arch_metric = ts_mon.StringMetric(
+_python_arch_metric = metrics.StringMetric(
     'proc/python/arch',
     description='python userland '
     'architecture on this machine')
@@ -191,51 +171,6 @@ def collect_mem_info():
   mem = psutil.virtual_memory()
   _mem_free_metric.set(mem.available)
   _mem_total_metric.set(mem.total)
-
-
-def collect_proc_info():
-  autoserv_count = 0
-  sysmon_count = 0
-  apache_count = 0
-  total = 0
-  for proc in psutil.process_iter():
-    if _is_parent_autoserv(proc):
-      autoserv_count += 1
-    elif _is_sysmon(proc):
-      sysmon_count += 1
-    elif _is_apache(proc):
-      apache_count += 1
-    total += 1
-  logger.debug('autoserv_count: %s', autoserv_count)
-  logger.debug('sysmon_count: %s', sysmon_count)
-  logger.debug('apache_count: %s', apache_count)
-  _autoserv_proc_count_metric.set(autoserv_count)
-  _sysmon_proc_count_metric.set(sysmon_count)
-  _apache_proc_count_metric.set(apache_count)
-  _proc_count_metric.set(total)
-
-
-def _is_parent_autoserv(proc):
-  """Return whether proc is a parent (not forked) autoserv process."""
-  return _is_autoserv(proc) and not _is_autoserv(proc.parent())
-
-
-def _is_autoserv(proc):
-  """Return whether proc is an autoserv process."""
-  # This relies on the autoserv script being run directly.  The script should
-  # be named autoserv exactly and start with a shebang that is /usr/bin/python,
-  # NOT /bin/env
-  return proc.name() == 'autoserv'
-
-
-def _is_apache(proc):
-  """Return whether a proc is an apache2 process."""
-  return proc.name() == 'apache2'
-
-
-def _is_sysmon(proc):
-  """Return whether proc is a sysmon process."""
-  return proc.cmdline()[:3] == ['python', '-m', 'chromite.scripts.sysmon']
 
 
 def collect_load_avg():

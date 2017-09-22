@@ -21,9 +21,9 @@ import time
 
 from chromite.cbuildbot import patch_series
 from chromite.cbuildbot import repository
-from chromite.cbuildbot import tree_status
 from chromite.cbuildbot import validation_pool
 from chromite.lib import cidb
+from chromite.lib import clactions
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
@@ -40,6 +40,7 @@ from chromite.lib import partial_mock
 from chromite.lib import patch as cros_patch
 from chromite.lib import patch_unittest
 from chromite.lib import timeout_util
+from chromite.lib import tree_status
 from chromite.lib import triage_lib
 
 
@@ -143,6 +144,8 @@ class MoxBase(patch_unittest.MockPatchBase, cros_test_lib.MoxTestCase):
     self.PatchObject(tree_status, 'IsTreeOpen', return_value=True)
     self.PatchObject(tree_status, 'WaitForTreeStatus',
                      return_value=constants.TREE_OPEN)
+    self.PatchObject(tree_status, 'GetExperimentalBuilders',
+                     return_value=[])
     self.fake_db = fake_cidb.FakeCIDBConnection()
     cidb.CIDBConnectionFactory.SetupMockCidb(self.fake_db)
     # Suppress all gerrit access; having this occur is generally a sign
@@ -284,9 +287,11 @@ class ValidationFailureOrTimeout(MoxBase):
     self._patches = self.GetPatches(3)
     self._pool = MakePool(applied=self._patches, fake_db=self.fake_db)
 
+    suspects = triage_lib.SuspectChanges({
+        x: constants.SUSPECT_REASON_UNKNOWN for x in self._patches})
     self.PatchObject(
         triage_lib.CalculateSuspects, 'FindSuspects',
-        return_value=self._patches)
+        return_value=suspects)
     self.PatchObject(validation_pool.ValidationPool, 'SendNotification')
     self.remove = self.PatchObject(gerrit.GerritHelper, 'RemoveReady')
     self.PatchObject(gerrit, 'GetGerritPatchInfoWithPatchQueries',
@@ -334,18 +339,33 @@ class ValidationFailureOrTimeout(MoxBase):
   def testNoSuspectsWithFailure(self):
     """Tests no change is blamed when there is no suspect."""
     self.PatchObject(triage_lib.CalculateSuspects, 'FindSuspects',
-                     return_value=[])
+                     return_value=triage_lib.SuspectChanges())
     self._pool.HandleValidationFailure([self._BUILD_MESSAGE])
     self.assertEqual(0, self.remove.call_count)
     self._AssertActions(self._patches, [constants.CL_ACTION_FORGIVEN])
 
-  def testPreCQ(self):
+  def testPassedPreCQ(self):
+    """Do not RemoveReady for passed Pre-CQs."""
     for change in self._patches:
       self._pool.UpdateCLPreCQStatus(change, constants.CL_STATUS_PASSED)
     self._pool.pre_cq_trybot = True
     self._pool.HandleValidationFailure([self._BUILD_MESSAGE])
     self.assertEqual(0, self.remove.call_count)
     self._AssertActions(self._patches, [constants.CL_ACTION_PRE_CQ_PASSED])
+
+  def testCancelledPreCQ(self):
+    """Do not RemoveReady for cancelled Pre-CQs."""
+    build_id, _ = self._pool._run.GetCIDBHandle()
+    for change in self._patches:
+      self.fake_db.InsertCLActions(
+          build_id, [clactions.CLAction.FromGerritPatchAndAction(
+              change, constants.CL_ACTION_TRYBOT_CANCELLED,
+              buildbucket_id='100')])
+
+    self._pool.pre_cq_trybot = True
+    self._pool.HandleValidationFailure([self._BUILD_MESSAGE])
+    self.assertEqual(0, self.remove.call_count)
+    self._AssertActions(self._patches, [constants.CL_ACTION_TRYBOT_CANCELLED])
 
   def testPatchesWereNotRejectedByInsaneFailure(self):
     self._pool.HandleValidationFailure([self._BUILD_MESSAGE], sanity=False)
@@ -359,6 +379,7 @@ class TestCoreLogic(MoxBase):
   def setUp(self):
     self.mox.StubOutWithMock(patch_series.PatchSeries, 'Apply')
     self.mox.StubOutWithMock(patch_series.PatchSeries, 'ApplyChange')
+    self.mox.StubOutWithMock(patch_series.PatchSeries, 'FetchChanges')
     self.patch_mock = self.StartPatcher(MockPatchSeries())
     funcs = ['SendNotification', '_SubmitChangeUsingGerrit']
     for func in funcs:
@@ -416,8 +437,9 @@ class TestCoreLogic(MoxBase):
     slave_pool = self.MakePool(is_master=False)
     patches = self.GetPatches(3)
     slave_pool.candidates = patches
+    # pylint: disable=E1120, E1123
+    patch_series.PatchSeries.FetchChanges(patches, manifest=mox.IgnoreArg())
     for patch in patches:
-      # pylint: disable=E1120, E1123
       patch_series.PatchSeries.ApplyChange(patch, manifest=mox.IgnoreArg())
 
     self.mox.ReplayAll()
@@ -751,6 +773,7 @@ class TestCoreLogic(MoxBase):
     """Various tests for the AcquirePool method."""
     directory = '/tmp/dontmattah'
     repo = repository.RepoRepository(directory, directory, 'master', depth=1)
+    builder_run = FakeBuilderRun(self.fake_db)
     self.mox.StubOutWithMock(repo, 'Sync')
     self.mox.StubOutWithMock(validation_pool.ValidationPool, 'AcquireChanges')
     self.mox.StubOutWithMock(time, 'sleep')
@@ -771,7 +794,7 @@ class TestCoreLogic(MoxBase):
     query = constants.CQ_READY_QUERY
     pool = validation_pool.ValidationPool.AcquirePool(
         constants.PUBLIC_OVERLAYS, repo, 1, 'buildname', query, dryrun=False,
-        check_tree_open=True)
+        check_tree_open=True, builder_run=builder_run)
 
     self.assertTrue(pool.tree_was_open)
     self.mox.VerifyAll()
@@ -798,7 +821,7 @@ class TestCoreLogic(MoxBase):
     query = constants.CQ_READY_QUERY
     pool = validation_pool.ValidationPool.AcquirePool(
         constants.PUBLIC_OVERLAYS, repo, 1, 'buildname', query, dryrun=False,
-        check_tree_open=True)
+        check_tree_open=True, builder_run=builder_run)
 
     self.assertTrue(pool.tree_was_open)
     self.mox.VerifyAll()
@@ -818,7 +841,7 @@ class TestCoreLogic(MoxBase):
     query = constants.CQ_READY_QUERY
     pool = validation_pool.ValidationPool.AcquirePool(
         constants.PUBLIC_OVERLAYS, repo, 1, 'buildname', query, dryrun=False,
-        check_tree_open=True)
+        check_tree_open=True, builder_run=builder_run)
 
     self.assertFalse(pool.tree_was_open)
 
@@ -1544,7 +1567,7 @@ class BaseSubmitPoolTestCase(MoxBase):
     with mock.patch.object(git.ManifestCheckout, 'Cached', new=mock_manifest):
       if not self.ALL_BUILDS_PASSED:
         actually_rejected = sorted(pool.SubmitPartialPool(
-            pool.candidates, mock.ANY, dict(), dict(), [], [], []))
+            pool.candidates, mock.ANY, dict(), dict(), dict(), [], [], []))
       else:
         verified_cls = {c:reason for c in self.patches}
         _, actually_rejected = pool.SubmitChanges(verified_cls)

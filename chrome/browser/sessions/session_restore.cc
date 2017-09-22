@@ -86,10 +86,10 @@ bool HasSingleNewTabPage(Browser* browser) {
          search::IsInstantNTP(active_tab);
 }
 
-class SessionRestoreImpl;
-
 // Pointers to SessionRestoreImpls which are currently restoring the session.
 std::set<SessionRestoreImpl*>* active_session_restorers = nullptr;
+
+}  // namespace
 
 // SessionRestoreImpl ---------------------------------------------------------
 
@@ -598,6 +598,8 @@ class SessionRestoreImpl : public content::NotificationObserver {
     // See crbug.com/154129.
     if (tab.navigations.empty())
       return nullptr;
+
+    SessionRestore::NotifySessionRestoreStartedLoadingTabs();
     int selected_index = GetNavigationIndexToSelect(tab);
 
     RecordAppLaunchForTab(browser, tab, selected_index);
@@ -613,13 +615,12 @@ class SessionRestoreImpl : public content::NotificationObserver {
 
     WebContents* web_contents = chrome::AddRestoredTab(
         browser, tab.navigations, tab_index, selected_index,
-        tab.extension_app_id,
-        false,  // select
-        tab.pinned, true, session_storage_namespace.get(),
-        tab.user_agent_override);
-    // Regression check: check that the tab didn't start loading right away. The
+        tab.extension_app_id, is_selected_tab, tab.pinned, true,
+        session_storage_namespace.get(), tab.user_agent_override);
+    // Regression check: if the current tab |is_selected_tab|, it should load
+    // immediately, otherwise, tabs should not start loading right away. The
     // focused tab will be loaded by Browser, and TabLoader will load the rest.
-    DCHECK(web_contents->GetController().NeedsReload());
+    DCHECK(is_selected_tab || web_contents->GetController().NeedsReload());
 
     return web_contents;
   }
@@ -740,8 +741,6 @@ class SessionRestoreImpl : public content::NotificationObserver {
   DISALLOW_COPY_AND_ASSIGN(SessionRestoreImpl);
 };
 
-}  // namespace
-
 // SessionRestore -------------------------------------------------------------
 
 // static
@@ -849,5 +848,42 @@ SessionRestore::CallbackSubscription
 }
 
 // static
+void SessionRestore::AddObserver(SessionRestoreObserver* observer) {
+  observers()->AddObserver(observer);
+}
+
+// static
+void SessionRestore::RemoveObserver(SessionRestoreObserver* observer) {
+  observers()->RemoveObserver(observer);
+}
+
+// static
+void SessionRestore::OnTabLoaderFinishedLoadingTabs() {
+  if (!session_restore_started_)
+    return;
+
+  session_restore_started_ = false;
+  for (auto& observer : *observers())
+    observer.OnSessionRestoreFinishedLoadingTabs();
+}
+
+// static
+void SessionRestore::NotifySessionRestoreStartedLoadingTabs() {
+  if (session_restore_started_)
+    return;
+
+  session_restore_started_ = true;
+  for (auto& observer : *observers())
+    observer.OnSessionRestoreStartedLoadingTabs();
+}
+
+// static
 base::CallbackList<void(int)>*
     SessionRestore::on_session_restored_callbacks_ = nullptr;
+
+// static
+base::ObserverList<SessionRestoreObserver>* SessionRestore::observers_ =
+    nullptr;
+
+// static
+bool SessionRestore::session_restore_started_ = false;

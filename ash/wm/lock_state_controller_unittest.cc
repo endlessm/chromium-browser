@@ -9,19 +9,19 @@
 
 #include "ash/public/cpp/config.h"
 #include "ash/session/session_controller.h"
+#include "ash/session/test_session_controller_client.h"
 #include "ash/shell.h"
 #include "ash/shutdown_controller.h"
+#include "ash/shutdown_reason.h"
 #include "ash/test/ash_test_base.h"
-#include "ash/test/lock_state_controller_test_api.h"
-#include "ash/test/test_screenshot_delegate.h"
-#include "ash/test/test_session_controller_client.h"
-#include "ash/test/test_session_state_animator.h"
-#include "ash/test/test_shell_delegate.h"
-#include "ash/wm/maximize_mode/maximize_mode_controller.h"
+#include "ash/test_screenshot_delegate.h"
+#include "ash/test_shell_delegate.h"
+#include "ash/wm/lock_state_controller_test_api.h"
 #include "ash/wm/power_button_controller.h"
 #include "ash/wm/session_state_animator.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
+#include "ash/wm/test_session_state_animator.h"
 #include "base/memory/ptr_util.h"
-#include "base/memory/scoped_vector.h"
 #include "base/time/time.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_session_manager_client.h"
@@ -32,7 +32,6 @@
 #include "ui/gfx/geometry/size.h"
 
 namespace ash {
-namespace test {
 namespace {
 
 bool cursor_visible() {
@@ -54,7 +53,9 @@ class TestShutdownController : public ShutdownController {
 
  private:
   // ShutdownController:
-  void ShutDownOrReboot() override { num_shutdown_requests_++; }
+  void ShutDownOrReboot(ShutdownReason reason) override {
+    num_shutdown_requests_++;
+  }
 
   int num_shutdown_requests_ = 0;
 
@@ -117,10 +118,7 @@ class LockStateControllerTest : public AshTestBase {
 
   void AdvancePartially(SessionStateAnimator::AnimationSpeed speed,
                         float factor) {
-    base::TimeDelta duration = test_animator_->GetDuration(speed);
-    base::TimeDelta partial_duration =
-        base::TimeDelta::FromInternalValue(duration.ToInternalValue() * factor);
-    test_animator_->Advance(partial_duration);
+    test_animator_->Advance(test_animator_->GetDuration(speed) * factor);
   }
 
   void ExpectPreLockAnimationStarted() {
@@ -327,8 +325,8 @@ class LockStateControllerTest : public AshTestBase {
     GetSessionControllerClient()->UnlockScreen();
   }
 
-  void EnableMaximizeMode(bool enable) {
-    Shell::Get()->maximize_mode_controller()->EnableMaximizeModeWindowManager(
+  void EnableTabletMode(bool enable) {
+    Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(
         enable);
   }
 
@@ -819,7 +817,8 @@ TEST_F(LockStateControllerTest, ShutdownWithoutButton) {
 TEST_F(LockStateControllerTest, RequestShutdownFromLoginScreen) {
   Initialize(false, LoginStatus::NOT_LOGGED_IN);
 
-  lock_state_controller_->RequestShutdown();
+  lock_state_controller_->RequestShutdown(
+      ShutdownReason::LOGIN_SHUT_DOWN_BUTTON);
 
   ExpectShutdownAnimationStarted();
   Advance(SessionStateAnimator::ANIMATION_SPEED_SHUTDOWN);
@@ -843,7 +842,8 @@ TEST_F(LockStateControllerTest, RequestShutdownFromLockScreen) {
   Advance(SessionStateAnimator::ANIMATION_SPEED_SHUTDOWN);
   ExpectPostLockAnimationFinished();
 
-  lock_state_controller_->RequestShutdown();
+  lock_state_controller_->RequestShutdown(
+      ShutdownReason::LOGIN_SHUT_DOWN_BUTTON);
 
   ExpectShutdownAnimationStarted();
   Advance(SessionStateAnimator::ANIMATION_SPEED_SHUTDOWN);
@@ -1032,12 +1032,12 @@ TEST_F(LockStateControllerTest, Screenshot) {
   if (Shell::GetAshConfig() == Config::MASH)
     return;
 
-  test::TestScreenshotDelegate* delegate = GetScreenshotDelegate();
+  TestScreenshotDelegate* delegate = GetScreenshotDelegate();
   delegate->set_can_take_screenshot(true);
 
-  EnableMaximizeMode(false);
+  EnableTabletMode(false);
 
-  // Screenshot handling should not be active when not in maximize mode.
+  // Screenshot handling should not be active when not in tablet mode.
   ASSERT_EQ(0, delegate->handle_take_screenshot_count());
   PressVolumeDown();
   PressPowerButton();
@@ -1045,7 +1045,7 @@ TEST_F(LockStateControllerTest, Screenshot) {
   ReleaseVolumeDown();
   EXPECT_EQ(0, delegate->handle_take_screenshot_count());
 
-  EnableMaximizeMode(true);
+  EnableTabletMode(true);
 
   // Pressing power alone does not take a screenshot.
   PressPowerButton();
@@ -1077,5 +1077,4 @@ TEST_F(LockStateControllerTest, Screenshot) {
   EXPECT_EQ(1, delegate->handle_take_screenshot_count());
 }
 
-}  // namespace test
 }  // namespace ash

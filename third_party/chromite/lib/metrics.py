@@ -24,11 +24,7 @@ from chromite.lib import cros_logging as logging
 
 try:
   from infra_libs import ts_mon
-# TODO(akeshet): AttributeError only needs to be caught while landing
-# https://chromium-review.googlesource.com/#/c/359447/ , due to some issues in
-# cbuildbot bootstrapping and backwards compatibility of ts_mon. I believe that
-# after it lands, we no longer need to catch AttributeError here.
-except (ImportError, RuntimeError, AttributeError):
+except (ImportError, RuntimeError):
   ts_mon = None
 
 
@@ -42,6 +38,8 @@ _SECONDS_BUCKET_FACTOR = 1.16
 # These attributes are set by chromite.lib.ts_mon_config.SetupTsMonGlobalState.
 FLUSHING_PROCESS = None
 MESSAGE_QUEUE = None
+
+_MISSING = object()
 
 MetricCall = namedtuple(
     'MetricCall',
@@ -136,57 +134,171 @@ def _ImportSafe(fn):
   return wrapper
 
 
+class FieldSpecAdapter(object):
+  """Infers the types of fields values to work around field_spec requirement.
+
+  See: https://chromium-review.googlesource.com/c/432120/ for the change
+  which added a required field_spec argument. This class is a temporary
+  workaround to allow inferring the field_spec if is not provided.
+  """
+  FIELD_CLASSES = {} if ts_mon is None else {
+      bool: ts_mon.BooleanField,
+      int: ts_mon.IntegerField,
+      str: ts_mon.StringField,
+      unicode: ts_mon.StringField,
+  }
+
+  def __init__(self, metric_cls, *args, **kwargs):
+    self._metric_cls = metric_cls
+    self._args = args
+    self._kwargs = kwargs
+    self._instance = _MISSING
+
+  def __getattr__(self, prop):
+    """Return a wrapper which constructs the metric object on demand.
+
+    Args:
+      prop: The property name
+
+    Returns:
+      If self._instance has been created, the instance's .|prop| property,
+      otherwise, a wrapper function which creates the ._instance and then
+      calls the |prop| method on the instance.
+    """
+    if self._instance is not _MISSING:
+      return getattr(self._instance, prop)
+
+    def func(*args, **kwargs):
+      if self._instance is not _MISSING:
+        return getattr(self._instance, prop)(*args, **kwargs)
+      fields = FieldSpecAdapter._InferFields(prop, args, kwargs)
+      self._kwargs['field_spec'] = FieldSpecAdapter._InferFieldSpec(fields)
+      self._instance = self._metric_cls(*self._args, **self._kwargs)
+      return getattr(self._instance, prop)(*args, **kwargs)
+
+    func.__name__ = prop
+    return func
+
+  @staticmethod
+  def _InferFields(method_name, args, kwargs):
+    """Infers the fields argument.
+
+    Args:
+      method_name: The method called.
+      args: The args list
+      kwargs: The keyword args
+    """
+    if 'fields' in kwargs:
+      return kwargs['fields']
+
+    if method_name == 'increment' and args:
+      return args[0]
+
+    if len(args) >= 2:
+      return args[1]
+
+  @staticmethod
+  def _InferFieldSpec(fields):
+    """Infers the fields types from the given fields.
+
+    Args:
+      fields: A dictionary with metric fields.
+    """
+    if not fields or not ts_mon:
+      return None
+
+    return [FieldSpecAdapter.FIELD_CLASSES[type(v)](field)
+            for (field, v) in sorted(fields.iteritems())]
+
+
+def _OptionalFieldSpec(fn):
+  """Decorates a function to allow an optional description and field_spec."""
+  @wraps(fn)
+  def wrapper(*args, **kwargs):
+    kwargs = dict(**kwargs)  # It's bad practice to mutate **kwargs
+    # Slightly different than .setdefault, this line sets a default even when
+    # the key is present (as long as the value is not truthy). Empty or None is
+    # not allowed for descriptions.
+    kwargs['description'] = kwargs.get('description') or 'No description.'
+    if 'field_spec' in kwargs and kwargs['field_spec'] is not _MISSING:
+      return fn(*args, **kwargs)
+    else:
+      return FieldSpecAdapter(fn, *args, **kwargs)
+  return wrapper
+
+
 def _Metric(fn):
   """A pipeline of decorators to apply to our metric constructors."""
-  return _ImportSafe(_Indirect(fn))
+  return _OptionalFieldSpec(_ImportSafe(_Indirect(fn)))
+
 
 # This is needed for the reset_after flag used by @Indirect.
 # pylint: disable=unused-argument
 
 @_Metric
-def Counter(name, reset_after=False):
+def CounterMetric(name, reset_after=False, description=None,
+                  field_spec=_MISSING, start_time=None):
   """Returns a metric handle for a counter named |name|."""
-  return ts_mon.CounterMetric(name)
+  return ts_mon.CounterMetric(name,
+                              description=description, field_spec=field_spec,
+                              start_time=start_time)
+Counter = CounterMetric
 
 
 @_Metric
-def Gauge(name, reset_after=False):
+def GaugeMetric(name, reset_after=False, description=None, field_spec=_MISSING):
   """Returns a metric handle for a gauge named |name|."""
-  return ts_mon.GaugeMetric(name)
+  return ts_mon.GaugeMetric(name, description=description,
+                            field_spec=field_spec)
+Gauge = GaugeMetric
 
 
 @_Metric
-def CumulativeMetric(name, reset_after=False):
+def CumulativeMetric(name, reset_after=False, description=None,
+                     field_spec=_MISSING):
   """Returns a metric handle for a cumulative float named |name|."""
-  return ts_mon.CumulativeMetric(name)
+  return ts_mon.CumulativeMetric(name, description=description,
+                                 field_spec=field_spec)
 
 
 @_Metric
-def String(name, reset_after=False):
+def StringMetric(name, reset_after=False, description=None,
+                 field_spec=_MISSING):
   """Returns a metric handle for a string named |name|."""
-  return ts_mon.StringMetric(name)
+  return ts_mon.StringMetric(name, description=description,
+                             field_spec=field_spec)
+String = StringMetric
 
 
 @_Metric
-def Boolean(name, reset_after=False):
+def BooleanMetric(name, reset_after=False, description=None,
+                  field_spec=_MISSING):
   """Returns a metric handle for a boolean named |name|."""
-  return ts_mon.BooleanMetric(name)
+  return ts_mon.BooleanMetric(name, description=description,
+                              field_spec=field_spec)
+Boolean = BooleanMetric
 
 
 @_Metric
-def Float(name, reset_after=False):
+def FloatMetric(name, reset_after=False, description=None, field_spec=_MISSING):
   """Returns a metric handle for a float named |name|."""
-  return ts_mon.FloatMetric(name)
+  return ts_mon.FloatMetric(name, description=description,
+                            field_spec=field_spec)
+Float = FloatMetric
 
 
 @_Metric
-def CumulativeDistribution(name, reset_after=False):
+def CumulativeDistributionMetric(name, reset_after=False, description=None,
+                                 field_spec=_MISSING):
   """Returns a metric handle for a cumulative distribution named |name|."""
-  return ts_mon.CumulativeDistributionMetric(name)
+  return ts_mon.CumulativeDistributionMetric(name, description=description,
+                                             field_spec=field_spec)
+CumulativeDistribution = CumulativeDistributionMetric
 
 
 @_Metric
-def CumulativeSmallIntegerDistribution(name, reset_after=False):
+def CumulativeSmallIntegerDistribution(name, reset_after=False,
+                                       description=None, field_spec=_MISSING):
   """Returns a metric handle for a cumulative distribution named |name|.
 
   This differs slightly from CumulativeDistribution, in that the underlying
@@ -197,24 +309,38 @@ def CumulativeSmallIntegerDistribution(name, reset_after=False):
   """
   return ts_mon.CumulativeDistributionMetric(
       name,
-      bucketer=ts_mon.FixedWidthBucketer(1))
+      bucketer=ts_mon.FixedWidthBucketer(1),
+      description=description,
+      field_spec=field_spec)
 
 @_Metric
-def SecondsDistribution(name, reset_after=False):
+def SecondsDistribution(name, scale=1, reset_after=False, description=None,
+                        field_spec=_MISSING):
   """Returns a metric handle for a cumulative distribution named |name|.
 
   The distribution handle returned by this method is better suited than the
   default one for recording handling times, in seconds.
 
   This metric handle has bucketing that is optimized for time intervals
-  (in seconds) in the range of 1 second to 32 days.
+  (in seconds) in the range of 1 second to 32 days. Use |scale| to adjust this
+  (e.g. scale=0.1 covers a range from .1 seconds to 3.2 days).
+
+  Args:
+    name: string name of metric
+    scale: scaling factor of buckets, and size of the first bucket. default: 1
+    reset_after: Should the metric be reset after reporting.
+    description: A string description of the metric.
+    field_spec: A sequence of ts_mon.Field objects to specify the field schema.
   """
-  b = ts_mon.GeometricBucketer(growth_factor=_SECONDS_BUCKET_FACTOR)
+  b = ts_mon.GeometricBucketer(growth_factor=_SECONDS_BUCKET_FACTOR,
+                               scale=scale)
   return ts_mon.CumulativeDistributionMetric(
-      name, bucketer=b, units=ts_mon.MetricsDataUnits.SECONDS)
+      name, bucketer=b, units=ts_mon.MetricsDataUnits.SECONDS,
+      description=description, field_spec=field_spec)
 
 @_Metric
-def PercentageDistribution(name, num_buckets=1000, reset_after=False):
+def PercentageDistribution(name, num_buckets=1000, reset_after=False,
+                           description=None, field_spec=_MISSING):
   """Returns a metric handle for a cumulative distribution for percentage.
 
   The distribution handle returned by this method is better suited for reporting
@@ -227,15 +353,20 @@ def PercentageDistribution(name, num_buckets=1000, reset_after=False):
         reporting. This argument controls the number of the bucket the range
         [0,100] is divided in. The default gives you 0.1% resolution.
     reset_after: Should the metric be reset after reporting.
+    description: A string description of the metric.
+    field_spec: A sequence of ts_mon.Field objects to specify the field schema.
   """
   # The last bucket actually covers [100, 100 + 1.0/num_buckets), so it
   # corresponds to values that exactly match 100%.
   bucket_width = 100.0 / num_buckets
   b = ts_mon.FixedWidthBucketer(bucket_width, num_buckets)
-  return ts_mon.CumulativeDistributionMetric(name, bucketer=b)
+  return ts_mon.CumulativeDistributionMetric(
+      name, bucketer=b,
+      description=description, field_spec=field_spec)
 
 @contextlib.contextmanager
-def SecondsTimer(name, fields=None):
+def SecondsTimer(name, scale=1, fields=None, description=None,
+                 field_spec=_MISSING):
   """Record the time of an operation to a SecondsDistributionMetric.
 
   Records the time taken inside of the context block, to the
@@ -245,7 +376,10 @@ def SecondsTimer(name, fields=None):
 
   # Time the doSomething() call, with field values that are independent of the
   # results of the operation.
-  with SecondsTimer('timer/name', fields={'foo': 'bar'}):
+  with SecondsTimer('timer/name', fields={'foo': 'bar'},
+                    description="My timer",
+                    field_spec=[ts_mon.StringField('foo'),
+                                ts_mon.BooleanField('success')]):
     doSomething()
 
   # Time the doSomethingElse call, with field values that depend on the results
@@ -253,18 +387,27 @@ def SecondsTimer(name, fields=None):
   # specified for these fields, in case an exception is thrown by
   # doSomethingElse()
   f = {'success': False, 'foo': 'bar'}
-  with SecondsTimer('timer/name', fields=f) as c:
+  with SecondsTimer('timer/name', fields=f, description="My timer",
+                    field_spec=[ts_mon.StringField('foo')]) as c:
     doSomethingElse()
     c['success'] = True
 
   # Incorrect Usage!
-  with SecondsTimer('timer/name') as c:
+  with SecondsTimer('timer/name', description="My timer") as c:
     doSomething()
     c['foo'] = bar # 'foo' is not a valid field, because no default
                    # value for it was specified in the context constructor.
                    # It will be silently ignored.
+
+  Args:
+    name: The name of the metric to create
+    scale: A float to scale the SecondsDistribution buckets by.
+    fields: The fields of the metric to create.
+    description: A string description of the metric.
+    field_spec: A sequence of ts_mon.Field objects to specify the field schema.
   """
-  m = SecondsDistribution(name)
+  m = SecondsDistribution(
+      name, scale=scale, description=description, field_spec=field_spec)
   f = fields or {}
   f = dict(f)
   keys = f.keys()
@@ -282,24 +425,36 @@ def SecondsTimer(name, fields=None):
     m.add(dt, fields=f)
 
 
-def SecondsTimerDecorator(name, fields=None):
+def SecondsTimerDecorator(name, fields=None, description=None,
+                          field_spec=_MISSING):
   """Decorator to time the duration of function calls.
 
   Usage:
-    @SecondsTimerDecorator('timer/name', fields={'foo': 'bar'})
+    @SecondsTimerDecorator('timer/name', fields={'foo': 'bar'},
+                           description="My timer",
+                           field_spec=[ts_mon.StringField('foo')])
     def Foo(bar):
       return doStuff()
 
     is equivalent to
 
     def Foo(bar):
-      with SecondsTimer('timer/name', fields={'foo': 'bar'})
+      with SecondsTimer('timer/name', fields={'foo': 'bar'},
+                        description="My timer",
+                        field_spec=[ts_mon.StringField('foo')])
         return doStuff()
+
+  Args:
+    name: The name of the metric to create
+    fields: The fields of the metric to create
+    description: A string description of the metric.
+    field_spec: A sequence of ts_mon.Field objects to specify the field schema.
   """
   def decorator(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-      with SecondsTimer(name, fields):
+      with SecondsTimer(name, fields=fields, description=description,
+                        field_spec=field_spec):
         return fn(*args, **kwargs)
 
     return wrapper
@@ -308,8 +463,15 @@ def SecondsTimerDecorator(name, fields=None):
 
 
 @contextlib.contextmanager
-def SuccessCounter(name, fields=None):
-  """Create a counter that tracks if something succeeds."""
+def SuccessCounter(name, fields=None, description=None, field_spec=_MISSING):
+  """Create a counter that tracks if something succeeds.
+
+  Args:
+    name: The name of the metric to create
+    fields: The fields of the metric
+    description: A string description of the metric.
+    field_spec: A sequence of ts_mon.Field objects to specify the field schema.
+  """
   c = Counter(name)
   f = fields or {}
   f = f.copy()
@@ -324,11 +486,29 @@ def SuccessCounter(name, fields=None):
     c.increment(fields=f)
 
 
+@contextlib.contextmanager
+def Presence(name, fields=None, description=None, field_spec=_MISSING):
+  """A counter of 'active' things.
+
+  This keeps track of how many name's are active at any given time. However,
+  it's only suitable for long running tasks, since the initial true value may
+  never be written out if the task doesn't run for at least a minute.
+  """
+  b = Boolean(name, description=None, field_spec=field_spec)
+  b.set(True, fields=fields)
+  try:
+    yield
+  finally:
+    b.set(False, fields=fields)
+
+
 class RuntimeBreakdownTimer(object):
   """Record the time of an operation and the breakdown into sub-steps.
 
   Usage:
-    with RuntimeBreakdownTimer('timer/name', fields={'foo':'bar'}) as timer:
+    with RuntimeBreakdownTimer('timer/name', fields={'foo':'bar'},
+                               description="My timer",
+                               field_spec=[ts_mon.StringField('foo')]) as timer:
       with timer.Step('first_step'):
         doFirstStep()
       with timer.Step('second_step'):
@@ -366,9 +546,11 @@ class RuntimeBreakdownTimer(object):
 
   _StepMetrics = collections.namedtuple('_StepMetrics', ['name', 'time_s'])
 
-  def __init__(self, name, fields=None):
+  def __init__(self, name, fields=None, description=None, field_spec=_MISSING):
     self._name = name
     self._fields = fields
+    self._field_spec = field_spec
+    self._description = description
     self._outer_t0 = None
     self._total_time_s = 0
     self._inside_step = False
@@ -381,13 +563,17 @@ class RuntimeBreakdownTimer(object):
   def __exit__(self, _type, _value, _traceback):
     self._RecordTotalTime()
 
-    outer_timer = SecondsDistribution('%s/total_duration' % (self._name,))
+    outer_timer = SecondsDistribution('%s/total_duration' % (self._name,),
+                                      field_spec=self._field_spec,
+                                      description=self._description)
     outer_timer.add(self._total_time_s, fields=self._fields)
 
     for name, percent in self._GetStepBreakdowns().iteritems():
       step_metric = PercentageDistribution(
           '%s/breakdown/%s' % (self._name, name),
-          num_buckets=self.PERCENT_BUCKET_COUNT)
+          num_buckets=self.PERCENT_BUCKET_COUNT,
+          field_spec=self._field_spec,
+          description=self._description)
       step_metric.add(percent, fields=self._fields)
 
       fields = dict(self._fields) if self._fields is not None else dict()
@@ -399,10 +585,15 @@ class RuntimeBreakdownTimer(object):
 
     unaccounted_metric = PercentageDistribution(
         '%s/breakdown_unaccounted' % self._name,
-        num_buckets=self.PERCENT_BUCKET_COUNT)
+        num_buckets=self.PERCENT_BUCKET_COUNT,
+        field_spec=self._field_spec,
+        description=self._description)
     unaccounted_metric.add(self._GetUnaccountedBreakdown(), fields=self._fields)
 
-    bucketing_loss_metric = CumulativeMetric('%s/bucketing_loss' % self._name)
+    bucketing_loss_metric = CumulativeMetric(
+        '%s/bucketing_loss' % self._name,
+        field_spec=self._field_spec,
+        description=self._description)
     bucketing_loss_metric.increment_by(self._GetBucketingLoss(),
                                        fields=self._fields)
 

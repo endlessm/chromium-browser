@@ -14,6 +14,7 @@ from telemetry.internal.backends.chrome import chrome_browser_backend
 from telemetry.internal.browser import user_agent
 
 from devil.android import app_ui
+from devil.android import device_signal
 from devil.android import flag_changer
 from devil.android.sdk import intent
 
@@ -43,19 +44,6 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self._backend_settings = backend_settings
     self._saved_sslflag = ''
     self._app_ui = None
-
-    # Stop old browser, if any.
-    self._StopBrowser()
-
-    if self.device.HasRoot() or self.device.NeedsSU():
-      if self.browser_options.profile_dir:
-        self.platform_backend.PushProfile(
-            self._backend_settings.package,
-            self.browser_options.profile_dir)
-      elif not self.browser_options.dont_override_profile:
-        self.platform_backend.RemoveProfile(
-            self._backend_settings.package,
-            self._backend_settings.profile_ignore_list)
 
     # Set the debug app if needed.
     self.platform_backend.SetDebugApp(self._backend_settings.package)
@@ -102,6 +90,21 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     command_line_name = self._backend_settings.command_line_name
     with flag_changer.CustomCommandLineFlags(
         self.device, command_line_name, browser_startup_args):
+      # Stop existing browser, if any. This is done *after* setting the
+      # command line flags, in case some other Android process manages to
+      # trigger Chrome's startup before we do.
+      self._StopBrowser()
+
+      if self.device.HasRoot() or self.device.NeedsSU():
+        if self.browser_options.profile_dir:
+          self.platform_backend.PushProfile(
+              self._backend_settings.package,
+              self.browser_options.profile_dir)
+        elif not self.browser_options.dont_override_profile:
+          self.platform_backend.RemoveProfile(
+              self._backend_settings.package,
+              self._backend_settings.profile_ignore_list)
+
       self.device.StartActivity(
           intent.Intent(package=self._backend_settings.package,
                         activity=self._backend_settings.activity,
@@ -116,12 +119,12 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         # Release reserved port right before forwarding host to device.
         self._port_keeper.Release()
         assert self._port == self._port_keeper.port, (
-          'Android browser backend must use reserved port by _port_keeper')
+            'Android browser backend must use reserved port by _port_keeper')
         self.platform_backend.ForwardHostToDevice(
             self._port, remote_devtools_port)
       except Exception:
         logging.exception('Failed to forward %s to %s.',
-            str(self._port), str(remote_devtools_port))
+                          str(self._port), str(remote_devtools_port))
         logging.warning('Currently forwarding:')
         try:
           for line in self.device.adb.ForwardList().splitlines():
@@ -154,10 +157,10 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         logging.critical('Failed to connect to browser.')
         if not (self.device.HasRoot() or self.device.NeedsSU()):
           logging.critical(
-            'Resolve this by either: '
-            '(1) Flashing to a userdebug build OR '
-            '(2) Manually enabling web debugging in Chrome at '
-            'Settings > Developer tools > Enable USB Web debugging.')
+              'Resolve this by either: '
+              '(1) Flashing to a userdebug build OR '
+              '(2) Manually enabling web debugging in Chrome at '
+              'Settings > Developer tools > Enable USB Web debugging.')
         self.Close()
         raise
       except:
@@ -179,7 +182,8 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     try:
       app_ui.AppUi(self.device).WaitForUiNode(package=package)
     except Exception:
-      raise exceptions.BrowserGoneException(self.browser,
+      raise exceptions.BrowserGoneException(
+          self.browser,
           'Timed out waiting for browser to come back foreground.')
 
   def Background(self):
@@ -199,6 +203,14 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     args.append('--disable-fre')
     args.append('--disable-external-intent-requests')
     return args
+
+  def ForceJavaHeapGarbageCollection(self):
+    # Send USR1 signal to force GC on Chrome processes forked from Zygote.
+    # (c.f. crbug.com/724032)
+    self.device.KillAll(
+        self._backend_settings.package,
+        exact=False,  # Send signal to children too.
+        signum=device_signal.SIGUSR1)
 
   @property
   def pid(self):

@@ -10,6 +10,7 @@ Eventually, this will be based on adb_wrapper.
 
 import calendar
 import collections
+import fnmatch
 import itertools
 import json
 import logging
@@ -17,6 +18,7 @@ import multiprocessing
 import os
 import posixpath
 import pprint
+import random
 import re
 import shutil
 import stat
@@ -37,7 +39,6 @@ from devil.android import device_temp_file
 from devil.android import install_commands
 from devil.android import logcat_monitor
 from devil.android import md5sum
-from devil.android.constants import chrome
 from devil.android.sdk import adb_wrapper
 from devil.android.sdk import intent
 from devil.android.sdk import keyevent
@@ -71,7 +72,7 @@ _RESTART_ADBD_SCRIPT = """
 """
 
 # Not all permissions can be set.
-_PERMISSIONS_BLACKLIST = [
+_PERMISSIONS_BLACKLIST_RE = re.compile('|'.join(fnmatch.translate(p) for p in [
     'android.permission.ACCESS_LOCATION_EXTRA_COMMANDS',
     'android.permission.ACCESS_MOCK_LOCATION',
     'android.permission.ACCESS_NETWORK_STATE',
@@ -89,6 +90,7 @@ _PERMISSIONS_BLACKLIST = [
     'android.permission.EXPAND_STATUS_BAR',
     'android.permission.GET_PACKAGE_SIZE',
     'android.permission.INSTALL_SHORTCUT',
+    'android.permission.INJECT_EVENTS',
     'android.permission.INTERNET',
     'android.permission.KILL_BACKGROUND_PROCESSES',
     'android.permission.MANAGE_ACCOUNTS',
@@ -100,6 +102,7 @@ _PERMISSIONS_BLACKLIST = [
     'android.permission.RECORD_VIDEO',
     'android.permission.REORDER_TASKS',
     'android.permission.REQUEST_INSTALL_PACKAGES',
+    'android.permission.RESTRICTED_VR_ACCESS',
     'android.permission.RUN_INSTRUMENTATION',
     'android.permission.SET_ALARM',
     'android.permission.SET_TIME_ZONE',
@@ -119,12 +122,13 @@ _PERMISSIONS_BLACKLIST = [
     'com.google.android.c2dm.permission.RECEIVE',
     'com.google.android.providers.gsf.permission.READ_GSERVICES',
     'com.sec.enterprise.knox.MDM_CONTENT_PROVIDER',
-]
-for package_info in chrome.PACKAGE_INFO.itervalues():
-  _PERMISSIONS_BLACKLIST.extend([
-      '%s.permission.C2D_MESSAGE' % package_info.package,
-      '%s.permission.READ_WRITE_BOOKMARK_FOLDERS' % package_info.package,
-      '%s.TOS_ACKED' % package_info.package])
+    '*.permission.C2D_MESSAGE',
+    '*.permission.READ_WRITE_BOOKMARK_FOLDERS',
+    '*.TOS_ACKED',
+]))
+_SHELL_OUTPUT_SEPARATOR = '~X~'
+_PERMISSIONS_EXCEPTION_RE = re.compile(
+    r'java\.lang\.\w+Exception: .*$', re.MULTILINE)
 
 _CURRENT_FOCUS_CRASH_RE = re.compile(
     r'\s*mCurrentFocus.*Application (Error|Not Responding): (\S+)}')
@@ -175,6 +179,16 @@ _SPECIAL_ROOT_DEVICE_LIST = [
     'marlin',
     'sailfish',
 ]
+_IMEI_RE = re.compile(r'  Device ID = (.+)$')
+# The following regex is used to match result parcels like:
+"""
+Result: Parcel(
+  0x00000000: 00000000 0000000f 00350033 00360033 '........3.5.3.6.'
+  0x00000010: 00360032 00370030 00300032 00300039 '2.6.0.7.2.0.9.0.'
+  0x00000020: 00380033 00000039                   '3.8.9...        ')
+"""
+_PARCEL_RESULT_RE = re.compile(
+    r'0x[0-9a-f]{8}\: (?:[0-9a-f]{8}\s+){1,4}\'(.{16})\'')
 
 
 @decorators.WithExplicitTimeoutAndRetries(
@@ -507,6 +521,47 @@ class DeviceUtils(object):
     return self._cache['external_storage']
 
   @decorators.WithTimeoutAndRetriesFromInstance()
+  def GetIMEI(self, timeout=None, retries=None):
+    """Get the device's IMEI.
+
+    Args:
+      timeout: timeout in seconds
+      retries: number of retries
+
+    Returns:
+      The device's IMEI.
+
+    Raises:
+      AdbCommandFailedError on error
+    """
+    if self._cache.get('imei') is not None:
+      return self._cache.get('imei')
+
+    if self.build_version_sdk < 21:
+      out = self.RunShellCommand(['dumpsys', 'iphonesubinfo'],
+                                 raw_output=True, check_return=True)
+      if out:
+        match = re.search(_IMEI_RE, out)
+        if match:
+          self._cache['imei'] = match.group(1)
+          return self._cache['imei']
+    else:
+      out = self.RunShellCommand(['service', 'call', 'iphonesubinfo', '1'],
+                                 check_return=True)
+      if out:
+        imei = ''
+        for line in out:
+          match = re.search(_PARCEL_RESULT_RE, line)
+          if match:
+            imei = imei + match.group(1)
+        imei = imei.replace('.', '').strip()
+        if imei:
+          self._cache['imei'] = imei
+          return self._cache['imei']
+
+    raise device_errors.CommandFailedError('Unable to fetch IMEI.')
+
+  @decorators.WithTimeoutAndRetriesFromInstance()
   def GetApplicationPaths(self, package, timeout=None, retries=None):
     """Get the paths of the installed apks on the device for the given package.
 
@@ -539,13 +594,22 @@ class DeviceUtils(object):
     output = self.RunShellCommand(
         ['pm', 'path', package], check_return=should_check_return)
     apks = []
+    bad_output = False
     for line in output:
-      if not line.startswith('package:'):
+      if line.startswith('package:'):
+        apks.append(line[len('package:'):])
+      elif line.startswith('WARNING:'):
         continue
-      apks.append(line[len('package:'):])
+      else:
+        bad_output = True  # Unexpected line in output.
     if not apks and output:
-      raise device_errors.CommandFailedError(
-          'pm path returned: %r' % '\n'.join(output), str(self))
+      if bad_output:
+        raise device_errors.CommandFailedError(
+            'Unexpected pm path output: %r' % '\n'.join(output), str(self))
+      else:
+        logger.warning('pm returned no paths but the following warnings:')
+        for line in output:
+          logger.warning('- %s', line)
     self._cache['package_apk_paths'][package] = list(apks)
     return apks
 
@@ -787,17 +851,18 @@ class DeviceUtils(object):
       else:
         self.adb.Install(
             base_apk.path, reinstall=reinstall, allow_downgrade=allow_downgrade)
-      if (permissions is None
-          and self.build_version_sdk >= version_codes.MARSHMALLOW):
-        permissions = base_apk.GetPermissions()
-      self.GrantPermissions(package_name, permissions)
-      # Upon success, we know the device checksums, but not their paths.
-      if host_checksums is not None:
-        self._cache['package_apk_checksums'][package_name] = host_checksums
     else:
       # Running adb install terminates running instances of the app, so to be
       # consistent, we explicitly terminate it when skipping the install.
       self.ForceStop(package_name)
+
+    if (permissions is None
+        and self.build_version_sdk >= version_codes.MARSHMALLOW):
+      permissions = base_apk.GetPermissions()
+    self.GrantPermissions(package_name, permissions)
+    # Upon success, we know the device checksums, but not their paths.
+    if host_checksums is not None:
+      self._cache['package_apk_checksums'][package_name] = host_checksums
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def Uninstall(self, package_name, keep_data=False, timeout=None,
@@ -933,7 +998,7 @@ class DeviceUtils(object):
     def handle_large_output(cmd, large_output_mode):
       if large_output_mode:
         with device_temp_file.DeviceTempFile(self.adb) as large_output_file:
-          cmd = '( %s )>%s' % (cmd, large_output_file.name)
+          cmd = '( %s )>%s 2>&1' % (cmd, large_output_file.name)
           logger.debug('Large output mode enabled. Will write output to '
                        'device and read results from file.')
           handle_large_command(cmd)
@@ -953,7 +1018,7 @@ class DeviceUtils(object):
 
     if isinstance(cmd, basestring):
       if not shell:
-        logging.warning(
+        logger.warning(
             'The command to run should preferably be passed as a sequence of'
             ' args. If shell features are needed (pipes, wildcards, variables)'
             ' clients should explicitly set shell=True.')
@@ -1269,7 +1334,7 @@ class DeviceUtils(object):
 
     all_changed_files = []
     all_stale_files = []
-    missing_dirs = []
+    missing_dirs = set()
     cache_commit_funcs = []
     for h, d in host_device_tuples:
       assert os.path.isabs(h) and posixpath.isabs(d)
@@ -1281,16 +1346,17 @@ class DeviceUtils(object):
       cache_commit_funcs.append(cache_commit_func)
       if changed_files and not up_to_date_files and not stale_files:
         if os.path.isdir(h):
-          missing_dirs.append(d)
+          missing_dirs.add(d)
         else:
-          missing_dirs.append(posixpath.dirname(d))
+          missing_dirs.add(posixpath.dirname(d))
 
     if delete_device_stale and all_stale_files:
       self.RunShellCommand(['rm', '-f'] + all_stale_files, check_return=True)
 
     if all_changed_files:
       if missing_dirs:
-        self.RunShellCommand(['mkdir', '-p'] + missing_dirs, check_return=True)
+        self.RunShellCommand(['mkdir', '-p'] + list(missing_dirs),
+                             check_return=True)
       self._PushFilesImpl(host_device_tuples, all_changed_files)
     for func in cache_commit_funcs:
       func()
@@ -1561,7 +1627,7 @@ class DeviceUtils(object):
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def RemovePath(self, device_path, force=False, recursive=False,
-                 as_root=False, timeout=None, retries=None):
+                 as_root=False, rename=False, timeout=None, retries=None):
     """Removes the given path(s) from the device.
 
     Args:
@@ -1571,20 +1637,32 @@ class DeviceUtils(object):
       recursive: Whether to remove any directories in the path(s) recursively.
       as_root: Whether root permissions should be use to remove the given
                path(s).
+      rename: Whether to rename the path(s) before removing to help avoid
+            filesystem errors. See https://stackoverflow.com/questions/11539657
       timeout: timeout in seconds
       retries: number of retries
     """
+    def _RenamePath(path):
+      random_suffix = hex(random.randint(2 ** 12, 2 ** 16 - 1))[2:]
+      dest = '%s-%s' % (path, random_suffix)
+      try:
+        self.RunShellCommand(
+            ['mv', path, dest], as_root=as_root, check_return=True)
+        return dest
+      except device_errors.AdbShellCommandFailedError:
+        # If it couldn't be moved, just try rm'ing the original path instead.
+        return path
     args = ['rm']
     if force:
       args.append('-f')
     if recursive:
       args.append('-r')
     if isinstance(device_path, basestring):
-      args.append(device_path)
+      args.append(device_path if not rename else _RenamePath(device_path))
     else:
-      args.extend(device_path)
+      args.extend(
+          device_path if not rename else [_RenamePath(p) for p in device_path])
     self.RunShellCommand(args, as_root=as_root, check_return=True)
-
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def PullFile(self, device_path, host_path, timeout=None, retries=None):
@@ -2590,19 +2668,49 @@ class DeviceUtils(object):
     # the permission model.
     if not permissions or self.build_version_sdk < version_codes.MARSHMALLOW:
       return
-    logger.info('Setting permissions for %s.', package)
-    permissions = [p for p in permissions if p not in _PERMISSIONS_BLACKLIST]
+
+    permissions = set(
+        p for p in permissions if not _PERMISSIONS_BLACKLIST_RE.match(p))
+
     if ('android.permission.WRITE_EXTERNAL_STORAGE' in permissions
         and 'android.permission.READ_EXTERNAL_STORAGE' not in permissions):
-      permissions.append('android.permission.READ_EXTERNAL_STORAGE')
-    cmd = '&&'.join('pm grant %s %s' % (package, p) for p in permissions)
-    if cmd:
-      output = self.RunShellCommand(cmd, shell=True, check_return=True)
-      if output:
-        logger.warning('Possible problem when granting permissions. Blacklist '
-                       'may need to be updated.')
-        for line in output:
-          logger.warning('  %s', line)
+      permissions.add('android.permission.READ_EXTERNAL_STORAGE')
+
+    script = ';'.join([
+      'p={package}',
+      'for q in {permissions}',
+      'do pm grant "$p" "$q"',
+      'echo "{sep}$q{sep}$?{sep}"',
+      'done'
+    ]).format(
+        package=cmd_helper.SingleQuote(package),
+        permissions=' '.join(
+            cmd_helper.SingleQuote(p) for p in sorted(permissions)),
+        sep=_SHELL_OUTPUT_SEPARATOR)
+
+    logger.info('Setting permissions for %s.', package)
+    res = self.RunShellCommand(
+        script, shell=True, raw_output=True, large_output=True,
+        check_return=True)
+    res = res.split(_SHELL_OUTPUT_SEPARATOR)
+    failures = [
+      (permission, output.strip())
+      for permission, status, output in zip(res[1::3], res[2::3], res[0::3])
+      if int(status)]
+
+    if failures:
+      logger.warning(
+          'Failed to grant some permissions. Blacklist may need to be updated?')
+      for permission, output in failures:
+        # Try to grab the relevant error message from the output.
+        m = _PERMISSIONS_EXCEPTION_RE.search(output)
+        if m:
+          error_msg = m.group(0)
+        elif len(output) > 200:
+          error_msg = repr(output[:200]) + ' (truncated)'
+        else:
+          error_msg = repr(output)
+        logger.warning('- %s: %s', permission, error_msg)
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def IsScreenOn(self, timeout=None, retries=None):

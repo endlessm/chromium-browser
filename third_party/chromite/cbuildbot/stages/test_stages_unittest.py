@@ -147,6 +147,12 @@ class VMTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     stage = self.ConstructStage()
     self.assertRaises(failures_lib.InfrastructureFailure, stage.PerformStage)
 
+  def testSkipVMTest(self):
+    """Tests trybot with no vm test."""
+    extra_cmd_args = ['--novmtests']
+    self._Prepare(extra_cmd_args=extra_cmd_args)
+    self.RunStage()
+
 
 class UnitTestStageTest(generic_stages_unittest.AbstractStageTestCase):
   """Tests for the UnitTest stage."""
@@ -212,7 +218,7 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     board_runattrs = self._run.GetBoardRunAttrs(self._current_board)
     board_runattrs.SetParallelDefault('test_artifacts_uploaded', True)
     return test_stages.HWTestStage(
-        self._run, self._current_board, self.suite_config)
+        self._run, self._current_board, self._current_board, self.suite_config)
 
   def _RunHWTestSuite(self, debug=False, fails=False, warns=False,
                       cmd_fail_mode=None):
@@ -485,7 +491,7 @@ class AUTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     board_runattrs = self._run.GetBoardRunAttrs(self._current_board)
     board_runattrs.SetParallelDefault('test_artifacts_uploaded', True)
     return test_stages.AUTestStage(
-        self._run, self._current_board, self.suite_config)
+        self._run, self._current_board, self._current_board, self.suite_config)
 
   def _PatchJson(self):
     """Mock out the code that loads from swarming task summary."""
@@ -521,7 +527,7 @@ class AUTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     self.assertCommandContains(cmd)
     # pylint: disable=W0212
     self.assertCommandContains([swarming_lib._SWARMING_PROXY_CLIENT,
-                                commands._RUN_SUITE_PATH, self.suite])
+                                commands.RUN_SUITE_PATH, self.suite])
 
   def testPayloadsNotGenerated(self):
     """Test that we exit early if payloads are not generated."""

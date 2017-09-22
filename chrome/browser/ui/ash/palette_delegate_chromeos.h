@@ -20,7 +20,7 @@ class PrefChangeRegistrar;
 class Profile;
 
 namespace ash {
-class ScreenshotDelegate;
+class HighlighterSelectionObserver;
 }
 
 namespace chromeos {
@@ -45,8 +45,7 @@ class PaletteDelegateChromeOS
   void TakeScreenshot() override;
   void TakePartialScreenshot(const base::Closure& done) override;
   void CancelPartialScreenshot() override;
-  bool IsMetalayerSupported() override;
-  void ShowMetalayer(const base::Closure& closed) override;
+  void ShowMetalayer() override;
   void HideMetalayer() override;
 
   // user_manager::UserManager::UserSessionStateObserver:
@@ -72,8 +71,8 @@ class PaletteDelegateChromeOS
       session_state_observer_;
   content::NotificationRegistrar registrar_;
 
-  std::unique_ptr<ash::ScreenshotDelegate>
-      voice_interaction_screenshot_delegate_;
+  std::unique_ptr<ash::HighlighterSelectionObserver>
+      highlighter_selection_observer_;
 
   base::WeakPtrFactory<PaletteDelegateChromeOS> weak_factory_;
 

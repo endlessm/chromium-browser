@@ -17,6 +17,8 @@ found in the LICENSE file.
 <link rel="import" href="/dashboard/pinpoint/elements/job-page.html">
 <link rel="import" href="/dashboard/pinpoint/elements/jobs-page.html">
 <link rel="import" href="/dashboard/pinpoint/elements/main-page.html">
+<link rel="import" href="/dashboard/pinpoint/elements/navigation-bar.html">
+<link rel="import" href="/dashboard/pinpoint/elements/new-page.html">
 
 <dom-module id="index-page">
   <template>
@@ -32,6 +34,8 @@ found in the LICENSE file.
     <app-location route="{{route}}"></app-location>
     <app-route route="{{route}}" pattern="/:page" data="{{routeData}}" tail="{{tail}}"></app-route>
 
+    <navigation-bar></navigation-bar>
+
     <!--
     The <iron-pages> element can be used as a simpe content switcher. We have a
     single <app-route> defined which matches to a page, which is passed to
@@ -39,9 +43,11 @@ found in the LICENSE file.
     -->
     <iron-pages selected="[[routeData.page]]" attr-for-selected="name" fallback-selection="error" on-iron-select="onSelectedPage" on-iron-deselect="onDeselectedPage">
       <main-page name=""></main-page>
-      <jobs-page name="jobs" route="{{tail}}"></jobs-page>
-      <job-page name="job" route="{{tail}}"></job-page>
       <error-page name="error"></error-page>
+
+      <job-page name="job" route="{{tail}}"></job-page>
+      <jobs-page name="jobs" route="{{tail}}"></jobs-page>
+      <new-page name="new" abs-route="{{route}}"></new-page>
     </iron-pages>
 
     <load-analytics></load-analytics>

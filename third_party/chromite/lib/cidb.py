@@ -18,7 +18,6 @@ from chromite.lib import clactions
 from chromite.lib import cros_logging as logging
 from chromite.lib import factory
 from chromite.lib import failure_message_lib
-from chromite.lib import graphite
 from chromite.lib import hwtest_results
 from chromite.lib import metrics
 from chromite.lib import osutils
@@ -89,12 +88,6 @@ def _IsRetryableException(e):
                    encountered_error_codes)
 
   return False
-
-
-def _RetrySuccessHandler(attempt):
-  """If a query succeeded after retry, log it."""
-  if attempt > 1:
-    logging.info('cidb query succeeded after %s retries', attempt - 1)
 
 
 class DBException(Exception):
@@ -552,13 +545,20 @@ class SchemaVersionedMySQLConnection(object):
 
   def _RunFunctorWithRetries(self, functor):
     """Run the given |functor| with correct retry parameters."""
+
+    # TODO(hidehiko): Move this back to retry implementation, because this
+    # should be useful for other retry run, too.
+    def _StatusCallback(attempt, success):
+      if success and attempt:
+        logging.info('cidb query succeeded after %d retries', attempt)
+
     return retry_stats.RetryWithStats(
         retry_stats.CIDB,
         handler=_IsRetryableException,
         max_retry=self.query_retry_args.max_retry,
         sleep=self.query_retry_args.sleep,
         backoff_factor=self.query_retry_args.backoff_factor,
-        success_functor=_RetrySuccessHandler,
+        status_callback=_StatusCallback,
         raise_first_exception_on_failure=False,
         functor=functor)
 
@@ -602,8 +602,8 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
   # it launches by a pre-cq, not the pre-cq-launcher builder buildbucket_id
   _SQL_FETCH_ACTIONS = (
       'SELECT c.id, b.id, action, c.reason, build_config, '
-      'change_number, patch_number, change_source, timestamp, c.buildbucket_id '
-      'FROM clActionTable c JOIN buildTable b ON build_id = b.id ')
+      'change_number, patch_number, change_source, timestamp, c.buildbucket_id,'
+      ' status FROM clActionTable c JOIN buildTable b ON build_id = b.id ')
   _SQL_FETCH_MESSAGES = (
       'SELECT build_id, build_config, waterfall, builder_name, build_number, '
       'message_type, message_subtype, message_value, timestamp, board FROM '
@@ -670,7 +670,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     return self._Insert('buildTable', values)
 
   @minimum_schema(3)
-  def InsertCLActions(self, build_id, cl_actions):
+  def InsertCLActions(self, build_id, cl_actions, timestamp=None):
     """Insert a list of |cl_actions|.
 
     If |cl_actions| is empty, this function does nothing.
@@ -678,6 +678,8 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     Args:
       build_id: primary key of build that performed these actions.
       cl_actions: A list of CLAction objects.
+      timestamp: (Optional) timestamp of the cl_actions. If not provided, use
+        the current timestamp of the database.
 
     Returns:
       Number of actions inserted.
@@ -693,27 +695,22 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       action = cl_action.action
       reason = cl_action.reason
       buildbucket_id = cl_action.buildbucket_id
-      values.append({
+      value = {
           'build_id': build_id,
           'change_source': change_source,
           'change_number': change_number,
           'patch_number': patch_number,
           'action': action,
           'reason': reason,
-          'buildbucket_id': buildbucket_id})
+          'buildbucket_id': buildbucket_id}
+      if timestamp != None:
+        value['timestamp'] = timestamp
+      values.append(value)
 
     retval = self._InsertMany('clActionTable', values)
 
-    stats = graphite.StatsFactory.GetInstance()
     for cl_action in cl_actions:
       r = cl_action.reason or 'no_reason'
-
-      # TODO(akeshet) This is a slightly hacky workaround for the fact that our
-      # strategy reasons contain a ':', but statsd considers that character to
-      # be a name terminator.
-      statsd_name = 'cl_actions.%s' % cl_action.action
-      stats.Counter(statsd_name).increment(r.replace(':', '_'))
-
       counter = metrics.Counter(constants.MON_CL_ACTION)
       counter.increment(fields={'reason': r, 'action': cl_action.action})
 
@@ -1270,13 +1267,14 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     # datetime.timedelta type. So, we must find out if the deadline is past
     # separately.
     r = self._Execute(
-        'SELECT deadline >= NOW(), TIMEDIFF(deadline, NOW()) '
+        'SELECT deadline >= NOW(), TIMEDIFF(deadline, NOW()), deadline '
         'from buildTable where id = %d' % build_id).fetchall()
     if not r:
       return None
 
     time_remaining = r[0][1]
-    if time_remaining is None:
+    deadline = r[0][2]
+    if deadline is None:
       return None
 
     deadline_past = (r[0][0] == 0)
@@ -1367,6 +1365,35 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     return [dict(zip(CIDBConnection.BUILD_STATUS_KEYS, values))
             for values in results]
 
+  def GetPlatformVersions(self, build_config,
+                          num_results=NUM_RESULTS_NO_LIMIT,
+                          starting_milestone_version=None):
+    """Get the platform versions for a build_config.
+
+    Args:
+      build_config: The build config (string) to get the platform version.
+      num_results: Number of platform_version to get. Default to
+        CIDBConnection.NUM_RESULTS_NO_LIMIT to request no limit on the number
+        of results.
+      starting_milestone_version: The starting milestone version to get the
+        platform version.
+
+    Returns:
+      A list of platform_version which match the requirement.
+    """
+    where_clauses = ['build_config = "%s"' % build_config]
+    if starting_milestone_version is not None:
+      starting_milestone_version_int = int(starting_milestone_version)
+      where_clauses.append('CAST(milestone_version as UNSIGNED) >= %d' %
+                           starting_milestone_version_int)
+    query = ('SELECT platform_version FROM buildTable WHERE %s' %
+             ' AND '.join(where_clauses))
+    if num_results != self.NUM_RESULTS_NO_LIMIT:
+      query += ' LIMIT %d' % num_results
+
+    results = self._Execute(query).fetchall()
+    return [r['platform_version'] for r in results]
+
   @minimum_schema(47)
   def GetMostRecentBuild(self, waterfall, build_config, milestone_version=None):
     """Returns basic information about most recent completed build.
@@ -1427,14 +1454,24 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     return results
 
   @minimum_schema(11)
-  def GetActionsForChanges(self, changes):
+  def GetActionsForChanges(self, changes, ignore_patch_number=True,
+                           status=None, action=None, start_time=None):
     """Gets all the actions for the given changes.
 
     Note, this includes all patches of the given changes.
 
     Args:
       changes: A list of GerritChangeTuple, GerritPatchTuple or GerritPatch
-               specifying the changes to whose actions should be fetched.
+        specifying the changes to whose actions should be fetched.
+      ignore_patch_number: Boolean indicating whether to ignore patch_number of
+        the changes. If ignore_patch_number is False, only get the actions with
+        matched patch_number. Default to True.
+      status: If provided, only return the actions with build is |status| (a
+        member of constants.BUILDER_ALL_STATUSES). Default to None.
+      action: If provided, only return the actions is |action| (a member of
+        constants.CL_ACTIONS). Default to None.
+      start_time: If provided, only return the actions with timestamp >=
+        start_time. Default to None.
 
     Returns:
       A list of CLAction instances, in action id order.
@@ -1443,14 +1480,31 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       return []
 
     clauses = []
+    basic_conds = []
+    if status is not None:
+      basic_conds.append('status = "%s"' % status)
+    if action is not None:
+      basic_conds.append('action = "%s"' % action)
+    if start_time is not None:
+      basic_conds.append('timestamp > TIMESTAMP("%s")' % start_time)
+
     # Note: We are using a string of OR statements rather than a 'WHERE IN'
     # style clause, because 'WHERE IN' does not make use of multi-column
     # indexes, and therefore has poor performance with a large table.
     for change in changes:
       change_number = int(change.gerrit_number)
       change_source = 'internal' if change.internal else 'external'
-      clauses.append('(change_number, change_source) = (%d, "%s")' %
-                     (change_number, change_source))
+      conds = ['change_number = %d' % change_number,
+               'change_source = "%s"' % change_source]
+
+      if not ignore_patch_number:
+        patch_number = int(change.patch_number)
+        conds.append('patch_number = %d' % patch_number)
+
+      conds.extend(basic_conds)
+      conds_str = ' AND '.join(conds)
+      clauses.append('(' + conds_str + ')')
+
     clause = ' OR '.join(clauses)
     results = self._Execute(
         '%s WHERE %s' % (self._SQL_FETCH_ACTIONS, clause)).fetchall()

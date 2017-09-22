@@ -252,12 +252,10 @@ class CHROMEOS_EXPORT CryptohomeClient : public DBusClient {
 
   // Calls TpmCanAttemptOwnership method.
   // This method tells the service that it is OK to attempt ownership.
-  virtual void TpmCanAttemptOwnership(
-      const VoidDBusMethodCallback& callback) = 0;
+  virtual void TpmCanAttemptOwnership(VoidDBusMethodCallback callback) = 0;
 
   // Calls TpmClearStoredPasswordMethod.
-  virtual void TpmClearStoredPassword(
-      const VoidDBusMethodCallback& callback) = 0;
+  virtual void TpmClearStoredPassword(VoidDBusMethodCallback callback) = 0;
 
   // Calls TpmClearStoredPassword method and returns true when the call
   // succeeds.  This method blocks until the call returns.
@@ -491,6 +489,10 @@ class CHROMEOS_EXPORT CryptohomeClient : public DBusClient {
       const std::string& key_prefix,
       const BoolDBusMethodCallback& callback) = 0;
 
+  // Asynchronously gets the underlying TPM version information and passes it to
+  // the given callback as a string.
+  virtual void TpmGetVersion(const StringDBusMethodCallback& callback) = 0;
+
   // Asynchronously calls the GetKeyDataEx method. |callback| will be invoked
   // with the reply protobuf.
   // GetKeyDataEx returns information about the key specified in |request|. At
@@ -577,7 +579,7 @@ class CHROMEOS_EXPORT CryptohomeClient : public DBusClient {
   // encryption.
   virtual void MigrateToDircrypto(
       const cryptohome::Identification& cryptohome_id,
-      const VoidDBusMethodCallback& callback) = 0;
+      VoidDBusMethodCallback callback) = 0;
 
   // Asynchronously calls RemoveFirmwareManagementParameters method. |callback|
   // is called after method call, and with reply protobuf.

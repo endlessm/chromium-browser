@@ -18,7 +18,6 @@ from dashboard.models import anomaly
 from dashboard.models import bug_data
 from dashboard.models import page_state
 from dashboard.models import sheriff
-from dashboard.models import stoppage_alert
 
 
 class GroupReportTest(testing_common.TestCase):
@@ -92,6 +91,10 @@ class GroupReportTest(testing_common.TestCase):
         '/group_report?keys=%s' % ','.join(selected_keys))
     alert_list = self.GetJsonValue(response, 'alert_list')
 
+    # Confirm the first N keys are the selected keys.
+    first_keys = [alert_list[i]['key'] for i in xrange(len(selected_keys))]
+    self.assertSetEqual(set(selected_keys), set(first_keys))
+
     # Expect selected alerts + overlapping alerts,
     # but not the non-overlapping alert.
     self.assertEqual(5, len(alert_list))
@@ -115,10 +118,9 @@ class GroupReportTest(testing_common.TestCase):
     response = self.testapp.post('/group_report?sid=%s' % state_id)
     alert_list = self.GetJsonValue(response, 'alert_list')
 
-    self.assertEqual(unicode(selected_keys[1], 'utf-8'),
-                     alert_list[0].get('key'))
-    self.assertEqual(unicode(selected_keys[0], 'utf-8'),
-                     alert_list[1].get('key'))
+    # Confirm the first N keys are the selected keys.
+    first_keys = [alert_list[i]['key'] for i in xrange(len(selected_keys))]
+    self.assertSetEqual(set(selected_keys), set(first_keys))
     self.assertEqual(2, len(alert_list))
 
   def testPost_WithKeyOfNonExistentAlert_ShowsError(self):
@@ -161,17 +163,6 @@ class GroupReportTest(testing_common.TestCase):
     response = self.testapp.post('/group_report?bug_id=123')
     alert_list = self.GetJsonValue(response, 'alert_list')
     self.assertEqual(3, len(alert_list))
-
-  def testPost_WithBugIdParameter_ListsStoppageAlerts(self):
-    test_keys = self._AddTests()
-    bug_data.Bug(id=123).put()
-    row = testing_common.AddRows(utils.TestPath(test_keys[0]), {100})[0]
-    alert = stoppage_alert.CreateStoppageAlert(test_keys[0].get(), row)
-    alert.bug_id = 123
-    alert.put()
-    response = self.testapp.post('/group_report?bug_id=123')
-    alert_list = self.GetJsonValue(response, 'alert_list')
-    self.assertEqual(1, len(alert_list))
 
   def testPost_WithInvalidBugIdParameter_ShowsError(self):
     response = self.testapp.post('/group_report?bug_id=foo')

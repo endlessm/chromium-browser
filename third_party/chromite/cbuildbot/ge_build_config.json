@@ -127,8 +127,8 @@
         {
           "builder": "RELEASE",
           "experimental": false,
-          "leader_board": false,
-          "board_group": "",
+          "leader_board": true,
+          "board_group": "vm builds",
           "arch": "X86_INTERNAL"
         }
       ]
@@ -138,7 +138,7 @@
       "configs": [
         {
           "builder": "RELEASE",
-          "experimental": false,
+          "experimental": true,
           "leader_board": false,
           "board_group": "gru",
           "arch": "ARM_INTERNAL"
@@ -187,6 +187,18 @@
         {
           "builder": "RELEASE",
           "experimental": false,
+          "leader_board": false,
+          "board_group": "glados",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "caroline-arc64",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
           "leader_board": false,
           "board_group": "glados",
           "arch": "X86_INTERNAL"
@@ -446,18 +458,6 @@
       ]
     },
     {
-      "name": "glimmer-cheets",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": false,
-          "board_group": "rambi",
-          "arch": "UNKNOWN"
-        }
-      ]
-    },
-    {
       "name": "gnawty",
       "configs": [
         {
@@ -650,6 +650,18 @@
       ]
     },
     {
+      "name": "lakitu-st",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "lars",
       "configs": [
         {
@@ -734,14 +746,14 @@
       ]
     },
     {
-      "name": "nasher",
+      "name": "nefario",
       "configs": [
         {
           "builder": "RELEASE",
           "experimental": true,
           "leader_board": false,
           "board_group": "",
-          "arch": "X86_INTERNAL"
+          "arch": "ARM_INTERNAL"
         }
       ]
     },
@@ -751,8 +763,8 @@
         {
           "builder": "RELEASE",
           "experimental": false,
-          "leader_board": false,
-          "board_group": "",
+          "leader_board": true,
+          "board_group": "vm builds",
           "arch": "X86_INTERNAL"
         }
       ]
@@ -765,6 +777,18 @@
           "experimental": false,
           "leader_board": false,
           "board_group": "rambi",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "novato",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": false,
+          "leader_board": true,
+          "board_group": "vm builds",
           "arch": "X86_INTERNAL"
         }
       ]
@@ -918,7 +942,7 @@
       "configs": [
         {
           "builder": "RELEASE",
-          "experimental": true,
+          "experimental": false,
           "leader_board": true,
           "board_group": "poppy",
           "arch": "X86_INTERNAL"
@@ -998,18 +1022,6 @@
       ]
     },
     {
-      "name": "rowan",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": true,
-          "board_group": "rowan",
-          "arch": "ARM_INTERNAL"
-        }
-      ]
-    },
-    {
       "name": "samus",
       "configs": [
         {
@@ -1017,18 +1029,6 @@
           "experimental": false,
           "leader_board": false,
           "board_group": "",
-          "arch": "X86_INTERNAL"
-        }
-      ]
-    },
-    {
-      "name": "samus-cheets",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": false,
-          "board_group": "auron",
           "arch": "X86_INTERNAL"
         }
       ]
@@ -1053,7 +1053,7 @@
           "experimental": true,
           "leader_board": true,
           "board_group": "scarlet",
-          "arch": "UNKNOWN"
+          "arch": "ARM_INTERNAL"
         }
       ]
     },
@@ -1078,30 +1078,6 @@
           "leader_board": false,
           "board_group": "strago",
           "arch": "X86_INTERNAL"
-        }
-      ]
-    },
-    {
-      "name": "smaug",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": false,
-          "board_group": "",
-          "arch": "UNKNOWN"
-        }
-      ]
-    },
-    {
-      "name": "smaug-cheets",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": false,
-          "board_group": "",
-          "arch": "ARM_INTERNAL"
         }
       ]
     },
@@ -1310,18 +1286,6 @@
       ]
     },
     {
-      "name": "veyron_minnie-cheets",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": false,
-          "board_group": "veyron",
-          "arch": "ARM_INTERNAL"
-        }
-      ]
-    },
-    {
       "name": "veyron_rialto",
       "configs": [
         {
@@ -1416,7 +1380,46 @@
           "arch": "X86_INTERNAL"
         }
       ]
+    },
+    {
+      "name": "zoombini",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": true,
+          "board_group": "",
+          "arch": "X86_INTERNAL"
+        }
+      ]
     }
   ],
-  "release_branch": false
+  "release_branch": false,
+  "reference_board_unified_builds": [
+    {
+      "name": "reef-uni",
+      "reference_board_name": "reef-uni",
+      "arch": "X86_INTERNAL",
+      "builder": "RELEASE",
+      "experimental": true,
+      "models": [
+        {
+          "board_name": "reef-uni",
+          "name": "pyro"
+        },
+        {
+          "board_name": "reef-uni",
+          "name": "reef"
+        },
+        {
+          "board_name": "reef-uni",
+          "name": "sand"
+        },
+        {
+          "board_name": "reef-uni",
+          "name": "snappy"
+        }
+      ]
+    }
+  ]
 }

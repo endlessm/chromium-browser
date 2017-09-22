@@ -14,10 +14,11 @@ from google.appengine.ext import ndb
 
 from dashboard import auto_bisect
 from dashboard import oauth2_decorator
+from dashboard import short_uri
 from dashboard.common import request_handler
 from dashboard.common import utils
-from dashboard.models import alert
 from dashboard.models import alert_group
+from dashboard.models import anomaly
 from dashboard.models import bug_data
 from dashboard.models import bug_label_patterns
 from dashboard.services import issue_tracker_service
@@ -91,6 +92,11 @@ class FileBugHandler(request_handler.RequestHandler):
     """
     alert_keys = [ndb.Key(urlsafe=k) for k in urlsafe_keys.split(',')]
     labels, components = _FetchLabelsAndComponents(alert_keys)
+    owner_emails, owner_component = _FetchOwnersEmailsAndComponent(alert_keys)
+
+    if owner_component:
+      components.add(owner_component)
+
     self.RenderHtml('bug_result.html', {
         'bug_create_form': True,
         'keys': urlsafe_keys,
@@ -98,7 +104,7 @@ class FileBugHandler(request_handler.RequestHandler):
         'description': description,
         'labels': labels,
         'components': components,
-        'owner': '',
+        'owner': owner_emails,
         'cc': users.get_current_user(),
     })
 
@@ -133,9 +139,9 @@ class FileBugHandler(request_handler.RequestHandler):
     cc = self.request.get('cc')
 
     http = oauth2_decorator.DECORATOR.http()
-    service = issue_tracker_service.IssueTrackerService(http)
+    user_issue_tracker_service = issue_tracker_service.IssueTrackerService(http)
 
-    new_bug_response = service.NewBug(
+    new_bug_response = user_issue_tracker_service.NewBug(
         summary, description, labels=labels, components=components, owner=owner,
         cc=cc)
     if 'error' in new_bug_response:
@@ -148,7 +154,11 @@ class FileBugHandler(request_handler.RequestHandler):
     alert_group.ModifyAlertsAndAssociatedGroups(alerts, bug_id=bug_id)
 
     comment_body = _AdditionalDetails(bug_id, alerts)
-    service.AddBugComment(bug_id, comment_body)
+    # Add the bug comment with the service account, so that there are no
+    # permissions issues.
+    dashboard_issue_tracker_service = issue_tracker_service.IssueTrackerService(
+        utils.ServiceAccountHttp())
+    dashboard_issue_tracker_service.AddBugComment(bug_id, comment_body)
 
     template_params = {'bug_id': bug_id}
     if all(k.kind() == 'Anomaly' for k in alert_keys):
@@ -175,10 +185,12 @@ def _AdditionalDetails(bug_id, alerts):
   """Returns a message with additional information to add to a bug."""
   base_url = '%s/group_report' % _GetServerURL()
   bug_page_url = '%s?bug_id=%s' % (base_url, bug_id)
-  alerts_url = '%s?keys=%s' % (base_url, _UrlsafeKeys(alerts))
-  comment = 'All graphs for this bug:\n  %s\n\n' % bug_page_url
-  comment += 'Original alerts at time of bug-filing:\n  %s\n' % alerts_url
-  bot_names = alert.GetBotNamesFromAlerts(alerts)
+  sid = short_uri.GetOrCreatePageState(json.dumps(_UrlsafeKeys(alerts)))
+  alerts_url = '%s?sid=%s' % (base_url, sid)
+  comment = '<b>All graphs for this bug:</b>\n  %s\n\n' % bug_page_url
+  comment += ('(For debugging:) Original alerts at time of bug-filing:\n  %s\n'
+              % alerts_url)
+  bot_names = anomaly.GetBotNamesFromAlerts(alerts)
   if bot_names:
     comment += '\n\nBot(s) for this bug\'s original alert(s):\n\n'
     comment += '\n'.join(sorted(bot_names))
@@ -192,7 +204,7 @@ def _GetServerURL():
 
 
 def _UrlsafeKeys(alerts):
-  return ','.join(a.key.urlsafe() for a in alerts)
+  return [a.key.urlsafe() for a in alerts]
 
 
 def _ComponentFromCrLabel(label):
@@ -225,6 +237,24 @@ def _FetchLabelsAndComponents(alert_keys):
         labels.add(item)
   return labels, components
 
+def _FetchOwnersEmailsAndComponent(alert_keys):
+  """Fetches the emails and the component defined for the benchmark's ownership
+     stored in the most recent ownership alert of the given path.
+  """
+  alerts = ndb.get_multi(alert_keys)
+  sorted_alerts = reversed(sorted(alerts, key=lambda alert: alert.timestamp))
+
+  emails = ''
+  component = None
+
+  for selected_alert in sorted_alerts:
+    if selected_alert.ownership:
+      component = selected_alert.ownership.get('component')
+      if selected_alert.ownership.get('emails'):
+        emails = ', '.join(selected_alert.ownership['emails'])
+      break
+
+  return emails, component
 
 def _MilestoneLabel(alerts):
   """Returns a milestone label string, or None.

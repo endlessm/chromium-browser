@@ -21,7 +21,6 @@ from chromite.cbuildbot import manifest_version_unittest
 from chromite.cbuildbot import patch_series
 from chromite.cbuildbot import repository
 from chromite.cbuildbot import remote_try
-from chromite.cbuildbot import tree_status
 from chromite.cbuildbot import trybot_patch_pool
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import generic_stages_unittest
@@ -45,6 +44,7 @@ from chromite.lib import metadata_lib
 from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
 from chromite.lib import timeout_util
+from chromite.lib import tree_status
 
 
 # It's normal for unittests to access protected members.
@@ -159,7 +159,6 @@ class ManifestVersionedSyncStageTest(
     self.incr_type = 'branch'
     self.next_version = 'next_version'
     self.sync_stage = None
-    self.PatchObject(manifest_version.BuildSpecsManager, 'SetInFlight')
 
     self.repo = repository.RepoRepository(
         self.source_repo, self.tempdir, self.branch)
@@ -333,7 +332,6 @@ class BaseCQTestCase(generic_stages_unittest.StageTestCase):
     """Setup patchers for specified bot id."""
     # Mock out methods as needed.
     self.PatchObject(lkgm_manager, 'GenerateBlameList')
-    self.PatchObject(lkgm_manager.LKGMManager, 'SetInFlight')
     self.PatchObject(repository.RepoRepository, 'ExportManifest',
                      return_value=self.MANIFEST_CONTENTS, autospec=True)
     self.PatchObject(sync_stages.SyncStage, 'WriteChangesToMetadata')
@@ -1190,40 +1188,71 @@ pre-cq-configs: link-pre-cq
     map_2 = self.sync_stage.GetConfigBuildbucketIdMap(test_output)
     self.assertEqual(map_2, {'test-config': 'test-id'})
 
-  def test_CancelPreCQIfNeeded(self):
-    """Test _CancelPreCQIfNeeded."""
-    db = mock.Mock()
-    stated_content = {'build': {'status': 'STARTED'}}
-    scheduled_content = {'build': {'status': 'SCHEDULED'}}
+  def testCancelPreCQIfNeededSkipsCancellation(self):
+    """Test _CancelPreCQIfNeeded which skips cancellation."""
     completed_content = {'build': {'status': 'COMPLETED'}}
-    cancel_content = {'build': {'status': 'COMPLETED'}}
-    self.PatchObject(cidb.CIDBConnection, 'InsertCLActions')
+    self.PatchObject(buildbucket_lib.BuildbucketClient, 'GetBuildRequest',
+                     return_value=completed_content)
+    mock_cancel = self.PatchObject(buildbucket_lib.BuildbucketClient,
+                                   'CancelBuildRequest')
+    self.sync_stage._CancelPreCQIfNeeded(self.fake_db, mock.Mock())
+    mock_cancel.assert_not_called()
+
+  def testCancelPreCQIfNeededSucceedsCancellation(self):
+    """Test CancelPreCQIfNeeded which succeeds cancellation."""
+    stated_content = {'build': {'status': 'STARTED'}}
     self.PatchObject(buildbucket_lib.BuildbucketClient, 'GetBuildRequest',
                      return_value=stated_content)
+    cancel_content = {'build': {'status': 'COMPLETED'}}
     mock_cancel = self.PatchObject(buildbucket_lib.BuildbucketClient,
                                    'CancelBuildRequest',
                                    return_value=cancel_content)
+    pre_cq_launcher_id = self.fake_db.InsertBuild(
+        'pre-cq-launcher', constants.WATERFALL_INTERNAL, 1,
+        'pre-cq-launcher', 'test_hostname')
+    pre_cq_id = self.fake_db.InsertBuild(
+        'binhost-pre-cq', constants.WATERFALL_INTERNAL, 2,
+        'binhost-pre-cq', 'test_hostname', buildbucket_id='100')
+    c = clactions.GerritPatchTuple(1, 1, True)
     old_build_action = clactions.CLAction(
-        0, 1, constants.CL_ACTION_TRYBOT_LAUNCHING,
-        'binhost-pre-cq', 'config', 1, 2, 'external',
-        datetime.datetime.now() - datetime.timedelta(hours=1), '100')
-    self.sync_stage._CancelPreCQIfNeeded(db, old_build_action)
+        0, pre_cq_launcher_id, constants.CL_ACTION_TRYBOT_LAUNCHING,
+        'binhost-pre-cq', 'config', c.gerrit_number, c.patch_number,
+        'internal' if c.internal else 'external',
+        datetime.datetime.now() - datetime.timedelta(hours=1), '100', None)
+    self.fake_db.InsertCLActions(pre_cq_launcher_id, [old_build_action])
+
+    self.sync_stage._CancelPreCQIfNeeded(self.fake_db, old_build_action)
+    cl_actions = self.fake_db.GetActionsForChanges([c])
+    self.assertEqual(len(cl_actions), 2)
+    expected = [(pre_cq_launcher_id, constants.CL_ACTION_TRYBOT_LAUNCHING),
+                (pre_cq_id, constants.CL_ACTION_TRYBOT_CANCELLED)]
+    result = []
+    for cl_action in cl_actions:
+      result.append((cl_action.build_id, cl_action.action))
+    self.assertItemsEqual(result, expected)
     mock_cancel.assert_called_once_with(
         '100', dryrun=self.sync_stage._run.options.debug)
 
-    mock_cancel.reset_mock()
+  def testCancelPreCQIfNeededFailsCancellation(self):
+    """Test CancelPreCQIfNeeded which fails cancellation."""
+    schedules_content = {'build': {'status': 'SCHEDULED'}}
     self.PatchObject(buildbucket_lib.BuildbucketClient, 'GetBuildRequest',
-                     return_value=scheduled_content)
-    self.sync_stage._CancelPreCQIfNeeded(db, old_build_action)
-    mock_cancel.assert_called_twice_with(
-        '100', dryrun=self.sync_stage._run.options.debug)
-
-    mock_cancel.reset_mock()
-    self.PatchObject(buildbucket_lib.BuildbucketClient, 'GetBuildRequest',
-                     return_value=completed_content)
-    self.sync_stage._CancelPreCQIfNeeded(db, old_build_action)
-    mock_cancel.assert_called_twice_with(
-        '100', dryrun=self.sync_stage._run.options.debug)
+                     return_value=schedules_content)
+    cancel_content = {'error': {'message': 'Cannot cancel a completed build',
+                                'reason': 'BUILD_IS_COMPLETED'}}
+    mock_cancel = self.PatchObject(buildbucket_lib.BuildbucketClient,
+                                   'CancelBuildRequest',
+                                   return_value=cancel_content)
+    pre_cq_id = self.fake_db.InsertBuild(
+        'binhost-pre-cq', constants.WATERFALL_INTERNAL, 2,
+        'binhost-pre-cq', 'test_hostname', buildbucket_id='100')
+    old_build_action = mock.Mock()
+    self.sync_stage._CancelPreCQIfNeeded(self.fake_db, old_build_action)
+    build = self.fake_db.GetBuildStatus(pre_cq_id)
+    self.assertEqual(build['status'], constants.BUILDER_STATUS_PASSED)
+    mock_cancel.assert_called_once_with(
+        old_build_action.buildbucket_id,
+        dryrun=self.sync_stage._run.options.debug)
 
   def test_ProcessOldPatchPreCQRuns(self):
     """Test _ProcessOldPatchPreCQRuns."""
@@ -1232,24 +1261,78 @@ pre-cq-configs: link-pre-cq
     c1 = clactions.CLAction(
         0, 1, constants.CL_ACTION_TRYBOT_LAUNCHING,
         'binhost-pre-cq', 'config', 1, 1, 'external',
-        datetime.datetime.now() - datetime.timedelta(hours=5), '100')
+        datetime.datetime.now() - datetime.timedelta(hours=5), '100', None)
     c2 = clactions.CLAction(
         0, 1, constants.CL_ACTION_TRYBOT_LAUNCHING,
         'binhost-pre-cq', 'config', 1, 2, 'external',
-        datetime.datetime.now() - datetime.timedelta(hours=1), '100')
+        datetime.datetime.now() - datetime.timedelta(hours=1), '100', None)
     c3 = clactions.CLAction(
         0, 1, constants.CL_ACTION_VALIDATION_PENDING_PRE_CQ,
         'binhost-pre-cq', 'config', 1, 3, 'external',
-        datetime.datetime.now(), None)
+        datetime.datetime.now(), None, None)
     c4 = clactions.CLAction(
         0, 1, constants.CL_ACTION_TRYBOT_LAUNCHING,
         'binhost-pre-cq', 'config', 1, 3, 'external',
-        datetime.datetime.now(), '101')
+        datetime.datetime.now(), '101', None)
     action_history = clactions.CLActionHistory([c1, c2, c3, c4])
     mock_cancel = self.PatchObject(sync_stages.PreCQLauncherStage,
                                    '_CancelPreCQIfNeeded')
     self.sync_stage._ProcessOldPatchPreCQRuns(db, change, action_history)
     mock_cancel.assert_called_once_with(db, c2)
+
+  def testGetPreCQConfigsFromOptionsNotUnioned(self):
+    """Test _GetPreCQConfigsFromOptions for not unioned Pre-CQ config."""
+    change = MockPatch()
+    self.PatchObject(cq_config.CQConfigParser, '__init__', return_value=None)
+
+    self.PatchObject(cq_config.CQConfigParser, 'GetUnionPreCQSubConfigsFlag',
+                     return_value=False)
+    self.PatchObject(cq_config.CQConfigParser, 'GetPreCQConfigs',
+                     return_value={'default', 'binhost-pre-cq', 'lumpy-pre-cq'})
+    pre_cqs = self.sync_stage._GetPreCQConfigsFromOptions(change)
+    expected_pre_cq = set(constants.PRE_CQ_DEFAULT_CONFIGS +
+                          ['binhost-pre-cq', 'lumpy-pre-cq'])
+    self.assertItemsEqual(pre_cqs, expected_pre_cq)
+
+    pre_cqs = self.sync_stage._GetPreCQConfigsFromOptions(
+        change, union_pre_cq_limit=2)
+    self.assertItemsEqual(pre_cqs, expected_pre_cq)
+
+  def testGetPreCQConfigsFromOptionsUnioned(self):
+    """Test _GetPreCQConfigsFromOptions for unioned Pre-CQ config."""
+    change = MockPatch()
+    self.PatchObject(cq_config.CQConfigParser, '__init__', return_value=None)
+
+    self.PatchObject(cq_config.CQConfigParser, 'GetUnionPreCQSubConfigsFlag',
+                     return_value=True)
+    self.PatchObject(cq_config.CQConfigParser, 'GetUnionedPreCQConfigs',
+                     return_value={'default', 'binhost-pre-cq', 'lumpy-pre-cq'})
+    pre_cqs = self.sync_stage._GetPreCQConfigsFromOptions(change)
+
+    expected_pre_cq = set(constants.PRE_CQ_DEFAULT_CONFIGS +
+                          ['binhost-pre-cq', 'lumpy-pre-cq'])
+    self.assertItemsEqual(pre_cqs, expected_pre_cq)
+
+    self.assertRaises(sync_stages.ExceedUnionPreCQLimitException,
+                      self.sync_stage._GetPreCQConfigsFromOptions,
+                      change, union_pre_cq_limit=2)
+
+  def testConfiguredVerificationsForChange(self):
+    """Test ConfiguredVerificationsForChange."""
+    change = MockPatch()
+    self.PatchObject(cros_patch, 'GetOptionLinesFromCommitMessage')
+    pre_cq_configs = ['pre-cq-%s' % x for x in range(0, 30)]
+    pre_cq_configs.sort(reverse=True)
+    exceed_exception = sync_stages.ExceedUnionPreCQLimitException(
+        pre_cq_configs, 20)
+    self.PatchObject(sync_stages.PreCQLauncherStage,
+                     '_GetPreCQConfigsFromOptions',
+                     side_effect=exceed_exception)
+    result = self.sync_stage._ConfiguredVerificationsForChange(change)
+
+    self.assertItemsEqual(
+        result, pre_cq_configs[sync_stages.DEFAULT_UNION_PRE_CQ_LIMIT:])
+
 
 class MasterSlaveLKGMSyncTest(generic_stages_unittest.StageTestCase):
   """Unit tests for MasterSlaveLKGMSyncStage"""

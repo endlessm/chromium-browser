@@ -66,27 +66,8 @@ if (is_win) {
     ldflags = [ "/DELAYLOAD:wevtapi.dll" ]  # Only used after unclean shutdowns.
   }
 
-  static_library("crash_stability") {
-    sources = [
-      "stability_report_user_stream_data_source.cc",
-      "stability_report_user_stream_data_source.h",
-    ]
-    deps = [
-      ":stability_client",
-      ":stability_common",
-      ":stability_report_proto",
-      "//base",
-      "//third_party/crashpad/crashpad/client",
-      "//third_party/crashpad/crashpad/compat",
-      "//third_party/crashpad/crashpad/handler:handler_lib",
-      "//third_party/crashpad/crashpad/minidump",
-      "//third_party/crashpad/crashpad/snapshot",
-    ]
-  }
-
   static_library("stability_common") {
     sources = [
-      "minidump_user_streams.h",
       "stability_report_extractor.cc",
       "stability_report_extractor.h",
     ]
@@ -107,6 +88,8 @@ if (is_win) {
       "stability_data_names.h",
       "stability_debugging.cc",
       "stability_debugging.h",
+      "stability_metrics.cc",
+      "stability_metrics.h",
       "stability_paths.cc",
       "stability_paths.h",
     ]
@@ -124,6 +107,8 @@ if (is_win) {
       "postmortem_minidump_writer_win_unittest.cc",
       "postmortem_report_collector_unittest.cc",
       "stability_debugging_win_unittest.cc",
+      "stability_paths_unittest.cc",
+      "stability_report_extractor_unittest.cc",
       "system_session_analyzer_win_unittest.cc",
       "watcher_client_win_unittest.cc",
       "watcher_metrics_provider_win_unittest.cc",

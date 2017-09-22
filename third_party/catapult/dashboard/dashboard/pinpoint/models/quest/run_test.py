@@ -69,8 +69,8 @@ class RunTest(quest.Quest):
     self._test_suite = test_suite
     self._test = test
 
-    self._bot_id = None
-    self._execution = None  # Used only to get a bot_id.
+    # We want subsequent executions use the same bot as the first one.
+    self._first_execution = None
 
   def __str__(self):
     if self._test:
@@ -83,35 +83,30 @@ class RunTest(quest.Quest):
   def retry_count(self):
     return 4
 
-  def Start(self, isolated_hash):
-    if not self._bot_id and self._execution:
-      # If the Execution fails, this resets the state, so we can try again with
-      # the next Execution.
-      self._bot_id = self._execution.bot_id
-      self._execution = None
-
+  def Start(self, isolate_hash):
     execution = _RunTestExecution(self._configuration, self._test_suite,
-                                  self._test, isolated_hash,
-                                  bot_id=self._bot_id)
+                                  self._test, isolate_hash,
+                                  first_execution=self._first_execution)
 
-    if not self._bot_id:
-      self._execution = execution
+    if not self._first_execution:
+      self._first_execution = execution
 
     return execution
 
 
 class _RunTestExecution(execution_module.Execution):
 
-  def __init__(self, configuration, test_suite, test, isolated_hash,
-               bot_id=None):
+  def __init__(self, configuration, test_suite, test, isolate_hash,
+               first_execution=None):
     super(_RunTestExecution, self).__init__()
     self._configuration = configuration
     self._test_suite = test_suite
     self._test = test
-    self._isolated_hash = isolated_hash
-    self._bot_id = bot_id
+    self._isolate_hash = isolate_hash
+    self._first_execution = first_execution
 
     self._task_id = None
+    self._bot_id = None
 
   @property
   def bot_id(self):
@@ -124,12 +119,12 @@ class _RunTestExecution(execution_module.Execution):
 
     result = swarming_service.Task(self._task_id).Result()
 
-    if result['state'] == 'PENDING' or result['state'] == 'RUNNING':
-      return
-
     if 'bot_id' in result:
       # Set bot_id to pass the info back to the Quest.
       self._bot_id = result['bot_id']
+
+    if result['state'] == 'PENDING' or result['state'] == 'RUNNING':
+      return
 
     if result['state'] != 'COMPLETED':
       raise SwarmingTaskError(self._task_id, result['state'])
@@ -137,12 +132,22 @@ class _RunTestExecution(execution_module.Execution):
     if result['failure']:
       raise SwarmingTestError(self._task_id, result['exit_code'])
 
-    result_arguments = {'isolated_hash': result['outputs_ref']['isolated']}
+    result_arguments = {'isolate_hash': result['outputs_ref']['isolated']}
     self._Complete(result_arguments=result_arguments)
 
 
   def _StartTask(self):
     """Kick off a Swarming task to run a test."""
+    if self._first_execution and not self._first_execution._bot_id:
+      if self._first_execution.failed:
+        # If the first Execution fails before it gets a bot ID, it's likely it
+        # couldn't find any device to run on. Subsequent Executions probably
+        # wouldn't have any better luck, and failing fast is less complex than
+        # handling retries.
+        raise RunTestError('There are no bots available to run the test.')
+      else:
+        return
+
     # TODO: Support non-Telemetry tests.
     extra_args = [self._test_suite]
     if self._test:
@@ -158,8 +163,8 @@ class _RunTestExecution(execution_module.Execution):
     ]
 
     dimensions = [{'key': 'pool', 'value': 'Chrome-perf-pinpoint'}]
-    if self._bot_id:
-      dimensions.append({'key': 'id', 'value': self._bot_id})
+    if self._first_execution:
+      dimensions.append({'key': 'id', 'value': self._first_execution.bot_id})
     else:
       dimensions += _ConfigurationDimensions(self._configuration)
 
@@ -169,7 +174,7 @@ class _RunTestExecution(execution_module.Execution):
         'priority': '100',
         'expiration_secs': '600',
         'properties': {
-            'inputs_ref': {'isolated': self._isolated_hash},
+            'inputs_ref': {'isolated': self._isolate_hash},
             'extra_args': extra_args,
             'dimensions': dimensions,
             'execution_timeout_secs': '3600',

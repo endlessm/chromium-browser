@@ -1,7 +1,6 @@
 # Copyright 2013 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-
 """A library for cross-platform browser tests."""
 import os
 import sys
@@ -14,7 +13,6 @@ try:
 except ImportError:
   pass
 
-
 # Ensure Python >= 2.7.
 if sys.version_info < (2, 7):
   print >> sys.stderr, 'Need Python 2.7 or greater.'
@@ -24,6 +22,7 @@ if sys.version_info < (2, 7):
 def _JoinPath(*path_parts):
   return os.path.abspath(os.path.join(*path_parts))
 
+
 def _InsertPath(path):
   assert os.path.isdir(path), 'Not a valid path: %s' % path
   if path not in sys.path:
@@ -32,17 +31,19 @@ def _InsertPath(path):
     # after sys.path[0].
     sys.path.insert(1, path)
 
+
 def _AddDirToPythonPath(*path_parts):
   path = _JoinPath(*path_parts)
   _InsertPath(path)
+
 
 # Matches only 0 or 1 glob results
 def _AddOptionalSingleGlobToPythonPath(*match_path_parts):
   absolute_match_path = _JoinPath(*match_path_parts)
   paths = glob.glob(absolute_match_path)
   if len(paths) > 1:
-    raise ImportError("More than one result was found for glob {}"
-        .format(absolute_match_path))
+    raise ImportError('More than one result was found for glob {}'
+                      .format(absolute_match_path))
   for path in paths:
     _InsertPath(path)
 
@@ -60,7 +61,6 @@ _AddDirToPythonPath(_CATAPULT_DIR, 'common', 'py_trace_event')
 _AddDirToPythonPath(_CATAPULT_DIR, 'common', 'battor')
 _AddDirToPythonPath(_CATAPULT_DIR, 'tracing', 'tracing_build')
 _AddDirToPythonPath(_CATAPULT_DIR, 'third_party', 'py_vulcanize')
-
 
 from telemetry.core import util
 from telemetry.internal.util import global_hooks

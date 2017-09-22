@@ -1,0 +1,83 @@
+#!/usr/bin/env python
+# Copyright (c) 2017 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import os
+import sys
+import subprocess
+import platform
+
+TELEMETRY_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..')
+sys.path.insert(1, TELEMETRY_DIR)
+from telemetry.core import util
+from telemetry.core import platform as platform_module
+from telemetry.internal.util import binary_manager
+
+import py_utils
+
+
+_WPR_GO_DIR = os.path.join(util.GetCatapultDir(), 'web_page_replay_go')
+_GO_LIB_DIR = os.path.expanduser('~/go')
+
+
+_SUPPORTED_GO_VERSIONS = ('go1.8',)
+
+
+def check_go_version():
+  try:
+    out = subprocess.check_output(['go', 'version'])
+  except subprocess.CalledProcessError:
+    out = 'no go binary found'
+  assert any(v in out for v in _SUPPORTED_GO_VERSIONS), (
+      'Require go version 1.5 or higher. Found: %s' % out)
+
+
+def build_wpr_go(os_name, os_arch):
+  """ Build and return path to wpr binary."""
+  # go build command recognizes 'amd64' but not 'x86_64', so we switch 'x86_64'
+  # to 'amd64' string here.
+  # The two names can be used interchangbly, see:
+  # https://wiki.debian.org/DebianAMD64Faq?action=recall&rev=65
+  if os_arch == 'x86_64':
+    os_arch = 'amd64'
+  # go build command recognizes 'darwin' but not 'mac'.
+  if os_name == 'mac':
+    os_name = 'darwin'
+  check_go_version()
+  env = os.environ.copy()
+  env['GOPATH'] = '%s:%s' % (_WPR_GO_DIR, _GO_LIB_DIR)
+  env['GOOS'] = os_name
+  env['GOARCH'] = os_arch
+  build_cmd = ['go', 'build', '-v', os.path.join('src', 'wpr.go')]
+  print 'Running build command: %s' % ' '.join(build_cmd)
+  subprocess.check_call(build_cmd, env=env, cwd=_WPR_GO_DIR)
+  return os.path.join(_WPR_GO_DIR, 'wpr')
+
+
+# TODO(nedn): support building other architectures & OSes.
+_SUPPORTED_PLATFORMS = (
+  ('mac', 'x86_64'),
+  ('linux', 'x86_64'),
+)
+
+def get_latest_wpr_go_commit_hash():
+  return subprocess.check_output(
+    ['git', 'log', '-n', '1', '--pretty=format:%H', _WPR_GO_DIR]).strip()
+
+
+def main():
+  os_name = py_utils.GetHostOsName()
+  arch_name = py_utils.GetHostArchName()
+  if (os_name, arch_name) not in _SUPPORTED_PLATFORMS:
+    raise NotImplementedError('OS = %s, ARCH = %s is not supported' %
+        (os_name, arch_name))
+  wpr_bin = build_wpr_go(os_name, arch_name)
+  binary_manager.UpdateDependency(
+      'wpr_go', wpr_bin,
+       version=get_latest_wpr_go_commit_hash(),
+       os_name=os_name, arch_name=arch_name)
+
+
+if __name__ == "__main__":
+  sys.exit(main())

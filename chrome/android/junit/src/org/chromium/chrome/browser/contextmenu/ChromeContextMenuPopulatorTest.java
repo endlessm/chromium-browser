@@ -78,21 +78,15 @@ public class ChromeContextMenuPopulatorTest {
         final ContextMenuParams contextMenuParams = createLinkContextParams();
 
         List<ContextMenuItem> enabledItems = getEnabledItems(contextMenuParams);
-        Assert.assertThat(enabledItems,
-                Matchers.containsInAnyOrder(ChromeContextMenuItem.COPY_LINK_ADDRESS,
-                        ChromeContextMenuItem.COPY_LINK_TEXT));
+        Assert.assertThat(enabledItems, Matchers.contains(ChromeContextMenuItem.COPY_LINK_ADDRESS));
 
         initializePopulator(ChromeContextMenuPopulator.CUSTOM_TAB_MODE);
         enabledItems = getEnabledItems(contextMenuParams);
-        Assert.assertThat(enabledItems,
-                Matchers.containsInAnyOrder(ChromeContextMenuItem.COPY_LINK_ADDRESS,
-                        ChromeContextMenuItem.COPY_LINK_TEXT));
+        Assert.assertThat(enabledItems, Matchers.contains(ChromeContextMenuItem.COPY_LINK_ADDRESS));
 
-        initializePopulator(ChromeContextMenuPopulator.FULLSCREEN_TAB_MODE);
+        initializePopulator(ChromeContextMenuPopulator.WEB_APP_MODE);
         enabledItems = getEnabledItems(contextMenuParams);
-        Assert.assertThat(enabledItems,
-                Matchers.containsInAnyOrder(ChromeContextMenuItem.COPY_LINK_ADDRESS,
-                        ChromeContextMenuItem.COPY_LINK_TEXT));
+        Assert.assertThat(enabledItems, Matchers.contains(ChromeContextMenuItem.COPY_LINK_ADDRESS));
     }
 
     @Test
@@ -108,7 +102,7 @@ public class ChromeContextMenuPopulatorTest {
         enabledItems = getEnabledItems(contextMenuParams);
         Assert.assertThat(enabledItems, Matchers.empty());
 
-        initializePopulator(ChromeContextMenuPopulator.FULLSCREEN_TAB_MODE);
+        initializePopulator(ChromeContextMenuPopulator.WEB_APP_MODE);
         enabledItems = getEnabledItems(contextMenuParams);
         Assert.assertThat(enabledItems, Matchers.empty());
     }
@@ -128,7 +122,7 @@ public class ChromeContextMenuPopulatorTest {
         Assert.assertThat(
                 enabledItems, Matchers.containsInAnyOrder(ChromeContextMenuItem.COPY_LINK_ADDRESS));
 
-        initializePopulator(ChromeContextMenuPopulator.FULLSCREEN_TAB_MODE);
+        initializePopulator(ChromeContextMenuPopulator.WEB_APP_MODE);
         enabledItems = getEnabledItems(contextMenuParams);
         Assert.assertThat(
                 enabledItems, Matchers.containsInAnyOrder(ChromeContextMenuItem.COPY_LINK_ADDRESS));
@@ -147,16 +141,16 @@ public class ChromeContextMenuPopulatorTest {
 
     private static ContextMenuParams createLinkContextParams() {
         return new ContextMenuParams(
-                0, PAGE_URL, LINK_URL, LINK_TEXT, "", "", "", false, null, false);
+                0, PAGE_URL, LINK_URL, LINK_TEXT, "", "", "", false, null, false, 0, 0);
     }
 
     private static ContextMenuParams createImageContextParams() {
         return new ContextMenuParams(ContextMenuParams.MediaType.MEDIA_TYPE_IMAGE, PAGE_URL, "", "",
-                IMAGE_SRC_URL, IMAGE_TITLE_TEXT, "", false, null, true);
+                IMAGE_SRC_URL, IMAGE_TITLE_TEXT, "", false, null, true, 0, 0);
     }
 
     private static ContextMenuParams createImageLinkContextParams() {
         return new ContextMenuParams(ContextMenuParams.MediaType.MEDIA_TYPE_IMAGE, PAGE_URL,
-                PAGE_URL, LINK_URL, IMAGE_SRC_URL, IMAGE_TITLE_TEXT, "", false, null, true);
+                PAGE_URL, LINK_URL, IMAGE_SRC_URL, IMAGE_TITLE_TEXT, "", false, null, true, 0, 0);
     }
 }

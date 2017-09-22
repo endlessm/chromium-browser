@@ -39,7 +39,6 @@ namespace syncer {
 class BaseTransaction;
 
 namespace syncable {
-class BaseTransaction;
 class Entry;
 class Id;
 }
@@ -171,7 +170,7 @@ class BaseNode {
   const AttachmentIdList GetAttachmentIds() const;
 
   // Returns a base::DictionaryValue serialization of this node.
-  base::DictionaryValue* ToValue() const;
+  std::unique_ptr<base::DictionaryValue> ToValue() const;
 
  protected:
   BaseNode();

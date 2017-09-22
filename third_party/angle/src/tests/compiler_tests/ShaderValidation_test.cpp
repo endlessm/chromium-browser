@@ -62,9 +62,35 @@ class ComputeShaderValidationTest : public ShaderCompileTreeTest
   public:
     ComputeShaderValidationTest() {}
 
-  private:
+  protected:
     ::GLenum getShaderType() const override { return GL_COMPUTE_SHADER; }
     ShShaderSpec getShaderSpec() const override { return SH_GLES3_1_SPEC; }
+};
+
+class ComputeShaderEnforcePackingValidationTest : public ComputeShaderValidationTest
+{
+  public:
+    ComputeShaderEnforcePackingValidationTest() {}
+
+  protected:
+    void initResources(ShBuiltInResources *resources) override
+    {
+        resources->MaxComputeUniformComponents = kMaxComputeUniformComponents;
+
+        // We need both MaxFragmentUniformVectors and MaxFragmentUniformVectors smaller than
+        // MaxComputeUniformComponents / 4.
+        resources->MaxVertexUniformVectors   = 16;
+        resources->MaxFragmentUniformVectors = 16;
+    }
+
+    void SetUp() override
+    {
+        mExtraCompileOptions |= (SH_VARIABLES | SH_ENFORCE_PACKING_RESTRICTIONS);
+        ShaderCompileTreeTest::SetUp();
+    }
+
+    // It is unnecessary to use a very large MaxComputeUniformComponents in this test.
+    static constexpr GLint kMaxComputeUniformComponents = 128;
 };
 
 // This is a test for a bug that used to exist in ANGLE:
@@ -3859,6 +3885,23 @@ TEST_F(FragmentShaderValidationTest, InvalidInterfaceBlockTernaryExpression)
     }
 }
 
+// Test that "buffer" and "shared" are valid identifiers in version lower than GLSL ES 3.10.
+TEST_F(FragmentShaderValidationTest, BufferAndSharedAsIdentifierOnES3)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "void main()\n"
+        "{\n"
+        "    int buffer;\n"
+        "    int shared;\n"
+        "}\n";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
 // Test that a struct can not be used as a constructor argument for a scalar.
 TEST_F(FragmentShaderValidationTest, StructAsBoolConstructorArgument)
 {
@@ -3872,6 +3915,170 @@ TEST_F(FragmentShaderValidationTest, StructAsBoolConstructorArgument)
         "void main(void)\n"
         "{\n"
         "    bool test = bool(a);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that a compute shader can be compiled with MAX_COMPUTE_UNIFORM_COMPONENTS uniform
+// components.
+TEST_F(ComputeShaderEnforcePackingValidationTest, MaxComputeUniformComponents)
+{
+    GLint uniformVectorCount = kMaxComputeUniformComponents / 4;
+
+    std::ostringstream ostream;
+    ostream << "#version 310 es\n"
+               "layout(local_size_x = 1) in;\n";
+
+    for (GLint i = 0; i < uniformVectorCount; ++i)
+    {
+        ostream << "uniform vec4 u_value" << i << ";\n";
+    }
+
+    ostream << "void main()\n"
+               "{\n";
+
+    for (GLint i = 0; i < uniformVectorCount; ++i)
+    {
+        ostream << "    vec4 v" << i << " = u_value" << i << ";\n";
+    }
+
+    ostream << "}\n";
+
+    if (!compile(ostream.str()))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that a function can't be declared with a name starting with "gl_". Note that it's important
+// that the function is not being called.
+TEST_F(FragmentShaderValidationTest, FunctionDeclaredWithReservedName)
+{
+    const std::string &shaderString =
+        "precision mediump float;\n"
+        "void gl_();\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = vec4(0.0);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that a function can't be defined with a name starting with "gl_". Note that it's important
+// that the function is not being called.
+TEST_F(FragmentShaderValidationTest, FunctionDefinedWithReservedName)
+{
+    const std::string &shaderString =
+        "precision mediump float;\n"
+        "void gl_()\n"
+        "{\n"
+        "}\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = vec4(0.0);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that ops with mismatching operand types are disallowed and don't result in an assert.
+// This makes sure that constant folding doesn't fetch invalid union values in case operand types
+// mismatch.
+TEST_F(FragmentShaderValidationTest, InvalidOpsWithConstantOperandsDontAssert)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    float f1 = 0.5 / 2;\n"
+        "    float f2 = true + 0.5;\n"
+        "    float f3 = float[2](0.0, 1.0)[1.0];\n"
+        "    float f4 = float[2](0.0, 1.0)[true];\n"
+        "    float f5 = true ? 1.0 : 0;\n"
+        "    float f6 = 1.0 ? 1.0 : 2.0;\n"
+        "    my_FragColor = vec4(0.0);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that case labels with invalid types don't assert
+TEST_F(FragmentShaderValidationTest, CaseLabelsWithInvalidTypesDontAssert)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "uniform int i;\n"
+        "void main()\n"
+        "{\n"
+        "    float f = 0.0;\n"
+        "    switch (i)\n"
+        "    {\n"
+        "        case 0u:\n"
+        "            f = 0.0;\n"
+        "        case true:\n"
+        "            f = 1.0;\n"
+        "        case 2.0:\n"
+        "            f = 2.0;\n"
+        "    }\n"
+        "    my_FragColor = vec4(0.0);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that using an array as an index is not allowed.
+TEST_F(FragmentShaderValidationTest, ArrayAsIndex)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    int i[2] = int[2](0, 1);\n"
+        "    float f[2] = float[2](2.0, 3.0);\n"
+        "    my_FragColor = vec4(f[i]);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that using an array as an array size is not allowed.
+TEST_F(FragmentShaderValidationTest, ArrayAsArraySize)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    const int i[2] = int[2](1, 2);\n"
+        "    float f[i];\n"
+        "    my_FragColor = vec4(f[0]);\n"
         "}\n";
 
     if (compile(shaderString))

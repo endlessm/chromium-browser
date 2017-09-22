@@ -6,8 +6,8 @@
 
 #include "base/logging.h"
 #include "chromeos/components/tether/ble_constants.h"
-#include "chromeos/components/tether/mock_local_device_data_provider.h"
 #include "components/cryptauth/mock_foreground_eid_generator.h"
+#include "components/cryptauth/mock_local_device_data_provider.h"
 #include "components/cryptauth/proto/cryptauth_api.pb.h"
 #include "components/cryptauth/remote_device_test_util.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
@@ -76,7 +76,6 @@ class MockBluetoothDeviceWithServiceData : public device::MockBluetoothDevice {
   std::vector<uint8_t> service_data_;
 };
 
-const int kExpectedDiscoveryRSSI = -90;
 const size_t kMinNumBytesInServiceData = 4;
 
 const std::string kDefaultBluetoothAddress = "11:22:33:44:55:66";
@@ -159,7 +158,7 @@ class BleScannerTest : public testing::Test {
         CreateFakeBackgroundScanFilter());
 
     mock_local_device_data_provider_ =
-        base::MakeUnique<MockLocalDeviceDataProvider>();
+        base::MakeUnique<cryptauth::MockLocalDeviceDataProvider>();
     mock_local_device_data_provider_->SetPublicKey(
         base::MakeUnique<std::string>(fake_local_public_key));
     mock_local_device_data_provider_->SetBeaconSeeds(
@@ -168,12 +167,11 @@ class BleScannerTest : public testing::Test {
 
     mock_adapter_ =
         make_scoped_refptr(new NiceMock<device::MockBluetoothAdapter>());
-    stored_discovery_filter_.reset();
     stored_discovery_callback_.Reset();
     stored_discovery_errback_.Reset();
-    ON_CALL(*mock_adapter_, StartDiscoverySessionWithFilterRaw(_, _, _))
-        .WillByDefault(Invoke(
-            this, &BleScannerTest::SaveStartDiscoverySessionWithFilterArgs));
+    ON_CALL(*mock_adapter_, StartDiscoverySession(_, _))
+        .WillByDefault(
+            Invoke(this, &BleScannerTest::SaveStartDiscoverySessionArgs));
     ON_CALL(*mock_adapter_, IsPowered()).WillByDefault(Return(true));
 
     mock_discovery_session_ = nullptr;
@@ -186,28 +184,14 @@ class BleScannerTest : public testing::Test {
     ble_scanner_->AddObserver(mock_observer_.get());
   }
 
-  void SaveStartDiscoverySessionWithFilterArgs(
-      const device::BluetoothDiscoveryFilter* discovery_filter,
+  void SaveStartDiscoverySessionArgs(
       const device::BluetoothAdapter::DiscoverySessionCallback& callback,
       const device::BluetoothAdapter::ErrorCallback& errback) {
-    stored_discovery_filter_ =
-        base::MakeUnique<device::BluetoothDiscoveryFilter>(
-            device::BluetoothTransport::BLUETOOTH_TRANSPORT_LE);
-    stored_discovery_filter_->CopyFrom(*discovery_filter);
     stored_discovery_callback_ = callback;
     stored_discovery_errback_ = errback;
   }
 
   void AssertDiscoverySessionRequested() {
-    // First, ensure that the correct discovery filter was passed.
-    EXPECT_TRUE(stored_discovery_filter_);
-    EXPECT_EQ(device::BluetoothTransport::BLUETOOTH_TRANSPORT_LE,
-              stored_discovery_filter_->GetTransport());
-    int16_t observed_rssi;
-    ASSERT_TRUE(stored_discovery_filter_->GetRSSI(&observed_rssi));
-    EXPECT_EQ(kExpectedDiscoveryRSSI, observed_rssi);
-
-    // Now, ensure that both a callback and errback were passed.
     EXPECT_FALSE(stored_discovery_callback_.is_null());
     EXPECT_FALSE(stored_discovery_errback_.is_null());
   }
@@ -226,12 +210,12 @@ class BleScannerTest : public testing::Test {
 
   TestServiceDataProvider* test_service_data_provider_;
   cryptauth::MockForegroundEidGenerator* mock_eid_generator_;
-  std::unique_ptr<MockLocalDeviceDataProvider> mock_local_device_data_provider_;
+  std::unique_ptr<cryptauth::MockLocalDeviceDataProvider>
+      mock_local_device_data_provider_;
 
   scoped_refptr<NiceMock<device::MockBluetoothAdapter>> mock_adapter_;
   device::MockBluetoothDiscoverySession* mock_discovery_session_;
 
-  std::unique_ptr<device::BluetoothDiscoveryFilter> stored_discovery_filter_;
   device::BluetoothAdapter::DiscoverySessionCallback stored_discovery_callback_;
   device::BluetoothAdapter::ErrorCallback stored_discovery_errback_;
 
@@ -528,7 +512,6 @@ TEST_F(BleScannerTest, TestAdapterPoweredChanged) {
   AssertDiscoverySessionRequested();
 
   // The discovery session should have been requested but not yet initialized.
-  EXPECT_TRUE(stored_discovery_filter_.get());
   EXPECT_FALSE(mock_discovery_session_);
 
   // Turn the adapter off before the discovery session starts.

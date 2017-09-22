@@ -13,10 +13,10 @@ from chromite.cbuildbot import build_status_unittest
 from chromite.cbuildbot import chromeos_config
 from chromite.cbuildbot import relevant_changes
 from chromite.lib import builder_status_lib
+from chromite.lib import build_failure_message
 from chromite.lib import clactions
 from chromite.lib import constants
 from chromite.lib import fake_cidb
-from chromite.lib import failure_message_lib
 from chromite.lib import metadata_lib
 from chromite.lib import patch_unittest
 from chromite.lib import triage_lib
@@ -35,16 +35,25 @@ class RelevantChangesTest(patch_unittest.MockPatchBase):
     self.master_build_id = self.fake_cidb.InsertBuild(
         self._bot_id, 'chromeos', '1', self._bot_id, 'bot_hostname')
 
-  def _InsertSlaveBuildAndCLActions(self, slave_config):
-    changes = set(self.GetPatches(how_many=4))
+  def _InsertSlaveBuildAndCLActions(self, slave_config, changes=None,
+                                    master_build_id=None,
+                                    status=constants.BUILDER_STATUS_PASSED,
+                                    action=constants.CL_ACTION_PICKED_UP):
+    if master_build_id is None:
+      master_build_id = self.master_build_id
+
+    if changes is None:
+      changes = set(self.GetPatches(how_many=4))
+
     test_build_id = self.fake_cidb.InsertBuild(
         slave_config, 'chromeos', '2', slave_config, 'bot_hostname',
-        master_build_id=self.master_build_id, buildbucket_id='bb_id_1')
+        master_build_id=master_build_id, buildbucket_id='bb_id_1',
+        status=status)
 
     for change in changes:
       self.fake_cidb.InsertCLActions(
           test_build_id, [clactions.CLAction.FromGerritPatchAndAction(
-              change, constants.CL_ACTION_PICKED_UP)])
+              change, action)])
 
     return test_build_id, changes
 
@@ -153,6 +162,129 @@ class RelevantChangesTest(patch_unittest.MockPatchBase):
             1, mock_cidb),
         expect_result)
 
+  def testGetPreviouslyPassedSlavesForChangesWithIrrelevantSlaves(self):
+    """Test GetPreviouslyPassedSlavesForChanges with irrelevant slaves."""
+    new_master_build_id = self.fake_cidb.InsertBuild(
+        self._bot_id, 'chromeos', '1', self._bot_id, 'bot_hostname',
+        master_build_id=self.master_build_id)
+    changes = self.GetPatches(how_many=2)
+    self._InsertSlaveBuildAndCLActions(
+        'slave_1', changes=changes, master_build_id=self.master_build_id)
+    change_relevant_slaves_dict = {
+        changes[0]: {'slave_1', 'slave_2', 'slave_3', 'slave_4'},
+        changes[1]: {'slave_1', 'slave_2', 'slave_3', 'slave_4'}
+    }
+
+    result = (
+        relevant_changes.RelevantChanges.GetPreviouslyPassedSlavesForChanges(
+            new_master_build_id, self.fake_cidb, changes,
+            change_relevant_slaves_dict))
+    self.assertDictEqual(result, {})
+
+  def testGetPreviouslyPassedSlavesForChangesWithInvalidConfig(self):
+    """Test GetPreviouslyPassedSlavesForChanges with invalid build config."""
+    new_master_build_id = self.fake_cidb.InsertBuild(
+        self._bot_id, 'chromeos', '1', self._bot_id, 'bot_hostname',
+        master_build_id=self.master_build_id)
+    changes = self.GetPatches(how_many=2)
+    self._InsertSlaveBuildAndCLActions(
+        'slave_5', changes=changes, master_build_id=self.master_build_id,
+        action=constants.CL_ACTION_RELEVANT_TO_SLAVE)
+    change_relevant_slaves_dict = {
+        changes[0]: {'slave_1', 'slave_2', 'slave_3', 'slave_4'},
+        changes[1]: {'slave_1', 'slave_2', 'slave_3', 'slave_4'}
+    }
+
+    result = (
+        relevant_changes.RelevantChanges.GetPreviouslyPassedSlavesForChanges(
+            new_master_build_id, self.fake_cidb, changes,
+            change_relevant_slaves_dict))
+    self.assertDictEqual(result, {})
+
+  def testGetPreviouslyPassedSlavesForChangesWithFailedSlaves(self):
+    """Test GetPreviouslyPassedSlavesForChanges with failed slaves."""
+    new_master_build_id = self.fake_cidb.InsertBuild(
+        self._bot_id, 'chromeos', '1', self._bot_id, 'bot_hostname',
+        master_build_id=self.master_build_id)
+    changes = self.GetPatches(how_many=2)
+    self._InsertSlaveBuildAndCLActions(
+        'slave_1', changes=changes, master_build_id=self.master_build_id,
+        action=constants.CL_ACTION_RELEVANT_TO_SLAVE,
+        status=constants.BUILDER_STATUS_FAILED)
+    change_relevant_slaves_dict = {
+        changes[0]: {'slave_1', 'slave_2', 'slave_3', 'slave_4'},
+        changes[1]: {'slave_1', 'slave_2', 'slave_3', 'slave_4'}
+    }
+
+    result = (
+        relevant_changes.RelevantChanges.GetPreviouslyPassedSlavesForChanges(
+            new_master_build_id, self.fake_cidb, changes,
+            change_relevant_slaves_dict))
+    self.assertDictEqual(result, {})
+
+  def testGetPreviouslyPassedSlavesForChangesWithdNewSlaves(self):
+    """Test GetPreviouslyPassedSlavesForChanges with new slaves."""
+    new_master_build_id = self.fake_cidb.InsertBuild(
+        self._bot_id, 'chromeos', '1', self._bot_id, 'bot_hostname',
+        master_build_id=self.master_build_id)
+    changes = self.GetPatches(how_many=2)
+    self._InsertSlaveBuildAndCLActions(
+        'slave_1', changes=changes, master_build_id=new_master_build_id,
+        action=constants.CL_ACTION_RELEVANT_TO_SLAVE)
+    self._InsertSlaveBuildAndCLActions(
+        'slave_2', changes=changes, master_build_id=new_master_build_id,
+        status=constants.BUILDER_STATUS_FAILED,
+        action=constants.CL_ACTION_RELEVANT_TO_SLAVE)
+    change_relevant_slaves_dict = {
+        changes[0]: {'slave_1', 'slave_2', 'slave_3', 'slave_4'},
+        changes[1]: {'slave_1', 'slave_2', 'slave_3', 'slave_4'}
+    }
+
+    result = (
+        relevant_changes.RelevantChanges.GetPreviouslyPassedSlavesForChanges(
+            new_master_build_id, self.fake_cidb, changes,
+            change_relevant_slaves_dict))
+    self.assertDictEqual(result, {})
+
+  def testGetPreviouslyPassedSlavesForChangesWithdMixedSlaves(self):
+    """Test GetPreviouslyPassedSlavesForChanges with mixed slaves."""
+    new_master_build_id = self.fake_cidb.InsertBuild(
+        self._bot_id, 'chromeos', '1', self._bot_id, 'bot_hostname',
+        master_build_id=self.master_build_id)
+    changes = self.GetPatches(how_many=2)
+    self._InsertSlaveBuildAndCLActions(
+        'slave_1', changes=changes, master_build_id=self.master_build_id,
+        status=constants.BUILDER_STATUS_FAILED,
+        action=constants.CL_ACTION_RELEVANT_TO_SLAVE)
+    self._InsertSlaveBuildAndCLActions(
+        'slave_2', changes=changes, master_build_id=self.master_build_id)
+    self._InsertSlaveBuildAndCLActions(
+        'slave_3', changes=changes, master_build_id=self.master_build_id,
+        action=constants.CL_ACTION_RELEVANT_TO_SLAVE)
+    self._InsertSlaveBuildAndCLActions(
+        'slave_5', changes=changes, master_build_id=self.master_build_id,
+        action=constants.CL_ACTION_RELEVANT_TO_SLAVE)
+    self._InsertSlaveBuildAndCLActions(
+        'slave_1', changes=changes, master_build_id=new_master_build_id,
+        action=constants.CL_ACTION_RELEVANT_TO_SLAVE)
+    self._InsertSlaveBuildAndCLActions(
+        'slave_2', changes=changes, master_build_id=new_master_build_id,
+        action=constants.CL_ACTION_RELEVANT_TO_SLAVE)
+    change_relevant_slaves_dict = {
+        changes[0]: {'slave_1', 'slave_2', 'slave_3', 'slave_4'},
+        changes[1]: {'slave_1', 'slave_2', 'slave_3', 'slave_4'}
+    }
+
+    result = (
+        relevant_changes.RelevantChanges.GetPreviouslyPassedSlavesForChanges(
+            new_master_build_id, self.fake_cidb, changes,
+            change_relevant_slaves_dict))
+    expected = {
+        changes[0]: {'slave_3'},
+        changes[1]: {'slave_3'}
+    }
+    self.assertDictEqual(result, expected)
+
 
 class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
   """Tests for TriageRelevantChanges."""
@@ -171,6 +303,7 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
     self.build_config = self.site_config[self._bot_id]
     self.fake_cidb = fake_cidb.FakeCIDBConnection()
     self.slaves = ['slave_1', 'slave_2', 'slave_3', 'slave_4']
+    self.completed_builds = {}
     self.buildbucket_info_dict = self._GetDefaultSuccessBuildbucketInfoDict(
         self.slaves)
     self.buildbucket_ids = [bb_info.buildbucket_id
@@ -222,7 +355,7 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
     if cidb_status_dict is None:
       cidb_status_dict = {}
     if completed_builds is None:
-      completed_builds = {}
+      completed_builds = set()
     if dependency_map is None:
       dependency_map = {}
 
@@ -233,7 +366,7 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
         self.buildbucket_client, dry_run)
 
   def _MockSlaveInfo(self, slave_stages_dict, slave_changes_dict,
-                     slave_subsys_dict):
+                     slave_subsys_dict, change_passed_slaves_dict):
     mock_get_stages = self.PatchObject(relevant_changes.TriageRelevantChanges,
                                        'GetSlaveStages',
                                        return_value=slave_stages_dict)
@@ -243,16 +376,23 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
     mock_get_subsys = self.PatchObject(relevant_changes.RelevantChanges,
                                        'GetSubsysResultForSlaves',
                                        return_value=slave_subsys_dict)
+    mock_get_passed_slaves = self.PatchObject(
+        relevant_changes.RelevantChanges, 'GetPreviouslyPassedSlavesForChanges',
+        return_value=change_passed_slaves_dict)
 
-    return mock_get_stages, mock_get_changes, mock_get_subsys
+    return (mock_get_stages, mock_get_changes, mock_get_subsys,
+            mock_get_passed_slaves)
 
-  def testGetTriageRelevantChanges_UpdateSlaveInfo(self):
+  def testGetTriageRelevantChangesUpdateSlaveInfo(self):
     """test GetTriageRelevantChanges init with _UpdateSlaveInfo."""
-    mock_stage_dict = mock.Mock()
-    mock_changes_dict = mock.Mock()
-    mock_subsys_dict = mock.Mock()
-    mock_get_stages, mock_get_changes, mock_get_subsys = self._MockSlaveInfo(
-        mock_stage_dict, mock_changes_dict, mock_subsys_dict)
+    mock_stage_dict = {}
+    mock_changes_dict = {}
+    mock_subsys_dict = {}
+    mock_passed_slaves_dict = {}
+    (mock_get_stages, mock_get_changes, mock_get_subsys,
+     mock_get_passed_slaves) = (self._MockSlaveInfo(
+         mock_stage_dict, mock_changes_dict, mock_subsys_dict,
+         mock_passed_slaves_dict))
     self.GetTriageRelevantChanges()
     mock_get_stages.assert_called_once_with(
         self.master_build_id, self.fake_cidb, self.buildbucket_info_dict)
@@ -260,6 +400,8 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
         mock_stage_dict)
     mock_get_subsys.assert_called_once_with(
         self.master_build_id, self.fake_cidb)
+    mock_get_passed_slaves.assert_called_once_with(
+        self.master_build_id, self.fake_cidb, self.changes, mock.ANY)
 
   def _BuildDependMap(self):
     """Helper method to build dependency_map for GetDependChanges tests."""
@@ -400,7 +542,7 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
 
   def _GetFailedBuilderStatus(self, contains_message=True):
     """Helper to return a failed BuilderStatus."""
-    failure_message = failure_message_lib.BuildFailureMessage(
+    failure_message = build_failure_message.BuildFailureMessage(
         'messages', [], True, 'reason', 'builder') if contains_message else None
     return builder_status_lib.BuilderStatus(
         constants.BUILDER_STATUS_FAILED, failure_message)
@@ -434,8 +576,9 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
                      '_UpdateSlaveInfo')
     builder_status = self._GetFailedBuilderStatus()
     triage_changes = self.GetTriageRelevantChanges()
-    self.PatchObject(triage_lib.CalculateSuspects, 'CanIgnoreFailures',
-                     return_value=(True, constants.STRATEGY_CQ_PARTIAL))
+    self.PatchObject(
+        triage_lib.CalculateSuspects, 'CanIgnoreFailures',
+        return_value=(True, constants.STRATEGY_CQ_PARTIAL_IGNORED_STAGES))
     ignorable_changes = triage_changes._GetIgnorableChanges(
         'test-paladin', builder_status, set(self.changes))
 
@@ -447,8 +590,9 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
                      '_UpdateSlaveInfo')
     builder_status = self._GetFailedBuilderStatus(contains_message=False)
     triage_changes = self.GetTriageRelevantChanges()
-    self.PatchObject(triage_lib.CalculateSuspects, 'CanIgnoreFailures',
-                     return_value=(True, constants.STRATEGY_CQ_PARTIAL))
+    self.PatchObject(
+        triage_lib.CalculateSuspects, 'CanIgnoreFailures',
+        return_value=(True, constants.STRATEGY_CQ_PARTIAL_IGNORED_STAGES))
     ignorable_changes = triage_changes._GetIgnorableChanges(
         'test-paladin', builder_status, set(self.changes))
 
@@ -500,6 +644,31 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
     self.assertSetEqual(triage_changes.might_submit, set())
     self.assertSetEqual(triage_changes.will_not_submit, set(self.changes))
 
+  def testGetWillNotSubmitChanges(self):
+    """Test GetWillNotSubmitChanges."""
+    self.PatchObject(relevant_changes.TriageRelevantChanges,
+                     '_UpdateSlaveInfo')
+    triage_changes = self.GetTriageRelevantChanges()
+    triage_changes.change_relevant_slaves_dict = {
+        self.changes[0]: {'slave_1', 'slave_2', 'slave_3'},
+        self.changes[1]: {'slave_1', 'slave_2'},
+        self.changes[2]: {'slave_2', 'slave_3'}
+    }
+    triage_changes.change_passed_slaves_dict = {
+        self.changes[0]: {'slave_1', 'slave_3'},
+        self.changes[1]: set(),
+        self.changes[2]: {'slave_2'}
+    }
+    self.assertItemsEqual(
+        triage_changes._GetWillNotSubmitChanges('slave_1', self.changes[0:3]),
+        self.changes[1:2])
+    self.assertItemsEqual(
+        triage_changes._GetWillNotSubmitChanges('slave_2', self.changes[0:3]),
+        self.changes[0:2])
+    self.assertItemsEqual(
+        triage_changes._GetWillNotSubmitChanges('slave_3', self.changes[0:3]),
+        self.changes[2:3])
+
   def _GetStage(self, build_id=0, status=PASS, build_config='build_config',
                 name='name', board='board'):
     return {
@@ -518,22 +687,36 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
         build: self.BuildbucketInfos.GetCanceledBuild()
     }
 
-    self._MockSlaveInfo(slave_stages_dict, slave_changes_dict, {})
+    self._MockSlaveInfo(slave_stages_dict, slave_changes_dict, {}, {})
 
-  def test_ProcessCompletedBuildsNoStage(self):
+  def testProcessCompletedBuildsNoStage(self):
     """Test _ProcessCompletedBuilds on build without stages."""
     build = 'slave_1'
     self._GetMockSlaveInfoForProcessCompletedBuilds(build, [])
+
     triage_changes = self.GetTriageRelevantChanges(
         completed_builds={build})
-
     triage_changes._ProcessCompletedBuilds()
     self.assertItemsEqual(triage_changes.will_submit, set())
-    self.assertItemsEqual(triage_changes.might_submit, set())
+    self.assertItemsEqual(triage_changes.might_submit, set(self.changes[2:4]))
     self.assertItemsEqual(triage_changes.will_not_submit,
-                          self.changes)
+                          self.changes[0:2])
 
-  def test_ProcessCompletedBuildsFailedSyncStage(self):
+  def testProcessCompletedBuildsNoStagePassedBefore(self):
+    """Test _ProcessCompletedBuilds on build, no stages and passed before."""
+    build = 'slave_1'
+    self._GetMockSlaveInfoForProcessCompletedBuilds(build, [])
+
+    triage_changes = self.GetTriageRelevantChanges(
+        completed_builds={build})
+    triage_changes.change_passed_slaves_dict = {self.changes[1]: {build}}
+    triage_changes._ProcessCompletedBuilds()
+    self.assertItemsEqual(triage_changes.will_submit, set())
+    self.assertItemsEqual(triage_changes.might_submit, set(self.changes[1:4]))
+    self.assertItemsEqual(triage_changes.will_not_submit,
+                          self.changes[0:1])
+
+  def testProcessCompletedBuildsFailedSyncStage(self):
     """Test _ProcessCompletedBuilds on build failing at the sync stage."""
     build = 'slave_1'
     stages = [self._GetStage(
@@ -544,10 +727,11 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
 
     triage_changes._ProcessCompletedBuilds()
     self.assertItemsEqual(triage_changes.will_submit, set())
-    self.assertItemsEqual(triage_changes.might_submit, set())
-    self.assertItemsEqual(triage_changes.will_not_submit, self.changes)
+    self.assertItemsEqual(triage_changes.might_submit, set(self.changes[2:4]))
+    self.assertItemsEqual(triage_changes.will_not_submit,
+                          self.changes[0:2])
 
-  def test_ProcessCompletedBuildsNoCompletionStageWithMissingStatus(self):
+  def testProcessCompletedBuildsNoCompletionStageWithMissingStatus(self):
     """Test build without completion stage and missing BuilderStatus."""
     build = 'slave_1'
     stages = [self._GetStage(status=self.PASS, build_config=build,
@@ -562,7 +746,7 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
     self.assertItemsEqual(triage_changes.will_not_submit,
                           set(self.changes[0:2]))
 
-  def test_ProcessCompletedBuildsFailedCompletionStageWithMissingStatus(self):
+  def testProcessCompletedBuildsFailedCompletionStageNoStatus(self):
     """Test build with failed completion stage and missing BuilderStatus."""
     build = 'slave_1'
     stages = [self._GetStage(status=self.PASS, build_config=build,
@@ -577,7 +761,23 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
     self.assertItemsEqual(triage_changes.will_not_submit,
                           set(self.changes[0:2]))
 
-  def test_ProcessCompletedBuildsForgivenCompletionStageWithPassedStatus(self):
+  def testProcessCompletedBuildsFailedCompletionStageNoStatusPassedBefore(self):
+    """Test build failed completion stage, no Status and passed before."""
+    build = 'slave_1'
+    stages = [self._GetStage(status=self.PASS, build_config=build,
+                             name=self.COMMIT_QUEUE_SYNC)]
+    self._GetMockSlaveInfoForProcessCompletedBuilds(build, stages)
+    triage_changes = self.GetTriageRelevantChanges(
+        completed_builds={build})
+    triage_changes.change_passed_slaves_dict = {self.changes[1]: {build}}
+
+    triage_changes._ProcessCompletedBuilds()
+    self.assertItemsEqual(triage_changes.will_submit, set())
+    self.assertItemsEqual(triage_changes.might_submit, set(self.changes[1:4]))
+    self.assertItemsEqual(triage_changes.will_not_submit,
+                          set(self.changes[0:1]))
+
+  def testProcessCompletedBuildsForgivenCompletionStageWithPassedStatus(self):
     """Test build with forgiven completion stage and passed BuilderStatus."""
     build = 'slave_1'
     stages = [self._GetStage(status=self.PASS, build_config=build,
@@ -598,7 +798,7 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
     self.assertItemsEqual(triage_changes.might_submit, set(self.changes))
     self.assertItemsEqual(triage_changes.will_not_submit, set())
 
-  def test_ProcessCompletedBuildsForgivenCompletionStageWithMissingStatus(self):
+  def testProcessCompletedBuildsForgivenCompletionStageNoStatus(self):
     """Test build with forgiven completion stage and missing BuilderStatus."""
     build = 'slave_1'
     stages = [self._GetStage(status=self.PASS, build_config=build,
@@ -616,7 +816,26 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
     self.assertItemsEqual(triage_changes.will_not_submit,
                           set(self.changes[0:2]))
 
-  def test_ProcessCompletedBuildsForgivenCompletionStageWithFailedStatus(self):
+  def testProcessCompletedBuildsForgiveCompStageNoStatusPassedBefore(self):
+    """Test build with forgiven completion stage, no status, passed before."""
+    build = 'slave_1'
+    stages = [self._GetStage(status=self.PASS, build_config=build,
+                             name=self.COMMIT_QUEUE_SYNC)]
+    self._GetMockSlaveInfoForProcessCompletedBuilds(build, stages)
+    can_ignore_failures_mock = self.PatchObject(
+        triage_lib.CalculateSuspects, 'CanIgnoreFailures')
+    triage_changes = self.GetTriageRelevantChanges(
+        completed_builds={build})
+    triage_changes.change_passed_slaves_dict = {self.changes[1]: {build}}
+
+    triage_changes._ProcessCompletedBuilds()
+    self.assertFalse(can_ignore_failures_mock.called)
+    self.assertItemsEqual(triage_changes.will_submit, set())
+    self.assertItemsEqual(triage_changes.might_submit, set(self.changes[1:4]))
+    self.assertItemsEqual(triage_changes.will_not_submit,
+                          set(self.changes[0:1]))
+
+  def testProcessCompletedBuildsForgivenCompletionStageWithFailedStatus(self):
     """Test build with forgiven completion stage and failed BuilderStatus."""
     build = 'slave_1'
     stages = [self._GetStage(status=self.PASS, build_config=build,
@@ -637,7 +856,7 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
     self.assertItemsEqual(triage_changes.will_not_submit,
                           set(self.changes[0:1]))
 
-  def test_ProcessCompletedBuildsPassedCompletionStage(self):
+  def testProcessCompletedBuildsPassedCompletionStage(self):
     """Test build with passed completion stage and passed BuilderStatus."""
     build = 'slave_1'
     stages = [self._GetStage(status=self.PASS, build_config=build,
@@ -657,55 +876,53 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
     self.assertItemsEqual(triage_changes.might_submit, set(self.changes))
     self.assertItemsEqual(triage_changes.will_not_submit, set())
 
-  def test_GetChangeToSlavesDict(self):
-    """Test _GetChangeToSlavesDict."""
+  def testChangeVerifiedByCurrentBuild(self):
+    """Test ChangeVerifiedByCurrentBuild."""
     self.PatchObject(relevant_changes.TriageRelevantChanges,
                      '_UpdateSlaveInfo')
     triage_changes = self.GetTriageRelevantChanges()
-    slave_changes_dict = {
-        self.slaves[0]: set(self.changes[0:1]),
-        self.slaves[1]: set(self.changes[0:2]),
-        self.slaves[2]: set(self.changes[2:4]),
-        self.slaves[3]: set()
-    }
-    change_slaves_dict = triage_changes._GetChangeToSlavesDict(
-        slave_changes_dict)
+    change = self.changes[0]
+    self.assertFalse(triage_changes._ChangeVerifiedByCurrentBuild(
+        change, 'slave_1', {'slave_1': self.BuildbucketInfos.GetStartedBuild()},
+        {}))
+    self.assertFalse(triage_changes._ChangeVerifiedByCurrentBuild(
+        change, 'slave_1', {'slave_1': self.BuildbucketInfos.GetFailureBuild()},
+        {}))
+    self.assertTrue(triage_changes._ChangeVerifiedByCurrentBuild(
+        change, 'slave_1', {'slave_1': self.BuildbucketInfos.GetFailureBuild()},
+        {'slave_1': set([change])}))
 
-    expected_dict = {
-        self.changes[0]: set(self.slaves[0:2]),
-        self.changes[1]: set([self.slaves[1]]),
-        self.changes[2]: set([self.slaves[2]]),
-        self.changes[3]: set([self.slaves[2]])
-    }
-    self.assertDictEqual(change_slaves_dict, expected_dict)
+    self.assertTrue(triage_changes._ChangeVerifiedByCurrentBuild(
+        change, 'slave_1', {'slave_1': self.BuildbucketInfos.GetSuccessBuild()},
+        {}))
 
-  def test_ChangeCanBeSubmittedOnStartedBuildReturnsFalse(self):
+  def testChangeCanBeSubmittedOnStartedBuildReturnsFalse(self):
     """_ChangeCanBeSubmitted Returns False on Started build."""
     self.PatchObject(relevant_changes.TriageRelevantChanges,
                      '_UpdateSlaveInfo')
-    self.buildbucket_info_dict = {
+    triage_changes = self.GetTriageRelevantChanges()
+    buildbucket_info_dict = {
         self.slaves[0]: self.BuildbucketInfos.GetSuccessBuild(),
         self.slaves[1]: self.BuildbucketInfos.GetStartedBuild()}
-    triage_changes = self.GetTriageRelevantChanges()
     self.assertFalse(triage_changes._ChangeCanBeSubmitted(
-        self.changes[0], self.slaves[0:2], {}))
+        self.changes[0], self.slaves[0:2], buildbucket_info_dict, {}, {}))
 
-  def test_ChangeCanBeSubmittedOnNotIgnorableChangeReturnsFalse(self):
+  def testChangeCanBeSubmittedOnNotIgnorableChangeReturnsFalse(self):
     """_ChangeCanBeSubmitted returns False for not ignorable change"""
     self.PatchObject(relevant_changes.TriageRelevantChanges,
                      '_UpdateSlaveInfo')
-    self.buildbucket_info_dict = {
+    buildbucket_info_dict = {
         self.slaves[0]: self.BuildbucketInfos.GetSuccessBuild(),
         self.slaves[1]: self.BuildbucketInfos.GetFailureBuild()}
     triage_changes = self.GetTriageRelevantChanges()
     self.assertFalse(triage_changes._ChangeCanBeSubmitted(
-        self.changes[0], self.slaves[0:2], {}))
+        self.changes[0], self.slaves[0:2], buildbucket_info_dict, {}, {}))
 
-  def test_ChangeCanBeSubmittedOnIgnorableChangeReturnsTrue(self):
+  def testChangeCanBeSubmittedOnIgnorableChangeReturnsTrue(self):
     """_CanIgnoreFailedBuildsForChange returns True for ignorable change."""
     self.PatchObject(relevant_changes.TriageRelevantChanges,
                      '_UpdateSlaveInfo')
-    self.buildbucket_info_dict = {
+    buildbucket_info_dict = {
         self.slaves[0]: self.BuildbucketInfos.GetSuccessBuild(),
         self.slaves[1]: self.BuildbucketInfos.GetFailureBuild()}
     build_ignorable_changes_dict = {
@@ -714,7 +931,27 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
     }
     triage_changes = self.GetTriageRelevantChanges()
     self.assertTrue(triage_changes._ChangeCanBeSubmitted(
-        self.changes[1], self.slaves[0:2], build_ignorable_changes_dict))
+        self.changes[1], self.slaves[0:2], buildbucket_info_dict,
+        build_ignorable_changes_dict, {}))
+
+  def testChangeCanBeSubmittedOnPassedBeforeBuildsReturnsTrue(self):
+    """_CanIgnoreFailedBuildsForChange returns True on passed before change."""
+    self.PatchObject(relevant_changes.TriageRelevantChanges,
+                     '_UpdateSlaveInfo')
+    buildbucket_info_dict = {
+        self.slaves[0]: self.BuildbucketInfos.GetSuccessBuild(),
+        self.slaves[1]: self.BuildbucketInfos.GetFailureBuild()}
+    build_ignorable_changes_dict = {
+        'slave_1': set(self.changes[0:1]),
+        'slave_2': set(self.changes[1:3])
+    }
+    change_passed_slaves_dict = {
+        self.changes[1]: 'slave_2'
+    }
+    triage_changes = self.GetTriageRelevantChanges()
+    self.assertTrue(triage_changes._ChangeCanBeSubmitted(
+        self.changes[1], self.slaves[0:2], buildbucket_info_dict,
+        build_ignorable_changes_dict, change_passed_slaves_dict))
 
   def _GetMockBuildbucketInfoForProcessMightSubmitChanges(self):
     self.buildbucket_info_dict = {
@@ -724,68 +961,214 @@ class TriageRelevantChangesTest(patch_unittest.MockPatchBase):
         self.slaves[3]: self.BuildbucketInfos.GetScheduledBuild()
     }
 
-  def test_ProcessMightSubmitChanges(self):
+  def testProcessMightSubmitChanges(self):
     """Test _ProcessMightSubmitChanges."""
     self.PatchObject(relevant_changes.TriageRelevantChanges,
                      '_UpdateSlaveInfo')
     self._GetMockBuildbucketInfoForProcessMightSubmitChanges()
-    change_slaves_dict = {
+    triage_changes = self.GetTriageRelevantChanges()
+    triage_changes.change_relevant_slaves_dict = {
         self.changes[0]: set(self.slaves[0:2]),
         self.changes[1]: set([self.slaves[1]]),
         self.changes[2]: set([self.slaves[2]]),
         self.changes[3]: set([self.slaves[2]])
     }
-    self.PatchObject(relevant_changes.TriageRelevantChanges,
-                     '_GetChangeToSlavesDict',
-                     return_value=change_slaves_dict)
-    triage_changes = self.GetTriageRelevantChanges()
+    triage_changes.change_passed_slaves_dict = {}
     triage_changes._ProcessMightSubmitChanges()
 
     self.assertSetEqual(triage_changes.will_submit, set(self.changes[0:2]))
     self.assertSetEqual(triage_changes.might_submit, set(self.changes[2:4]))
     self.assertSetEqual(triage_changes.will_not_submit, set())
 
-  def test_ProcessMightSubmitChangesOnChangesWithoutRelevantSlaves(self):
+  def testProcessMightSubmitChangesOnChangesWithoutRelevantSlaves(self):
     """Test _ProcessMightSubmitChangesOnChanges without relevant slaves."""
     self.PatchObject(relevant_changes.TriageRelevantChanges,
                      '_UpdateSlaveInfo')
     self._GetMockBuildbucketInfoForProcessMightSubmitChanges()
-    change_slaves_dict = {
+    triage_changes = self.GetTriageRelevantChanges()
+    triage_changes.change_relevant_slaves_dict = {
         self.changes[0]: set(self.slaves[0:4]),
         self.changes[1]: set([self.slaves[2]]),
-        self.changes[2]: set([self.slaves[2]]),
+        self.changes[2]: set([self.slaves[2]])
     }
-    self.PatchObject(relevant_changes.TriageRelevantChanges,
-                     '_GetChangeToSlavesDict',
-                     return_value=change_slaves_dict)
-    triage_changes = self.GetTriageRelevantChanges()
+    triage_changes.change_passed_slaves_dict = {}
     triage_changes._ProcessMightSubmitChanges()
 
     self.assertSetEqual(triage_changes.will_submit, set([self.changes[3]]))
     self.assertSetEqual(triage_changes.might_submit, set(self.changes[0:3]))
     self.assertSetEqual(triage_changes.will_not_submit, set())
 
-  def testShouldWaitReturnsTrue(self):
-    """Test ShouldWait which returns True."""
+  def _MockForUploadPrebuiltsStageCheck(self):
+    self.slaves = ['wolf-paladin', 'cyan-paladin', 'elm-paladin',
+                   'falco-full-compile-paladin']
+    self.completed_builds = {self.slaves[0], self.slaves[1], self.slaves[3]}
+    self.PatchObject(relevant_changes.TriageRelevantChanges,
+                     '_UpdateSlaveInfo')
+    self.buildbucket_info_dict = {
+        self.slaves[0]: self.BuildbucketInfos.GetSuccessBuild(),
+        self.slaves[1]: self.BuildbucketInfos.GetFailureBuild(),
+        self.slaves[2]: self.BuildbucketInfos.GetStartedBuild(),
+        self.slaves[3]: self.BuildbucketInfos.GetFailureBuild()}
+    self._InsertSlaveBuilds(self.slaves, self.buildbucket_info_dict)
+
+  def testAllCompletedSlavesPassedUploadPrebuiltsStageReturnsFalse(self):
+    """Test WaitForSlaves on completed builds which failed the stage."""
+    self._MockForUploadPrebuiltsStageCheck()
+
+    self.fake_cidb.InsertBuildStage(
+        1, relevant_changes.TriageRelevantChanges.STAGE_UPLOAD_PREBUILTS,
+        self.slaves[0], status=self.PASS)
+    self.fake_cidb.InsertBuildStage(
+        2, relevant_changes.TriageRelevantChanges.STAGE_UPLOAD_PREBUILTS,
+        self.slaves[1], status=self.FAIL)
+
+    triage_changes = self.GetTriageRelevantChanges(
+        buildbucket_info_dict=self.buildbucket_info_dict,
+        completed_builds=self.completed_builds)
+    triage_changes.slave_stages_dict = triage_changes.GetSlaveStages(
+        self.master_build_id, self.fake_cidb, self.buildbucket_info_dict)
+
+    self.assertFalse(
+        triage_changes._AllCompletedSlavesPassedUploadPrebuiltsStage())
+
+  def testAllCompletedSlavesPassedUploadPrebuiltsStageReturnsTrue(self):
+    """Test WaitForSlaves on completed builds which passed the stage."""
+    self._MockForUploadPrebuiltsStageCheck()
+
+    self.fake_cidb.InsertBuildStage(
+        1, relevant_changes.TriageRelevantChanges.STAGE_UPLOAD_PREBUILTS,
+        self.slaves[0], status=self.PASS)
+    self.fake_cidb.InsertBuildStage(
+        2, relevant_changes.TriageRelevantChanges.STAGE_UPLOAD_PREBUILTS,
+        self.slaves[1], status=self.PASS)
+
+    triage_changes = self.GetTriageRelevantChanges(
+        buildbucket_info_dict=self.buildbucket_info_dict,
+        completed_builds=self.completed_builds)
+    triage_changes.slave_stages_dict = triage_changes.GetSlaveStages(
+        self.master_build_id, self.fake_cidb, self.buildbucket_info_dict)
+
+    self.assertTrue(
+        triage_changes._AllCompletedSlavesPassedUploadPrebuiltsStage())
+
+  def testAllUncompletedSlavesPassedUploadPrebuiltsStageReturnsTrue(self):
+    """Test WaitForSlaves on all builds which passed the stage."""
+    self._MockForUploadPrebuiltsStageCheck()
+
+    self.fake_cidb.InsertBuildStage(
+        1, relevant_changes.TriageRelevantChanges.STAGE_UPLOAD_PREBUILTS,
+        self.slaves[0], status=self.PASS)
+    self.fake_cidb.InsertBuildStage(
+        2, relevant_changes.TriageRelevantChanges.STAGE_UPLOAD_PREBUILTS,
+        self.slaves[1], status=self.PASS)
+    self.fake_cidb.InsertBuildStage(
+        3, relevant_changes.TriageRelevantChanges.STAGE_UPLOAD_PREBUILTS,
+        self.slaves[2], status=self.PASS)
+    self.fake_cidb.InsertBuildStage(
+        4, relevant_changes.TriageRelevantChanges.STAGE_UPLOAD_PREBUILTS,
+        self.slaves[3], status=self.PASS)
+
+    triage_changes = self.GetTriageRelevantChanges(
+        buildbucket_info_dict=self.buildbucket_info_dict,
+        completed_builds=self.completed_builds)
+    triage_changes.slave_stages_dict = triage_changes.GetSlaveStages(
+        self.master_build_id, self.fake_cidb, self.buildbucket_info_dict)
+
+    self.assertTrue(
+        triage_changes._AllUncompletedSlavesPassedUploadPrebuiltsStage())
+
+  def testAllUncompletedSlavesPassedUploadPrebuiltsStageReturnsFalse(self):
+    """Test _AllUncompletedSlavesPassedUploadPrebuiltsStage Returns False,"""
+    self._MockForUploadPrebuiltsStageCheck()
+
+    self.fake_cidb.InsertBuildStage(
+        1, relevant_changes.TriageRelevantChanges.STAGE_UPLOAD_PREBUILTS,
+        self.slaves[0], status=self.PASS)
+    self.fake_cidb.InsertBuildStage(
+        2, relevant_changes.TriageRelevantChanges.STAGE_UPLOAD_PREBUILTS,
+        self.slaves[1], status=self.PASS)
+    self.fake_cidb.InsertBuildStage(
+        4, relevant_changes.TriageRelevantChanges.STAGE_UPLOAD_PREBUILTS,
+        self.slaves[3], status=self.PASS)
+
+    triage_changes = self.GetTriageRelevantChanges(
+        buildbucket_info_dict=self.buildbucket_info_dict,
+        completed_builds=self.completed_builds)
+    triage_changes.slave_stages_dict = triage_changes.GetSlaveStages(
+        self.master_build_id, self.fake_cidb, self.buildbucket_info_dict)
+
+    self.assertFalse(
+        triage_changes._AllUncompletedSlavesPassedUploadPrebuiltsStage())
+
+  def _MockForTestShouldSelfDestruct(self):
     self.PatchObject(relevant_changes.TriageRelevantChanges,
                      '_UpdateSlaveInfo')
     self.PatchObject(relevant_changes.TriageRelevantChanges,
                      '_ProcessCompletedBuilds')
     self.PatchObject(relevant_changes.TriageRelevantChanges,
                      '_ProcessMightSubmitChanges')
+
+  def _MockAllCompletedSlavesPassedUploadPrebuiltsStage(self, return_value):
+    self.PatchObject(relevant_changes.TriageRelevantChanges,
+                     '_AllCompletedSlavesPassedUploadPrebuiltsStage',
+                     return_value=return_value)
+
+  def _MockAllUncompletedSlavesPassedUploadPrebuiltsStage(self, return_value):
+    self.PatchObject(relevant_changes.TriageRelevantChanges,
+                     '_AllUncompletedSlavesPassedUploadPrebuiltsStage',
+                     return_value=return_value)
+
+  def testShouldSelfDestructWithNotEmptyMightSubmit(self):
+    """Test With Not Empty MightSubmit."""
+    self._MockForTestShouldSelfDestruct()
     triage_changes = self.GetTriageRelevantChanges()
 
-    self.assertTrue(triage_changes.ShouldWait())
+    self._MockAllCompletedSlavesPassedUploadPrebuiltsStage(True)
+    self._MockAllUncompletedSlavesPassedUploadPrebuiltsStage(True)
+    self.assertEqual(triage_changes.ShouldSelfDestruct(), (False, False))
 
-  def testShouldWaitReturnsFalse(self):
-    """Test ShouldWait which returns False."""
-    self.PatchObject(relevant_changes.TriageRelevantChanges,
-                     '_UpdateSlaveInfo')
-    self.PatchObject(relevant_changes.TriageRelevantChanges,
-                     '_ProcessCompletedBuilds')
-    self.PatchObject(relevant_changes.TriageRelevantChanges,
-                     '_ProcessMightSubmitChanges')
+  def testShouldSelfDestructWithEmptyMightSubmitAndEmptyWillNotSubmit(self):
+    """Test With Empty MightSubmit And Empty WillNotSubmit."""
+    self._MockForTestShouldSelfDestruct()
     triage_changes = self.GetTriageRelevantChanges()
     triage_changes.might_submit = set()
+    triage_changes.will_not_submit = set()
 
-    self.assertFalse(triage_changes.ShouldWait())
+    self._MockAllCompletedSlavesPassedUploadPrebuiltsStage(True)
+    self._MockAllUncompletedSlavesPassedUploadPrebuiltsStage(True)
+    self.assertEqual(triage_changes.ShouldSelfDestruct(), (True, True))
+
+    self._MockAllCompletedSlavesPassedUploadPrebuiltsStage(False)
+    self._MockAllUncompletedSlavesPassedUploadPrebuiltsStage(True)
+    self.assertEqual(triage_changes.ShouldSelfDestruct(), (True, False))
+
+    self._MockAllCompletedSlavesPassedUploadPrebuiltsStage(False)
+    self._MockAllUncompletedSlavesPassedUploadPrebuiltsStage(False)
+    self.assertEqual(triage_changes.ShouldSelfDestruct(), (True, False))
+
+    self._MockAllCompletedSlavesPassedUploadPrebuiltsStage(True)
+    self._MockAllUncompletedSlavesPassedUploadPrebuiltsStage(False)
+    self.assertEqual(triage_changes.ShouldSelfDestruct(), (False, False))
+
+  def testShouldSelfDestructWithEmptyMightSubmitAndNotEmptyWillNotSubmit(self):
+    """Test With Empty MightSubmit And Not Empty WillNotSubmit."""
+    self._MockForTestShouldSelfDestruct()
+    triage_changes = self.GetTriageRelevantChanges()
+    triage_changes.might_submit = set()
+    triage_changes.will_not_submit = self.GetPatches(how_many=2)
+
+    self._MockAllCompletedSlavesPassedUploadPrebuiltsStage(True)
+    self._MockAllUncompletedSlavesPassedUploadPrebuiltsStage(True)
+    self.assertEqual(triage_changes.ShouldSelfDestruct(), (True, False))
+
+    self._MockAllCompletedSlavesPassedUploadPrebuiltsStage(False)
+    self._MockAllUncompletedSlavesPassedUploadPrebuiltsStage(True)
+    self.assertEqual(triage_changes.ShouldSelfDestruct(), (True, False))
+
+    self._MockAllCompletedSlavesPassedUploadPrebuiltsStage(False)
+    self._MockAllUncompletedSlavesPassedUploadPrebuiltsStage(False)
+    self.assertEqual(triage_changes.ShouldSelfDestruct(), (True, False))
+
+    self._MockAllCompletedSlavesPassedUploadPrebuiltsStage(True)
+    self._MockAllUncompletedSlavesPassedUploadPrebuiltsStage(False)
+    self.assertEqual(triage_changes.ShouldSelfDestruct(), (False, False))

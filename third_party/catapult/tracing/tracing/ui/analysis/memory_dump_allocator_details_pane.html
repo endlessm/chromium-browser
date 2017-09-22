@@ -634,7 +634,7 @@ tr.exportTo('tr.ui.analysis', function() {
     createAllocatorRowRecursively_(dumps) {
       // Get the name of the memory allocator dumps. We can use any defined
       // dump in dumps since they all have the same name.
-      const definedDump = tr.b.findFirstInArray(dumps);
+      const definedDump = dumps.find(x => x);
       const title = definedDump.name;
       const fullName = definedDump.fullName;
 
@@ -697,9 +697,11 @@ tr.exportTo('tr.ui.analysis', function() {
       // Child dump.
       const childDumpNameToDumps = tr.b.invertArrayOfDicts(dumps,
           function(dump) {
-            return tr.b.arrayToDict(dump.children, function(child) {
-              return child.name;
-            });
+            const results = {};
+            for (const child of dump.children) {
+              results[child.name] = child;
+            }
+            return results;
           });
 
       // Recursively create sub-rows for children (if applicable).
@@ -819,8 +821,10 @@ tr.exportTo('tr.ui.analysis', function() {
 
       // Internal row of the suballocation tree: Recursively create its
       // sub-rows.
-      const subRows = Object.values(tr.b.mapItems(
-          node.children, this.createSuballocationRowRecursively_, this));
+      const subRows = [];
+      for (const [subName, subNode] of Object.entries(node.children)) {
+        subRows.push(this.createSuballocationRowRecursively_(subName, subNode));
+      }
 
       if (node.row !== undefined) {
         // Very unlikely case: Both an ancestor (e.g. 'skia') and one of its
