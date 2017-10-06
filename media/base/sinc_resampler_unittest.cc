@@ -153,7 +153,7 @@ TEST(SincResamplerTest, DISABLED_SetRatioBench) {
 
 
 // Define platform independent function name for Convolve* tests.
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(__x86_64__)
 #define CONVOLVE_FUNC Convolve_SSE
 #elif defined(ARCH_CPU_ARM_FAMILY) && defined(USE_NEON)
 #define CONVOLVE_FUNC Convolve_NEON
