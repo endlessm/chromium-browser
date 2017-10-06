@@ -35,7 +35,7 @@
 #include <Accelerate/Accelerate.h>
 #endif
 
-#if defined(ARCH_CPU_X86_FAMILY) && !defined(OS_MACOSX)
+#if defined(ARCH_CPU_X86_64) && !defined(OS_MACOSX)
 #include <emmintrin.h>
 #endif
 
@@ -83,7 +83,7 @@ void DirectConvolver::Process(AudioFloatArray* convolution_kernel,
 #endif  // ARCH_CPU_X86
 #else
   size_t i = 0;
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
   // Convolution using SSE2. Currently only do this if both |kernelSize| and
   // |framesToProcess| are multiples of 4. If not, use the straightforward loop
   // below.
@@ -397,7 +397,7 @@ void DirectConvolver::Process(AudioFloatArray* convolution_kernel,
       }
       dest_p[i++] = sum;
     }
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
   }
 #endif
 #endif  // OS_MACOSX
