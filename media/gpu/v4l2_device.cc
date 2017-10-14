@@ -115,8 +115,8 @@ uint32_t V4L2Device::VideoCodecProfileToV4L2PixFmt(VideoCodecProfile profile,
     if (slice_based)
       return V4L2_PIX_FMT_VP9_FRAME;
     else
-      return V4L2_PIX_FMT_VP9;
 #endif
+      return V4L2_PIX_FMT_VP9;
   } else {
     LOG(FATAL) << "Add more cases as needed";
     return 0;
@@ -154,8 +154,8 @@ std::vector<VideoCodecProfile> V4L2Device::V4L2PixFmtToVideoCodecProfiles(
       max_profile = VP8PROFILE_MAX;
       break;
 
-#if 0
     case V4L2_PIX_FMT_VP9:
+#if 0
     case V4L2_PIX_FMT_VP9_FRAME:
 #endif
       min_profile = VP9PROFILE_MIN;
