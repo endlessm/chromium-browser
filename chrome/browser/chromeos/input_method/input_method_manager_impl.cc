@@ -45,16 +45,13 @@
 #include "ui/base/ime/chromeos/extension_ime_util.h"
 #include "ui/base/ime/chromeos/fake_ime_keyboard.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
+#include "ui/base/ime/chromeos/ime_keyboard_mus.h"
 #include "ui/base/ime/chromeos/input_method_delegate.h"
 #include "ui/base/ime/ime_bridge.h"
 #include "ui/chromeos/ime/input_method_menu_item.h"
 #include "ui/chromeos/ime/input_method_menu_manager.h"
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/keyboard/keyboard_util.h"
-
-#if defined(USE_OZONE)
-#include "ui/base/ime/chromeos/ime_keyboard_mus.h"
-#endif
 
 namespace chromeos {
 namespace input_method {
@@ -479,8 +476,11 @@ void InputMethodManagerImpl::StateImpl::ChangeInputMethod(
   if (!descriptor) {
     descriptor = manager_->LookupInputMethod(
         manager_->util_.MigrateInputMethod(input_method_id), this);
-    if (!descriptor)
+    if (!descriptor) {
+      LOG(ERROR) << "Can't find InputMethodDescriptor for \"" << input_method_id
+                 << "\"";
       return;
+    }
   }
 
   // For 3rd party IME, when the user just logged in, SetEnabledExtensionImes
@@ -524,6 +524,7 @@ void InputMethodManagerImpl::StateImpl::AddInputMethodExtension(
   DCHECK(engine);
 
   manager_->engine_map_[profile][extension_id] = engine;
+  VLOG(1) << "Add an engine for \"" << extension_id << "\"";
 
   bool contain = false;
   for (size_t i = 0; i < descriptors.size(); i++) {
@@ -862,12 +863,8 @@ InputMethodManagerImpl::InputMethodManagerImpl(
       is_ime_menu_activated_(false),
       features_enabled_state_(InputMethodManager::FEATURE_ALL) {
   if (IsRunningAsSystemCompositor()) {
-#if defined(USE_OZONE)
     keyboard_ = base::MakeUnique<ImeKeyboardMus>(
         g_browser_process->platform_part()->GetInputDeviceControllerClient());
-#else
-    keyboard_.reset(ImeKeyboard::Create());
-#endif
   } else {
     keyboard_.reset(new FakeImeKeyboard());
   }
@@ -993,8 +990,10 @@ void InputMethodManagerImpl::ChangeInputMethodInternal(
     bool show_message,
     bool notify_menu) {
   // No need to switch input method when terminating.
-  if (ui_session_ == STATE_TERMINATING)
+  if (ui_session_ == STATE_TERMINATING) {
+    VLOG(1) << "No need to switch input method when terminating.";
     return;
+  }
 
   if (candidate_window_controller_.get())
     candidate_window_controller_->Hide();
@@ -1024,6 +1023,10 @@ void InputMethodManagerImpl::ChangeInputMethodInternal(
       extension_ime_util::GetExtensionIDFromInputMethodID(descriptor.id());
   const std::string& component_id =
       extension_ime_util::GetComponentIDByInputMethodID(descriptor.id());
+  if (engine_map_.find(profile) == engine_map_.end() ||
+      engine_map_[profile].find(extension_id) == engine_map_[profile].end()) {
+    LOG(ERROR) << "IMEEngine for \"" << extension_id << "\" is not registered";
+  }
   engine = engine_map_[profile][extension_id];
 
   ui::IMEBridge::Get()->SetCurrentEngineHandler(engine);

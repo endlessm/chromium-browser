@@ -226,9 +226,8 @@ def _GetCulpritCLOwnerAndComment(job, authors_to_cc):
   comment = bisect_report.GetReport(job)
   owner = None
   if authors_to_cc:
-    comment = '%s%s' % (
-        _AUTO_ASSIGN_MSG % {'author': authors_to_cc[0]},
-        comment)
+    message = _AUTO_ASSIGN_MSG % {'author': authors_to_cc[0]}
+    comment = '{0}{1}'.format(message, comment)
     owner = authors_to_cc[0]
   return owner, comment
 
@@ -264,19 +263,25 @@ def _PostSuccessfulResult(job, issue_tracker):
 
   # Add a friendly message to author of culprit CL.
   owner, comment = _GetCulpritCLOwnerAndComment(job, authors_to_cc)
+  status = None
+  if owner:
+    status = 'Assigned'
 
   # Set restrict view label if the bisect results are internal only.
   labels = ['Restrict-View-Google'] if job.internal_only else None
 
+  # TODO(sullivan): Remove this after monorail issue 2984 is resolved.
+  # https://github.com/catapult-project/catapult/issues/3781
+  logging.info('Adding comment to bug %s: %s', job.bug_id, comment)
   comment_added = issue_tracker.AddBugComment(
       job.bug_id, comment, cc_list=authors_to_cc, merge_issue=merge_issue_id,
-      labels=labels, owner=owner)
+      labels=labels, owner=owner, status=status)
   if not comment_added:
     raise BugUpdateFailure('Failed to update bug %s with comment %s'
                            % (job.bug_id, comment))
 
   logging.info('Updated bug %s with results from %s',
-               job.bug_id, job.rietveld_issue_id)
+               job.bug_id, job.buildbucket_job_id)
 
   # If the issue we were going to merge into was itself a duplicate, we don't
   # dup against it but we also don't merge existing anomalies to it or cache it.

@@ -44,6 +44,13 @@ public class VideoFrame {
      */
     void retain();
     void release();
+
+    /**
+     * Crops a region defined by |cropx|, |cropY|, |cropWidth| and |cropHeight|. Scales it to size
+     * |scaleWidth| x |scaleHeight|.
+     */
+    Buffer cropAndScale(
+        int cropX, int cropY, int cropWidth, int cropHeight, int scaleWidth, int scaleHeight);
   }
 
   /**
@@ -67,24 +74,29 @@ public class VideoFrame {
 
     Type getType();
     int getTextureId();
+
+    /**
+     * Retrieve the transform matrix associated with the frame. This transform matrix maps 2D
+     * homogeneous coordinates of the form (s, t, 1) with s and t in the inclusive range [0, 1] to
+     * the coordinate that should be used to sample that location from the buffer.
+     */
+    public Matrix getTransformMatrix();
   }
 
   private final Buffer buffer;
   private final int rotation;
   private final long timestampNs;
-  private final Matrix transformMatrix;
 
-  public VideoFrame(Buffer buffer, int rotation, long timestampNs, Matrix transformMatrix) {
+  public VideoFrame(Buffer buffer, int rotation, long timestampNs) {
     if (buffer == null) {
       throw new IllegalArgumentException("buffer not allowed to be null");
     }
-    if (transformMatrix == null) {
-      throw new IllegalArgumentException("transformMatrix not allowed to be null");
+    if (rotation % 90 != 0) {
+      throw new IllegalArgumentException("rotation must be a multiple of 90");
     }
     this.buffer = buffer;
     this.rotation = rotation;
     this.timestampNs = timestampNs;
-    this.transformMatrix = transformMatrix;
   }
 
   public Buffer getBuffer() {
@@ -105,24 +117,18 @@ public class VideoFrame {
     return timestampNs;
   }
 
-  /**
-   * Retrieve the transform matrix associated with the frame. This transform matrix maps 2D
-   * homogeneous coordinates of the form (s, t, 1) with s and t in the inclusive range [0, 1] to the
-   * coordinate that should be used to sample that location from the buffer.
-   */
-  public Matrix getTransformMatrix() {
-    return transformMatrix;
-  }
-
-  /**
-   * Resolution of the frame in pixels.
-   */
-  public int getWidth() {
-    return buffer.getWidth();
-  }
-
-  public int getHeight() {
+  public int getRotatedWidth() {
+    if (rotation % 180 == 0) {
+      return buffer.getWidth();
+    }
     return buffer.getHeight();
+  }
+
+  public int getRotatedHeight() {
+    if (rotation % 180 == 0) {
+      return buffer.getHeight();
+    }
+    return buffer.getWidth();
   }
 
   /**
@@ -135,4 +141,41 @@ public class VideoFrame {
   public void release() {
     buffer.release();
   }
+
+  public static VideoFrame.Buffer cropAndScaleI420(final I420Buffer buffer, int cropX, int cropY,
+      int cropWidth, int cropHeight, int scaleWidth, int scaleHeight) {
+    if (cropWidth == scaleWidth && cropHeight == scaleHeight) {
+      // No scaling.
+      ByteBuffer dataY = buffer.getDataY();
+      ByteBuffer dataU = buffer.getDataU();
+      ByteBuffer dataV = buffer.getDataV();
+
+      dataY.position(cropX + cropY * buffer.getStrideY());
+      dataU.position(cropX / 2 + cropY / 2 * buffer.getStrideU());
+      dataV.position(cropX / 2 + cropY / 2 * buffer.getStrideV());
+
+      buffer.retain();
+      return new I420BufferImpl(buffer.getWidth(), buffer.getHeight(), dataY.slice(),
+          buffer.getStrideY(), dataU.slice(), buffer.getStrideU(), dataV.slice(),
+          buffer.getStrideV(), new Runnable() {
+            @Override
+            public void run() {
+              buffer.release();
+            }
+          });
+    }
+
+    I420BufferImpl newBuffer = I420BufferImpl.allocate(scaleWidth, scaleHeight);
+    nativeCropAndScaleI420(buffer.getDataY(), buffer.getStrideY(), buffer.getDataU(),
+        buffer.getStrideU(), buffer.getDataV(), buffer.getStrideV(), cropX, cropY, cropWidth,
+        cropHeight, newBuffer.getDataY(), newBuffer.getStrideY(), newBuffer.getDataU(),
+        newBuffer.getStrideU(), newBuffer.getDataV(), newBuffer.getStrideV(), scaleWidth,
+        scaleHeight);
+    return newBuffer;
+  }
+
+  private static native void nativeCropAndScaleI420(ByteBuffer srcY, int srcStrideY,
+      ByteBuffer srcU, int srcStrideU, ByteBuffer srcV, int srcStrideV, int cropX, int cropY,
+      int cropWidth, int cropHeight, ByteBuffer dstY, int dstStrideY, ByteBuffer dstU,
+      int dstStrideU, ByteBuffer dstV, int dstStrideV, int scaleWidth, int scaleHeight);
 }

@@ -9,15 +9,16 @@
  */
 #include "webrtc/sdk/android/src/jni/jni_helpers.h"
 
-#include "webrtc/sdk/android/src/jni/classreferenceholder.h"
-
 #include <asm/unistd.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <vector>
 
-namespace webrtc_jni {
+#include "webrtc/sdk/android/src/jni/classreferenceholder.h"
+
+namespace webrtc {
+namespace jni {
 
 static JavaVM* g_jvm = nullptr;
 
@@ -260,6 +261,18 @@ std::string JavaToStdString(JNIEnv* jni, const jstring& j_string) {
   return std::string(buf.begin(), buf.end());
 }
 
+// Given a list of jstrings, reinterprets it to a new vector of native strings.
+std::vector<std::string> JavaToStdVectorStrings(JNIEnv* jni, jobject list) {
+  std::vector<std::string> converted_list;
+  if (list != nullptr) {
+    for (jobject str : Iterable(jni, list)) {
+      converted_list.push_back(
+          JavaToStdString(jni, reinterpret_cast<jstring>(str)));
+    }
+  }
+  return converted_list;
+}
+
 // Return the (singleton) Java Enum object corresponding to |index|;
 jobject JavaEnumFromIndex(JNIEnv* jni, jclass state_class,
                           const std::string& state_class_name, int index) {
@@ -271,6 +284,14 @@ jobject JavaEnumFromIndex(JNIEnv* jni, jclass state_class,
   jobject ret = jni->GetObjectArrayElement(state_values, index);
   CHECK_EXCEPTION(jni) << "error during GetObjectArrayElement";
   return ret;
+}
+
+jobject JavaEnumFromIndexAndClassName(JNIEnv* jni,
+                                      const std::string& state_class_fragment,
+                                      int index) {
+  const std::string state_class = "org/webrtc/" + state_class_fragment;
+  return JavaEnumFromIndex(jni, FindClass(jni, state_class.c_str()),
+                           state_class, index);
 }
 
 std::string GetJavaEnumName(JNIEnv* jni,
@@ -377,4 +398,5 @@ bool Iterable::Iterator::AtEnd() const {
   return jni_ == nullptr || IsNull(jni_, iterator_);
 }
 
-}  // namespace webrtc_jni
+}  // namespace jni
+}  // namespace webrtc

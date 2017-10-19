@@ -18,7 +18,6 @@
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
-#include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
@@ -150,7 +149,7 @@ bool AllowFingerprintForUser(const user_manager::User* user) {
 bool ShouldCheckNeedDircryptoMigration() {
   return !base::CommandLine::ForCurrentProcess()->HasSwitch(
              switches::kDisableEncryptionMigration) &&
-         arc::IsArcAvailable() && arc::IsArcMigrationAllowed();
+         arc::IsArcAvailable();
 }
 
 // Returns true if the user can run ARC based on the user type.
@@ -230,6 +229,15 @@ class UserSelectionScreen::DircryptoMigrationChecker {
   // Start to check whether the given user needs dircrypto migration.
   void Check(const AccountId& account_id) {
     focused_user_ = account_id;
+
+    // If the user may be enterprise-managed, don't display the banner, because
+    // migration may be blocked by user policy (and user policy is not available
+    // at this time yet).
+    if (!policy::BrowserPolicyConnector::IsNonEnterpriseUser(
+            account_id.GetUserEmail())) {
+      UpdateUI(account_id, false);
+      return;
+    }
 
     auto it = needs_dircrypto_migration_cache_.find(account_id);
     if (it != needs_dircrypto_migration_cache_.end()) {

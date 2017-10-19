@@ -6,12 +6,12 @@ disable=
   design,
   similarities,
 
-  bad-builtin,
-  bad-continuation,
-  broad-except,
+  
+  
+  
   fixme,
-  global-statement,
-  interface-not-implemented,
+  
+  
   invalid-name,
   locally-disabled,
   locally-enabled,

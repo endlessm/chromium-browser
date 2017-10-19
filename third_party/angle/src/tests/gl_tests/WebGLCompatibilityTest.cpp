@@ -892,11 +892,14 @@ TEST_P(WebGLCompatibilityTest, InvalidAttributeAndUniformNames)
         "precision highp float;\n"
         "uniform vec4 ";
     frag += validUniformName;
+    // Insert illegal characters into comments
     frag +=
         ";\n"
+        "    // $ \" @ /*\n"
         "void main()\n"
-        "{\n"
-        "    gl_FragColor = vec4(1.0);\n"
+        "{/*\n"
+        "    ` @ $\n"
+        "    */gl_FragColor = vec4(1.0);\n"
         "}\n";
 
     ANGLE_GL_PROGRAM(program, vert, frag);
@@ -940,6 +943,54 @@ TEST_P(WebGLCompatibilityTest, InvalidAttributeAndUniformNames)
         EXPECT_GL_ERROR(GL_INVALID_VALUE);
         glDeleteShader(shader);
     }
+}
+
+// Test that line continuation is handled correctly when valdiating shader source
+TEST_P(WebGL2CompatibilityTest, ShaderSourceLineContinuation)
+{
+    const char *validVert =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "\n"
+        "void main ()\n"
+        "{\n"
+        "    float f\\\n"
+        "oo = 1.0;\n"
+        "    gl_Position = vec4(foo);\n"
+        "}\n";
+
+    const char *invalidVert =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "\n"
+        "void main ()\n"
+        "{\n"
+        "    float f\\$\n"
+        "oo = 1.0;\n"
+        "    gl_Position = vec4(foo);\n"
+        "}\n";
+
+    GLuint shader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(shader, 1, &validVert, nullptr);
+    EXPECT_GL_NO_ERROR();
+    glShaderSource(shader, 1, &invalidVert, nullptr);
+    EXPECT_GL_ERROR(GL_INVALID_VALUE);
+    glDeleteShader(shader);
+}
+
+// Tests bindAttribLocations for reserved prefixes and length limits
+TEST_P(WebGLCompatibilityTest, BindAttribLocationLimitation)
+{
+    constexpr int maxLocStringLength = 256;
+    const std::string tooLongString(maxLocStringLength + 1, '_');
+
+    glBindAttribLocation(0, 0, "_webgl_var");
+
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glBindAttribLocation(0, 0, static_cast<const GLchar *>(tooLongString.c_str()));
+
+    EXPECT_GL_ERROR(GL_INVALID_VALUE);
 }
 
 // Test the checks for OOB reads in the vertex buffers, instanced version
@@ -1270,7 +1321,7 @@ TEST_P(WebGLCompatibilityTest, DrawElementsOffsetRestriction)
     glEnableVertexAttribArray(posLocation);
 
     GLBuffer indexBuffer;
-    const GLubyte indices[] = {0, 0, 0, 0, 0, 0, 0};
+    const GLubyte indices[] = {0, 0, 0, 0, 0, 0, 0, 0};
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer.get());
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
@@ -1281,10 +1332,10 @@ TEST_P(WebGLCompatibilityTest, DrawElementsOffsetRestriction)
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, zeroIndices);
     ASSERT_GL_NO_ERROR();
 
-    glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, zeroIndices);
+    glDrawElements(GL_TRIANGLES, 4, GL_UNSIGNED_SHORT, zeroIndices);
     ASSERT_GL_NO_ERROR();
 
-    glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, zeroIndices + 1);
+    glDrawElements(GL_TRIANGLES, 4, GL_UNSIGNED_SHORT, zeroIndices + 1);
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
 }
 
@@ -2952,6 +3003,17 @@ TEST_P(WebGL2CompatibilityTest, NoAttributeVertexShader)
     glDrawArrays(GL_TRIANGLES, 0, 6);
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+// Tests bindAttribLocations for length limit
+TEST_P(WebGL2CompatibilityTest, BindAttribLocationLimitation)
+{
+    constexpr int maxLocStringLength = 1024;
+    const std::string tooLongString(maxLocStringLength + 1, '_');
+
+    glBindAttribLocation(0, 0, static_cast<const GLchar *>(tooLongString.c_str()));
+
+    EXPECT_GL_ERROR(GL_INVALID_VALUE);
 }
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these

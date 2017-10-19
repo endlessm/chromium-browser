@@ -52,6 +52,13 @@ class Change(collections.namedtuple('Change',
   def all_deps(self):
     return tuple([self.base_commit] + sorted(self.deps))
 
+  def AsDict(self):
+    return {
+        'base_commit': self.base_commit.AsDict(),
+        'deps': [dep.AsDict() for dep in sorted(self.deps)],
+        'patch': self.patch.AsDict() if self.patch else None,
+    }
+
   @classmethod
   def FromDict(cls, data):
     base_commit = Dep.FromDict(data['base_commit'])
@@ -212,6 +219,13 @@ class Dep(collections.namedtuple('Dep', ('repository', 'git_hash'))):
 
     return frozenset(deps)
 
+  def AsDict(self):
+    return {
+        'repository': self.repository,
+        'git_hash': self.git_hash,
+        'url': self.repository_url + '/+/' + self.git_hash,
+    }
+
   @classmethod
   def FromDict(cls, data):
     """Create a Dep from a dict.
@@ -235,7 +249,7 @@ class Dep(collections.namedtuple('Dep', ('repository', 'git_hash'))):
     try:
       gitiles_service.CommitInfo(dep.repository_url, dep.git_hash)
     except gitiles_service.NotFoundError as e:
-      raise KeyError(e)
+      raise KeyError(str(e))
 
     return dep
 
@@ -284,6 +298,9 @@ class Patch(collections.namedtuple('Patch', ('server', 'issue', 'patchset'))):
   def id_string(self):
     return '%s/%d/%d' % (self.server, self.issue, self.patchset)
 
+  def AsDict(self):
+    return self._asdict()
+
   @classmethod
   def FromDict(cls, data):
     # TODO: Validate to ensure the patch exists on the server.
@@ -291,6 +308,9 @@ class Patch(collections.namedtuple('Patch', ('server', 'issue', 'patchset'))):
 
 
 def _Repository(repository_url):
+  if repository_url.endswith('.git'):
+    repository_url = repository_url[:-4]
+
   repositories = namespaced_stored_object.Get(_REPOSITORIES_KEY)
   for repo_label, repo_info in repositories.iteritems():
     if repository_url == repo_info['repository_url']:
@@ -300,10 +320,11 @@ def _Repository(repository_url):
 
 
 def _AddRepository(repository_url):
+  if repository_url.endswith('.git'):
+    repository_url = repository_url[:-4]
+
   repositories = namespaced_stored_object.Get(_REPOSITORIES_KEY)
   repository = repository_url.split('/')[-1]
-  if repository.endswith('.git'):
-    repository = repository[:-4]
 
   if repository in repositories:
     raise AssertionError("Attempted to add a repository that's already in the "

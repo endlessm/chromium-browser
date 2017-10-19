@@ -5,175 +5,175 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link type="text/css" rel="stylesheet" href="/dashboard/static/base.css">
-
 <link rel="import" href="/components/app-route/app-route.html">
-<link rel="import" href="/components/polymer/polymer.html">
+<link rel="import" href="/components/paper-tooltip/paper-tooltip.html">
 
-<link rel="import" href="/dashboard/pinpoint/elements/jobs-table.html">
-<link rel="import" href="/dashboard/static/simple_xhr.html">
-<link rel="import" href="/dashboard/static/uri.html">
+<link rel="import" href="/dashboard/pinpoint/elements/base-style.html">
+<link rel="import" href="/dashboard/pinpoint/elements/job-page-change-table.html">
+<link rel="import" href="/dashboard/pinpoint/elements/job-page-chart-icon.html">
+<link rel="import" href="/dashboard/pinpoint/elements/job-page-chart.html">
+<link rel="import" href="/dashboard/pinpoint/elements/job-page-header.html">
+<link rel="import" href="/dashboard/pinpoint/elements/loading-wrapper.html">
 
 <dom-module id="job-page">
   <template>
-    <style>
-    .error {
-      color: #dd4b39;
-      font-weight: bold;
-    }
+    <style include="base-style">
+      #failed {
+        background: var(--paper-red-50);
+        color: var(--paper-red-500);
+        cursor: pointer;
+      }
 
-    .center {
-      margin: auto;
-      padding: 10px;
-    }
+      #failed-tooltip {
+        max-width: 50em;
+        white-space: pre-wrap;
+      }
 
-    /* The content container contains everything below the sheriff select menu.
-     */
-    #content {
-      width: 100%;
-      display: inline-flex;
-      display: -webkit-inline-flex;
-      flex-direction: column;
-      -webkit-flex-direction: column;
-      align-items: flex-start;
-      -webkit-align-items: flex-start;
-    }
-
-    #loading-spinner {
-      width: 100%;
-      display: flex;
-      justify-content: center;
-    }
-
-    .bar {
-      width: 100px;
-      height: 100px;
-    }
-    .pass {
-      background-color: #7b7;
-      width: 100%;
-    }
-    .fail {
-      background-color: #d66;
-      width: 100%;
-    }
+      #running {
+        background: var(--paper-indigo-50);
+      }
     </style>
 
-    <app-route route="{{route}}" pattern="/:jobId" data="{{data}}"></app-route>
+    <app-route route="{{route}}" pattern="/:jobId" data="{{routeData}}"></app-route>
 
-    <template is="dom-if" if="{{loading}}">
-      <div id="loading-spinner"><img src="//www.google.com/images/loading.gif"></div>
-    </template>
-    <template is="dom-if" if="{{!loading}}">
-      <div id="content">
-        <h1>Pinpoint Job Status</h1>
-        <template is="dom-if" if="{{error}}">
-          <div class="error">{{error}}</div>
-        </template>
-        <template is="dom-if" if="{{!error}}">
-        <table>
-          <template is="dom-repeat" items="{{jobProperties}}">
-            <tr>
-              <td>{{item.name}}</td>
-              <td>{{item.value}}</td>
-            <tr>
-          </template>
-        </table>
-        <table>
-          <thead>
-            <tr>
-              <th></th>
-              <template is="dom-repeat" items="{{jobInfo.state.changes}}">
-                <th>{{item}}</th>
-              </template>
-            </tr>
-          </thead>
-          <template is="dom-repeat" items="{{jobInfo.state.quests}}" as="quest" index-as="questIndex">
-            <tr>
-              <th>{{quest(questIndex)}}</th>
-              <template is="dom-repeat" items="{{jobInfo.state.changes}}" as="change" index-as="changeIndex">
-                <td class="bar">
-                  <div class="pass" style="height: {{passPercent(changeIndex, questIndex)}}%"></div>
-                  <div class="fail" style="height: {{failPercent(changeIndex, questIndex)}}%"></div>
-                </td>
-              </template>
-            <tr>
-          </template>
-        </table>
-        </template>
-      </div>
-    </template>
+    <h1 id="testing">
+      Job [[routeData.jobId]]
+      <template is="dom-if" if="[[failed(jobInfo)]]">
+        <span id="failed" class="chip">Failed</span>
+        <paper-tooltip for="failed" animation-delay="0">
+          <div id="failed-tooltip">[[jobInfo.exception]]</div>
+        </paper-tooltip>
+      </template>
+      <template is="dom-if" if="[[running(jobInfo)]]">
+        <span id="running" class="chip">Running</span>
+      </template>
+    </h1>
+    <loading-wrapper id="loader">
+      <job-page-header job-info="[[jobInfo]]"></job-page-header>
+      <job-page-chart job-info="[[jobInfo]]" point-selected-index="{{pointSelectedIndex}}"></job-page-chart>
+      <job-page-change-table job-info="[[jobInfo]]" index="[[pointSelectedIndex]]"></job-page-change-table>
+    </loading-wrapper>
   </template>
+
   <script>
     'use strict';
     Polymer({
-
       is: 'job-page',
+
       properties: {
         jobInfo: {
           type: Object,
-          value: () => {}
+          value: () => {},
+          notify: true,
         },
-        jobProperties: {
-          type: Array,
-          value: () => []
-        },
-        loading: {
-          type: Boolean,
-          value: true,
+
+        pointSelectedIndex: {
+          type: Number,
+          value: -1,
           notify: true
-        },
-        error: {
-          type: String,
-          value: '',
-          notify: true
-        },
-        xsrfToken: {
-          type: String,
-          value: ''
         }
       },
 
-      quest(questIndex) {
-        return this.jobInfo.state.quests[questIndex];
-      },
-
-      passPercent(changeIndex, questIndex) {
-        const allResultValues = this.jobInfo.state.result_values;
-        const values = allResultValues[changeIndex][questIndex];
-        return 100 * values.filter(x => x == 0).length / values.length;
-      },
-
-      failPercent(changeIndex, questIndex) {
-        return 100 - this.passPercent(changeIndex, questIndex);
-      },
-
       deselected() {
-        this.set('jobProperties', []);
+        this.set('pointSelectedIndex', -1);
       },
 
-      selected() {
-        this.loading = true;
+      async selected() {
+        const params = {job_id: this.routeData.jobId};
+        const response = await this.$.loader.load('/api/job', params);
+        if (response) {
+          this.set('jobInfo', new JobResults(response.data));
+        }
+      },
 
-        const params = {job_id: this.data.jobId};
-        simple_xhr.send('/api/job', params,
-            function(response) {
-              const jobInfo = response.data;
-              this.set('jobInfo', jobInfo);
+      failed(jobInfo) {
+        return jobInfo.status.toLowerCase() === 'failed';
+      },
 
-              const jobProperties = [];
-              for (const key in jobInfo) {
-                jobProperties.push({name: key, value: jobInfo[key]});
-              }
-              this.set('jobProperties', jobProperties);
-
-              this.loading = false;
-            }.bind(this),
-            function(msg) {
-              this.error = msg;
-              this.loading = false;
-            }.bind(this));
+      running(jobInfo) {
+        return jobInfo.status.toLowerCase() === 'running';
       }
     });
+
+    class JobResults {
+      constructor(data) {
+        this.data_ = data;
+      }
+
+      get data() {
+        return this.data_;
+      }
+
+      get exception() {
+        return this.data_.exception;
+      }
+
+      get resultValues() {
+        return this.data_.state.result_values;
+      }
+
+      get comparisons() {
+        return this.data_.state.comparisons;
+      }
+
+      get changes() {
+        return this.data_.state.changes;
+      }
+
+      get quests() {
+        return this.data_.state.quests;
+      }
+
+      get status() {
+        return this.data_.status;
+      }
+
+      get created() {
+        return this.data_.created;
+      }
+
+      get updated() {
+        return this.data_.updated;
+      }
+
+      get arguments() {
+        return this.data_.arguments;
+      }
+
+      getAttemptData(changeIndex, questIndex, dataName) {
+        const result = [];
+        const attempts = this.data_.state.attempts[changeIndex];
+
+        for (let i = 0; i < attempts.length; i++) {
+          const execution = attempts[i].executions[questIndex];
+          if (!execution) {
+            continue;
+          }
+
+          if (dataName in execution) {
+            result.push(execution[dataName]);
+          } else if (dataName in execution.result_arguments) {
+            result.push(execution.result_arguments[dataName]);
+          }
+        }
+        return result;
+      }
+
+      getStatusString(changeIndex, questIndex) {
+        const passed = this.valuesAllPassed(
+            this.data_.state.result_values[changeIndex][questIndex]);
+        if (passed) {
+          return 'Passed';
+        }
+
+        return 'Failed';
+      }
+
+      valuesAllPassed(values) {
+        const numPass = values.filter(x => (x == 0 || x == null)).length;
+
+        return numPass == values.length;
+      }
+    }
   </script>
 </dom-module>

@@ -51,7 +51,8 @@ class Browser(app.App):
         elif self.platform.SupportFlushEntireSystemCache():
           self.platform.FlushEntireSystemCache()
         else:
-          logging.warning('Flush system cache is not supported. ' +
+          logging.warning(
+              'Flush system cache is not supported. ' +
               'Did not flush system cache.')
 
       self._browser_backend.SetBrowser(self)
@@ -63,11 +64,11 @@ class Browser(app.App):
     except Exception:
       exc_info = sys.exc_info()
       logging.error(
-        'Failed with %s while starting the browser backend.',
-        exc_info[0].__name__)  # Show the exception name only.
+          'Failed with %s while starting the browser backend.',
+          exc_info[0].__name__)  # Show the exception name only.
       try:
-        self._platform_backend.WillCloseBrowser(self, self._browser_backend)
-      except Exception:
+        self.Close()
+      except Exception: # pylint: disable=broad-except
         exception_formatter.PrintFormattedException(
             msg='Exception raised while closing platform backend')
       raise exc_info[0], exc_info[1], exc_info[2]
@@ -113,6 +114,7 @@ class Browser(app.App):
     return extension_dict.ExtensionDict(self._browser_backend.extension_backend)
 
   def _LogBrowserInfo(self):
+    logging.info('Browser started (pid=%s).', self._browser_backend.pid)
     logging.info('OS: %s %s',
                  self._platform_backend.platform.GetOSName(),
                  self._platform_backend.platform.GetOSVersionName())
@@ -263,6 +265,7 @@ class Browser(app.App):
     """Closes this browser."""
     try:
       if self._browser_backend.IsBrowserRunning():
+        logging.info('Closing browser (pid=%s) ...', self._browser_backend.pid)
         self._platform_backend.WillCloseBrowser(self, self._browser_backend)
 
       self._browser_backend.profiling_controller_backend.WillCloseBrowser()
@@ -273,6 +276,11 @@ class Browser(app.App):
           logging.error('Cannot upload browser log: %s' % str(e))
     finally:
       self._browser_backend.Close()
+      if self._browser_backend.IsBrowserRunning():
+        logging.error(
+            'Browser is still running (pid=%s).', self._browser_backend.pid)
+      else:
+        logging.info('Browser is closed.')
       self.credentials = None
 
   def Foreground(self):
@@ -378,15 +386,15 @@ class Browser(app.App):
 
   def DumpStateUponFailure(self):
     logging.info('*************** BROWSER STANDARD OUTPUT ***************')
-    try:  # pylint: disable=broad-except
+    try:
       logging.info(self.GetStandardOutput())
-    except Exception:
+    except Exception: # pylint: disable=broad-except
       logging.exception('Failed to get browser standard output:')
     logging.info('*********** END OF BROWSER STANDARD OUTPUT ************')
 
     logging.info('********************* BROWSER LOG *********************')
-    try:  # pylint: disable=broad-except
+    try:
       logging.info(self.GetLogFileContents())
-    except Exception:
+    except Exception: # pylint: disable=broad-except
       logging.exception('Failed to get browser log:')
     logging.info('***************** END OF BROWSER LOG ******************')

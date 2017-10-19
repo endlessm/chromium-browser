@@ -12,7 +12,7 @@ import glob
 import os
 import re
 
-
+from chromite.lib import build_requests
 from chromite.lib import constants
 from chromite.lib import clactions
 from chromite.lib import cros_logging as logging
@@ -143,6 +143,21 @@ class SchemaVersionedMySQLConnection(object):
     if os.path.exists(file_path):
       self._connect_url_args[key] = osutils.ReadFile(file_path).strip()
 
+  def _UpdateConnectUrlQuery(self, key, db_credentials_dir, filename):
+    """Read 'query' args from the given file and update connect url.
+
+    Args:
+      key: Name of the arg to read.
+      db_credentials_dir: The directory containing the credentials.
+      filename: Name of the file to read.
+    """
+    file_path = os.path.join(db_credentials_dir, filename)
+    try:
+      value = osutils.ReadFile(file_path).strip()
+      self._connect_url_args['query'].update({key: value})
+    except IOError as e:
+      logging.warning('Error reading %s from file %s: %s', key, file_path, e)
+
   def _UpdateSslArgs(self, key, db_credentials_dir, filename):
     """Read an ssl argument for the sql connection from the given file.
 
@@ -159,18 +174,24 @@ class SchemaVersionedMySQLConnection(object):
         self._ssl_args['ssl'] = {}
       self._ssl_args['ssl'][key] = file_path
 
-  def _UpdateConnectArgs(self, db_credentials_dir):
+  def _UpdateConnectArgs(self, db_credentials_dir, for_service=False):
     """Update all connection args from |db_credentials_dir|."""
-    self._UpdateConnectUrlArgs('host', db_credentials_dir, 'host.txt')
-    self._UpdateConnectUrlArgs('port', db_credentials_dir, 'port.txt')
     self._UpdateConnectUrlArgs('username', db_credentials_dir, 'user.txt')
     self._UpdateConnectUrlArgs('password', db_credentials_dir, 'password.txt')
 
-    self._UpdateSslArgs('cert', db_credentials_dir, 'client-cert.pem')
-    self._UpdateSslArgs('key', db_credentials_dir, 'client-key.pem')
-    self._UpdateSslArgs('ca', db_credentials_dir, 'server-ca.pem')
+    if not for_service:
+      self._UpdateConnectUrlArgs('host', db_credentials_dir, 'host.txt')
+      self._UpdateConnectUrlArgs('port', db_credentials_dir, 'port.txt')
+
+      self._UpdateSslArgs('cert', db_credentials_dir, 'client-cert.pem')
+      self._UpdateSslArgs('key', db_credentials_dir, 'client-key.pem')
+      self._UpdateSslArgs('ca', db_credentials_dir, 'server-ca.pem')
+    else:
+      self._UpdateConnectUrlQuery(
+          'unix_socket', db_credentials_dir, 'unix_socket.txt')
 
   def __init__(self, db_name, db_migrations_dir, db_credentials_dir,
+               for_service=False,
                query_retry_args=SqlConnectionRetryArgs(8, 4, 2)):
     """SchemaVersionedMySQLConnection constructor.
 
@@ -179,12 +200,16 @@ class SchemaVersionedMySQLConnection(object):
       db_migrations_dir: Absolute path to directory of migration scripts
                          for this database.
       db_credentials_dir: Absolute path to directory containing connection
-                          information to the database. Specifically, this
+                          information to the database. For connections for GAE
+                          services, this directory may contain user.txt and
+                          password txt; For connections for normal builds, this
                           directory may contain files names user.txt,
                           password.txt, host.txt, port.txt, client-cert.pem,
-                          client-key.pem, and server-ca.pem This object will
+                          client-key.pem, and server-ca.pem. This object will
                           silently drop the relevant mysql commandline flags for
                           missing files in the directory.
+      for_service: Boolean indicating whether the connection is for GAE
+                   services. Unix socket will be used to connect MYSQL servers.
       query_retry_args: An optional SqlConnectionRetryArgs tuple to tweak the
                         retry behaviour of SQL queries.
     """
@@ -219,6 +244,8 @@ class SchemaVersionedMySQLConnection(object):
 
     self._engine = None
 
+    self._driver_name = 'mysql+pymysql' if for_service else 'mysql'
+
     self.db_migrations_dir = db_migrations_dir
     self.db_credentials_dir = db_credentials_dir
     self.db_name = db_name
@@ -226,19 +253,21 @@ class SchemaVersionedMySQLConnection(object):
 
     # mysql args that are optionally provided by files in db_credentials_dir
     self._connect_url_args = {}
+    self._connect_url_args['query'] = {}
     self._ssl_args = {}
+    self._UpdateConnectArgs(db_credentials_dir, for_service=for_service)
 
-    self._UpdateConnectArgs(db_credentials_dir)
-
-    connect_url = sqlalchemy.engine.url.URL('mysql', **self._connect_url_args)
+    tmp_connect_url = sqlalchemy.engine.url.URL(
+        self._driver_name, **self._connect_url_args)
 
     # Create a temporary engine to connect to the mysql instance, and check if
     # a database named |db_name| exists. If not, create one. We use a temporary
     # engine here because the real engine will be opened with a default
     # database name given by |db_name|.
-    temp_engine = sqlalchemy.create_engine(connect_url,
+    temp_engine = sqlalchemy.create_engine(tmp_connect_url,
                                            connect_args=self._ssl_args,
                                            listeners=[self._listener_class()])
+
     databases = self._ExecuteWithEngine('SHOW DATABASES',
                                         temp_engine).fetchall()
     if (db_name,) not in databases:
@@ -250,9 +279,11 @@ class SchemaVersionedMySQLConnection(object):
     # Now create the persistent connection to the database named |db_name|.
     # If there is a schema version table, read the current schema version
     # from it. Otherwise, assume schema_version 0.
+
     self._connect_url_args['database'] = db_name
-    self._connect_url = sqlalchemy.engine.url.URL('mysql',
-                                                  **self._connect_url_args)
+
+    self._connect_url = sqlalchemy.engine.url.URL(
+        self._driver_name, **self._connect_url_args)
 
     self.schema_version = self.QuerySchemaVersion()
 
@@ -618,9 +649,11 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       'milestone_version', 'important', 'buildbucket_id', 'summary',
       'buildbot_generation')
 
-  def __init__(self, db_credentials_dir, *args, **kwargs):
-    super(CIDBConnection, self).__init__('cidb', CIDB_MIGRATIONS_DIR,
-                                         db_credentials_dir, *args, **kwargs)
+  def __init__(self, db_credentials_dir, for_service=False,
+               query_retry_args=SqlConnectionRetryArgs(8, 4, 2)):
+    super(CIDBConnection, self).__init__(
+        'cidb', CIDB_MIGRATIONS_DIR, db_credentials_dir,
+        for_service=for_service, query_retry_args=query_retry_args)
 
   def GetTime(self):
     """Gets the current time, according to database.
@@ -834,6 +867,38 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
                      'status': result.status})
 
     return self._InsertMany('hwTestResultTable', values)
+
+  @minimum_schema(59)
+  def InsertBuildRequest(self, build_id, request_build_config, request_reason,
+                         request_build_args=None, request_buildbucket_id=None,
+                         timestamp=None):
+    """Insert a build request.
+
+    Args:
+      build_id: build_id (int) of the build which sends the request.
+      request_build_config: build_config (string) of the requested build.
+      request_reason: reason (must be a member of
+        build_requests.BUILD_REQUEST_REASONS) of the request.
+      request_build_args: build_args (string) of the requested build, default to
+        None.
+      request_buildbucket_id: buildbucket_id (string) of the requested build,
+        default to None.
+      timestamp: timestamp of the build request when it's created. This should
+        be generated by the database, not locally. Only pass in timestamp for
+        local tests (e.g. unit tests)
+
+    Returns:
+       Integer primary key of the inserted row.
+    """
+    values = {
+        'build_id': build_id,
+        'request_build_config': request_build_config,
+        'request_build_args': request_build_args,
+        'request_buildbucket_id': request_buildbucket_id,
+        'request_reason': request_reason,
+        'timestamp': timestamp or sqlalchemy.func.current_timestamp()}
+
+    return self._Insert('buildRequestTable', values)
 
   @minimum_schema(56)
   def UpdateMetadata(self, build_id, metadata):
@@ -1287,13 +1352,13 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
                       milestone_version=None, platform_version=None,
                       starting_build_id=None, waterfall=None,
                       buildbot_generation=None, final=False):
-    """Returns basic information about most recent builds.
+    """Returns basic information about most recent builds for build config.
 
     By default this function returns the most recent builds. Some arguments can
     restrict the result to older builds.
 
     Args:
-      build_config: config name of the build.
+      build_config: config name of the build to get history.
       num_results: Number of builds to search back. Set this to
           CIDBConnection.NUM_RESULTS_NO_LIMIT to request no limit on the number
           of results.
@@ -1326,7 +1391,63 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       start_time, finish_time, platform_version, full_version, status,
       important, buildbucket_id].
     """
-    where_clauses = ['build_config = "%s"' % build_config]
+    return self.GetBuildsHistory(
+        [build_config], num_results,
+        ignore_build_id=ignore_build_id, start_date=start_date,
+        end_date=end_date, starting_build_number=starting_build_number,
+        ending_build_number=ending_build_number,
+        milestone_version=milestone_version, platform_version=platform_version,
+        starting_build_id=starting_build_id, waterfall=waterfall,
+        buildbot_generation=buildbot_generation, final=final)
+
+  @minimum_schema(47)
+  def GetBuildsHistory(self, build_configs, num_results,
+                       ignore_build_id=None, start_date=None, end_date=None,
+                       starting_build_number=None, ending_build_number=None,
+                       milestone_version=None, platform_version=None,
+                       starting_build_id=None, waterfall=None,
+                       buildbot_generation=None, final=False):
+    """Returns basic information about most recent builds for build configs.
+
+    By default this function returns the most recent builds. Some arguments can
+    restrict the result to older builds.
+
+    Args:
+      build_configs: config names of the builds to get history.
+      num_results: Number of builds to search back. Set this to
+          CIDBConnection.NUM_RESULTS_NO_LIMIT to request no limit on the number
+          of results.
+      ignore_build_id: (Optional) Ignore a specific build. This is most useful
+          to ignore the current build when querying recent past builds from a
+          build in flight.
+      start_date: (Optional, type: datetime.date) Get builds that occured on or
+          after this date.
+      end_date: (Optional, type:datetime.date) Get builds that occured on or
+          before this date.
+      starting_build_number: (Optional) The minimum build_number for which
+          data should be retrieved.
+      ending_build_number: (Optional) The maximum build_number for which
+          data should be retrieved.
+      milestone_version: (Optional) Return only results for this
+          milestone_version.
+      platform_version: (Optional) Return only results for this
+          platform_version.
+      starting_build_id: (Optional) The minimum build_id for which data should
+          be retrieved.
+      waterfall: (Optional) The waterfall for which data should be retrieved.
+      buildbot_generation: (Optional) The buildbot_generation for which data
+          should be retrieved.
+      final: (Optional) If True, only retrieve final (ie finished) builds.
+
+    Returns:
+      A sorted list of dicts containing up to |number| dictionaries for
+      build statuses in descending order. Valid keys in the dictionary are
+      [id, build_config, buildbot_generation, waterfall, build_number,
+      start_time, finish_time, platform_version, full_version, status,
+      important, buildbucket_id].
+    """
+    where_clauses = ['build_config IN (%s)' %
+                     ','.join('"%s"' % b for b in build_configs)]
     if start_date is not None:
       where_clauses.append('date(start_time) >= date("%s")' %
                            start_date.strftime(self._DATE_FORMAT))
@@ -1486,7 +1607,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     if action is not None:
       basic_conds.append('action = "%s"' % action)
     if start_time is not None:
-      basic_conds.append('timestamp > TIMESTAMP("%s")' % start_time)
+      basic_conds.append('timestamp >= TIMESTAMP("%s")' % start_time)
 
     # Note: We are using a string of OR statements rather than a 'WHERE IN'
     # style clause, because 'WHERE IN' does not make use of multi-column
@@ -1660,6 +1781,59 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
 
     return [hwtest_results.HWTestResult(*values) for values in results]
 
+  @minimum_schema(59)
+  def GetBuildRequestsForBuildConfig(self,
+                                     request_build_config,
+                                     num_results=NUM_RESULTS_NO_LIMIT,
+                                     start_time=None):
+    """Get BuildRequests for one request_build_config.
+
+    Args:
+      request_build_config: build config (string) to request.
+      num_results: Number of results to return, default to
+        self.NUM_RESULTS_NO_LIMIT.
+      start_time: If not None, only return build requests sent after the
+        start_time. Default to None.
+
+    Returns:
+      A list of BuildRequest instances sorted by id in descending order.
+    """
+    return self.GetBuildRequestsForBuildConfigs([request_build_config],
+                                                num_results=num_results,
+                                                start_time=start_time)
+
+  @minimum_schema(59)
+  def GetBuildRequestsForBuildConfigs(self,
+                                      request_build_configs,
+                                      num_results=NUM_RESULTS_NO_LIMIT,
+                                      start_time=None):
+    """Get BuildRequests for a list of request_build_configs.
+
+    Args:
+      request_build_configs: A list of build configs (string) to request.
+      num_results: Number of results to return, default to
+        self.NUM_RESULTS_NO_LIMIT.
+      start_time: If not None, only return build requests sent after the
+        start_time. Default to None.
+
+    Returns:
+      A list of BuildRequest instances sorted by id in descending order.
+    """
+    query = ('SELECT * from buildRequestTable WHERE request_build_config IN '
+             '(%s)' % (','.join('"%s"' % x for x in request_build_configs)))
+
+    if start_time is not None:
+      query += (' and timestamp > TIMESTAMP("%s")' % start_time)
+
+    query += ' ORDER BY id DESC'
+
+    if num_results != self.NUM_RESULTS_NO_LIMIT:
+      query += (' LIMIT %d' % num_results)
+
+    results = self._Execute(query).fetchall()
+
+    return [build_requests.BuildRequest(*values) for values in results]
+
 
 def _INV():
   raise AssertionError('CIDB connection factory has been invalidated.')
@@ -1669,6 +1843,7 @@ CONNECTION_TYPE_DEBUG = 'debug' # debug database, used by --debug builds
 CONNECTION_TYPE_MOCK = 'mock'   # mock connection, not backed by database
 CONNECTION_TYPE_NONE = 'none'   # explicitly no connection
 CONNECTION_TYPE_INV = 'invalid' # invalidated connection
+
 
 class CIDBConnectionFactoryClass(factory.ObjectFactory):
   """Factory class used by builders to fetch the appropriate cidb connection"""
@@ -1734,7 +1909,6 @@ class CIDBConnectionFactoryClass(factory.ObjectFactory):
     method, otherwise it will raise an AssertionError.
     """
     self.Setup(CONNECTION_TYPE_PROD)
-
 
   def SetupDebugCidb(self):
     """Sets up CIDB to use the debug instance of the database.

@@ -15,6 +15,7 @@
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
+#include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
@@ -97,8 +98,36 @@ class WallpaperManagerBrowserTest : public InProcessBrowserTest {
     base::RunLoop().RunUntilIdle();
   }
 
- protected:
+  void WaitUntilCustomWallpapersDeleted(const AccountId& account_id) {
+    WallpaperManager* wallpaper_manager = WallpaperManager::Get();
+    wallpaper::WallpaperFilesId wallpaper_file_id =
+        wallpaper_manager->GetFilesId(account_id);
 
+    base::FilePath small_wallpaper_dir =
+        WallpaperManager::GetCustomWallpaperDir(
+            wallpaper::kSmallWallpaperSubDir)
+            .Append(wallpaper_file_id.id());
+    base::FilePath large_wallpaper_dir =
+        WallpaperManager::GetCustomWallpaperDir(
+            wallpaper::kLargeWallpaperSubDir)
+            .Append(wallpaper_file_id.id());
+    base::FilePath original_wallpaper_dir =
+        WallpaperManager::GetCustomWallpaperDir(
+            wallpaper::kOriginalWallpaperSubDir)
+            .Append(wallpaper_file_id.id());
+    base::FilePath thumbnail_wallpaper_dir =
+        WallpaperManager::GetCustomWallpaperDir(
+            wallpaper::kThumbnailWallpaperSubDir)
+            .Append(wallpaper_file_id.id());
+
+    while (base::PathExists(small_wallpaper_dir) ||
+           base::PathExists(large_wallpaper_dir) ||
+           base::PathExists(original_wallpaper_dir) ||
+           base::PathExists(thumbnail_wallpaper_dir)) {
+    }
+  }
+
+ protected:
   // Return custom wallpaper path. Create directory if not exist.
   base::FilePath GetCustomWallpaperPath(
       const char* sub_dir,
@@ -626,12 +655,8 @@ class TestObserver : public WallpaperManager::Observer {
   DISALLOW_COPY_AND_ASSIGN(TestObserver);
 };
 
-#if defined(OS_CHROMEOS) && defined(USE_OZONE)
-#define MAYBE_DisplayChange DISABLED_DisplayChange
-#else
-#define MAYBE_DisplayChange DisplayChange
-#endif
-IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, MAYBE_DisplayChange) {
+// TODO: test is flaky. http://crbug.com/691548.
+IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, DISABLED_DisplayChange) {
   TestObserver observer(WallpaperManager::Get());
 
   // Set the wallpaper to ensure that UpdateWallpaper() will be called when the
@@ -911,6 +936,117 @@ IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest, CustomWallpaperLostTest) {
   EXPECT_TRUE(wallpaper_manager_test_utils::ImageIsNearColor(
       controller_->GetWallpaper(),
       wallpaper_manager_test_utils::kCustomWallpaperColor));
+}
+
+// Tests that if a user who has a custom wallpaper is removed from the device,
+// only the directory that contains the user's custom wallpapers gets removed.
+// The other user's custom wallpaper is not affected.
+IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest,
+                       RemoveUserWithCustomWallpaperTest) {
+  UpdateDisplay("640x480");
+  WallpaperManager* wallpaper_manager = WallpaperManager::Get();
+
+  // Set a custom wallpaper for |test_account_id1_| and verify the wallpaper
+  // exists.
+  LogIn(test_account_id1_, kTestUser1Hash);
+  wallpaper::WallpaperFilesId wallpaper_file_id1 =
+      wallpaper_manager->GetFilesId(test_account_id1_);
+  const std::string id = std::to_string(
+      std::abs((base::Time::Now() - base::Time::Now().LocalMidnight())
+                   .InMilliseconds()));
+  base::FilePath small_wallpaper_path = GetCustomWallpaperPath(
+      wallpaper::kSmallWallpaperSubDir, wallpaper_file_id1, id);
+  ASSERT_TRUE(wallpaper_manager_test_utils::WriteJPEGFile(
+      small_wallpaper_path, kSmallWallpaperWidth, kSmallWallpaperHeight,
+      wallpaper_manager_test_utils::kSmallDefaultWallpaperColor));
+  std::string relative_path =
+      base::FilePath(wallpaper_file_id1.id()).Append(id).value();
+  // Saves wallpaper info to local state for user |test_account_id1_|.
+  WallpaperInfo info = {relative_path, WALLPAPER_LAYOUT_CENTER_CROPPED,
+                        wallpaper::CUSTOMIZED,
+                        base::Time::Now().LocalMidnight()};
+  wallpaper_manager->SetUserWallpaperInfo(test_account_id1_, info, true);
+  wallpaper_manager->SetUserWallpaperNow(test_account_id1_);
+  wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
+  EXPECT_TRUE(base::PathExists(small_wallpaper_path));
+
+  // Now login another user and set a custom wallpaper for it.
+  LogIn(test_account_id2_, kTestUser2Hash);
+  wallpaper::WallpaperFilesId wallpaper_file_id2 =
+      wallpaper_manager->GetFilesId(test_account_id2_);
+  base::FilePath small_wallpaper_path2 = GetCustomWallpaperPath(
+      wallpaper::kSmallWallpaperSubDir, wallpaper_file_id2, id);
+  ASSERT_TRUE(wallpaper_manager_test_utils::WriteJPEGFile(
+      small_wallpaper_path2, kSmallWallpaperWidth, kSmallWallpaperHeight,
+      wallpaper_manager_test_utils::kSmallDefaultWallpaperColor));
+  std::string relative_path2 =
+      base::FilePath(wallpaper_file_id2.id()).Append(id).value();
+  // Saves wallpaper info to local state for user |test_account_id2_|.
+  WallpaperInfo info2 = {relative_path2, WALLPAPER_LAYOUT_CENTER_CROPPED,
+                         wallpaper::CUSTOMIZED,
+                         base::Time::Now().LocalMidnight()};
+  wallpaper_manager->SetUserWallpaperInfo(test_account_id2_, info2, true);
+  wallpaper_manager->SetUserWallpaperNow(test_account_id2_);
+  wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
+  EXPECT_TRUE(base::PathExists(small_wallpaper_path2));
+
+  // Simulate the removal of |test_account_id2_|.
+  wallpaper_manager->RemoveUserWallpaperInfo(test_account_id2_);
+  // Wait until all files under the user's custom_wallpapers directory are
+  // removed.
+  WaitUntilCustomWallpapersDeleted(test_account_id2_);
+
+  // Test that the other user's wallpaper is not affected.
+  EXPECT_TRUE(base::PathExists(small_wallpaper_path));
+}
+
+// Tests that if a user who has a default wallpaper is removed from the device,
+// the other user's custom wallpaper is not affected.
+IN_PROC_BROWSER_TEST_F(WallpaperManagerBrowserTest,
+                       RemoveUserWithDefaultWallpaperTest) {
+  UpdateDisplay("640x480");
+  WallpaperManager* wallpaper_manager = WallpaperManager::Get();
+
+  // Set a custom wallpaper for |test_account_id1_| and verify the custom
+  // wallpaper exists.
+  LogIn(test_account_id1_, kTestUser1Hash);
+  wallpaper::WallpaperFilesId wallpaper_file_id1 =
+      wallpaper_manager->GetFilesId(test_account_id1_);
+  std::string id = std::to_string(
+      std::abs((base::Time::Now() - base::Time::Now().LocalMidnight())
+                   .InMilliseconds()));
+  base::FilePath small_wallpaper_path = GetCustomWallpaperPath(
+      wallpaper::kSmallWallpaperSubDir, wallpaper_file_id1, id);
+  ASSERT_TRUE(wallpaper_manager_test_utils::WriteJPEGFile(
+      small_wallpaper_path, kSmallWallpaperWidth, kSmallWallpaperHeight,
+      wallpaper_manager_test_utils::kSmallDefaultWallpaperColor));
+  std::string relative_path =
+      base::FilePath(wallpaper_file_id1.id()).Append(id).value();
+  // Saves wallpaper info to local state for user |test_account_id1_|.
+  WallpaperInfo info = {relative_path, WALLPAPER_LAYOUT_CENTER_CROPPED,
+                        wallpaper::CUSTOMIZED,
+                        base::Time::Now().LocalMidnight()};
+  wallpaper_manager->SetUserWallpaperInfo(test_account_id1_, info, true);
+  wallpaper_manager->SetUserWallpaperNow(test_account_id1_);
+  wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
+  EXPECT_TRUE(base::PathExists(small_wallpaper_path));
+
+  // Now login another user and set a default wallpaper.
+  LogIn(test_account_id2_, kTestUser2Hash);
+  wallpaper::WallpaperFilesId wallpaper_file_id2 =
+      wallpaper_manager->GetFilesId(test_account_id2_);
+  WallpaperInfo info2 = {"", WALLPAPER_LAYOUT_CENTER_CROPPED,
+                         wallpaper::DEFAULT, base::Time::Now().LocalMidnight()};
+  wallpaper_manager->SetUserWallpaperInfo(test_account_id2_, info2, true);
+  WallpaperManager::Get()->SetDefaultWallpaperNow(test_account_id2_);
+  wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
+
+  // Simulate the removal of |test_account_id2_|.
+  wallpaper_manager->RemoveUserWallpaperInfo(test_account_id2_);
+  WaitUntilCustomWallpapersDeleted(test_account_id2_);
+
+  // Test that the other user's wallpaper is not affected.
+  EXPECT_TRUE(base::PathExists(small_wallpaper_path));
 }
 
 }  // namespace chromeos

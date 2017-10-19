@@ -15,7 +15,6 @@ from telemetry.value import trace
 from telemetry.value import common_value_helpers
 from telemetry.web_perf.metrics import timeline_based_metric
 from telemetry.web_perf.metrics import blob_timeline
-from telemetry.web_perf.metrics import webrtc_rendering_timeline
 from telemetry.web_perf.metrics import indexeddb_timeline
 from telemetry.web_perf.metrics import layout
 from telemetry.web_perf.metrics import smoothness
@@ -32,9 +31,9 @@ DEFAULT_OVERHEAD_LEVEL = 'default-overhead'
 DEBUG_OVERHEAD_LEVEL = 'debug-overhead'
 
 ALL_OVERHEAD_LEVELS = [
-  LOW_OVERHEAD_LEVEL,
-  DEFAULT_OVERHEAD_LEVEL,
-  DEBUG_OVERHEAD_LEVEL,
+    LOW_OVERHEAD_LEVEL,
+    DEFAULT_OVERHEAD_LEVEL,
+    DEBUG_OVERHEAD_LEVEL,
 ]
 
 
@@ -45,8 +44,7 @@ def _GetAllLegacyTimelineBasedMetrics():
   return (smoothness.SmoothnessMetric(),
           layout.LayoutMetric(),
           blob_timeline.BlobTimelineMetric(),
-          indexeddb_timeline.IndexedDBTimelineMetric(),
-          webrtc_rendering_timeline.WebRtcRenderingTimelineMetric())
+          indexeddb_timeline.IndexedDBTimelineMetric())
 
 
 class InvalidInteractions(Exception):
@@ -100,11 +98,11 @@ def _GetRendererThreadsToInteractionRecordsMap(model):
         threads_to_records_map[curr_thread].append(interaction)
         if interaction.label in interaction_labels_of_previous_threads:
           raise InvalidInteractions(
-            'Interaction record label %s is duplicated on different '
-            'threads' % interaction.label)
+              'Interaction record label %s is duplicated on different '
+              'threads' % interaction.label)
     if curr_thread in threads_to_records_map:
       interaction_labels_of_previous_threads.update(
-        r.label for r in threads_to_records_map[curr_thread])
+          r.label for r in threads_to_records_map[curr_thread])
 
   return threads_to_records_map
 
@@ -314,7 +312,7 @@ class TimelineBasedMeasurement(story_test.StoryTest):
   def _ComputeTimelineBasedMetrics(self, results, trace_value):
     metrics = self._tbm_options.GetTimelineBasedMetrics()
     extra_import_options = {
-      'trackDetailedModelStats': True
+        'trackDetailedModelStats': True
     }
 
     start = time.time()

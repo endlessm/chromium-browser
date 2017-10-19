@@ -34,6 +34,7 @@ class MockSessionManagerClient : public SessionManagerClient {
   MOCK_METHOD0(NotifySupervisedUserCreationStarted, void(void));
   MOCK_METHOD0(NotifySupervisedUserCreationFinished, void(void));
   MOCK_METHOD0(StartDeviceWipe, void(void));
+  MOCK_METHOD1(StartTPMFirmwareUpdate, void(const std::string&));
   MOCK_METHOD0(RequestLockScreen, void(void));
   MOCK_METHOD0(NotifyLockScreenShown, void(void));
   MOCK_METHOD0(NotifyLockScreenDismissed, void(void));
@@ -72,9 +73,10 @@ class MockSessionManagerClient : public SessionManagerClient {
                     const std::vector<std::string>&));
   MOCK_METHOD1(GetServerBackedStateKeys, void(const StateKeysCallback&));
   MOCK_METHOD1(CheckArcAvailability, void(const ArcCallback&));
-  MOCK_METHOD5(StartArcInstance,
+  MOCK_METHOD6(StartArcInstance,
                void(ArcStartupMode,
                     const cryptohome::Identification&,
+                    bool,
                     bool,
                     bool,
                     const StartArcInstanceCallback&));

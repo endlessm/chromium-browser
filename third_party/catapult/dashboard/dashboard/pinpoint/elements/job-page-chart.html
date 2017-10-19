@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<!--
+Copyright 2017 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<script src="/jquery/jquery-2.1.4.min.js"></script>
+<script src="/flot/jquery.flot.min.js"></script>
+<script src="/flot/jquery.flot.crosshair.min.js"></script>
+<script src="/flot/jquery.flot.errorbars.js"></script>
+<script src="/flot/jquery.flot.fillbetween.min.js"></script>
+<script src="/flot/jquery.flot.selection.min.js"></script>
+
+<link rel="import" href="/dashboard/pinpoint/elements/job-page-chart-dot.html">
+<link rel="import" href="/dashboard/pinpoint/elements/job-page-chart-icon.html">
+
+<dom-module id="job-page-chart">
+  <template>
+    <style>
+      #plot {
+        height: 240px;
+        margin: 1em 0;
+        min-width: 500px;
+      }
+    </style>
+
+    <div id="plot"></div>
+  </template>
+
+  <script>
+    'use strict';
+    Polymer({
+      is: 'job-page-chart',
+
+      properties: {
+        jobInfo: {
+          type: Object,
+          observer: '_jobInfoChanged',
+        },
+
+        pointSelectedIndex: {
+          type: Number,
+          value: -1,
+          notify: true
+        },
+
+        // The Flot Plot object, returned by $.plot.
+        chart: {
+          value: null
+        }
+      },
+
+      ready() {
+        this.initializePlotEventListeners();
+      },
+
+      initializePlotEventListeners() {
+        const plot = $(this.$.plot);
+        plot.bind('plotclick', this.onPlotClick.bind(this));
+      },
+
+      onPlotClick(event, pos, item) {
+        if (item == null) {
+          this.set('pointSelectedIndex', -1);
+          return;
+        }
+
+        this.set('pointSelectedIndex', item.datapoint[0]);
+      },
+
+      onBuildStatusClick(index) {
+        this.set('pointSelectedIndex', index);
+      },
+
+      _jobInfoChanged() {
+        const valuesByChange = this.jobInfo.resultValues.map(
+            valuesByQuest => valuesByQuest[valuesByQuest.length - 1]);
+
+        let min = 0;
+        let max = 1;
+
+        const allNumbers = valuesByChange.every(row => row.every(
+            value => typeof(value) === 'number'));
+        if (allNumbers) {
+          // Numeric data. Set the bounds based on the data.
+          min = Math.min(...valuesByChange.map(
+              values => Math.min(...values)));
+          max = Math.max(...valuesByChange.map(
+              values => Math.max(...values)));
+          if (!(isFinite(min) && isFinite(max))) {
+            min = 0;
+            max = 0;
+          }
+          if (min == max) {
+            min -= 1;
+            max += 1;
+          }
+        } else {
+          // Pass-fail data. Convert the results to "failure rate".
+          for (let i = 0; i < valuesByChange.length; ++i) {
+            const values = valuesByChange[i];
+            const sum = values.filter(value => value).length;
+            valuesByChange[i] = [sum / values.length];
+          }
+        }
+
+        // Calculate the error bars.
+        const data = [];
+
+        let seriesData = [];
+        for (let i = 0; i < valuesByChange.length; ++i) {
+          const values = valuesByChange[i];
+          if (!values.length) {
+            continue;
+          }
+
+          const mid = median(values);
+          const lowError = mid - Math.min(...values);
+          const highError = Math.max(...values) - mid;
+          seriesData.push([i, mid, lowError, highError]);
+
+          if (this.jobInfo.comparisons[i] !== 'same') {
+            if (seriesData.length) {
+              data.push(annotateSeries(seriesData));
+              seriesData = [];
+            }
+          }
+        }
+
+        // Chart options to be given when initializing the Flot chart.
+        // See: https://github.com/flot/flot/blob/master/API.md#plot-options
+        const options = {
+          grid: {
+            clickable: true,
+            hoverable: true,
+            borderWidth: 1,
+            borderColor: 'rgba(0, 0, 0, 0.5)'
+          },
+          xaxis: {
+            min: -0.5,
+            max: valuesByChange.length - 0.5,
+            show: false
+          },
+          yaxis: {
+            min: min - 0.05 * (max - min),
+            max: max + 0.05 * (max - min)
+          }
+        };
+
+        // Plot the chart!
+        this.chart = $.plot(this.$.plot, data, options);
+
+        // Draw overlays.
+        for (let i = 1; i < valuesByChange.length; ++i) {
+          const offset = this.chart.pointOffset({
+            x: i,
+            y: median(valuesByChange[i]) || (max + min) / 2
+          });
+
+          if (valuesByChange[i].length) {
+            // Draw pulsing dots for important points.
+            if (this.jobInfo.comparisons[i - 1] === 'different') {
+              const dot = document.createElement('job-page-chart-dot');
+              dot.setPosition(offset.left, offset.top);
+              this.$.plot.appendChild(dot);
+            }
+          } else {
+            // Draw icons for failed and pending attempts.
+            const status = document.createElement('job-page-chart-icon');
+            status.setPosition(offset.left, offset.top);
+            if (this.jobInfo.comparisons[i] == 'pending') {
+              status.setType('pending');
+            } else {
+              status.setType('failed');
+            }
+            status.onclick = this.onBuildStatusClick.bind(this, i);
+            this.$.plot.appendChild(status);
+          }
+        }
+      }
+    });
+
+    function annotateSeries(data) {
+      const color = '#ff4081';
+      return {
+        color,
+        data,
+        lines: {
+          show: true
+        },
+        points: {
+          errorbars: 'y',
+          fillColor: color,
+          show: true,
+          yerr: {
+            asymmetric: true,
+            upperCap: '-',
+            lowerCap: '-',
+            show: true
+          }
+        }
+      };
+    }
+
+    function median(values) {
+      values.sort(function(a, b) {return a - b;});
+      const half = Math.floor(values.length / 2);
+      if (values.length % 2) {
+        return values[half];
+      }
+      return (values[half - 1] + values[half]) / 2;
+    }
+  </script>
+</dom-module>

@@ -142,7 +142,7 @@ class CrOSInterface(object):
   def ssh_port(self):
     return self._ssh_port
 
-  def FormSSHCommandLine(self, args, extra_ssh_args=None):
+  def FormSSHCommandLine(self, args, extra_ssh_args=None, port_forward=False):
     """Constructs a subprocess-suitable command line for `ssh'.
     """
     if self.local:
@@ -152,8 +152,12 @@ class CrOSInterface(object):
       # connection to run remote commands (crbug.com/239607).
       return ['sh', '-c', " ".join(args)]
 
-    full_args = ['ssh', '-o ForwardX11=no', '-o ForwardX11Trusted=no', '-n',
-                 '-S', self._ssh_control_file] + self._ssh_args
+    full_args = ['ssh', '-o ForwardX11=no', '-o ForwardX11Trusted=no', '-n']
+    # As remote port forwarding might conflict with the control socket
+    # sharing, skip the control socket args if it is for remote port forwarding.
+    if not port_forward:
+      full_args += ['-S', self._ssh_control_file]
+    full_args += self._ssh_args
     if self._ssh_identity is not None:
       full_args.extend(['-i', self._ssh_identity])
     if extra_ssh_args:
@@ -200,19 +204,19 @@ class CrOSInterface(object):
                                     dest,
                                     extra_scp_args=extra_scp_args)
 
-  def _RemoveSSHWarnings(self, toClean):
+  def _RemoveSSHWarnings(self, to_clean):
     """Removes specific ssh warning lines from a string.
 
     Args:
-      toClean: A string that may be containing multiple lines.
+      to_clean: A string that may be containing multiple lines.
 
     Returns:
-      A copy of toClean with all the Warning lines removed.
+      A copy of to_clean with all the Warning lines removed.
     """
     # Remove the Warning about connecting to a new host for the first time.
     return re.sub(
         r'Warning: Permanently added [^\n]* to the list of known hosts.\s\n',
-        '', toClean)
+        '', to_clean)
 
   def RunCmdOnDevice(self, args, cwd=None, quiet=False):
     stdout, stderr = GetAllCmdOutput(
@@ -509,22 +513,22 @@ class CrOSInterface(object):
     """Takes a screenshot, useful for debugging failures."""
     # TODO(achuith): Find a better location for screenshots. Cros autotests
     # upload everything in /var/log so use /var/log/screenshots for now.
-    SCREENSHOT_DIR = '/var/log/screenshots/'
-    SCREENSHOT_EXT = '.png'
+    screenshot_dir = '/var/log/screenshots/'
+    screenshot_ext = '.png'
 
-    self.RunCmdOnDevice(['mkdir', '-p', SCREENSHOT_DIR])
+    self.RunCmdOnDevice(['mkdir', '-p', screenshot_dir])
     # Large number of screenshots can increase hardware lab bandwidth
     # dramatically, so keep this number low. crbug.com/524814.
     for i in xrange(2):
       screenshot_file = ('%s%s-%d%s' %
-                         (SCREENSHOT_DIR, screenshot_prefix, i, SCREENSHOT_EXT))
+                         (screenshot_dir, screenshot_prefix, i, screenshot_ext))
       if not self.FileExistsOnDevice(screenshot_file):
         return self.TakeScreenshot(screenshot_file)
     logging.warning('screenshot directory full.')
     return False
 
   def GetArchName(self):
-    return self.RunCmdOnDevice(['uname', '-m'])[0]
+    return self.RunCmdOnDevice(['uname', '-m'])[0].rstrip()
 
   def IsRunningOnVM(self):
     return self.RunCmdOnDevice(['crossystem', 'inside_vm'])[0] != '0'

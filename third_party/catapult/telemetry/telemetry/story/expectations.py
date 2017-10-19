@@ -11,7 +11,7 @@ class StoryExpectations(object):
   Example Usage:
   class FooBenchmarkExpectations(expectations.StoryExpectations):
     def SetExpectations(self):
-      self.PermanentlyDisableBenchmark(
+      self.DisableBenchmark(
           [expectations.ALL_MOBILE], 'Desktop Benchmark')
       self.DisableStory('story_name1', [expectations.ALL_MAC], 'crbug.com/456')
       self.DisableStory('story_name2', [expectations.ALL], 'crbug.com/789')
@@ -41,9 +41,14 @@ class StoryExpectations(object):
 
   def _Freeze(self):
     self._frozen = True
+    self._disabled_platforms = tuple(self._disabled_platforms)
 
-  def PermanentlyDisableBenchmark(self, conditions, reason):
-    """Permanently Disable benchmark under the given conditions.
+  @property
+  def disabled_platforms(self):
+    return self._disabled_platforms
+
+  def DisableBenchmark(self, conditions, reason):
+    """Temporarily disable failing benchmarks under the given conditions.
 
     This means that even if --also-run-disabled-tests is passed, the benchmark
     will not run. Some benchmarks (such as system_health.mobile_* benchmarks)
@@ -51,7 +56,7 @@ class StoryExpectations(object):
     platforms under any condition.
 
     Example:
-      PermanentlyDisableBenchmark(
+      DisableBenchmark(
           [expectations.ALL_MOBILE], 'Desktop benchmark')
 
     Args:
@@ -65,6 +70,10 @@ class StoryExpectations(object):
       assert isinstance(condition, _TestCondition)
 
     self._disabled_platforms.append((conditions, reason))
+
+  # TODO(rnephew): Remove this when all chromium instances are moved to
+  # DisableBenchmark.
+  PermanentlyDisableBenchmark = DisableBenchmark
 
   def IsBenchmarkDisabled(self, platform, finder_options):
     """Returns the reason the benchmark was disabled, or None if not disabled.
@@ -130,6 +139,9 @@ class StoryExpectations(object):
     return None
 
 
+# TODO(rnephew): Since TestConditions are being used for more than
+# just story expectations now, this should be decoupled and refactored
+# to be clearer.
 class _TestCondition(object):
   def ShouldDisable(self, platform, finder_options):
     raise NotImplementedError
@@ -190,6 +202,40 @@ class _TestConditionAndroidWebview(_TestCondition):
   def __str__(self):
     return 'Android Webview'
 
+class _TestConditionAndroidNotWebview(_TestCondition):
+  def ShouldDisable(self, platform, finder_options):
+    return (platform.GetOSName() == 'android' and not
+            finder_options.browser_type == 'android-webview')
+
+  def __str__(self):
+    return 'Android but not webview'
+
+class _TestConditionByMacVersion(_TestCondition):
+  def __init__(self, version, name=None):
+    self._version = version
+    self._name = name
+
+  def __str__(self):
+    return self._name
+
+  def ShouldDisable(self, platform, finder_options):
+    if platform.GetOSName() != 'mac':
+      return False
+    return platform.GetOSVersionDetailString().startswith(self._version)
+
+
+class _TestConditionLogicalAndConditions(_TestCondition):
+  def __init__(self, conditions, name):
+    self._conditions = conditions
+    self._name = name
+
+  def __str__(self):
+    return self._name
+
+  def ShouldDisable(self, platform, finder_options):
+    return all(
+        c.ShouldDisable(platform, finder_options) for c in self._conditions)
+
 
 ALL = _AllTestCondition()
 ALL_MAC = _TestConditionByPlatformList(['mac'], 'Mac Platforms')
@@ -208,3 +254,15 @@ ANDROID_ONE = _TestConditionByAndroidModel(
     'W6210', 'Cherry Mobile Android One')
 ANDROID_SVELTE = _TestConditionAndroidSvelte()
 ANDROID_WEBVIEW = _TestConditionAndroidWebview()
+ANDROID_NOT_WEBVIEW = _TestConditionAndroidNotWebview()
+# MAC_10_11 Includes:
+#   Mac 10.11 Perf, Mac Retina Perf, Mac Pro 10.11 Perf, Mac Air 10.11 Perf
+MAC_10_11 = _TestConditionByMacVersion('10.11', 'Mac 10.11')
+# Mac 10_12 Includes:
+#   Mac 10.12 Perf, Mac Mini 8GB 10.12 Perf
+MAC_10_12 = _TestConditionByMacVersion('10.12', 'Mac 10.12')
+
+ANDROID_NEXUS6_WEBVIEW = _TestConditionLogicalAndConditions(
+    [ANDROID_NEXUS6, ANDROID_WEBVIEW], 'Nexus6 Webview')
+ANDROID_NEXUS5X_WEBVIEW = _TestConditionLogicalAndConditions(
+    [ANDROID_NEXUS5X, ANDROID_WEBVIEW], 'Nexus5X Webview')

@@ -1259,18 +1259,22 @@ class TestFormatting(cros_test_lib.TestCase):
                     ['145462399', 'I47ea3', 'i47ea3'.ljust(41, '0')])
 
 
-class MockPatchBase(cros_test_lib.MockTestCase):
-  """Base test case with helper methods to generate mock patches."""
+class MockPatchFactory(object):
+  """Helper class to create patches or series of them, for unit tests."""
 
-  def setUp(self):
-    self.patch_mock = None
+  def __init__(self, patch_mock=None):
+    """Constructor for factory.
+
+    patch_mock: Optional PatchMock instance.
+    """
+    self.patch_mock = patch_mock
     self._patch_counter = (itertools.count(1)).next
 
   def MockPatch(self, change_id=None, patch_number=None, is_merged=False,
                 project='chromiumos/chromite',
                 remote=site_config.params.EXTERNAL_REMOTE,
                 tracking_branch='refs/heads/master', is_draft=False,
-                approvals=(), commit_message=None, mock_diff_status=None):
+                approvals=(), commit_message=None):
     """Helper function to create mock GerritPatch objects."""
     if change_id is None:
       change_id = self._patch_counter()
@@ -1309,10 +1313,6 @@ class MockPatchBase(cros_test_lib.MockTestCase):
     patch.total_fail_count = 3
     patch.commit_message = commit_message
 
-    if mock_diff_status is None:
-      mock_diff_status = {}
-    self.PatchObject(cros_patch.GerritPatch, 'GetDiffStatus',
-                     return_value=mock_diff_status)
     return patch
 
   def GetPatches(self, how_many=1, always_use_list=False, **kwargs):
@@ -1332,12 +1332,12 @@ class MockPatchBase(cros_test_lib.MockTestCase):
     return patches
 
 
-class DependencyErrorTests(MockPatchBase):
+class DependencyErrorTests(cros_test_lib.MockTestCase):
   """Tests for DependencyError."""
 
   def testGetRootError(self):
     """Test GetRootError on nested DependencyError."""
-    p_1, p_2, p_3 = self.GetPatches(how_many=3)
+    p_1, p_2, p_3 = MockPatchFactory().GetPatches(how_many=3)
     ex_1 = cros_patch.ApplyPatchException(p_1)
     ex_2 = cros_patch.DependencyError(p_2, ex_1)
     ex_3 = cros_patch.DependencyError(p_3, ex_2)
@@ -1346,7 +1346,7 @@ class DependencyErrorTests(MockPatchBase):
 
   def testGetRootErrorOnCircurlarError(self):
     """Test GetRootError on circular"""
-    p_1, p_2, p_3 = self.GetPatches(how_many=3)
+    p_1, p_2, p_3 = MockPatchFactory().GetPatches(how_many=3)
     ex_1 = cros_patch.DependencyError(p_2, cros_patch.ApplyPatchException(p_1))
     ex_2 = cros_patch.DependencyError(p_2, ex_1)
     ex_3 = cros_patch.DependencyError(p_3, ex_2)

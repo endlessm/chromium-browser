@@ -55,7 +55,7 @@ to the classpath for downstream development. See "additional_entries" below.
     <classpathentry kind="src" path="components/cronet/android/test/javatests/src"/>
     <classpathentry kind="src" path="components/cronet/android/test/src"/>
     <classpathentry kind="src" path="components/gcm_driver/android/java/src"/>
-    <classpathentry kind="src" path="components/feature_engagement_tracker/public/android/java/src"/>
+    <classpathentry kind="src" path="components/feature_engagement/public/android/java/src"/>
     <classpathentry kind="src" path="components/invalidation/impl/android/java/src"/>
     <classpathentry kind="src" path="components/invalidation/impl/android/javatests/src"/>
     <classpathentry kind="src" path="components/invalidation/impl/android/junit/src"/>
@@ -77,10 +77,12 @@ to the classpath for downstream development. See "additional_entries" below.
     <classpathentry kind="src" path="components/test/android/browsertests_apk/src"/>
     <classpathentry kind="src" path="components/url_formatter/android/java/src"/>
     <classpathentry kind="src" path="components/variations/android/java/src"/>
-    <classpathentry kind="src" path="components/web_contents_delegate_android/android/java/src"/>
+    <classpathentry kind="src" path="components/web_contents_delegate_android/java/src"/>
     <classpathentry kind="src" path="components/web_restrictions/browser/java/src"/>
     <classpathentry kind="src" path="components/web_restrictions/browser/javatests/src"/>
     <classpathentry kind="src" path="components/web_restrictions/browser/junit/src"/>
+    <classpathentry kind="src" path="components/minidump_uploader/android/java/src"/>
+    <classpathentry kind="src" path="components/minidump_uploader/android/javatests/src"/>
     <classpathentry kind="src" path="content/public/android/java/src"/>
     <classpathentry kind="src" path="content/public/android/javatests/src"/>
     <classpathentry kind="src" path="content/public/android/junit/src"/>
@@ -296,6 +298,7 @@ to the classpath for downstream development. See "additional_entries" below.
     <classpathentry kind="lib" path="out/Debug/lib.java/third_party/android_media/android_media_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/third_party/android_protobuf/protobuf_nano_javalib.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/third_party/android_swipe_refresh/android_swipe_refresh_java.jar"/>
+    <classpathentry kind="lib" path="out/Debug/lib.java/third_party/android_tools/android_support_design_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/third_party/cacheinvalidation/cacheinvalidation_javalib.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/third_party/cacheinvalidation/cacheinvalidation_proto_java.jar"/>
     <classpathentry kind="lib" path="out/Debug/lib.java/third_party/cardboard-java/cardboard-java.jar"/>

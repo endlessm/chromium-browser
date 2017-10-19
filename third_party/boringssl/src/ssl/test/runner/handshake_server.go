@@ -863,8 +863,10 @@ ResendHelloRetryRequest:
 			certVerify.signatureAlgorithm = config.Bugs.SendSignatureAlgorithm
 		}
 
-		hs.writeServerHash(certVerify.marshal())
-		c.writeRecord(recordTypeHandshake, certVerify.marshal())
+		if !config.Bugs.SkipCertificateVerify {
+			hs.writeServerHash(certVerify.marshal())
+			c.writeRecord(recordTypeHandshake, certVerify.marshal())
+		}
 	} else if hs.sessionState != nil {
 		// Pick up certificates from the session instead.
 		if len(hs.sessionState.certificates) > 0 {
@@ -1440,6 +1442,10 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 		hs.hello.extensions.sctList = hs.cert.SignedCertificateTimestampList
 	}
 
+	if len(c.clientVerify) > 0 && config.Bugs.SendSCTListOnRenegotiation != nil {
+		hs.hello.extensions.sctList = config.Bugs.SendSCTListOnRenegotiation
+	}
+
 	hs.hello.extensions.ticketSupported = hs.clientHello.ticketSupported && !config.SessionTicketsDisabled && c.vers > VersionSSL30
 	hs.hello.cipherSuite = hs.suite.id
 	if config.Bugs.SendCipherSuite != 0 {
@@ -1486,6 +1492,9 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 		certStatus := new(certificateStatusMsg)
 		certStatus.statusType = statusTypeOCSP
 		certStatus.response = hs.cert.OCSPStaple
+		if len(c.clientVerify) > 0 && config.Bugs.SendOCSPResponseOnRenegotiation != nil {
+			certStatus.response = config.Bugs.SendOCSPResponseOnRenegotiation
+		}
 		hs.writeServerHash(certStatus.marshal())
 		c.writeRecord(recordTypeHandshake, certStatus.marshal())
 	}
@@ -1819,7 +1828,6 @@ func (hs *serverHandshakeState) sendFinished(out []byte) error {
 		c.writeRecord(recordTypeHandshake, postCCSBytes)
 		postCCSBytes = nil
 	}
-	c.flushHandshake()
 
 	if !c.config.Bugs.SkipChangeCipherSpec {
 		ccs := []byte{1}
@@ -1842,11 +1850,11 @@ func (hs *serverHandshakeState) sendFinished(out []byte) error {
 		if c.config.Bugs.SendExtraFinished {
 			c.writeRecord(recordTypeHandshake, finished.marshal())
 		}
+	}
 
-		if !c.config.Bugs.PackHelloRequestWithFinished {
-			// Defer flushing until renegotiation.
-			c.flushHandshake()
-		}
+	if !c.config.Bugs.PackHelloRequestWithFinished {
+		// Defer flushing until renegotiation.
+		c.flushHandshake()
 	}
 
 	c.cipherSuite = hs.suite

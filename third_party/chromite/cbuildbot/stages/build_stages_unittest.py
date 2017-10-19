@@ -16,6 +16,7 @@ from chromite.cbuildbot import commands
 from chromite.cbuildbot.stages import build_stages
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
+from chromite.lib.const import waterfall
 from chromite.lib import auth
 from chromite.lib import buildbucket_lib
 from chromite.lib import cidb
@@ -272,13 +273,13 @@ class BuildPackagesStageTest(AllConfigsTestCase,
 
   def testNoTests(self):
     """Test that self.options.tests = False works."""
-    self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
+    self.RunTestsWithBotId('amd64-generic-paladin', options_tests=False)
 
   def testIgnoreExtractDependenciesError(self):
     """Ignore errors when failing to extract dependencies."""
     self.PatchObject(commands, 'ExtractDependencies',
                      side_effect=Exception('unmet dependency'))
-    self.RunTestsWithBotId('x86-generic-paladin')
+    self.RunTestsWithBotId('amd64-generic-paladin')
 
   def testFirmwareVersionsMixedImage(self):
     """Test that firmware versions are extracted correctly."""
@@ -295,13 +296,13 @@ class BuildPackagesStageTest(AllConfigsTestCase,
     self._update_metadata = True
     update = os.path.join(
         self.build_root,
-        'chroot/build/x86-generic/usr/sbin/chromeos-firmwareupdate')
+        'chroot/build/amd64-generic/usr/sbin/chromeos-firmwareupdate')
     osutils.Touch(update, makedirs=True)
 
     self._mock_configurator = _HookRunCommandFirmwareUpdate
-    self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
+    self.RunTestsWithBotId('amd64-generic-paladin', options_tests=False)
     board_metadata = (self._run.attrs.metadata.GetDict()['board-metadata']
-                      .get('x86-generic'))
+                      .get('amd64-generic'))
     if board_metadata:
       self.assertIn('main-firmware-version', board_metadata)
       self.assertEqual(board_metadata['main-firmware-version'],
@@ -325,13 +326,13 @@ class BuildPackagesStageTest(AllConfigsTestCase,
     self._update_metadata = True
     update = os.path.join(
         self.build_root,
-        'chroot/build/x86-generic/usr/sbin/chromeos-firmwareupdate')
+        'chroot/build/amd64-generic/usr/sbin/chromeos-firmwareupdate')
     osutils.Touch(update, makedirs=True)
 
     self._mock_configurator = _HookRunCommandFirmwareUpdate
-    self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
+    self.RunTestsWithBotId('amd64-generic-paladin', options_tests=False)
     board_metadata = (self._run.attrs.metadata.GetDict()['board-metadata']
-                      .get('x86-generic'))
+                      .get('amd64-generic'))
     if board_metadata:
       self.assertIn('main-firmware-version', board_metadata)
       self.assertEqual(board_metadata['main-firmware-version'],
@@ -341,23 +342,68 @@ class BuildPackagesStageTest(AllConfigsTestCase,
                        expected_ec_firmware_version)
       self.assertFalse(self._run.attrs.metadata.GetDict()['unibuild'])
 
+  def testFirmwareVersionsUnibuild(self):
+    """Test that firmware versions are extracted correctly for unibuilds."""
+
+    def _HookRunCommand(rc):
+      rc.AddCmdResult(partial_mock.ListRegex('fdtget'), output='reef\npyro')
+      rc.AddCmdResult(partial_mock.ListRegex('chromeos-firmwareupdate'),
+                      output='''
+BIOS image:
+BIOS version: Google_Reef.9042.87.1
+BIOS (RW) version: Google_Reef.9042.110.0
+EC version:   reef_v1.1.5900-ab1ee51
+EC (RW) version: reef_v1.1.5909-bd1f0c9
+
+BIOS image:
+BIOS version: Google_Pyro.9042.87.1
+BIOS (RW) version: Google_Pyro.9042.110.0
+EC version:   pyro_v1.1.5900-ab1ee51
+EC (RW) version: pyro_v1.1.5909-bd1f0c9
+''')
+
+    self._update_metadata = True
+    update = os.path.join(
+        self.build_root,
+        'chroot/build/x86-generic/usr/sbin/chromeos-firmwareupdate')
+    osutils.Touch(update, makedirs=True)
+
+    fdtget = os.path.join(self.build_root, 'chroot/usr/bin/fdtget')
+    osutils.Touch(fdtget, makedirs=True)
+
+    self._mock_configurator = _HookRunCommand
+    self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
+    board_metadata = (self._run.attrs.metadata.GetDict()['board-metadata']
+                      .get('x86-generic'))
+    self.assertIsNotNone(board_metadata)
+
+    if 'models' in board_metadata:
+      reef = board_metadata['models']['reef']
+      self.assertEquals('Google_Reef.9042.87.1',
+                        reef['main-readonly-firmware-version'])
+      self.assertEquals('Google_Reef.9042.110.0',
+                        reef['main-readwrite-firmware-version'])
+      self.assertEquals('reef_v1.1.5909-bd1f0c9',
+                        reef['ec-firmware-version'])
+
+      self.assertIn('pyro', board_metadata['models'])
+
   def testUnifiedBuilds(self):
     """Test that unified builds are marked as such."""
     def _HookRunCommandFdtget(rc):
       rc.AddCmdResult(partial_mock.ListRegex('fdtget'), output='reef')
 
     self._update_metadata = True
-    fdtget = os.path.join(self.build_root,
-                          'chroot/build/x86-generic/usr/bin/fdtget')
+    fdtget = os.path.join(self.build_root, 'chroot/usr/bin/fdtget')
     osutils.Touch(fdtget, makedirs=True)
     self._mock_configurator = _HookRunCommandFdtget
-    self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
+    self.RunTestsWithBotId('amd64-generic-paladin', options_tests=False)
     self.assertTrue(self._run.attrs.metadata.GetDict()['unibuild'])
 
   def testGoma(self):
     self.PatchObject(build_stages.BuildPackagesStage,
                      '_ShouldEnableGoma', return_value=True)
-    self._Prepare('x86-generic-paladin')
+    self._Prepare('amd64-generic-paladin')
     # Set dummy dir name to enable goma.
     with osutils.TempDir() as goma_dir, \
          tempfile.NamedTemporaryFile() as temp_goma_client_json:
@@ -383,7 +429,7 @@ class BuildPackagesStageTest(AllConfigsTestCase,
   def testGomaWithMissingCertFile(self):
     self.PatchObject(build_stages.BuildPackagesStage,
                      '_ShouldEnableGoma', return_value=True)
-    self._Prepare('x86-generic-paladin')
+    self._Prepare('amd64-generic-paladin')
     # Set dummy dir name to enable goma.
     with osutils.TempDir() as goma_dir:
       self._run.options.goma_dir = goma_dir
@@ -398,7 +444,7 @@ class BuildPackagesStageTest(AllConfigsTestCase,
     self.PatchObject(build_stages.BuildPackagesStage,
                      '_ShouldEnableGoma', return_value=True)
     self.PatchObject(cros_build_lib, 'HostIsCIBuilder', return_value=True)
-    self._Prepare('x86-generic-paladin')
+    self._Prepare('amd64-generic-paladin')
     # Set dummy dir name to enable goma.
     with osutils.TempDir() as goma_dir:
       self._run.options.goma_dir = goma_dir
@@ -485,14 +531,14 @@ class CleanUpStageTest(generic_stages_unittest.StageTestCase):
     cidb.CIDBConnectionFactory.SetupMockCidb(self.fake_db)
 
     self.fake_db.InsertBuild(
-        'test_builder', constants.WATERFALL_TRYBOT, 666, 'test_config',
+        'test_builder', waterfall.WATERFALL_TRYBOT, 666, 'test_config',
         'test_hostname',
         status=constants.BUILDER_STATUS_INFLIGHT,
         timeout_seconds=23456,
         buildbucket_id='100')
 
     self.fake_db.InsertBuild(
-        'test_builder', constants.WATERFALL_TRYBOT, 666, 'test_config',
+        'test_builder', waterfall.WATERFALL_TRYBOT, 666, 'test_config',
         'test_hostname',
         status=constants.BUILDER_STATUS_INFLIGHT,
         timeout_seconds=23456,
@@ -509,10 +555,10 @@ class CleanUpStageTest(generic_stages_unittest.StageTestCase):
     slave_config_map = {
         'slave_1': config_lib.BuildConfig(
             name='slave1',
-            active_waterfall=constants.WATERFALL_EXTERNAL),
+            active_waterfall=waterfall.WATERFALL_EXTERNAL),
         'slave_2': config_lib.BuildConfig(
             name='slave2',
-            active_waterfall=constants.WATERFALL_INTERNAL),
+            active_waterfall=waterfall.WATERFALL_INTERNAL),
         'slave_3': config_lib.BuildConfig(
             name='slave3',
             active_waterfall=None)
@@ -531,10 +577,10 @@ class CleanUpStageTest(generic_stages_unittest.StageTestCase):
     slave_config_map = {
         'slave_1': config_lib.BuildConfig(
             name='slave1',
-            active_waterfall=constants.WATERFALL_INTERNAL),
+            active_waterfall=waterfall.WATERFALL_INTERNAL),
         'slave_2': config_lib.BuildConfig(
             name='slave2',
-            active_waterfall=constants.WATERFALL_INTERNAL)
+            active_waterfall=waterfall.WATERFALL_INTERNAL)
     }
     self.PatchObject(generic_stages.BuilderStage, '_GetSlaveConfigMap',
                      return_value=slave_config_map)

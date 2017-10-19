@@ -68,6 +68,8 @@ class CleanUpStage(generic_stages.BuilderStage):
       # in there might be broken. Since we've already unmounted everything in
       # there, we can just remove it using rm -rf.
       osutils.RmDir(chroot, ignore_missing=True, sudo=True)
+      # Also remove the image file so that it doesn't get re-mounted later.
+      osutils.SafeUnlink(chroot + '.img')
 
   def _DeleteArchivedTrybotImages(self):
     """Clear all previous archive images to save space."""
@@ -204,7 +206,7 @@ class CleanUpStage(generic_stages.BuilderStage):
                           self._build_root, e)
 
     # Clean mount points first to be safe about deleting.
-    commands.CleanUpMountPoints(self._build_root)
+    osutils.UmountTree(self._build_root)
 
     if manifest is None:
       self._DeleteChroot()
@@ -417,8 +419,12 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
     if not self._ShouldEnableGoma():
       return None
 
+    # TODO(crbug.com/751010): Revisit to enable DepsCache for non-chrome-pfq
+    # bots, too.
+    use_goma_deps_cache = self._run.config.name.endswith('chrome-pfq')
     goma = goma_util.Goma(
-        self._run.options.goma_dir, self._run.options.goma_client_json)
+        self._run.options.goma_dir, self._run.options.goma_client_json,
+        stage_name=self.StageNamePrefix() if use_goma_deps_cache else None)
 
     # Set USE_GOMA env var so that chrome is built with goma.
     self._portage_extra_env['USE_GOMA'] = 'true'
@@ -436,8 +442,6 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
     return chroot_args
 
   def PerformStage(self):
-    # If we have rietveld patches, always compile Chrome from source.
-    noworkon = not self._run.options.rietveld_patches
     packages = self.GetListOfPackagesToBuild()
     self.VerifyChromeBinpkg(packages)
     self.RecordPackagesUnderTest(packages)
@@ -464,7 +468,6 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
                    packages=packages,
                    skip_chroot_upgrade=True,
                    chrome_root=self._run.options.chrome_root,
-                   noworkon=noworkon,
                    noretry=self._run.config.nobuildretry,
                    chroot_args=chroot_args,
                    extra_env=self._portage_extra_env,
@@ -494,14 +497,11 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
       logging.info('No build-events.json file to archive')
 
     if self._update_metadata:
-      # TODO: Consider moving this into its own stage if there are other similar
-      # things to do after build_packages.
-      # sjg@chromium.org: Considered, but gosh there are a lot of stages
-      # already. What is the benefit?
-
       # Extract firmware version information from the newly created updater.
-      main, ec = commands.GetFirmwareVersions(self._build_root,
-                                              self._current_board)
+      fw_versions = commands.GetFirmwareVersions(self._build_root,
+                                                 self._current_board)
+      main = fw_versions.main_rw or fw_versions.main
+      ec = fw_versions.ec_rw or fw_versions.ec
       update_dict = {'main-firmware-version': main, 'ec-firmware-version': ec}
       self._run.attrs.metadata.UpdateBoardDictWithDict(
           self._current_board, update_dict)
@@ -515,10 +515,22 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
       # Get a list of models supported by this board.
       models = commands.GetModels(self._build_root, self._current_board)
       self._run.attrs.metadata.UpdateWithDict({'unibuild': bool(models)})
-      # TODO(sjg@chromium.org): Adjust the code above to write the firmware
-      # version for each model, rather than for the build as a whole. This
-      # will require an updated chromeos-firmwareupdate tool as well as an
-      # updated firmware package.
+      if models:
+        all_fw_versions = commands.GetAllFirmwareVersions(self._build_root,
+                                                          self._current_board)
+        models_data = {}
+        for model in models:
+          if model in all_fw_versions:
+            fw_versions = all_fw_versions[model]
+            ec = fw_versions.ec_rw or fw_versions.ec
+            main_ro = fw_versions.main
+            main_rw = fw_versions.main_rw
+            models_data[model] = {'main-readonly-firmware-version': main_ro,
+                                  'main-readwrite-firmware-version': main_rw,
+                                  'ec-firmware-version': ec}
+        if models_data:
+          self._run.attrs.metadata.UpdateBoardDictWithDict(
+              self._current_board, {'models': models_data})
 
 
 class BuildImageStage(BuildPackagesStage):

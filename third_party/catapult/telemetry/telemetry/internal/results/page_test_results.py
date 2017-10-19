@@ -27,14 +27,16 @@ from telemetry.value import trace
 
 from tracing.value import convert_chart_json
 from tracing.value import histogram_set
+from tracing.value.diagnostics import reserved_infos
 
 class TelemetryInfo(object):
   def __init__(self):
     self._benchmark_name = None
-    self._benchmark_start_ms = None
+    self._benchmark_start_epoch = None
     self._benchmark_interrupted = False
     self._label = None
     self._story_name = ''
+    self._story_tags = set()
     self._story_grouping_keys = {}
     self._storyset_repeat_counter = 0
     self._trace_start_ms = None
@@ -46,18 +48,18 @@ class TelemetryInfo(object):
   @benchmark_name.setter
   def benchmark_name(self, benchmark_name):
     assert self.benchmark_name is None, (
-      'benchmark_name must be set exactly once')
+        'benchmark_name must be set exactly once')
     self._benchmark_name = benchmark_name
 
   @property
-  def benchmark_start_ms(self):
-    return self._benchmark_start_ms
+  def benchmark_start_epoch(self):
+    return self._benchmark_start_epoch
 
-  @benchmark_start_ms.setter
-  def benchmark_start_ms(self, benchmark_start_ms):
-    assert self.benchmark_start_ms is None, (
-      'benchmark_start_ms must be set exactly once')
-    self._benchmark_start_ms = benchmark_start_ms
+  @benchmark_start_epoch.setter
+  def benchmark_start_epoch(self, benchmark_start_epoch):
+    assert self.benchmark_start_epoch is None, (
+        'benchmark_start_epoch must be set exactly once')
+    self._benchmark_start_epoch = benchmark_start_epoch
 
   @property
   def trace_start_ms(self):
@@ -85,6 +87,10 @@ class TelemetryInfo(object):
     return self._story_grouping_keys
 
   @property
+  def story_tags(self):
+    return self._story_tags
+
+  @property
   def storyset_repeat_counter(self):
     return self._storyset_repeat_counter
 
@@ -94,24 +100,25 @@ class TelemetryInfo(object):
   def WillRunStory(self, story, storyset_repeat_counter):
     self._trace_start_ms = 1000 * time.time()
     self._story_name = story.name
-    if story.grouping_keys:
-      self._story_grouping_keys = story.grouping_keys
+    self._story_grouping_keys = story.grouping_keys
+    self._story_tags = story.tags
     self._storyset_repeat_counter = storyset_repeat_counter
 
   def AsDict(self):
     assert self.benchmark_name is not None, (
         'benchmark_name must be set exactly once')
-    assert self.benchmark_start_ms is not None, (
-        'benchmark_start_ms must be set exactly once')
+    assert self.benchmark_start_epoch is not None, (
+        'benchmark_start_epoch must be set exactly once')
     d = {}
-    d['benchmarkName'] = self.benchmark_name
-    d['benchmarkStartMs'] = self.benchmark_start_ms
+    d[reserved_infos.BENCHMARKS.name] = [self.benchmark_name]
+    d[reserved_infos.BENCHMARK_START.name] = self.benchmark_start_epoch * 1000
     if self.label:
-      d['label'] = self.label
-    d['storyDisplayName'] = self._story_name
-    d['storyGroupingKeys'] = self.story_grouping_keys
-    d['storysetRepeatCounter'] = self.storyset_repeat_counter
-    d['traceStartMs'] = self.trace_start_ms
+      d[reserved_infos.LABELS.name] = [self.label]
+    d[reserved_infos.STORIES.name] = [self._story_name]
+    d[reserved_infos.STORY_TAGS.name] = list(self.story_tags) + [
+        '%s:%s' % kv for kv in self.story_grouping_keys.iteritems()]
+    d[reserved_infos.STORYSET_REPEATS.name] = [self.storyset_repeat_counter]
+    d[reserved_infos.TRACE_START.name] = self.trace_start_ms
     return d
 
 
@@ -185,7 +192,7 @@ class PageTestResults(object):
         self.all_summary_values)
     info = self.telemetry_info
     chart_json['label'] = info.label
-    chart_json['benchmarkStartMs'] = info.benchmark_start_ms
+    chart_json['benchmarkStartMs'] = info.benchmark_start_epoch * 1000.0
 
     file_descriptor, chart_json_path = tempfile.mkstemp()
     os.close(file_descriptor)
@@ -197,7 +204,7 @@ class PageTestResults(object):
 
     if vinn_result.returncode != 0:
       logging.error('Error converting chart json to Histograms:\n' +
-          vinn_result.stdout)
+                    vinn_result.stdout)
       return []
     self.histograms.ImportDicts(json.loads(vinn_result.stdout))
     self.histograms.ResolveRelatedHistograms()
@@ -300,11 +307,19 @@ class PageTestResults(object):
           v.CleanUp()
           run.values.remove(v)
 
+  def CloseOutputFormatters(self):
+    """
+    Clean up any open output formatters contained within this results object
+    """
+    for output_formatter in self._output_formatters:
+      output_formatter.output_stream.close()
+
   def __enter__(self):
     return self
 
   def __exit__(self, _, __, ___):
     self.CleanUp()
+    self.CloseOutputFormatters()
 
   def WillRunPage(self, page, storyset_repeat_counter=0):
     assert not self._current_page_run, 'Did not call DidRunPage.'
@@ -329,7 +344,7 @@ class PageTestResults(object):
     assert self._benchmark_enabled, 'Cannot add value to disabled results'
     self._ValidateValue(value)
     is_first_result = (
-      self._current_page_run.story not in self._all_stories)
+        self._current_page_run.story not in self._all_stories)
 
     story_keys = self._current_page_run.story.grouping_keys
 
@@ -388,7 +403,7 @@ class PageTestResults(object):
         output_formatter.PrintViewResults()
     else:
       for output_formatter in self._output_formatters:
-        output_formatter.FormatDisabled()
+        output_formatter.FormatDisabled(self)
 
   def FindValues(self, predicate):
     """Finds all values matching the specified predicate.
@@ -445,4 +460,4 @@ class PageTestResults(object):
           self._pages_to_profiling_files_cloud_url[page].append(cloud_url)
         except cloud_storage.PermissionError as e:
           logging.error('Cannot upload profiling files to cloud storage due to '
-                        ' permission error: %s' % e.message)
+                        ' permission error: %s', e.message)

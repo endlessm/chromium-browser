@@ -61,7 +61,7 @@ class TestPaletteDelegate : public PaletteDelegate {
   void TakeScreenshot() override;
   void TakePartialScreenshot(const base::Closure& done) override;
   void CancelPartialScreenshot() override;
-  void ShowMetalayer() override;
+  void ShowMetalayer(base::OnceClosure done, bool via_button) override;
   void HideMetalayer() override;
 
   int create_note_count_ = 0;
@@ -72,7 +72,6 @@ class TestPaletteDelegate : public PaletteDelegate {
   bool has_note_app_ = false;
   bool should_auto_open_palette_ = false;
   bool should_show_palette_ = false;
-  bool is_metalayer_supported_ = false;
   int show_metalayer_count_ = 0;
   int hide_metalayer_count_ = 0;
 

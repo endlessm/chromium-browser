@@ -191,19 +191,19 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     results = page_test_results.PageTestResults()
     results.WillRunPage(self.pages[0])
     self.assertRaises(
-      AssertionError,
-      lambda: results.AddValue(scalar.ScalarValue(
-          self.pages[0], 'url', 'string', 'foo',
-          improvement_direction=improvement_direction.UP)))
+        AssertionError,
+        lambda: results.AddValue(scalar.ScalarValue(
+            self.pages[0], 'url', 'string', 'foo',
+            improvement_direction=improvement_direction.UP)))
 
   def testAddSummaryValueWithPageSpecified(self):
     results = page_test_results.PageTestResults()
     results.WillRunPage(self.pages[0])
     self.assertRaises(
-      AssertionError,
-      lambda: results.AddSummaryValue(scalar.ScalarValue(
-          self.pages[0], 'a', 'units', 3,
-          improvement_direction=improvement_direction.UP)))
+        AssertionError,
+        lambda: results.AddSummaryValue(scalar.ScalarValue(
+            self.pages[0], 'a', 'units', 3,
+            improvement_direction=improvement_direction.UP)))
 
   def testUnitChange(self):
     results = page_test_results.PageTestResults()
@@ -215,10 +215,10 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
 
     results.WillRunPage(self.pages[1])
     self.assertRaises(
-      AssertionError,
-      lambda: results.AddValue(scalar.ScalarValue(
-          self.pages[1], 'a', 'foobgrobbers', 3,
-          improvement_direction=improvement_direction.UP)))
+        AssertionError,
+        lambda: results.AddValue(scalar.ScalarValue(
+            self.pages[1], 'a', 'foobgrobbers', 3,
+            improvement_direction=improvement_direction.UP)))
 
   def testTypeChange(self):
     results = page_test_results.PageTestResults()
@@ -230,11 +230,11 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
 
     results.WillRunPage(self.pages[1])
     self.assertRaises(
-      AssertionError,
-      lambda: results.AddValue(histogram.HistogramValue(
-          self.pages[1], 'a', 'seconds',
-          raw_value_json='{"buckets": [{"low": 1, "high": 2, "count": 1}]}',
-          improvement_direction=improvement_direction.UP)))
+        AssertionError,
+        lambda: results.AddValue(histogram.HistogramValue(
+            self.pages[1], 'a', 'seconds',
+            raw_value_json='{"buckets": [{"low": 1, "high": 2, "count": 1}]}',
+            improvement_direction=improvement_direction.UP)))
 
   def testGetPagesThatSucceededAllPagesFail(self):
     results = page_test_results.PageTestResults()
@@ -404,7 +404,7 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     output_stream = stream.TestOutputStream()
     output_formatters = []
     benchmark_metadata = benchmark.BenchmarkMetadata(
-      'benchmark_name', 'benchmark_description')
+        'benchmark_name', 'benchmark_description')
     output_formatters.append(
         chart_json_output_formatter.ChartJsonOutputFormatter(
             output_stream, benchmark_metadata))
@@ -413,30 +413,34 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     results = page_test_results.PageTestResults(
         output_formatters=output_formatters, benchmark_enabled=False)
     results.PrintSummary()
-    self.assertEquals(output_stream.output_data,
-      "{\n  \"enabled\": false,\n  \"benchmark_name\": \"benchmark_name\"\n}\n")
+    self.assertEquals(
+        output_stream.output_data,
+        '{\n  \"enabled\": false,\n  ' +
+        '\"benchmark_name\": \"benchmark_name\"\n}\n')
 
   def testAddSharedDiagnostic(self):
     results = page_test_results.PageTestResults()
+    results.telemetry_info.benchmark_start_epoch = 1501773200
     results.WillRunPage(self.pages[0])
     results.DidRunPage(self.pages[0])
     results.CleanUp()
     results.histograms.AddSharedDiagnostic(
-        reserved_infos.TELEMETRY.name,
-        histogram_module.TelemetryInfo())
+        reserved_infos.BENCHMARKS.name,
+        histogram_module.GenericSet(['benchmark_name']))
 
     benchmark_metadata = benchmark.BenchmarkMetadata(
-      'benchmark_name', 'benchmark_description')
+        'benchmark_name', 'benchmark_description')
     results.PopulateHistogramSet(benchmark_metadata)
 
     histogram_dicts = results.AsHistogramDicts()
     self.assertEquals(1, len(histogram_dicts))
 
     diag = diagnostic.Diagnostic.FromDict(histogram_dicts[0])
-    self.assertIsInstance(diag, histogram_module.TelemetryInfo)
+    self.assertIsInstance(diag, histogram_module.GenericSet)
 
   def testPopulateHistogramSet_UsesScalarValueData(self):
     results = page_test_results.PageTestResults()
+    results.telemetry_info.benchmark_start_epoch = 1501773200
     results.WillRunPage(self.pages[0])
     results.AddValue(scalar.ScalarValue(
         self.pages[0], 'a', 'seconds', 3,
@@ -445,7 +449,7 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     results.CleanUp()
 
     benchmark_metadata = benchmark.BenchmarkMetadata(
-      'benchmark_name', 'benchmark_description')
+        'benchmark_name', 'benchmark_description')
     results.PopulateHistogramSet(benchmark_metadata)
 
     histogram_dicts = results.AsHistogramDicts()
@@ -455,18 +459,19 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     self.assertEquals('a', h.name)
 
   def testPopulateHistogramSet_UsesHistogramSetData(self):
-    original_diagnostic = histogram_module.TelemetryInfo()
+    original_diagnostic = histogram_module.GenericSet(['benchmark_name'])
 
     results = page_test_results.PageTestResults()
+    results.telemetry_info.benchmark_start_epoch = 1501773200
     results.WillRunPage(self.pages[0])
     results.histograms.AddHistogram(histogram_module.Histogram('foo', 'count'))
     results.histograms.AddSharedDiagnostic(
-        reserved_infos.TELEMETRY.name, original_diagnostic)
+        reserved_infos.BENCHMARKS.name, original_diagnostic)
     results.DidRunPage(self.pages[0])
     results.CleanUp()
 
     benchmark_metadata = benchmark.BenchmarkMetadata(
-      'benchmark_name', 'benchmark_description')
+        'benchmark_name', 'benchmark_description')
     results.PopulateHistogramSet(benchmark_metadata)
 
     histogram_dicts = results.AsHistogramDicts()
@@ -476,7 +481,7 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     hs.ImportDicts(histogram_dicts)
 
     diag = hs.LookupDiagnostic(original_diagnostic.guid)
-    self.assertIsInstance(diag, histogram_module.TelemetryInfo)
+    self.assertIsInstance(diag, histogram_module.GenericSet)
 
 
 class PageTestResultsFilterTest(unittest.TestCase):

@@ -131,22 +131,6 @@ class SyncChromeStage(generic_stages.BuilderStage,
     self._WriteChromeVersionToMetadata()
     super(SyncChromeStage, self).Finish()
 
-class PatchChromeStage(generic_stages.BuilderStage):
-  """Stage that applies Chrome patches if needed."""
-
-  option_name = 'rietveld_patches'
-
-  URL_BASE = 'https://codereview.chromium.org/%(id)s'
-
-  def PerformStage(self):
-    for spatch in ' '.join(self._run.options.rietveld_patches).split():
-      patch, colon, subdir = spatch.partition(':')
-      if not colon:
-        subdir = 'src'
-      url = self.URL_BASE % {'id': patch}
-      logging.PrintBuildbotLink(spatch, url)
-      commands.PatchChrome(self._run.options.chrome_root, patch, subdir)
-
 
 class SimpleChromeArtifactsStage(generic_stages.BoardSpecificBuilderStage,
                                  generic_stages.ArchivingStageMixin):
@@ -293,8 +277,13 @@ class TestSimpleChromeWorkflowStage(generic_stages.BoardSpecificBuilderStage,
       extra_args = ['--cwd', self.chrome_src, '--sdk-path',
                     self.archive_path]
       if self._ShouldEnableGoma():
-        goma = goma_util.Goma(self._run.options.goma_dir,
-                              self._run.options.goma_client_json)
+        # TODO(crbug.com/751010): Revisit to enable DepsCache for
+        # non-chrome-pfq bots, too.
+        use_goma_deps_cache = self._run.config.name.endswith('chrome-pfq')
+        goma = goma_util.Goma(
+            self._run.options.goma_dir,
+            self._run.options.goma_client_json,
+            stage_name=self.StageNamePrefix() if use_goma_deps_cache else None)
         extra_args.extend(['--nostart-goma', '--gomadir', goma.goma_dir])
         self._run.attrs.metadata.UpdateWithDict(
             {'goma_tmp_dir_for_simple_chrome': goma.goma_tmp_dir})

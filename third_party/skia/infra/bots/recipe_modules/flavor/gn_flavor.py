@@ -49,6 +49,8 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
       extra_ldflags.append('-fuse-ld=lld')
     elif compiler == 'Clang':
       cc, cxx = 'clang', 'clang++'
+    elif compiler == 'GCC' and os == "Ubuntu14":
+      cc, cxx = 'gcc-4.8', 'g++-4.8'
     elif compiler == 'GCC':
       cc, cxx = 'gcc', 'g++'
 
@@ -105,6 +107,12 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
         args['skia_vulkan_sdk'] = '"%s"' % linux_vulkan_sdk
       if 'Win' in os:
         args['skia_vulkan_sdk'] = '"%s"' % win_vulkan_sdk
+    if 'Metal' in extra_config:
+      args['skia_use_metal'] = 'true'
+    if 'CheckGeneratedFiles' in extra_config:
+      args['skia_compile_processors'] = 'true'
+    if compiler == 'Clang' and 'Win' in os:
+      args['clang_win'] = '"%s"' % self.m.vars.slave_dir.join('clang_win')
 
     for (k,v) in {
       'cc':  cc,
@@ -129,8 +137,16 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
 
     with self.m.context(cwd=self.m.vars.skia_dir):
       self._py('fetch-gn', self.m.vars.skia_dir.join('bin', 'fetch-gn'))
-      self._run('gn gen', [gn, 'gen', self.out_dir, '--args=' + gn_args])
-      self._run('ninja', [ninja, '-C', self.out_dir])
+      env = {}
+      if 'CheckGeneratedFiles' in extra_config:
+        env['PATH'] = '%s:%%(PATH)s' % self.m.vars.skia_dir.join('bin')
+        self._py(
+            'fetch-clang-format',
+            self.m.vars.skia_dir.join('bin', 'fetch-clang-format'))
+
+      with self.m.env(env):
+        self._run('gn gen', [gn, 'gen', self.out_dir, '--args=' + gn_args])
+        self._run('ninja', [ninja, '-C', self.out_dir])
 
   def copy_extra_build_products(self, swarming_out_dir):
     configuration = self.m.vars.builder_cfg.get('configuration', '')

@@ -13,6 +13,7 @@ import random
 import shutil
 import time
 
+from chromite.lib.const import waterfall
 from chromite.lib import constants
 from chromite.lib import metadata_lib
 from chromite.lib import cidb
@@ -214,12 +215,12 @@ class CIDBAPITest(CIDBIntegrationTest):
     db = self._PrepareFreshDatabase(56)
     self.assertEqual([], db.GetBuildMessages(1))
     master_build_id = db.InsertBuild('builder name',
-                                     constants.WATERFALL_TRYBOT,
+                                     waterfall.WATERFALL_TRYBOT,
                                      1,
                                      'master',
                                      'hostname')
     slave_build_id = db.InsertBuild('slave builder name',
-                                    constants.WATERFALL_TRYBOT,
+                                    waterfall.WATERFALL_TRYBOT,
                                     2,
                                     'slave',
                                     'slave hostname',
@@ -241,7 +242,7 @@ class CIDBAPITest(CIDBIntegrationTest):
     mm2.pop('timestamp')
     self.assertEqual({'build_id': master_build_id,
                       'build_config': 'master',
-                      'waterfall': constants.WATERFALL_TRYBOT,
+                      'waterfall': waterfall.WATERFALL_TRYBOT,
                       'builder_name': 'builder name',
                       'build_number': 1L,
                       'message_type': 'message_type',
@@ -253,7 +254,7 @@ class CIDBAPITest(CIDBIntegrationTest):
     sm10.pop('timestamp')
     self.assertEqual({'build_id': slave_build_id,
                       'build_config': 'slave',
-                      'waterfall': constants.WATERFALL_TRYBOT,
+                      'waterfall': waterfall.WATERFALL_TRYBOT,
                       'builder_name': 'slave builder name',
                       'build_number': 2L,
                       'message_type': 'message_type',
@@ -547,13 +548,13 @@ class BuildStagesAndFailureTest(CIDBIntegrationTest):
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
 
     master_build_id = bot_db.InsertBuild('master build',
-                                         constants.WATERFALL_INTERNAL,
+                                         waterfall.WATERFALL_INTERNAL,
                                          _random(),
                                          'master_config',
                                          'master.hostname')
 
     build_id = bot_db.InsertBuild('builder name',
-                                  constants.WATERFALL_INTERNAL,
+                                  waterfall.WATERFALL_INTERNAL,
                                   _random(),
                                   'build_config',
                                   'bot_hostname',
@@ -606,27 +607,27 @@ class BuildStagesAndFailureTest(CIDBIntegrationTest):
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
 
     master_build_id = bot_db.InsertBuild('master',
-                                         constants.WATERFALL_INTERNAL,
+                                         waterfall.WATERFALL_INTERNAL,
                                          _random(),
                                          'master',
                                          'master.hostname')
 
     build_id_1 = bot_db.InsertBuild('slave1',
-                                    constants.WATERFALL_INTERNAL,
+                                    waterfall.WATERFALL_INTERNAL,
                                     _random(),
                                     'slave1',
                                     'bot_hostname',
                                     master_build_id=master_build_id,
                                     buildbucket_id='bb_id_1')
     build_id_2 = bot_db.InsertBuild('slave2',
-                                    constants.WATERFALL_INTERNAL,
+                                    waterfall.WATERFALL_INTERNAL,
                                     _random(),
                                     'slave2',
                                     'bot_hostname',
                                     master_build_id=master_build_id,
                                     buildbucket_id='bb_id_2')
     build_id_3 = bot_db.InsertBuild('slave1',
-                                    constants.WATERFALL_INTERNAL,
+                                    waterfall.WATERFALL_INTERNAL,
                                     _random(),
                                     'slave1',
                                     'bot_hostname',
@@ -662,20 +663,20 @@ class BuildStagesAndFailureTest(CIDBIntegrationTest):
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
 
     master_build_id = bot_db.InsertBuild('master',
-                                         constants.WATERFALL_INTERNAL,
+                                         waterfall.WATERFALL_INTERNAL,
                                          _random(),
                                          'master',
                                          'master.hostname')
 
     build_id_1 = bot_db.InsertBuild('slave1',
-                                    constants.WATERFALL_INTERNAL,
+                                    waterfall.WATERFALL_INTERNAL,
                                     _random(),
                                     'slave1',
                                     'bot_hostname',
                                     master_build_id=master_build_id,
                                     buildbucket_id='bb_id_1')
     build_id_2 = bot_db.InsertBuild('slave1',
-                                    constants.WATERFALL_INTERNAL,
+                                    waterfall.WATERFALL_INTERNAL,
                                     _random(),
                                     'slave1',
                                     'bot_hostname',
@@ -721,7 +722,7 @@ class BuildTableTest(CIDBIntegrationTest):
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
 
     build_id = bot_db.InsertBuild('build_name',
-                                  constants.WATERFALL_INTERNAL,
+                                  waterfall.WATERFALL_INTERNAL,
                                   _random(),
                                   'build_config',
                                   'bot_hostname',
@@ -730,7 +731,7 @@ class BuildTableTest(CIDBIntegrationTest):
     self.assertLess(10, bot_db.GetTimeToDeadline(build_id))
 
     build_id = bot_db.InsertBuild('build_name',
-                                  constants.WATERFALL_INTERNAL,
+                                  waterfall.WATERFALL_INTERNAL,
                                   _random(),
                                   'build_config',
                                   'bot_hostname',
@@ -740,7 +741,7 @@ class BuildTableTest(CIDBIntegrationTest):
     self.assertEqual(0, bot_db.GetTimeToDeadline(build_id))
 
     build_id = bot_db.InsertBuild('build_name',
-                                  constants.WATERFALL_INTERNAL,
+                                  waterfall.WATERFALL_INTERNAL,
                                   _random(),
                                   'build_config',
                                   'bot_hostname')
@@ -755,7 +756,7 @@ class BuildTableTest(CIDBIntegrationTest):
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
 
     build_id = bot_db.InsertBuild('build_name',
-                                  constants.WATERFALL_INTERNAL,
+                                  waterfall.WATERFALL_INTERNAL,
                                   _random(),
                                   'build_config',
                                   'bot_hostname')
@@ -768,7 +769,7 @@ class BuildTableTest(CIDBIntegrationTest):
     self.assertEqual(0, bot_db.GetTimeToDeadline(build_id))
 
     build_id = bot_db.InsertBuild('build_name',
-                                  constants.WATERFALL_INTERNAL,
+                                  waterfall.WATERFALL_INTERNAL,
                                   _random(),
                                   'build_config',
                                   'bot_hostname',
@@ -788,7 +789,7 @@ class BuildTableTest(CIDBIntegrationTest):
 
     tmp_buildbucket_id = 'tmp_buildbucket_id'
     build_id = bot_db.InsertBuild('build_name',
-                                  constants.WATERFALL_INTERNAL,
+                                  waterfall.WATERFALL_INTERNAL,
                                   _random(),
                                   'build_config',
                                   'bot_hostname',
@@ -806,7 +807,7 @@ class BuildTableTest(CIDBIntegrationTest):
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
 
     build_id = bot_db.InsertBuild('build_name',
-                                  constants.WATERFALL_INTERNAL,
+                                  waterfall.WATERFALL_INTERNAL,
                                   _random(),
                                   'build_config',
                                   'bot_hostname')
@@ -853,27 +854,27 @@ class BuildTableTest(CIDBIntegrationTest):
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
 
     build_id = bot_db.InsertBuild('build_name',
-                                  constants.WATERFALL_INTERNAL,
+                                  waterfall.WATERFALL_INTERNAL,
                                   _random(),
                                   'build_config',
                                   'bot_hostname')
 
     bot_db.InsertBuild('build_1',
-                       constants.WATERFALL_INTERNAL,
+                       waterfall.WATERFALL_INTERNAL,
                        _random(),
                        'build_1',
                        'bot_hostname',
                        master_build_id=build_id,
                        buildbucket_id='id_1')
     bot_db.InsertBuild('build_2',
-                       constants.WATERFALL_INTERNAL,
+                       waterfall.WATERFALL_INTERNAL,
                        _random(),
                        'build_2',
                        'bot_hostname',
                        master_build_id=build_id,
                        buildbucket_id='id_2')
     bot_db.InsertBuild('build_1',
-                       constants.WATERFALL_INTERNAL,
+                       waterfall.WATERFALL_INTERNAL,
                        _random(),
                        'build_1',
                        'bot_hostname',
@@ -904,7 +905,7 @@ class BuildTableTest(CIDBIntegrationTest):
   def _InsertBuildAndUpdateMetadata(self, bot_db, build_config, milestone,
                                     platform):
     build_id = bot_db.InsertBuild(build_config,
-                                  constants.WATERFALL_INTERNAL,
+                                  waterfall.WATERFALL_INTERNAL,
                                   _random(),
                                   build_config,
                                   'bot_hostname')
@@ -943,6 +944,33 @@ class BuildTableTest(CIDBIntegrationTest):
                                    starting_milestone_version=60)
     self.assertItemsEqual(r, ['9462.0.0'])
 
+  def testBuildHistory(self):
+    """Test Get operations on build history."""
+    self._PrepareDatabase()
+    bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
+    for _ in range(0, 3):
+      bot_db.InsertBuild('build_1',
+                         constants.WATERFALL_INTERNAL,
+                         _random(),
+                         'build_1',
+                         'bot_hostname')
+      bot_db.InsertBuild('build_2',
+                         constants.WATERFALL_INTERNAL,
+                         _random(),
+                         'build_2',
+                         'bot_hostname')
+    result = bot_db.GetBuildsHistory(['build_1', 'build_2'], -1)
+    self.assertEqual(len(result), 6)
+
+    result = bot_db.GetBuildsHistory(['build_3'], -1)
+    self.assertEqual(len(result), 0)
+
+    result = bot_db.GetBuildHistory('build_1', -1)
+    self.assertEqual(len(result), 3)
+
+    result = bot_db.GetBuildHistory('build_3', -1)
+    self.assertEqual(len(result), 0)
+
 
 class HWTestResultTableTest(CIDBIntegrationTest):
   """Tests for hwTestResultTable."""
@@ -953,12 +981,12 @@ class HWTestResultTableTest(CIDBIntegrationTest):
     self._PrepareDatabase()
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
     b_id_1 = bot_db.InsertBuild('build_name',
-                                constants.WATERFALL_INTERNAL,
+                                waterfall.WATERFALL_INTERNAL,
                                 _random(),
                                 'build_config',
                                 'bot_hostname')
     b_id_2 = bot_db.InsertBuild('build_name',
-                                constants.WATERFALL_INTERNAL,
+                                waterfall.WATERFALL_INTERNAL,
                                 _random(),
                                 'build_config',
                                 'bot_hostname')
@@ -987,11 +1015,71 @@ class HWTestResultTableTest(CIDBIntegrationTest):
     self.assertItemsEqual(bot_db.GetHWTestResultsForBuilds([3]), [])
 
 
-class CLActionTableTest(CIDBIntegrationTest, patch_unittest.MockPatchBase):
+class BuildRequestTableTest(CIDBIntegrationTest):
+  """Tests for BuildRequestTable."""
+
+  def testBuildRequests(self):
+    """Test insert and get operations on BuildRequestTable."""
+    self._PrepareDatabase()
+    bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
+
+    b_id_1 = bot_db.InsertBuild(
+        'pre_cq_launcher', constants.WATERFALL_INTERNAL, _random(),
+        'pre_cq_launcher', 'bot_hostname')
+
+    ts_now = datetime.datetime.now()
+    format_ts_now = ts_now.strftime('%Y-%m-%d %H:%M:%S')
+    ts_old = ts_now - datetime.timedelta(hours=2)
+    format_ts_old = ts_old.strftime('%Y-%m-%d %H:%M:%S')
+    ts_start = ts_now - datetime.timedelta(hours=1)
+    format_ts_start = ts_start.strftime('%Y-%m-%d %H:%M:%S')
+
+    bot_db.InsertBuildRequest(
+        b_id_1, 'test_pre_cq_1', 'sanity-pre-cq',
+        request_build_args='test_build_args_1',
+        request_buildbucket_id='test_bb_id_1',
+        timestamp=format_ts_old)
+    bot_db.InsertBuildRequest(
+        b_id_1, 'test_pre_cq_1', 'sanity-pre-cq',
+        request_build_args='test_build_args_2',
+        request_buildbucket_id='test_bb_id_2',
+        timestamp=format_ts_now)
+    bot_db.InsertBuildRequest(
+        b_id_1, 'test_pre_cq_2', 'sanity-pre-cq',
+        request_build_args='test_build_args_3',
+        request_buildbucket_id='test_bb_id_3',
+        timestamp=format_ts_now)
+
+    requests = bot_db.GetBuildRequestsForBuildConfig(
+        'test_pre_cq_1', num_results=1)
+    self.assertEqual(len(requests), 1)
+    self.assertEqual(requests[0].request_build_config, 'test_pre_cq_1')
+    self.assertEqual(requests[0].request_buildbucket_id, 'test_bb_id_2')
+
+    requests = bot_db.GetBuildRequestsForBuildConfig('test_pre_cq_1')
+    self.assertEqual(len(requests), 2)
+
+    requests = bot_db.GetBuildRequestsForBuildConfig('test_pre_cq_2')
+    self.assertEqual(len(requests), 1)
+    self.assertEqual(requests[0].request_build_config, 'test_pre_cq_2')
+    self.assertEqual(requests[0].request_buildbucket_id, 'test_bb_id_3')
+
+    requests = bot_db.GetBuildRequestsForBuildConfigs(
+        ['test_pre_cq_1', 'test_pre_cq_2'], num_results=10)
+    self.assertEqual(len(requests), 3)
+
+    requests = bot_db.GetBuildRequestsForBuildConfigs(
+        ['test_pre_cq_1', 'test_pre_cq_2'], start_time=format_ts_start,
+        num_results=10)
+    self.assertEqual(len(requests), 2)
+
+
+class CLActionTableTest(CIDBIntegrationTest):
   """Tests for CLActionTable."""
 
   def setUp(self):
-    self.changes = self.GetPatches(how_many=3)
+    self._patch_factory = patch_unittest.MockPatchFactory()
+    self.changes = self._patch_factory.GetPatches(how_many=3)
     self.actions = [
         clactions.CLAction.FromGerritPatchAndAction(
             self.changes[0], constants.CL_ACTION_PICKED_UP),
@@ -1022,12 +1110,12 @@ class CLActionTableTest(CIDBIntegrationTest, patch_unittest.MockPatchBase):
 
     # b_id_1 in flight status
     b_id_1 = bot_db.InsertBuild(
-        self.build_config_1, constants.WATERFALL_INTERNAL, _random(),
+        self.build_config_1, waterfall.WATERFALL_INTERNAL, _random(),
         self.build_config_1, 'bot_hostname', buildbucket_id='bb_id_1')
 
     # b_id_2 in pass status
     b_id_2 = bot_db.InsertBuild(
-        self.build_config_2, constants.WATERFALL_INTERNAL, _random(),
+        self.build_config_2, waterfall.WATERFALL_INTERNAL, _random(),
         self.build_config_2, 'bot_hostname', buildbucket_id='bb_id_2')
     bot_db.FinishBuild(b_id_2, status=constants.BUILDER_STATUS_PASSED)
 
@@ -1056,8 +1144,9 @@ class CLActionTableTest(CIDBIntegrationTest, patch_unittest.MockPatchBase):
     self._AssertAction(result[3], self.build_config_2, self.changes[1])
 
     # Test GetActionsForChanges with ignore_patch_number
-    change_1 = self.MockPatch(change_id=int(self.changes[0].gerrit_number),
-                              patch_number=10)
+    change_1 = self._patch_factory.MockPatch(
+        change_id=int(self.changes[0].gerrit_number),
+        patch_number=10)
     result = bot_db.GetActionsForChanges([change_1])
     self.assertEqual(len(result), 2)
     result = bot_db.GetActionsForChanges([change_1], ignore_patch_number=False)
@@ -1190,10 +1279,10 @@ def _SimulateBuildStart(db, metadata, master_build_id=None, important=None):
   # waterfall at the moment, for testing purposes. This is because we don't
   # actually save in the metadata.json any way to know which waterfall the
   # build was on.
-  waterfall = 'chromeos'
+  wfall = 'chromeos'
 
   build_id = db.InsertBuild(metadata_dict['builder-name'],
-                            waterfall,
+                            wfall,
                             metadata_dict['build-number'],
                             metadata_dict['bot-config'],
                             metadata_dict['bot-hostname'],

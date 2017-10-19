@@ -9,9 +9,7 @@ points in a test for potential regressions or improvements, and creates
 new Anomaly entities.
 """
 
-import json
 import logging
-import sys
 
 from google.appengine.ext import ndb
 
@@ -23,6 +21,7 @@ from dashboard.models import anomaly
 from dashboard.models import anomaly_config
 from dashboard.models import graph_data
 from dashboard.models import histogram
+from tracing.value.diagnostics import reserved_infos
 
 # Number of points to fetch and pass to FindChangePoints. A different number
 # may be used if a test has a "max_window_size" anomaly config parameter.
@@ -53,6 +52,12 @@ def _ProcessTest(test_key):
     test_key: The ndb.Key for a TestMetadata.
   """
   test = yield test_key.get_async()
+
+  sheriff = yield _GetSheriffForTest(test)
+  if not sheriff:
+    logging.error('No sheriff for %s', test_key)
+    raise ndb.Return(None)
+
   config = anomaly_config.GetAnomalyConfigDict(test)
   max_num_rows = config.get('max_window_size', DEFAULT_NUM_POINTS)
   rows = yield GetRowsToAnalyzeAsync(test, max_num_rows)
@@ -68,11 +73,6 @@ def _ProcessTest(test_key):
       test.last_alerted_revision = None
       yield test.put_async()
     logging.error('No rows fetched for %s', test.test_path)
-    raise ndb.Return(None)
-
-  sheriff = yield _GetSheriffForTest(test)
-  if not sheriff:
-    logging.error('No sheriff for %s', test_key)
     raise ndb.Return(None)
 
   # Get anomalies and check if they happen in ref build also.
@@ -197,7 +197,6 @@ def _FilterAnomaliesFoundInRef(change_points, test_key, num_rows):
   for c in change_points:
     # Log information about what anomaly got filtered and what did not.
     if not _IsAnomalyInRef(c, ref_change_points):
-      # TODO(qyearsley): Add test coverage. See catapult:#1346.
       logging.info('Nothing was filtered out for test %s, and revision %s',
                    test_path, c.x_value)
       change_points_filtered.append(c)
@@ -232,7 +231,6 @@ def _IsAnomalyInRef(change_point, ref_change_points):
   for ref_change_point in ref_change_points:
     if change_point.x_value == ref_change_point.x_value:
       return True
-  # TODO(qyearsley): Add test coverage. See catapult:#1346.
   return False
 
 
@@ -258,7 +256,6 @@ def _GetImmediatelyPreviousRevisionNumber(later_revision, rows):
   for row in reversed(rows):
     if row.revision < later_revision:
       return row.revision
-  # TODO(qyearsley): Add test coverage. See catapult:#1346.
   assert False, 'No matching revision found in |rows|.'
 
 
@@ -324,6 +321,17 @@ def _MakeAnomalyEntity(change_point, test, rows):
     display_start, display_end = _GetDisplayRange(change_point.x_value, rows)
   median_before = change_point.median_before
   median_after = change_point.median_after
+
+  queried_diagnostics = histogram.SparseDiagnostic.GetMostRecentValuesByNames(
+      test.key, set([reserved_infos.BUG_COMPONENTS.name,
+                     reserved_infos.OWNERS.name]))
+
+  bug_components = queried_diagnostics.get(reserved_infos.BUG_COMPONENTS.name)
+
+  ownership_information = {
+      'emails': queried_diagnostics.get(reserved_infos.OWNERS.name),
+      'component': (bug_components[0] if bug_components else None)}
+
   return anomaly.Anomaly(
       start_revision=start_rev,
       end_revision=end_rev,
@@ -344,8 +352,7 @@ def _MakeAnomalyEntity(change_point, test, rows):
       units=test.units,
       display_start=display_start,
       display_end=display_end,
-      ownership=GetMostRecentDiagnosticData(test.key, 'Ownership'))
-
+      ownership=ownership_information)
 
 def FindChangePointsForTest(rows, config_dict):
   """Gets the anomaly data from the anomaly detection module.
@@ -379,28 +386,3 @@ def _IsImprovement(test, median_before, median_after):
       test.improvement_direction == anomaly.DOWN):
     return True
   return False
-
-
-def GetMostRecentDiagnosticData(test_key, diagnostic_type):
-  """Gets the data in the latest sparse diagnostic for the given
-     diagnostic type.
-
-  Args:
-    test_key: The TestKey entity to lookup the diagnostics by
-    diagnostic_type: The type of the diagnostics being looked up
-
-  Returns:
-    A JSON containing the diagnostic's data.
-    None if no diagnostics of the given type are found.
-  """
-
-  diagnostics = histogram.SparseDiagnostic.query(ndb.AND(
-      histogram.SparseDiagnostic.end_revision == sys.maxint,
-      histogram.SparseDiagnostic.test == test_key)).fetch()
-
-  for diagnostic in diagnostics:
-    diagnostic_data = json.loads(diagnostic.data)
-    if diagnostic_data['type'] == diagnostic_type:
-      return diagnostic_data
-
-  return None

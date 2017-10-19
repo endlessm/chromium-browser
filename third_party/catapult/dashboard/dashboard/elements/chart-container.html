@@ -36,11 +36,8 @@ triaging functionality in the chart.
     #container {
       width: 100%;
       display: flex;
-      display: -webkit-flex;
       flex-direction: column;
-      -webkit-flex-direction: column;
       align-items: center;
-      -webkit-align-items: center;
       position: relative;
       min-width: 845px;  /* Minimum width of plot plus width of chart-legend. */
     }
@@ -51,7 +48,6 @@ triaging functionality in the chart.
 
     #horizontal {
       display: flex;
-      display: -webkit-flex;
       width: 100%;
       position: relative;
     }
@@ -69,15 +65,12 @@ triaging functionality in the chart.
     }
 
     #plots-container {
-      -webkit-flex-grow: 1;
       flex-grow: 1;
-      display: -webkit-flex;
+      display: flex;
       flex-direction: column;
-      -webkit-flex-direction: column;
     }
 
     #plot {
-      -webkit-flex-grow: 1;
       flex-grow: 1;
       height: 240px;
       min-width: 500px;
@@ -111,11 +104,8 @@ triaging functionality in the chart.
       width: 100%;
       height: 100%;
       display: flex;
-      display: -webkit-flex;
       align-items: center;
-      -webkit-align-items: center;
       justify-content: center;
-      -webkit-justify-content: center;
     }
 
     #alert-icon-container {
@@ -1608,7 +1598,7 @@ triaging functionality in the chart.
          * at all the charts, even ones that are not plotted, so that the gaps
          * are accounted for accurately.
          *
-         * TODO(qyearsley): This function has at least two separate
+         * This function has at least two separate
          * responsibilities: constructing this.revisionMap and actually
          * changing the X-values. These could be separated out.
          *
@@ -2067,8 +2057,6 @@ triaging functionality in the chart.
         /**
          * Displays a tooltip for the given point on the graph.
          *
-         * TODO(qyearsley): Refactor. See catapult:#1348.
-         *
          * NOTE: Instead of taking lists of alerts and triaged alerts, it
          * would be possible for this function to just take one alert, since
          * there should never generally be more than one alert at one point.
@@ -2150,27 +2138,19 @@ triaging functionality in the chart.
             this.$.tooltip.recovered = annotation.g_anomaly.recovered;
           }
 
-          const traceRerunInfo = [];
-          if (annotation.a_trace_rerun_options) {
-            for (const i in annotation.a_trace_rerun_options) {
-              const currentOption = annotation.a_trace_rerun_options[i];
-              traceRerunInfo.push({
-                'name': i,
-                'option': currentOption
-              });
-            }
-          } else {
-            traceRerunInfo.push({
-              'name': 'Default Trace Profiler',
-              'option': '--profiler=trace'
-            });
-          }
           this.$.tooltip.bisectInfo = {
             canBisect: series.can_bisect,
             badRev: this.getRevisionForBisect(jsonSeriesIndex, dataIndex),
             goodRev: this.getRevisionForBisect(jsonSeriesIndex, dataIndex - 1),
-            testPath: series.path,
-            traceRerunInfo
+            badRevHash: this.getDefaultRevisionGitHash(
+                jsonSeriesIndex, dataIndex),
+            goodRevHash: this.getDefaultRevisionGitHash(
+                jsonSeriesIndex, dataIndex - 1),
+            badRevRepo: this.getDefaultRevisionRepository(
+                jsonSeriesIndex, dataIndex),
+            goodRevRepo: this.getDefaultRevisionRepository(
+                jsonSeriesIndex, dataIndex - 1),
+            testPath: series.path
           };
 
           // Un-hide and position the tooltip box.
@@ -2197,6 +2177,40 @@ triaging functionality in the chart.
           this.$.tooltip.recovered = null;
           this.$.tooltip.timestamp = null;
           this.$.tooltip.bisectInfo = null;
+        },
+
+        getDefaultRevisionRepository(jsonSeriesIndex, dataIndex) {
+          // If the data point contains a default revision type, use that.
+          const annotation = this.json.annotations[jsonSeriesIndex][dataIndex];
+          if (!annotation) {
+            return null;
+          }
+
+          let defaultRevType = 'r_chromium';
+          if ('a_default_rev' in annotation) {
+            defaultRevType = annotation.defaultRevType;
+          }
+
+          return defaultRevType.split('r_')[1];
+        },
+
+        getDefaultRevisionGitHash(jsonSeriesIndex, dataIndex) {
+          // If the data point contains a default revision type, use that.
+          const annotation = this.json.annotations[jsonSeriesIndex][dataIndex];
+          if (!annotation) {
+            return null;
+          }
+
+          let defaultRevType = 'r_chromium';
+          if ('a_default_rev' in annotation) {
+            defaultRevType = annotation.defaultRevType;
+          }
+
+          if (defaultRevType in annotation) {
+            return annotation[defaultRevType];
+          }
+
+          return null;
         },
 
         /**
@@ -2264,7 +2278,7 @@ triaging functionality in the chart.
               });
             } else if (key == 'a_tracing_uri') {
               links.push({
-                'text': 'Trace',
+                'text': 'View trace from this run',
                 'url': annotation.a_tracing_uri
               });
             } else if (key.indexOf('a_') === 0) {
@@ -2669,8 +2683,52 @@ triaging functionality in the chart.
 
         listeners: {
           drop: 'onDrop',
-          dragover: 'allowDrop'
-        }
+          dragover: 'allowDrop',
+          populateTestPicker: 'populateTestPicker_',
+        },
+
+        populateTestPicker_(event) {
+          // chart-container is contained in both report-page, which has a
+          // test-picker, and group-report-page, which does not.
+          // Allow this event to bubble up to report-page to populate its
+          // test-picker.
+          // Also fire openReportPage to allow group-report-page to open /report
+          // in a new window.
+
+          const query = {
+            masters: new Set(),
+            bots: new Set(),
+            tests: new Set(),
+            checked: new Set(),
+          };
+
+          for (const testPath of event.srcElement.getTestPaths()) {
+            const parts = testPath.split('/');
+            query.masters.add(parts[0]);
+            query.bots.add(parts[1]);
+            query.tests.add(parts.slice(2).join('/'));
+          }
+
+          for (const seriesGroup of this.seriesGroupList) {
+            for (const test of seriesGroup.tests) {
+              if (!test.selected) continue;
+              query.checked.add(test.name);
+            }
+          }
+
+          query.start_rev = [this.$.slider.startrev];
+          query.end_rev = [this.$.slider.endrev];
+
+          const queryParts = [];
+          for (const [name, value] of Object.entries(query)) {
+            const encodedValue = window.encodeURIComponent(
+                Array.from(value).join(','));
+            queryParts.push(name + '=' + encodedValue);
+          }
+
+          const url = window.location.origin + '/report?' + queryParts.join('&');
+          this.fire('openReportPage', {url});
+        },
       });
     })();
   </script>

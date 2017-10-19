@@ -268,9 +268,9 @@ class GsPathsChromeosReleasesTest(cros_test_lib.TestCase):
                                           bucket=self.bucket),
         self._Populate(self._GS_IMAGE_PATH_TEMPLATE))
 
-  def testUnsignedImageArchiveUri(self):
+  def testUnsignedImageUri(self):
     self.assertEquals(
-        gspaths.ChromeosReleases.UnsignedImageArchiveUri(
+        gspaths.ChromeosReleases.UnsignedImageUri(
             self.channel, self.board, self.version, self.milestone,
             self.unsigned_image_type, bucket=self.bucket),
         self._Populate(self._GS_UNSIGNED_IMAGE_ARCHIVE_PATH_TEMPLATE))
@@ -331,7 +331,7 @@ class GsPathsChromeosReleasesTest(cros_test_lib.TestCase):
     bad_image = gspaths.ChromeosReleases.ParseImageUri(signer_output)
     self.assertEqual(bad_image, None)
 
-  def testParseUnsignedImageArchiveUri(self):
+  def testParseUnsignedImageUri(self):
     attr_dict = dict(self.unsigned_image_archive_attrs)
     attr_dict['uri'] = uri = (
         self._GS_UNSIGNED_IMAGE_ARCHIVE_PATH_TEMPLATE % attr_dict)
@@ -347,7 +347,7 @@ class GsPathsChromeosReleasesTest(cros_test_lib.TestCase):
         expected.board, expected.version, expected.milestone,
         expected.image_type)
 
-    image = gspaths.ChromeosReleases.ParseUnsignedImageArchiveUri(uri)
+    image = gspaths.ChromeosReleases.ParseUnsignedImageUri(uri)
     self.assertEqual(image, expected)
     self.assertEqual(str(image), expected_str)
 
@@ -504,8 +504,6 @@ class GsPathsChromeosReleasesTest(cros_test_lib.TestCase):
                                        key=self.key),
             'src_image': None,
             'uri': full_uri,
-            'labels': [],
-            'skip': False,
             'exists': False
         })
 
@@ -520,8 +518,6 @@ class GsPathsChromeosReleasesTest(cros_test_lib.TestCase):
                                        version=self.version,
                                        key=self.key),
             'uri': delta_uri,
-            'labels': [],
-            'skip': False,
             'exists': False
         })
 
@@ -537,8 +533,6 @@ class GsPathsChromeosReleasesTest(cros_test_lib.TestCase):
                                        image_channel='image-channel'),
             'src_image': None,
             'uri': max_full_uri,
-            'labels': [],
-            'skip': False,
             'exists': False
         })
 
@@ -557,8 +551,6 @@ class GsPathsChromeosReleasesTest(cros_test_lib.TestCase):
                                        image_version=image_version,
                                        image_channel='image-channel'),
             'uri': max_delta_uri,
-            'labels': [],
-            'skip': False,
             'exists': False
         })
 

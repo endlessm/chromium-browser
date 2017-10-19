@@ -7,12 +7,12 @@
 
 #include <stddef.h>
 
-#include <deque>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "base/containers/circular_deque.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
@@ -59,7 +59,8 @@ using MovableOnDestroyCallbackHolder =
 
 // Asserts that the current task is sequenced with any other task that calls
 // this.
-void WALLPAPER_EXPORT AssertCalledOnWallpaperSequence();
+void WALLPAPER_EXPORT
+AssertCalledOnWallpaperSequence(base::SequencedTaskRunner* task_runner);
 
 class WallpaperManagerBrowserTest;
 
@@ -420,8 +421,7 @@ class WALLPAPER_EXPORT WallpaperManagerBase {
   virtual void ClearDisposableWallpaperCache();
 
   // Deletes all |account_id| related custom wallpapers and directories.
-  virtual void DeleteUserWallpapers(const AccountId& account_id,
-                                    const std::string& path_to_file);
+  virtual void DeleteUserWallpapers(const AccountId& account_id);
 
   // Gets the CommandLine representing the current process's command line.
   virtual base::CommandLine* GetCommandLine();
@@ -555,6 +555,9 @@ class WALLPAPER_EXPORT WallpaperManagerBase {
   // Record the Wallpaper App that the user is using right now on Chrome OS.
   virtual void RecordWallpaperAppType() = 0;
 
+  // Returns true if wallpaper files id can be returned successfully.
+  virtual bool CanGetWallpaperFilesId() const = 0;
+
   // Returns wallpaper subdirectory name for current resolution.
   virtual const char* GetCustomWallpaperSubdirForCurrentResolution();
 
@@ -597,7 +600,7 @@ class WALLPAPER_EXPORT WallpaperManagerBase {
   base::Time last_load_finished_at_;
 
   // last N wallpaper loads times.
-  std::deque<base::TimeDelta> last_load_times_;
+  base::circular_deque<base::TimeDelta> last_load_times_;
 
   base::FilePath default_small_wallpaper_file_;
   base::FilePath default_large_wallpaper_file_;

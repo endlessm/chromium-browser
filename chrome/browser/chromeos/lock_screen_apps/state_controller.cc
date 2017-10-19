@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "ash/public/interfaces/constants.mojom.h"
+#include "ash/wm/window_animations.h"
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -28,7 +29,9 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
+#include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "components/session_manager/core/session_manager.h"
+#include "components/user_manager/user.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/service_manager_connection.h"
 #include "crypto/symmetric_key.h"
@@ -136,6 +139,16 @@ void StateController::Initialize() {
 }
 
 void StateController::SetPrimaryProfile(Profile* profile) {
+  const user_manager::User* user =
+      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
+  if (!user || !user->HasGaiaAccount()) {
+    if (!ready_callback_.is_null()) {
+      ready_callback_.Run();
+      ready_callback_.Reset();
+    }
+    return;
+  }
+
   g_browser_process->profile_manager()->CreateProfileAsync(
       chromeos::ProfileHelper::GetLockScreenAppProfilePath(),
       base::Bind(&StateController::OnProfilesReady,
@@ -165,8 +178,15 @@ void StateController::OnProfilesReady(Profile* primary_profile,
                                       Profile::CreateStatus status) {
   // Ignore CREATED status - wait for profile to be initialized before
   // continuing.
-  if (status == Profile::CREATE_STATUS_CREATED)
+  if (status == Profile::CREATE_STATUS_CREATED) {
+    // Disable safe browsing for the profile to avoid activating
+    // SafeBrowsingService when the user has safe browsing disabled (reasoning
+    // similar to http://crbug.com/461493).
+    // TODO(tbarzic): Revisit this if webviews get enabled for lock screen apps.
+    lock_screen_profile->GetPrefs()->SetBoolean(prefs::kSafeBrowsingEnabled,
+                                                false);
     return;
+  }
 
   // On error, bail out - this will cause the lock screen apps to remain
   // unavailable on the device.
@@ -480,8 +500,14 @@ void StateController::ResetNoteTakingWindowAndMoveToNextState(
     if (focus_cycler_delegate_)
       focus_cycler_delegate_->UnregisterLockScreenAppFocusHandler();
 
-    if (close_window && note_app_window_->GetBaseWindow())
+    if (close_window && note_app_window_->GetBaseWindow()) {
+      // Whenever we close the window we want to immediately hide it without
+      // animating, as the underlying UI implements a special animation. If we
+      // also animate the window the animations will conflict.
+      ::wm::SetWindowVisibilityAnimationTransition(
+          note_app_window_->GetNativeWindow(), ::wm::ANIMATE_NONE);
       note_app_window_->GetBaseWindow()->Close();
+    }
     note_app_window_ = nullptr;
   }
 

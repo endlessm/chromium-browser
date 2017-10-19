@@ -12,96 +12,41 @@ found in the LICENSE file.
 <dom-module id="navigation-bar">
   <template>
     <style>
-      #navbar {
-        width: 100%;
-      }
-
-      #navbar ul {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-        border: 0;
-        font-size: 100%;
-        font: inherit;
-        vertical-align: baseline;
-        z-index: 1000;
-        margin-left: -10px; /* Ignore body's padding left. */
-        padding-right: 20px; /* Ignore body's padding right. */
-      }
-
-      #navbar > ul {
+      nav {
+        background-color: var(--paper-indigo-500);
         display: flex;
-        display: -webkit-flex;
+        font-weight: bold;
         width: 100%;
-        background-color: #2D2D2D;
-        border-bottom: black;
-        margin-bottom: 6px;
       }
 
-      #navbar li {
-        padding: 6px 10px;
+      nav a:last-child {
+          margin-left: auto;
       }
 
-      #navbar li > a {
-        cursor: pointer;
+      a {
+        color: var(--paper-indigo-50);
+        padding: 0.8em;
         text-decoration: none;
       }
 
-      #navbar > ul > li, #navbar > ul > li > a {
-        color: #ddd;
-        font-weight: bold;
-      }
-
-      /* The addition of the icons to the <iron-icon> elements to the submenus
-       * makes the submenu title text lower; the below style rule is intended
-       * to align the other menu items. */
-      #navbar .menu > li a {
-        display: inline-block;
-        padding-top: 3px;
-      }
-
-      /* This is a spacer in the navbar list that pushes the items after it
-       * all the way to the right side. */
-      .spacer {
-        flex: 100;
-      }
-
-      #navbar .menu li:hover > ul {
-        margin-top: 6px;
-        background-color: #2D2D2D;
-        border: 1px solid rgba(0, 0, 0, .2);
-      }
-
-      #navbar li:hover, #navbar a:hover {
+      a:hover {
         color: white;
       }
-
-      /* Basic select menus. */
-      .menu ul {
-        display: none;
-      }
-
-      .menu li:hover > ul {
-        display: block;
-        position: absolute;
-      }
     </style>
-    <nav id="navbar">
-      <ul class="menu">
-        <li><a href="/">Pinpoint</a></li>
-        <li><a href="/jobs">Jobs</a></li>
-        <li><a href="/new">Create Job</a></li>
-        <li><a href="https://github.com/catapult-project/catapult/tree/master/dashboard/dashboard/pinpoint">Pinpoint in Github</a></li>
 
-        <li class="spacer"></li>
-        <li><a href$="{{loginUrl}}" title="switch user">{{displayUsername}}</a></li>
-      </ul>
+    <nav id="navbar">
+      <a href="/">Pinpoint</a>
+      <a href="/new">New job</a>
+      <a href="https://github.com/catapult-project/catapult/tree/master/dashboard/dashboard/pinpoint" target="_blank">Documentation</a>
+      <a href$="[[loginUrl]]" title="Switch user">[[displayUsername]]</a>
     </nav>
   </template>
+
   <script>
     'use strict';
     Polymer({
       is: 'navigation-bar',
+
       ready() {
         simple_xhr.send('/api/login',
                         {'path': location.pathname + location.search},

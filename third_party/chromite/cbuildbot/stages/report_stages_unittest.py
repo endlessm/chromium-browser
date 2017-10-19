@@ -19,6 +19,7 @@ from chromite.cbuildbot import topology
 from chromite.cbuildbot import topology_unittest
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import report_stages
+from chromite.lib.const import waterfall
 from chromite.lib import alerts
 from chromite.lib import cidb
 from chromite.lib import constants
@@ -77,7 +78,7 @@ class BuildReexecutionStageTest(generic_stages_unittest.AbstractStageTestCase):
     """Test that master/slave version mismatch causes failure."""
     master_release_tag = '9999.0.0-rc1'
     master_build_id = self.fake_db.InsertBuild(
-        'master', constants.WATERFALL_INTERNAL, 2, 'master config',
+        'master', waterfall.WATERFALL_INTERNAL, 2, 'master config',
         'master hostname')
     master_metadata = metadata_lib.CBuildbotMetadata()
     master_metadata.UpdateKeyDictWithDict(
@@ -130,7 +131,7 @@ class SlaveFailureSummaryStageTest(
         failure_message_lib_unittest.StageFailureHelper.CreateStageFailure(
             build_id=10,
             build_stage_id=11,
-            waterfall=constants.WATERFALL_EXTERNAL,
+            waterfall=waterfall.WATERFALL_EXTERNAL,
             builder_name='builder_name',
             build_number=12,
             build_config='build-config',
@@ -150,10 +151,10 @@ class BuildStartStageTest(generic_stages_unittest.AbstractStageTestCase):
     self.db = fake_cidb.FakeCIDBConnection()
     cidb.CIDBConnectionFactory.SetupMockCidb(self.db)
     retry_stats.SetupStats()
-    os.environ['BUILDBOT_MASTERNAME'] = constants.WATERFALL_EXTERNAL
+    os.environ['BUILDBOT_MASTERNAME'] = waterfall.WATERFALL_EXTERNAL
 
     master_build_id = self.db.InsertBuild(
-        'master_build', constants.WATERFALL_EXTERNAL, 1,
+        'master_build', waterfall.WATERFALL_EXTERNAL, 1,
         'master_build_config', 'bot_hostname')
 
     self.PatchObject(toolchain, 'GetToolchainsForBoard')
@@ -178,7 +179,7 @@ class BuildStartStageTest(generic_stages_unittest.AbstractStageTestCase):
   def testSuiteSchedulingEqualsFalse(self):
     """Test that a run of the stage makes suite_scheduling False."""
     # Test suite_scheduling for **-paladin
-    self._Prepare(bot_id='x86-generic-paladin')
+    self._Prepare(bot_id='amd64-generic-paladin')
     self.RunStage()
     self.assertFalse(self._run.attrs.metadata.GetValue('suite_scheduling'))
 
@@ -422,18 +423,6 @@ class ReportStageTest(AbstractReportStageTestCase):
         child_configs, config_status_map)
     self.assertEqual(expected, child_config_list)
 
-  def testIsSheriffOMaticDispatchBuildTrue(self):
-    """Test IsSheriffOMaticDispatchBuild with important build."""
-    os.environ['BUILDBOT_MASTERNAME'] = constants.WATERFALL_INTERNAL
-    self._Prepare('master-paladin')
-    stage = self.ConstructStage()
-    self.assertEqual(stage.IsSheriffOMaticDispatchBuild(), 'chromeos')
-
-  def testIsSheriffOMaticImportantBuild(self):
-    """Test IsSheriffOMaticImportantBuild with unimportant build."""
-    stage = self.ConstructStage()
-    self.assertIsNone(stage.IsSheriffOMaticDispatchBuild())
-
   def testPerformStage(self):
     """Test PerformStage."""
     mock_sd = self.PatchObject(metrics, 'SecondsDistribution')
@@ -473,12 +462,12 @@ class ReportStageNoSyncTest(AbstractReportStageTestCase):
 
 
 class DetectRelevantChangesStageTest(
-    generic_stages_unittest.AbstractStageTestCase,
-    patch_unittest.MockPatchBase):
+    generic_stages_unittest.AbstractStageTestCase):
   """Test the DetectRelevantChangesStage."""
 
   def setUp(self):
-    self.changes = self.GetPatches(how_many=2)
+    self._patch_factory = patch_unittest.MockPatchFactory()
+    self.changes = self._patch_factory.GetPatches(how_many=2)
 
     self._Prepare()
 

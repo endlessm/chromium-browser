@@ -129,7 +129,7 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         try:
           for line in self.device.adb.ForwardList().splitlines():
             logging.warning('  %s', line)
-        except Exception:
+        except Exception: # pylint: disable=broad-except
           logging.warning('Exception raised while listing forwarded '
                           'connections.')
 
@@ -137,7 +137,7 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         try:
           for line in subprocess.check_output(['netstat', '-t']).splitlines():
             logging.warning('  %s', line)
-        except Exception:
+        except Exception: # pylint: disable=broad-except
           logging.warning('Exception raised while listing tcp ports.')
 
         logging.warning('Device unix domain sockets in use:')
@@ -145,14 +145,13 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
           for line in self.device.ReadFile('/proc/net/unix', as_root=True,
                                            force_pull=True).splitlines():
             logging.warning('  %s', line)
-        except Exception:
+        except Exception: # pylint: disable=broad-except
           logging.warning('Exception raised while listing unix domain sockets.')
 
         raise
 
       try:
-        self._WaitForBrowserToComeUp()
-        self._InitDevtoolsClientBackend(remote_devtools_port)
+        self._WaitForBrowserToComeUp(remote_devtools_port)
       except exceptions.BrowserGoneException:
         logging.critical('Failed to connect to browser.')
         if not (self.device.HasRoot() or self.device.NeedsSU()):
@@ -202,6 +201,13 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     args.append('--enable-remote-debugging')
     args.append('--disable-fre')
     args.append('--disable-external-intent-requests')
+    # Specifies the user profile directory, a prerequisite for
+    # --ignore-certificate-errors-spki-list, which allows Chrome to selectively
+    # bypass cert errors while exercising HTTP disk cache and avoiding
+    # re-establishing socket connections.
+    args.append('--user-data-dir=' +
+                self.platform_backend.GetProfileDir(
+                    self._backend_settings.package))
     return args
 
   def ForceJavaHeapGarbageCollection(self):

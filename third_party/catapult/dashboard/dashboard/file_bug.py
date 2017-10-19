@@ -55,14 +55,9 @@ class FileBugHandler(request_handler.RequestHandler):
       HTML, using the template 'bug_result.html'.
     """
     if not utils.IsValidSheriffUser():
-      # TODO(qyearsley): Simplify this message (after a couple months).
       self.RenderHtml('bug_result.html', {
-          'error': ('You must be logged in with a chromium.org account '
-                    'in order to file bugs here! This is the case ever '
-                    'since we switched to the Monorail issue tracker. '
-                    'Note, viewing internal data should work for Googlers '
-                    'that are logged in with the Chromium accounts. See '
-                    'https://github.com/catapult-project/catapult/issues/2042')
+          'error': 'You must be logged in with a chromium.org account '
+                   'to file bugs.'
       })
       return
 
@@ -92,10 +87,7 @@ class FileBugHandler(request_handler.RequestHandler):
     """
     alert_keys = [ndb.Key(urlsafe=k) for k in urlsafe_keys.split(',')]
     labels, components = _FetchLabelsAndComponents(alert_keys)
-    owner_emails, owner_component = _FetchOwnersEmailsAndComponent(alert_keys)
-
-    if owner_component:
-      components.add(owner_component)
+    owner_components = _FetchBugComponents(alert_keys)
 
     self.RenderHtml('bug_result.html', {
         'bug_create_form': True,
@@ -103,8 +95,8 @@ class FileBugHandler(request_handler.RequestHandler):
         'summary': summary,
         'description': description,
         'labels': labels,
-        'components': components,
-        'owner': owner_emails,
+        'components': components.union(owner_components),
+        'owner': '',
         'cc': users.get_current_user(),
     })
 
@@ -237,24 +229,22 @@ def _FetchLabelsAndComponents(alert_keys):
         labels.add(item)
   return labels, components
 
-def _FetchOwnersEmailsAndComponent(alert_keys):
-  """Fetches the emails and the component defined for the benchmark's ownership
-     stored in the most recent ownership alert of the given path.
+def _FetchBugComponents(alert_keys):
+  """Fetches the ownership bug components of the most recent alert on a per-test
+     path basis from the given alert keys.
   """
   alerts = ndb.get_multi(alert_keys)
   sorted_alerts = reversed(sorted(alerts, key=lambda alert: alert.timestamp))
 
-  emails = ''
-  component = None
+  most_recent_components = {}
 
-  for selected_alert in sorted_alerts:
-    if selected_alert.ownership:
-      component = selected_alert.ownership.get('component')
-      if selected_alert.ownership.get('emails'):
-        emails = ', '.join(selected_alert.ownership['emails'])
-      break
+  for alert in sorted_alerts:
+    alert_test = alert.test.id()
+    if (alert.ownership and alert.ownership.get('component') and
+        most_recent_components.get(alert_test) is None):
+      most_recent_components[alert_test] = alert.ownership['component']
 
-  return emails, component
+  return set(most_recent_components.values())
 
 def _MilestoneLabel(alerts):
   """Returns a milestone label string, or None.

@@ -14,6 +14,7 @@ from chromite.cbuildbot import build_status
 from chromite.cbuildbot import build_status_unittest
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import repository
+from chromite.lib.const import waterfall
 from chromite.lib import builder_status_lib
 from chromite.lib import buildbucket_lib
 from chromite.lib import build_failure_message
@@ -169,7 +170,7 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
     self.manifest_repo = 'ssh://manifest/repo'
     self.version_file = 'version-file.sh'
     self.branch = 'master'
-    self.build_names = ['x86-generic-paladin']
+    self.build_names = ['amd64-generic-paladin']
     self.incr_type = 'branch'
     # Change default to something we clean up.
     self.tmpmandir = os.path.join(self.tempdir, 'man')
@@ -203,7 +204,7 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
   def testPublishManifestCommitMessageWithBuildId(self):
     """Tests that PublishManifest writes a build id."""
     self.manager = self.BuildManager()
-    expected_message = ('Automatic: Start x86-generic-paladin master 1\n'
+    expected_message = ('Automatic: Start amd64-generic-paladin master 1\n'
                         'CrOS-Build-Id: %s' % MOCK_BUILD_ID)
     push_mock = self.PatchObject(self.manager, 'PushSpecChanges')
 
@@ -222,7 +223,7 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
   def testPublishManifestCommitMessageWithNegativeBuildId(self):
     """Tests that PublishManifest doesn't write a negative build_id"""
     self.manager = self.BuildManager()
-    expected_message = 'Automatic: Start x86-generic-paladin master 1'
+    expected_message = 'Automatic: Start amd64-generic-paladin master 1'
     push_mock = self.PatchObject(self.manager, 'PushSpecChanges')
 
     info = manifest_version.VersionInfo(
@@ -240,7 +241,7 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
   def testPublishManifestCommitMessageWithNoneBuildId(self):
     """Tests that PublishManifest doesn't write a non-existant build_id"""
     self.manager = self.BuildManager()
-    expected_message = 'Automatic: Start x86-generic-paladin master 1'
+    expected_message = 'Automatic: Start amd64-generic-paladin master 1'
     push_mock = self.PatchObject(self.manager, 'PushSpecChanges')
 
     info = manifest_version.VersionInfo(
@@ -468,7 +469,7 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
     statuses = self._GetBuildersStatus(
         ['build1', 'build2'], status_runs, experimental_builders_runs)
 
-    self.assertNotIn('build1', statuses)
+    self.assertTrue(statuses['build1'].Inflight())
     self.assertTrue(statuses['build2'].Passed())
 
   def testGetBuildersStatusLoop(self):
@@ -504,7 +505,7 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
     if config is None:
       config = config_lib.BuildConfig(
           name='master-release', master=True,
-          active_waterfall=constants.WATERFALL_INTERNAL)
+          active_waterfall=waterfall.WATERFALL_INTERNAL)
 
     if metadata is None:
       metadata = metadata_lib.CBuildbotMetadata()

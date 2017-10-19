@@ -143,27 +143,20 @@ histogram.addSample(number, {name: diagnostic})
  * [DateRange](/tracing/tracing/value/diagnostics/date_range.html):
    This is a Range of Dates. It cannot be empty, but the minDate could be the
    same as the maxDate. Telemetry automatically adds 2 shared DateRanges to all
-   results: 'benchmark start' and 'trace start'.
+   results: 'benchmarkStart' and 'traceStart'.
 
    ![](/docs/images/how-to-write-metrics-date-range.png)
 
 ### Histogram Relationship Diagnostics
 
- * [RelatedHistogramSet](/tracing/tracing/value/diagnostics/related_histogram_set.html):
-   These are Sets of references to other Histograms. Visually, they are a set
-   of HTML links which, when clicked, select the contained Histograms. The text
-   content of the HTML link is the name of the referenced Histogram.
-
-   ![](/docs/images/how-to-write-metrics-related-histogram-set.png)
-
  * [RelatedHistogramMap](/tracing/tracing/value/diagnostics/related_histogram_map.html):
    These are Maps from strings to references to other Histograms. Visually, they
-   are a set of HTML links similar to RelatedHistogramSet, but the text content of
-   the link is the Map's string key instead of the Histogram's name. One example
-   application is when a Histogram was produced not directly by a metric, but
-   rather by merging together other Histograms, then it will have a
-   RelatedHistogramMap named 'merged from' that refers to the Histograms that were
-   merged by their grouping key, e.g. the telemetry story name.
+   are a set of HTML links where the text content of the link is the Map's
+   string key instead of the Histogram's name. One example application is when a
+   Histogram was produced not directly by a metric, but rather by merging
+   together other Histograms, then it will have a RelatedHistogramMap named
+   'mergedFrom' that refers to the Histograms that were merged by their grouping
+   key, e.g. the telemetry story name.
 
    ![](/docs/images/how-to-write-metrics-related-histogram-map.png)
 
@@ -176,50 +169,6 @@ histogram.addSample(number, {name: diagnostic})
 
    ![](/docs/images/how-to-write-metrics-related-histogram-breakdown.png)
 
-### Environment Information Diagnostics
-
- * [TelemetryInfo](/tracing/tracing/value/diagnostics/telemetry_info.html):
-   This is automatically attached to every Histogram produced by telemetry.
-   Structurally, it's a class with explicit named fields.
-   Conceptually, it contains information about the origins of the trace that was
-   consumed by the metric that produced the Histogram, such as the benchmark
-   name, story name, benchmark start timestamp, etc.
-   Visually, TelemetryInfos are displayed as a table.
-
-   ![](/docs/images/how-to-write-metrics-telemetry.png)
-
- * [DeviceInfo](/tracing/tracing/value/diagnostics/device_info.html):
-   This is automatically attached to every Histogram produced by buildbots.
-   Structurally, it's a class with explicit named fields. Conceptually, it
-   contains information about the machine that produced the trace that was
-   consumed by the metric that produced the Histogram, such as the OS version,
-   Chrome version, etc. Visually, DeviceInfos are displayed as a table.
-
-   ![](/docs/images/how-to-write-metrics-device.png)
-
- * [RevisionInfo](/tracing/tracing/value/diagnostics/revision_info.html):
-   This is automatically attached to every Histogram produced by telemetry.
-   Structurally, it's a class with explicit named fields. Conceptually, it
-   contains ranges of revisions of the software used to produce the trace that
-   was consumed by the metric that produced the Histogram, such as the Chromium
-   revision, v8 revision, and catapult revision. Visually, RevisionInfos are
-   displayed as a table.
-
-   ![](/docs/images/how-to-write-metrics-revision.png)
-
- * [BuildbotInfo](/tracing/tracing/value/diagnostics/buildbot_info.html):
-   This is automatically attached to every Histogram produced by Chrome's
-   performance testing buildbots. Structurally, it's a class with explicit named
-   fields. Conceptually, it contains information about the buildbot process that
-   ran telemetry. Visually, it is displayed as a table.
-
-   ![](/docs/images/how-to-write-metrics-buildbot.png)
-
- * [Ownership](/tracing/tracing/value/diagnostics/ownership.html):
-   This is automatically attached to every Histogram produced by Temeletry.
-   Structurally, it's a class with explicit named fields. Conceptually, it
-   contains information about the owners of benchmarks run by Telemetry, such
-   as the owners' emails addresses and Monorail component.
 
 ### Other Diagnostics
 
@@ -229,9 +178,74 @@ histogram.addSample(number, {name: diagnostic})
    unitted number. This is only to allow Histograms in other parts of the trace
    viewer to display number sample diagnostics more intelligently than
    GenericSet can. If a metric wants to display number sample diagnostics
-   intelligently, then it should use RelatedHistogramSet or RelatedHistogramMap;
-   if it does not want to monitor changes in those numbers, then the TBM2
-   maintainers can add a HistogramDiagnostic that supports merging.
+   intelligently, then it should use RelatedHistogramMap; if it does not want to
+   monitor changes in those numbers, then the TBM2 maintainers can add a
+   HistogramDiagnostic that supports merging.
+
+
+### Reserved Names
+
+Metrics may not use the following names for Histogram-level Diagnostics.
+
+ * angleRevisions is a GenericSet of strings containing
+   [Angle](https://chromium.googlesource.com/angle/angle/) git hashes.
+ * architectures is a GenericSet of strings containing [CPU
+   architectures](https://en.wikipedia.org/wiki/List_of_CPU_architectures).
+ * benchmarks is a GenericSet of strings containing Telemetry benchmark names.
+ * benchmarkStart is a DateRange containing timestamps of Telemetry benchmark
+   runs.
+ * bots is a GenericSet of strings containing bot hostnames.
+ * bugComponents is a GenericSet of strings containing [Monorail
+   components](https://bugs.chromium.org/p/chromium/issues/advsearch).
+ * builds is a GenericSet of numbers containing Chromium build numbers.
+ * catapultRevisions is a GenericSet of strings containing
+   [Catapult](https://github.com/catapult-project/catapult) git hashes.
+ * chromiumCommitPositions is a GenericSet of numbers containing Chromium commit
+   positions.
+ * chromiumRevisions is a GenericSet of strings containing
+   [Chromium](https://chromium.googlesource.com/chromium/src/) git hashes.
+ * gpus is a GenericSet of objects containing metadata about GPUs.
+ * groupingPath is an implementation detail of merging Histograms.
+ * labels is a GenericSet of strings containing [user-defined
+   labels](https://github.com/catapult-project/catapult/blob/b0f1e24d4686b3ce46667c0124a186e414fbd006/telemetry/telemetry/internal/results/results_options.py#L82)
+   for Telemetry results.
+ * logUrls is a GenericSet of strings containing URLs pointing to human-readable
+   logs.
+ * masters is a GenericSet of strings containing bot master hostnames.
+ * memoryAmounts is a GenericSet of numbers containing the total amount of RAM
+   in the device that recorded the Chromium trace.
+ * mergedFrom is an implementation detail of merging Histograms.
+ * mergedTo is an implementation detail of merging Histograms.
+ * osNames is a GenericSet of strings containing names of OSs like 'linux' and
+   'mac'.
+ * osVersions is a GenericSet of strings containing OS versions.
+ * owners is a GenericSet of strings containing email addresses of owners of
+   Telemetry benchmarks.
+ * productVersions is a GenericSet of strings containing Chromium product
+   versions like '60.0.9999.0'.
+ * relatedNames is a GenericSet of strings containing names of related
+   Histograms.
+ * skiaRevisions is a GenericSet of strings containing
+   [Skia](https://chromium.googlesource.com/skia/) git hashes.
+ * stories is a GenericSet of strings containing Telemetry story names.
+ * storysetRepeats is a GenericSet of numbers containing Telemetry storyset
+   repetition counters.
+ * storyTags is a GenericSet of strings containing Telemetry story tags.
+ * tagmap maps from Telemetry story tags to story names.
+ * traceStart is a DateRange containing timestamps of Chromium traces.
+ * traceUrls is a GenericSet of strings containing URLs pointing to Chromium
+   traces.
+ * v8CommitPositions is a GenericSet of numbers containing V8 commit positions.
+ * v8Revisions is a GenericSet of strings containing
+   [V8](https://chromium.googlesource.com/v8/v8/) git hashes.
+ * webrtcRevisions is a GenericSet of strings containing
+   [webrtc](https://chromium.googlesource.com/external/webrtc/) git hashes.
+
+Consumers of metrics results generally cannot rely on the presence or absence of
+any of these metadata diagnostics.
+Consumers can rely on the presence of Telemetry metadata for results produced by
+Telemetry.
+If present, they may contain a single value or multiple values.
 
 
 ## Consumers of Histograms
@@ -264,18 +278,18 @@ default options are as follows:
      metric would call `histogram.customizeSummaryOptions({percentile: [0.5]})`.
 
 
-## How histogram-set-table Uses Merging and TelemetryInfo
+## How histogram-set-table Uses Merging
 
-The histogram-set-table element uses the fields of TelemetryInfo, along with the
-merging capabilities of Histograms, to allow dynamic, hierarchical
-organization of histograms:
+The histogram-set-table element uses the predefined
+[HistogramGroupings](/tracing/tracing/value/histogram_set.html), along with the
+merging capabilities of Histograms, to allow dynamic, hierarchical organization
+of histograms:
 
-* TelemetryInfo has mostly string/number (story name, story/set repeat count,
-  etc.) fields and one dict field that specifies the names of any story grouping
-  keys together with their histogram.
+* Predefined HistogramGroupings specify how to find the benchmark, story, etc.
+  that produced the Histogram.
 * After loading histograms, histogram-set-table computes categories to be
   displayed by the groupby picker at the top of the UI:
-  * Categories are fields of TelemetryInfo that have more than one value across
+  * Categories are HistogramGroupings that have more than one value across
     all histograms in the HistogramSet.
   * Instead of having one category for all story grouping keys, each grouping
     individual grouping key may be listed as a category. For example, in Page
@@ -285,5 +299,5 @@ organization of histograms:
   histograms from the bottom up. Expanding the rows of histogram-set-table, any
   leaf nodes are histograms that were loaded, and their ancestors are computed by
   merging.
-* histogram-set-table uses the "label" property of TelemetryInfo to define the
-  columns of the table.
+* histogram-set-table uses the "label" HistogramGrouping to define the columns
+  of the table.

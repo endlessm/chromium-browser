@@ -11,12 +11,10 @@
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/chromeos/login/screens/reset_screen.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/dbus/session_manager_client.h"
 #include "components/login/localized_values_builder.h"
-#include "components/prefs/pref_registry_simple.h"
 #include "components/strings/grit/components_strings.h"
 
 namespace {
@@ -71,6 +69,9 @@ void ResetScreenHandler::DeclareLocalizedValues(
                 IDS_RESET_SCREEN_PREPARING_REVERT_SPINNER_MESSAGE,
                 IDS_SHORT_PRODUCT_NAME);
 
+  builder->Add("resetTPMFirmwareUpdate",
+               IDS_RESET_SCREEN_TPM_FIRMWARE_UPDATE_OPTION);
+
   // Variants for screen title.
   builder->AddF("resetWarningTitle",
                 IDS_RESET_SCREEN_WARNING_MSG,
@@ -90,11 +91,6 @@ void ResetScreenHandler::DeclareLocalizedValues(
                IDS_RESET_SCREEN_POPUP_POWERWASH_TEXT);
   builder->Add("confirmRollbackMessage", IDS_RESET_SCREEN_POPUP_ROLLBACK_TEXT);
   builder->Add("confirmResetButton", IDS_RESET_SCREEN_POPUP_CONFIRM_BUTTON);
-}
-
-// static
-void ResetScreenHandler::RegisterPrefs(PrefRegistrySimple* registry) {
-  registry->RegisterBooleanPref(prefs::kFactoryResetRequested, false);
 }
 
 void ResetScreenHandler::Initialize() {

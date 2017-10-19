@@ -5,29 +5,47 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/utils.html">
 <link rel="import" href="/tracing/ui/analysis/generic_object_view.html">
+<link rel="import" href="/tracing/value/ui/diagnostic_span_behavior.html">
 
 <dom-module id="tr-v-ui-generic-set-span">
   <template>
-    <tr-ui-a-generic-object-view id="generic"></tr-ui-a-generic-object-view>
-  </template>
+    <style>
+      a {
+        display: block;
+      }
+    </style>
 
-  <script>
-  'use strict';
+    <tr-ui-a-generic-object-view id="generic"></tr-ui-a-generic-object-view>
+
+    <template is="dom-repeat" items="{{strings_}}">
+      <template is="dom-if" if="[[isUrl_(item)]]">
+        <a href="[[item]]">[[item]]</a>
+      </template>
+
+      <template is="dom-if" if="[[!isUrl_(item)]]">
+        <div>[[item]]</div>
+      </template>
+    </template>
+  </template>
+</dom-module>
+
+<script>
+'use strict';
+tr.exportTo('tr.v.ui', function() {
   Polymer({
     is: 'tr-v-ui-generic-set-span',
+    behaviors: [tr.v.ui.DIAGNOSTIC_SPAN_BEHAVIOR],
 
-    ready() {
-      this.diagnostic_ = undefined;
+    properties: {
+      strings_: {
+        type: Array,
+      },
     },
 
-    get diagnostic() {
-      return this.diagnostic_;
-    },
-
-    set diagnostic(d) {
-      this.diagnostic_ = d;
-      this.updateContents_();
+    isUrl_(s) {
+      return tr.b.isUrl(s);
     },
 
     updateContents_() {
@@ -35,9 +53,34 @@ found in the LICENSE file.
         this.$.generic.object = undefined;
         return;
       }
+      const values = Array.from(this.diagnostic);
 
-      this.$.generic.object = Array.from(this.diagnostic);
+      let areAllStrings = true;
+      let areAllNumbers = true;
+      for (const value of values) {
+        if (typeof value !== 'number') {
+          areAllNumbers = false;
+          if (typeof value !== 'string') {
+            areAllStrings = false;
+            break;
+          }
+        }
+      }
+
+      if (areAllStrings) {
+        if (areAllNumbers) {
+          values.sort((x, y) => x - y);
+        } else {
+          values.sort();
+        }
+        this.set('strings_', values);
+      } else {
+        this.$.generic.object = values;
+      }
     }
   });
-  </script>
-</dom-module>
+
+  return {
+  };
+});
+</script>

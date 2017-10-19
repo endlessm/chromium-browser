@@ -10,6 +10,7 @@
 #include "Test.h"
 
 #if SK_SUPPORT_GPU
+#if 0
 
 #include "GrBackendSurface.h"
 #include "GrRenderTargetPriv.h"
@@ -63,7 +64,6 @@ static void check_rendertarget(skiatest::Reporter* reporter,
         REPORTER_ASSERT(reporter, rtProxy->uniqueID().asUInt() != rt->uniqueID().asUInt());
     }
 
-    REPORTER_ASSERT(reporter, rt->origin() == rtProxy->origin());
     if (SkBackingFit::kExact == fit) {
         REPORTER_ASSERT(reporter, rt->width() == rtProxy->width());
         REPORTER_ASSERT(reporter, rt->height() == rtProxy->height());
@@ -98,7 +98,6 @@ static void check_texture(skiatest::Reporter* reporter,
         REPORTER_ASSERT(reporter, texProxy->uniqueID().asUInt() != tex->uniqueID().asUInt());
     }
 
-    REPORTER_ASSERT(reporter, tex->origin() == texProxy->origin());
     if (SkBackingFit::kExact == fit) {
         REPORTER_ASSERT(reporter, tex->width() == texProxy->width());
         REPORTER_ASSERT(reporter, tex->height() == texProxy->height());
@@ -234,9 +233,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(WrappedProxyTest, reporter, ctxInfo) {
                                                         config, fboInfo);
 
                         sk_sp<GrRenderTarget> defaultFBO(
-                            provider->wrapBackendRenderTarget(backendRT, origin));
+                            provider->wrapBackendRenderTarget(backendRT));
 
-                        sk_sp<GrSurfaceProxy> sProxy(GrSurfaceProxy::MakeWrapped(defaultFBO));
+                        sk_sp<GrSurfaceProxy> sProxy(GrSurfaceProxy::MakeWrapped(defaultFBO,
+                                                                                 origin));
                         check_surface(reporter, sProxy.get(), origin,
                                       kWidthHeight, kWidthHeight, config,
                                       defaultFBO->uniqueID(), SkBudgeted::kNo);
@@ -250,9 +250,12 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(WrappedProxyTest, reporter, ctxInfo) {
                     if (renderable) {
                         desc.fFlags = kRenderTarget_GrSurfaceFlag;
                         tex = provider->createTexture(desc, budgeted);
+                        if (!tex) {
+                            continue; // This can fail on Mesa
+                        }
                         sk_sp<GrRenderTarget> rt(sk_ref_sp(tex->asRenderTarget()));
 
-                        sk_sp<GrSurfaceProxy> sProxy(GrSurfaceProxy::MakeWrapped(rt));
+                        sk_sp<GrSurfaceProxy> sProxy(GrSurfaceProxy::MakeWrapped(rt, origin));
                         check_surface(reporter, sProxy.get(), origin,
                                       kWidthHeight, kWidthHeight, config,
                                       rt->uniqueID(), budgeted);
@@ -267,7 +270,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(WrappedProxyTest, reporter, ctxInfo) {
                         tex = provider->createTexture(desc, budgeted);
                     }
 
-                    sk_sp<GrSurfaceProxy> sProxy(GrSurfaceProxy::MakeWrapped(tex));
+                    sk_sp<GrSurfaceProxy> sProxy(GrSurfaceProxy::MakeWrapped(tex, origin));
                     check_surface(reporter, sProxy.get(), origin,
                                   kWidthHeight, kWidthHeight, config, tex->uniqueID(), budgeted);
                     check_texture(reporter, provider, sProxy->asTextureProxy(),
@@ -308,4 +311,5 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ZeroSizedProxyTest, reporter, ctxInfo) {
     }
 }
 
+#endif
 #endif

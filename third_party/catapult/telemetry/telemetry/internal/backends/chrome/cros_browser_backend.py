@@ -4,6 +4,7 @@
 
 import logging
 import os
+import time
 
 from telemetry.core import exceptions
 from telemetry.core import util
@@ -26,8 +27,8 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self._cri = cri
     self._is_guest = is_guest
     self._forwarder = None
-    self._remote_debugging_port = self._cri.GetRemotePort()
-    self._port = self._remote_debugging_port
+    self._remote_debugging_port = None
+    self._port = None
 
     extensions_to_load = browser_options.extensions_to_load
 
@@ -53,6 +54,36 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
   def log_file_path(self):
     return None
 
+  @property
+  def devtools_file_path(self):
+    return '/home/chronos/DevToolsActivePort'
+
+  def HasBrowserFinishedLaunching(self):
+    try:
+      file_content = self._cri.GetFileContents(self.devtools_file_path)
+    except (IOError, OSError):
+      return False
+
+    if len(file_content) == 0:
+      return False
+    port_target = file_content.split('\n')
+    self._remote_debugging_port = int(port_target[0])
+    # Use _remote_debugging_port for _port for now (local telemetry case)
+    # Override it with the forwarded port below for the remote telemetry case.
+    self._port = self._remote_debugging_port
+    if len(port_target) > 1 and port_target[1]:
+      self._browser_target = port_target[1]
+    logging.info('Discovered ephemeral port %s', self._port)
+    logging.info('Browser target: %s', self._browser_target)
+
+    if not self._cri.local:
+      # TODO(crbug.com/404771): Move port forwarding to network_controller.
+      self._port = util.GetUnreservedAvailableLocalPort()
+      self._forwarder = self._platform_backend.forwarder_factory.Create(
+          forwarders.PortPair(self._port, self._remote_debugging_port),
+          use_remote_port_forwarding=False)
+    return super(CrOSBrowserBackend, self).HasBrowserFinishedLaunching()
+
   def GetBrowserStartupArgs(self):
     args = super(CrOSBrowserBackend, self).GetBrowserStartupArgs()
 
@@ -68,7 +99,7 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         '--enable-smooth-scrolling',
         '--enable-threaded-compositing',
         # Allow devtools to connect to chrome.
-        '--remote-debugging-port=%i' % self._remote_debugging_port,
+        '--remote-debugging-port=0',
         # Open a maximized window.
         '--start-maximized',
         # Disable system startup sound.
@@ -115,6 +146,10 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self.Close()
 
   def Start(self):
+    # Remove the stale file with the devtools port / browser target
+    # prior to restarting chrome.
+    self._cri.RmRF(self.devtools_file_path)
+
     # Escape all commas in the startup arguments we pass to Chrome
     # because dbus-send delimits array elements by commas
     startup_args = [a.replace(',', '\\,') for a in self.GetBrowserStartupArgs()]
@@ -131,18 +166,9 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     logging.info(' '.join(args))
     self._cri.RunCmdOnDevice(args)
 
-    if not self._cri.local:
-      # TODO(crbug.com/404771): Move port forwarding to network_controller.
-      self._port = util.GetUnreservedAvailableLocalPort()
-      self._forwarder = self._platform_backend.forwarder_factory.Create(
-          forwarders.PortPair(self._port, self._remote_debugging_port),
-          use_remote_port_forwarding=False)
-
     # Wait for new chrome and oobe.
     py_utils.WaitFor(lambda: pid != self.pid, 15)
     self._WaitForBrowserToComeUp()
-    self._InitDevtoolsClientBackend(
-        remote_devtools_port=self._remote_debugging_port)
     py_utils.WaitFor(lambda: self.oobe_exists, 30)
 
     if self.browser_options.auto_login:
@@ -162,6 +188,9 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       elif self.browser_options.gaia_login:
         self.oobe.NavigateGaiaLogin(self._username, self._password)
       else:
+        # Wait for few seconds(the time of password typing) to have mini ARC
+        # container up and running. Default is 0.
+        time.sleep(self.browser_options.login_delay)
         self.oobe.NavigateFakeLogin(
             self._username, self._password, self._gaia_id,
             not self.browser_options.disable_gaia_services)
@@ -196,7 +225,15 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
 
     self._cri = None
 
+  def WaitForBrowserToComeUp(self):
+    """If a restart is triggered, wait for the browser to come up, and reconnect
+    to devtools.
+    """
+    self._WaitForBrowserToComeUp()
+
   def IsBrowserRunning(self):
+    if not self._cri:
+      return False
     return bool(self.pid)
 
   def GetStandardOutput(self):

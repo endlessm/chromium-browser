@@ -4,7 +4,14 @@ Copyright 2017 The Chromium Authors. All rights reserved.
 Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
-<link type="text/css" rel="stylesheet" href="/dashboard/static/base.css">
+<meta charset="utf-8">
+<title>Pinpoint</title>
+<style type="text/css">
+body {
+  font: 0.8em helvetica,arial,sans-serif;
+  margin: 0;
+}
+</style>
 <script src="/components/webcomponentsjs/webcomponents-lite.min.js"></script>
 
 <link rel="import" href="/components/app-route/app-location.html">
@@ -16,12 +23,17 @@ found in the LICENSE file.
 <link rel="import" href="/dashboard/pinpoint/elements/error-page.html">
 <link rel="import" href="/dashboard/pinpoint/elements/job-page.html">
 <link rel="import" href="/dashboard/pinpoint/elements/jobs-page.html">
-<link rel="import" href="/dashboard/pinpoint/elements/main-page.html">
 <link rel="import" href="/dashboard/pinpoint/elements/navigation-bar.html">
 <link rel="import" href="/dashboard/pinpoint/elements/new-page.html">
 
 <dom-module id="index-page">
   <template>
+    <style>
+      #content {
+        margin: 1em;
+      }
+    </style>
+
     <!--
     The <app-location> element is what provides the sync between the
     url and the app via the "route" object. This is passed to the
@@ -37,18 +49,19 @@ found in the LICENSE file.
     <navigation-bar></navigation-bar>
 
     <!--
-    The <iron-pages> element can be used as a simpe content switcher. We have a
+    The <iron-pages> element can be used as a simple content switcher. We have a
     single <app-route> defined which matches to a page, which is passed to
     the <iron-pages> element via routeData.page.
     -->
-    <iron-pages selected="[[routeData.page]]" attr-for-selected="name" fallback-selection="error" on-iron-select="onSelectedPage" on-iron-deselect="onDeselectedPage">
-      <main-page name=""></main-page>
-      <error-page name="error"></error-page>
+    <div id="content">
+      <iron-pages selected="[[routeData.page]]" attr-for-selected="name" fallback-selection="error" on-iron-select="onSelectedPage" on-iron-deselect="onDeselectedPage">
+        <jobs-page name="" route="{{tail}}"></jobs-page>
+        <error-page name="error"></error-page>
 
-      <job-page name="job" route="{{tail}}"></job-page>
-      <jobs-page name="jobs" route="{{tail}}"></jobs-page>
-      <new-page name="new" abs-route="{{route}}"></new-page>
-    </iron-pages>
+        <job-page name="job" route="{{tail}}"></job-page>
+        <new-page name="new" abs-route="{{route}}"></new-page>
+      </iron-pages>
+    </div>
 
     <load-analytics></load-analytics>
   </template>

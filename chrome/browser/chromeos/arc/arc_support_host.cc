@@ -7,7 +7,6 @@
 #include <string>
 #include <utility>
 
-#include "ash/system/devicetype_utils.h"
 #include "base/bind.h"
 #include "base/i18n/timezone.h"
 #include "base/json/json_reader.h"
@@ -21,6 +20,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
+#include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/grit/generated_resources.h"
@@ -28,6 +28,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/webui/web_ui_util.h"
+#include "ui/chromeos/devicetype_utils.h"
 #include "ui/display/screen.h"
 
 namespace {
@@ -43,20 +44,19 @@ constexpr char kActionSetWindowBounds[] = "setWindowBounds";
 constexpr char kActionCloseWindow[] = "closeWindow";
 
 // Action to show a page. The message should have "page" field, which is one of
-// IDs for section div elements.
+// IDs for section div elements. For the "active-directory-auth" page, the
+// "federationUrl" and "deviceManagementUrlPrefix" options are required.
 constexpr char kActionShowPage[] = "showPage";
 constexpr char kPage[] = "page";
+constexpr char kOptions[] = "options";
+constexpr char kFederationUrl[] = "federationUrl";
+constexpr char kDeviceManagementUrlPrefix[] = "deviceManagementUrlPrefix";
 
 // Action to show the error page. The message should have "errorMessage",
 // which is a localized error text, and "shouldShowSendFeedback" boolean value.
 constexpr char kActionShowErrorPage[] = "showErrorPage";
 constexpr char kErrorMessage[] = "errorMessage";
 constexpr char kShouldShowSendFeedback[] = "shouldShowSendFeedback";
-
-// Action to set the Active Directory Federation Services SAML redirect URL.
-constexpr char kActionActiveDirectoryAuthUrls[] = "setActiveDirectoryAuthUrls";
-constexpr char kFederationUrl[] = "federationUrl";
-constexpr char kDeviceManagementUrlPrefix[] = "deviceManagementUrlPrefix";
 
 // The preference update should have those two fields.
 constexpr char kEnabled[] = "enabled";
@@ -97,6 +97,9 @@ constexpr char kEventOnRetryClicked[] = "onRetryClicked";
 
 // "onSendFeedbackClicked" is fired when a user clicks "Send Feedback" button.
 constexpr char kEventOnSendFeedbackClicked[] = "onSendFeedbackClicked";
+
+// "onOpenSettingsPageClicked" is fired when a user clicks settings link.
+constexpr char kEventOnOpenSettingsPageClicked[] = "onOpenSettingsPageClicked";
 
 void RequestOpenApp(Profile* profile) {
   const extensions::Extension* extension =
@@ -239,7 +242,6 @@ void ArcSupportHost::ShowActiveDirectoryAuth(
   active_directory_auth_federation_url_ = federation_url;
   active_directory_auth_device_management_url_prefix_ =
       device_management_url_prefix;
-  SendActiveDirectoryAuthUrls();
   ShowPage(UIPage::ACTIVE_DIRECTORY_AUTH);
 }
 
@@ -270,9 +272,15 @@ void ArcSupportHost::ShowPage(UIPage ui_page) {
       message.SetString(kPage, "arc-loading");
       break;
     case UIPage::ACTIVE_DIRECTORY_AUTH:
-      // TODO(ljusten): Change this to a function similar to ShowError that
-      // sends the active_directory_auth* URLS along with the show message.
+      DCHECK(active_directory_auth_federation_url_.is_valid());
+      DCHECK(!active_directory_auth_device_management_url_prefix_.empty());
       message.SetString(kPage, "active-directory-auth");
+      message.SetPath(
+          {kOptions, kFederationUrl},
+          base::Value(active_directory_auth_federation_url_.spec()));
+      message.SetPath(
+          {kOptions, kDeviceManagementUrlPrefix},
+          base::Value(active_directory_auth_device_management_url_prefix_));
       break;
     default:
       NOTREACHED();
@@ -366,26 +374,6 @@ void ArcSupportHost::SendPreferenceCheckboxUpdate(
   message_host_->SendMessage(message);
 }
 
-void ArcSupportHost::SendActiveDirectoryAuthUrls() {
-  // Missing |message_host_| is normal on first run.
-  if (!message_host_)
-    return;
-
-  // URLs might be invalid when called from SetMessageHost.
-  if (!active_directory_auth_federation_url_.is_valid() ||
-      active_directory_auth_device_management_url_prefix_.empty()) {
-    return;
-  }
-
-  base::DictionaryValue message;
-  message.SetString(kAction, kActionActiveDirectoryAuthUrls);
-  message.SetString(kFederationUrl,
-                    active_directory_auth_federation_url_.spec());
-  message.SetString(kDeviceManagementUrlPrefix,
-                    active_directory_auth_device_management_url_prefix_);
-  message_host_->SendMessage(message);
-}
-
 void ArcSupportHost::SetMessageHost(arc::ArcSupportMessageHost* message_host) {
   if (message_host_ == message_host)
     return;
@@ -412,9 +400,6 @@ void ArcSupportHost::SetMessageHost(arc::ArcSupportMessageHost* message_host) {
                                backup_and_restore_checkbox_);
   SendPreferenceCheckboxUpdate(kActionLocationServiceMode,
                                location_services_checkbox_);
-
-  // Send URLs needed for Active Directory SAML authentication.
-  SendActiveDirectoryAuthUrls();
 
   if (ui_page_ == UIPage::NO_PAGE) {
     // Close() is called before opening the window.
@@ -522,7 +507,7 @@ bool ArcSupportHost::Initialize() {
       l10n_util::GetStringUTF16(IDS_ARC_SERVER_COMMUNICATION_ERROR));
   loadtime_data->SetString(
       "controlledByPolicy",
-      l10n_util::GetStringUTF16(IDS_OPTIONS_CONTROLLED_SETTING_POLICY));
+      l10n_util::GetStringUTF16(IDS_CONTROLLED_SETTING_POLICY));
   loadtime_data->SetString(
       "learnMoreStatistics",
       l10n_util::GetStringUTF16(IDS_ARC_OPT_IN_LEARN_MORE_STATISTICS));
@@ -611,6 +596,10 @@ void ArcSupportHost::OnMessage(const base::DictionaryValue& message) {
       NOTREACHED();
       return;
     }
+    // TODO(https://crbug.com/756144): Remove once reason for crash has been
+    // determined.
+    LOG_IF(ERROR, !auth_delegate_)
+        << "auth_delegate_ is NULL, error: " << error_message;
     auth_delegate_->OnAuthFailed(error_message);
   } else if (event == kEventOnAgreed) {
     DCHECK(tos_delegate_);
@@ -641,6 +630,8 @@ void ArcSupportHost::OnMessage(const base::DictionaryValue& message) {
   } else if (event == kEventOnSendFeedbackClicked) {
     DCHECK(error_delegate_);
     error_delegate_->OnSendFeedbackClicked();
+  } else if (event == kEventOnOpenSettingsPageClicked) {
+    chrome::ShowSettingsSubPageForProfile(profile_, std::string());
   } else {
     LOG(ERROR) << "Unknown message: " << event;
     NOTREACHED();

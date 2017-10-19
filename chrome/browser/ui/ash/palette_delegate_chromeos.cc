@@ -34,8 +34,24 @@ class VoiceInteractionSelectionObserver
     : public ash::HighlighterSelectionObserver {
  public:
   explicit VoiceInteractionSelectionObserver(Profile* profile)
-      : profile_(profile) {}
-  ~VoiceInteractionSelectionObserver() override = default;
+      : profile_(profile) {
+    ash::Shell::Get()->highlighter_controller()->SetObserver(this);
+  }
+
+  ~VoiceInteractionSelectionObserver() override {
+    if (ash::Shell::HasInstance() &&
+        ash::Shell::Get()->highlighter_controller()) {
+      ash::Shell::Get()->highlighter_controller()->SetObserver(nullptr);
+    }
+  };
+
+  void set_on_selection_done(base::OnceClosure done) {
+    on_selection_done_ = std::move(done);
+  }
+
+  void set_disable_on_failed_selection(bool disable_on_failed_selection) {
+    disable_on_failed_selection_ = disable_on_failed_selection;
+  }
 
  private:
   void HandleSelection(const gfx::Rect& rect) override {
@@ -48,6 +64,17 @@ class VoiceInteractionSelectionObserver
                    base::Unretained(this), rect),
         false /* not repeating */);
     delay_timer_->Reset();
+    DisableMetalayer();
+  }
+
+  void HandleFailedSelection() override {
+    if (disable_on_failed_selection_)
+      DisableMetalayer();
+  }
+
+  void DisableMetalayer() {
+    DCHECK(on_selection_done_);
+    std::move(on_selection_done_).Run();
   }
 
   void ReportSelection(const gfx::Rect& rect) {
@@ -62,6 +89,8 @@ class VoiceInteractionSelectionObserver
   Profile* const profile_;  // Owned by ProfileManager.
 
   std::unique_ptr<base::Timer> delay_timer_;
+  base::OnceClosure on_selection_done_;
+  bool disable_on_failed_selection_ = true;
 
   DISALLOW_COPY_AND_ASSIGN(VoiceInteractionSelectionObserver);
 };
@@ -74,8 +103,6 @@ PaletteDelegateChromeOS::PaletteDelegateChromeOS() : weak_factory_(this) {
 }
 
 PaletteDelegateChromeOS::~PaletteDelegateChromeOS() {
-  if (highlighter_selection_observer_)
-    ash::Shell::Get()->highlighter_controller()->SetObserver(nullptr);
 }
 
 std::unique_ptr<PaletteDelegateChromeOS::EnableListenerSubscription>
@@ -200,7 +227,8 @@ void PaletteDelegateChromeOS::CancelPartialScreenshot() {
   ash::Shell::Get()->screenshot_controller()->CancelScreenshotSession();
 }
 
-void PaletteDelegateChromeOS::ShowMetalayer() {
+void PaletteDelegateChromeOS::ShowMetalayer(base::OnceClosure done,
+                                            bool via_button) {
   auto* service =
       arc::ArcVoiceInteractionFrameworkService::GetForBrowserContext(profile_);
   if (!service)
@@ -210,9 +238,9 @@ void PaletteDelegateChromeOS::ShowMetalayer() {
   if (!highlighter_selection_observer_) {
     highlighter_selection_observer_ =
         base::MakeUnique<VoiceInteractionSelectionObserver>(profile_);
-    ash::Shell::Get()->highlighter_controller()->SetObserver(
-        highlighter_selection_observer_.get());
   }
+  highlighter_selection_observer_->set_on_selection_done(std::move(done));
+  highlighter_selection_observer_->set_disable_on_failed_selection(via_button);
   ash::Shell::Get()->highlighter_controller()->SetEnabled(true);
 }
 

@@ -170,7 +170,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			"Chromecast": "Android",
 			"ChromeOS":   "ChromeOS",
 			"Debian9":    DEFAULT_OS_DEBIAN,
-			"Mac":        "Mac-10.11",
+			"Mac":        "Mac-10.12",
 			"Ubuntu14":   DEFAULT_OS_UBUNTU,
 			"Ubuntu16":   "Ubuntu-16.10",
 			"Ubuntu17":   "Ubuntu-17.04",
@@ -184,8 +184,8 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 		if !ok {
 			glog.Fatalf("Entry %q not found in OS mapping.", os)
 		}
-		// Chrome Golo has a different Windows image.
-		if parts["model"] == "Golo" && os == "Win10" {
+		// These machines have a different Windows image.
+		if parts["model"] == "Golo" && os == "Win10" && parts["cpu_or_gpu_value"] == "GT610" {
 			d["os"] = "Windows-10-10586"
 		}
 	} else {
@@ -257,16 +257,18 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			if strings.Contains(parts["os"], "Win") {
 				gpu, ok := map[string]string{
 					"AMDHD7770":     "1002:683d-22.19.165.512",
-					"GT610":         "10de:104a-21.21.13.7619",
+					"GT610":         "10de:104a-22.21.13.8205",
 					"GTX1070":       "10de:1ba1-22.21.13.8205",
 					"GTX660":        "10de:11c0-22.21.13.8205",
 					"GTX960":        "10de:1401-22.21.13.8205",
 					"IntelHD530":    "8086:1912-21.20.16.4590",
-					"IntelHD4400":   "8086:0a16-20.19.15.4624",
-					"IntelHD4600":   "8086:0412-20.19.15.4624",
+					"IntelHD4400":   "8086:0a16-20.19.15.4703",
+					"IntelHD4600":   "8086:0412-20.19.15.4703",
+					"IntelHD615":    "8086:591e-21.20.16.4590",
 					"IntelIris540":  "8086:1926-21.20.16.4590",
-					"IntelIris6100": "8086:162b-20.19.15.4624",
+					"IntelIris6100": "8086:162b-20.19.15.4703",
 					"RadeonR9M470X": "1002:6646-22.19.165.512",
+					"QuadroP400":    "10de:1cb3-22.21.13.8205",
 				}[parts["cpu_or_gpu_value"]]
 				if !ok {
 					glog.Fatalf("Entry %q not found in Win GPU mapping.", parts["cpu_or_gpu_value"])
@@ -284,15 +286,17 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				}
 			} else if strings.Contains(parts["os"], "Ubuntu") || strings.Contains(parts["os"], "Debian") {
 				gpu, ok := map[string]string{
-					"GT610":    "10de:104a-340.102",
-					"GTX550Ti": "10de:1244-375.66",
-					"GTX660":   "10de:11c0-375.66",
-					"GTX960":   "10de:1401-375.66",
+					"GT610":    "10de:104a-384.59",
+					"GTX550Ti": "10de:1244-384.59",
+					"GTX660":   "10de:11c0-384.59",
+					"GTX960":   "10de:1401-384.59",
 					// Intel drivers come from CIPD, so no need to specify the version here.
 					"IntelBayTrail": "8086:0f31",
 					"IntelHD2000":   "8086:0102",
 					"IntelHD405":    "8086:22b1",
 					"IntelIris540":  "8086:1926",
+					"IntelIris640":  "8086:5926",
+					"QuadroP400":    "10de:1cb3-384.59",
 				}[parts["cpu_or_gpu_value"]]
 				if !ok {
 					glog.Fatalf("Entry %q not found in Ubuntu GPU mapping.", parts["cpu_or_gpu_value"])
@@ -300,8 +304,7 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				d["gpu"] = gpu
 			} else if strings.Contains(parts["os"], "Mac") {
 				gpu, ok := map[string]string{
-					// TODO(benjaminwagner): GPU name doesn't match device ID.
-					"IntelHD4000": "8086:0a2e",
+					"IntelIris5100": "8086:0a2e",
 				}[parts["cpu_or_gpu_value"]]
 				if !ok {
 					glog.Fatalf("Entry %q not found in Mac GPU mapping.", parts["cpu_or_gpu_value"])
@@ -309,10 +312,11 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				d["gpu"] = gpu
 			} else if strings.Contains(parts["os"], "ChromeOS") {
 				gpu, ok := map[string]string{
-					"MaliT604": "MaliT604",
-					"MaliT764": "MaliT764",
-					"MaliT860": "MaliT860",
-					"TegraK1":  "TegraK1",
+					"MaliT604":      "MaliT604",
+					"MaliT764":      "MaliT764",
+					"MaliT860":      "MaliT860",
+					"PowerVRGX6250": "PowerVRGX6250",
+					"TegraK1":       "TegraK1",
 				}[parts["cpu_or_gpu_value"]]
 				if !ok {
 					glog.Fatalf("Entry %q not found in ChromeOS GPU mapping.", parts["cpu_or_gpu_value"])
@@ -465,23 +469,15 @@ func compile(b *specs.TasksCfgBuilder, name string, parts map[string]string) str
 		}
 	} else if strings.Contains(name, "Win") {
 		pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("win_toolchain"))
+		if strings.Contains(name, "Clang") {
+			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("clang_win"))
+		}
 		if strings.Contains(name, "Vulkan") {
 			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("win_vulkan_sdk"))
 		}
 	}
 
-	// TODO(stephana): Remove this once all Mac machines are on the same
-	// OS version again. Move the call to swarmDimensions back to the
-	// creation of the TaskSpec struct below.
 	dimensions := swarmDimensions(parts)
-	if strings.Contains(name, "Mac") {
-		for idx, dim := range dimensions {
-			if strings.HasPrefix(dim, "os") {
-				dimensions[idx] = "os:Mac-10.12"
-				break
-			}
-		}
-	}
 
 	// Add the task.
 	b.MustAddTask(name, &specs.TaskSpec{
@@ -563,8 +559,11 @@ func updateMetaConfig(b *specs.TasksCfgBuilder, name string) string {
 // generated chain of tasks, which the Job should add as a dependency.
 func ctSKPs(b *specs.TasksCfgBuilder, name string) string {
 	b.MustAddTask(name, &specs.TaskSpec{
-		CipdPackages:     []*specs.CipdPackage{},
-		Dimensions:       []string{"pool:SkiaCT"},
+		CipdPackages: []*specs.CipdPackage{},
+		Dimensions: []string{
+			"pool:SkiaCT",
+			"os:Debian-9.1",
+		},
 		ExecutionTimeout: 24 * time.Hour,
 		ExtraArgs: []string{
 			"--workdir", "../../..", "ct_skps",
@@ -580,6 +579,29 @@ func ctSKPs(b *specs.TasksCfgBuilder, name string) string {
 		IoTimeout: time.Hour,
 		Isolate:   relpath("ct_skps_skia.isolate"),
 		Priority:  0.8,
+	})
+	return name
+}
+
+// checkGeneratedFiles verifies that no generated SKSL files have been edited
+// by hand.
+func checkGeneratedFiles(b *specs.TasksCfgBuilder, name string) string {
+	b.MustAddTask(name, &specs.TaskSpec{
+		CipdPackages: []*specs.CipdPackage{},
+		Dimensions:   linuxGceDimensions(),
+		ExtraArgs: []string{
+			"--workdir", "../../..", "check_generated_files",
+			fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
+			fmt.Sprintf("buildername=%s", name),
+			fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
+			fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+			fmt.Sprintf("patch_repo=%s", specs.PLACEHOLDER_PATCH_REPO),
+			fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+			fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+			fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
+		},
+		Isolate:  relpath("compile_skia.isolate"),
+		Priority: 0.8,
 	})
 	return name
 }
@@ -864,6 +886,7 @@ func process(b *specs.TasksCfgBuilder, name string) {
 	if parts["role"] != "Build" &&
 		name != "Housekeeper-PerCommit-BundleRecipes" &&
 		name != "Housekeeper-PerCommit-InfraTests" &&
+		name != "Housekeeper-PerCommit-CheckGeneratedFiles" &&
 		!strings.Contains(name, "RecreateSKPs") &&
 		!strings.Contains(name, "UpdateMetaConfig") &&
 		!strings.Contains(name, "-CT_") &&
@@ -871,9 +894,12 @@ func process(b *specs.TasksCfgBuilder, name string) {
 		compile(b, compileTaskName, compileTaskParts)
 	}
 
-	// Housekeeper.
+	// Housekeepers.
 	if name == "Housekeeper-PerCommit" {
 		deps = append(deps, housekeeper(b, name, compileTaskName))
+	}
+	if name == "Housekeeper-PerCommit-CheckGeneratedFiles" {
+		deps = append(deps, checkGeneratedFiles(b, name))
 	}
 
 	// Common assets needed by the remaining bots.
@@ -916,18 +942,14 @@ func process(b *specs.TasksCfgBuilder, name string) {
 	j := &specs.JobSpec{
 		Priority:  0.8,
 		TaskSpecs: deps,
+		Trigger:   specs.TRIGGER_ANY_BRANCH,
 	}
-	if name == "Housekeeper-Nightly-RecreateSKPs_Canary" {
-		j.Trigger = "nightly"
-	}
-	if name == "Housekeeper-Nightly-UpdateMetaConfig" {
-		j.Trigger = "nightly"
-	}
-	if name == "Housekeeper-Weekly-RecreateSKPs" {
-		j.Trigger = "weekly"
-	}
-	if name == "Test-Ubuntu14-GCC-GCE-CPU-AVX2-x86_64-Debug-CT_DM_1m_SKPs" {
-		j.Trigger = "weekly"
+	if strings.Contains(name, "-Nightly-") {
+		j.Trigger = specs.TRIGGER_NIGHTLY
+	} else if strings.Contains(name, "-Weekly-") || name == "Test-Ubuntu14-GCC-GCE-CPU-AVX2-x86_64-Debug-CT_DM_1m_SKPs" {
+		j.Trigger = specs.TRIGGER_WEEKLY
+	} else if strings.Contains(name, "Flutter") || strings.Contains(name, "PDFium") || strings.Contains(name, "CommandBuffer") {
+		j.Trigger = specs.TRIGGER_MASTER_ONLY
 	}
 	b.MustAddJob(name, j)
 }

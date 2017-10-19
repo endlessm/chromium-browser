@@ -223,6 +223,24 @@ arc::mojom::NetworkConfigurationPtr TranslateONCConfiguration(
   return mojo;
 }
 
+const chromeos::NetworkState* GetShillBackedNetwork(
+    const chromeos::NetworkState* network) {
+  if (!network)
+    return nullptr;
+
+  // Non-Tether networks are already backed by Shill.
+  if (!chromeos::NetworkTypePattern::Tether().MatchesType(network->type()))
+    return network;
+
+  // Tether networks which are not connected are also not backed by Shill.
+  if (!network->IsConnectedState())
+    return nullptr;
+
+  // Connected Tether networks delegate to an underlying Wi-Fi network.
+  DCHECK(!network->tether_guid().empty());
+  return GetStateHandler()->GetNetworkStateFromGuid(network->tether_guid());
+}
+
 void ForgetNetworkSuccessCallback(
     const arc::mojom::NetHost::ForgetNetworkCallback& mojo_callback) {
   mojo_callback.Run(arc::mojom::NetworkResult::SUCCESS);
@@ -329,13 +347,7 @@ ArcNetHostImpl::~ArcNetHostImpl() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   if (observing_network_state_)
     GetStateHandler()->RemoveObserver(this, FROM_HERE);
-
-  // TODO(hidehiko): Currently, the lifetime of ArcBridgeService and
-  // BrowserContextKeyedService is not nested.
-  // If ArcServiceManager::Get() returns nullptr, it is already destructed,
-  // so do not touch it.
-  if (ArcServiceManager::Get())
-    arc_bridge_service_->net()->RemoveObserver(this);
+  arc_bridge_service_->net()->RemoveObserver(this);
 }
 
 void ArcNetHostImpl::OnInstanceReady() {
@@ -506,21 +518,18 @@ void ArcNetHostImpl::CreateNetwork(mojom::WifiConfigurationPtr cfg,
     return;
   }
 
-  properties->SetStringWithoutPathExpansion(onc::network_config::kType,
-                                            onc::network_config::kWiFi);
-  wifi_dict->SetStringWithoutPathExpansion(onc::wifi::kHexSSID,
-                                           cfg->hexssid.value());
-  wifi_dict->SetBooleanWithoutPathExpansion(onc::wifi::kAutoConnect,
-                                            details->autoconnect);
+  properties->SetKey(onc::network_config::kType,
+                     base::Value(onc::network_config::kWiFi));
+  wifi_dict->SetKey(onc::wifi::kHexSSID, base::Value(cfg->hexssid.value()));
+  wifi_dict->SetKey(onc::wifi::kAutoConnect, base::Value(details->autoconnect));
   if (cfg->security.empty()) {
-    wifi_dict->SetStringWithoutPathExpansion(onc::wifi::kSecurity,
-                                             onc::wifi::kSecurityNone);
+    wifi_dict->SetKey(onc::wifi::kSecurity,
+                      base::Value(onc::wifi::kSecurityNone));
   } else {
-    wifi_dict->SetStringWithoutPathExpansion(onc::wifi::kSecurity,
-                                             cfg->security);
+    wifi_dict->SetKey(onc::wifi::kSecurity, base::Value(cfg->security));
     if (details->passphrase.has_value()) {
-      wifi_dict->SetStringWithoutPathExpansion(onc::wifi::kPassphrase,
-                                               details->passphrase.value());
+      wifi_dict->SetKey(onc::wifi::kPassphrase,
+                        base::Value(details->passphrase.value()));
     }
   }
   properties->SetWithoutPathExpansion(onc::network_config::kWiFi,
@@ -538,7 +547,7 @@ void ArcNetHostImpl::CreateNetwork(mojom::WifiConfigurationPtr cfg,
 bool ArcNetHostImpl::GetNetworkPathFromGuid(const std::string& guid,
                                             std::string* path) {
   const chromeos::NetworkState* network =
-      GetStateHandler()->GetNetworkStateFromGuid(guid);
+      GetShillBackedNetwork(GetStateHandler()->GetNetworkStateFromGuid(guid));
   if (network) {
     *path = network->path();
     return true;
@@ -641,7 +650,7 @@ void ArcNetHostImpl::ScanCompleted(const chromeos::DeviceState* /*unused*/) {
 void ArcNetHostImpl::GetDefaultNetwork(
     const GetDefaultNetworkCallback& callback) {
   const chromeos::NetworkState* default_network =
-      GetStateHandler()->DefaultNetwork();
+      GetShillBackedNetwork(GetStateHandler()->DefaultNetwork());
   if (!default_network) {
     VLOG(1) << "GetDefaultNetwork: no default network";
     callback.Run(nullptr, nullptr);
@@ -670,7 +679,10 @@ void ArcNetHostImpl::DefaultNetworkSuccessCallback(
 
 void ArcNetHostImpl::DefaultNetworkChanged(
     const chromeos::NetworkState* network) {
-  if (!network) {
+  const chromeos::NetworkState* shill_backed_network =
+      GetShillBackedNetwork(network);
+
+  if (!shill_backed_network) {
     VLOG(1) << "No default network";
     auto* net_instance = ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service_->net(),
                                                      DefaultNetworkChanged);
@@ -679,10 +691,10 @@ void ArcNetHostImpl::DefaultNetworkChanged(
     return;
   }
 
-  VLOG(1) << "New default network: " << network->path();
+  VLOG(1) << "New default network: " << shill_backed_network->path();
   std::string user_id_hash = chromeos::LoginState::Get()->primary_user_hash();
   GetManagedConfigurationHandler()->GetProperties(
-      user_id_hash, network->path(),
+      user_id_hash, shill_backed_network->path(),
       base::Bind(&ArcNetHostImpl::DefaultNetworkSuccessCallback,
                  weak_factory_.GetWeakPtr()),
       base::Bind(&DefaultNetworkFailureCallback));

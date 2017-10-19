@@ -84,12 +84,11 @@ public class VideoRenderer {
     }
 
     /**
-     * Construct a frame of the given dimensions from VideoFrame.Buffer.
+     * Construct a frame from VideoFrame.Buffer.
      */
-    public I420Frame(int width, int height, int rotationDegree, float[] samplingMatrix,
-        VideoFrame.Buffer buffer, long nativeFramePointer) {
-      this.width = width;
-      this.height = height;
+    public I420Frame(int rotationDegree, VideoFrame.Buffer buffer, long nativeFramePointer) {
+      this.width = buffer.getWidth();
+      this.height = buffer.getHeight();
       this.rotationDegree = rotationDegree;
       if (rotationDegree % 90 != 0) {
         throw new IllegalArgumentException("Rotation degree not multiple of 90: " + rotationDegree);
@@ -98,12 +97,14 @@ public class VideoRenderer {
         VideoFrame.TextureBuffer textureBuffer = (VideoFrame.TextureBuffer) buffer;
         this.yuvFrame = false;
         this.textureId = textureBuffer.getTextureId();
-        this.samplingMatrix = samplingMatrix;
+        this.samplingMatrix = RendererCommon.convertMatrixFromAndroidGraphicsMatrix(
+            textureBuffer.getTransformMatrix());
 
         this.yuvStrides = null;
         this.yuvPlanes = null;
       } else {
         VideoFrame.I420Buffer i420Buffer = buffer.toI420();
+        buffer.release();
         this.yuvFrame = true;
         this.yuvStrides =
             new int[] {i420Buffer.getStrideY(), i420Buffer.getStrideU(), i420Buffer.getStrideV()};
@@ -113,8 +114,7 @@ public class VideoRenderer {
         // top-left corner of the image, but in glTexImage2D() the first element corresponds to the
         // bottom-left corner. This discrepancy is corrected by multiplying the sampling matrix with
         // a vertical flip matrix.
-        this.samplingMatrix =
-            RendererCommon.multiplyMatrices(samplingMatrix, RendererCommon.verticalFlipMatrix());
+        this.samplingMatrix = RendererCommon.verticalFlipMatrix();
 
         this.textureId = 0;
       }
@@ -131,7 +131,25 @@ public class VideoRenderer {
 
     @Override
     public String toString() {
-      return width + "x" + height + ":" + yuvStrides[0] + ":" + yuvStrides[1] + ":" + yuvStrides[2];
+      final String type = yuvFrame
+          ? "Y: " + yuvStrides[0] + ", U: " + yuvStrides[1] + ", V: " + yuvStrides[2]
+          : "Texture: " + textureId;
+      return width + "x" + height + ", " + type;
+    }
+
+    VideoFrame toVideoFrame() {
+      final VideoFrame.Buffer buffer;
+      if (yuvFrame) {
+        buffer = new I420BufferImpl(width, height, yuvPlanes[0], yuvStrides[0], yuvPlanes[1],
+            yuvStrides[1], yuvPlanes[2], yuvStrides[2],
+            () -> { VideoRenderer.renderFrameDone(this); });
+      } else {
+        // Note: surfaceTextureHelper being null means calling toI420 will crash.
+        buffer = new TextureBufferImpl(width, height, VideoFrame.TextureBuffer.Type.OES, textureId,
+            RendererCommon.convertMatrixToAndroidGraphicsMatrix(samplingMatrix),
+            null /* surfaceTextureHelper */, () -> { VideoRenderer.renderFrameDone(this); });
+      }
+      return new VideoFrame(buffer, rotationDegree, 0 /* timestampNs */);
     }
   }
 

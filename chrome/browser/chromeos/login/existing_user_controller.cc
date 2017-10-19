@@ -16,6 +16,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/optional.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -25,6 +26,7 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_launch_error.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
+#include "chrome/browser/chromeos/arc/policy/arc_policy_util.h"
 #include "chrome/browser/chromeos/boot_times_recorder.h"
 #include "chrome/browser/chromeos/customization/customization_document.h"
 #include "chrome/browser/chromeos/login/arc_kiosk_controller.h"
@@ -103,6 +105,8 @@
 
 using PolicyFetchResult = policy::PreSigninPolicyFetcher::PolicyFetchResult;
 
+namespace apu = arc::policy_util;
+
 namespace chromeos {
 
 namespace {
@@ -118,22 +122,6 @@ enum LoginPasswordChangeFlow {
   LOGIN_PASSWORD_CHANGE_FLOW_CRYPTOHOME_FAILURE = 1,
 
   LOGIN_PASSWORD_CHANGE_FLOW_COUNT,  // Must be the last entry.
-};
-
-// The action that should be taken when an ecryptfs user home which needs
-// migration is detected. This must match the order/values of the
-// EcryptfsMigrationStrategy policy.
-enum class EcryptfsMigrationAction {
-  // Don't migrate.
-  DISALLOW_ARC_NO_MIGRATION,
-  // Migrate.
-  MIGRATE,
-  // Wipe the user home and start again.
-  WIPE,
-  // Ask the user if migration should be performed.
-  ASK_USER,
-  // Last value for validity checks.
-  COUNT
 };
 
 // Delay for transferring the auth cache to the system profile.
@@ -217,11 +205,6 @@ bool ShouldForceDircrypto(const AccountId& account_id) {
   if (!arc::IsArcAvailable())
     return false;
 
-  // If the device requires ecryptfs to ext4 migration policy check, and the
-  // policy doesn't allow the migration, then return.
-  if (!arc::IsArcMigrationAllowed())
-    return false;
-
   // In some login flows (e.g. when siging in supervised user), ARC can not
   // start. For such cases, we don't need to force Ext4 dircrypto.
   chromeos::UserFlow* user_flow =
@@ -238,27 +221,67 @@ bool ShouldForceDircrypto(const AccountId& account_id) {
 }
 
 // Decodes the EcryptfsMigrationStrategy user policy into the
-// EcryptfsMigrationAction enum. If the policy is present, returns true and sets
-// *|out_value|. Otherwise, returns false.
-bool DecodeMigrationActionFromPolicy(
-    const enterprise_management::CloudPolicySettings* policy,
-    EcryptfsMigrationAction* out_value) {
+// EcryptfsMigrationAction enum. If the policy is present and has a valid value,
+// returns the value. Otherwise returns base::nullopt.
+base::Optional<apu::EcryptfsMigrationAction> DecodeMigrationActionFromPolicy(
+    const enterprise_management::CloudPolicySettings* policy) {
   if (!policy->has_ecryptfsmigrationstrategy())
-    return false;
+    return base::nullopt;
 
   const enterprise_management::IntegerPolicyProto& policy_proto =
       policy->ecryptfsmigrationstrategy();
   if (!policy_proto.has_value())
-    return false;
+    return base::nullopt;
 
   if (policy_proto.value() < 0 ||
-      policy_proto.value() >=
-          static_cast<int64_t>(EcryptfsMigrationAction::COUNT)) {
-    return false;
+      policy_proto.value() >
+          static_cast<int64_t>(apu::kEcryptfsMigrationActionMaxValue)) {
+    return base::nullopt;
   }
 
-  *out_value = static_cast<EcryptfsMigrationAction>(policy_proto.value());
-  return true;
+  return static_cast<apu::EcryptfsMigrationAction>(policy_proto.value());
+}
+
+// Decides which EcryptfsMigrationAction should be used based on policy fetch
+// result, policy payload and user type. |policy_payload| is only dereferenced
+// if |policy_fetch_result| is PolicyFetchResult::SUCCESS.
+apu::EcryptfsMigrationAction GetEcryptfsMigrationAction(
+    PolicyFetchResult policy_fetch_result,
+    enterprise_management::CloudPolicySettings* policy_payload,
+    bool active_directory_user) {
+  switch (policy_fetch_result) {
+    case PolicyFetchResult::NO_POLICY:
+      // There was no policy, the user is unmanaged. They get to choose
+      // themselves if they'd like to migrate.
+      VLOG(1) << "Policy pre-fetch result: No user policy present";
+      return apu::EcryptfsMigrationAction::kAskUser;
+    case PolicyFetchResult::SUCCESS: {
+      // User policy was retreived, adhere to it if it contains the
+      // EcryptfsMigrationStrategy policy value.
+      VLOG(1) << "Policy pre-fetch result: User policy fetched";
+      base::Optional<apu::EcryptfsMigrationAction> action =
+          DecodeMigrationActionFromPolicy(policy_payload);
+      if (action)
+        return action.value();
+      break;
+    }
+    case PolicyFetchResult::ERROR:
+      // We don't know if the user has policy or not. Stay on the safe side
+      // and stick to the default for this user type.
+      VLOG(1) << "Policy pre-fetch: User policy could not be fetched.";
+      break;
+  }
+  return apu::GetDefaultEcryptfsMigrationActionForManagedUser(
+      active_directory_user);
+}
+
+// Returns true if ArcEnabled policy is present and set to true. Otherwise
+// returns false.
+bool IsArcEnabledFromPolicy(
+    const enterprise_management::CloudPolicySettings* policy) {
+  if (policy->has_arcenabled())
+    return policy->arcenabled().value();
+  return false;
 }
 
 }  // namespace
@@ -557,8 +580,8 @@ void ExistingUserController::PerformLogin(
         user_context.GetKey()->GetSecret());
   }
 
-  if (gaia::ExtractDomainName(user_context.GetAccountId().GetUserEmail()) ==
-      user_manager::kSupervisedUserDomain) {
+  if (user_manager::UserManager::Get()->IsSupervisedAccountId(
+          user_context.GetAccountId())) {
     login_performer_->LoginAsSupervisedUser(user_context);
   } else {
     // If a regular user log in to a device which supports ARC, we should make
@@ -591,6 +614,12 @@ void ExistingUserController::ContinuePerformLoginWithoutMigration(
   UserContext user_context_ecryptfs = user_context;
   user_context_ecryptfs.SetIsForcingDircrypto(false);
   ContinuePerformLogin(auth_mode, user_context_ecryptfs);
+}
+
+void ExistingUserController::RestartLogin(const UserContext& user_context) {
+  is_login_in_progress_ = false;
+  login_performer_.reset();
+  login_display_->ShowSigninUI(user_context.GetAccountId().GetUserEmail());
 }
 
 void ExistingUserController::MigrateUserData(const std::string& old_password) {
@@ -725,7 +754,7 @@ void ExistingUserController::ShowKioskAutolaunchScreen() {
 
 void ExistingUserController::ShowEncryptionMigrationScreen(
     const UserContext& user_context,
-    bool has_incomplete_migration) {
+    EncryptionMigrationMode migration_mode) {
   host_->StartWizard(OobeScreen::SCREEN_ENCRYPTION_MIGRATION);
 
   EncryptionMigrationScreen* migration_screen =
@@ -733,10 +762,12 @@ void ExistingUserController::ShowEncryptionMigrationScreen(
           host_->GetWizardController()->current_screen());
   DCHECK(migration_screen);
   migration_screen->SetUserContext(user_context);
-  migration_screen->SetShouldResume(has_incomplete_migration);
+  migration_screen->SetMode(migration_mode);
   migration_screen->SetContinueLoginCallback(base::BindOnce(
       &ExistingUserController::ContinuePerformLogin, weak_factory_.GetWeakPtr(),
       login_performer_->auth_mode()));
+  migration_screen->SetRestartLoginCallback(base::BindOnce(
+      &ExistingUserController::RestartLogin, weak_factory_.GetWeakPtr()));
   migration_screen->SetupInitialView();
 }
 
@@ -985,16 +1016,21 @@ void ExistingUserController::OnOldEncryptionDetected(
   if (has_incomplete_migration) {
     // If migration was incomplete, continue migration without checking user
     // policy.
-    ShowEncryptionMigrationScreen(user_context, has_incomplete_migration);
+    // If the last attempted migration was a minimal migration, try to resume
+    // minimal migration.
+    const EncryptionMigrationMode mode =
+        user_manager::known_user::WasUserHomeMinimalMigrationAttempted(
+            user_context.GetAccountId())
+            ? EncryptionMigrationMode::RESUME_MINIMAL_MIGRATION
+            : EncryptionMigrationMode::RESUME_MIGRATION;
+    ShowEncryptionMigrationScreen(user_context, mode);
     return;
   }
 
   if (user_context.GetUserType() == user_manager::USER_TYPE_ARC_KIOSK_APP) {
     // For ARC kiosk, don't check user policy.
-    // Note that migration will start immediately without asking the user - this
-    // is currently checked in EncryptionMigrationScreenHandler.
     ShowEncryptionMigrationScreen(user_context,
-                                  false /* has_incomplete_migration */);
+                                  EncryptionMigrationMode::START_MIGRATION);
     return;
   }
 
@@ -1023,65 +1059,74 @@ void ExistingUserController::OnOldEncryptionDetected(
 
 void ExistingUserController::OnPolicyFetchResult(
     const UserContext& user_context,
-    PolicyFetchResult result,
+    PolicyFetchResult policy_fetch_result,
     std::unique_ptr<enterprise_management::CloudPolicySettings>
         policy_payload) {
-  EcryptfsMigrationAction action =
-      EcryptfsMigrationAction::DISALLOW_ARC_NO_MIGRATION;
-  if (result == PolicyFetchResult::NO_POLICY) {
-    // There was no policy, the user is unmanaged. They get to choose themselves
-    // if they'd like to migrate.
-    VLOG(1) << "Policy pre-fetch result: No user policy present";
-    action = EcryptfsMigrationAction::ASK_USER;
-  } else if (result == PolicyFetchResult::SUCCESS) {
-    // User policy was retreived, adhere to it.
-    VLOG(1) << "Policy pre-fetch result: User policy fetched";
-    if (!DecodeMigrationActionFromPolicy(policy_payload.get(), &action)) {
-      // User policy was present, but the EcryptfsMigrationStrategy policy value
-      // was not there. Stay on the safe side and don't start migration.
-
-      // TODO(pmarko): bug747930: Temporarily, we default to ASK_USER for
-      // managed users who don't have the policy value, so testing migration is
-      // possible before the policy is supported server-side. This must be
-      // reverted before M61 goes stable.
-      action = EcryptfsMigrationAction::ASK_USER;
-    }
-  } else {
-    // We don't know if the user has policy or not. Stay on the safe side and
-    // don't start migration.
-    VLOG(1) << "Policy pre-fetch: User policy could not be fetched. Result: "
-            << static_cast<int>(result);
-    action = EcryptfsMigrationAction::DISALLOW_ARC_NO_MIGRATION;
-  }
-  VLOG(1) << "Migration action: " << static_cast<int>(action);
+  const bool active_directory_user =
+      user_context.GetUserType() == user_manager::USER_TYPE_ACTIVE_DIRECTORY;
+  const apu::EcryptfsMigrationAction action = GetEcryptfsMigrationAction(
+      policy_fetch_result, policy_payload.get(), active_directory_user);
+  VLOG(1) << "Migration action (active_directory_user=" << active_directory_user
+          << "): " << static_cast<int>(action);
 
   switch (action) {
-    case EcryptfsMigrationAction::MIGRATE:
-      // TODO(pmarko): Reusing resume may be wrong from UI perspective, in case
-      // we show a UI mentioning "resume"/"interrupted". If that's the case,
-      // introduce an enum instead of the bool parameter to choose between
-      // ask_user/continue_interrupted_migration/start_migration.
-      // Otherwise, at least rename the bool parameter to indicate that this may
-      // not only mean resuming.
-      ShowEncryptionMigrationScreen(user_context, true);
+    case apu::EcryptfsMigrationAction::kDisallowMigration:
+      ContinuePerformLoginWithoutMigration(login_performer_->auth_mode(),
+                                           user_context);
       break;
 
-    case EcryptfsMigrationAction::ASK_USER:
-      ShowEncryptionMigrationScreen(user_context, false);
+    case apu::EcryptfsMigrationAction::kMigrate:
+      user_manager::known_user::SetUserHomeMinimalMigrationAttempted(
+          user_context.GetAccountId(), false);
+      user_manager::UserManager::Get()->GetLocalState()->CommitPendingWrite(
+          base::BindOnce(&ExistingUserController::ShowEncryptionMigrationScreen,
+                         weak_factory_.GetWeakPtr(), user_context,
+                         EncryptionMigrationMode::START_MIGRATION));
       break;
 
-    case EcryptfsMigrationAction::WIPE:
+    case apu::EcryptfsMigrationAction::kAskUser:
+      user_manager::known_user::SetUserHomeMinimalMigrationAttempted(
+          user_context.GetAccountId(), false);
+      user_manager::UserManager::Get()->GetLocalState()->CommitPendingWrite(
+          base::BindOnce(&ExistingUserController::ShowEncryptionMigrationScreen,
+                         weak_factory_.GetWeakPtr(), user_context,
+                         EncryptionMigrationMode::ASK_USER));
+      break;
+
+    case apu::EcryptfsMigrationAction::kWipe:
       cryptohome::AsyncMethodCaller::GetInstance()->AsyncRemove(
           cryptohome::Identification(user_context.GetAccountId()),
           base::Bind(&ExistingUserController::WipePerformed,
                      weak_factory_.GetWeakPtr(), user_context));
       break;
 
-    case EcryptfsMigrationAction::DISALLOW_ARC_NO_MIGRATION:
-    // Fall-through intended.
-    default:
-      ContinuePerformLoginWithoutMigration(login_performer_->auth_mode(),
-                                           user_context);
+    case apu::EcryptfsMigrationAction::kMinimalMigrate:
+      // Reset the profile ever initialized flag, so that user policy manager
+      // will block sign-in if no policy can be retrieved for the migrated
+      // profile.
+      user_manager::UserManager::Get()->ResetProfileEverInitialized(
+          user_context.GetAccountId());
+      user_manager::known_user::SetUserHomeMinimalMigrationAttempted(
+          user_context.GetAccountId(), true);
+      user_manager::UserManager::Get()->GetLocalState()->CommitPendingWrite(
+          base::BindOnce(&ExistingUserController::ShowEncryptionMigrationScreen,
+                         weak_factory_.GetWeakPtr(), user_context,
+                         EncryptionMigrationMode::START_MINIMAL_MIGRATION));
+      break;
+
+    case apu::EcryptfsMigrationAction::kAskForEcryptfsArcUsers:
+      // If the device is transitioning from ARC M to ARC N and has ARC enabled
+      // by policy, then ask the user about the migration. Otherwise disallow
+      // migration.
+      if (IsArcEnabledFromPolicy(policy_payload.get()) &&
+          base::CommandLine::ForCurrentProcess()->HasSwitch(
+              switches::kArcTransitionMigrationRequired)) {
+        ShowEncryptionMigrationScreen(user_context,
+                                      EncryptionMigrationMode::ASK_USER);
+      } else {
+        ContinuePerformLoginWithoutMigration(login_performer_->auth_mode(),
+                                             user_context);
+      }
       break;
   }
 }

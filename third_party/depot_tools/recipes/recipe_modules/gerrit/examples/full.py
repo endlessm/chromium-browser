@@ -3,12 +3,13 @@
 # found in the LICENSE file.
 
 DEPS = [
-    'gerrit'
+    'gerrit',
+    'recipe_engine/step',
 ]
 
 
 def RunSteps(api):
-  host = 'https://chromium-review.googlesource.com/a'
+  host = 'https://chromium-review.googlesource.com'
   project = 'v8/v8'
 
   branch = 'test'
@@ -19,6 +20,30 @@ def RunSteps(api):
 
   data = api.gerrit.get_gerrit_branch(host, project, 'master')
   assert data == '67ebf73496383c6777035e374d2d664009e2aa5c'
+
+  # Query for changes in Chromium's CQ.
+  api.gerrit.get_changes(
+      host,
+      query_params=[
+        ('project', 'chromium/src'),
+        ('status', 'open'),
+        ('label', 'Commit-Queue>0'),
+      ],
+      start=1,
+      limit=1,
+  )
+
+  api.gerrit.get_change_description(
+      host, change=123, patchset=1)
+
+  api.gerrit.get_change_destination_branch(host, change=123)
+
+  with api.step.defer_results():
+    api.gerrit.get_change_destination_branch(
+        host, change=123, name='missing_cl')
+
+    api.gerrit.get_change_description(
+        host, change=123, patchset=3)
 
 
 def GenTests(api):
@@ -31,5 +56,9 @@ def GenTests(api):
       + api.step_data(
           'gerrit get_gerrit_branch',
           api.gerrit.make_gerrit_get_branch_response_data()
+      )
+      + api.step_data(
+          'gerrit missing_cl',
+          api.gerrit.get_empty_changes_response_data()
       )
   )

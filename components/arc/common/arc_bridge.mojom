@@ -10,6 +10,7 @@ import "audio.mojom";
 import "auth.mojom";
 import "bluetooth.mojom";
 import "boot_phase_monitor.mojom";
+import "cast_receiver.mojom";
 import "clipboard.mojom";
 import "crash_collector.mojom";
 import "enterprise_reporting.mojom";
@@ -17,10 +18,12 @@ import "file_system.mojom";
 import "ime.mojom";
 import "intent_helper.mojom";
 import "kiosk.mojom";
+import "lock_screen.mojom";
 import "metrics.mojom";
 import "net.mojom";
 import "notifications.mojom";
 import "obb_mounter.mojom";
+import "oemcrypto.mojom";
 import "policy.mojom";
 import "power.mojom";
 import "print.mojom";
@@ -34,9 +37,9 @@ import "voice_interaction_framework.mojom";
 import "volume_mounter.mojom";
 import "wallpaper.mojom";
 
-// Next MinVersion: 26
+// Next MinVersion: 30
 // Deprecated method IDs: 101, 105
-// Next method ID: 132
+// Next method ID: 135
 interface ArcBridgeHost {
   // Keep the entries alphabetical. In order to do so without breaking
   // compatibility with the ARC instance, explicitly assign each interface a
@@ -61,6 +64,10 @@ interface ArcBridgeHost {
   // Notifies Chrome that the BootPhaseMonitorInstance interface is ready.
   [MinVersion=19] OnBootPhaseMonitorInstanceReady@125(
       BootPhaseMonitorInstance instance_ptr);
+
+  // Notifies Chrome that the CastReceiverInstance interface is ready.
+  [MinVersion=27] OnCastReceiverInstanceReady@132(
+      CastReceiverInstance instance_ptr);
 
   // Notifies Chrome that the ClipboardInstance interface is ready.
   [MinVersion=2] OnClipboardInstanceReady@109(ClipboardInstance instance_ptr);
@@ -87,6 +94,9 @@ interface ArcBridgeHost {
   // Notifies Chrome that the KioskInstance interface is ready.
   [MinVersion=20] OnKioskInstanceReady@126(KioskInstance instance_ptr);
 
+  // Notifies Chrome that the LockScreenInstance interface is ready.
+  [MinVersion=29] OnLockScreenInstanceReady@134(LockScreenInstance instance_ptr);
+
   // Notifies Chrome that the MetricsInstance interface is ready.
   [MinVersion=10] OnMetricsInstanceReady@116(MetricsInstance instance_ptr);
 
@@ -98,6 +108,9 @@ interface ArcBridgeHost {
 
   // Notifies Chrome that the ObbMounter interface is ready.
   [MinVersion=14] OnObbMounterInstanceReady@120(ObbMounterInstance instance_ptr);
+
+  // Notifies Chrome that the OemCryptoInstance interface is ready.
+  [MinVersion=28] OnOemCryptoInstanceReady@133(OemCryptoInstance instance_ptr);
 
   // Notifies Chrome that the PolicyInstance interface is ready.
   [MinVersion=7] OnPolicyInstanceReady@114(PolicyInstance instance_ptr);

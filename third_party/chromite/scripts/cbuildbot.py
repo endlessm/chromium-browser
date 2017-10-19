@@ -10,7 +10,7 @@ full and pre-flight-queue builds.
 
 from __future__ import print_function
 
-import distutils.version
+import distutils.version # pylint: disable=import-error,no-name-in-module
 import glob
 import json
 import mock
@@ -27,6 +27,7 @@ from chromite.cbuildbot import tee
 from chromite.cbuildbot import topology
 from chromite.cbuildbot import trybot_patch_pool
 from chromite.cbuildbot.stages import completion_stages
+from chromite.lib.const import waterfall
 from chromite.lib import builder_status_lib
 from chromite.lib import cidb
 from chromite.lib import cgroups
@@ -196,7 +197,7 @@ def _RunBuildStagesWrapper(options, site_config, build_config):
     options.managed_chrome = (
         chrome_rev != constants.CHROME_REV_LOCAL and
         (not build_config['usepkg_build_packages'] or chrome_rev or
-         build_config['profile'] or options.rietveld_patches))
+         build_config['profile']))
   else:
     options.managed_chrome = build_config['sync_chrome']
 
@@ -212,8 +213,6 @@ def _RunBuildStagesWrapper(options, site_config, build_config):
                                        target_name, chrome_src)
     # Create directory if in need
     osutils.SafeMakedirsNonRoot(options.chrome_root)
-  elif options.rietveld_patches:
-    cros_build_lib.Die('This builder does not support Rietveld patches.')
 
   metadata_dump_dict = {}
   if options.metadata_dump:
@@ -340,31 +339,12 @@ class CustomGroup(optparse.OptionGroup):
 class CustomOption(commandline.FilteringOption):
   """Subclass FilteringOption class to implement pass-through and api."""
 
-  ACTIONS = commandline.FilteringOption.ACTIONS + ('extend',)
-  STORE_ACTIONS = commandline.FilteringOption.STORE_ACTIONS + ('extend',)
-  TYPED_ACTIONS = commandline.FilteringOption.TYPED_ACTIONS + ('extend',)
-  ALWAYS_TYPED_ACTIONS = (commandline.FilteringOption.ALWAYS_TYPED_ACTIONS +
-                          ('extend',))
-
   def __init__(self, *args, **kwargs):
     # The remote_pass_through argument specifies whether we should directly
     # pass the argument (with its value) onto the remote trybot.
     self.pass_through = kwargs.pop('remote_pass_through', False)
     self.api_version = int(kwargs.pop('api', '0'))
     commandline.FilteringOption.__init__(self, *args, **kwargs)
-
-  def take_action(self, action, dest, opt, value, values, parser):
-    if action == 'extend':
-      # If there is extra spaces between each argument, we get '' which later
-      # code barfs on, so skip those.  e.g. We see this with the forms:
-      #  cbuildbot -p 'proj:branch ' ...
-      #  cbuildbot -p ' proj:branch' ...
-      #  cbuildbot -p 'proj:branch  proj2:branch' ...
-      lvalue = value.split()
-      values.ensure_value(dest, []).extend(lvalue)
-
-    commandline.FilteringOption.take_action(
-        self, action, dest, opt, value, values, parser)
 
 
 class CustomParser(commandline.FilteringParser):
@@ -448,26 +428,20 @@ def _CreateParser():
       parser,
       'Patch Options')
 
-  group.add_remote_option('-g', '--gerrit-patches', action='extend',
+  group.add_remote_option('-g', '--gerrit-patches', action='split_extend',
                           type='string', default=[],
                           metavar="'Id1 *int_Id2...IdN'",
                           help='Space-separated list of short-form Gerrit '
                                "Change-Id's or change numbers to patch. "
                                "Please prepend '*' to internal Change-Id's")
-  group.add_remote_option('-G', '--rietveld-patches', action='extend',
-                          type='string', default=[],
-                          metavar="'id1[:subdir1]...idN[:subdirN]'",
-                          help='Space-separated list of short-form Rietveld '
-                               'issue numbers to patch. If no subdir is '
-                               'specified, the src directory is used.')
-  group.add_option('-p', '--local-patches', action='extend', default=[],
+  group.add_option('-p', '--local-patches', action='split_extend', default=[],
                    metavar="'<project1>[:<branch1>]...<projectN>[:<branchN>]'",
                    help='Space-separated list of project branches with '
                         'patches to apply.  Projects are specified by name. '
                         'If no branch is specified the current branch of the '
                         'project will be used.')
 
-  parser.add_option_group(group)
+  parser.add_argument_group(group)
 
   #
   # Remote trybot options.
@@ -493,10 +467,10 @@ def _CreateParser():
                    help='Attach an optional description to a --remote run '
                         'to make it easier to identify the results when it '
                         'finishes')
-  group.add_option('--slaves', action='extend', default=[],
+  group.add_option('--slaves', action='split_extend', default=[],
                    help='Specify specific remote tryslaves to run on (e.g. '
                         'build149-m2); if the bot is busy, it will be queued')
-  group.add_remote_option('--channel', action='extend', dest='channels',
+  group.add_remote_option('--channel', action='split_extend', dest='channels',
                           default=[],
                           help='Specify a channel for a payloads trybot. Can '
                                'be specified multiple times. No valid for '
@@ -507,7 +481,7 @@ def _CreateParser():
   group.add_option('--committer-email', type='string',
                    help='Override default git committer email.')
 
-  parser.add_option_group(group)
+  parser.add_argument_group(group)
 
   #
   # Branch creation options.
@@ -530,7 +504,7 @@ def _CreateParser():
                           help='Do not actually push to remote git repos.  '
                                'Used for end-to-end testing branching.')
 
-  parser.add_option_group(group)
+  parser.add_argument_group(group)
 
   #
   # Advanced options.
@@ -662,8 +636,12 @@ def _CreateParser():
                                'tool. Bootstrap the projects based on the git '
                                'cache files instead of fetching them directly '
                                'from the GoB servers.')
+  group.add_remote_option('--sanity-check-build', action='store_true',
+                          default=False, dest='sanity_check_build',
+                          api=constants.REEXEC_API_SANITY_CHECK_BUILD,
+                          help='Run the build as a sanity check build.')
 
-  parser.add_option_group(group)
+  parser.add_argument_group(group)
 
   #
   # Internal options.
@@ -695,7 +673,7 @@ def _CreateParser():
   group.add_option('--buildbucket-id',
                    help='The unique ID in buildbucket of current build '
                         'generated by buildbucket.')
-  group.add_remote_option('--remote-patches', action='extend', default=[],
+  group.add_remote_option('--remote-patches', action='split_extend', default=[],
                           help='Patches uploaded by the trybot client when '
                                'run using the -p option')
   # Note the default here needs to be hardcoded to 3; that is the last version
@@ -705,6 +683,7 @@ def _CreateParser():
                         'older chromite instances')
   group.add_option('--sourceroot', type='path', default=constants.SOURCE_ROOT)
   group.add_option('--ts-mon-task-num', type='int', default=0,
+                   api=constants.REEXEC_API_TSMON_TASK_NUM,
                    help='The task number of this process. Defaults to 0. '
                         'This argument is useful for running multiple copies '
                         'of cbuildbot without their metrics colliding.')
@@ -737,7 +716,7 @@ def _CreateParser():
                                'specifying a file with a pickle of the result '
                                'to be returned.')
 
-  parser.add_option_group(group)
+  parser.add_argument_group(group)
 
   #
   # Debug options
@@ -754,7 +733,7 @@ def _CreateParser():
   return parser
 
 
-def _FinishParsing(options, args):
+def _FinishParsing(options):
   """Perform some parsing tasks that need to take place after optparse.
 
   This function needs to be easily testable!  Keep it free of
@@ -763,7 +742,6 @@ def _FinishParsing(options, args):
 
   Args:
     options: The options object returned by optparse
-    args: The args object returned by optparse
   """
   # Populate options.pass_through_args.
   accepted, _ = commandline.FilteringParser.FilterArgs(
@@ -787,8 +765,7 @@ def _FinishParsing(options, args):
         'Chrome rev must not be %s if chrome_version is not set.'
         % constants.CHROME_REV_SPEC)
 
-  patches = bool(options.gerrit_patches or options.local_patches or
-                 options.rietveld_patches)
+  patches = bool(options.gerrit_patches or options.local_patches)
   if options.remote:
     if options.local:
       cros_build_lib.Die('Cannot specify both --remote and --local')
@@ -806,9 +783,9 @@ def _FinishParsing(options, args):
     release_mode_with_patches = (options.buildbot and patches and
                                  '--debug' not in options.pass_through_args)
   else:
-    if len(args) > 1:
+    if len(options.build_targets) > 1:
       cros_build_lib.Die('Multiple configs not supported if not running with '
-                         '--remote.  Got %r', args)
+                         '--remote.  Got %r', options.build_targets)
 
     if options.slaves:
       cros_build_lib.Die('Cannot use --slaves if not running with --remote.')
@@ -837,9 +814,6 @@ def _FinishParsing(options, args):
     # 2. --remote invocations, because it needs to push changes to the tryjob
     #    repo.
     options.debug = not options.buildbot and not options.remote
-
-  # Record the configs targeted.
-  options.build_targets = args[:]
 
   if constants.BRANCH_UTIL_CONFIG in options.build_targets:
     if options.remote:
@@ -889,16 +863,15 @@ def _FinishParsing(options, args):
 
 
 # pylint: disable=W0613
-def _PostParseCheck(parser, options, args, site_config):
+def _PostParseCheck(parser, options, site_config):
   """Perform some usage validation after we've parsed the arguments
 
   Args:
     parser: Option parser that was used to parse arguments.
     options: The options returned by optparse.
-    args: The args returned by optparse.
     site_config: config_lib.SiteConfig containing all config info.
   """
-  if not args:
+  if not options.build_targets:
     parser.error('Invalid usage: no configuration targets provided.'
                  'Use -h to see usage.  Use -l to list supported configs.')
 
@@ -948,7 +921,7 @@ def _PostParseCheck(parser, options, args, site_config):
 
   # Ensure that all args are legitimate config targets.
   invalid_targets = []
-  for arg in args:
+  for arg in options.build_targets:
     if arg not in site_config:
       invalid_targets.append(arg)
       logging.error('No such configuraton target: "%s".', arg)
@@ -986,9 +959,10 @@ def ParseCommandLine(parser, argv):
   """Completely parse the commandline arguments"""
   (options, args) = parser.parse_args(argv)
 
+  # Record the configs targeted.
   # Strip out null arguments.
   # TODO(rcui): Remove when buildbot is fixed
-  args = [arg for arg in args if arg]
+  options.build_targets = [x for x in args if x]
 
   if options.deprecated_use_buildbucket:
     logging.warning('--use-buildbucket is deprecated, and ignored.')
@@ -997,8 +971,8 @@ def ParseCommandLine(parser, argv):
     print(constants.REEXEC_API_VERSION)
     sys.exit(0)
 
-  _FinishParsing(options, args)
-  return options, args
+  _FinishParsing(options)
+  return options
 
 
 _ENVIRONMENT_PROD = 'prod'
@@ -1012,8 +986,8 @@ def _GetRunEnvironment(options, build_config):
   # is not used on waterfalls that the db schema does not support (in particular
   # the chromeos.chrome waterfall).
   # See crbug.com/406940
-  waterfall = os.environ.get('BUILDBOT_MASTERNAME', '')
-  if not waterfall in constants.CIDB_KNOWN_WATERFALLS:
+  wfall = os.environ.get('BUILDBOT_MASTERNAME', '')
+  if not wfall in waterfall.CIDB_KNOWN_WATERFALLS:
     return _ENVIRONMENT_STANDALONE
 
   # TODO(akeshet): Clean up this code once we have better defined flags to
@@ -1076,6 +1050,9 @@ def _SetupConnections(options, build_config):
 
 # TODO(build): This function is too damn long.
 def main(argv):
+  # We get false positives with the options object.
+  # pylint: disable=attribute-defined-outside-init
+
   # Turn on strict sudo checks.
   cros_build_lib.STRICT_SUDO = True
 
@@ -1083,7 +1060,7 @@ def main(argv):
   os.umask(0o22)
 
   parser = _CreateParser()
-  options, args = ParseCommandLine(parser, argv)
+  options = ParseCommandLine(parser, argv)
 
   if options.config_repo:
     cros_build_lib.Die('Deprecated usage. Ping crbug.com/735696 you need it.')
@@ -1095,7 +1072,7 @@ def main(argv):
     _PrintValidConfigs(site_config, options.print_all)
     sys.exit(0)
 
-  _PostParseCheck(parser, options, args, site_config)
+  _PostParseCheck(parser, options, site_config)
 
   cros_build_lib.AssertOutsideChroot()
 
@@ -1107,7 +1084,7 @@ def main(argv):
     # Verify configs are valid.
     # If hwtest flag is enabled, post a warning that HWTest step may fail if the
     # specified board is not a released platform or it is a generic overlay.
-    for bot in args:
+    for bot in options.build_targets:
       build_config = site_config[bot]
       if options.hwtest:
         logging.warning(
@@ -1135,7 +1112,8 @@ def main(argv):
             options.branch,
             options.gerrit_patches+options.local_patches)
 
-      tryjob = remote_try.RemoteTryJob(args, patch_pool.local_patches,
+      tryjob = remote_try.RemoteTryJob(options.build_targets,
+                                       patch_pool.local_patches,
                                        options.pass_through_args,
                                        options.cache_dir,
                                        description,
@@ -1158,7 +1136,7 @@ def main(argv):
       cros_build_lib.Die('This host isn\'t a continuous-integration builder.')
 
   # Only one config arg is allowed in this mode, which was confirmed earlier.
-  bot_id = args[-1]
+  bot_id = options.build_targets[-1]
   build_config = site_config[bot_id]
 
   # TODO: Re-enable this block when reference_repo support handles this

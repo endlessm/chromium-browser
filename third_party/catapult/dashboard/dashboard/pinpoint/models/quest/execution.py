@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import traceback
+
 
 class Execution(object):
   """Object tracking the execution of a Quest.
@@ -63,6 +65,17 @@ class Execution(object):
     assert self.completed
     return self._result_arguments
 
+  def AsDict(self):
+    d = {
+        'result_arguments': self.result_arguments if self.completed else {},
+        'result_values': self.result_values if self.completed else None,
+    }
+    d.update(self._AsDict())
+    return d
+
+  def _AsDict(self):
+    raise NotImplementedError()
+
   def Poll(self):
     """Update the Execution status."""
     assert not self.completed
@@ -73,12 +86,12 @@ class Execution(object):
       # StandardError most likely indicates a bug in the code.
       # We should fail fast to aid debugging.
       raise
-    except Exception as e:  # pylint: disable=broad-except
+    except Exception:  # pylint: disable=broad-except
       # We allow broad exception handling here, because we log the exception and
       # display it in the UI.
       self._completed = True
       self._failed = True
-      self._result_values = (e,)
+      self._result_values = (traceback.format_exc(),)
 
 
   def _Poll(self):
@@ -87,5 +100,5 @@ class Execution(object):
   def _Complete(self, result_values=None, result_arguments=None):
     self._completed = True
     self._failed = False
-    self._result_values = result_values or (0,)
+    self._result_values = result_values or (None,)
     self._result_arguments = result_arguments or {}

@@ -12,10 +12,11 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/default_clock.h"
+#include "chromeos/components/tether/ble_advertiser.h"
+#include "chromeos/components/tether/ble_scanner.h"
 #include "chromeos/components/tether/disconnect_tethering_request_sender.h"
 #include "chromeos/components/tether/initializer.h"
 #include "components/prefs/pref_registry_simple.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_advertisement.h"
 
@@ -38,7 +39,9 @@ namespace tether {
 
 class ActiveHost;
 class ActiveHostNetworkStateUpdater;
+class BleAdvertisementDeviceQueue;
 class BleConnectionManager;
+class BleSynchronizer;
 class CrashRecoveryManager;
 class NetworkConnectionHandlerTetherDelegate;
 class DeviceIdTetherNetworkGuidMap;
@@ -60,10 +63,12 @@ class TetherHostFetcher;
 class TetherHostResponseRecorder;
 class TetherNetworkDisconnectionHandler;
 class WifiHotspotConnector;
+class WifiHotspotDisconnector;
 
 // Initializes the Tether Chrome OS component.
 class InitializerImpl : public Initializer,
-                        public OAuth2TokenService::Observer,
+                        public BleAdvertiser::Observer,
+                        public BleScanner::Observer,
                         public DisconnectTetheringRequestSender::Observer {
  public:
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
@@ -74,7 +79,6 @@ class InitializerImpl : public Initializer,
         cryptauth::CryptAuthService* cryptauth_service,
         NotificationPresenter* notification_presenter,
         PrefService* pref_service,
-        ProfileOAuth2TokenService* token_service,
         NetworkStateHandler* network_state_handler,
         ManagedNetworkConfigurationHandler*
             managed_network_configuration_handler,
@@ -89,7 +93,6 @@ class InitializerImpl : public Initializer,
         cryptauth::CryptAuthService* cryptauth_service,
         NotificationPresenter* notification_presenter,
         PrefService* pref_service,
-        ProfileOAuth2TokenService* token_service,
         NetworkStateHandler* network_state_handler,
         ManagedNetworkConfigurationHandler*
             managed_network_configuration_handler,
@@ -105,7 +108,6 @@ class InitializerImpl : public Initializer,
       cryptauth::CryptAuthService* cryptauth_service,
       NotificationPresenter* notification_presenter,
       PrefService* pref_service,
-      ProfileOAuth2TokenService* token_service,
       NetworkStateHandler* network_state_handler,
       ManagedNetworkConfigurationHandler* managed_network_configuration_handler,
       NetworkConnect* network_connect,
@@ -117,8 +119,11 @@ class InitializerImpl : public Initializer,
   // Initializer:
   void RequestShutdown() override;
 
-  // OAuth2TokenService::Observer:
-  void OnRefreshTokensLoaded() override;
+  // BleAdvertiser::Observer:
+  void OnAllAdvertisementsUnregistered() override;
+
+  // BleScanner::Observer:
+  void OnDiscoverySessionStateChanged(bool discovery_session_active) override;
 
   // DisconnectTetheringRequestSender::Observer:
   void OnPendingDisconnectRequestsComplete() override;
@@ -127,13 +132,14 @@ class InitializerImpl : public Initializer,
   friend class InitializerImplTest;
 
   void CreateComponent();
+  bool IsAsyncShutdownRequired();
   void OnPreCrashStateRestored();
   void StartAsynchronousShutdown();
+  void FinishAsynchronousShutdownIfPossible();
 
   cryptauth::CryptAuthService* cryptauth_service_;
   NotificationPresenter* notification_presenter_;
   PrefService* pref_service_;
-  ProfileOAuth2TokenService* token_service_;
   NetworkStateHandler* network_state_handler_;
   ManagedNetworkConfigurationHandler* managed_network_configuration_handler_;
   NetworkConnect* network_connect_;
@@ -149,6 +155,10 @@ class InitializerImpl : public Initializer,
       local_device_data_provider_;
   std::unique_ptr<cryptauth::RemoteBeaconSeedFetcher>
       remote_beacon_seed_fetcher_;
+  std::unique_ptr<BleAdvertisementDeviceQueue> ble_advertisement_device_queue_;
+  std::unique_ptr<BleSynchronizer> ble_synchronizer_;
+  std::unique_ptr<BleAdvertiser> ble_advertiser_;
+  std::unique_ptr<BleScanner> ble_scanner_;
   std::unique_ptr<BleConnectionManager> ble_connection_manager_;
   std::unique_ptr<DisconnectTetheringRequestSender>
       disconnect_tethering_request_sender_;
@@ -169,8 +179,9 @@ class InitializerImpl : public Initializer,
   std::unique_ptr<HostScanner> host_scanner_;
   std::unique_ptr<HostScanScheduler> host_scan_scheduler_;
   std::unique_ptr<HostConnectionMetricsLogger> host_connection_metrics_logger_;
-  std::unique_ptr<TetherConnector> tether_connector_;
   std::unique_ptr<NetworkConfigurationRemover> network_configuration_remover_;
+  std::unique_ptr<WifiHotspotDisconnector> wifi_hotspot_disconnector_;
+  std::unique_ptr<TetherConnector> tether_connector_;
   std::unique_ptr<TetherDisconnector> tether_disconnector_;
   std::unique_ptr<TetherNetworkDisconnectionHandler>
       tether_network_disconnection_handler_;

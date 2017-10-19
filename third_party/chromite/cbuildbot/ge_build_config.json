@@ -134,6 +134,18 @@
       ]
     },
     {
+      "name": "betty-arc64",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": true,
+          "board_group": "vm builds",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "bob",
       "configs": [
         {
@@ -261,18 +273,6 @@
           "experimental": false,
           "leader_board": true,
           "board_group": "rambi",
-          "arch": "X86_INTERNAL"
-        }
-      ]
-    },
-    {
-      "name": "coral",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": true,
-          "board_group": "coral",
           "arch": "X86_INTERNAL"
         }
       ]
@@ -414,7 +414,7 @@
       "configs": [
         {
           "builder": "RELEASE",
-          "experimental": true,
+          "experimental": false,
           "leader_board": true,
           "board_group": "fizz",
           "arch": "X86_INTERNAL"
@@ -562,18 +562,6 @@
           "leader_board": true,
           "board_group": "jecht",
           "arch": "UNKNOWN"
-        }
-      ]
-    },
-    {
-      "name": "kahlee",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": true,
-          "board_group": "",
-          "arch": "X86_INTERNAL"
         }
       ]
     },
@@ -787,6 +775,18 @@
         {
           "builder": "RELEASE",
           "experimental": false,
+          "leader_board": true,
+          "board_group": "vm builds",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "novato-arc64",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
           "leader_board": true,
           "board_group": "vm builds",
           "arch": "X86_INTERNAL"
@@ -1098,7 +1098,7 @@
       "configs": [
         {
           "builder": "RELEASE",
-          "experimental": true,
+          "experimental": false,
           "leader_board": false,
           "board_group": "",
           "arch": "X86_INTERNAL"
@@ -1397,27 +1397,91 @@
   "release_branch": false,
   "reference_board_unified_builds": [
     {
-      "name": "reef-uni",
-      "reference_board_name": "reef-uni",
+      "name": "coral",
+      "reference_board_name": "coral",
+      "arch": "X86_INTERNAL",
+      "builder": "RELEASE",
+      "experimental": false,
+      "models": [
+        {
+          "board_name": "coral",
+          "name": "coral",
+          "test_suites": [
+            "sanity",
+            "bvt-inline",
+            "bvt-arc",
+            "au",
+            "bvt-cq",
+            "bvt-perbuild"
+          ],
+          "cq_test_enabled": false
+        }
+      ]
+    },
+    {
+      "name": "kahlee",
+      "reference_board_name": "kahlee",
       "arch": "X86_INTERNAL",
       "builder": "RELEASE",
       "experimental": true,
       "models": [
         {
+          "board_name": "kahlee",
+          "name": "kahlee",
+          "test_suites": [
+            "sanity",
+            "bvt-inline",
+            "bvt-arc",
+            "au",
+            "bvt-cq",
+            "bvt-perbuild"
+          ],
+          "cq_test_enabled": false
+        }
+      ]
+    },
+    {
+      "name": "reef-uni",
+      "reference_board_name": "reef-uni",
+      "arch": "X86_INTERNAL",
+      "builder": "RELEASE",
+      "experimental": false,
+      "models": [
+        {
           "board_name": "reef-uni",
-          "name": "pyro"
+          "name": "pyro",
+          "cq_test_enabled": false
         },
         {
           "board_name": "reef-uni",
-          "name": "reef"
+          "name": "reef",
+          "test_suites": [
+            "sanity",
+            "bvt-inline",
+            "bvt-arc",
+            "au",
+            "bvt-cq",
+            "bvt-perbuild"
+          ],
+          "cq_test_enabled": false
         },
         {
           "board_name": "reef-uni",
-          "name": "sand"
+          "name": "sand",
+          "test_suites": [
+            "sanity",
+            "bvt-inline",
+            "bvt-arc",
+            "au",
+            "bvt-cq",
+            "bvt-perbuild"
+          ],
+          "cq_test_enabled": false
         },
         {
           "board_name": "reef-uni",
-          "name": "snappy"
+          "name": "snappy",
+          "cq_test_enabled": true
         }
       ]
     }

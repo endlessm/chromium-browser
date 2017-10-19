@@ -27,6 +27,7 @@ class CheckKeyRequest;
 class FlushAndSignBootAttributesRequest;
 class GetBootAttributeRequest;
 class GetKeyDataRequest;
+class MigrateToDircryptoRequest;
 class MountRequest;
 class RemoveFirmwareManagementParametersRequest;
 class RemoveKeyRequest;
@@ -99,6 +100,22 @@ class CHROMEOS_EXPORT CryptohomeClient : public DBusClient {
                               uint64_t current,
                               uint64_t total)>
       DircryptoMigrationProgessHandler;
+
+  // Holds TPM version info. Mirrors cryptohome::Tpm::TpmVersionInfo from CrOS
+  // side.
+  struct TpmVersionInfo {
+    uint32_t family = 0;
+    uint64_t spec_level = 0;
+    uint32_t manufacturer = 0;
+    uint32_t tpm_model = 0;
+    uint64_t firmware_version = 0;
+    std::string vendor_specific;
+  };
+
+  // A callback to handle responses to TpmGetVersion.
+  using TpmGetVersionCallback =
+      base::OnceCallback<void(DBusMethodCallStatus call_status,
+                              const TpmVersionInfo& tpm_version_info)>;
 
   ~CryptohomeClient() override;
 
@@ -490,8 +507,8 @@ class CHROMEOS_EXPORT CryptohomeClient : public DBusClient {
       const BoolDBusMethodCallback& callback) = 0;
 
   // Asynchronously gets the underlying TPM version information and passes it to
-  // the given callback as a string.
-  virtual void TpmGetVersion(const StringDBusMethodCallback& callback) = 0;
+  // the given callback.
+  virtual void TpmGetVersion(TpmGetVersionCallback callback) = 0;
 
   // Asynchronously calls the GetKeyDataEx method. |callback| will be invoked
   // with the reply protobuf.
@@ -577,8 +594,11 @@ class CHROMEOS_EXPORT CryptohomeClient : public DBusClient {
   // status flag indicating the completion.
   // MigrateToDircrypto attempts to migrate the home dir to the new "dircrypto"
   // encryption.
+  // |request| contains additional parameters, such as specifying if a full
+  // migration or a minimal migration should be performed.
   virtual void MigrateToDircrypto(
       const cryptohome::Identification& cryptohome_id,
+      const cryptohome::MigrateToDircryptoRequest& request,
       VoidDBusMethodCallback callback) = 0;
 
   // Asynchronously calls RemoveFirmwareManagementParameters method. |callback|

@@ -54,6 +54,11 @@ class ASH_EXPORT AppListButton : public views::ImageButton,
   // gfx::Point if the back arrow is not shown.
   gfx::Point GetBackButtonCenterPoint() const;
 
+  // Called by ShelfView to notify the app list button that it has started or
+  // finished a bounds animation.
+  void OnBoundsAnimationStarted();
+  void OnBoundsAnimationFinished();
+
  protected:
   // views::ImageButton:
   bool OnMousePressed(const ui::MouseEvent& event) override;
@@ -94,6 +99,12 @@ class ASH_EXPORT AppListButton : public views::ImageButton,
   // Whether the voice interaction style should be used.
   bool UseVoiceInteractionStyle();
 
+  // Initialize the voice interaction overlay.
+  void InitializeVoiceInteractionOverlay();
+
+  // Whether the active user is the primary user.
+  bool IsUserPrimary();
+
   // True if the app list is currently showing for this display.
   // This is useful because other IsApplistVisible functions aren't per-display.
   bool is_showing_app_list_;
@@ -111,22 +122,9 @@ class ASH_EXPORT AppListButton : public views::ImageButton,
   std::unique_ptr<base::OneShotTimer>
       voice_interaction_animation_hide_delay_timer_;
 
-  ash::VoiceInteractionState voice_interaction_state_ =
-      ash::VoiceInteractionState::STOPPED;
-
   // Flag that gets set each time we receive a mouse or gesture event. It is
   // then used to render the ink drop in the right location.
   bool last_event_is_back_event_ = false;
-
-  // Whether the primary user session is active. Arc is only supported in
-  // primary user session.
-  bool is_primary_user_active_ = false;
-
-  // Whether voice interaction is enabled in system settings.
-  bool voice_interaction_settings_enabled_ = false;
-
-  // Whether voice intearction setup flow has completed.
-  bool voice_interaction_setup_completed_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(AppListButton);
 };

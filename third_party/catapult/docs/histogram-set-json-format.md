@@ -21,7 +21,7 @@ dictionary represents either a Histogram or a Diagnostic.
     "shortName": "my metric",
     "description": "this is my awesome amazing metric",
     "diagnostics": {
-      "telemetry": "923e4567-e89b-12d3-a456-426655440000",
+      "stories": "923e4567-e89b-12d3-a456-426655440000",
     },
     "sampleValues": [0, 1, 42, -999999999.99999, null],
     "maxNumSampleValues": 1000,
@@ -50,13 +50,8 @@ dictionary represents either a Histogram or a Diagnostic.
   },
   {
     "guid": "923e4567-e89b-12d3-a456-426655440000",
-    "type": "TelemetryInfo",
-    "benchmarkName": "memory",
-    "benchmarkStartMs": 1234567890,
-    "label": "abc",
-    "storyDisplayName": "my story",
-    "storyGroupingKeys": {"state": "pre"},
-    "storysetRepeatCounter": 0,
+    "type": "GenericSet",
+    "values": ["browse:news:cnn"],
   },
 ]
 ```
@@ -129,15 +124,9 @@ The only field that is required for all Diagnostics, `type`, must be one of
  * `GenericSet`
  * `RelatedEventSet`
  * `Breakdown`
- * `RelatedHistogramSet`
  * `RelatedHistogramMap`
  * `RelatedHistogramBreakdown`
- * `TelemetryInfo`
- * `DeviceInfo`
- * `RevisionInfo`
- * `BuildbotInfo`
  * `Scalar`
- * `Ownership`
 
 If a Diagnostic is in the root array of the JSON, then it is shared, so it may be
 referenced by multiple Histograms. Shared Diagnostics must contain a string
@@ -147,67 +136,6 @@ If a Diagnostic is contained in a Histogram, then it must not have a `guid`
 field.
 
 The other fields of Diagnostic dictionaries depend on `type`.
-
-### TelemetryInfo
-
-This tracks telemetry parameters when the Histogram was produced to allow users
-to compare or merge results across similar telemetry story runs.
-
- * `benchmarkName`: string
- * `benchmarkStartMs`: number of ms since unix epoch
- * `label`: string
- * `legacyTIRLabel`: string
- * `storyDisplayName`: string
- * `storyGroupingKeys`: dictionary mapping from strings to strings
- * `storysetRepeatCounter`: number
-
-### RevisionInfo
-
-This tracks revisions of the software under test to allow users to compare or
-merge results across revisions.
-
- * `chromiumCommitPosition`: optional integer
- * `v8CommitPosition`: optional integer
- * `chromium`: array of 1 or 2 strings
- * `v8`: array of 1 or 2 strings
- * `catapult`: array of 1 or 2 strings
- * `angle`: array of 1 or 2 strings
- * `skia`: array of 1 or 2 strings
- * `webrtc`: array of 1 or 2 strings
-
-### DeviceInfo
-
-This tracks information about the device that was used to produce the Histogram
-to allow users to compare or merge results across similar devices.
-
- * `chromeVersion`: string
- * `osName`: one of
-    * `mac`
-    * `android`
-    * `linux`
-    * `chrome`
-    * `win`
- * `osVersion`: string
- * `arch`: not yet specified, but will contain bittiness (32-bit vs 64-bit)
- * `gpuInfo`: not yet specified, but will contain information about the GPU
- * `ram`: number of bytes of RAM
-
-### BuildbotInfo
-
-This tracks buildbot parameters when the Histogram was produced to allow users
-to compare or merge results across similar bots.
-
- * `displayMasterName`: string
- * `displayBotName`: string
- * `buildbotMasterName`: string
- * `buildbotName`: string
- * `buildNumber`: number
- * `logUri`: string
-
-### OwnershipInfo
-
- * `owners`: an array of strings containing email addresses
- * `component`: a string, a Monorail component
 
 ### GenericSet
 
@@ -228,13 +156,6 @@ categories.
 
  * `values`: required dictionary mapping from a string category name to number values
  * `colorScheme`: optional string specifying how the bar chart should be colored
-
-### RelatedHistogramSet
-
-This allows metrics to annotate which Histograms are related to other
-Histograms.
-
- * `guids`: list of guids of related Histograms
 
 ### RelatedHistogramMap
 

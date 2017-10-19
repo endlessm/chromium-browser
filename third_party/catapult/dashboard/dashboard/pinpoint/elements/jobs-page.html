@@ -5,142 +5,76 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link type="text/css" rel="stylesheet" href="/dashboard/static/base.css">
-
 <link rel="import" href="/components/app-route/app-route.html">
-<link rel="import" href="/components/polymer/polymer.html">
 
+<link rel="import" href="/dashboard/pinpoint/elements/base-style.html">
 <link rel="import" href="/dashboard/pinpoint/elements/jobs-table.html">
-<link rel="import" href="/dashboard/static/simple_xhr.html">
-<link rel="import" href="/dashboard/static/uri.html">
+<link rel="import" href="/dashboard/pinpoint/elements/loading-wrapper.html">
 
 <dom-module id="jobs-page">
   <template>
-    <style>
-    .error {
-      color: #dd4b39;
-      font-weight: bold;
-    }
-
-    .center {
-      margin: auto;
-      padding: 10px;
-    }
-
-    /* The content container contains everything below the sheriff select menu.
-     */
-    #content {
-      display: inline-flex;
-      display: -webkit-inline-flex;
-      flex-direction: column;
-      -webkit-flex-direction: column;
-      align-items: flex-start;
-      -webkit-align-items: flex-start;
-    }
-
-    #loading-spinner {
-      width: 100%;
-      display: flex;
-      justify-content: center;
-    }
+    <style include="base-style">
+      #job-count {
+        background: var(--paper-indigo-50);
+      }
     </style>
 
     <app-route route="{{route}}" pattern="/:sortBy:sortDescending" query-params="{{queryParams}}"></app-route>
 
-    <template is="dom-if" if="{{loading}}">
-      <div id="loading-spinner"><img src="//www.google.com/images/loading.gif"></div>
-    </template>
-    <template is="dom-if" if="{{!loading}}">
-      <template is="dom-if" if="{{error}}">
-        <div class="error">{{error}}</div>
-      </template>
-      <template is="dom-if" if="{{!error}}">
-        <div id="content">
-          <h1>Pinpoint Jobs</h1>
-          <div id="action-bar">
-          </div>
-          <h2>Running Jobs</h2>
-          <p id='num-alerts'>
-            {{computeJobCountString(totalJobsCount, totalJobsCountMax)}}
-          </p>
-          <jobs-table id="jobs-table"
-              xsrf-token="{{xsrfToken}}"
-              jobs-list="{{jobs}}"
-              sort-by="{{queryParams.sortBy}}"
-              sort-descending="{{queryParams.sortDescending}}">
-          </jobs-table>
-        </div>
-      </template>
-    </template>
+    <h1>
+      Jobs
+      <span id="job-count" class="chip">
+        [[computeJobCountString(jobCount, jobCountMax)]]
+      </span>
+    </h1>
+    <loading-wrapper id="loader">
+      <jobs-table id="jobs-table"
+          jobs="[[jobs]]"
+          sort-by="[[queryParams.sortBy]]"
+          sort-descending="[[queryParams.sortDescending]]">
+      </jobs-table>
+    </loading-wrapper>
   </template>
+
   <script>
     'use strict';
     Polymer({
-
       is: 'jobs-page',
+
       properties: {
-        totalJobsCount: {
+        jobCount: {
           type: Number,
           value: 0
         },
-        totalJobsCountMax: {
+
+        jobCountMax: {
           type: Number
         },
+
         jobs: {
           type: Array,
           value: () => []
-        },
-        loading: {
-          type: Boolean,
-          value: true,
-          notify: true
-        },
-        error: {
-          type: String,
-          value: '',
-          notify: true
-        },
-        xsrfToken: {
-          type: String,
-          value: ''
         }
       },
 
-      computeIsSingular: count => count === 1,
-
-      computeJobCountString() {
-        if (this.totalJobsCount === 1) {
-          return '1 job';
+      computeJobCountString(jobCount, jobCountMax) {
+        if (jobCount >= jobCountMax) {
+          return String(jobCountMax) + '+';
         }
-        if (this.totalJobsCount < this.totalJobsCountMax) {
-          return String(this.totalJobsCount) + ' jobs.';
-        }
-        return String(this.totalJobsCountMax) + ' or more jobs.';
-      },
-
-      getJobCount() {
-        return this.jobs.length;
+        return String(jobCount);
       },
 
       deselected() {
         this.jobs = [];
       },
 
-      selected() {
-        this.loading = true;
-        const params = {};
-        simple_xhr.send('/api/jobs', params,
-            function(response) {
-              this.jobs = response.jobs_list;
-              this.totalJobsCount = response.jobs_count;
-              this.totalJobsCountMax = response.jobs_count_max;
-              this.xsrfToken = response.xsrf_token;
-              this.loading = false;
-            }.bind(this),
-            function(msg) {
-              this.error = msg;
-              this.loading = false;
-            }.bind(this));
+      async selected() {
+        const response = await this.$.loader.load('/api/jobs', {});
+        if (response) {
+          this.jobs = response.jobs_list;
+          this.jobCount = response.jobs_count;
+          this.jobCountMax = response.jobs_count_max;
+        }
       }
     });
   </script>

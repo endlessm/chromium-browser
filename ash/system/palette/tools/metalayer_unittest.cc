@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/highlighter/highlighter_controller.h"
+#include "ash/highlighter/highlighter_controller_test_api.h"
 #include "ash/shell.h"
 #include "ash/shell_test_api.h"
 #include "ash/system/palette/mock_palette_tool_delegate.h"
@@ -34,11 +36,19 @@ class MetalayerToolTest : public AshTestBase {
 
     palette_tool_delegate_ = base::MakeUnique<MockPaletteToolDelegate>();
     tool_ = base::MakeUnique<MetalayerMode>(palette_tool_delegate_.get());
+    highlighter_controller_ = base::MakeUnique<HighlighterController>();
+    highlighter_test_api_ = base::MakeUnique<HighlighterControllerTestApi>(
+        highlighter_controller_.get());
+    test_palette_delegate()->set_highlighter_test_api(
+        highlighter_test_api_.get());
   }
 
   void TearDown() override {
     // This needs to be called first to remove the event handler before the
     // shell instance gets torn down.
+    test_palette_delegate()->set_highlighter_test_api(nullptr);
+    highlighter_test_api_.reset();
+    highlighter_controller_.reset();
     tool_.reset();
     AshTestBase::TearDown();
   }
@@ -48,6 +58,8 @@ class MetalayerToolTest : public AshTestBase {
   }
 
  protected:
+  std::unique_ptr<HighlighterController> highlighter_controller_;
+  std::unique_ptr<HighlighterControllerTestApi> highlighter_test_api_;
   std::unique_ptr<MockPaletteToolDelegate> palette_tool_delegate_;
   std::unique_ptr<PaletteTool> tool_;
 
@@ -154,6 +166,15 @@ TEST_F(MetalayerToolTest, MetalayerUnsupportedDisablesPaletteTool) {
   Shell::Get()->NotifyVoiceInteractionStatusChanged(
       VoiceInteractionState::NOT_READY);
   testing::Mock::VerifyAndClearExpectations(palette_tool_delegate_.get());
+}
+
+// Verifies that invoking the callback passed to the delegate disables the tool.
+TEST_F(MetalayerToolTest, MetalayerCallbackDisablesPaletteTool) {
+  tool_->OnEnable();
+  // Calling the associated callback |metalayer_done| will disable the tool.
+  EXPECT_CALL(*palette_tool_delegate_.get(),
+              DisableTool(PaletteToolId::METALAYER));
+  highlighter_test_api_->CallMetalayerDone();
 }
 
 }  // namespace ash

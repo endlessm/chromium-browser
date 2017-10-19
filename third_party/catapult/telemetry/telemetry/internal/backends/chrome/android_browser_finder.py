@@ -141,7 +141,7 @@ class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
           exc_info[0].__name__)
       try:
         browser_backend.Close()
-      except Exception:
+      except Exception: # pylint: disable=broad-except
         logging.exception('Secondary failure while closing browser backend.')
 
       raise exc_info[0], exc_info[1], exc_info[2]
@@ -168,7 +168,7 @@ class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
                    self._webview_embedder_apk)
       self.platform.InstallApplication(self._webview_embedder_apk)
 
-  def last_modification_time(self):
+  def LastModificationTime(self):
     if self.HaveLocalAPK():
       return os.path.getmtime(self._local_apk)
     return -1
@@ -178,7 +178,7 @@ def SelectDefaultBrowser(possible_browsers):
   """Return the newest possible browser."""
   if not possible_browsers:
     return None
-  return max(possible_browsers, key=lambda b: b.last_modification_time())
+  return max(possible_browsers, key=lambda b: b.LastModificationTime())
 
 
 def CanFindAvailableBrowsers():

@@ -5,6 +5,7 @@
 DEPS = [
   'bot_update',
   'gclient',
+  'gerrit',
   'recipe_engine/path',
   'recipe_engine/platform',
   'recipe_engine/properties',
@@ -25,7 +26,11 @@ def RunSteps(api):
   else:
     api.gclient.c.got_revision_reverse_mapping['got_cr_revision'] = 'src'
     api.gclient.c.got_revision_reverse_mapping['got_revision'] = 'src'
+    api.gclient.c.got_revision_reverse_mapping['got_v8_revision'] = 'src/v8'
+    api.gclient.c.got_revision_reverse_mapping['got_angle_revision'] = (
+        'src/third_party/angle')
   api.gclient.c.patch_projects['v8'] = ('src/v8', 'HEAD')
+  api.gclient.c.patch_projects['v8/v8'] = ('src/v8', 'HEAD')
   api.gclient.c.patch_projects['angle/angle'] = ('src/third_party/angle',
                                                  'HEAD')
   patch = api.properties.get('patch', True)
@@ -43,10 +48,21 @@ def RunSteps(api):
       api.properties.get('gerrit_no_rebase_patch_ref'))
 
   if api.properties.get('test_apply_gerrit_ref'):
+    prop2arg = {
+        'gerrit_custom_repo': 'gerrit_repo',
+        'gerrit_custom_ref': 'gerrit_ref',
+        'gerrit_custom_step_name': 'step_name',
+    }
+    kwargs = {
+        prop2arg[p]: api.properties.get(p)
+        for p in prop2arg if api.properties.get(p)
+    }
     api.bot_update.apply_gerrit_ref(
         root='/tmp/test/root',
         gerrit_no_reset=gerrit_no_reset,
-        gerrit_no_rebase_patch_ref=gerrit_no_rebase_patch_ref)
+        gerrit_no_rebase_patch_ref=gerrit_no_rebase_patch_ref,
+        **kwargs
+    )
   else:
     bot_update_step = api.bot_update.ensure_checkout(
         no_shallow=no_shallow,
@@ -84,6 +100,12 @@ def GenTests(api):
       issue=12345,
       patchset=654321,
       rietveld='https://rietveld.example.com/',
+  )
+  yield api.test('tryjob_empty_revision') + api.properties(
+      issue=12345,
+      patchset=654321,
+      rietveld='https://rietveld.example.com/',
+      revisions={'src': ''},
   )
   yield api.test('deprecated_got_revision_mapping') + api.properties(
       deprecated_got_revision_mapping=True,
@@ -151,6 +173,15 @@ def GenTests(api):
       gerrit_no_reset=1,
       test_apply_gerrit_ref=True,
   )
+  yield api.test('apply_gerrit_ref_custom') + api.properties(
+      repository='chromium',
+      gerrit_no_rebase_patch_ref=True,
+      gerrit_no_reset=1,
+      gerrit_custom_repo='https://custom/repo',
+      gerrit_custom_ref='refs/changes/custom/1234567/1',
+      gerrit_custom_step_name='Custom apply gerrit step',
+      test_apply_gerrit_ref=True,
+  )
   yield api.test('tryjob_v8') + api.properties(
       issue=12345,
       patchset=654321,
@@ -165,6 +196,28 @@ def GenTests(api):
       gerrit_project='angle/angle',
       patch_issue=338811,
       patch_set=3,
+  )
+  yield api.test('tryjob_gerrit_v8') + api.properties.tryserver(
+      gerrit_project='v8/v8',
+      patch_issue=338811,
+      patch_set=3,
+  )
+  yield api.test('tryjob_gerrit_v8_feature_branch') + api.properties.tryserver(
+      gerrit_project='v8/v8',
+      patch_issue=338811,
+      patch_set=3,
+  ) + api.step_data(
+      'gerrit get_patch_destination_branch',
+      api.gerrit.get_one_change_response_data(branch='experimental/feature'),
+  )
+  yield api.test('tryjob_gerrit_feature_branch') + api.properties.tryserver(
+      buildername='feature_rel',
+      gerrit_project='chromium/src',
+      patch_issue=338811,
+      patch_set=3,
+  ) + api.step_data(
+      'gerrit get_patch_destination_branch',
+      api.gerrit.get_one_change_response_data(branch='experimental/feature'),
   )
   yield api.test('tryjob_gerrit_angle_deprecated') + api.properties.tryserver(
       patch_project='angle/angle',

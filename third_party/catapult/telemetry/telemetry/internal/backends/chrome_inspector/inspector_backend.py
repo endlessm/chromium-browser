@@ -154,9 +154,9 @@ class InspectorBackend(object):
     """
     dom_counters = self._memory.GetDOMCounters(timeout)
     return {
-      'document_count': dom_counters['documents'],
-      'node_count': dom_counters['nodes'],
-      'event_listener_count': dom_counters['jsEventListeners']
+        'document_count': dom_counters['documents'],
+        'node_count': dom_counters['nodes'],
+        'event_listener_count': dom_counters['jsEventListeners']
     }
 
   # Page public methods.
@@ -279,7 +279,7 @@ class InspectorBackend(object):
         debug_message = (
             'Console output:\n%s' %
             self.GetCurrentConsoleOutputBuffer())
-      except Exception as e:
+      except Exception as e: # pylint: disable=broad-except
         debug_message = (
             'Exception thrown when trying to capture console output: %s' %
             repr(e))
@@ -356,8 +356,8 @@ class InspectorBackend(object):
       params['interactionMarkerName'] = interactionMarkerName
 
     scroll_command = {
-      'method': 'Input.synthesizeScrollGesture',
-      'params': params
+        'method': 'Input.synthesizeScrollGesture',
+        'params': params
     }
     return self._runtime.RunInspectorCommand(scroll_command, timeout)
 
@@ -396,7 +396,7 @@ class InspectorBackend(object):
       exceptions.DevtoolsTargetCrashException
     """
     params = {
-      'type': keyEventType,
+        'type': keyEventType,
     }
 
     if modifiers is not None:
@@ -425,8 +425,8 @@ class InspectorBackend(object):
       params['isSystemKey'] = isSystemKey
 
     key_command = {
-      'method': 'Input.dispatchKeyEvent',
-      'params': params
+        'method': 'Input.dispatchKeyEvent',
+        'params': params
     }
     return self._runtime.RunInspectorCommand(key_command, timeout)
 

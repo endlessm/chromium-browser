@@ -30,6 +30,7 @@ APP_LIST_EXPORT extern const SkColor kDialogSeparatorColor;
 APP_LIST_EXPORT extern const SkColor kHighlightedColor;
 APP_LIST_EXPORT extern const SkColor kSelectedColor;
 APP_LIST_EXPORT extern const SkColor kGridSelectedColor;
+APP_LIST_EXPORT extern const SkColor kAnswerCardSelectedColor;
 
 APP_LIST_EXPORT extern const SkColor kPagerHoverColor;
 APP_LIST_EXPORT extern const SkColor kPagerNormalColor;
@@ -206,6 +207,8 @@ APP_LIST_EXPORT gfx::ShadowValue GetShadowForZHeight(int z_height);
 
 APP_LIST_EXPORT const gfx::ShadowValues& IconStartShadows();
 APP_LIST_EXPORT const gfx::ShadowValues& IconEndShadows();
+
+APP_LIST_EXPORT const gfx::FontList& FullscreenAppListAppTitleFont();
 
 }  // namespace app_list
 

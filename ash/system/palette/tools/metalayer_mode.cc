@@ -28,9 +28,14 @@ namespace {
 const char kToastId[] = "palette_metalayer_mode";
 const int kToastDurationMs = 2500;
 
+// If the last stroke happened within this amount of time,
+// assume writing/sketching usage.
+const int kMaxStrokeGapWhenWritingMs = 1000;
+
 }  // namespace
 
-MetalayerMode::MetalayerMode(Delegate* delegate) : CommonPaletteTool(delegate) {
+MetalayerMode::MetalayerMode(Delegate* delegate)
+    : CommonPaletteTool(delegate), weak_factory_(this) {
   Shell::Get()->AddPreTargetHandler(this);
   Shell::Get()->AddShellObserver(this);
 }
@@ -51,7 +56,10 @@ PaletteToolId MetalayerMode::GetToolId() const {
 void MetalayerMode::OnEnable() {
   CommonPaletteTool::OnEnable();
 
-  Shell::Get()->palette_delegate()->ShowMetalayer();
+  Shell::Get()->palette_delegate()->ShowMetalayer(
+      base::BindOnce(&MetalayerMode::OnMetalayerSessionComplete,
+                     weak_factory_.GetWeakPtr()),
+      activated_via_button_);
   delegate()->HidePalette();
 }
 
@@ -59,6 +67,7 @@ void MetalayerMode::OnDisable() {
   CommonPaletteTool::OnDisable();
 
   Shell::Get()->palette_delegate()->HideMetalayer();
+  activated_via_button_ = false;
 }
 
 const gfx::VectorIcon& MetalayerMode::GetActiveTrayIcon() const {
@@ -79,6 +88,9 @@ void MetalayerMode::OnTouchEvent(ui::TouchEvent* event) {
   if (!feature_enabled())
     return;
 
+  if (!palette_utils::IsInUserSession())
+    return;
+
   // The metalayer tool is already selected, no need to do anything.
   if (enabled())
     return;
@@ -87,8 +99,20 @@ void MetalayerMode::OnTouchEvent(ui::TouchEvent* event) {
       ui::EventPointerType::POINTER_TYPE_PEN)
     return;
 
+  if (event->type() == ui::ET_TOUCH_RELEASED) {
+    previous_stroke_end_ = event->time_stamp();
+    return;
+  }
+
   if (event->type() != ui::ET_TOUCH_PRESSED)
     return;
+
+  if (event->time_stamp() - previous_stroke_end_ <
+      base::TimeDelta::FromMilliseconds(kMaxStrokeGapWhenWritingMs)) {
+    // The press is happening too soon after the release, the user is most
+    // likely writing/sketching and does not want the metalayer to activate.
+    return;
+  }
 
   // The stylus "barrel" button press is encoded as ui::EF_LEFT_MOUSE_BUTTON
   if (!(event->flags() & ui::EF_LEFT_MOUSE_BUTTON))
@@ -109,6 +133,7 @@ void MetalayerMode::OnTouchEvent(ui::TouchEvent* event) {
     delegate()->RecordPaletteOptionsUsage(
         PaletteToolIdToPaletteTrayOptions(GetToolId()),
         PaletteInvocationMethod::SHORTCUT);
+    activated_via_button_ = true;
     delegate()->EnableTool(GetToolId());
   }
   event->StopPropagation();
@@ -144,9 +169,11 @@ void MetalayerMode::UpdateView() {
   if (!highlight_view_)
     return;
 
-  highlight_view_->text_label()->SetText(l10n_util::GetStringUTF16(
+  const base::string16 text = l10n_util::GetStringUTF16(
       loading() ? IDS_ASH_STYLUS_TOOLS_METALAYER_MODE_LOADING
-                : IDS_ASH_STYLUS_TOOLS_METALAYER_MODE));
+                : IDS_ASH_STYLUS_TOOLS_METALAYER_MODE);
+  highlight_view_->text_label()->SetText(text);
+  highlight_view_->SetAccessibleName(text);
 
   highlight_view_->SetEnabled(selectable());
 
@@ -159,6 +186,10 @@ void MetalayerMode::UpdateView() {
 
   highlight_view_->left_icon()->SetImage(
       CreateVectorIcon(GetPaletteIcon(), kMenuIconSize, style.GetIconColor()));
+}
+
+void MetalayerMode::OnMetalayerSessionComplete() {
+  delegate()->DisableTool(GetToolId());
 }
 
 }  // namespace ash

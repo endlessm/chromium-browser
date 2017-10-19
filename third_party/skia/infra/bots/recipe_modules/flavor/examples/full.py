@@ -54,8 +54,10 @@ def RunSteps(api):
 
 
 TEST_BUILDERS = [
+  'Build-Debian9-Clang-arm-Release-Android_API26',
   'Build-Mac-Clang-arm64-Debug-Android_Vulkan',
   'Build-Mac-Clang-x86_64-Debug-CommandBuffer',
+  'Build-Mac-Clang-x86_64-Debug-Metal',
   'Build-Ubuntu-Clang-x86_64-Release-Mini',
   'Build-Ubuntu-Clang-x86_64-Release-Shared',
   'Build-Ubuntu-Clang-x86_64-Release-Vulkan',
@@ -67,15 +69,18 @@ TEST_BUILDERS = [
   'Build-Ubuntu-GCC-x86_64-Release-PDFium',
   'Build-Ubuntu-GCC-x86_64-Release-PDFium_SkiaPaths',
   'Build-Win-Clang-arm64-Release-Android',
+  'Build-Win-Clang-x86_64-Release',
   'Build-Win-MSVC-x86_64-Debug-GDI',
   'Build-Win-MSVC-x86_64-Debug-NoGPU',
   'Build-Win-MSVC-x86_64-Release-Exceptions',
   'Build-Win-MSVC-x86_64-Release-Vulkan',
+  'Housekeeper-PerCommit-CheckGeneratedFiles',
   'Perf-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Debug-Android',
   'Perf-ChromeOS-Clang-Chromebook_513C24_K01-GPU-MaliT860-arm-Release',
   'Perf-Chromecast-GCC-Chorizo-CPU-Cortex_A7-arm-Release',
   'Perf-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Release-ASAN',
   'Perf-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Release-MSAN',
+  'Perf-Ubuntu14-GCC-GCE-CPU-AVX2-x86_64-Release-CT_BENCH_1k_SKPs',
   'Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release',
   ('Test-Ubuntu-GCC-ShuttleA-GPU-GTX550Ti-x86_64-Release-'
    'Valgrind_AbandonGpuContext'),

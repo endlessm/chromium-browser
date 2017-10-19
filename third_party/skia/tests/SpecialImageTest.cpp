@@ -301,10 +301,11 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SpecialImage_DeferredGpu, reporter, ctxInfo) 
     SkBitmap bm = create_bm();
 
     GrSurfaceDesc desc;
-    desc.fConfig = kSkia8888_GrPixelConfig;
     desc.fFlags  = kNone_GrSurfaceFlags;
+    desc.fOrigin = kTopLeft_GrSurfaceOrigin;
     desc.fWidth  = kFullSize;
     desc.fHeight = kFullSize;
+    desc.fConfig = kSkia8888_GrPixelConfig;
 
     sk_sp<GrTextureProxy> proxy(GrSurfaceProxy::MakeDeferred(context->resourceProvider(),
                                                              desc, SkBudgeted::kNo,

@@ -4,9 +4,13 @@
 
 class _Info(object):
 
-  def __init__(self, name, _type=None):
+  def __init__(self, name, _type=None, entry_type=None):
     self._name = name
     self._type = _type
+    if entry_type is not None and self._type != 'GenericSet':
+      raise ValueError(
+          'entry_type should only be specified if _type is GenericSet')
+    self._entry_type = entry_type
 
   @property
   def name(self):
@@ -16,50 +20,44 @@ class _Info(object):
   def type(self):
     return self._type
 
+  @property
+  def entry_type(self):
+    return self._entry_type
 
-ANGLE_REVISIONS = _Info('angle revisions', 'GenericSet')
-ARCHITECTURES = _Info('architectures', 'GenericSet')
-BENCHMARKS = _Info('benchmarks', 'GenericSet')
-BENCHMARK_START = _Info('benchmark start', 'DateRange')
-BOTS = _Info('bots', 'GenericSet')
-BUG_COMPONENTS = _Info('bug components', 'GenericSet')
-BUILDS = _Info('builds', 'GenericSet')
-CATAPULT_REVISIONS = _Info('catapult revisions', 'GenericSet')
-CHROMIUM_COMMIT_POSITIONS = _Info('chromium commit positions', 'GenericSet')
-CHROMIUM_REVISIONS = _Info('chromium revisions', 'GenericSet')
-GPUS = _Info('gpus', 'GenericSet')
-GROUPING_PATH = _Info('grouping path')
-LABELS = _Info('labels', 'GenericSet')
-LOG_URLS = _Info('log urls', 'GenericSet')
-MASTERS = _Info('masters', 'GenericSet')
-MEMORY_AMOUNTS = _Info('memory amounts', 'GenericSet')
-MERGED_FROM = _Info('merged from', 'RelatedHistogramSet')
-MERGED_TO = _Info('merged to', 'RelatedHistogramSet')
-OS_NAMES = _Info('os names', 'GenericSet')
-OS_VERSIONS = _Info('os versions', 'GenericSet')
-PRODUCT_VERSIONS = _Info('product versions', 'GenericSet')
-RELATED_NAMES = _Info('related names', 'GenericSet')
-SKIA_REVISIONS = _Info('skia revisions', 'GenericSet')
-STORIES = _Info('stories', 'GenericSet')
-STORYSET_REPEATS = _Info('storyset repeats', 'GenericSet')
-STORY_TAGS = _Info('story tags', 'GenericSet')
+
+ANGLE_REVISIONS = _Info('angleRevisions', 'GenericSet', str)
+ARCHITECTURES = _Info('architectures', 'GenericSet', str)
+BENCHMARKS = _Info('benchmarks', 'GenericSet', str)
+BENCHMARK_START = _Info('benchmarkStart', 'DateRange')
+BOTS = _Info('bots', 'GenericSet', str)
+BUG_COMPONENTS = _Info('bugComponents', 'GenericSet', str)
+BUILDS = _Info('builds', 'GenericSet', int)
+CATAPULT_REVISIONS = _Info('catapultRevisions', 'GenericSet', str)
+CHROMIUM_COMMIT_POSITIONS = _Info('chromiumCommitPositions', 'GenericSet', int)
+CHROMIUM_REVISIONS = _Info('chromiumRevisions', 'GenericSet', str)
+GPUS = _Info('gpus', 'GenericSet', str)
+GROUPING_PATH = _Info('groupingPath')
+LABELS = _Info('labels', 'GenericSet', str)
+LOG_URLS = _Info('logUrls', 'GenericSet', str)
+MASTERS = _Info('masters', 'GenericSet', str)
+MEMORY_AMOUNTS = _Info('memoryAmounts', 'GenericSet', int)
+MERGED_FROM = _Info('mergedFrom', 'RelatedHistogramMap')
+MERGED_TO = _Info('mergedTo', 'RelatedHistogramMap')
+OS_NAMES = _Info('osNames', 'GenericSet', str)
+OS_VERSIONS = _Info('osVersions', 'GenericSet', str)
+OWNERS = _Info('owners', 'GenericSet', str)
+PRODUCT_VERSIONS = _Info('productVersions', 'GenericSet', str)
+RELATED_NAMES = _Info('relatedNames', 'GenericSet', str)
+SKIA_REVISIONS = _Info('skiaRevisions', 'GenericSet', str)
+STORIES = _Info('stories', 'GenericSet', str)
+STORYSET_REPEATS = _Info('storysetRepeats', 'GenericSet', int)
+STORY_TAGS = _Info('storyTags', 'GenericSet', str)
 TAG_MAP = _Info('tagmap', 'TagMap')
-TRACE_START = _Info('trace start', 'DateRange')
-TRACE_URLS = _Info('trace urls', 'GenericSet')
-V8_COMMIT_POSITIONS = _Info('v8 commit positions', 'DateRange')
-V8_REVISIONS = _Info('v8 revisions', 'GenericSet')
-WEBRTC_REVISIONS = _Info('webrtc revisions', 'GenericSet')
-
-# DEPRECATED https://github.com/catapult-project/catapult/issues/3507
-BUILDBOT = _Info('buildbot')  # BuildbotInfo or MergedBuildbotInfo
-DEVICE = _Info('device')  # DeviceInfo or MergedDeviceInfo
-INTERACTION_RECORD = _Info('tir', 'GenericSet')
-ITERATION = _Info('iteration')  # Legacy name for TELEMETRY
-REVISIONS = _Info('revisions')  # RevisionInfo or MergedRevisionInfo
-TELEMETRY = _Info('telemetry')  # TelemetryInfo or MergedTelemetryInfo
-
-# TODO(#3507) Change OWNERS to GenericSet of email addresses.
-OWNERS = _Info('owners', 'Ownership')
+TRACE_START = _Info('traceStart', 'DateRange')
+TRACE_URLS = _Info('traceUrls', 'GenericSet', str)
+V8_COMMIT_POSITIONS = _Info('v8CommitPositions', 'DateRange')
+V8_REVISIONS = _Info('v8Revisions', 'GenericSet', str)
+WEBRTC_REVISIONS = _Info('webrtcRevisions', 'GenericSet', str)
 
 def GetTypeForName(name):
   for info in globals().itervalues():

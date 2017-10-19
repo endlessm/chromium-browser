@@ -93,6 +93,32 @@ class ComputeShaderEnforcePackingValidationTest : public ComputeShaderValidation
     static constexpr GLint kMaxComputeUniformComponents = 128;
 };
 
+class GeometryShaderValidationTest : public ShaderCompileTreeTest
+{
+  public:
+    GeometryShaderValidationTest() {}
+
+  protected:
+    void initResources(ShBuiltInResources *resources) override
+    {
+        resources->OES_geometry_shader = 1;
+    }
+    ::GLenum getShaderType() const override { return GL_GEOMETRY_SHADER_OES; }
+    ShShaderSpec getShaderSpec() const override { return SH_GLES3_1_SPEC; }
+};
+
+class FragmentShaderOESGeometryShaderValidationTest : public FragmentShaderValidationTest
+{
+  public:
+    FragmentShaderOESGeometryShaderValidationTest() {}
+
+  protected:
+    void initResources(ShBuiltInResources *resources) override
+    {
+        resources->OES_geometry_shader = 1;
+    }
+};
+
 // This is a test for a bug that used to exist in ANGLE:
 // Calling a function with all parameters missing should not succeed.
 TEST_F(FragmentShaderValidationTest, FunctionParameterMismatch)
@@ -386,6 +412,61 @@ TEST_F(FragmentShaderValidationTest, ArraysOfArrays2)
         "void main() {\n"
         "   float[2] a, b[3];\n"
         "   my_FragColor = vec4(1.0);\n"
+        "}\n";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Arrays of arrays are not allowed (ESSL 3.00 section 4.1.9). Test this in a struct.
+TEST_F(FragmentShaderValidationTest, ArraysOfArraysInStruct)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "struct S {\n"
+        "    float[2] foo[3];\n"
+        "};\n"
+        "void main() {\n"
+        "    my_FragColor = vec4(1.0);\n"
+        "}\n";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test invalid dimensionality of implicitly sized array constructor arguments.
+TEST_F(FragmentShaderValidationTest,
+       TooHighDimensionalityOfImplicitlySizedArrayOfArraysConstructorArguments)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main() {\n"
+        "    float[][] a = float[][](float[1][1](float[1](1.0)), float[1][1](float[1](2.0)));\n"
+        "    my_FragColor = vec4(a[0][0]);\n"
+        "}\n";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test invalid dimensionality of implicitly sized array constructor arguments.
+TEST_F(FragmentShaderValidationTest,
+       TooLowDimensionalityOfImplicitlySizedArrayOfArraysConstructorArguments)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main() {\n"
+        "    float[][][] a = float[][][](float[2](1.0, 2.0), float[2](3.0, 4.0));\n"
+        "    my_FragColor = vec4(a[0][0][0]);\n"
         "}\n";
     if (compile(shaderString))
     {
@@ -2184,6 +2265,53 @@ TEST_F(FragmentShaderValidationTest, InvalidUseOfLocalSizeX)
         "}\n";
 
     if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// The local_size layout qualifier is only available in compute shaders.
+TEST_F(GeometryShaderValidationTest, InvalidUseOfLocalSizeX)
+{
+    const std::string &shaderString1 =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points, local_size_x = 15) in;\n"
+        "layout (points, max_vertices = 2) out;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    const std::string &shaderString2 =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points) in;\n"
+        "layout (invocations = 2, local_size_x = 15) in;\n"
+        "layout (points, max_vertices = 2) out;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    const std::string &shaderString3 =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points) in;\n"
+        "layout (points, local_size_x = 15, max_vertices = 2) out;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    const std::string &shaderString4 =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points) in;\n"
+        "layout (points) out;\n"
+        "layout (max_vertices = 2, local_size_x = 15) out;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+    if (compile(shaderString1) || compile(shaderString2) || compile(shaderString3) ||
+        compile(shaderString4))
     {
         FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
     }
@@ -4079,6 +4207,543 @@ TEST_F(FragmentShaderValidationTest, ArrayAsArraySize)
         "    const int i[2] = int[2](1, 2);\n"
         "    float f[i];\n"
         "    my_FragColor = vec4(f[0]);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// The input primitive layout qualifier is only available in geometry shaders.
+TEST_F(VertexShaderValidationTest, InvalidUseOfInputPrimitives)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout(points) in vec4 myInput;\n"
+        "out vec4 myOutput;\n"
+        "void main() {\n"
+        "   myOutput = myInput;\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// The input primitive layout qualifier is only available in geometry shaders.
+TEST_F(FragmentShaderValidationTest, InvalidUseOfInputPrimitives)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout(points) in vec4 myInput;\n"
+        "out vec4 myOutput;\n"
+        "void main() {\n"
+        "   myOutput = myInput;\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// The input primitive layout qualifier is only available in geometry shaders.
+TEST_F(ComputeShaderValidationTest, InvalidUseOfInputPrimitives)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "layout(points, local_size_x = 12) in;\n"
+        "void main()\n"
+        "{\n"
+        "   uvec3 WorkGroupSize = gl_WorkGroupSize;\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// The output primitive layout qualifier is only available in geometry shaders.
+TEST_F(VertexShaderValidationTest, InvalidUseOfOutputPrimitives)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "in vec4 myInput;\n"
+        "layout(points) out vec4 myOutput;\n"
+        "void main() {\n"
+        "   myOutput = myInput;\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// The output primitive layout qualifier is only available in geometry shaders.
+TEST_F(FragmentShaderValidationTest, InvalidUseOfOutputPrimitives)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "in vec4 myInput;\n"
+        "layout(points) out vec4 myOutput;\n"
+        "void main() {\n"
+        "   myOutput = myInput;\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// The 'invocations' layout qualifier is only available in geometry shaders.
+TEST_F(VertexShaderValidationTest, InvalidUseOfInvocations)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout (invocations = 3) in vec4 myInput;\n"
+        "out vec4 myOutput;\n"
+        "void main() {\n"
+        "   myOutput = myInput;\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// The 'invocations' layout qualifier is only available in geometry shaders.
+TEST_F(FragmentShaderValidationTest, InvalidUseOfInvocations)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout (invocations = 3) in vec4 myInput;\n"
+        "out vec4 myOutput;\n"
+        "void main() {\n"
+        "   myOutput = myInput;\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// The 'invocations' layout qualifier is only available in geometry shaders.
+TEST_F(ComputeShaderValidationTest, InvalidUseOfInvocations)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "layout(invocations = 3, local_size_x = 12) in;\n"
+        "void main()\n"
+        "{\n"
+        "   uvec3 WorkGroupSize = gl_WorkGroupSize;\n"
+        "}\n";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// The 'max_vertices' layout qualifier is only available in geometry shaders.
+TEST_F(VertexShaderValidationTest, InvalidUseOfMaxVertices)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "in vec4 myInput;\n"
+        "layout(max_vertices = 3) out vec4 myOutput;\n"
+        "void main() {\n"
+        "   myOutput = myInput;\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// The 'max_vertices' layout qualifier is only available in geometry shaders.
+TEST_F(FragmentShaderValidationTest, InvalidUseOfMaxVertices)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "in vec4 myInput;\n"
+        "layout(max_vertices = 3) out vec4 myOutput;\n"
+        "void main() {\n"
+        "   myOutput = myInput;\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that using the same variable name twice in function parameters fails without crashing.
+TEST_F(FragmentShaderValidationTest, RedefinedParamInFunctionHeader)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void foo(int a, float a)\n"
+        "{\n"
+        "    return;\n"
+        "}\n"
+        "void main()\n"
+        "{\n"
+        "    my_FragColor = vec4(0.0);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that using gl_ViewportIndex is not allowed in an ESSL 3.10 shader.
+TEST_F(VertexShaderValidationTest, ViewportIndexInESSL310)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = vec4(gl_ViewportIndex);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that gl_PrimitiveID is valid in fragment shader with 'GL_OES_geometry_shader' declared.
+TEST_F(FragmentShaderOESGeometryShaderValidationTest, PrimitiveIDWithExtension)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "precision mediump float;\n"
+        "layout(location = 0) out mediump vec4 fragColor;\n"
+        "void main(void)\n"
+        "{\n"
+        "    vec4 data = vec4(0.1, 0.2, 0.3, 0.4);\n"
+        "    float value = data[gl_PrimitiveID % 4];\n"
+        "    fragColor = vec4(value, 0, 0, 1);\n"
+        "}\n";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that gl_PrimitiveID is invalid in fragment shader without 'GL_OES_geometry_shader' declared.
+TEST_F(FragmentShaderOESGeometryShaderValidationTest, PrimitiveIDWithoutExtension)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout(location = 0) out mediump vec4 fragColor;\n"
+        "void main(void)\n"
+        "{\n"
+        "    vec4 data = vec4(0.1, 0.2, 0.3, 0.4);\n"
+        "    float value = data[gl_PrimitiveID % 4];\n"
+        "    fragColor = vec4(value, 0, 0, 1);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that gl_PrimitiveID cannot be l-value in fragment shader.
+TEST_F(FragmentShaderOESGeometryShaderValidationTest, AssignValueToPrimitiveID)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "precision mediump float;\n"
+        "layout(location = 0) out mediump vec4 fragColor;\n"
+        "void main(void)\n"
+        "{\n"
+        "    gl_PrimitiveID = 1;\n"
+        "    fragColor = vec4(1.0, 0.0, 0.0, 1.0);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that gl_Layer is valid in fragment shader with 'GL_OES_geometry_shader' declared.
+TEST_F(FragmentShaderOESGeometryShaderValidationTest, LayerWithExtension)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "precision mediump float;\n"
+        "layout(location = 0) out mediump vec4 fragColor;\n"
+        "void main(void)\n"
+        "{\n"
+        "    vec4 data = vec4(0.1, 0.2, 0.3, 0.4);\n"
+        "    float value = data[gl_Layer % 4];\n"
+        "    fragColor = vec4(value, 0, 0, 1);\n"
+        "}\n";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that gl_Layer is invalid in fragment shader without 'GL_OES_geometry_shader' declared.
+TEST_F(FragmentShaderOESGeometryShaderValidationTest, LayerWithoutExtension)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout(location = 0) out mediump vec4 fragColor;\n"
+        "void main(void)\n"
+        "{\n"
+        "    vec4 data = vec4(0.1, 0.2, 0.3, 0.4);\n"
+        "    float value = data[gl_Layer % 4];\n"
+        "    fragColor = vec4(value, 0, 0, 1);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that gl_Layer cannot be l-value in fragment shader.
+TEST_F(FragmentShaderOESGeometryShaderValidationTest, AssignValueToLayer)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "precision mediump float;\n"
+        "layout(location = 0) out mediump vec4 fragColor;\n"
+        "void main(void)\n"
+        "{\n"
+        "    gl_Layer = 1;\n"
+        "    fragColor = vec4(1.0, 0.0, 0.0, 1.0);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that all built-in constants defined in GL_OES_geometry_shader can be used in fragment shader
+// with 'GL_OES_geometry_shader' declared.
+TEST_F(FragmentShaderOESGeometryShaderValidationTest, GeometryShaderBuiltInConstants)
+{
+    const std::string &kShaderHeader =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "precision mediump float;\n"
+        "layout(location = 0) out mediump vec4 fragColor;\n"
+        "void main(void)\n"
+        "{\n"
+        "    int val = ";
+
+    const std::array<std::string, 9> kGeometryShaderBuiltinConstants = {{
+        "gl_MaxGeometryInputComponents", "gl_MaxGeometryOutputComponents",
+        "gl_MaxGeometryImageUniforms", "gl_MaxGeometryTextureImageUnits",
+        "gl_MaxGeometryOutputVertices", "gl_MaxGeometryTotalOutputComponents",
+        "gl_MaxGeometryUniformComponents", "gl_MaxGeometryAtomicCounters",
+        "gl_MaxGeometryAtomicCounterBuffers",
+    }};
+
+    const std::string &kShaderTail =
+        ";\n"
+        "    fragColor = vec4(1.0, 0.0, 0.0, 1.0);\n"
+        "}\n";
+
+    for (const std::string &kGSBuiltinConstant : kGeometryShaderBuiltinConstants)
+    {
+        std::ostringstream ostream;
+        ostream << kShaderHeader << kGSBuiltinConstant << kShaderTail;
+        if (!compile(ostream.str()))
+        {
+            FAIL() << "Shader compilation failed, expecting success: \n" << mInfoLog;
+        }
+    }
+}
+
+// Test that any built-in constants defined in GL_OES_geometry_shader cannot be used in fragment
+// shader without 'GL_OES_geometry_shader' declared.
+TEST_F(FragmentShaderOESGeometryShaderValidationTest,
+       GeometryShaderBuiltInConstantsWithoutExtension)
+{
+    const std::string &kShaderHeader =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout(location = 0) out mediump vec4 fragColor;\n"
+        "void main(void)\n"
+        "{\n"
+        "    int val = ";
+
+    const std::array<std::string, 9> kGeometryShaderBuiltinConstants = {{
+        "gl_MaxGeometryInputComponents", "gl_MaxGeometryOutputComponents",
+        "gl_MaxGeometryImageUniforms", "gl_MaxGeometryTextureImageUnits",
+        "gl_MaxGeometryOutputVertices", "gl_MaxGeometryTotalOutputComponents",
+        "gl_MaxGeometryUniformComponents", "gl_MaxGeometryAtomicCounters",
+        "gl_MaxGeometryAtomicCounterBuffers",
+    }};
+
+    const std::string &kShaderTail =
+        ";\n"
+        "    fragColor = vec4(1.0, 0.0, 0.0, 1.0);\n"
+        "}\n";
+
+    for (const std::string &kGSBuiltinConstant : kGeometryShaderBuiltinConstants)
+    {
+        std::ostringstream ostream;
+        ostream << kShaderHeader << kGSBuiltinConstant << kShaderTail;
+        if (compile(ostream.str()))
+        {
+            FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+        }
+    }
+}
+
+// Test that declaring and using an interface block with 'const' qualifier is not allowed.
+TEST_F(VertexShaderValidationTest, InterfaceBlockUsingConstQualifier)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "const block\n"
+        "{\n"
+        "    vec2 value;\n"
+        "} ConstBlock[2];\n"
+        "void main()\n"
+        "{\n"
+        "    int i = 0;\n"
+        "    vec2 value1 = ConstBlock[i].value;\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that using shader io blocks without declaration of GL_OES_shader_io_block is not allowed.
+TEST_F(VertexShaderValidationTest, IOBlockWithoutExtension)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "out block\n"
+        "{\n"
+        "    vec2 value;\n"
+        "} VSOutput[2];\n"
+        "void main()\n"
+        "{\n"
+        "    int i = 0;\n"
+        "    vec2 value1 = VSOutput[i].value;\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that using shader io blocks without declaration of GL_OES_shader_io_block is not allowed.
+TEST_F(FragmentShaderValidationTest, IOBlockWithoutExtension)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "in block\n"
+        "{\n"
+        "    vec4 i_color;\n"
+        "} FSInput[2];\n"
+        "out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "    int i = 0;\n"
+        "    o_color = FSInput[i].i_color;"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that a shader input with 'flat' qualifier cannot be used as l-value.
+TEST_F(FragmentShaderValidationTest, AssignValueToFlatIn)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "flat in float value;\n"
+        "out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "    value = 1.0;\n"
+        "    o_color = vec4(1.0, 0.0, 0.0, 1.0);"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that a shader input with 'smooth' qualifier cannot be used as l-value.
+TEST_F(FragmentShaderValidationTest, AssignValueToSmoothIn)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "smooth in float value;\n"
+        "out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "    value = 1.0;\n"
+        "    o_color = vec4(1.0, 0.0, 0.0, 1.0);"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that a shader input with 'centroid' qualifier cannot be used as l-value.
+TEST_F(FragmentShaderValidationTest, AssignValueToCentroidIn)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "centroid in float value;\n"
+        "out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "    value = 1.0;\n"
+        "    o_color = vec4(1.0, 0.0, 0.0, 1.0);"
         "}\n";
 
     if (compile(shaderString))

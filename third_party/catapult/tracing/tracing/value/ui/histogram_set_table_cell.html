@@ -216,11 +216,12 @@ tr.exportTo('tr.v.ui', function() {
       // so that it can size its BarChart appropriately.
       if (open && this.histogramSpan_ === undefined) {
         this.histogramSpan_ = document.createElement('tr-v-ui-histogram-span');
-        this.$.histogram.appendChild(this.histogramSpan_);
+        this.histogramSpan_.rowState = this.row.viewState;
         this.histogramSpan_.viewState = this.viewState;
         this.histogramSpan_.referenceHistogram = this.referenceHistogram;
         this.histogramSpan_.histogram = this.histogram;
         this.histogramSpan_.alpha = this.row.rootViewState.alpha;
+        this.$.histogram.appendChild(this.histogramSpan_);
       }
 
       this.viewState.isOpen = open;
@@ -252,8 +253,10 @@ tr.exportTo('tr.v.ui', function() {
            event.delta.sortDescending ||
            event.delta.displayStatisticName ||
            event.delta.referenceDisplayLabel)) {
-        this.$.overview_container.removeChild(this.overviewChart_);
-        this.overviewChart_ = undefined;
+        if (this.overviewChart_ !== undefined) {
+          this.$.overview_container.removeChild(this.overviewChart_);
+          this.overviewChart_ = undefined;
+        }
         this.showOverview();
       }
     },
@@ -350,13 +353,21 @@ tr.exportTo('tr.v.ui', function() {
       }
       const displayStatisticName = this.row.rootViewState.displayStatisticName;
       const data = [];
-      let unitString;
+      let unit;
 
       for (const subRow of this.row.subRows) {
         const subHist = subRow.columns.get(this.displayLabel_);
         if (!(subHist instanceof tr.v.Histogram)) continue;
 
-        if (unitString === undefined) unitString = subHist.unit.unitString;
+        if (unit === undefined) {
+          unit = subHist.unit;
+        } else if (unit !== subHist.unit) {
+          // The subrows have different units, so the overview chart cannot
+          // use a single unit to format all of the values, so don't display
+          // an overview chart at all.
+          data.splice(0);
+          break;
+        }
 
         const refHist = subRow.columns.get(referenceDisplayLabel);
         const statName = subHist.getAvailableStatisticName(
@@ -377,7 +388,7 @@ tr.exportTo('tr.v.ui', function() {
       this.$.overview_container.appendChild(this.overviewChart_);
       this.overviewChart_.displayXInHover = true;
       this.overviewChart_.hideLegend = true;
-      this.overviewChart_.yAxisLabel = unitString;
+      this.overviewChart_.unit = unit;
       this.overviewChart_.overrideDataRange = this.row.overviewDataRange;
       this.overviewChart_.data = data;
     },

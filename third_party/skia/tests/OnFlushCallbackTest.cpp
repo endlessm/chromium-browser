@@ -78,7 +78,7 @@ protected:
 private:
     bool onCombineIfPossible(GrOp*, const GrCaps&) override { return false; }
 
-    void onPrepareDraws(Target* target) const override {
+    void onPrepareDraws(Target* target) override {
         using namespace GrDefaultGeoProcFactory;
 
         // The vertex attrib order is always pos, color, local coords.
@@ -442,8 +442,7 @@ static sk_sp<GrTextureProxy> make_upstream_image(GrContext* context, AtlasObject
 
         // TODO: here is the blocker for deferring creation of the atlas. The TextureSamplers
         // created here currently require a hard GrTexture.
-        sk_sp<GrFragmentProcessor> fp = GrSimpleTextureEffect::Make(fakeAtlas,
-                                                                    nullptr, SkMatrix::I());
+        auto fp = GrSimpleTextureEffect::Make(fakeAtlas, nullptr, SkMatrix::I());
         GrPaint paint;
         paint.addColorFragmentProcessor(std::move(fp));
         paint.setPorterDuffXPFactory(SkBlendMode::kSrc);
@@ -496,10 +495,10 @@ sk_sp<GrTextureProxy> pre_create_atlas(GrContext* context) {
 sk_sp<GrTextureProxy> pre_create_atlas(GrContext* context) {
     GrSurfaceDesc desc;
     desc.fFlags = kRenderTarget_GrSurfaceFlag;
-    desc.fConfig = kSkia8888_GrPixelConfig;
     desc.fOrigin = kBottomLeft_GrSurfaceOrigin;
     desc.fWidth = 32;
     desc.fHeight = 16;
+    desc.fConfig = kSkia8888_GrPixelConfig;
     sk_sp<GrSurfaceProxy> atlasDest = GrSurfaceProxy::MakeDeferred(
                                                             context->resourceProvider(),
                                                             desc, SkBackingFit::kExact,
@@ -576,8 +575,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(OnFlushCallbackTest, reporter, ctxInfo) {
         SkMatrix t = SkMatrix::MakeTrans(-i*3*kDrawnTileSize, 0);
 
         GrPaint paint;
-        sk_sp<GrFragmentProcessor> fp(GrSimpleTextureEffect::Make(std::move(proxies[i]),
-                                                                  nullptr, t));
+        auto fp = GrSimpleTextureEffect::Make(std::move(proxies[i]), nullptr, t);
         paint.setPorterDuffXPFactory(SkBlendMode::kSrc);
         paint.addColorFragmentProcessor(std::move(fp));
 

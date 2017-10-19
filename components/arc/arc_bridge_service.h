@@ -20,6 +20,7 @@ class AudioInstance;
 class AuthInstance;
 class BluetoothInstance;
 class BootPhaseMonitorInstance;
+class CastReceiverInstance;
 class ClipboardInstance;
 class CrashCollectorInstance;
 class EnterpriseReportingInstance;
@@ -27,10 +28,12 @@ class FileSystemInstance;
 class ImeInstance;
 class IntentHelperInstance;
 class KioskInstance;
+class LockScreenInstance;
 class MetricsInstance;
 class NetInstance;
 class NotificationsInstance;
 class ObbMounterInstance;
+class OemCryptoInstance;
 class PolicyInstance;
 class PowerInstance;
 class PrintInstance;
@@ -63,6 +66,9 @@ class ArcBridgeService {
   InstanceHolder<mojom::BootPhaseMonitorInstance>* boot_phase_monitor() {
     return &boot_phase_monitor_;
   }
+  InstanceHolder<mojom::CastReceiverInstance>* cast_receiver() {
+    return &cast_receiver_;
+  }
   InstanceHolder<mojom::ClipboardInstance>* clipboard() { return &clipboard_; }
   InstanceHolder<mojom::CrashCollectorInstance>* crash_collector() {
     return &crash_collector_;
@@ -78,6 +84,9 @@ class ArcBridgeService {
     return &intent_helper_;
   }
   InstanceHolder<mojom::KioskInstance>* kiosk() { return &kiosk_; }
+  InstanceHolder<mojom::LockScreenInstance>* lock_screen() {
+    return &lock_screen_;
+  }
   InstanceHolder<mojom::MetricsInstance>* metrics() { return &metrics_; }
   InstanceHolder<mojom::NetInstance>* net() { return &net_; }
   InstanceHolder<mojom::NotificationsInstance>* notifications() {
@@ -86,6 +95,7 @@ class ArcBridgeService {
   InstanceHolder<mojom::ObbMounterInstance>* obb_mounter() {
     return &obb_mounter_;
   }
+  InstanceHolder<mojom::OemCryptoInstance>* oemcrypto() { return &oemcrypto_; }
   InstanceHolder<mojom::PolicyInstance>* policy() { return &policy_; }
   InstanceHolder<mojom::PowerInstance>* power() { return &power_; }
   InstanceHolder<mojom::PrintInstance>* print() { return &print_; }
@@ -116,6 +126,7 @@ class ArcBridgeService {
   InstanceHolder<mojom::AuthInstance> auth_;
   InstanceHolder<mojom::BluetoothInstance> bluetooth_;
   InstanceHolder<mojom::BootPhaseMonitorInstance> boot_phase_monitor_;
+  InstanceHolder<mojom::CastReceiverInstance> cast_receiver_;
   InstanceHolder<mojom::ClipboardInstance> clipboard_;
   InstanceHolder<mojom::CrashCollectorInstance> crash_collector_;
   InstanceHolder<mojom::EnterpriseReportingInstance> enterprise_reporting_;
@@ -123,10 +134,12 @@ class ArcBridgeService {
   InstanceHolder<mojom::ImeInstance> ime_;
   InstanceHolder<mojom::IntentHelperInstance> intent_helper_;
   InstanceHolder<mojom::KioskInstance> kiosk_;
+  InstanceHolder<mojom::LockScreenInstance> lock_screen_;
   InstanceHolder<mojom::MetricsInstance> metrics_;
   InstanceHolder<mojom::NetInstance> net_;
   InstanceHolder<mojom::NotificationsInstance> notifications_;
   InstanceHolder<mojom::ObbMounterInstance> obb_mounter_;
+  InstanceHolder<mojom::OemCryptoInstance> oemcrypto_;
   InstanceHolder<mojom::PolicyInstance> policy_;
   InstanceHolder<mojom::PowerInstance> power_;
   InstanceHolder<mojom::PrintInstance> print_;

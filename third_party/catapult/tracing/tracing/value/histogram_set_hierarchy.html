@@ -77,7 +77,7 @@ tr.exportTo('tr.v', function() {
         }
       }
 
-      // Delete "merged to" diagnostics from the original Histograms, or else
+      // Delete "mergedTo" diagnostics from the original Histograms, or else
       // they'll accumulate as the user re-groups them, and slow down future
       // mergeRelationships operations.
       deleteMergedToDiagnostics(histogramArrayMap);
@@ -162,7 +162,7 @@ tr.exportTo('tr.v', function() {
           const mergedFrom = existing.diagnostics.get(
               tr.v.d.RESERVED_NAMES.MERGED_FROM);
           if (mergedFrom !== undefined) {
-            for (const origHist of mergedFrom) {
+            for (const [unusedName, origHist] of mergedFrom) {
               unmergeableHistograms.addHistogram(origHist);
             }
           }
@@ -258,7 +258,7 @@ tr.exportTo('tr.v', function() {
             const mergedFrom = testHist.diagnostics.get(
                 tr.v.d.RESERVED_NAMES.MERGED_FROM);
             if (mergedFrom !== undefined) {
-              for (const origHist of mergedFrom) {
+              for (const [unusedName, origHist] of mergedFrom) {
                 if (histograms.lookupHistogram(origHist.guid) !== undefined) {
                   found = true;
                   break;

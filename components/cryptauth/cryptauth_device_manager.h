@@ -110,18 +110,28 @@ class CryptAuthDeviceManager : public SyncScheduler::Delegate,
 
   // Returns a list of remote devices that can unlock the user's other devices.
   virtual std::vector<ExternalDeviceInfo> GetUnlockKeys() const;
+  // Like GetUnlockKeys(), but only returns Pixel devices.
+  virtual std::vector<ExternalDeviceInfo> GetPixelUnlockKeys() const;
 
   // Returns a list of remote devices that can host tether hotspots.
   virtual std::vector<ExternalDeviceInfo> GetTetherHosts() const;
+  // Like GetTetherHosts(), but only returns Pixel devices.
+  virtual std::vector<ExternalDeviceInfo> GetPixelTetherHosts() const;
 
  protected:
   // Empty constructor, to be used by tests to mock the device manager. Do not
   // use this constructor outside of tests.
   CryptAuthDeviceManager();
 
-  void SetSyncSchedulerForTest(std::unique_ptr<SyncScheduler> sync_scheduler) {
-    scheduler_ = std::move(sync_scheduler);
-  }
+  void SetSyncSchedulerForTest(std::unique_ptr<SyncScheduler> sync_scheduler);
+
+  // Invokes OnSyncStarted() on all observers.
+  void NotifySyncStarted();
+
+  // Invokes OnSyncFinished(|sync_result|, |device_change_result|) on all
+  // observers.
+  void NotifySyncFinished(SyncResult sync_result,
+                          DeviceChangeResult device_change_result);
 
  private:
   // CryptAuthGCMManager::Observer:

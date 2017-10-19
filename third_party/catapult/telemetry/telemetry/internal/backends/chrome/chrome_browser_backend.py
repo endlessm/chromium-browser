@@ -34,6 +34,7 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
         browser_options=browser_options,
         tab_list_backend=tab_list_backend.TabListBackend)
     self._port = None
+    self._browser_target = None
 
     self._supports_tab_control = supports_tab_control
     self._devtools_client = None
@@ -113,6 +114,9 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
     elif (self.browser_options.logging_verbosity ==
           self.browser_options.VERBOSE_LOGGING):
       args.extend(['--enable-logging', '--v=1'])
+    elif (self.browser_options.logging_verbosity ==
+          self.browser_options.SUPER_VERBOSE_LOGGING):
+      args.extend(['--enable-logging', '--v=2'])
 
     return args
 
@@ -131,23 +135,23 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
 
   def HasBrowserFinishedLaunching(self):
     assert self._port, 'No DevTools port info available.'
-    return devtools_client_backend.IsDevToolsAgentAvailable(self._port, self)
+    return devtools_client_backend.IsDevToolsAgentAvailable(
+        self._port,
+        self._browser_target, self)
 
-  def _InitDevtoolsClientBackend(self, remote_devtools_port=None):
-    """ Initiate the devtool client backend which allow browser connection
-    through browser' devtool.
+  def _WaitForBrowserToComeUp(self, remote_devtools_port=None):
+    """ Wait for browser to come up.
 
     Args:
       remote_devtools_port: The remote devtools port, if
           any. Otherwise assumed to be the same as self._port.
     """
-    assert not self._devtools_client, (
-        'Devtool client backend cannot be init twice')
-    self._devtools_client = devtools_client_backend.DevToolsClientBackend(
-        self._port, remote_devtools_port or self._port, self)
-
-  def _WaitForBrowserToComeUp(self):
-    """ Wait for browser to come up. """
+    if self._devtools_client:
+      # In case we are launching a second browser instance (as is done by
+      # the CrOS backend), ensure that the old devtools_client is closed,
+      # otherwise re-creating it will fail.
+      self._devtools_client.Close()
+      self._devtools_client = None
     try:
       timeout = self.browser_options.browser_startup_timeout
       py_utils.WaitFor(self.HasBrowserFinishedLaunching, timeout=timeout)
@@ -155,6 +159,9 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
       if not self.IsBrowserRunning():
         raise exceptions.BrowserGoneException(self.browser, e)
       raise exceptions.BrowserConnectionGoneException(self.browser, e)
+    self._devtools_client = devtools_client_backend.DevToolsClientBackend(
+        self._port, self._browser_target,
+        remote_devtools_port or self._port, self)
 
   def _WaitForExtensionsToLoad(self):
     """ Wait for all extensions to load.

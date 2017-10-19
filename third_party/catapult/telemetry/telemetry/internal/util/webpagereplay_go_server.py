@@ -4,7 +4,7 @@
 
 """Start and stop Web Page Replay."""
 
-from telemetry.internal.util import atexit_with_log
+from py_utils import atexit_with_log
 import logging
 import os
 import re
@@ -57,6 +57,8 @@ class ReplayServer(object):
        self.WaitUntil(...)
   """
 
+  _go_binary_path = None
+
   def __init__(self, archive_path, replay_host, http_port, https_port,
                replay_options):
     """Initialize ReplayServer.
@@ -78,12 +80,9 @@ class ReplayServer(object):
     # subprocess.
     self._temp_log_file_path = None
 
-    go_binary_path = binary_manager.FetchPath('wpr_go',
-                                              py_utils.GetHostArchName(),
-                                              py_utils.GetHostOsName())
-
     self._cmd_line = self._GetCommandLine(
-        go_binary_path, http_port, https_port, replay_options, archive_path)
+        self._GetGoBinaryPath(), http_port, https_port, replay_options,
+        archive_path)
 
     if 'record' in replay_options:
       self._CheckPath('archive directory', os.path.dirname(self.archive_path))
@@ -91,6 +90,59 @@ class ReplayServer(object):
       self._CheckPath('archive file', self.archive_path)
 
     self.replay_process = None
+
+
+  @classmethod
+  def _GetGoBinaryPath(cls):
+    if not cls._go_binary_path:
+      cls._go_binary_path = binary_manager.FetchPath(
+          'wpr_go', py_utils.GetHostArchName(), py_utils.GetHostOsName())
+    return cls._go_binary_path
+
+  @classmethod
+  def InstallRootCertificate(cls, android_device_id=None, adb_path=None):
+    """Install root certificate on the host machine or on remote Android device.
+
+      Args:
+        android_device_id: a string id of the Android device.
+        adb_path: path to adb binary to use for issuing commands to the device.
+          This is specified iff android_device_id is specified.
+    """
+    assert ((android_device_id is None and adb_path is None) or
+            (android_device_id is not None and adb_path is not None)), (
+                'android_device_id and adb_path must be both specified or '
+                'not specified')
+    go_binary_path = cls._GetGoBinaryPath()
+    if android_device_id is None:
+      subprocess.check_call([go_binary_path, 'installroot'])
+    else:
+      subprocess.check_call(
+          [go_binary_path, 'installroot',
+           '--android_device_id=%s' % android_device_id,
+           '--adb_binary_path=%s' % adb_path])
+
+  @classmethod
+  def RemoveRootCertificate(cls, android_device_id=None, adb_path=None):
+    """Remove installed root certificate on the host machine or on remote
+    Android device.
+
+      Args:
+        android_device_id: a string id of the Android device.
+        adb_path: path to adb binary to use for issuing commands to the device.
+          This is specified iff android_device_id is specified.
+    """
+    assert ((android_device_id is None and adb_path is None) or
+            (android_device_id is not None and adb_path is not None)), (
+                'android_device_id and adb_path must be both specified or '
+                'not specified')
+    go_binary_path = cls._GetGoBinaryPath()
+    if android_device_id is None:
+      subprocess.check_call([go_binary_path, 'removeroot'])
+    else:
+      subprocess.check_call(
+          [go_binary_path, 'removeroot',
+           '--android_device_id=%s' % android_device_id,
+           '--adb_binary_path=%s' % adb_path])
 
   @property
   def http_port(self):
@@ -108,13 +160,14 @@ class ReplayServer(object):
   def _GetCommandLine(go_binary_path, http_port, https_port,
                       replay_options, archive_path):
     """Set WPR command-line options. Can be overridden if needed."""
+    for option in replay_options:
+      if option not in ['--record', '--replay', '--inject_scripts=']:
+        raise ValueError("Invalid replay options %s" % replay_options)
     cmd_line = [go_binary_path]
-    if replay_options == ['--record']:
+    if '--record' in replay_options:
       cmd_line.append('record')
-    elif replay_options == ['--replay'] or replay_options == []:
-      cmd_line.append('replay')
     else:
-      raise ValueError('Invalid replay options: %s' % replay_options)
+      cmd_line.append('replay')
     key_file = os.path.join(_WPR_DIR, 'wpr_key.pem')
     cert_file = os.path.join(_WPR_DIR, 'wpr_cert.pem')
     inject_script = os.path.join(_WPR_DIR, 'deterministic.js')
@@ -122,9 +175,11 @@ class ReplayServer(object):
         '--http_port=%s' % http_port,
         '--https_port=%s' % https_port,
         '--https_key_file=%s' % key_file,
-        '--https_cert_file=%s' % cert_file,
-        '--inject_scripts=%s' % inject_script,
-        ])
+        '--https_cert_file=%s' % cert_file])
+    if '--inject_scripts=' in replay_options:
+      cmd_line.append('--inject_scripts=')
+    else:
+      cmd_line.append('--inject_scripts=%s' % inject_script)
     cmd_line.append(archive_path)
     return cmd_line
 

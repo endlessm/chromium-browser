@@ -36,10 +36,8 @@ class JobsTest(unittest.TestCase):
   def testPost_ValidRequest(self):
     # Create job.
     job = job_module.Job.New(
-        configuration='Mac',
-        test_suite='suite',
-        test='filter',
-        metric='metric',
+        arguments={},
+        quests=(),
         auto_explore=True,
         bug_id=None)
     job.put()

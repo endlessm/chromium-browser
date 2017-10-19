@@ -8,6 +8,7 @@
 
 #include "base/location.h"
 #include "base/macros.h"
+#include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -47,7 +48,7 @@
 #include "extensions/test/extension_test_message_listener.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "ui/base/ime/composition_text.h"
-#include "ui/base/ime/composition_underline.h"
+#include "ui/base/ime/ime_text_span.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/test/ui_controls.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -616,6 +617,17 @@ class WebViewPointerLockInteractiveTest : public WebViewInteractiveTest {};
 
 // The tests below aren't needed in --use-cross-process-frames-for-guests.
 class WebViewContextMenuInteractiveTest : public WebViewInteractiveTestBase {};
+class WebViewBrowserPluginInteractiveTest : public WebViewInteractiveTestBase {
+ public:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    WebViewInteractiveTestBase::SetUpCommandLine(command_line);
+    scoped_feature_list_.InitAndDisableFeature(
+        features::kGuestViewCrossProcessFrames);
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
 
 // The following class of tests do not work for OOPIF <webview>.
 // TODO(ekaramad): Make this tests work with OOPIF and replace the test classes
@@ -1194,6 +1206,57 @@ IN_PROC_BROWSER_TEST_F(WebViewContextMenuInteractiveTest,
   }
 }
 
+// https://crbug.com/754890: The embedder could become out of sync and think
+// that the guest is not focused when the guest actually was.
+IN_PROC_BROWSER_TEST_F(WebViewBrowserPluginInteractiveTest, EnsureFocusSynced) {
+  LoadAndLaunchPlatformApp("web_view/focus_sync", "WebViewTest.LAUNCHED");
+
+  content::WebContents* embedder_web_contents = GetFirstAppWindowWebContents();
+  content::WebContents* guest_web_contents =
+      GetGuestViewManager()->WaitForSingleGuestCreated();
+
+  content::MainThreadFrameObserver embedder_observer(
+      embedder_web_contents->GetMainFrame()->GetView()->GetRenderWidgetHost());
+  content::MainThreadFrameObserver guest_observer(
+      guest_web_contents->GetMainFrame()->GetView()->GetRenderWidgetHost());
+  embedder_observer.Wait();
+  guest_observer.Wait();
+
+  ExtensionTestMessageListener listener{"WebViewTest.WEBVIEW_LOADED", false};
+  EXPECT_TRUE(ui_test_utils::ShowAndFocusNativeWindow(GetPlatformAppWindow()));
+  EXPECT_TRUE(content::ExecuteScript(embedder_web_contents,
+                                     "chrome.app.window.getAll()[0].focus()"));
+
+  // Embedder should be focused.
+  EXPECT_EQ(guest_web_contents,
+            content::GetFocusedWebContents(guest_web_contents));
+  listener.WaitUntilSatisfied();
+
+  // Check that the inner contents is correctly focused.
+  bool result;
+  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
+      guest_web_contents,
+      "window.requestAnimationFrame(function() {"
+      "  window.domAutomationController.send(checkValid());"
+      "});",
+      &result));
+  EXPECT_TRUE(result);
+
+  listener.Reset();
+  EXPECT_TRUE(
+      content::ExecuteScript(embedder_web_contents, "reloadWebview();"));
+  listener.WaitUntilSatisfied();
+
+  // Check that the inner contents is correctly focused after a reload.
+  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
+      guest_web_contents,
+      "window.requestAnimationFrame(function() {"
+      "  window.domAutomationController.send(checkValid());"
+      "});",
+      &result));
+  EXPECT_TRUE(result);
+}
+
 IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, ExecuteCode) {
   ASSERT_TRUE(RunPlatformAppTestWithArg(
       "platform_apps/web_view/common", "execute_code")) << message_;
@@ -1230,51 +1293,6 @@ IN_PROC_BROWSER_TEST_F(WebViewPopupInteractiveTest,
   ASSERT_TRUE(guest_web_contents());
   PopupTestHelper(gfx::Point(20, 0));
 }
-
-// Drag and drop inside a webview is currently only enabled for linux and mac,
-// but the tests don't work on anything except chromeos for now. This is because
-// of simulating mouse drag code's dependency on platforms.
-
-// Flaky: https://crbug.com/700483
-#if defined(OS_CHROMEOS) && !defined(USE_OZONE)
-IN_PROC_BROWSER_TEST_P(WebViewDragDropInteractiveTest,
-                       DISABLED_DragDropWithinWebView) {
-  LoadAndLaunchPlatformApp("web_view/dnd_within_webview", "connected");
-  ASSERT_TRUE(ui_test_utils::ShowAndFocusNativeWindow(GetPlatformAppWindow()));
-
-  embedder_web_contents_ = GetFirstAppWindowWebContents();
-  gfx::Rect offset = embedder_web_contents_->GetContainerBounds();
-  corner_ = gfx::Point(offset.x(), offset.y());
-
-  // In the drag drop test we add 20px padding to the page body because on
-  // windows if we get too close to the edge of the window the resize cursor
-  // appears and we start dragging the window edge.
-  corner_.Offset(20, 20);
-
-  // Flush any pending events to make sure we start with a clean slate.
-  content::RunAllPendingInMessageLoop();
-  for (;;) {
-    base::RunLoop run_loop;
-    quit_closure_ = run_loop.QuitClosure();
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&WebViewInteractiveTestBase::DragTestStep1,
-                              base::Unretained(this)));
-    run_loop.Run();
-
-    if (last_drop_data_ == "Drop me")
-      break;
-
-    LOG(INFO) << "Drag was cancelled in interactive_test, restarting drag";
-
-    // Reset state for next try.
-    ExtensionTestMessageListener reset_listener("resetStateReply", false);
-    EXPECT_TRUE(content::ExecuteScript(embedder_web_contents_,
-                                       "window.resetState()"));
-    ASSERT_TRUE(reset_listener.WaitUntilSatisfied());
-  }
-  ASSERT_EQ("Drop me", last_drop_data_);
-}
-#endif  // (defined(OS_CHROMEOS))
 
 IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, Navigation) {
   TestHelper("testNavigation", "web_view/navigation", NO_TEST_SERVER);
@@ -1782,7 +1800,7 @@ IN_PROC_BROWSER_TEST_P(WebViewImeInteractiveTest,
       target_web_contents->GetRenderWidgetHostView()->GetRenderWidgetHost();
   content::SendImeCommitTextToWidget(
       target_rwh_for_input, base::UTF8ToUTF16("C"),
-      std::vector<ui::CompositionUnderline>(), gfx::Range(4, 5), 0);
+      std::vector<ui::ImeTextSpan>(), gfx::Range(4, 5), 0);
   input_listener.WaitUntilSatisfied();
 
   // Get the input value from the guest.
@@ -1848,7 +1866,7 @@ IN_PROC_BROWSER_TEST_P(WebViewImeInteractiveTest, CompositionRangeUpdates) {
   CompositionRangeUpdateObserver observer(embedder_web_contents);
   content::SendImeSetCompositionTextToWidget(
       target_web_contents->GetRenderWidgetHostView()->GetRenderWidgetHost(),
-      base::UTF8ToUTF16("ABC"), std::vector<ui::CompositionUnderline>(),
+      base::UTF8ToUTF16("ABC"), std::vector<ui::ImeTextSpan>(),
       gfx::Range::InvalidRange(), 0, 3);
   observer.WaitForCompositionRangeLength(3U);
 }

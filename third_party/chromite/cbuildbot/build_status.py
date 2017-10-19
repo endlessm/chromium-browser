@@ -93,7 +93,6 @@ class SlaveStatus(object):
       # Pre-compute dependency map for applied changes.
       self.dependency_map = self.pool.GetDependMapForChanges(
           self.pool.applied, self.pool.GetAppliedPatches())
-
     self.UpdateSlaveStatus()
 
   def _GetNewSlaveCIDBStatusInfo(self, all_cidb_status_dict, completed_builds):
@@ -140,11 +139,28 @@ class SlaveStatus(object):
   def UpdateSlaveStatus(self):
     """Update slave statuses by querying CIDB and Buildbucket(if supported)."""
     logging.info('Updating slave status...')
+
+    # Fetch experimental builders from tree status and update experimental
+    # builders in metedata before querying and updating any slave status.
+    if self.metadata is not None:
+      experimental_builders = tree_status.GetExperimentalBuilders()
+      self.metadata.UpdateWithDict({
+          constants.METADATA_EXPERIMENTAL_BUILDERS: experimental_builders
+      })
+
+      # If a slave build was important in previous loop and got added to the
+      # completed_builds because it completed, but in the current loop it's
+      # marked as experimental, take it out from the completed_builds list.
+      self.completed_builds = set([build for build in self.completed_builds
+                                   if build not in experimental_builders])
+
     if (self.config is not None and
         self.metadata is not None and
         config_lib.UseBuildbucketScheduler(self.config)):
       scheduled_buildbucket_info_dict = buildbucket_lib.GetBuildInfoDict(
           self.metadata)
+      # It's possible that CQ-master has a list of imporatant slaves configured
+      # but doesn't schedule any slaves as no CLs were picked up in SyncStage.
       self.all_builders = scheduled_buildbucket_info_dict.keys()
       self.all_buildbucket_info_dict = (
           builder_status_lib.SlaveBuilderStatus.GetAllSlaveBuildbucketInfo(
@@ -165,11 +181,7 @@ class SlaveStatus(object):
     self.builds_to_retry = self._GetBuildsToRetry()
     self.completed_builds = self._GetCompletedBuilds()
 
-    if self.metadata is not None:
-      experimental_builders = tree_status.GetExperimentalBuilders()
-      self.metadata.UpdateWithDict({
-          constants.METADATA_EXPERIMENTAL_BUILDERS: experimental_builders
-      })
+
 
   def GetBuildbucketBuilds(self, build_status):
     """Get the buildbucket builds which are in the build_status status.

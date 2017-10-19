@@ -381,7 +381,7 @@ class PaygenStage(generic_stages.BoardSpecificBuilderStage):
     except  paygen_build_lib.BoardNotConfigured:
       raise PaygenNoPaygenConfigForBoard(
           'Golden Eye (%s) has no entry for board %s. Get a TPM to fix.' %
-          (paygen_build_lib.BOARDS_URI, board))
+          (paygen_build_lib.PAYGEN_URI, board))
 
     # Default to False, set to True if it's a canary type build
     skip_duts_check = False
@@ -451,24 +451,25 @@ class PaygenBuildStage(generic_stages.BoardSpecificBuilderStage):
         # Generate the payloads.
         self._PrintLoudly('Starting %s, %s, %s' % (self.channel, self.version,
                                                    self.board))
-        metadata = paygen_build_lib.CreatePayloads(
+        paygen = paygen_build_lib.PaygenBuild(
             build,
             work_dir=tempdir,
             site_config=self._run.site_config,
             dry_run=self.debug,
-            run_parallel=True,
             skip_delta_payloads=self.skip_delta_payloads,
-            disable_tests=self.skip_testing,
             skip_duts_check=self.skip_duts_check)
-        suite_name, archive_board, archive_build, finished_uri = metadata
+
+        testdata = paygen.CreatePayloads()
 
         # Now, schedule the payload tests if desired.
         if not self.skip_testing:
-          models = [archive_board]
+          suite_name, archive_board, archive_build, finished_uri = testdata
+
+          model = archive_board
           # For unified builds, we need to use an explicit model since only
           # those will actually exist in the hardware test farm.
           if self._run.config.models:
-            models = self._run.config.models
+            model = self._run.config.models[0].name
 
           # Paygen tests only need to be run on one model for a given
           # reference board.
@@ -476,7 +477,7 @@ class PaygenBuildStage(generic_stages.BoardSpecificBuilderStage):
           # models from boards, we can let Autotest choose for us in the
           # future from all models for a given reference board.
           PaygenTestStage(
-              self._run, suite_name, models[0], self.channel,
+              self._run, suite_name, model, self.channel,
               archive_build, finished_uri, self.skip_duts_check,
               self.debug).Run()
 

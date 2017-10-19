@@ -240,6 +240,112 @@ class DeviceParseTest(cros_test_lib.OutputTestCase):
                            hostname='foo_host')
 
 
+class AppendOptionTest(cros_test_lib.TestCase):
+  """Verify append_option/append_option_value actions."""
+
+  def setUp(self):
+    """Create a standard parser for the tests."""
+    self.parser = commandline.ArgumentParser()
+    self.parser.add_argument('--flag', action='append_option')
+    self.parser.add_argument('--value', action='append_option_value')
+    self.parser.add_argument('-x', '--shared_flag', dest='shared',
+                             action='append_option')
+    self.parser.add_argument('-y', '--shared_value', dest='shared',
+                             action='append_option_value')
+
+  def testNone(self):
+    """Test results when no arguments are passed in."""
+    result = self.parser.parse_args([])
+    self.assertDictContainsSubset(
+        {'flag': None, 'value': None, 'shared': None},
+        vars(result),
+    )
+
+  def testSingles(self):
+    """Test results when no argument is used more than once."""
+    result = self.parser.parse_args(
+        ['--flag', '--value', 'foo', '--shared_flag', '--shared_value', 'bar']
+    )
+
+    self.assertDictContainsSubset(
+        {
+            'flag': ['--flag'],
+            'value': ['--value', 'foo'],
+            'shared': ['--shared_flag', '--shared_value', 'bar'],
+        },
+        vars(result),
+    )
+
+  def testMultiples(self):
+    """Test results when no arguments are used more than once."""
+    result = self.parser.parse_args([
+        '--flag', '--value', 'v1',
+        '-x', '-y', 's1',
+        '--shared_flag', '--shared_value', 's2',
+        '--flag', '--value', 'v2',
+    ])
+
+    self.assertDictContainsSubset(
+        {
+            'flag': ['--flag', '--flag'],
+            'value': ['--value', 'v1', '--value', 'v2'],
+            'shared': ['-x', '-y', 's1', '--shared_flag',
+                       '--shared_value', 's2'],
+        },
+        vars(result),
+    )
+
+
+class SplitExtendActionTest(cros_test_lib.TestCase):
+  """Verify _SplitExtendAction/split_extend action."""
+
+  def _CheckArgs(self, cliargs, expected):
+    """Check |cliargs| produces |expected|."""
+    parser = commandline.ArgumentParser()
+    parser.add_argument('-x', action='split_extend', default=[])
+    opts = parser.parse_args(
+        cros_build_lib.iflatten_instance(['-x', x] for x in cliargs))
+    self.assertEqual(opts.x, expected)
+
+  def testDefaultNone(self):
+    """Verify default=None works."""
+    parser = commandline.ArgumentParser()
+    parser.add_argument('-x', action='split_extend', default=None)
+
+    opts = parser.parse_args([])
+    self.assertIs(opts.x, None)
+
+    opts = parser.parse_args(['-x', ''])
+    self.assertEqual(opts.x, [])
+
+    opts = parser.parse_args(['-x', 'f'])
+    self.assertEqual(opts.x, ['f'])
+
+  def testNoArgs(self):
+    """This is more of a sanity check for resting state."""
+    self._CheckArgs([], [])
+
+  def testEmptyArg(self):
+    """Make sure '' produces nothing."""
+    self._CheckArgs(['', ''], [])
+
+  def testEmptyWhitespaceArg(self):
+    """Make sure whitespace produces nothing."""
+    self._CheckArgs([' ', '\t', '  \t   '], [])
+
+  def testSingleSingleArg(self):
+    """Verify splitting one arg works."""
+    self._CheckArgs(['a'], ['a'])
+
+  def testMultipleSingleArg(self):
+    """Verify splitting one arg works."""
+    self._CheckArgs(['a b  c\td '], ['a', 'b', 'c', 'd'])
+
+  def testMultipleMultipleArgs(self):
+    """Verify splitting multiple args works."""
+    self._CheckArgs(['a b  c', '', 'x', ' k '], ['a', 'b', 'c', 'x', 'k'])
+
+
 class CacheTest(cros_test_lib.MockTempDirTestCase):
   """Test cache dir default / override functionality."""
 
@@ -369,6 +475,56 @@ class ParseArgsTest(cros_test_lib.TestCase):
 
   def testArgumentParser(self):
     self._TestParser(self._CreateArgumentParser(commandline.ArgumentParser))
+
+  def testDisableCommonLogging(self):
+    """Verify we can elide common logging options."""
+    parser = commandline.ArgumentParser(logging=False)
+
+    # Sanity check it first.
+    opts = parser.parse_args([])
+    self.assertFalse(hasattr(opts, 'log_level'))
+
+    # Now add our own logging options.  If the options were added,
+    # argparse would throw duplicate flag errors for us.
+    parser.add_argument('--log-level')
+    parser.add_argument('--nocolor')
+
+  def testCommonBaseDefaults(self):
+    """Make sure common options work with just a base parser."""
+    parser = commandline.ArgumentParser(logging=True, default_log_level='info')
+
+    # Make sure the default works.
+    opts = parser.parse_args([])
+    self.assertEqual(opts.log_level, 'info')
+    self.assertEqual(opts.color, None)
+
+    # Then we can set up our own values.
+    opts = parser.parse_args(['--nocolor', '--log-level=notice'])
+    self.assertEqual(opts.log_level, 'notice')
+    self.assertEqual(opts.color, False)
+
+  def testCommonBaseAndSubDefaults(self):
+    """Make sure common options work between base & sub parsers."""
+    parser = commandline.ArgumentParser(logging=True, default_log_level='info')
+
+    sub_parsers = parser.add_subparsers(title='Subs')
+    sub_parsers.add_parser('cmd1')
+    sub_parsers.add_parser('cmd2')
+
+    # Make sure the default works.
+    opts = parser.parse_args(['cmd1'])
+    self.assertEqual(opts.log_level, 'info')
+    self.assertEqual(opts.color, None)
+
+    # Make sure options passed to base parser work.
+    opts = parser.parse_args(['--nocolor', '--log-level=notice', 'cmd2'])
+    self.assertEqual(opts.log_level, 'notice')
+    self.assertEqual(opts.color, False)
+
+    # Make sure options passed to sub parser work.
+    opts = parser.parse_args(['cmd2', '--nocolor', '--log-level=notice'])
+    self.assertEqual(opts.log_level, 'notice')
+    self.assertEqual(opts.color, False)
 
 
 class ScriptWrapperMainTest(cros_test_lib.MockTestCase):

@@ -42,7 +42,7 @@ struct ReceivedMessage {
   std::string payload;
 };
 
-class TestObserver : public SecureChannel::Observer {
+class TestObserver final : public SecureChannel::Observer {
  public:
   TestObserver(SecureChannel* secure_channel)
       : secure_channel_(secure_channel) {}
@@ -91,7 +91,7 @@ class TestObserver : public SecureChannel::Observer {
 
 // Observer used in the ObserverDeletesChannel test. This Observer deletes the
 // SecureChannel when it receives an OnMessageSent() call.
-class DeletingObserver : public SecureChannel::Observer {
+class DeletingObserver final : public SecureChannel::Observer {
  public:
   DeletingObserver(std::unique_ptr<SecureChannel>* secure_channel)
       : secure_channel_(secure_channel) {}
@@ -117,7 +117,8 @@ class DeletingObserver : public SecureChannel::Observer {
   std::unique_ptr<SecureChannel>* secure_channel_;
 };
 
-class TestAuthenticatorFactory : public DeviceToDeviceAuthenticator::Factory {
+class TestAuthenticatorFactory final
+    : public DeviceToDeviceAuthenticator::Factory {
  public:
   TestAuthenticatorFactory() : last_instance_(nullptr) {}
 
@@ -450,6 +451,30 @@ TEST_F(CryptAuthSecureChannelTest, AuthenticationFails_Failure) {
         SecureChannel::Status::DISCONNECTED
       }
   });
+}
+
+// Regression test for crbug.com/765810. This test ensures that a crash does not
+// occur if an unexpected message is received before authentication is complete.
+TEST_F(CryptAuthSecureChannelTest, ReceiveMessageBeforeAuth) {
+  secure_channel_->Initialize();
+  VerifyConnectionStateChanges(std::vector<SecureChannelStatusChange>{
+      {SecureChannel::Status::DISCONNECTED,
+       SecureChannel::Status::CONNECTING}});
+
+  fake_connection_->CompleteInProgressConnection(/* success */ true);
+  VerifyConnectionStateChanges(std::vector<SecureChannelStatusChange>{
+      {SecureChannel::Status::CONNECTING, SecureChannel::Status::CONNECTED},
+      {SecureChannel::Status::CONNECTED,
+       SecureChannel::Status::AUTHENTICATING}});
+
+  // Receive an unexpected message (i.e., a non-auth message).
+  fake_connection_->ReceiveMessage("feature", "payload, but encoded");
+
+  // Still should be able to finish authentication.
+  AuthenticateSuccessfully();
+  VerifyConnectionStateChanges(std::vector<SecureChannelStatusChange>{
+      {SecureChannel::Status::AUTHENTICATING,
+       SecureChannel::Status::AUTHENTICATED}});
 }
 
 TEST_F(CryptAuthSecureChannelTest, SendMessage_DisconnectWhileSending) {

@@ -160,7 +160,7 @@ class PresubmitUnittest(PresubmitTestsBase):
       'GitChange', 'InputApi', 'ListRelevantPresubmitFiles', 'main',
       'NonexistantCannedCheckFilter', 'OutputApi', 'ParseFiles',
       'PresubmitFailure', 'PresubmitExecuter', 'PresubmitOutput', 'ScanSubDirs',
-      'auth', 'cPickle', 'cpplint', 'cStringIO', 'contextlib',
+      'ast', 'auth', 'cPickle', 'cpplint', 'cStringIO', 'contextlib',
       'canned_check_filter', 'fix_encoding', 'fnmatch', 'gclient_utils',
       'git_footers', 'glob', 'inspect', 'json', 'load_files', 'logging',
       'marshal', 'normpath', 'optparse', 'os', 'owners', 'owners_finder',
@@ -960,6 +960,7 @@ class InputApiUnittest(PresubmitTestsBase):
         'ReadFile',
         'RightHandSideLines',
         'ShutdownPool',
+        'ast',
         'basename',
         'cPickle',
         'cpplint',
@@ -2387,6 +2388,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
                     u'-1': u"I would prefer that you didn't submit this",
                     u'-2': u'Do not submit'}
       }},
+      "reviewers": {"REVIEWER": [{u'email': u'ben@example.com'}]},
     }
     self.AssertOwnersWorks(approvers=set(['ben@example.com']),
         gerrit_response=response,
@@ -2414,6 +2416,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
                     u'+1': u'Looks good to me',
                     u'-1': u"I would prefer that you didn't submit this"}
       }},
+      "reviewers": {"REVIEWER": [{u'email': u'ben@example.com'}]},
     }
     self.AssertOwnersWorks(approvers=set(['ben@example.com']),
         gerrit_response=response,
@@ -2462,6 +2465,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
                     u'-1': u"I would prefer that you didn't submit this",
                     u'-2': u'Do not submit'}
       }},
+      "reviewers": {"REVIEWER": [{u'email': u'ben@example.com'}]},
     }
     self.AssertOwnersWorks(
         approvers=set(),
@@ -2494,6 +2498,7 @@ class CannedChecksUnittest(PresubmitTestsBase):
                     u'+1': u'Looks good to me',
                     u'-1': u"I would prefer that you didn't submit this"}
       }},
+      "reviewers": {"REVIEWER": [{u'email': u'ben@example.com'}]},
     }
     self.AssertOwnersWorks(
         approvers=set(),
@@ -2694,16 +2699,17 @@ class CannedChecksUnittest(PresubmitTestsBase):
           ).AndReturn([affected_file])
       affected_file.LocalPath()
       affected_file.NewContents().AndReturn('Hey!\nHo!\nHey!\nHo!\n\n')
+    # CheckChangeHasNoTabs() calls _FindNewViolationsOfRule() which calls
+    # ChangedContents().
     affected_file.ChangedContents().AndReturn([
         (0, 'Hey!\n'),
         (1, 'Ho!\n'),
         (2, 'Hey!\n'),
         (3, 'Ho!\n'),
         (4, '\n')])
-    for _ in range(5):
+    for _ in range(5):  # One for each ChangedContents().
       affected_file.LocalPath().AndReturn('hello.py')
-    input_api.AffectedSourceFiles(mox.IgnoreArg()).AndReturn([affected_file])
-    input_api.ReadFile(affected_file).AndReturn('Hey!\nHo!\nHey!\nHo!\n\n')
+    # CheckingLicense() calls AffectedSourceFiles() instead of AffectedFiles().
     input_api.AffectedSourceFiles(mox.IgnoreArg()).AndReturn([affected_file])
     input_api.ReadFile(affected_file, 'rb').AndReturn(
         'Hey!\nHo!\nHey!\nHo!\n\n')

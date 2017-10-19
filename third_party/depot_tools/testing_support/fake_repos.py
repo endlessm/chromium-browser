@@ -298,7 +298,7 @@ class FakeReposBase(object):
 
 class FakeRepos(FakeReposBase):
   """Implements populateGit()."""
-  NB_GIT_REPOS = 6
+  NB_GIT_REPOS = 10
 
   def populateGit(self):
     # Testing:
@@ -324,9 +324,19 @@ class FakeRepos(FakeReposBase):
 vars = {
   'DummyVariable': 'repo',
 }
+gclient_gn_args_file = 'src/gclient.args'
+gclient_gn_args = ['DummyVariable']
 deps = {
-  'src/repo2': '%(git_base)srepo_2',
+  'src/repo2': {
+    'url': '%(git_base)srepo_2',
+    'condition': 'True',
+  },
   'src/repo2/repo3': '/' + Var('DummyVariable') + '_3@%(hash3)s',
+  # Test that deps where condition evaluates to False are skipped.
+  'src/repo5': {
+    'url': '/repo_5',
+    'condition': 'False',
+  },
 }
 deps_os = {
   'mac': {
@@ -446,27 +456,47 @@ pre_deps_hooks = [
 
     self._commit_git('repo_6', {
       'DEPS': """
+vars = {
+  'DummyVariable': 'repo',
+  'git_base': '%(git_base)s',
+  'hook1_contents': 'git_hooked1',
+  'repo5_var': '/repo_5',
+}
+gclient_gn_args_file = 'src/gclient.args'
+gclient_gn_args = ['DummyVariable']
+allowed_hosts = [
+  '%(git_base)s',
+]
 deps = {
   'src/repo2': {
-    'url': '%(git_base)srepo_2@%(hash)s',
+    'url': Var('git_base') + 'repo_2@%(hash)s',
+    'condition': 'True',
   },
+  'src/repo4': {
+    'url': '/repo_4',
+    'condition': 'False',
+  },
+  'src/repo8': '/repo_8',
 }
 deps_os ={
   'mac': {
-    'src/none_repo': None,
+    # This entry should not appear in flattened DEPS' |deps|.
+    'src/mac_repo': '{repo5_var}',
   },
   'unix': {
-    'src/none_repo': None,
+    # This entry should not appear in flattened DEPS' |deps|.
+    'src/unix_repo': '{repo5_var}',
   },
   'win': {
-    'src/none_repo': None,
+    # This entry should not appear in flattened DEPS' |deps|.
+    'src/win_repo': '{repo5_var}',
   },
 }
 hooks = [
   {
     'pattern': '.',
     'action': ['python', '-c',
-               'open(\\'src/git_hooked1\\', \\'w\\').write(\\'git_hooked1\\')'],
+               'open(\\'src/git_hooked1\\', \\'w\\').write(\\'{hook1_contents}\\')'],
   },
   {
     # Should not be run.
@@ -475,13 +505,98 @@ hooks = [
                'open(\\'src/git_hooked2\\', \\'w\\').write(\\'git_hooked2\\')'],
   },
 ]
+hooks_os = {
+  'mac': [
+    {
+      'pattern': '.',
+      'action': ['python', '-c',
+                 'open(\\'src/git_hooked_mac\\', \\'w\\').write('
+                     '\\'git_hooked_mac\\')'],
+    },
+  ],
+}
 recursedeps = [
   'src/repo2',
+  'src/repo8',
 ]""" % {
         'git_base': self.git_base,
         'hash': self.git_hashes['repo_2'][1][0][:7]
       },
       'origin': 'git/repo_6@1\n',
+    })
+
+    self._commit_git('repo_7', {
+      'DEPS': """
+vars = {
+  'true_var': 'True',
+  'false_var': 'true_var and False',
+}
+hooks = [
+  {
+    'action': ['python', '-c',
+               'open(\\'src/should_run\\', \\'w\\').write(\\'should_run\\')'],
+    'condition': 'true_var or True',
+  },
+  {
+    'action': ['python', '-c',
+               'open(\\'src/should_not_run\\', \\'w\\').write(\\'should_not_run\\')'],
+    'condition': 'false_var',
+  },
+]""",
+      'origin': 'git/repo_7@1\n',
+    })
+
+    self._commit_git('repo_8', {
+      'DEPS': """
+deps_os ={
+  'mac': {
+    'src/recursed_os_repo': '/repo_5',
+  },
+  'unix': {
+    'src/recursed_os_repo': '/repo_5',
+  },
+}""",
+      'origin': 'git/repo_8@1\n',
+    })
+
+    self._commit_git('repo_9', {
+      'DEPS': """
+deps = {
+  'src/repo8': '/repo_8',
+
+  # This entry should appear in flattened file,
+  # but not recursed into, since it's not
+  # in recursedeps.
+  'src/repo7': '/repo_7',
+}
+deps_os = {
+  'android': {
+    # This entry should only appear in flattened |deps_os|,
+    # not |deps|, even when used with |recursedeps|.
+    'src/repo4': '/repo_4',
+  }
+}
+recursedeps = [
+  'src/repo4',
+  'src/repo8',
+]""",
+      'origin': 'git/repo_9@1\n',
+    })
+
+    self._commit_git('repo_10', {
+      'DEPS': """
+deps = {
+  'src/repo9': '/repo_9',
+
+  # This entry should appear in flattened file,
+  # but not recursed into, since it's not
+  # in recursedeps.
+  'src/repo6': '/repo_6',
+}
+recursedeps = [
+  'src/repo9',
+]""",
+      'origin': 'git/repo_10@1\n',
     })
 
 

@@ -757,13 +757,14 @@ class CryptohomeClientImpl : public CryptohomeClient {
   }
 
   // CryptohomeClient override.
-  void TpmGetVersion(const StringDBusMethodCallback& callback) override {
-    dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 "TpmGetVersion");
-    proxy_->CallMethod(&method_call, kTpmDBusTimeoutMs,
-                       base::Bind(&CryptohomeClientImpl::OnStringMethod,
-                                  weak_ptr_factory_.GetWeakPtr(),
-                                  callback));
+  void TpmGetVersion(TpmGetVersionCallback callback) override {
+    dbus::MethodCall method_call(
+        cryptohome::kCryptohomeInterface,
+        "TpmGetVersionStructured");
+    proxy_->CallMethod(
+        &method_call, kTpmDBusTimeoutMs,
+        base::BindOnce(&CryptohomeClientImpl::OnTpmGetVersion,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void GetKeyDataEx(const cryptohome::Identification& id,
@@ -933,15 +934,19 @@ class CryptohomeClientImpl : public CryptohomeClient {
   }
 
   void MigrateToDircrypto(const cryptohome::Identification& cryptohome_id,
+                          const cryptohome::MigrateToDircryptoRequest& request,
                           VoidDBusMethodCallback callback) override {
+    // TODO(bug758837,pmarko): Switch back to MigrateToDircrypto when its
+    // signature matches MigrateToDircryptoEx.
     dbus::MethodCall method_call(cryptohome::kCryptohomeInterface,
-                                 cryptohome::kCryptohomeMigrateToDircrypto);
+                                 cryptohome::kCryptohomeMigrateToDircryptoEx);
 
     cryptohome::AccountIdentifier id_proto;
     FillIdentificationProtobuf(cryptohome_id, &id_proto);
 
     dbus::MessageWriter writer(&method_call);
     writer.AppendProtoAsArrayOfBytes(id_proto);
+    writer.AppendProtoAsArrayOfBytes(request);
 
     // The migration progress takes unpredicatable time depending on the
     // user file size and the number. Setting the time limit to infinite.
@@ -1163,6 +1168,28 @@ class CryptohomeClientImpl : public CryptohomeClient {
       return;
     }
     callback.Run(DBUS_METHOD_CALL_SUCCESS, label, user_pin, slot);
+  }
+
+  // Handles responses for TpmGetVersion.
+  void OnTpmGetVersion(TpmGetVersionCallback callback,
+                       dbus::Response* response) {
+    if (!response) {
+      std::move(callback).Run(DBUS_METHOD_CALL_FAILURE, TpmVersionInfo());
+      return;
+    }
+    dbus::MessageReader reader(response);
+    TpmVersionInfo version;
+    if (!reader.PopUint32(&version.family) ||
+        !reader.PopUint64(&version.spec_level) ||
+        !reader.PopUint32(&version.manufacturer) ||
+        !reader.PopUint32(&version.tpm_model) ||
+        !reader.PopUint64(&version.firmware_version) ||
+        !reader.PopString(&version.vendor_specific)) {
+      std::move(callback).Run(DBUS_METHOD_CALL_FAILURE, TpmVersionInfo());
+      LOG(ERROR) << "Invalid response: " << response->ToString();
+      return;
+    }
+    std::move(callback).Run(DBUS_METHOD_CALL_SUCCESS, version);
   }
 
   // Handles AsyncCallStatus signal.

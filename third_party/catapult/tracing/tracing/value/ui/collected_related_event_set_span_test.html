@@ -5,7 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/iteration_helpers.html">
+<link rel="import" href="/tracing/base/utils.html">
 <link rel="import" href="/tracing/core/test_utils.html">
 <link rel="import" href="/tracing/value/histogram.html">
 <link rel="import" href="/tracing/value/ui/diagnostic_span.html">
@@ -41,14 +41,6 @@ tr.b.unittest.testSuite(function() {
 
     aHist.diagnostics.set('events', new tr.v.d.RelatedEventSet(aSlice));
     bHist.diagnostics.set('events', new tr.v.d.RelatedEventSet(bSlice));
-
-    new tr.v.d.TelemetryInfo({
-      canonicalUrl: 'http://a',
-    }).addToHistogram(aHist);
-
-    new tr.v.d.TelemetryInfo({
-      canonicalUrl: 'http://b',
-    }).addToHistogram(bHist);
 
     let mergedHist = aHist.clone();
     mergedHist.addHistogram(bHist);

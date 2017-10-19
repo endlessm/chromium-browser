@@ -42,69 +42,6 @@ tr.b.unittest.testSuite(function() {
     assert.strictEqual(tr.b.getOnlyElement(dm.get('bar')), 'baz');
   });
 
-  test('relatedHistogramSetDiagnostic', function() {
-    const unit = tr.b.Unit.byName.unitlessNumber;
-    const a = new tr.v.Histogram('a', unit);
-    const b = new tr.v.Histogram('b', unit);
-    const c = new tr.v.Histogram('c', unit);
-    a.diagnostics.set('rvs', new tr.v.d.RelatedHistogramSet([b, c]));
-
-    // Don't serialize c just yet.
-    const histograms = new tr.v.HistogramSet([a, b]);
-
-    const sourceHistograms = histograms.sourceHistograms;
-    assert.strictEqual(tr.b.getOnlyElement(sourceHistograms), a);
-
-    const histograms2 = new tr.v.HistogramSet();
-    histograms2.importDicts(histograms.asDicts());
-    histograms2.resolveRelatedHistograms();
-
-    const a2 = histograms2.getHistogramNamed('a');
-    assert.isDefined(a2);
-    assert.strictEqual(a2.guid, a.guid);
-    assert.instanceOf(a2, tr.v.Histogram);
-    assert.notStrictEqual(a2, a);
-
-    const b2 = histograms2.getHistogramNamed('b');
-    assert.isDefined(b2);
-    assert.strictEqual(b2.guid, b.guid);
-    assert.instanceOf(b2, tr.v.Histogram);
-    assert.notStrictEqual(b2, b);
-
-    const rvs2 = a2.diagnostics.get('rvs');
-    assert.instanceOf(rvs2, tr.v.d.RelatedHistogramSet);
-    assert.lengthOf(rvs2, 2);
-
-    // Assert that b and c are in a2's RelatedHistogramSet.
-    let rvs2vs = [...rvs2];
-    let rvs2guids = rvs2vs.map(v => v.guid);
-    let b2i = rvs2guids.indexOf(b.guid);
-    assert.strictEqual(rvs2vs[b2i], b2);
-
-    let c2i = rvs2guids.indexOf(c.guid);
-    assert.strictEqual(rvs2vs[c2i].guid, c.guid);
-    assert.instanceOf(rvs2vs[c2i], tr.v.d.HistogramRef);
-
-    // Now serialize c and add it to histograms2.
-    // Related Histogram resolution is idempotent.
-    // Old histograms can refer to new histograms.
-    histograms2.importDicts([c.asDict()]);
-    histograms2.resolveRelatedHistograms();
-
-    const c2 = histograms2.getHistogramNamed('c');
-    assert.isDefined(c2);
-    assert.strictEqual(c2.guid, c.guid);
-    assert.notStrictEqual(c2, c);
-
-    // Now a real c2 Histogram should be in a2's RelatedHistogramSet.
-    rvs2vs = [...rvs2];
-    rvs2guids = rvs2vs.map(v => v.guid);
-    b2i = rvs2guids.indexOf(b.guid);
-    c2i = rvs2guids.indexOf(c.guid);
-    assert.strictEqual(b2, rvs2vs[b2i]);
-    assert.strictEqual(c2, rvs2vs[c2i]);
-  });
-
   test('relatedHistogramMapDiagnostic', function() {
     const unit = tr.b.Unit.byName.unitlessNumber;
     const a = new tr.v.Histogram('a', unit);
@@ -171,7 +108,9 @@ tr.b.unittest.testSuite(function() {
     aHist.addSample(1);
 
     const bHist = new tr.v.Histogram('b', tr.b.Unit.byName.unitlessNumber);
-    bHist.addSample(1, {rvs: new tr.v.d.RelatedHistogramSet([aHist])});
+    const related = new tr.v.d.RelatedHistogramMap();
+    related.set('0', aHist);
+    bHist.addSample(1, {related});
 
     const histograms = new tr.v.HistogramSet([aHist, bHist]);
     assert.strictEqual(tr.b.getOnlyElement(histograms.sourceHistograms), bHist);
@@ -233,45 +172,12 @@ tr.b.unittest.testSuite(function() {
   });
 
   test('deduplicateDiagnostics', function() {
-    const telemetryA = new tr.v.d.TelemetryInfo({
-      label: 'iteration A',
-      benchmarkStartMs: 1,
-    });
-    const telemetryB = new tr.v.d.TelemetryInfo({
-      label: 'iteration B',
-      benchmarkStartMs: 2,
-    });
-    const buildbotA = new tr.v.d.BuildbotInfo({
-      buildbotName: 'bot A',
-    });
-    const buildbotB = new tr.v.d.BuildbotInfo({
-      buildbotName: 'bot B',
-    });
-    const deviceA = new tr.v.d.DeviceInfo({
-      osName: 'A',
-    });
-    const deviceB = new tr.v.d.DeviceInfo({
-      osName: 'B',
-    });
-
     const genericA = new tr.v.d.GenericSet(['A']);
     const genericB = new tr.v.d.GenericSet(['B']);
     const dateA = new tr.v.d.DateRange(42);
     const dateB = new tr.v.d.DateRange(57);
 
     const aHist = new tr.v.Histogram('a', tr.b.Unit.byName.count);
-    const telemetry0 = new tr.v.d.MergedTelemetryInfo();
-    telemetry0.addDiagnostic(telemetryA);
-    telemetry0.addDiagnostic(telemetryB);
-    telemetry0.addToHistogram(aHist);
-    const buildbot0 = new tr.v.d.MergedBuildbotInfo();
-    buildbot0.addDiagnostic(buildbotA);
-    buildbot0.addDiagnostic(buildbotB);
-    buildbot0.addToHistogram(aHist);
-    const device0 = new tr.v.d.MergedDeviceInfo();
-    device0.addDiagnostic(deviceA);
-    device0.addDiagnostic(deviceB);
-    device0.addToHistogram(aHist);
     const generic0 = genericA.clone();
     generic0.addDiagnostic(genericB);
     aHist.diagnostics.set('generic', generic0);
@@ -280,18 +186,6 @@ tr.b.unittest.testSuite(function() {
     aHist.diagnostics.set('date', date0);
 
     const bHist = new tr.v.Histogram('b', tr.b.Unit.byName.count);
-    const telemetry1 = new tr.v.d.MergedTelemetryInfo();
-    telemetry1.addDiagnostic(telemetryA);
-    telemetry1.addDiagnostic(telemetryB);
-    telemetry1.addToHistogram(bHist);
-    const buildbot1 = new tr.v.d.MergedBuildbotInfo();
-    buildbot1.addDiagnostic(buildbotA);
-    buildbot1.addDiagnostic(buildbotB);
-    buildbot1.addToHistogram(bHist);
-    const device1 = new tr.v.d.MergedDeviceInfo();
-    device1.addDiagnostic(deviceA);
-    device1.addDiagnostic(deviceB);
-    device1.addToHistogram(bHist);
     const generic1 = genericA.clone();
     generic1.addDiagnostic(genericB);
     bHist.diagnostics.set('generic', generic1);
@@ -300,24 +194,6 @@ tr.b.unittest.testSuite(function() {
     bHist.diagnostics.set('date', date1);
 
     const histograms = new tr.v.HistogramSet([aHist, bHist]);
-    assert.notStrictEqual(
-        tr.v.d.TelemetryInfo.getFromHistogram(aHist),
-        tr.v.d.TelemetryInfo.getFromHistogram(bHist));
-    assert.isTrue(
-        tr.v.d.TelemetryInfo.getFromHistogram(aHist).equals(
-            tr.v.d.TelemetryInfo.getFromHistogram(bHist)));
-    assert.notStrictEqual(
-        tr.v.d.DeviceInfo.getFromHistogram(aHist),
-        tr.v.d.DeviceInfo.getFromHistogram(bHist));
-    assert.isTrue(
-        tr.v.d.DeviceInfo.getFromHistogram(aHist).equals(
-            tr.v.d.DeviceInfo.getFromHistogram(bHist)));
-    assert.notStrictEqual(
-        tr.v.d.BuildbotInfo.getFromHistogram(aHist),
-        tr.v.d.BuildbotInfo.getFromHistogram(bHist));
-    assert.isTrue(
-        tr.v.d.BuildbotInfo.getFromHistogram(aHist).equals(
-            tr.v.d.BuildbotInfo.getFromHistogram(bHist)));
     assert.notStrictEqual(
         aHist.diagnostics.get('generic'), bHist.diagnostics.get('generic'));
     assert.isTrue(
@@ -331,15 +207,6 @@ tr.b.unittest.testSuite(function() {
     histograms.deduplicateDiagnostics();
 
     assert.strictEqual(
-        tr.v.d.TelemetryInfo.getFromHistogram(aHist),
-        tr.v.d.TelemetryInfo.getFromHistogram(bHist));
-    assert.strictEqual(
-        tr.v.d.DeviceInfo.getFromHistogram(aHist),
-        tr.v.d.DeviceInfo.getFromHistogram(bHist));
-    assert.strictEqual(
-        tr.v.d.BuildbotInfo.getFromHistogram(aHist),
-        tr.v.d.BuildbotInfo.getFromHistogram(bHist));
-    assert.strictEqual(
         aHist.diagnostics.get('generic'), bHist.diagnostics.get('generic'));
     assert.strictEqual(
         aHist.diagnostics.get('date'), bHist.diagnostics.get('date'));
@@ -351,18 +218,30 @@ tr.b.unittest.testSuite(function() {
     const bHist2 = histograms2.getHistogramNamed('b');
 
     assert.strictEqual(
-        tr.v.d.TelemetryInfo.getFromHistogram(aHist2),
-        tr.v.d.TelemetryInfo.getFromHistogram(bHist2));
-    assert.strictEqual(
-        tr.v.d.DeviceInfo.getFromHistogram(aHist2),
-        tr.v.d.DeviceInfo.getFromHistogram(bHist2));
-    assert.strictEqual(
-        tr.v.d.BuildbotInfo.getFromHistogram(aHist2),
-        tr.v.d.BuildbotInfo.getFromHistogram(bHist2));
-    assert.strictEqual(
         aHist2.diagnostics.get('generic'), bHist2.diagnostics.get('generic'));
     assert.strictEqual(
         aHist2.diagnostics.get('date'), bHist2.diagnostics.get('date'));
+  });
+
+  test('buildGroupingsFromTags', function() {
+    const histograms = new tr.v.HistogramSet();
+    const aHist = histograms.createHistogram('', tr.b.Unit.byName.count, [], {
+      diagnostics: new Map([
+        [tr.v.d.RESERVED_NAMES.STORY_TAGS, new tr.v.d.GenericSet(['a'])],
+      ]),
+    });
+    const bHist = histograms.createHistogram('', tr.b.Unit.byName.count, [], {
+      diagnostics: new Map([
+        [tr.v.d.RESERVED_NAMES.STORY_TAGS, new tr.v.d.GenericSet(['b'])],
+      ]),
+    });
+    const groupings = histograms.buildGroupingsFromTags([
+      tr.v.d.RESERVED_NAMES.STORY_TAGS]);
+    assert.lengthOf(groupings, 2);
+    assert.strictEqual(groupings[0].callback(aHist), 'a');
+    assert.strictEqual(groupings[0].callback(bHist), '~a');
+    assert.strictEqual(groupings[1].callback(aHist), '~b');
+    assert.strictEqual(groupings[1].callback(bHist), 'b');
   });
 });
 </script>

@@ -272,7 +272,6 @@ class TestConditionTest(unittest.TestCase):
 
   def testAndroidWebviewReturnsFalseOnAndroidNotWebview(self):
     self._platform.SetOSName('android')
-    self._platform.SetIsAosp(False)
     self.assertFalse(
         expectations.ANDROID_WEBVIEW.ShouldDisable(self._platform,
                                                    self._finder_options))
@@ -283,6 +282,101 @@ class TestConditionTest(unittest.TestCase):
         expectations.ANDROID_WEBVIEW.ShouldDisable(self._platform,
                                                    self._finder_options))
 
+  def testAndroidNotWebviewReturnsTrueOnAndroidNotWebview(self):
+    self._platform.SetOSName('android')
+    self._finder_options.browser_type = 'android'
+    self.assertTrue(
+        expectations.ANDROID_NOT_WEBVIEW.ShouldDisable(self._platform,
+                                                       self._finder_options))
+
+  def testAndroidNotWebviewReturnsFalseOnAndroidWebview(self):
+    self._platform.SetOSName('android')
+    self._finder_options.browser_type = 'android-webview'
+    self.assertFalse(
+        expectations.ANDROID_NOT_WEBVIEW.ShouldDisable(self._platform,
+                                                       self._finder_options))
+
+  def testAndroidNotWebviewReturnsFalseOnNotAndroid(self):
+    self._platform.SetOSName('not_android')
+    self.assertFalse(
+        expectations.ANDROID_NOT_WEBVIEW.ShouldDisable(self._platform,
+                                                       self._finder_options))
+  def testMac1011ReturnsTrueOnMac1011(self):
+    self._platform.SetOSName('mac')
+    self._platform.SetOsVersionDetailString('10.11')
+    self.assertTrue(
+        expectations.MAC_10_11.ShouldDisable(self._platform,
+                                             self._finder_options))
+
+  def testMac1011ReturnsFalseOnNotMac1011(self):
+    self._platform.SetOSName('mac')
+    self._platform.SetOsVersionDetailString('10.12')
+    self.assertFalse(
+        expectations.MAC_10_11.ShouldDisable(self._platform,
+                                             self._finder_options))
+
+  def testMac1012ReturnsTrueOnMac1012(self):
+    self._platform.SetOSName('mac')
+    self._platform.SetOsVersionDetailString('10.12')
+    self.assertTrue(
+        expectations.MAC_10_12.ShouldDisable(self._platform,
+                                             self._finder_options))
+
+  def testMac1012ReturnsFalseOnNotMac1012(self):
+    self._platform.SetOSName('mac')
+    self._platform.SetOsVersionDetailString('10.11')
+    self.assertFalse(
+        expectations.MAC_10_12.ShouldDisable(self._platform,
+                                             self._finder_options))
+
+  def testNexus5XWebviewFalseOnNotWebview(self):
+    self._platform.SetOSName('android')
+    self._finder_options.browser_type = 'android'
+    self._platform.SetDeviceTypeName('Nexus 5X')
+    self.assertFalse(
+        expectations.ANDROID_NEXUS5X_WEBVIEW.ShouldDisable(
+            self._platform, self._finder_options))
+
+  def testNexus5XWebviewFalseOnNotNexus5X(self):
+    self._platform.SetOSName('android')
+    self._finder_options.browser_type = 'android-webview'
+    self._platform.SetDeviceTypeName('Nexus 5')
+    self.assertFalse(
+        expectations.ANDROID_NEXUS5X_WEBVIEW.ShouldDisable(
+            self._platform, self._finder_options))
+
+  def testNexus5XWebviewReturnsTrue(self):
+    self._platform.SetOSName('android')
+    self._finder_options.browser_type = 'android-webview'
+    self._platform.SetDeviceTypeName('Nexus 5X')
+    self.assertTrue(
+        expectations.ANDROID_NEXUS5X_WEBVIEW.ShouldDisable(
+            self._platform, self._finder_options))
+
+  def testNexus6WebviewFalseOnNotWebview(self):
+    self._platform.SetOSName('android')
+    self._finder_options.browser_type = 'android'
+    self._platform.SetDeviceTypeName('Nexus 6')
+    self.assertFalse(
+        expectations.ANDROID_NEXUS6_WEBVIEW.ShouldDisable(
+            self._platform, self._finder_options))
+
+  def testNexus6WebviewFalseOnNotNexus6(self):
+    self._platform.SetOSName('android')
+    self._finder_options.browser_type = 'android-webview'
+    self._platform.SetDeviceTypeName('Nexus 5X')
+    self.assertFalse(
+        expectations.ANDROID_NEXUS6_WEBVIEW.ShouldDisable(
+            self._platform, self._finder_options))
+
+  def testNexus6WebviewReturnsTrue(self):
+    self._platform.SetOSName('android')
+    self._finder_options.browser_type = 'android-webview'
+    self._platform.SetDeviceTypeName('Nexus 6')
+    self.assertTrue(
+        expectations.ANDROID_NEXUS6_WEBVIEW.ShouldDisable(
+            self._platform, self._finder_options))
+
 
 class StoryExpectationsTest(unittest.TestCase):
   def setUp(self):
@@ -292,15 +386,14 @@ class StoryExpectationsTest(unittest.TestCase):
   def testCantDisableAfterInit(self):
     e = expectations.StoryExpectations()
     with self.assertRaises(AssertionError):
-      e.PermanentlyDisableBenchmark(['test'], 'test')
+      e.DisableBenchmark(['test'], 'test')
     with self.assertRaises(AssertionError):
       e.DisableStory('story', ['platform'], 'reason')
 
-  def testPermanentlyDisableBenchmark(self):
+  def testDisableBenchmark(self):
     class FooExpectations(expectations.StoryExpectations):
       def SetExpectations(self):
-        self.PermanentlyDisableBenchmark(
-            [expectations.ALL_WIN], 'crbug.com/123')
+        self.DisableBenchmark([expectations.ALL_WIN], 'crbug.com/123')
 
     e = FooExpectations()
     self.platform.SetOSName('win')

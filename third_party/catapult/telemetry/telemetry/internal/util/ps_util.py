@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from telemetry.internal.util import atexit_with_log
+from py_utils import atexit_with_log
 import inspect
 import logging
 import os
@@ -82,7 +82,7 @@ def EnableListingStrayProcessesUponExitHook():
           else:
             cmdline = p.cmdline
           process_info += ' - %s' % cmdline
-        except Exception as e:
+        except Exception as e: # pylint: disable=broad-except
           logging.warning(str(e))
         leak_processes_info.append(process_info)
       logging.warning('Telemetry leaks these processes: %s',

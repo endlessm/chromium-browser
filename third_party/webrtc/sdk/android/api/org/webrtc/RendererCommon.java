@@ -34,6 +34,7 @@ public class RendererCommon {
   }
 
   /** Interface for rendering frames on an EGLSurface. */
+  @SuppressWarnings("StaticOrDefaultInterfaceMethod")
   public static interface GlDrawer {
     /**
      * Functions for drawing frames with different sources. The rendering surface target is
@@ -48,9 +49,37 @@ public class RendererCommon {
         int viewportX, int viewportY, int viewportWidth, int viewportHeight);
 
     /**
-     * Release all GL resources. This needs to be done manually, otherwise resources may leak.
+     * Draws a VideoFrame.TextureBuffer. Default implementation calls either drawOes or drawRgb
+     * depending on the type of the buffer. You can supply an additional render matrix. This is
+     * used multiplied together with the transformation matrix of the frame. (M = renderMatrix *
+     * transformationMatrix)
      */
-    void release();
+    default void
+      drawTexture(VideoFrame.TextureBuffer buffer, android.graphics.Matrix renderMatrix,
+          int frameWidth, int frameHeight, int viewportX, int viewportY, int viewportWidth,
+          int viewportHeight) {
+        android.graphics.Matrix finalMatrix =
+            new android.graphics.Matrix(buffer.getTransformMatrix());
+        finalMatrix.preConcat(renderMatrix);
+        float[] finalGlMatrix = convertMatrixFromAndroidGraphicsMatrix(finalMatrix);
+        switch (buffer.getType()) {
+          case OES:
+            drawOes(buffer.getTextureId(), finalGlMatrix, frameWidth, frameHeight, viewportX,
+                viewportY, viewportWidth, viewportHeight);
+            break;
+          case RGB:
+            drawRgb(buffer.getTextureId(), finalGlMatrix, frameWidth, frameHeight, viewportX,
+                viewportY, viewportWidth, viewportHeight);
+            break;
+          default:
+            throw new RuntimeException("Unknown texture type.");
+        }
+      }
+
+      /**
+       * Release all GL resources. This needs to be done manually, otherwise resources may leak.
+       */
+      void release();
   }
 
   /**
@@ -109,6 +138,12 @@ public class RendererCommon {
             planeHeights[i], 0, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, packedByteBuffer);
       }
       return yuvTextures;
+    }
+
+    public int[] uploadFromBuffer(VideoFrame.I420Buffer buffer) {
+      int[] strides = {buffer.getStrideY(), buffer.getStrideU(), buffer.getStrideV()};
+      ByteBuffer[] planes = {buffer.getDataY(), buffer.getDataU(), buffer.getDataV()};
+      return uploadYuvData(buffer.getWidth(), buffer.getHeight(), strides, planes);
     }
 
     /**
@@ -256,6 +291,51 @@ public class RendererCommon {
     Matrix.scaleM(matrix, 0, scaleX, scaleY, 1);
     adjustOrigin(matrix);
     return matrix;
+  }
+
+  /** Converts a float[16] matrix array to android.graphics.Matrix. */
+  public static android.graphics.Matrix convertMatrixToAndroidGraphicsMatrix(float[] matrix4x4) {
+    // clang-format off
+    float[] values = {
+        matrix4x4[0 * 4 + 0], matrix4x4[1 * 4 + 0], matrix4x4[3 * 4 + 0],
+        matrix4x4[0 * 4 + 1], matrix4x4[1 * 4 + 1], matrix4x4[3 * 4 + 1],
+        matrix4x4[0 * 4 + 3], matrix4x4[1 * 4 + 3], matrix4x4[3 * 4 + 3],
+    };
+    // clang-format on
+
+    android.graphics.Matrix matrix = new android.graphics.Matrix();
+    matrix.setValues(values);
+    return matrix;
+  }
+
+  /** Converts android.graphics.Matrix to a float[16] matrix array. */
+  public static float[] convertMatrixFromAndroidGraphicsMatrix(android.graphics.Matrix matrix) {
+    float[] values = new float[9];
+    matrix.getValues(values);
+
+    // The android.graphics.Matrix looks like this:
+    // [x1 y1 w1]
+    // [x2 y2 w2]
+    // [x3 y3 w3]
+    // We want to contruct a matrix that looks like this:
+    // [x1 y1  0 w1]
+    // [x2 y2  0 w2]
+    // [ 0  0  1  0]
+    // [x3 y3  0 w3]
+    // Since it is stored in column-major order, it looks like this:
+    // [x1 x2 0 x3
+    //  y1 y2 0 y3
+    //   0  0 1  0
+    //  w1 w2 0 w3]
+    // clang-format off
+    float[] matrix4x4 = {
+        values[0 * 3 + 0],  values[1 * 3 + 0], 0,  values[2 * 3 + 0],
+        values[0 * 3 + 1],  values[1 * 3 + 1], 0,  values[2 * 3 + 1],
+        0,                  0,                 1,  0,
+        values[0 * 3 + 2],  values[1 * 3 + 2], 0,  values[2 * 3 + 2],
+    };
+    // clang-format on
+    return matrix4x4;
   }
 
   /**

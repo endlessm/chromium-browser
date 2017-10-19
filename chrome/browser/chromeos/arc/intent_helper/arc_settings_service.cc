@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "ash/public/cpp/ash_pref_names.h"
 #include "base/command_line.h"
 #include "base/gtest_prod_util.h"
 #include "base/json/json_writer.h"
@@ -98,6 +99,7 @@ class ArcSettingsServiceFactory
 class ArcSettingsServiceImpl
     : public chromeos::system::TimezoneSettings::Observer,
       public ArcSessionManager::Observer,
+      public InstanceHolder<mojom::AppInstance>::Observer,
       public chromeos::NetworkStateHandlerObserver {
  public:
   ArcSettingsServiceImpl(content::BrowserContext* context,
@@ -136,7 +138,11 @@ class ArcSettingsServiceImpl
   void SyncInitialSettings() const;
   // Retrieves Chrome's state for the settings that need to be synced on each
   // Android boot and send it to Android.
-  void SyncRuntimeSettings() const;
+  void SyncBootTimeSettings() const;
+  // Retrieves Chrome's state for the settings that need to be synced on each
+  // Android boot after AppInstance is ready and send it to Android.
+  // TODO(crbug.com/762553): Sync settings at proper time.
+  void SyncAppTimeSettings() const;
   // Determine whether a particular setting needs to be synced to Android.
   // Keep these lines ordered lexicographically.
   bool ShouldSyncBackupEnabled() const;
@@ -179,6 +185,9 @@ class ArcSettingsServiceImpl
   void SendSettingsBroadcast(const std::string& action,
                              const base::DictionaryValue& extras) const;
 
+  // InstanceHolder<mojom::AppInstance>::Observer:
+  void OnInstanceReady() override;
+
   content::BrowserContext* const context_;
   ArcBridgeService* const arc_bridge_service_;  // Owned by ArcServiceManager.
 
@@ -200,13 +209,20 @@ ArcSettingsServiceImpl::ArcSettingsServiceImpl(
       arc_bridge_service_(arc_bridge_service),
       weak_factory_(this) {
   StartObservingSettingsChanges();
-  SyncRuntimeSettings();
+  SyncBootTimeSettings();
   DCHECK(ArcSessionManager::Get());
   ArcSessionManager::Get()->AddObserver(this);
+
+  if (arc_bridge_service_->app()->has_instance())
+    SyncAppTimeSettings();
+  else
+    arc_bridge_service_->app()->AddObserver(this);
 }
 
 ArcSettingsServiceImpl::~ArcSettingsServiceImpl() {
   StopObservingSettingsChanges();
+
+  arc_bridge_service_->app()->RemoveObserver(this);
 
   ArcSessionManager* arc_session_manager = ArcSessionManager::Get();
   if (arc_session_manager)
@@ -225,13 +241,13 @@ void ArcSettingsServiceImpl::OnPrefChanged(const std::string& pref_name) const {
       return;
     }
     SyncProxySettings();
-  } else if (pref_name == prefs::kAccessibilityFocusHighlightEnabled) {
+  } else if (pref_name == ash::prefs::kAccessibilityFocusHighlightEnabled) {
     SyncFocusHighlightEnabled();
-  } else if (pref_name == prefs::kAccessibilityLargeCursorEnabled) {
+  } else if (pref_name == ash::prefs::kAccessibilityLargeCursorEnabled) {
     SyncAccessibilityLargeMouseCursorEnabled();
-  } else if (pref_name == prefs::kAccessibilitySpokenFeedbackEnabled) {
+  } else if (pref_name == ash::prefs::kAccessibilitySpokenFeedbackEnabled) {
     SyncSpokenFeedbackEnabled();
-  } else if (pref_name == prefs::kAccessibilityVirtualKeyboardEnabled) {
+  } else if (pref_name == ash::prefs::kAccessibilityVirtualKeyboardEnabled) {
     SyncAccessibilityVirtualKeyboardEnabled();
   } else if (pref_name == prefs::kArcBackupRestoreEnabled) {
     if (ShouldSyncBackupEnabled())
@@ -281,10 +297,10 @@ void ArcSettingsServiceImpl::StartObservingSettingsChanges() {
   registrar_.Init(GetPrefs());
 
   // Keep these lines ordered lexicographically.
-  AddPrefToObserve(prefs::kAccessibilityFocusHighlightEnabled);
-  AddPrefToObserve(prefs::kAccessibilityLargeCursorEnabled);
-  AddPrefToObserve(prefs::kAccessibilitySpokenFeedbackEnabled);
-  AddPrefToObserve(prefs::kAccessibilityVirtualKeyboardEnabled);
+  AddPrefToObserve(ash::prefs::kAccessibilityFocusHighlightEnabled);
+  AddPrefToObserve(ash::prefs::kAccessibilityLargeCursorEnabled);
+  AddPrefToObserve(ash::prefs::kAccessibilitySpokenFeedbackEnabled);
+  AddPrefToObserve(ash::prefs::kAccessibilityVirtualKeyboardEnabled);
   AddPrefToObserve(prefs::kArcBackupRestoreEnabled);
   AddPrefToObserve(prefs::kArcLocationServiceEnabled);
   AddPrefToObserve(prefs::kResolveTimezoneByGeolocation);
@@ -322,13 +338,12 @@ void ArcSettingsServiceImpl::SyncInitialSettings() const {
   SyncLocationServiceEnabled();
 }
 
-void ArcSettingsServiceImpl::SyncRuntimeSettings() const {
+void ArcSettingsServiceImpl::SyncBootTimeSettings() const {
   // Keep these lines ordered lexicographically.
   SyncAccessibilityLargeMouseCursorEnabled();
   SyncAccessibilityVirtualKeyboardEnabled();
   SyncFocusHighlightEnabled();
   SyncFontSize();
-  SyncLocale();
   SyncProxySettings();
   SyncReportingConsent();
   SyncSpokenFeedbackEnabled();
@@ -340,6 +355,10 @@ void ArcSettingsServiceImpl::SyncRuntimeSettings() const {
     SyncBackupEnabled();
   if (ShouldSyncLocationServiceEnabled())
     SyncLocationServiceEnabled();
+}
+
+void ArcSettingsServiceImpl::SyncAppTimeSettings() const {
+  SyncLocale();
 }
 
 bool ArcSettingsServiceImpl::ShouldSyncBackupEnabled() const {
@@ -360,13 +379,13 @@ bool ArcSettingsServiceImpl::ShouldSyncLocationServiceEnabled() const {
 
 void ArcSettingsServiceImpl::SyncAccessibilityLargeMouseCursorEnabled() const {
   SendBoolPrefSettingsBroadcast(
-      prefs::kAccessibilityLargeCursorEnabled,
+      ash::prefs::kAccessibilityLargeCursorEnabled,
       "org.chromium.arc.intent_helper.ACCESSIBILITY_LARGE_POINTER_ICON");
 }
 
 void ArcSettingsServiceImpl::SyncAccessibilityVirtualKeyboardEnabled() const {
   SendBoolPrefSettingsBroadcast(
-      prefs::kAccessibilityVirtualKeyboardEnabled,
+      ash::prefs::kAccessibilityVirtualKeyboardEnabled,
       "org.chromium.arc.intent_helper.SET_SHOW_IME_WITH_HARD_KEYBOARD");
 }
 
@@ -387,7 +406,7 @@ void ArcSettingsServiceImpl::SyncBackupEnabled() const {
 
 void ArcSettingsServiceImpl::SyncFocusHighlightEnabled() const {
   SendBoolPrefSettingsBroadcast(
-      prefs::kAccessibilityFocusHighlightEnabled,
+      ash::prefs::kAccessibilityFocusHighlightEnabled,
       "org.chromium.arc.intent_helper.SET_FOCUS_HIGHLIGHT_ENABLED");
 }
 
@@ -500,7 +519,7 @@ void ArcSettingsServiceImpl::SyncReportingConsent() const {
 
 void ArcSettingsServiceImpl::SyncSpokenFeedbackEnabled() const {
   SendBoolPrefSettingsBroadcast(
-      prefs::kAccessibilitySpokenFeedbackEnabled,
+      ash::prefs::kAccessibilitySpokenFeedbackEnabled,
       "org.chromium.arc.intent_helper.SET_SPOKEN_FEEDBACK_ENABLED");
 }
 
@@ -601,6 +620,12 @@ void ArcSettingsServiceImpl::SendSettingsBroadcast(
                           extras_json);
 }
 
+// InstanceHolder<mojom::AppInstance>::Observer:
+void ArcSettingsServiceImpl::OnInstanceReady() {
+  arc_bridge_service_->app()->RemoveObserver(this);
+  SyncAppTimeSettings();
+}
+
 // static
 ArcSettingsService* ArcSettingsService::GetForBrowserContext(
     content::BrowserContext* context) {
@@ -614,12 +639,7 @@ ArcSettingsService::ArcSettingsService(content::BrowserContext* context,
 }
 
 ArcSettingsService::~ArcSettingsService() {
-  // TODO(hidehiko): Currently, the lifetime of ArcBridgeService and
-  // BrowserContextKeyedService is not nested.
-  // If ArcServiceManager::Get() returns nullptr, it is already destructed,
-  // so do not touch it.
-  if (ArcServiceManager::Get())
-    arc_bridge_service_->intent_helper()->RemoveObserver(this);
+  arc_bridge_service_->intent_helper()->RemoveObserver(this);
 }
 
 void ArcSettingsService::OnInstanceReady() {

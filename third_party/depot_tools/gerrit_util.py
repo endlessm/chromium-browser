@@ -50,13 +50,13 @@ class GerritAuthenticationError(GerritError):
   """Exception class for authentication errors during Gerrit communication."""
 
 
-def _QueryString(param_dict, first_param=None):
+def _QueryString(params, first_param=None):
   """Encodes query parameters in the key:val[+key:val...] format specified here:
 
   https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#list-changes
   """
   q = [urllib.quote(first_param)] if first_param else []
-  q.extend(['%s:%s' % (key, val) for key, val in param_dict.iteritems()])
+  q.extend(['%s:%s' % (key, val) for key, val in params])
   return '+'.join(q)
 
 
@@ -97,6 +97,15 @@ class CookiesAuthenticator(Authenticator):
   def __init__(self):
     self.netrc = self._get_netrc()
     self.gitcookies = self._get_gitcookies()
+
+  @classmethod
+  def get_new_password_url(cls, host):
+    assert not host.startswith('http')
+    # Assume *.googlesource.com pattern.
+    parts = host.split('.')
+    if not parts[0].endswith('-review'):
+      parts[0] += '-review'
+    return 'https://%s/new-password' % ('.'.join(parts))
 
   @classmethod
   def get_new_password_message(cls, host):
@@ -219,8 +228,8 @@ class GceAuthenticator(Authenticator):
   """
 
   _INFO_URL = 'http://metadata.google.internal'
-  _ACQUIRE_URL = ('http://metadata/computeMetadata/v1/instance/'
-                  'service-accounts/default/token')
+  _ACQUIRE_URL = ('%s/computeMetadata/v1/instance/'
+                  'service-accounts/default/token' % _INFO_URL)
   _ACQUIRE_HEADERS = {"Metadata-Flavor": "Google"}
 
   _cache_is_gce = None
@@ -387,14 +396,15 @@ def ReadHttpJsonResponse(conn, accept_statuses=frozenset([200])):
   return json.loads(s)
 
 
-def QueryChanges(host, param_dict, first_param=None, limit=None, o_params=None,
+def QueryChanges(host, params, first_param=None, limit=None, o_params=None,
                  start=None):
   """
   Queries a gerrit-on-borg server for changes matching query terms.
 
   Args:
-    param_dict: A dictionary of search parameters, as documented here:
-        http://gerrit-documentation.googlecode.com/svn/Documentation/2.6/user-search.html
+    params: A list of key:value pairs for search parameters, as documented
+        here (e.g. ('is', 'owner') for a parameter 'is:owner'):
+        https://gerrit-review.googlesource.com/Documentation/user-search.html#search-operators
     first_param: A change identifier
     limit: Maximum number of results to return.
     start: how many changes to skip (starting with the most recent)
@@ -404,9 +414,9 @@ def QueryChanges(host, param_dict, first_param=None, limit=None, o_params=None,
     A list of json-decoded query results.
   """
   # Note that no attempt is made to escape special characters; YMMV.
-  if not param_dict and not first_param:
+  if not params and not first_param:
     raise RuntimeError('QueryChanges requires search parameters')
-  path = 'changes/?q=%s' % _QueryString(param_dict, first_param)
+  path = 'changes/?q=%s' % _QueryString(params, first_param)
   if start:
     path = '%s&start=%s' % (path, start)
   if limit:
@@ -416,7 +426,7 @@ def QueryChanges(host, param_dict, first_param=None, limit=None, o_params=None,
   return ReadHttpJsonResponse(CreateHttpConn(host, path))
 
 
-def GenerateAllChanges(host, param_dict, first_param=None, limit=500,
+def GenerateAllChanges(host, params, first_param=None, limit=500,
                        o_params=None, start=None):
   """
   Queries a gerrit-on-borg server for all the changes matching the query terms.
@@ -429,7 +439,7 @@ def GenerateAllChanges(host, param_dict, first_param=None, limit=500,
   limit.
 
   Args:
-    param_dict, first_param: Refer to QueryChanges().
+    params, first_param: Refer to QueryChanges().
     limit: Maximum number of requested changes per query.
     o_params: Refer to QueryChanges().
     start: Refer to QueryChanges().
@@ -457,7 +467,7 @@ def GenerateAllChanges(host, param_dict, first_param=None, limit=500,
     #   > E get's updated. New order: EABCDFGH
     #   query[3..6] => CDF   # C is a dup
     #   query[6..9] => GH    # E is missed.
-    page = QueryChanges(host, param_dict, first_param, limit, o_params,
+    page = QueryChanges(host, params, first_param, limit, o_params,
                         cur_start)
     for cl in at_most_once(page):
       yield cl
@@ -474,20 +484,20 @@ def GenerateAllChanges(host, param_dict, first_param=None, limit=500,
   # If we paged through, query again the first page which in most circumstances
   # will fetch all changes that were modified while this function was run.
   if start != cur_start:
-    page = QueryChanges(host, param_dict, first_param, limit, o_params, start)
+    page = QueryChanges(host, params, first_param, limit, o_params, start)
     for cl in at_most_once(page):
       yield cl
 
 
-def MultiQueryChanges(host, param_dict, change_list, limit=None, o_params=None,
+def MultiQueryChanges(host, params, change_list, limit=None, o_params=None,
                       start=None):
   """Initiate a query composed of multiple sets of query parameters."""
   if not change_list:
     raise RuntimeError(
         "MultiQueryChanges requires a list of change numbers/id's")
   q = ['q=%s' % '+OR+'.join([urllib.quote(str(x)) for x in change_list])]
-  if param_dict:
-    q.append(_QueryString(param_dict))
+  if params:
+    q.append(_QueryString(params))
   if limit:
     q.append('n=%d' % limit)
   if start:
@@ -540,12 +550,12 @@ def GetChangeCommit(host, change, revision='current'):
 
 def GetChangeCurrentRevision(host, change):
   """Get information about the latest revision for a given change."""
-  return QueryChanges(host, {}, change, o_params=('CURRENT_REVISION',))
+  return QueryChanges(host, [], change, o_params=('CURRENT_REVISION',))
 
 
 def GetChangeRevisions(host, change):
   """Get information about all revisions associated with a change."""
-  return QueryChanges(host, {}, change, o_params=('ALL_REVISIONS',))
+  return QueryChanges(host, [], change, o_params=('ALL_REVISIONS',))
 
 
 def GetChangeReview(host, change, revision=None):
@@ -558,6 +568,12 @@ def GetChangeReview(host, change, revision=None):
       raise GerritError(200, 'Multiple changes found for ChangeId %s.' % change)
     revision = jmsg[0]['current_revision']
   path = 'changes/%s/revisions/%s/review'
+  return ReadHttpJsonResponse(CreateHttpConn(host, path))
+
+
+def GetChangeComments(host, change):
+  """Get the line- and file-level comments on a change."""
+  path = 'changes/%s/comments' % change
   return ReadHttpJsonResponse(CreateHttpConn(host, path))
 
 
@@ -606,41 +622,17 @@ def DeletePendingChangeEdit(host, change):
 
 def SetCommitMessage(host, change, description, notify='ALL'):
   """Updates a commit message."""
+  assert notify in ('ALL', 'NONE')
+  path = 'changes/%s/message' % change
+  body = {'message': description}
+  conn = CreateHttpConn(host, path, reqtype='PUT', body=body)
   try:
-    assert notify in ('ALL', 'NONE')
-    # First, edit the commit message in a draft.
-    path = 'changes/%s/edit:message' % change
-    body = {'message': description}
-    conn = CreateHttpConn(host, path, reqtype='PUT', body=body)
-    try:
-      ReadHttpResponse(conn, accept_statuses=[204])
-    except GerritError as e:
-      raise GerritError(
-          e.http_status,
-          'Received unexpected http status while editing message '
-          'in change %s' % change)
-
-    # And then publish it.
-    path = 'changes/%s/edit:publish' % change
-    conn = CreateHttpConn(host, path, reqtype='POST', body={'notify': notify})
-    try:
-      ReadHttpResponse(conn, accept_statuses=[204])
-    except GerritError as e:
-      raise GerritError(
-          e.http_status,
-          'Received unexpected http status while publishing message '
-          'in change %s' % change)
-
-  except (GerritError, KeyboardInterrupt) as e:
-    # Something went wrong with one of the two calls, so we want to clean up
-    # after ourselves before returning.
-    try:
-      DeletePendingChangeEdit(host, change)
-    except GerritError:
-      LOGGER.error('Encountered error while cleaning up after failed attempt '
-                   'to set the CL description. You may have to delete the '
-                   'pending change edit yourself in the web UI.')
-    raise e
+    ReadHttpResponse(conn, accept_statuses=[200, 204])
+  except GerritError as e:
+    raise GerritError(
+        e.http_status,
+        'Received unexpected http status while editing message '
+        'in change %s' % change)
 
 
 def GetReviewers(host, change):
@@ -715,7 +707,7 @@ def RemoveReviewers(host, change, remove=None):
           'from change %s' % (r, change))
 
 
-def SetReview(host, change, msg=None, labels=None, notify=None):
+def SetReview(host, change, msg=None, labels=None, notify=None, ready=None):
   """Set labels and/or add a message to a code review."""
   if not msg and not labels:
     return
@@ -725,8 +717,10 @@ def SetReview(host, change, msg=None, labels=None, notify=None):
     body['message'] = msg
   if labels:
     body['labels'] = labels
-  if notify:
-    body['notify'] = notify
+  if notify is not None:
+    body['notify'] = 'ALL' if notify else 'NONE'
+  if ready:
+    body['ready'] = True
   conn = CreateHttpConn(host, path, reqtype='POST', body=body)
   response = ReadHttpJsonResponse(conn)
   if labels:
