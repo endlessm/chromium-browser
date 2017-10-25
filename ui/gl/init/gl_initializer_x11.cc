@@ -37,8 +37,10 @@ const char kGLLibraryName[] = "libGL.so.1";
 const char kGLESv2LibraryName[] = "libGLESv2.so.2";
 const char kEGLLibraryName[] = "libEGL.so.1";
 
+#if !defined (__ARMEL__)
 const char kGLESv2ANGLELibraryName[] = "libGLESv2.so";
 const char kEGLANGLELibraryName[] = "libEGL.so";
+#endif
 
 #if BUILDFLAG(ENABLE_SWIFTSHADER)
 const char kGLESv2SwiftShaderLibraryName[] = "libGLESv2.so";
@@ -97,6 +99,7 @@ bool InitializeStaticEGLInternal(GLImplementation implementation) {
 #else
     return false;
 #endif
+#if !defined (__ARMEL__)
   } else {
     base::FilePath module_path;
     if (!PathService::Get(base::DIR_MODULE, &module_path))
@@ -104,6 +107,7 @@ bool InitializeStaticEGLInternal(GLImplementation implementation) {
 
     glesv2_path = module_path.Append(kGLESv2ANGLELibraryName);
     egl_path = module_path.Append(kEGLANGLELibraryName);
+#endif
   }
 
   base::NativeLibrary gles_library = LoadLibraryAndPrintError(glesv2_path);
