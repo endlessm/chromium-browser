@@ -58,7 +58,17 @@ config("runtime_library") {
     }
 
     # Make sure we don't link against libc++ or libstdc++.
-    ldflags += [ "-nostdlib++" ]
+    ldflags += [ "-nodefaultlibs" ]
+    # Unfortunately, there's no way to disable linking against just
+    # libc++ (besides using clang instead of clang++); -nodefaultlibs
+    # removes all of the default libraries, so add back the ones that we
+    # need.
+    libs += [
+      "c",
+      "m",
+      "gcc_s",
+      "rt",
+    ]
   }
 
   if (!is_mac && !is_ios && sysroot != "") {
