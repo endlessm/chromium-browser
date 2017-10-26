@@ -285,6 +285,8 @@ if (!is_android && !is_mac) {
           ldflags += [ "-Wl,--long-plt" ]
         }
 
+        configs += [ "//build/config/gcc:rpath_for_built_shared_libraries" ]
+
         if (use_pango || use_cairo) {
           # Needed for chrome_main.cc initialization of libraries.
           configs += [ "//build/config/linux/pangocairo" ]
