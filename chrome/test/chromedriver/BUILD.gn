@@ -320,6 +320,10 @@ executable("chromedriver") {
     "//build/config:exe_and_shlib_deps",
     "//build/win:default_exe_manifest",
   ]
+
+  if (is_linux) {
+    configs += [ "//build/config/gcc:rpath_for_built_shared_libraries" ]
+  }
 }
 
 test("chromedriver_unittests") {
