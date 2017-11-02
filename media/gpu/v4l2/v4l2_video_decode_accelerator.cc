@@ -1238,7 +1238,8 @@ bool V4L2VideoDecodeAccelerator::FlushInputFrame() {
   return (decoder_state_ != kError);
 }
 
-void V4L2VideoDecodeAccelerator::ServiceDeviceTask(bool event_pending) {
+void V4L2VideoDecodeAccelerator::ServiceDeviceTask(bool event_pending,
+        base::PlatformThreadId scheduled_from) {
   DVLOGF(4);
   DCHECK(decoder_thread_.task_runner()->BelongsToCurrentThread());
   DCHECK_NE(decoder_state_, kUninitialized);
@@ -1249,6 +1250,13 @@ void V4L2VideoDecodeAccelerator::ServiceDeviceTask(bool event_pending) {
 
   DCHECK(input_queue_);
   DCHECK(output_queue_);
+
+  // break task scheduling sequence in case the device_poll_thread_ restarts
+  if (scheduled_from != device_poll_thread_.GetThreadId()) {
+    DVLOGF(3) << "task was scheduled from a thread that no longer exists;"
+        << " exiting";
+    return;
+  }
 
   if (decoder_state_ == kResetting) {
     DVLOGF(3) << "early out: kResetting state";
@@ -2081,7 +2089,8 @@ void V4L2VideoDecodeAccelerator::DevicePollTask(bool poll_device) {
   // touch decoder state from this thread.
   decoder_thread_.task_runner()->PostTask(
       FROM_HERE, base::BindOnce(&V4L2VideoDecodeAccelerator::ServiceDeviceTask,
-                                base::Unretained(this), event_pending));
+                                base::Unretained(this), event_pending,
+                                device_poll_thread_.GetThreadId()));
 }
 
 bool V4L2VideoDecodeAccelerator::IsDestroyPending() {
