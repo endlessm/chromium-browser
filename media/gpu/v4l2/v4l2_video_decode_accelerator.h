@@ -270,7 +270,8 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
   // Service I/O on the V4L2 devices.  This task should only be scheduled from
   // DevicePollTask().  If |event_pending| is true, one or more events
   // on file descriptor are pending.
-  void ServiceDeviceTask(bool event_pending);
+  void ServiceDeviceTask(bool event_pending,
+                         base::PlatformThreadId scheduled_from);
   // Handle the various device queues.
   void Enqueue();
   void Dequeue();
