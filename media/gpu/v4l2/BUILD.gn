@@ -75,7 +75,6 @@ source_set("v4l2") {
     "//media/gpu/linux",
     "//third_party/libyuv",
     "//ui/gfx/geometry",
-    "//ui/ozone",
   ]
 
   if (use_v4lplugin) {
