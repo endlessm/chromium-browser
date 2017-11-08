@@ -221,7 +221,6 @@ component("gpu") {
   }
 
   if (use_v4l2_codec) {
-    deps += [ "//ui/ozone" ]
     sources += [
       "v4l2/generic_v4l2_device.cc",
       "v4l2/generic_v4l2_device.h",
