@@ -292,13 +292,16 @@ scoped_refptr<gl::GLImage> GenericV4L2Device::CreateGLImage(
       NOTREACHED();
   }
 
-  scoped_refptr<gfx::NativePixmap> pixmap =
+  scoped_refptr<gfx::NativePixmap> pixmap;
+# if 0
+    scoped_refptr<gfx::NativePixmap> pixmap =
       ui::OzonePlatform::GetInstance()
           ->GetSurfaceFactoryOzone()
           ->CreateNativePixmapFromHandle(0, size, buffer_format,
                                          std::move(handle));
 
   DCHECK(pixmap);
+#endif
 
   auto image =
       base::MakeRefCounted<gl::GLImageNativePixmap>(size, buffer_format);
