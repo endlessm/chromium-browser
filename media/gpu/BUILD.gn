@@ -221,10 +221,7 @@ component("gpu") {
   }
 
   if (use_v4l2_codec) {
-    deps += [
-      "//third_party/libyuv",
-      "//ui/ozone",
-    ]
+    deps += [ "//third_party/libyuv" ]
     sources += [
       "v4l2/generic_v4l2_device.cc",
       "v4l2/generic_v4l2_device.h",
