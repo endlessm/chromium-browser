@@ -132,13 +132,13 @@ void test_sampleLocations(skiatest::Reporter* reporter, TestSampleLocationsInter
         for (int i = 0; i < numTestPatterns; ++i) {
             testInterface->overrideSamplePattern(kTestPatterns[i]);
             for (GrRenderTargetContext* rtc : {bottomUps[i].get(), topDowns[i].get()}) {
-                GrPipeline dummyPipeline(rtc->accessRenderTarget(),
+                GrPipeline dummyPipeline(rtc->asRenderTargetProxy(),
                                          GrPipeline::ScissorState::kDisabled,
                                          SkBlendMode::kSrcOver);
                 GrRenderTarget* rt = rtc->accessRenderTarget();
                 assert_equal(reporter, kTestPatterns[i],
                              rt->renderTargetPriv().getMultisampleSpecs(dummyPipeline),
-                             kBottomLeft_GrSurfaceOrigin == rt->origin());
+                             kBottomLeft_GrSurfaceOrigin == rtc->asSurfaceProxy()->origin());
             }
         }
     }
@@ -186,7 +186,7 @@ private:
 
 DEF_GPUTEST(GLSampleLocations, reporter, /*factory*/) {
     GLTestSampleLocationsInterface testInterface;
-    sk_sp<GrContext> ctx(GrContext::Create(kOpenGL_GrBackend, testInterface));
+    sk_sp<GrContext> ctx(GrContext::MakeGL(&testInterface));
 
     // This test relies on at least 2 samples.
     int supportedSample = ctx->caps()->getSampleCount(2, kRGBA_8888_GrPixelConfig);

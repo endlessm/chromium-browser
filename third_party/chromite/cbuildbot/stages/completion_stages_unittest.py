@@ -20,6 +20,7 @@ from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import sync_stages_unittest
 from chromite.cbuildbot.stages import sync_stages
+from chromite.lib.const import waterfall
 from chromite.lib import alerts
 from chromite.lib import auth
 from chromite.lib import buildbucket_lib
@@ -32,7 +33,6 @@ from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import fake_cidb
 from chromite.lib import hwtest_results
-from chromite.lib import patch_unittest
 from chromite.lib import timeout_util
 from chromite.lib import tree_status
 
@@ -126,12 +126,12 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         master=True,
         slave_configs=['test3', 'test5'],
         manifest_version=True,
-        active_waterfall=constants.WATERFALL_INTERNAL,
+        active_waterfall=waterfall.WATERFALL_INTERNAL,
     )
     test_config.Add(
         'test1',
         config_lib.BuildConfig(),
-        boards=['x86-generic'],
+        boards=['amd64-generic'],
         manifest_version=True,
         build_type=constants.PFQ_TYPE,
         overlays='public',
@@ -140,12 +140,12 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         branch=False,
         internal=False,
         master=False,
-        active_waterfall=constants.WATERFALL_INTERNAL,
+        active_waterfall=waterfall.WATERFALL_INTERNAL,
     )
     test_config.Add(
         'test2',
         config_lib.BuildConfig(),
-        boards=['x86-generic'],
+        boards=['amd64-generic'],
         manifest_version=False,
         build_type=constants.PFQ_TYPE,
         overlays='public',
@@ -154,12 +154,12 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         branch=False,
         internal=False,
         master=False,
-        active_waterfall=constants.WATERFALL_INTERNAL,
+        active_waterfall=waterfall.WATERFALL_INTERNAL,
     )
     test_config.Add(
         'test3',
         config_lib.BuildConfig(),
-        boards=['x86-generic'],
+        boards=['amd64-generic'],
         manifest_version=True,
         build_type=constants.PFQ_TYPE,
         overlays='both',
@@ -168,12 +168,12 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         branch=False,
         internal=True,
         master=False,
-        active_waterfall=constants.WATERFALL_INTERNAL,
+        active_waterfall=waterfall.WATERFALL_INTERNAL,
     )
     test_config.Add(
         'test4',
         config_lib.BuildConfig(),
-        boards=['x86-generic'],
+        boards=['amd64-generic'],
         manifest_version=True,
         build_type=constants.PFQ_TYPE,
         overlays='both',
@@ -182,12 +182,12 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         branch=True,
         internal=True,
         master=False,
-        active_waterfall=constants.WATERFALL_INTERNAL,
+        active_waterfall=waterfall.WATERFALL_INTERNAL,
     )
     test_config.Add(
         'test5',
         config_lib.BuildConfig(),
-        boards=['x86-generic'],
+        boards=['amd64-generic'],
         manifest_version=True,
         build_type=constants.PFQ_TYPE,
         overlays='public',
@@ -196,7 +196,7 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         branch=False,
         internal=False,
         master=False,
-        active_waterfall=constants.WATERFALL_INTERNAL,
+        active_waterfall=waterfall.WATERFALL_INTERNAL,
     )
     return test_config
 
@@ -211,7 +211,7 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
 class MasterSlaveSyncCompletionStageTest(
     generic_stages_unittest.AbstractStageTestCase):
   """Tests MasterSlaveSyncCompletionStage with ManifestVersionedSyncStage."""
-  BOT_ID = 'x86-generic-paladin'
+  BOT_ID = 'amd64-generic-paladin'
 
   def setUp(self):
     self.source_repo = 'ssh://source/repo'
@@ -325,7 +325,7 @@ class MasterSlaveSyncCompletionStageTestWithMasterPaladin(
     with self.assertRaises(completion_stages.ImportantBuilderFailedException):
       stage.PerformStage()
     mock_annotate.assert_called_once_with(
-        set(), {'build_1'}, {'build_2'}, statuses, False)
+        set(), {'build_1'}, {'build_2'}, statuses, {}, False)
     self.mock_handle_failure.assert_called_once_with(
         set(), {'build_1'}, {'build_2'}, False)
 
@@ -336,7 +336,7 @@ class MasterSlaveSyncCompletionStageTestWithMasterPaladin(
     with self.assertRaises(completion_stages.ImportantBuilderFailedException):
       stage.PerformStage()
     mock_annotate.assert_called_once_with(
-        set(), {'build_1'}, {'build_2'}, statuses, True)
+        set(), {'build_1'}, {'build_2'}, statuses, {}, True)
     self.mock_handle_failure.assert_called_once_with(
         set(), {'build_1'}, {'build_2'}, True)
 
@@ -442,14 +442,41 @@ class MasterSlaveSyncCompletionStageTestWithMasterPaladin(
     statuses = {'failing_build' : failed_status,
                 'inflight_build': inflight_status}
 
-    stage._AnnotateFailingBuilders(failing, inflight, set(), statuses, False)
+    stage._AnnotateFailingBuilders(failing, inflight, set(), statuses, {},
+                                   False)
     self.assertEqual(annotate_mock.call_count, 1)
 
-    stage._AnnotateFailingBuilders(failing, inflight, no_stat, statuses, False)
+    stage._AnnotateFailingBuilders(failing, inflight, no_stat, statuses, {},
+                                   False)
     self.assertEqual(annotate_mock.call_count, 2)
 
-    stage._AnnotateFailingBuilders(failing, inflight, no_stat, statuses, True)
+    stage._AnnotateFailingBuilders(failing, inflight, no_stat, statuses, {},
+                                   True)
     self.assertEqual(annotate_mock.call_count, 3)
+
+  def testAnnotateFailingExperimentalBuilders(self):
+    """Tests _AnnotateFailingBuilders with experimental builders."""
+    stage = self.ConstructStage()
+
+    print_build_message_mock = self.PatchObject(
+        completion_stages.MasterSlaveSyncCompletionStage,
+        '_PrintBuildMessage')
+
+    failed_msg = build_failure_message.BuildFailureMessage(
+        'message', [], True, 'reason', 'bot')
+    experimental_statuses = {
+        'passed_experimental' : builder_status_lib.BuilderStatus(
+            constants.BUILDER_STATUS_PASSED, None, 'url'),
+        'failing_experimental' : builder_status_lib.BuilderStatus(
+            constants.BUILDER_STATUS_FAILED, failed_msg, 'url'),
+        'inflight_experimental': builder_status_lib.BuilderStatus(
+            constants.BUILDER_STATUS_INFLIGHT, None, 'url')
+    }
+
+    stage._AnnotateFailingBuilders(set(), set(), set(), {},
+                                   experimental_statuses, False)
+    # Build message should not be printed for the passed builder.
+    self.assertEqual(print_build_message_mock.call_count, 2)
 
   def testPerformStageWithException(self):
     """Test PerformStage with exception."""
@@ -501,6 +528,30 @@ class MasterSlaveSyncCompletionStageTestWithMasterPaladin(
         {constants.SELF_DESTRUCTED_WITH_SUCCESS_BUILD: True})
     stage.PerformStage()
 
+  def testPerformStageWithFailedExperimentalBuilder(self):
+    """Test PerformStage with a failed experimental builder."""
+    stage = self.ConstructStage()
+    stage._run.attrs.manifest_manager = mock.MagicMock()
+    status = {
+        'build_1': builder_status_lib.BuilderStatus(
+            constants.BUILDER_STATUS_PASSED, None)
+    }
+    experimental_status = {
+        'build_2': builder_status_lib.BuilderStatus(
+            constants.BUILDER_STATUS_FAILED, None)
+    }
+    statuses = dict(status.items() + experimental_status.items())
+    self.PatchObject(completion_stages.MasterSlaveSyncCompletionStage,
+                     '_FetchSlaveStatuses', return_value=statuses)
+    mock_annotate = self.PatchObject(
+        completion_stages.MasterSlaveSyncCompletionStage,
+        '_AnnotateFailingBuilders')
+
+    stage._run.attrs.metadata.UpdateWithDict(
+        {constants.METADATA_EXPERIMENTAL_BUILDERS: ['build_2']})
+    stage.PerformStage()
+    mock_annotate.assert_called_once_with(
+        set(), set(), set(), status, experimental_status, False)
 
 class CanaryCompletionStageTest(
     generic_stages_unittest.AbstractStageTestCase):
@@ -532,8 +583,7 @@ class CanaryCompletionStageTest(
 
 
 class BaseCommitQueueCompletionStageTest(
-    generic_stages_unittest.AbstractStageTestCase,
-    patch_unittest.MockPatchBase):
+    generic_stages_unittest.AbstractStageTestCase):
   """Tests how CQ handles changes in CommitQueueCompletionStage."""
 
   def setUp(self):
@@ -914,7 +964,7 @@ class MasterCommitQueueCompletionStageTest(BaseCommitQueueCompletionStageTest):
     master_build_id = stage._run.attrs.metadata.GetValue('build_id')
     db = fake_cidb.FakeCIDBConnection()
     slave_build_id = db.InsertBuild(
-        'slave_1', constants.WATERFALL_INTERNAL, 1, 'slave_1', 'bot_hostname',
+        'slave_1', waterfall.WATERFALL_INTERNAL, 1, 'slave_1', 'bot_hostname',
         master_build_id=master_build_id, buildbucket_id='123')
     cidb.CIDBConnectionFactory.SetupMockCidb(db)
     mock_failed_hwtests = mock.Mock()

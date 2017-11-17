@@ -68,7 +68,7 @@ const char AppListItemView::kViewClassName[] = "ui/app_list/AppListItemView";
 
 AppListItemView::AppListItemView(AppsGridView* apps_grid_view,
                                  AppListItem* item)
-    : CustomButton(apps_grid_view),
+    : Button(apps_grid_view),
       is_folder_(item->GetItemType() == AppListFolderItem::kItemType),
       is_in_folder_(item->IsInFolder()),
       item_weak_(item),
@@ -92,10 +92,9 @@ AppListItemView::AppListItemView(AppsGridView* apps_grid_view,
   title_->SetHandlesTooltips(false);
 
   if (is_fullscreen_app_list_enabled_) {
-    const gfx::FontList& base_font =
-        ui::ResourceBundle::GetSharedInstance().GetFontList(
-            ui::ResourceBundle::BaseFont);
-    title_->SetFontList(base_font.DeriveWithSizeDelta(1));
+    const gfx::FontList& font = FullscreenAppListAppTitleFont();
+    title_->SetFontList(font);
+    title_->SetLineHeight(font.GetHeight());
     title_->SetHorizontalAlignment(gfx::ALIGN_CENTER);
     title_->SetEnabledColor(kGridTitleColorFullscreen);
   } else {
@@ -298,7 +297,7 @@ bool AppListItemView::ShouldEnterPushedState(const ui::Event& event) {
   if (event.type() == ui::ET_GESTURE_TAP_DOWN)
     return false;
 
-  return views::CustomButton::ShouldEnterPushedState(event);
+  return views::Button::ShouldEnterPushedState(event);
 }
 
 void AppListItemView::PaintButtonContents(gfx::Canvas* canvas) {
@@ -335,7 +334,7 @@ void AppListItemView::PaintButtonContents(gfx::Canvas* canvas) {
 }
 
 bool AppListItemView::OnMousePressed(const ui::MouseEvent& event) {
-  CustomButton::OnMousePressed(event);
+  Button::OnMousePressed(event);
 
   if (!ShouldEnterPushedState(event))
     return true;
@@ -415,16 +414,16 @@ bool AppListItemView::OnKeyPressed(const ui::KeyEvent& event) {
   if (event.key_code() == ui::VKEY_SPACE)
     return false;
 
-  return CustomButton::OnKeyPressed(event);
+  return Button::OnKeyPressed(event);
 }
 
 void AppListItemView::OnMouseReleased(const ui::MouseEvent& event) {
-  CustomButton::OnMouseReleased(event);
+  Button::OnMouseReleased(event);
   apps_grid_view_->EndDrag(false);
 }
 
 bool AppListItemView::OnMouseDragged(const ui::MouseEvent& event) {
-  CustomButton::OnMouseDragged(event);
+  Button::OnMouseDragged(event);
   if (apps_grid_view_->IsDraggedView(this)) {
     // If the drag is no longer happening, it could be because this item
     // got removed, in which case this item has been destroyed. So, bail out
@@ -509,7 +508,7 @@ void AppListItemView::OnGestureEvent(ui::GestureEvent* event) {
       break;
   }
   if (!event->handled())
-    CustomButton::OnGestureEvent(event);
+    Button::OnGestureEvent(event);
 }
 
 bool AppListItemView::GetTooltipText(const gfx::Point& p,

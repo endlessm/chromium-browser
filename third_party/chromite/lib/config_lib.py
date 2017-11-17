@@ -11,6 +11,7 @@ import itertools
 import json
 import os
 
+from chromite.lib.const import waterfall
 from chromite.lib import constants
 from chromite.lib import osutils
 
@@ -49,6 +50,8 @@ CONFIG_TYPE_DUMP_ORDER = (
     'chrome-pfq-cheets-informational',
     'chrome-pfq-informational',
     'android-pfq',
+    'vmtest-informational',
+    'som-dispatcher',
     'config-updater',
     'pre-flight-branch',
     CONFIG_TYPE_FACTORY,
@@ -86,6 +89,8 @@ CONFIG_TEMPLATE_RELEASE_BRANCH = 'release_branch'
 CONFIG_TEMPLATE_REFERENCE_BOARD_NAME = 'reference_board_name'
 CONFIG_TEMPLATE_MODELS = 'models'
 CONFIG_TEMPLATE_MODEL_NAME = 'name'
+CONFIG_TEMPLATE_MODEL_TEST_SUITES = 'test_suites'
+CONFIG_TEMPLATE_MODEL_CQ_TEST_ENABLED = 'cq_test_enabled'
 
 CONFIG_X86_INTERNAL = 'X86_INTERNAL'
 CONFIG_X86_EXTERNAL = 'X86_EXTERNAL'
@@ -123,9 +128,9 @@ def IsMasterBuild(config):
 
 def UseBuildbucketScheduler(config):
   """Returns True if this build uses Buildbucket to schedule builds."""
-  return (config.active_waterfall in (constants.WATERFALL_INTERNAL,
-                                      constants.WATERFALL_EXTERNAL,
-                                      constants.WATERFALL_TRYBOT) and
+  return (config.active_waterfall in (waterfall.WATERFALL_INTERNAL,
+                                      waterfall.WATERFALL_EXTERNAL,
+                                      waterfall.WATERFALL_TRYBOT) and
           config.name in (constants.CQ_MASTER,
                           constants.CANARY_MASTER,
                           constants.PFQ_MASTER,
@@ -396,6 +401,20 @@ class GCETestConfig(object):
   def __eq__(self, other):
     return self.__dict__ == other.__dict__
 
+class ModelTestConfig(object):
+  """Model specific config that controls which test suites are executed.
+
+  Members:
+    name: The name of the model that will be tested (matches autotest platform)
+    test_suites: List of hardware test suites that will be executed.
+  """
+  def __init__(self, name, test_suites=None):
+    """Constructor -- see members above."""
+    self.name = name
+    self.test_suites = test_suites
+
+  def __eq__(self, other):
+    return self.__dict__ == other.__dict__
 
 class HWTestConfig(object):
   """Config object for hardware tests suites.
@@ -488,9 +507,11 @@ class HWTestConfig(object):
     self.minimum_duts = 0
 
     # Only reduce priority if it's lower.
-    new_priority = constants.HWTEST_DEFAULT_PRIORITY
-    if (constants.HWTEST_PRIORITIES_MAP[self.priority] >
-        constants.HWTEST_PRIORITIES_MAP[new_priority]):
+    new_priority = constants.HWTEST_PRIORITIES_MAP[
+        constants.HWTEST_DEFAULT_PRIORITY]
+    if isinstance(self.priority, (int, long)):
+      self.priority = min(self.priority, new_priority)
+    elif constants.HWTEST_PRIORITIES_MAP[self.priority] > new_priority:
       self.priority = new_priority
 
   @property
@@ -518,9 +539,8 @@ def DefaultSettings():
       # A list of boards to build.
       boards=None,
 
-      # A list of all models that are supported by a given unified build.
-      # For unified builds, we still need hardware test coverage to fan out
-      # and test every model, which is what this setting controls.
+      # A list of ModelTestConfig objects that represent all of the models
+      # supported by a given unified build and their corresponding test config.
       models=[],
 
       # The profile of the variant to set up and build.
@@ -956,7 +976,7 @@ def DefaultSettings():
       # on its waterfall.
       buildbot_waterfall_name=None,
 
-      # If not None, the name (in constants.CIDB_KNOWN_WATERFALLS) of the
+      # If not None, the name (in waterfall.CIDB_KNOWN_WATERFALLS) of the
       # waterfall that this target should be active on.
       active_waterfall=None,
 
@@ -1524,6 +1544,9 @@ def GeBuildConfigAllBoards(ge_build_config):
 def GetUnifiedBuildConfigAllBuilds(ge_build_config):
   """Extract a list of all unified build configurations.
 
+  This dictionary is based on the JSON defined by the proto generated from
+  GoldenEye.  See cs/crosbuilds.proto
+
   Args:
     ge_build_config: Dictionary containing the decoded GE configuration file.
 
@@ -1684,6 +1707,12 @@ def _CreateVmTestConfig(jsonString):
   vm_test_config = json.loads(jsonString)
   return VMTestConfig(**vm_test_config)
 
+def _CreateModelTestConfig(jsonString):
+  """Create a ModelTestConfig object from a JSON string."""
+  if isinstance(jsonString, ModelTestConfig):
+    return jsonString
+  model_test_config = json.loads(jsonString)
+  return ModelTestConfig(**model_test_config)
 
 def _CreateHwTestConfig(jsonString):
   """Create a HWTestConfig object from a JSON string."""
@@ -1719,6 +1748,10 @@ def _UpdateConfig(build_dict):
     ]
   else:
     build_dict['vm_tests_override'] = None
+
+  models = build_dict.pop('models', None)
+  if models is not None:
+    build_dict['models'] = [_CreateModelTestConfig(model) for model in models]
 
   hwtests = build_dict.pop('hw_tests', None)
   if hwtests is not None:

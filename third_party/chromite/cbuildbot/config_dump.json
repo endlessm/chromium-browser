@@ -363,16 +363,13 @@
             "active_waterfall": "chromiumos.tryserver",
             "archive": false,
             "build_packages_in_background": true,
-            "build_type": "binary",
+            "build_type": "pre_cq",
             "chrome_sdk_build_chrome": false,
             "compilecheck": true,
             "cpe_export": false,
             "debug_symbols": false,
             "description": "Verifies compilation only",
             "doc": "http://www.chromium.org/chromium-os/build/builder-overview#TOC-Pre-CQ",
-            "health_alert_recipients": [
-                "chromeos-infra-eng@grotations.appspotmail.com"
-            ],
             "health_threshold": 3,
             "hw_tests_override": [
                 "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 3,\n    \"offload_failures_only\": false,\n    \"pool\": \"suites\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
@@ -710,6 +707,7 @@
                 "recovery"
             ],
             "internal": true,
+            "latest_toolchain": true,
             "manifest": "official.xml",
             "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
             "manifest_version": true,
@@ -734,15 +732,12 @@
             "active_waterfall": "chromiumos.tryserver",
             "archive": false,
             "build_packages_in_background": true,
-            "build_type": "binary",
+            "build_type": "pre_cq",
             "chrome_sdk_build_chrome": false,
             "cpe_export": false,
             "debug_symbols": false,
             "description": "Verifies compilation, building an image, and unit tests if supported.",
             "doc": "http://www.chromium.org/chromium-os/build/builder-overview#TOC-Pre-CQ",
-            "health_alert_recipients": [
-                "chromeos-infra-eng@grotations.appspotmail.com"
-            ],
             "health_threshold": 3,
             "hw_tests_override": [
                 "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 3,\n    \"offload_failures_only\": false,\n    \"pool\": \"suites\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
@@ -835,15 +830,12 @@
             "active_waterfall": "chromiumos.tryserver",
             "archive": false,
             "build_packages_in_background": true,
-            "build_type": "binary",
+            "build_type": "pre_cq",
             "chrome_sdk_build_chrome": false,
             "cpe_export": false,
             "debug_symbols": false,
             "description": "Verifies compilation, building an image, and vm/unit tests if supported.",
             "doc": "http://www.chromium.org/chromium-os/build/builder-overview#TOC-Pre-CQ",
-            "health_alert_recipients": [
-                "chromeos-infra-eng@grotations.appspotmail.com"
-            ],
             "health_threshold": 3,
             "hw_tests_override": [
                 "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 3,\n    \"offload_failures_only\": false,\n    \"pool\": \"suites\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
@@ -909,7 +901,9 @@
                 "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
                 "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"au\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
                 "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}",
-                "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-perbuild\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}"
+                "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-perbuild\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}",
+                "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"cts\",\n    \"priority\": 11,\n    \"retry\": true,\n    \"suite\": \"arc-cts-qual\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 172800,\n    \"warn_only\": false\n}",
+                "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"cts\",\n    \"priority\": 11,\n    \"retry\": true,\n    \"suite\": \"arc-gts-qual\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 172800,\n    \"warn_only\": false\n}"
             ],
             "hw_tests_override": [
                 "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 3,\n    \"offload_failures_only\": false,\n    \"pool\": \"suites\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
@@ -1128,6 +1122,7 @@
                 "recovery"
             ],
             "internal": true,
+            "latest_toolchain": true,
             "manifest": "official.xml",
             "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
             "manifest_version": true,
@@ -1182,15 +1177,12 @@
             "_template": "wificell_pre_cq",
             "active_waterfall": "chromiumos.tryserver",
             "build_packages_in_background": true,
-            "build_type": "binary",
+            "build_type": "pre_cq",
             "chrome_sdk_build_chrome": false,
             "cpe_export": false,
             "debug_symbols": false,
             "description": "WiFi tests acting as pre-cq for WiFi related changes",
             "doc": "http://www.chromium.org/chromium-os/build/builder-overview#TOC-Pre-CQ",
-            "health_alert_recipients": [
-                "chromeos-infra-eng@grotations.appspotmail.com"
-            ],
             "health_threshold": 3,
             "hw_tests": [
                 "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": null,\n    \"minimum_duts\": 1,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"wificell-pre-cq\",\n    \"priority\": \"DEFAULT\",\n    \"retry\": false,\n    \"suite\": \"wificell-pre-cq\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}"
@@ -1212,14 +1204,6 @@
                 "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
             ]
         }
-    },
-    "amd64-gcc-toolchain": {
-        "_template": "gcc_toolchain",
-        "active_waterfall": "chromeos",
-        "boards": [
-            "peppy"
-        ],
-        "important": true
     },
     "amd64-generic-asan": {
         "_template": "asan",
@@ -1262,42 +1246,32 @@
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
         "important": false,
         "manifest": "official.xml",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "amd64-generic-cheets-chromium-pfq": {
         "_template": "chromium_pfq",
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
         "important": false,
         "useflags": [
             "-chrome_internal"
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "amd64-generic-cheets-compile-only-pre-cq": {
         "_template": "compile_only_pre_cq",
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "amd64-generic-cheets-factory": {
@@ -1318,30 +1292,23 @@
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
         "prebuilts": "public",
         "useflags": [
             "-chrome_internal"
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "amd64-generic-cheets-no-vmtest-pre-cq": {
         "_template": "no_vmtest_pre_cq",
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "amd64-generic-cheets-paladin": {
@@ -1349,7 +1316,6 @@
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
         "description": "Commit Queue (internal)",
         "important": false,
         "internal": true,
@@ -1360,6 +1326,7 @@
         "useflags": [
             "chrome_internal"
         ],
+        "vm_tests": [],
         "vm_tests_override": null
     },
     "amd64-generic-cheets-payloads": {
@@ -1373,14 +1340,14 @@
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ]
+        ],
+        "vm_tests": []
     },
     "amd64-generic-cheets-release": {
         "_template": "release",
@@ -1388,10 +1355,7 @@
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
+        "vm_tests": [],
         "vm_tests_override": null
     },
     "amd64-generic-cheets-release-afdo": {
@@ -1399,7 +1363,6 @@
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
         "child_configs": [
             {
                 "_template": "release_afdo_generate",
@@ -1408,9 +1371,7 @@
                 ],
                 "grouped": true,
                 "name": "amd64-generic-cheets-release-afdo-generate",
-                "vm_tests": [
-                    "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-                ],
+                "vm_tests": [],
                 "vm_tests_override": null
             },
             {
@@ -1420,15 +1381,11 @@
                 ],
                 "grouped": true,
                 "name": "amd64-generic-cheets-release-afdo-use",
-                "vm_tests": [
-                    "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-                ],
+                "vm_tests": [],
                 "vm_tests_override": null
             }
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
+        "vm_tests": [],
         "vm_tests_override": null
     },
     "amd64-generic-cheets-release-afdo-generate": {
@@ -1436,10 +1393,7 @@
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
+        "vm_tests": [],
         "vm_tests_override": null
     },
     "amd64-generic-cheets-release-afdo-use": {
@@ -1447,10 +1401,7 @@
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
+        "vm_tests": [],
         "vm_tests_override": null
     },
     "amd64-generic-cheets-tot-chrome-pfq-informational": {
@@ -1458,40 +1409,30 @@
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
         "manifest": "official.xml",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "amd64-generic-cheets-tot-chromium-pfq-informational": {
         "_template": "chromium_pfq_informational",
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
         "useflags": [
             "-chrome_internal"
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "amd64-generic-cheets-unittest-stress": {
         "_template": "unittest_stress",
         "boards": [
             "amd64-generic-cheets"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "amd64-generic-chromium-pfq": {
@@ -1618,7 +1559,6 @@
         "boards": [
             "amd64-generic-goofy"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -1743,14 +1683,13 @@
         "boards": [
             "amd64-generic"
         ],
-        "buildslave_type": "baremetal"
+        "vm_tests": []
     },
     "amd64-generic-pre-cq": {
         "_template": "pre_cq",
         "boards": [
             "amd64-generic"
-        ],
-        "buildslave_type": "baremetal"
+        ]
     },
     "amd64-generic-telem-chromium-pfq-informational": {
         "_template": "chromium_pfq_informational",
@@ -1797,14 +1736,6 @@
     },
     "amd64-llvm-next-toolchain": {
         "_template": "llvm_next_toolchain",
-        "active_waterfall": "chromeos",
-        "boards": [
-            "samus"
-        ],
-        "important": true
-    },
-    "amd64-llvm-toolchain": {
-        "_template": "llvm_toolchain",
         "active_waterfall": "chromeos",
         "boards": [
             "samus"
@@ -1946,14 +1877,6 @@
             "chrome_internal"
         ]
     },
-    "arm-gcc-toolchain": {
-        "_template": "gcc_toolchain",
-        "active_waterfall": "chromeos",
-        "boards": [
-            "veyron_jaq"
-        ],
-        "important": true
-    },
     "arm-generic-chromium-pfq": {
         "_template": "chromium_pfq",
         "active_waterfall": "chromeos",
@@ -2034,14 +1957,6 @@
         "boards": [
             "veyron_jaq"
         ],
-        "important": true
-    },
-    "arm-llvm-toolchain": {
-        "_template": "llvm_toolchain",
-        "active_waterfall": "chromeos",
-        "boards": [
-            "veyron_jaq"
-        ],
         "hw_tests": [
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"DEFAULT\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"DEFAULT\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
@@ -2051,14 +1966,6 @@
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"DEFAULT\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"DEFAULT\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"DEFAULT\",\n    \"retry\": true,\n    \"suite\": \"security\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}"
-        ],
-        "important": true
-    },
-    "arm64-gcc-toolchain": {
-        "_template": "gcc_toolchain",
-        "active_waterfall": "chromeos",
-        "boards": [
-            "elm"
         ],
         "important": true
     },
@@ -2130,14 +2037,6 @@
     },
     "arm64-llvm-next-toolchain": {
         "_template": "llvm_next_toolchain",
-        "active_waterfall": "chromeos",
-        "boards": [
-            "elm"
-        ],
-        "important": true
-    },
-    "arm64-llvm-toolchain": {
-        "_template": "llvm_toolchain",
         "active_waterfall": "chromeos",
         "boards": [
             "elm"
@@ -2318,7 +2217,6 @@
         "boards": [
             "asuka"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -2484,6 +2382,7 @@
             "auron"
         ],
         "description": "Commit Queue (internal)",
+        "important": false,
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -2505,7 +2404,6 @@
         "boards": [
             "auron"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -2989,6 +2887,17 @@
             "chrome_internal"
         ]
     },
+    "autotest-pre-cq": {
+        "_template": "pre_cq",
+        "boards": [],
+        "builder_class_name": "test_builders.AutotestTestsBuilder",
+        "description": "Run the autotest tests.",
+        "hw_tests_override": [],
+        "internal": true,
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "vm_tests": []
+    },
     "banjo-chrome-pfq": {
         "_template": "chrome_pfq",
         "boards": [
@@ -3087,7 +2996,6 @@
         "boards": [
             "banjo"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -3696,17 +3604,199 @@
             "chrome_internal"
         ]
     },
+    "betty-arc64-chrome-pfq": {
+        "_template": "chrome_pfq",
+        "boards": [
+            "betty-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "important": false,
+        "manifest": "official.xml"
+    },
+    "betty-arc64-chromium-pfq": {
+        "_template": "chromium_pfq",
+        "boards": [
+            "betty-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "important": false,
+        "useflags": [
+            "-chrome_internal"
+        ]
+    },
+    "betty-arc64-compile-only-pre-cq": {
+        "_template": "compile_only_pre_cq",
+        "boards": [
+            "betty-arc64"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
+    "betty-arc64-factory": {
+        "_template": "factory",
+        "boards": [
+            "betty-arc64"
+        ]
+    },
+    "betty-arc64-firmware": {
+        "_template": "firmware",
+        "boards": [
+            "betty-arc64"
+        ],
+        "manifest": "official.xml"
+    },
+    "betty-arc64-full": {
+        "_template": "full",
+        "boards": [
+            "betty-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "prebuilts": "public",
+        "useflags": [
+            "-chrome_internal"
+        ]
+    },
+    "betty-arc64-no-vmtest-pre-cq": {
+        "_template": "no_vmtest_pre_cq",
+        "boards": [
+            "betty-arc64"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
+    "betty-arc64-paladin": {
+        "_template": "paladin",
+        "active_waterfall": "chromeos",
+        "boards": [
+            "betty-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "description": "Commit Queue (internal)",
+        "important": false,
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "prebuilts": "private",
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
+    "betty-arc64-payloads": {
+        "_template": "payloads",
+        "boards": [
+            "betty-arc64"
+        ]
+    },
+    "betty-arc64-pre-cq": {
+        "_template": "pre_cq",
+        "boards": [
+            "betty-arc64"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
+    "betty-arc64-release": {
+        "_template": "release",
+        "active_waterfall": "chromeos",
+        "boards": [
+            "betty-arc64"
+        ],
+        "buildslave_type": "baremetal"
+    },
+    "betty-arc64-release-afdo": {
+        "_template": "release_afdo_generate",
+        "boards": [
+            "betty-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "child_configs": [
+            {
+                "_template": "release_afdo_generate",
+                "boards": [
+                    "betty-arc64"
+                ],
+                "grouped": true,
+                "name": "betty-arc64-release-afdo-generate"
+            },
+            {
+                "_template": "release_afdo_use",
+                "boards": [
+                    "betty-arc64"
+                ],
+                "grouped": true,
+                "name": "betty-arc64-release-afdo-use"
+            }
+        ]
+    },
+    "betty-arc64-release-afdo-generate": {
+        "_template": "release_afdo_generate",
+        "boards": [
+            "betty-arc64"
+        ],
+        "buildslave_type": "baremetal"
+    },
+    "betty-arc64-release-afdo-use": {
+        "_template": "release_afdo_use",
+        "boards": [
+            "betty-arc64"
+        ],
+        "buildslave_type": "baremetal"
+    },
+    "betty-arc64-tot-chrome-pfq-informational": {
+        "_template": "chrome_pfq_informational",
+        "boards": [
+            "betty-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "manifest": "official.xml"
+    },
+    "betty-arc64-tot-chromium-pfq-informational": {
+        "_template": "chromium_pfq_informational",
+        "boards": [
+            "betty-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "useflags": [
+            "-chrome_internal"
+        ]
+    },
+    "betty-arc64-unittest-stress": {
+        "_template": "unittest_stress",
+        "boards": [
+            "betty-arc64"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
     "betty-chrome-pfq": {
         "_template": "chrome_pfq",
+        "active_waterfall": "chromeos",
         "boards": [
             "betty"
         ],
         "buildslave_type": "baremetal",
-        "important": false,
-        "manifest": "official.xml",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "manifest": "official.xml"
     },
     "betty-chromium-pfq": {
         "_template": "chromium_pfq",
@@ -3717,9 +3807,6 @@
         "important": false,
         "useflags": [
             "-chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "betty-compile-only-pre-cq": {
@@ -3727,16 +3814,12 @@
         "boards": [
             "betty"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "betty-factory": {
@@ -3761,9 +3844,6 @@
         "prebuilts": "public",
         "useflags": [
             "-chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "betty-no-vmtest-pre-cq": {
@@ -3771,16 +3851,12 @@
         "boards": [
             "betty"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "betty-nyc-android-pfq": {
@@ -3809,7 +3885,6 @@
         ],
         "buildslave_type": "baremetal",
         "description": "Commit Queue (internal)",
-        "important": false,
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -3817,8 +3892,7 @@
         "prebuilts": "private",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests_override": null
+        ]
     },
     "betty-payloads": {
         "_template": "payloads",
@@ -3831,7 +3905,6 @@
         "boards": [
             "betty"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -3847,11 +3920,7 @@
             "betty"
         ],
         "buildslave_type": "baremetal",
-        "important": true,
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        "important": true
     },
     "betty-release-afdo": {
         "_template": "release_afdo_generate",
@@ -3866,11 +3935,7 @@
                     "betty"
                 ],
                 "grouped": true,
-                "name": "betty-release-afdo-generate",
-                "vm_tests": [
-                    "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-                ],
-                "vm_tests_override": null
+                "name": "betty-release-afdo-generate"
             },
             {
                 "_template": "release_afdo_use",
@@ -3878,39 +3943,23 @@
                     "betty"
                 ],
                 "grouped": true,
-                "name": "betty-release-afdo-use",
-                "vm_tests": [
-                    "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-                ],
-                "vm_tests_override": null
+                "name": "betty-release-afdo-use"
             }
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        ]
     },
     "betty-release-afdo-generate": {
         "_template": "release_afdo_generate",
         "boards": [
             "betty"
         ],
-        "buildslave_type": "baremetal",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        "buildslave_type": "baremetal"
     },
     "betty-release-afdo-use": {
         "_template": "release_afdo_use",
         "boards": [
             "betty"
         ],
-        "buildslave_type": "baremetal",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        "buildslave_type": "baremetal"
     },
     "betty-tot-chrome-pfq-informational": {
         "_template": "chrome_pfq_informational",
@@ -3918,10 +3967,7 @@
             "betty"
         ],
         "buildslave_type": "baremetal",
-        "manifest": "official.xml",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "manifest": "official.xml"
     },
     "betty-tot-chromium-pfq-informational": {
         "_template": "chromium_pfq_informational",
@@ -3931,9 +3977,6 @@
         "buildslave_type": "baremetal",
         "useflags": [
             "-chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "betty-unittest-stress": {
@@ -3941,16 +3984,32 @@
         "boards": [
             "betty"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
+        ]
+    },
+    "betty-vmtest-informational": {
+        "active_waterfall": "chromeos",
+        "boards": [
+            "betty"
         ],
+        "build_type": "generic",
+        "builder_class_name": "test_builders.VMInformationalBuilder",
+        "buildslave_type": "baremetal",
+        "description": "VMTest Informational Builder for running deqp on betty.",
+        "hw_tests_override": [],
+        "internal": true,
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
         "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
+            "{\n    \"test_type\": \"vmtest_informational_suite\",\n    \"timeout\": 43200\n}"
+        ],
+        "vm_tests_override": [
+            "{\n    \"test_type\": \"vmtest_informational_suite\",\n    \"timeout\": 43200\n}"
         ]
     },
     "binhost-pre-cq": {
@@ -3962,6 +4021,45 @@
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "vm_tests": []
+    },
+    "bluestreak-pre-cq": {
+        "active_waterfall": "chromiumos.tryserver",
+        "boards": [
+            "guado"
+        ],
+        "build_packages_in_background": true,
+        "build_type": "pre_cq",
+        "chrome_sdk_build_chrome": false,
+        "cpe_export": false,
+        "debug_symbols": false,
+        "description": "Bluestreak tests as pre-cq for CFM related changes",
+        "doc": "http://www.chromium.org/chromium-os/build/builder-overview#TOC-Pre-CQ",
+        "health_threshold": 3,
+        "hw_tests": [
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": null,\n    \"minimum_duts\": 1,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bluestreak-pre-cq\",\n    \"priority\": \"DEFAULT\",\n    \"retry\": false,\n    \"suite\": \"bluestreak-pre-cq\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}"
+        ],
+        "hw_tests_override": [
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": null,\n    \"minimum_duts\": 1,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bluestreak-pre-cq\",\n    \"priority\": \"DEFAULT\",\n    \"retry\": false,\n    \"suite\": \"bluestreak-pre-cq\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}"
+        ],
+        "images": [
+            "base",
+            "test"
+        ],
+        "important": true,
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "manifest_version": true,
+        "pre_cq": true,
+        "trybot_list": true,
+        "unittests": false,
+        "upload_standalone_images": false,
+        "useflags": [
+            "chrome_internal"
+        ],
+        "vm_tests": [
+            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
+        ]
     },
     "bob-chrome-pfq": {
         "_template": "chrome_pfq",
@@ -4502,7 +4600,6 @@
         "boards": [
             "butterfly"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -4689,7 +4786,6 @@
         "boards": [
             "candy"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -4824,8 +4920,7 @@
         "_template": "pre_cq",
         "boards": [
             "caroline-arc64"
-        ],
-        "buildslave_type": "baremetal"
+        ]
     },
     "caroline-arc64-release": {
         "_template": "release",
@@ -4988,7 +5083,6 @@
         "boards": [
             "caroline"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -5129,8 +5223,7 @@
         "_template": "pre_cq",
         "boards": [
             "caroline-userdebug"
-        ],
-        "buildslave_type": "baremetal"
+        ]
     },
     "caroline-userdebug-release": {
         "_template": "release",
@@ -5617,12 +5710,6 @@
         ],
         "vm_tests": []
     },
-    "chell-gcc-toolchain": {
-        "_template": "gcc_toolchain",
-        "boards": [
-            "chell"
-        ]
-    },
     "chell-incremental": {
         "_template": "incremental",
         "active_waterfall": "chromeos",
@@ -5634,18 +5721,6 @@
         "internal": true,
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both"
-    },
-    "chell-llvm-next-toolchain": {
-        "_template": "llvm_next_toolchain",
-        "boards": [
-            "chell"
-        ]
-    },
-    "chell-llvm-toolchain": {
-        "_template": "llvm_toolchain",
-        "boards": [
-            "chell"
-        ]
     },
     "chell-no-vmtest-pre-cq": {
         "_template": "no_vmtest_pre_cq",
@@ -5819,6 +5894,7 @@
             "arm-generic",
             "amd64-generic"
         ],
+        "build_timeout": 64800,
         "build_type": "chroot",
         "builder_class_name": "sdk_builders.ChrootSdkBuilder",
         "buildslave_type": "baremetal",
@@ -5937,7 +6013,6 @@
         "boards": [
             "clapper"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -6174,7 +6249,7 @@
     "config-updater": {
         "active_waterfall": "chromeos.infra",
         "boards": [],
-        "build_type": "config",
+        "build_type": "generic",
         "builder_class_name": "config_builders.UpdateConfigBuilder",
         "buildslave_type": "gce_wimpy",
         "description": "Build Config Updater reads updated GE config files from GS, and commits them to chromite after running tests.",
@@ -6296,6 +6371,18 @@
         "boards": [
             "coral"
         ],
+        "hw_tests": [
+            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 1,\n    \"num\": 1,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"sanity\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"au\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-perbuild\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}"
+        ],
+        "important": true,
+        "models": [
+            "{\n    \"name\": \"coral\",\n    \"test_suites\": [\n        \"sanity\",\n        \"bvt-inline\",\n        \"bvt-arc\",\n        \"au\",\n        \"bvt-cq\",\n        \"bvt-perbuild\"\n    ]\n}"
+        ],
         "vm_tests": [],
         "vm_tests_override": null
     },
@@ -6376,61 +6463,41 @@
             "chrome_internal"
         ]
     },
-    "cyan-android-mnc-pre-flight-branch": {
-        "_template": "pre_flight_branch",
-        "android_import_branch": "git_mnc-dr-arc-dev",
-        "android_package": "android-container",
-        "android_rev": "latest_release",
-        "boards": [
-            "cyan"
-        ],
-        "sync_chrome": true
-    },
     "cyan-chrome-pfq": {
         "_template": "chrome_pfq",
         "active_waterfall": "chromeos",
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "hw_tests": [
             "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 1,\n    \"num\": 1,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PFQ\",\n    \"retry\": true,\n    \"suite\": \"sanity\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 3,\n    \"num\": 3,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PFQ\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 3,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}"
         ],
         "manifest": "official.xml",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "cyan-chromium-pfq": {
         "_template": "chromium_pfq",
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "important": false,
         "useflags": [
             "-chrome_internal"
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "cyan-compile-only-pre-cq": {
         "_template": "compile_only_pre_cq",
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "cyan-factory": {
@@ -6451,30 +6518,23 @@
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "prebuilts": "public",
         "useflags": [
             "-chrome_internal"
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "cyan-no-vmtest-pre-cq": {
         "_template": "no_vmtest_pre_cq",
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "cyan-nyc-android-pfq": {
@@ -6483,7 +6543,6 @@
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "hw_tests": [
             "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 1,\n    \"num\": 1,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PFQ\",\n    \"retry\": true,\n    \"suite\": \"sanity\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 3,\n    \"num\": 3,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PFQ\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 3,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}"
@@ -6493,9 +6552,6 @@
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "cyan-paladin": {
@@ -6504,7 +6560,6 @@
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "description": "Commit Queue (internal)",
         "hw_tests": [
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": true,\n    \"pool\": \"cq\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 5400,\n    \"warn_only\": false\n}"
@@ -6517,6 +6572,7 @@
         "useflags": [
             "chrome_internal"
         ],
+        "vm_tests": [],
         "vm_tests_override": null
     },
     "cyan-payloads": {
@@ -6530,14 +6586,14 @@
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ]
+        ],
+        "vm_tests": []
     },
     "cyan-release": {
         "_template": "release",
@@ -6545,11 +6601,8 @@
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "important": true,
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
+        "vm_tests": [],
         "vm_tests_override": null
     },
     "cyan-release-afdo": {
@@ -6557,7 +6610,6 @@
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "child_configs": [
             {
                 "_template": "release_afdo_generate",
@@ -6566,9 +6618,7 @@
                 ],
                 "grouped": true,
                 "name": "cyan-release-afdo-generate",
-                "vm_tests": [
-                    "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-                ],
+                "vm_tests": [],
                 "vm_tests_override": null
             },
             {
@@ -6578,15 +6628,11 @@
                 ],
                 "grouped": true,
                 "name": "cyan-release-afdo-use",
-                "vm_tests": [
-                    "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-                ],
+                "vm_tests": [],
                 "vm_tests_override": null
             }
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
+        "vm_tests": [],
         "vm_tests_override": null
     },
     "cyan-release-afdo-generate": {
@@ -6594,10 +6640,7 @@
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
+        "vm_tests": [],
         "vm_tests_override": null
     },
     "cyan-release-afdo-use": {
@@ -6605,10 +6648,7 @@
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
+        "vm_tests": [],
         "vm_tests_override": null
     },
     "cyan-tot-chrome-pfq-informational": {
@@ -6616,40 +6656,30 @@
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "manifest": "official.xml",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "cyan-tot-chromium-pfq-informational": {
         "_template": "chromium_pfq_informational",
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "useflags": [
             "-chrome_internal"
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "cyan-unittest-stress": {
         "_template": "unittest_stress",
         "boards": [
             "cyan"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "daisy-chrome-perf": {
@@ -7378,7 +7408,6 @@
         "hw_tests": [
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": true,\n    \"pool\": \"cq\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 5400,\n    \"warn_only\": false\n}"
         ],
-        "important": false,
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -7795,7 +7824,6 @@
         "boards": [
             "enguarde"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -7940,6 +7968,24 @@
             "-chrome_internal"
         ],
         "vm_tests": []
+    },
+    "eve-gcc-toolchain": {
+        "_template": "gcc_toolchain",
+        "boards": [
+            "eve"
+        ]
+    },
+    "eve-llvm-next-toolchain": {
+        "_template": "llvm_next_toolchain",
+        "boards": [
+            "eve"
+        ]
+    },
+    "eve-llvm-toolchain": {
+        "_template": "llvm_toolchain",
+        "boards": [
+            "eve"
+        ]
     },
     "eve-no-vmtest-pre-cq": {
         "_template": "no_vmtest_pre_cq",
@@ -8178,7 +8224,6 @@
         "boards": [
             "expresso"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -8389,7 +8434,6 @@
         "boards": [
             "falco"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -8576,7 +8620,6 @@
         "boards": [
             "falco_li"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -8779,6 +8822,7 @@
         "boards": [
             "fizz"
         ],
+        "important": true,
         "vm_tests": [],
         "vm_tests_override": null
     },
@@ -8899,6 +8943,33 @@
             "-chrome_internal"
         ],
         "vm_tests": []
+    },
+    "gale-gcc-toolchain": {
+        "_template": "gcc_toolchain",
+        "afdo_use": false,
+        "boards": [
+            "gale"
+        ],
+        "chrome_sdk": false,
+        "sync_chrome": false
+    },
+    "gale-llvm-next-toolchain": {
+        "_template": "llvm_next_toolchain",
+        "afdo_use": false,
+        "boards": [
+            "gale"
+        ],
+        "chrome_sdk": false,
+        "sync_chrome": false
+    },
+    "gale-llvm-toolchain": {
+        "_template": "llvm_toolchain",
+        "afdo_use": false,
+        "boards": [
+            "gale"
+        ],
+        "chrome_sdk": false,
+        "sync_chrome": false
     },
     "gale-no-vmtest-pre-cq": {
         "_template": "no_vmtest_pre_cq",
@@ -9475,7 +9546,6 @@
         "boards": [
             "glimmer"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -9662,7 +9732,6 @@
         "boards": [
             "gnawty"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -10092,6 +10161,173 @@
             "chrome_internal"
         ]
     },
+    "guado-accelerator-compile-only-pre-cq": {
+        "_template": "compile_only_pre_cq",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "sync_chrome": false,
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
+    "guado-accelerator-factory": {
+        "_template": "factory",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "sync_chrome": false
+    },
+    "guado-accelerator-firmware": {
+        "_template": "firmware",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "manifest": "official.xml"
+    },
+    "guado-accelerator-full": {
+        "_template": "full",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "buildslave_type": "baremetal",
+        "chrome_sdk": false,
+        "prebuilts": "public",
+        "sync_chrome": false,
+        "useflags": [
+            "-chrome_internal"
+        ]
+    },
+    "guado-accelerator-no-vmtest-pre-cq": {
+        "_template": "no_vmtest_pre_cq",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "sync_chrome": false,
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
+    "guado-accelerator-paladin": {
+        "_template": "paladin",
+        "active_waterfall": "chromeos",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "chrome_sdk": false,
+        "description": "Commit Queue (internal)",
+        "important": false,
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "prebuilts": "private",
+        "sync_chrome": false,
+        "useflags": [
+            "chrome_internal"
+        ],
+        "vm_tests": []
+    },
+    "guado-accelerator-payloads": {
+        "_template": "payloads",
+        "boards": [
+            "guado-accelerator"
+        ]
+    },
+    "guado-accelerator-pre-cq": {
+        "_template": "pre_cq",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "sync_chrome": false,
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
+    "guado-accelerator-release": {
+        "_template": "release",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "buildslave_type": "baremetal",
+        "chrome_sdk": false,
+        "sync_chrome": false
+    },
+    "guado-accelerator-release-afdo": {
+        "_template": "release_afdo_generate",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "buildslave_type": "baremetal",
+        "child_configs": [
+            {
+                "_template": "release_afdo_generate",
+                "boards": [
+                    "guado-accelerator"
+                ],
+                "chrome_sdk": false,
+                "grouped": true,
+                "name": "guado-accelerator-release-afdo-generate",
+                "sync_chrome": false
+            },
+            {
+                "_template": "release_afdo_use",
+                "boards": [
+                    "guado-accelerator"
+                ],
+                "chrome_sdk": false,
+                "grouped": true,
+                "name": "guado-accelerator-release-afdo-use",
+                "sync_chrome": false
+            }
+        ],
+        "chrome_sdk": false,
+        "sync_chrome": false
+    },
+    "guado-accelerator-release-afdo-generate": {
+        "_template": "release_afdo_generate",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "buildslave_type": "baremetal",
+        "chrome_sdk": false,
+        "sync_chrome": false
+    },
+    "guado-accelerator-release-afdo-use": {
+        "_template": "release_afdo_use",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "buildslave_type": "baremetal",
+        "chrome_sdk": false,
+        "sync_chrome": false
+    },
+    "guado-accelerator-unittest-stress": {
+        "_template": "unittest_stress",
+        "boards": [
+            "guado-accelerator"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "sync_chrome": false,
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
     "guado-chrome-pfq": {
         "_template": "chrome_pfq",
         "boards": [
@@ -10190,7 +10426,6 @@
         "boards": [
             "guado"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -10377,7 +10612,6 @@
         "boards": [
             "guado_labstation"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -10793,7 +11027,6 @@
         "hw_tests": [
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": true,\n    \"pool\": \"cq\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 5400,\n    \"warn_only\": false\n}"
         ],
-        "important": false,
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -11011,7 +11244,6 @@
         "boards": [
             "heli"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -11392,7 +11624,6 @@
         "boards": [
             "jecht"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -11594,6 +11825,17 @@
         "boards": [
             "kahlee"
         ],
+        "hw_tests": [
+            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 1,\n    \"num\": 1,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"sanity\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"au\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-perbuild\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}"
+        ],
+        "models": [
+            "{\n    \"name\": \"kahlee\",\n    \"test_suites\": [\n        \"sanity\",\n        \"bvt-inline\",\n        \"bvt-arc\",\n        \"au\",\n        \"bvt-cq\",\n        \"bvt-perbuild\"\n    ]\n}"
+        ],
         "vm_tests": [],
         "vm_tests_override": null
     },
@@ -11772,7 +12014,6 @@
         "boards": [
             "kefka"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -11788,16 +12029,6 @@
             "kefka"
         ],
         "chrome_sdk_build_chrome": false,
-        "hw_tests": [
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"cts\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"arc-cts-qual\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 172800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"cts\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"arc-gts-qual\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 172800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 1,\n    \"num\": 1,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"sanity\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"au\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-perbuild\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}"
-        ],
         "important": true,
         "vm_tests": []
     },
@@ -11969,7 +12200,6 @@
         "hw_tests": [
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": true,\n    \"pool\": \"cq\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 5400,\n    \"warn_only\": false\n}"
         ],
-        "important": false,
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -12008,16 +12238,6 @@
             "kevin"
         ],
         "chrome_sdk_build_chrome": false,
-        "hw_tests": [
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"cts\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"arc-cts-qual\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 172800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"cts\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"arc-gts-qual\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 172800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 1,\n    \"num\": 1,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"sanity\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"au\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-perbuild\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}"
-        ],
         "important": true,
         "vm_tests": [],
         "vm_tests_override": null
@@ -12200,7 +12420,6 @@
         "boards": [
             "kip"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -12491,6 +12710,7 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -12501,6 +12721,22 @@
             "chrome_internal"
         ]
     },
+    "lakitu-external-pre-cq": {
+        "_template": "pre_cq",
+        "boards": [
+            "lakitu"
+        ],
+        "disk_layout": "base",
+        "factory": false,
+        "factory_install_netboot": false,
+        "factory_toolkit": false,
+        "hw_tests_override": [],
+        "image_test": false,
+        "sync_chrome": false,
+        "useflags": [
+            "-chrome_internal"
+        ]
+    },
     "lakitu-firmware": {
         "_template": "firmware",
         "boards": [
@@ -12509,10 +12745,12 @@
         "disk_layout": "base",
         "factory": false,
         "factory_install_netboot": false,
+        "hw_tests_override": [],
         "manifest": "official.xml"
     },
     "lakitu-full": {
         "_template": "full",
+        "active_waterfall": "chromiumos",
         "boards": [
             "lakitu"
         ],
@@ -12522,6 +12760,11 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "health_alert_recipients": [
+            "gci-alerts+buildbots@google.com"
+        ],
+        "health_threshold": 1,
+        "hw_tests_override": [],
         "image_test": false,
         "images": [
             "base",
@@ -12546,6 +12789,7 @@
         "factory_install_netboot": false,
         "factory_toolkit": false,
         "hw_tests": [],
+        "hw_tests_override": [],
         "image_test": false,
         "sync_chrome": false
     },
@@ -12558,6 +12802,7 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -12576,6 +12821,7 @@
         "disk_layout": "base",
         "factory": false,
         "factory_install_netboot": false,
+        "hw_tests_override": [],
         "manifest": "official.xml"
     },
     "lakitu-gpu-full": {
@@ -12589,6 +12835,7 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "hw_tests_override": [],
         "image_test": false,
         "images": [
             "base",
@@ -12620,6 +12867,7 @@
             "gci-alerts+buildbots@google.com"
         ],
         "health_threshold": 1,
+        "hw_tests_override": [],
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -12638,6 +12886,7 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -12664,6 +12913,7 @@
         "gce_tests": [
             "{\n    \"test_type\": \"gce_sanity_test\",\n    \"timeout\": 3600\n}"
         ],
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -12700,6 +12950,7 @@
             "{\n    \"test_type\": \"gce_sanity_test\",\n    \"timeout\": 3600\n}",
             "{\n    \"test_type\": \"gce_smoke_test\",\n    \"timeout\": 3600\n}"
         ],
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -12737,6 +12988,7 @@
         ],
         "health_threshold": 1,
         "hw_tests": [],
+        "hw_tests_override": [],
         "hwqual": false,
         "image_test": false,
         "images": [
@@ -12793,6 +13045,7 @@
             "gci-alerts+buildbots@google.com"
         ],
         "health_threshold": 1,
+        "hw_tests_override": [],
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -12814,6 +13067,7 @@
         "factory_install_netboot": false,
         "factory_toolkit": false,
         "hw_tests": [],
+        "hw_tests_override": [],
         "image_test": false,
         "sync_chrome": false
     },
@@ -12829,6 +13083,7 @@
         "factory_install_netboot": false,
         "factory_toolkit": false,
         "hw_tests": [],
+        "hw_tests_override": [],
         "image_test": false,
         "sync_chrome": false
     },
@@ -12841,6 +13096,7 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -12867,6 +13123,7 @@
         "gce_tests": [
             "{\n    \"test_type\": \"gce_sanity_test\",\n    \"timeout\": 3600\n}"
         ],
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -12903,6 +13160,7 @@
             "{\n    \"test_type\": \"gce_sanity_test\",\n    \"timeout\": 3600\n}",
             "{\n    \"test_type\": \"gce_smoke_test\",\n    \"timeout\": 3600\n}"
         ],
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -12940,6 +13198,7 @@
         ],
         "health_threshold": 1,
         "hw_tests": [],
+        "hw_tests_override": [],
         "hwqual": false,
         "image_test": false,
         "images": [
@@ -12967,6 +13226,7 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -12985,6 +13245,7 @@
         "disk_layout": "base",
         "factory": false,
         "factory_install_netboot": false,
+        "hw_tests_override": [],
         "manifest": "official.xml"
     },
     "lakitu-st-full": {
@@ -12998,6 +13259,7 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "hw_tests_override": [],
         "image_test": false,
         "images": [
             "base",
@@ -13029,6 +13291,7 @@
             "gci-alerts+buildbots@google.com"
         ],
         "health_threshold": 1,
+        "hw_tests_override": [],
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -13047,6 +13310,7 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -13073,6 +13337,7 @@
         "gce_tests": [
             "{\n    \"test_type\": \"gce_sanity_test\",\n    \"timeout\": 3600\n}"
         ],
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -13109,6 +13374,7 @@
             "{\n    \"test_type\": \"gce_sanity_test\",\n    \"timeout\": 3600\n}",
             "{\n    \"test_type\": \"gce_smoke_test\",\n    \"timeout\": 3600\n}"
         ],
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -13146,6 +13412,7 @@
         ],
         "health_threshold": 1,
         "hw_tests": [],
+        "hw_tests_override": [],
         "hwqual": false,
         "image_test": false,
         "images": [
@@ -13208,6 +13475,7 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -13226,6 +13494,7 @@
         "disk_layout": "base",
         "factory": false,
         "factory_install_netboot": false,
+        "hw_tests_override": [],
         "manifest": "official.xml"
     },
     "lakitu_next-full": {
@@ -13239,6 +13508,7 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "hw_tests_override": [],
         "image_test": false,
         "images": [
             "base",
@@ -13270,6 +13540,7 @@
             "gci-alerts+buildbots@google.com"
         ],
         "health_threshold": 1,
+        "hw_tests_override": [],
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -13288,6 +13559,7 @@
         "factory": false,
         "factory_install_netboot": false,
         "factory_toolkit": false,
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -13313,6 +13585,7 @@
         "gce_tests": [
             "{\n    \"test_type\": \"gce_sanity_test\",\n    \"timeout\": 3600\n}"
         ],
+        "hw_tests_override": [],
         "image_test": false,
         "important": false,
         "internal": true,
@@ -13350,6 +13623,7 @@
             "{\n    \"test_type\": \"gce_sanity_test\",\n    \"timeout\": 3600\n}",
             "{\n    \"test_type\": \"gce_smoke_test\",\n    \"timeout\": 3600\n}"
         ],
+        "hw_tests_override": [],
         "image_test": false,
         "internal": true,
         "manifest": "official.xml",
@@ -13387,6 +13661,7 @@
         ],
         "health_threshold": 1,
         "hw_tests": [],
+        "hw_tests_override": [],
         "hwqual": false,
         "image_test": false,
         "images": [
@@ -14005,7 +14280,6 @@
         "boards": [
             "leon"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -14233,7 +14507,6 @@
         "boards": [
             "link"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -14378,24 +14651,6 @@
             "-chrome_internal"
         ],
         "vm_tests": []
-    },
-    "lulu-gcc-toolchain": {
-        "_template": "gcc_toolchain",
-        "boards": [
-            "lulu"
-        ]
-    },
-    "lulu-llvm-next-toolchain": {
-        "_template": "llvm_next_toolchain",
-        "boards": [
-            "lulu"
-        ]
-    },
-    "lulu-llvm-toolchain": {
-        "_template": "llvm_toolchain",
-        "boards": [
-            "lulu"
-        ]
     },
     "lulu-no-vmtest-pre-cq": {
         "_template": "no_vmtest_pre_cq",
@@ -14607,6 +14862,12 @@
             "-chrome_internal"
         ]
     },
+    "lumpy-gcc-toolchain": {
+        "_template": "gcc_toolchain",
+        "boards": [
+            "lumpy"
+        ]
+    },
     "lumpy-incremental-paladin": {
         "_template": "paladin",
         "active_waterfall": "chromeos",
@@ -14627,6 +14888,18 @@
             "chrome_internal"
         ],
         "vm_tests": []
+    },
+    "lumpy-llvm-next-toolchain": {
+        "_template": "llvm_next_toolchain",
+        "boards": [
+            "lumpy"
+        ]
+    },
+    "lumpy-llvm-toolchain": {
+        "_template": "llvm_toolchain",
+        "boards": [
+            "lumpy"
+        ]
     },
     "lumpy-no-vmtest-pre-cq": {
         "_template": "no_vmtest_pre_cq",
@@ -14672,7 +14945,6 @@
         "boards": [
             "lumpy"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -14931,7 +15203,6 @@
         "chrome_sdk": false,
         "health_alert_recipients": [
             "chromeos-infra-eng@grotations.appspotmail.com",
-            "tree",
             "chrome"
         ],
         "master": true,
@@ -14939,6 +15210,7 @@
         "slave_configs": [
             "amd64-generic-chromium-pfq",
             "arm-generic-chromium-pfq",
+            "betty-chrome-pfq",
             "bob-chrome-pfq",
             "caroline-chrome-pfq",
             "chell-chrome-pfq",
@@ -14988,8 +15260,7 @@
         "buildslave_type": "gce_wimpy",
         "description": "Commit Queue master (all others are slaves)",
         "health_alert_recipients": [
-            "chromeos-infra-eng@grotations.appspotmail.com",
-            "tree"
+            "chromeos-infra-eng@grotations.appspotmail.com"
         ],
         "health_threshold": 3,
         "internal": true,
@@ -15009,6 +15280,7 @@
             "auron_paine-paladin",
             "auron_yuna-paladin",
             "beaglebone-paladin",
+            "betty-arc64-paladin",
             "betty-paladin",
             "bob-paladin",
             "butterfly-paladin",
@@ -15031,6 +15303,7 @@
             "gale-paladin",
             "glados-paladin",
             "gonzo-paladin",
+            "guado-accelerator-paladin",
             "guado-paladin",
             "guado_moblab-paladin",
             "hana-paladin",
@@ -15059,6 +15332,7 @@
             "poppy-paladin",
             "quawks-paladin",
             "reef-paladin",
+            "reef-uni-paladin",
             "samus-paladin",
             "scarlet-paladin",
             "sentry-paladin",
@@ -15096,9 +15370,6 @@
         "branch_util_test": true,
         "buildslave_type": "baremetal",
         "chrome_sdk": false,
-        "health_alert_recipients": [
-            "tree"
-        ],
         "master": true,
         "slave_configs": [
             "amd64-generic-cheets-release",
@@ -15111,6 +15382,7 @@
             "banon-release",
             "beaglebone-release",
             "beaglebone_servo-release",
+            "betty-arc64-release",
             "betty-release",
             "bob-release",
             "buddy-release",
@@ -15166,6 +15438,7 @@
             "nefario-release",
             "newbie-release",
             "ninja-release",
+            "novato-arc64-release",
             "novato-release",
             "nyan_big-release",
             "nyan_blaze-release",
@@ -15234,15 +15507,9 @@
         "important": true,
         "master": true,
         "slave_configs": [
-            "amd64-gcc-toolchain",
             "amd64-llvm-next-toolchain",
-            "amd64-llvm-toolchain",
-            "arm-gcc-toolchain",
             "arm-llvm-next-toolchain",
-            "arm-llvm-toolchain",
-            "arm64-gcc-toolchain",
-            "arm64-llvm-next-toolchain",
-            "arm64-llvm-toolchain"
+            "arm64-llvm-next-toolchain"
         ],
         "sync_chrome": true
     },
@@ -15344,7 +15611,6 @@
         "boards": [
             "mccloud"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -15438,7 +15704,6 @@
         "boards": [
             "winky"
         ],
-        "buildslave_type": "baremetal",
         "child_configs": [
             {
                 "_template": "wificell_pre_cq",
@@ -15610,7 +15875,6 @@
         "boards": [
             "monroe"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -15690,199 +15954,6 @@
         "_template": "unittest_stress",
         "boards": [
             "monroe"
-        ],
-        "internal": true,
-        "manifest": "official.xml",
-        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
-        "overlays": "both",
-        "useflags": [
-            "chrome_internal"
-        ]
-    },
-    "nasher-chrome-pfq": {
-        "_template": "chrome_pfq",
-        "boards": [
-            "nasher"
-        ],
-        "important": false,
-        "manifest": "official.xml",
-        "vm_tests": []
-    },
-    "nasher-chromium-pfq": {
-        "_template": "chromium_pfq",
-        "boards": [
-            "nasher"
-        ],
-        "important": false,
-        "useflags": [
-            "-chrome_internal"
-        ],
-        "vm_tests": []
-    },
-    "nasher-compile-only-pre-cq": {
-        "_template": "compile_only_pre_cq",
-        "boards": [
-            "nasher"
-        ],
-        "internal": true,
-        "manifest": "official.xml",
-        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
-        "overlays": "both",
-        "useflags": [
-            "chrome_internal"
-        ]
-    },
-    "nasher-factory": {
-        "_template": "factory",
-        "boards": [
-            "nasher"
-        ]
-    },
-    "nasher-firmware": {
-        "_template": "firmware",
-        "boards": [
-            "nasher"
-        ],
-        "manifest": "official.xml"
-    },
-    "nasher-full": {
-        "_template": "full",
-        "boards": [
-            "nasher"
-        ],
-        "prebuilts": "public",
-        "useflags": [
-            "-chrome_internal"
-        ],
-        "vm_tests": []
-    },
-    "nasher-no-vmtest-pre-cq": {
-        "_template": "no_vmtest_pre_cq",
-        "boards": [
-            "nasher"
-        ],
-        "internal": true,
-        "manifest": "official.xml",
-        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
-        "overlays": "both",
-        "useflags": [
-            "chrome_internal"
-        ]
-    },
-    "nasher-paladin": {
-        "_template": "paladin",
-        "boards": [
-            "nasher"
-        ],
-        "description": "Commit Queue (internal)",
-        "important": false,
-        "internal": true,
-        "manifest": "official.xml",
-        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
-        "overlays": "both",
-        "prebuilts": "private",
-        "useflags": [
-            "chrome_internal"
-        ],
-        "vm_tests": [],
-        "vm_tests_override": null
-    },
-    "nasher-payloads": {
-        "_template": "payloads",
-        "boards": [
-            "nasher"
-        ]
-    },
-    "nasher-pre-cq": {
-        "_template": "pre_cq",
-        "boards": [
-            "nasher"
-        ],
-        "internal": true,
-        "manifest": "official.xml",
-        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
-        "overlays": "both",
-        "useflags": [
-            "chrome_internal"
-        ],
-        "vm_tests": []
-    },
-    "nasher-release": {
-        "_template": "release",
-        "boards": [
-            "nasher"
-        ],
-        "vm_tests": [],
-        "vm_tests_override": null
-    },
-    "nasher-release-afdo": {
-        "_template": "release_afdo_generate",
-        "boards": [
-            "nasher"
-        ],
-        "child_configs": [
-            {
-                "_template": "release_afdo_generate",
-                "boards": [
-                    "nasher"
-                ],
-                "grouped": true,
-                "name": "nasher-release-afdo-generate",
-                "vm_tests": [],
-                "vm_tests_override": null
-            },
-            {
-                "_template": "release_afdo_use",
-                "boards": [
-                    "nasher"
-                ],
-                "grouped": true,
-                "name": "nasher-release-afdo-use",
-                "vm_tests": [],
-                "vm_tests_override": null
-            }
-        ],
-        "vm_tests": [],
-        "vm_tests_override": null
-    },
-    "nasher-release-afdo-generate": {
-        "_template": "release_afdo_generate",
-        "boards": [
-            "nasher"
-        ],
-        "vm_tests": [],
-        "vm_tests_override": null
-    },
-    "nasher-release-afdo-use": {
-        "_template": "release_afdo_use",
-        "boards": [
-            "nasher"
-        ],
-        "vm_tests": [],
-        "vm_tests_override": null
-    },
-    "nasher-tot-chrome-pfq-informational": {
-        "_template": "chrome_pfq_informational",
-        "boards": [
-            "nasher"
-        ],
-        "manifest": "official.xml",
-        "vm_tests": []
-    },
-    "nasher-tot-chromium-pfq-informational": {
-        "_template": "chromium_pfq_informational",
-        "boards": [
-            "nasher"
-        ],
-        "useflags": [
-            "-chrome_internal"
-        ],
-        "vm_tests": []
-    },
-    "nasher-unittest-stress": {
-        "_template": "unittest_stress",
-        "boards": [
-            "nasher"
         ],
         "internal": true,
         "manifest": "official.xml",
@@ -15974,10 +16045,7 @@
         ],
         "buildslave_type": "baremetal",
         "important": false,
-        "manifest": "official.xml",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "manifest": "official.xml"
     },
     "newbie-chromium-pfq": {
         "_template": "chromium_pfq",
@@ -15988,9 +16056,6 @@
         "important": false,
         "useflags": [
             "-chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "newbie-compile-only-pre-cq": {
@@ -15998,16 +16063,12 @@
         "boards": [
             "newbie"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "newbie-factory": {
@@ -16032,9 +16093,6 @@
         "prebuilts": "public",
         "useflags": [
             "-chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "newbie-no-vmtest-pre-cq": {
@@ -16042,16 +16100,12 @@
         "boards": [
             "newbie"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "newbie-paladin": {
@@ -16059,7 +16113,6 @@
         "boards": [
             "newbie"
         ],
-        "buildslave_type": "baremetal",
         "description": "Commit Queue (internal)",
         "important": false,
         "internal": true,
@@ -16070,7 +16123,7 @@
         "useflags": [
             "chrome_internal"
         ],
-        "vm_tests_override": null
+        "vm_tests": []
     },
     "newbie-payloads": {
         "_template": "payloads",
@@ -16083,7 +16136,6 @@
         "boards": [
             "newbie"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -16099,11 +16151,7 @@
             "newbie"
         ],
         "buildslave_type": "baremetal",
-        "important": true,
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        "important": true
     },
     "newbie-release-afdo": {
         "_template": "release_afdo_generate",
@@ -16118,11 +16166,7 @@
                     "newbie"
                 ],
                 "grouped": true,
-                "name": "newbie-release-afdo-generate",
-                "vm_tests": [
-                    "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-                ],
-                "vm_tests_override": null
+                "name": "newbie-release-afdo-generate"
             },
             {
                 "_template": "release_afdo_use",
@@ -16130,39 +16174,23 @@
                     "newbie"
                 ],
                 "grouped": true,
-                "name": "newbie-release-afdo-use",
-                "vm_tests": [
-                    "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-                ],
-                "vm_tests_override": null
+                "name": "newbie-release-afdo-use"
             }
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        ]
     },
     "newbie-release-afdo-generate": {
         "_template": "release_afdo_generate",
         "boards": [
             "newbie"
         ],
-        "buildslave_type": "baremetal",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        "buildslave_type": "baremetal"
     },
     "newbie-release-afdo-use": {
         "_template": "release_afdo_use",
         "boards": [
             "newbie"
         ],
-        "buildslave_type": "baremetal",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        "buildslave_type": "baremetal"
     },
     "newbie-tot-chrome-pfq-informational": {
         "_template": "chrome_pfq_informational",
@@ -16170,10 +16198,7 @@
             "newbie"
         ],
         "buildslave_type": "baremetal",
-        "manifest": "official.xml",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "manifest": "official.xml"
     },
     "newbie-tot-chromium-pfq-informational": {
         "_template": "chromium_pfq_informational",
@@ -16183,9 +16208,6 @@
         "buildslave_type": "baremetal",
         "useflags": [
             "-chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "newbie-unittest-stress": {
@@ -16193,16 +16215,12 @@
         "boards": [
             "newbie"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "ninja-chrome-pfq": {
@@ -16303,7 +16321,6 @@
         "boards": [
             "ninja"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -16392,6 +16409,190 @@
             "chrome_internal"
         ]
     },
+    "novato-arc64-chrome-pfq": {
+        "_template": "chrome_pfq",
+        "boards": [
+            "novato-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "important": false,
+        "manifest": "official.xml"
+    },
+    "novato-arc64-chromium-pfq": {
+        "_template": "chromium_pfq",
+        "boards": [
+            "novato-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "important": false,
+        "useflags": [
+            "-chrome_internal"
+        ]
+    },
+    "novato-arc64-compile-only-pre-cq": {
+        "_template": "compile_only_pre_cq",
+        "boards": [
+            "novato-arc64"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
+    "novato-arc64-factory": {
+        "_template": "factory",
+        "boards": [
+            "novato-arc64"
+        ]
+    },
+    "novato-arc64-firmware": {
+        "_template": "firmware",
+        "boards": [
+            "novato-arc64"
+        ],
+        "manifest": "official.xml"
+    },
+    "novato-arc64-full": {
+        "_template": "full",
+        "boards": [
+            "novato-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "prebuilts": "public",
+        "useflags": [
+            "-chrome_internal"
+        ]
+    },
+    "novato-arc64-no-vmtest-pre-cq": {
+        "_template": "no_vmtest_pre_cq",
+        "boards": [
+            "novato-arc64"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
+    "novato-arc64-paladin": {
+        "_template": "paladin",
+        "boards": [
+            "novato-arc64"
+        ],
+        "description": "Commit Queue (internal)",
+        "important": false,
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "prebuilts": "private",
+        "useflags": [
+            "chrome_internal"
+        ],
+        "vm_tests": []
+    },
+    "novato-arc64-payloads": {
+        "_template": "payloads",
+        "boards": [
+            "novato-arc64"
+        ]
+    },
+    "novato-arc64-pre-cq": {
+        "_template": "pre_cq",
+        "boards": [
+            "novato-arc64"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
+    "novato-arc64-release": {
+        "_template": "release",
+        "active_waterfall": "chromeos",
+        "boards": [
+            "novato-arc64"
+        ],
+        "buildslave_type": "baremetal"
+    },
+    "novato-arc64-release-afdo": {
+        "_template": "release_afdo_generate",
+        "boards": [
+            "novato-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "child_configs": [
+            {
+                "_template": "release_afdo_generate",
+                "boards": [
+                    "novato-arc64"
+                ],
+                "grouped": true,
+                "name": "novato-arc64-release-afdo-generate"
+            },
+            {
+                "_template": "release_afdo_use",
+                "boards": [
+                    "novato-arc64"
+                ],
+                "grouped": true,
+                "name": "novato-arc64-release-afdo-use"
+            }
+        ]
+    },
+    "novato-arc64-release-afdo-generate": {
+        "_template": "release_afdo_generate",
+        "boards": [
+            "novato-arc64"
+        ],
+        "buildslave_type": "baremetal"
+    },
+    "novato-arc64-release-afdo-use": {
+        "_template": "release_afdo_use",
+        "boards": [
+            "novato-arc64"
+        ],
+        "buildslave_type": "baremetal"
+    },
+    "novato-arc64-tot-chrome-pfq-informational": {
+        "_template": "chrome_pfq_informational",
+        "boards": [
+            "novato-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "manifest": "official.xml"
+    },
+    "novato-arc64-tot-chromium-pfq-informational": {
+        "_template": "chromium_pfq_informational",
+        "boards": [
+            "novato-arc64"
+        ],
+        "buildslave_type": "baremetal",
+        "useflags": [
+            "-chrome_internal"
+        ]
+    },
+    "novato-arc64-unittest-stress": {
+        "_template": "unittest_stress",
+        "boards": [
+            "novato-arc64"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
+        ]
+    },
     "novato-chrome-pfq": {
         "_template": "chrome_pfq",
         "boards": [
@@ -16399,10 +16600,7 @@
         ],
         "buildslave_type": "baremetal",
         "important": false,
-        "manifest": "official.xml",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "manifest": "official.xml"
     },
     "novato-chromium-pfq": {
         "_template": "chromium_pfq",
@@ -16413,9 +16611,6 @@
         "important": false,
         "useflags": [
             "-chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "novato-compile-only-pre-cq": {
@@ -16423,16 +16618,12 @@
         "boards": [
             "novato"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "novato-factory": {
@@ -16457,9 +16648,6 @@
         "prebuilts": "public",
         "useflags": [
             "-chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "novato-no-vmtest-pre-cq": {
@@ -16467,16 +16655,12 @@
         "boards": [
             "novato"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "novato-paladin": {
@@ -16484,7 +16668,6 @@
         "boards": [
             "novato"
         ],
-        "buildslave_type": "baremetal",
         "description": "Commit Queue (internal)",
         "important": false,
         "internal": true,
@@ -16495,7 +16678,7 @@
         "useflags": [
             "chrome_internal"
         ],
-        "vm_tests_override": null
+        "vm_tests": []
     },
     "novato-payloads": {
         "_template": "payloads",
@@ -16508,7 +16691,6 @@
         "boards": [
             "novato"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -16524,11 +16706,7 @@
             "novato"
         ],
         "buildslave_type": "baremetal",
-        "important": true,
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        "important": true
     },
     "novato-release-afdo": {
         "_template": "release_afdo_generate",
@@ -16543,11 +16721,7 @@
                     "novato"
                 ],
                 "grouped": true,
-                "name": "novato-release-afdo-generate",
-                "vm_tests": [
-                    "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-                ],
-                "vm_tests_override": null
+                "name": "novato-release-afdo-generate"
             },
             {
                 "_template": "release_afdo_use",
@@ -16555,39 +16729,23 @@
                     "novato"
                 ],
                 "grouped": true,
-                "name": "novato-release-afdo-use",
-                "vm_tests": [
-                    "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-                ],
-                "vm_tests_override": null
+                "name": "novato-release-afdo-use"
             }
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        ]
     },
     "novato-release-afdo-generate": {
         "_template": "release_afdo_generate",
         "boards": [
             "novato"
         ],
-        "buildslave_type": "baremetal",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        "buildslave_type": "baremetal"
     },
     "novato-release-afdo-use": {
         "_template": "release_afdo_use",
         "boards": [
             "novato"
         ],
-        "buildslave_type": "baremetal",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": null
+        "buildslave_type": "baremetal"
     },
     "novato-tot-chrome-pfq-informational": {
         "_template": "chrome_pfq_informational",
@@ -16595,10 +16753,7 @@
             "novato"
         ],
         "buildslave_type": "baremetal",
-        "manifest": "official.xml",
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "manifest": "official.xml"
     },
     "novato-tot-chromium-pfq-informational": {
         "_template": "chromium_pfq_informational",
@@ -16608,9 +16763,6 @@
         "buildslave_type": "baremetal",
         "useflags": [
             "-chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "novato-unittest-stress": {
@@ -16618,16 +16770,12 @@
         "boards": [
             "novato"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
         "overlays": "both",
         "useflags": [
             "chrome_internal"
-        ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}"
         ]
     },
     "nyan-chrome-pfq": {
@@ -17900,7 +18048,6 @@
         "boards": [
             "orco"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -18087,7 +18234,6 @@
         "boards": [
             "panther"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -18266,7 +18412,6 @@
         "boards": [
             "parrot"
         ],
-        "buildslave_type": "baremetal",
         "description": "Commit Queue (internal)",
         "internal": true,
         "manifest": "official.xml",
@@ -18276,15 +18421,7 @@
         "useflags": [
             "chrome_internal"
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"dev_mode_test\",\n    \"timeout\": 3600\n}"
-        ],
-        "vm_tests_override": [
-            "{\n    \"test_type\": \"smoke_suite\",\n    \"timeout\": 3600\n}",
-            "{\n    \"test_type\": \"pfq_suite\",\n    \"timeout\": 3600\n}",
-            "{\n    \"test_type\": \"cros_vm_test\",\n    \"timeout\": 3600\n}",
-            "{\n    \"test_type\": \"dev_mode_test\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "parrot-payloads": {
         "_template": "payloads",
@@ -18297,7 +18434,6 @@
         "boards": [
             "parrot"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -18484,7 +18620,6 @@
         "boards": [
             "parrot_ivb"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -19122,7 +19257,6 @@
         "boards": [
             "peppy"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -19308,7 +19442,6 @@
         "boards": [
             "plaso"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -19510,6 +19643,11 @@
             "poppy"
         ],
         "important": true,
+        "sign_types": [
+            "recovery",
+            "accessory_rwsig",
+            "factory"
+        ],
         "vm_tests": [],
         "vm_tests_override": null
     },
@@ -19601,8 +19739,7 @@
         "description": "Launcher for Pre-CQ builders",
         "doc": "http://www.chromium.org/chromium-os/build/builder-overview#TOC-Pre-CQ",
         "health_alert_recipients": [
-            "chromeos-infra-eng@grotations.appspotmail.com",
-            "tree"
+            "chromeos-infra-eng@grotations.appspotmail.com"
         ],
         "health_threshold": 1,
         "hw_tests_override": [],
@@ -19899,7 +20036,6 @@
         "hw_tests": [
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": true,\n    \"pool\": \"cq\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 5400,\n    \"warn_only\": false\n}"
         ],
-        "important": false,
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -19921,7 +20057,6 @@
         "boards": [
             "quawks"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -20090,7 +20225,6 @@
         "boards": [
             "rambi"
         ],
-        "buildslave_type": "baremetal",
         "description": "Commit Queue (internal)",
         "important": false,
         "internal": true,
@@ -20101,9 +20235,7 @@
         "useflags": [
             "chrome_internal"
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"pfq_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "rambi-payloads": {
         "_template": "payloads",
@@ -20116,7 +20248,6 @@
         "boards": [
             "rambi"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -20327,7 +20458,6 @@
         "hw_tests": [
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": true,\n    \"pool\": \"cq\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 5400,\n    \"warn_only\": false\n}"
         ],
-        "important": false,
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -20433,6 +20563,15 @@
         ],
         "vm_tests": []
     },
+    "reef-uni-chrome-pfq": {
+        "_template": "chrome_pfq",
+        "boards": [
+            "reef-uni"
+        ],
+        "important": false,
+        "manifest": "official.xml",
+        "vm_tests": []
+    },
     "reef-uni-chromium-pfq": {
         "_template": "chromium_pfq",
         "boards": [
@@ -20448,7 +20587,27 @@
         "_template": "compile_only_pre_cq",
         "boards": [
             "reef-uni"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
         ]
+    },
+    "reef-uni-factory": {
+        "_template": "factory",
+        "boards": [
+            "reef-uni"
+        ]
+    },
+    "reef-uni-firmware": {
+        "_template": "firmware",
+        "boards": [
+            "reef-uni"
+        ],
+        "manifest": "official.xml"
     },
     "reef-uni-full": {
         "_template": "full",
@@ -20465,21 +20624,56 @@
         "_template": "no_vmtest_pre_cq",
         "boards": [
             "reef-uni"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
         ]
     },
     "reef-uni-paladin": {
         "_template": "paladin",
+        "active_waterfall": "chromeos",
         "boards": [
             "reef-uni"
         ],
-        "important": false,
+        "description": "Commit Queue (internal)",
+        "hw_tests": [
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": true,\n    \"pool\": \"cq\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 5400,\n    \"warn_only\": false\n}"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "models": [
+            "{\n    \"name\": \"snappy\",\n    \"test_suites\": null\n}"
+        ],
+        "overlays": "both",
+        "prebuilts": "private",
+        "useflags": [
+            "chrome_internal"
+        ],
         "vm_tests": [],
         "vm_tests_override": null
+    },
+    "reef-uni-payloads": {
+        "_template": "payloads",
+        "boards": [
+            "reef-uni"
+        ]
     },
     "reef-uni-pre-cq": {
         "_template": "pre_cq",
         "boards": [
             "reef-uni"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
         ],
         "vm_tests": []
     },
@@ -20489,14 +20683,77 @@
         "boards": [
             "reef-uni"
         ],
+        "hw_tests": [
+            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 1,\n    \"num\": 1,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"sanity\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"au\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt-uni\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-perbuild\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}"
+        ],
+        "important": true,
         "models": [
-            "pyro",
-            "reef",
-            "sand",
-            "snappy"
+            "{\n    \"name\": \"pyro\",\n    \"test_suites\": null\n}",
+            "{\n    \"name\": \"reef\",\n    \"test_suites\": [\n        \"sanity\",\n        \"bvt-inline\",\n        \"bvt-arc\",\n        \"au\",\n        \"bvt-cq\",\n        \"bvt-perbuild\"\n    ]\n}",
+            "{\n    \"name\": \"sand\",\n    \"test_suites\": [\n        \"sanity\",\n        \"bvt-inline\",\n        \"bvt-arc\",\n        \"au\",\n        \"bvt-cq\",\n        \"bvt-perbuild\"\n    ]\n}",
+            "{\n    \"name\": \"snappy\",\n    \"test_suites\": null\n}"
         ],
         "vm_tests": [],
         "vm_tests_override": null
+    },
+    "reef-uni-release-afdo": {
+        "_template": "release_afdo_generate",
+        "boards": [
+            "reef-uni"
+        ],
+        "child_configs": [
+            {
+                "_template": "release_afdo_generate",
+                "boards": [
+                    "reef-uni"
+                ],
+                "grouped": true,
+                "name": "reef-uni-release-afdo-generate",
+                "vm_tests": [],
+                "vm_tests_override": null
+            },
+            {
+                "_template": "release_afdo_use",
+                "boards": [
+                    "reef-uni"
+                ],
+                "grouped": true,
+                "name": "reef-uni-release-afdo-use",
+                "vm_tests": [],
+                "vm_tests_override": null
+            }
+        ],
+        "vm_tests": [],
+        "vm_tests_override": null
+    },
+    "reef-uni-release-afdo-generate": {
+        "_template": "release_afdo_generate",
+        "boards": [
+            "reef-uni"
+        ],
+        "vm_tests": [],
+        "vm_tests_override": null
+    },
+    "reef-uni-release-afdo-use": {
+        "_template": "release_afdo_use",
+        "boards": [
+            "reef-uni"
+        ],
+        "vm_tests": [],
+        "vm_tests_override": null
+    },
+    "reef-uni-tot-chrome-pfq-informational": {
+        "_template": "chrome_pfq_informational",
+        "boards": [
+            "reef-uni"
+        ],
+        "manifest": "official.xml",
+        "vm_tests": []
     },
     "reef-uni-tot-chromium-pfq-informational": {
         "_template": "chromium_pfq_informational",
@@ -20512,6 +20769,13 @@
         "_template": "unittest_stress",
         "boards": [
             "reef-uni"
+        ],
+        "internal": true,
+        "manifest": "official.xml",
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "useflags": [
+            "chrome_internal"
         ]
     },
     "reef-unittest-stress": {
@@ -20827,7 +21091,6 @@
         "boards": [
             "relm"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -21014,7 +21277,6 @@
         "boards": [
             "rikku"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -22014,7 +22276,6 @@
         "hw_tests": [
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": true,\n    \"pool\": \"cq\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 5400,\n    \"warn_only\": false\n}"
         ],
-        "important": false,
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -22439,7 +22700,6 @@
         "boards": [
             "slippy"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -22997,6 +23257,19 @@
             "chrome_internal"
         ]
     },
+    "som-dispatcher": {
+        "active_waterfall": "chromeos",
+        "boards": [],
+        "build_type": "generic",
+        "builder_class_name": "alert_builders.SomDispatcherBuilder",
+        "description": "Updates alerts displayed on SoM website. go/som/chromeos",
+        "hw_tests_override": [],
+        "important": true,
+        "internal": true,
+        "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
+        "overlays": "both",
+        "vm_tests": []
+    },
     "soraka-chrome-pfq": {
         "_template": "chrome_pfq",
         "boards": [
@@ -23111,6 +23384,7 @@
         "boards": [
             "soraka"
         ],
+        "important": true,
         "vm_tests": [],
         "vm_tests_override": null
     },
@@ -23307,7 +23581,6 @@
         "boards": [
             "squawks"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -23472,7 +23745,6 @@
         "boards": [
             "stout"
         ],
-        "buildslave_type": "baremetal",
         "description": "Commit Queue (internal)",
         "internal": true,
         "manifest": "official.xml",
@@ -23482,9 +23754,7 @@
         "useflags": [
             "chrome_internal"
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"cros_vm_test\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "stout-payloads": {
         "_template": "payloads",
@@ -23497,7 +23767,6 @@
         "boards": [
             "stout"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -23686,7 +23955,6 @@
         "boards": [
             "stumpy"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -23879,7 +24147,6 @@
         "boards": [
             "sumo"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -24066,7 +24333,6 @@
         "boards": [
             "swanky"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -24586,16 +24852,6 @@
             "terra"
         ],
         "chrome_sdk_build_chrome": false,
-        "hw_tests": [
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"cts\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"arc-cts-qual\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 172800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"cts\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"arc-gts-qual\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 172800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 1,\n    \"num\": 1,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"sanity\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"au\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-perbuild\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}"
-        ],
         "important": true,
         "vm_tests": [],
         "vm_tests_override": null
@@ -24811,7 +25067,6 @@
         "boards": [
             "tidus"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -25004,7 +25259,6 @@
         "boards": [
             "tricky"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -26421,16 +26675,6 @@
             "veyron_mighty"
         ],
         "chrome_sdk_build_chrome": false,
-        "hw_tests": [
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"cts\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"arc-cts-qual\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 172800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 0,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"cts\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"arc-gts-qual\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 172800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 1,\n    \"num\": 1,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"sanity\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"Build\",\n    \"retry\": true,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": false,\n    \"blocking\": true,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"au\",\n    \"suite_min_duts\": 6,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}",
-            "{\n    \"async\": true,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 2,\n    \"offload_failures_only\": false,\n    \"pool\": \"bvt\",\n    \"priority\": \"PostBuild\",\n    \"retry\": true,\n    \"suite\": \"bvt-perbuild\",\n    \"suite_min_duts\": 1,\n    \"timeout\": 15000,\n    \"warn_only\": false\n}"
-        ],
         "important": true,
         "vm_tests": [],
         "vm_tests_override": null
@@ -26704,6 +26948,12 @@
         "_template": "chrome_pfq_informational",
         "boards": [
             "veyron_minnie"
+        ],
+        "hw_tests": [
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": null,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"continuous\",\n    \"priority\": \"PFQ\",\n    \"retry\": false,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": null,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"continuous\",\n    \"priority\": \"PFQ\",\n    \"retry\": false,\n    \"suite\": \"bvt-cq\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": null,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"continuous\",\n    \"priority\": \"PFQ\",\n    \"retry\": false,\n    \"suite\": \"bvt-arc\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}",
+            "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": true,\n    \"max_retries\": null,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": false,\n    \"pool\": \"continuous\",\n    \"priority\": \"PFQ\",\n    \"retry\": false,\n    \"suite\": \"chrome-informational\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 10800,\n    \"warn_only\": false\n}"
         ],
         "manifest": "official.xml",
         "vm_tests": []
@@ -27333,6 +27583,16 @@
         ],
         "vm_tests": []
     },
+    "veyron_tiger-android-mnc-pre-flight-branch": {
+        "_template": "pre_flight_branch",
+        "android_import_branch": "git_mnc-dr-arc-dev",
+        "android_package": "android-container",
+        "android_rev": "latest_release",
+        "boards": [
+            "veyron_tiger"
+        ],
+        "sync_chrome": true
+    },
     "veyron_tiger-android-pfq": {
         "_template": "android_pfq",
         "active_waterfall": "chromeos",
@@ -27805,7 +28065,6 @@
         "boards": [
             "winky"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -27899,7 +28158,6 @@
         "boards": [
             "winky"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -27988,7 +28246,6 @@
         "hw_tests": [
             "{\n    \"async\": false,\n    \"blocking\": false,\n    \"critical\": false,\n    \"file_bugs\": false,\n    \"max_retries\": 5,\n    \"minimum_duts\": 4,\n    \"num\": 6,\n    \"offload_failures_only\": true,\n    \"pool\": \"cq\",\n    \"priority\": \"CQ\",\n    \"retry\": true,\n    \"suite\": \"bvt-inline\",\n    \"suite_min_duts\": 0,\n    \"timeout\": 5400,\n    \"warn_only\": false\n}"
         ],
-        "important": false,
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -28209,7 +28466,6 @@
         "boards": [
             "wolf"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -28519,16 +28775,15 @@
         "boards": [
             "x32-generic"
         ],
-        "buildslave_type": "baremetal",
         "important": false,
-        "usepkg_toolchain": false
+        "usepkg_toolchain": false,
+        "vm_tests": []
     },
     "x32-generic-pre-cq": {
         "_template": "pre_cq",
         "boards": [
             "x32-generic"
         ],
-        "buildslave_type": "baremetal",
         "usepkg_toolchain": false
     },
     "x32-generic-tot-chromium-pfq-informational": {
@@ -28647,7 +28902,6 @@
         "boards": [
             "x86-alex"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -28831,7 +29085,6 @@
         "boards": [
             "x86-alex_he"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -29003,15 +29256,14 @@
         "boards": [
             "x86-generic"
         ],
-        "buildslave_type": "baremetal",
-        "important": false
+        "important": false,
+        "vm_tests": []
     },
     "x86-generic-pre-cq": {
         "_template": "pre_cq",
         "boards": [
             "x86-generic"
-        ],
-        "buildslave_type": "baremetal"
+        ]
     },
     "x86-generic-telem-chromium-pfq-informational": {
         "_template": "chromium_pfq_informational",
@@ -29129,7 +29381,6 @@
         "boards": [
             "x86-mario"
         ],
-        "buildslave_type": "baremetal",
         "description": "Commit Queue (internal)",
         "important": false,
         "internal": true,
@@ -29140,9 +29391,7 @@
         "useflags": [
             "chrome_internal"
         ],
-        "vm_tests": [
-            "{\n    \"test_type\": \"pfq_suite\",\n    \"timeout\": 3600\n}"
-        ]
+        "vm_tests": []
     },
     "x86-mario-payloads": {
         "_template": "payloads",
@@ -29155,7 +29404,6 @@
         "boards": [
             "x86-mario"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -29339,7 +29587,6 @@
         "boards": [
             "x86-zgb"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -29523,7 +29770,6 @@
         "boards": [
             "x86-zgb_he"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",
@@ -29707,7 +29953,6 @@
         "boards": [
             "zako"
         ],
-        "buildslave_type": "baremetal",
         "internal": true,
         "manifest": "official.xml",
         "manifest_repo_url": "https://chrome-internal-review.googlesource.com/chromeos/manifest-internal",

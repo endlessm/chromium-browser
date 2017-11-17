@@ -8,19 +8,24 @@ from __future__ import print_function
 
 import collections
 import datetime
+import getpass
 import glob
 import json
 import os
+import shlex
 import tempfile
 
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import gs
+from chromite.lib import osutils
 from chromite.lib import path_util
 
 
-_GOMA_LOG_URL_TEMPLATE = (
+_GOMA_COMPILER_PROXY_LOG_URL_TEMPLATE = (
     'http://chromium-build-stats.appspot.com/compiler_proxy_log/%s/%s')
+_GOMA_NINJA_LOG_URL_TEMPLATE = (
+    'http://chromium-build-stats.appspot.com/ninja_log/%s/%s')
 
 
 class Goma(object):
@@ -54,9 +59,16 @@ class Goma(object):
       # build. (cf. crbug.com/730962)
       # TODO(shinyak): This will be removed after crbug.com/730962 is resolved.
       'GOMA_BACKEND_SOFT_STICKINESS': 'false',
+
+      # Enable DepsCache. DepsCache is a cache that holds a file list that
+      # compiler_proxy sends to goma server for each compile. This can
+      # reduces a lot of I/O and calculation.
+      # This is the base file name under GOMA_CACHE_DIR.
+      'GOMA_DEPS_CACHE_FILE': 'goma.deps',
   }
 
-  def __init__(self, goma_dir, goma_client_json, goma_tmp_dir=None):
+  def __init__(self, goma_dir, goma_client_json, goma_tmp_dir=None,
+               stage_name=None):
     """Initializes Goma instance.
 
     This ensures that |self.goma_log_dir| directory exists (if missing,
@@ -71,6 +83,9 @@ class Goma(object):
         If given, it is used. If not given, creates a directory under
         /tmp in the chroot, expecting that the directory is removed in the
         next run's clean up phase on bots.
+      stage_name: optional name of the currently running stage. E.g.
+        "build_packages" or "test_simple_chrome_workflow". If this is set
+        deps cache is enabled.
 
     Raises:
        ValueError if 1) |goma_dir| does not point to a directory, 2)
@@ -96,10 +111,15 @@ class Goma(object):
     # If goma_tmp_dir is provided, it must be an existing directory.
     if goma_tmp_dir and not os.path.isdir(goma_tmp_dir):
       raise ValueError(
-          'GOMA_TMP_DIR does not point a directory: %s' %(goma_tmp_dir,))
+          'GOMA_TMP_DIR does not point a directory: %s' % (goma_tmp_dir,))
 
     self.goma_dir = goma_dir
     self.goma_client_json = goma_client_json
+    if stage_name:
+      self.goma_cache = os.path.join(goma_dir, 'goma_cache', stage_name)
+      osutils.SafeMakedirs(self.goma_cache)
+    else:
+      self.goma_cache = None
 
     if goma_tmp_dir is None:
       # If |goma_tmp_dir| is not given, create GOMA_TMP_DIR (goma
@@ -128,20 +148,27 @@ class Goma(object):
         GLOG_log_dir=self.goma_log_dir)
     if self.goma_client_json:
       result['GOMA_SERVICE_ACCOUNT_JSON_FILE'] = self.goma_client_json
+    if self.goma_cache:
+      result['GOMA_CACHE_DIR'] = self.goma_cache
     return result
 
   def GetChrootExtraEnv(self):
     """Extra env vars set to use goma inside chroot."""
     # Note: GOMA_DIR and GOMA_SERVICE_ACCOUNT_JSON_FILE in chroot is hardcoded.
     # Please see also enter_chroot.sh.
+    goma_dir = os.path.join('/home', os.environ.get('USER'), 'goma')
     result = dict(
         Goma._DEFAULT_ENV_VARS,
-        GOMA_DIR=os.path.join('/home', os.environ.get('USER'), 'goma'),
+        GOMA_DIR=goma_dir,
         GOMA_TMP_DIR=path_util.ToChrootPath(self.goma_tmp_dir),
         GLOG_log_dir=path_util.ToChrootPath(self.goma_log_dir))
     if self.goma_client_json:
       result['GOMA_SERVICE_ACCOUNT_JSON_FILE'] = (
           '/creds/service_accounts/service-account-goma-client.json')
+
+    if self.goma_cache:
+      result['GOMA_CACHE_DIR'] = os.path.join(
+          goma_dir, os.path.relpath(self.goma_cache, self.goma_dir))
     return result
 
   def _RunGomaCtl(self, command):
@@ -164,11 +191,7 @@ class Goma(object):
       URL to the compiler_proxy log visualizer. None if unavailable.
     """
     uploader = GomaLogUploader(self.goma_log_dir)
-    compiler_proxy_path = uploader.Upload()
-    if not compiler_proxy_path:
-      return None
-    return _GOMA_LOG_URL_TEMPLATE % (
-        uploader.dest_path, os.path.basename(compiler_proxy_path) + '.gz')
+    return uploader.Upload()
 
 
 # Note: Public for testing purpose. In real use, please think about using
@@ -218,7 +241,8 @@ class GomaLogUploader(object):
     """Uploads all necessary log files to Google Storage.
 
     Returns:
-      Path to compiler proxy log file. None if there is not.
+      A list of pairs of label and URL of goma log visualizers to be linked
+      from the build status page.
     """
     compiler_proxy_subproc_paths = self._UploadInfoFiles(
         'compiler_proxy-subproc')
@@ -232,11 +256,27 @@ class GomaLogUploader(object):
     if len(compiler_proxy_paths) != 1:
       logging.warning('Unexpected compiler_proxy INFO files: %r',
                       compiler_proxy_paths)
+    compiler_proxy_path, uploaded_compiler_proxy_filename = (
+        compiler_proxy_paths[0] if compiler_proxy_paths else (None, None))
 
     # TODO(crbug.com/719843): Enable uploading gomacc logs after
     # crbug.com/719843 is resolved.
 
-    return compiler_proxy_paths[0] if compiler_proxy_paths else None
+    uploaded_ninja_log_filename = self._UploadNinjaLog(compiler_proxy_path)
+
+    # Build URL to be linked.
+    result = []
+    if uploaded_compiler_proxy_filename:
+      result.append((
+          'Goma compiler_proxy log',
+          _GOMA_COMPILER_PROXY_LOG_URL_TEMPLATE % (
+              self.dest_path, uploaded_compiler_proxy_filename)))
+    if uploaded_ninja_log_filename:
+      result.append((
+          'Goma ninja_log',
+          _GOMA_NINJA_LOG_URL_TEMPLATE % (
+              self.dest_path, uploaded_ninja_log_filename)))
+    return result
 
   def _UploadInfoFiles(self, pattern):
     """Uploads INFO files matched with pattern, with gzip'ing.
@@ -254,9 +294,98 @@ class GomaLogUploader(object):
     if not paths:
       logging.warning('No glog files matched with: %s', pattern)
 
+    result = []
     for path in paths:
       logging.info('Uploading %s', path)
+      uploaded_filename = os.path.basename(path) + '.gz'
       self._gs_context.CopyInto(
-          path, self._remote_dir, filename=os.path.basename(path) + '.gz',
+          path, self._remote_dir, filename=uploaded_filename,
           auto_compress=True, headers=self._headers)
-    return paths
+      result.append((path, uploaded_filename))
+    return result
+
+  def _UploadNinjaLog(self, compiler_proxy_path):
+    """Uploads .ninja_log file and its related metadata.
+
+    This uploads the .ninja_log file generated by ninja to build Chrome.
+    Also, it appends some related metadata at the end of the file following
+    '# end of ninja log' marker.
+
+    Args:
+      compiler_proxy_path: Path to the compiler proxy, which will be contained
+        in the metadata.
+
+    Returns:
+      The name of the uploaded file.
+    """
+    ninja_log_path = os.path.join(self._goma_log_dir, 'ninja_log')
+    if not os.path.exists(ninja_log_path):
+      logging.warning('ninja_log is not found: %s', ninja_log_path)
+      return None
+    ninja_log_content = osutils.ReadFile(ninja_log_path)
+
+    try:
+      st = os.stat(ninja_log_path)
+      ninja_log_mtime = datetime.datetime.fromtimestamp(st.st_mtime)
+    except OSError:
+      logging.exception('Failed to get timestamp: %s', ninja_log_path)
+      return None
+
+    ninja_log_info = self._BuildNinjaInfo(compiler_proxy_path)
+
+    # Append metadata at the end of the log content.
+    ninja_log_content += '# end of ninja log\n' + json.dumps(ninja_log_info)
+
+    # Aligned with goma_utils in chromium bot.
+    pid = os.getpid()
+
+    upload_ninja_log_path = os.path.join(
+        self._goma_log_dir,
+        'ninja_log.%s.%s.%s.%d' % (
+            getpass.getuser(), cros_build_lib.GetHostName(),
+            ninja_log_mtime.strftime('%Y%m%d-%H%M%S'), pid))
+    osutils.WriteFile(upload_ninja_log_path, ninja_log_content)
+    uploaded_filename = os.path.basename(upload_ninja_log_path) + '.gz'
+    self._gs_context.CopyInto(
+        upload_ninja_log_path, self._remote_dir, filename=uploaded_filename,
+        auto_compress=True, headers=self._headers)
+    return uploaded_filename
+
+  def _BuildNinjaInfo(self, compiler_proxy_path):
+    """Reads metadata for the ninja run.
+
+    Each metadata should be written into a dedicated file in the log directory.
+    Read the info, and build the dict containing metadata.
+
+    Args:
+      compiler_proxy_path: Path to the compiler_proxy log file.
+
+    Returns:
+      A dict of the metadata.
+    """
+
+    info = {'platform': 'chromeos'}
+
+    command_path = os.path.join(self._goma_log_dir, 'ninja_command')
+    if os.path.exists(command_path):
+      info['cmdline'] = shlex.split(
+          osutils.ReadFile(command_path).strip())
+
+    cwd_path = os.path.join(self._goma_log_dir, 'ninja_cwd')
+    if os.path.exists(cwd_path):
+      info['cwd'] = osutils.ReadFile(cwd_path).strip()
+
+    exit_path = os.path.join(self._goma_log_dir, 'ninja_exit')
+    if os.path.exists(exit_path):
+      info['exit'] = int(osutils.ReadFile(exit_path).strip())
+
+    env_path = os.path.join(self._goma_log_dir, 'ninja_env')
+    if os.path.exists(env_path):
+      # env is null-byte separated, and has a trailing null byte.
+      content = osutils.ReadFile(env_path).rstrip('\0')
+      info['env'] = dict(line.split('=', 1) for line in content.split('\0'))
+
+    if compiler_proxy_path:
+      info['compiler_proxy_info'] = os.path.basename(compiler_proxy_path)
+
+    return info

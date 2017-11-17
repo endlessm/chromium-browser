@@ -9,6 +9,7 @@ import android.text.Selection;
 import android.text.Spanned;
 import android.text.TextUtils;
 import android.view.KeyEvent;
+import android.view.accessibility.AccessibilityEvent;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputConnectionWrapper;
@@ -257,6 +258,8 @@ public class AutocompleteEditTextModel implements AutocompleteEditTextModelBase 
         if (mBatchEditNestCount == 0) {
             notifyAutocompleteTextStateChanged(textDeleted, true);
         } else {
+            // crbug.com/764749
+            Log.w(TAG, "onTextChanged: in batch edit");
             mTextDeletedInBatchMode = textDeleted;
         }
         mLastEditWasPaste = false;
@@ -347,8 +350,18 @@ public class AutocompleteEditTextModel implements AutocompleteEditTextModelBase 
                     && text.length() == 1) {
                 currentText.getChars(selectionStart, selectionStart + 1, mTempSelectionChar, 0);
                 if (mTempSelectionChar[0] == text.charAt(0)) {
-                    mDelegate.onNoChangeTypingAccessibilityEvent(selectionStart);
-
+                    if (mDelegate.isAccessibilityEnabled()) {
+                        // Since the text isn't changing, TalkBack won't read out the typed
+                        // characters. To work around this, explicitly send an accessibility event.
+                        // crbug.com/416595
+                        AccessibilityEvent event = AccessibilityEvent.obtain(
+                                AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED);
+                        event.setBeforeText(currentText.toString().substring(0, selectionStart));
+                        event.setFromIndex(selectionStart);
+                        event.setRemovedCount(0);
+                        event.setAddedCount(1);
+                        mDelegate.sendAccessibilityEventUnchecked(event);
+                    }
                     setAutocompleteText(currentText.subSequence(0, selectionStart + 1),
                             currentText.subSequence(selectionStart + 1, selectionEnd));
                     if (mBatchEditNestCount == 0) {
@@ -421,6 +434,7 @@ public class AutocompleteEditTextModel implements AutocompleteEditTextModelBase 
         if (DEBUG) Log.i(TAG, "onCreateInputConnection");
         mLastUpdateSelStart = mDelegate.getSelectionStart();
         mLastUpdateSelEnd = mDelegate.getSelectionEnd();
+        mBatchEditNestCount = 0;
         mInputConnection.setTarget(superInputConnection);
         return mInputConnection;
     }
@@ -430,7 +444,11 @@ public class AutocompleteEditTextModel implements AutocompleteEditTextModelBase 
             Log.i(TAG, "notifyAutocompleteTextStateChanged: DEL[%b] DIS[%b] IGN[%b]", textDeleted,
                     updateDisplay, mIgnoreTextChangeFromAutocomplete);
         }
-        if (mIgnoreTextChangeFromAutocomplete) return;
+        if (mIgnoreTextChangeFromAutocomplete) {
+            // crbug.com/764749
+            Log.w(TAG, "notification ignored");
+            return;
+        }
         mLastEditWasDelete = textDeleted;
         mDelegate.onAutocompleteTextStateChanged(updateDisplay);
         // Occasionally, was seeing the selection in the URL not being cleared during
@@ -488,5 +506,10 @@ public class AutocompleteEditTextModel implements AutocompleteEditTextModelBase 
         mLastUpdateSelStart = selStart;
         mLastUpdateSelEnd = selEnd;
         mDelegate.onUpdateSelectionForTesting(selStart, selEnd);
+    }
+
+    @Override
+    public boolean shouldIgnoreAccessibilityEvent() {
+        return false;
     }
 }

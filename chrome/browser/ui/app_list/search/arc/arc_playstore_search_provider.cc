@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/app_list/search/arc/arc_playstore_search_provider.h"
 
+#include <string>
 #include <utility>
 
 #include "base/metrics/histogram_macros.h"
@@ -33,9 +34,16 @@ bool CanSkipSearchResult(content::BrowserContext* context,
   if (!result.package_name.has_value())
     return false;
 
-  return !extensions::util::GetEquivalentInstalledExtensions(
-              context, result.package_name.value())
-              .empty();
+  if (!extensions::util::GetEquivalentInstalledExtensions(
+           context, result.package_name.value())
+           .empty()) {
+    return true;
+  }
+
+  // TODO(crbug/763562): Remove this once we have a fix in Phonesky.
+  // Don't show installed Android apps.
+  const ArcAppListPrefs* arc_prefs = ArcAppListPrefs::Get(context);
+  return arc_prefs && arc_prefs->GetPackage(result.package_name.value());
 }
 }  // namespace
 
@@ -64,11 +72,13 @@ void ArcPlayStoreSearchProvider::Start(bool is_voice_query,
                 GetRecentAndSuggestedAppsFromPlayStore)
           : nullptr;
 
-  if (app_instance == nullptr || query.empty())
+  if (app_instance == nullptr || query.empty()) {
+    ClearResults();
     return;
+  }
 
   app_instance->GetRecentAndSuggestedAppsFromPlayStore(
-      UTF16ToUTF8(query), max_results_,
+      base::UTF16ToUTF8(query), max_results_,
       base::Bind(&ArcPlayStoreSearchProvider::OnResults,
                  weak_ptr_factory_.GetWeakPtr(), base::TimeTicks::Now()));
 }

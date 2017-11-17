@@ -15,6 +15,7 @@
 #include "chrome/browser/chromeos/login/screens/base_screen.h"
 #include "chromeos/dbus/update_engine_client.h"
 
+class PrefRegistrySimple;
 
 namespace chromeos {
 
@@ -31,6 +32,9 @@ class ResetScreen : public BaseScreen, public UpdateEngineClient::Observer {
   // Called when view is destroyed so there's no dead reference to it.
   void OnViewDestroyed(ResetView* view);
 
+  // Registers Local State preferences.
+  static void RegisterPrefs(PrefRegistrySimple* registry);
+
  private:
   // BaseScreen implementation:
   void Show() override;
@@ -41,6 +45,7 @@ class ResetScreen : public BaseScreen, public UpdateEngineClient::Observer {
   void UpdateStatusChanged(const UpdateEngineClient::Status& status) override;
 
   void OnRollbackCheck(bool can_rollback);
+  void OnTPMFirmwareUpdateAvailableCheck(bool update_available);
 
   enum State {
     STATE_RESTART_REQUIRED = 0,
@@ -54,8 +59,9 @@ class ResetScreen : public BaseScreen, public UpdateEngineClient::Observer {
   void OnRestart();
   void OnToggleRollback();
   void OnShowConfirm();
-  void OnLearnMore();
   void OnConfirmationDismissed();
+
+  void ShowHelpArticle(HelpAppLauncher::HelpTopic topic);
 
   // Returns an instance of the error screen.
   ErrorScreen* GetErrorScreen();

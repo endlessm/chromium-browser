@@ -31,6 +31,7 @@ class FakePlatform(object):
     self._device_type_name = 'abc'
     self._is_svelte = False
     self._is_aosp = True
+    self._get_os_version_detail_string = 'OsVersionString'
 
   @property
   def is_host_platform(self):
@@ -72,9 +73,6 @@ class FakePlatform(object):
   def GetOSVersionName(self):
     raise NotImplementedError
 
-  def GetOSVersionDetailString(self):
-    raise NotImplementedError
-
   def StopAllLocalServers(self):
     pass
 
@@ -111,6 +109,12 @@ class FakePlatform(object):
   def IsAosp(self):
     return self._is_aosp and self._os_name == 'android'
 
+  def SetOsVersionDetailString(self, v):
+    self._get_os_version_detail_string = v
+
+  def GetOSVersionDetailString(self):
+    return self._get_os_version_detail_string
+
 
 class FakeLinuxPlatform(FakePlatform):
   def __init__(self):
@@ -128,6 +132,9 @@ class FakeLinuxPlatform(FakePlatform):
 
   def GetArchName(self):
     return 'x86_64'
+
+  def GetSystemTotalPhysicalMemory(self):
+    return 8 * (1024 ** 3)
 
   def GetOSName(self):
     return 'linux'
@@ -234,16 +241,16 @@ class _FakeBrowserFinderOptions(browser_options.BrowserFinderOptions):
     browser_options.BrowserFinderOptions.__init__(self, *args, **kwargs)
     self.fake_possible_browser = \
       FakePossibleBrowser(
-        execute_on_startup=execute_on_startup,
-        execute_after_browser_creation=execute_after_browser_creation)
+          execute_on_startup=execute_on_startup,
+          execute_after_browser_creation=execute_after_browser_creation)
 
 def CreateBrowserFinderOptions(browser_type=None, execute_on_startup=None,
                                execute_after_browser_creation=None):
   """Creates fake browser finder options for discovering a browser."""
   return _FakeBrowserFinderOptions(
-    browser_type=browser_type,
-    execute_on_startup=execute_on_startup,
-    execute_after_browser_creation=execute_after_browser_creation)
+      browser_type=browser_type,
+      execute_on_startup=execute_on_startup,
+      execute_after_browser_creation=execute_after_browser_creation)
 
 
 # Internal classes. Note that end users may still need to both call
@@ -358,7 +365,8 @@ class _FakeNetworkController(object):
   def InitializeIfNeeded(self, use_live_traffic=False):
     self.use_live_traffic = use_live_traffic
 
-  def UpdateTrafficSettings(self, round_trip_latency_ms=None,
+  def UpdateTrafficSettings(
+      self, round_trip_latency_ms=None,
       download_bandwidth_kbps=None, upload_bandwidth_kbps=None):
     pass
 
@@ -578,4 +586,3 @@ class FakeTimer(object):
       self._module.time = self._actual_time
       self._module = None
       self._actual_time = None
-

@@ -12,6 +12,7 @@
 #if SK_SUPPORT_GPU
 #include "GrClip.h"
 #include "GrContext.h"
+#include "GrContextPriv.h"
 #include "SkGradientShader.h"
 #include "SkShaderBase.h"
 #include "effects/GrPorterDuffXferProcessor.h"
@@ -347,7 +348,33 @@ static SkPath create_path_22() {
     return path;
 }
 
-static sk_sp<GrFragmentProcessor> create_linear_gradient_processor(GrContext* ctx) {
+// A path which contains out-of-range colinear intersections.
+static SkPath create_path_23() {
+    SkPath path;
+    path.moveTo(                   0, 63.39080047607421875);
+    path.lineTo(-0.70804601907730102539, 63.14350128173828125);
+    path.lineTo(-7.8608899287380243391e-17, 64.14080047607421875);
+    path.moveTo(                   0, 64.14080047607421875);
+    path.lineTo(44.285900115966796875, 64.14080047607421875);
+    path.lineTo(                   0, 62.64080047607421875);
+    path.moveTo(21.434900283813476562, -0.24732701480388641357);
+    path.lineTo(-0.70804601907730102539, 63.14350128173828125);
+    path.lineTo(0.70804601907730102539,  63.6381988525390625);
+    return path;
+}
+
+// A path which results in infs and nans when conics are converted to quads.
+static SkPath create_path_24() {
+     SkPath path;
+     path.moveTo(-2.20883e+37f, -1.02892e+37f);
+     path.conicTo(-2.00958e+38f, -9.36107e+37f, -1.7887e+38f, -8.33215e+37f, 0.707107f);
+     path.conicTo(-1.56782e+38f, -7.30323e+37f, 2.20883e+37f, 1.02892e+37f, 0.707107f);
+     path.conicTo(2.00958e+38f, 9.36107e+37f, 1.7887e+38f, 8.33215e+37f, 0.707107f);
+     path.conicTo(1.56782e+38f, 7.30323e+37f, -2.20883e+37f, -1.02892e+37f, 0.707107f);
+     return path;
+}
+
+static std::unique_ptr<GrFragmentProcessor> create_linear_gradient_processor(GrContext* ctx) {
     SkPoint pts[2] = { {0, 0}, {1, 1} };
     SkColor colors[2] = { SK_ColorGREEN, SK_ColorBLUE };
     sk_sp<SkShader> shader = SkGradientShader::MakeLinear(
@@ -362,13 +389,13 @@ static void test_path(GrContext* ctx,
                       const SkPath& path,
                       const SkMatrix& matrix = SkMatrix::I(),
                       GrAAType aaType = GrAAType::kNone,
-                      sk_sp<GrFragmentProcessor> fp = nullptr) {
+                      std::unique_ptr<GrFragmentProcessor> fp = nullptr) {
     GrTessellatingPathRenderer tess;
 
     GrPaint paint;
     paint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
     if (fp) {
-        paint.addColorFragmentProcessor(fp);
+        paint.addColorFragmentProcessor(std::move(fp));
     }
 
     GrNoClip noClip;
@@ -388,7 +415,6 @@ static void test_path(GrContext* ctx,
 
 DEF_GPUTEST_FOR_ALL_CONTEXTS(TessellatingPathRendererTests, reporter, ctxInfo) {
     GrContext* ctx = ctxInfo.grContext();
-
     sk_sp<GrRenderTargetContext> rtc(ctx->makeDeferredRenderTargetContext(
                                                                   SkBackingFit::kApprox,
                                                                   800, 800,
@@ -419,12 +445,15 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(TessellatingPathRendererTests, reporter, ctxInfo) {
     test_path(ctx, rtc.get(), create_path_15());
     test_path(ctx, rtc.get(), create_path_16());
     SkMatrix nonInvertibleMatrix = SkMatrix::MakeScale(0, 0);
-    sk_sp<GrFragmentProcessor> fp(create_linear_gradient_processor(ctx));
-    test_path(ctx, rtc.get(), create_path_17(), nonInvertibleMatrix, GrAAType::kCoverage, fp);
+    std::unique_ptr<GrFragmentProcessor> fp(create_linear_gradient_processor(ctx));
+    test_path(ctx, rtc.get(), create_path_17(), nonInvertibleMatrix, GrAAType::kCoverage,
+              std::move(fp));
     test_path(ctx, rtc.get(), create_path_18());
     test_path(ctx, rtc.get(), create_path_19());
     test_path(ctx, rtc.get(), create_path_20(), SkMatrix(), GrAAType::kCoverage);
     test_path(ctx, rtc.get(), create_path_21(), SkMatrix(), GrAAType::kCoverage);
     test_path(ctx, rtc.get(), create_path_22());
+    test_path(ctx, rtc.get(), create_path_23());
+    test_path(ctx, rtc.get(), create_path_24());
 }
 #endif

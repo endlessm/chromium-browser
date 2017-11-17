@@ -331,6 +331,53 @@ class DeviceParser(object):
       raise ValueError('Unknown device scheme "%s" in "%s"' % (scheme, value))
 
 
+class _AppendOption(argparse.Action):
+  """Append the command line option (with no arguments) to dest.
+
+  parser.add_argument('-b', '--barg', dest='out', action='append_option')
+  options = parser.parse_args(['-b', '--barg'])
+  options.out == ['-b', '--barg']
+  """
+  def __init__(self, option_strings, dest, **kwargs):
+    if 'nargs' in kwargs:
+      raise ValueError('nargs is not supported for append_option action')
+    super(_AppendOption, self).__init__(
+        option_strings, dest, nargs=0, **kwargs)
+
+  def __call__(self, parser, namespace, values, option_string=None):
+    if getattr(namespace, self.dest, None) is None:
+      setattr(namespace, self.dest, [])
+    getattr(namespace, self.dest).append(option_string)
+
+
+class _AppendOptionValue(argparse.Action):
+  """Append the command line option to dest. Useful for pass along arguments.
+
+  parser.add_argument('-b', '--barg', dest='out', action='append_option_value')
+  options = parser.parse_args(['--barg', 'foo', '-b', 'bar'])
+  options.out == ['-barg', 'foo', '-b', 'bar']
+  """
+  def __call__(self, parser, namespace, values, option_string=None):
+    if getattr(namespace, self.dest, None) is None:
+      setattr(namespace, self.dest, [])
+    getattr(namespace, self.dest).extend([option_string, str(values)])
+
+
+class _SplitExtendAction(argparse.Action):
+  """Callback to split the argument and extend existing value.
+
+  We normalize whitespace before splitting.  This is to support the forms:
+    cbuildbot -p 'proj:branch ' ...
+    cbuildbot -p ' proj:branch' ...
+    cbuildbot -p 'proj:branch  proj2:branch' ...
+    cbuildbot -p "$(some_command_that_returns_nothing)" ...
+  """
+  def __call__(self, parser, namespace, values, option_string=None):
+    if getattr(namespace, self.dest, None) is None:
+      setattr(namespace, self.dest, [])
+    getattr(namespace, self.dest).extend(values.split())
+
+
 VALID_TYPES = {
     'ab_url': NormalizeAbUrl,
     'bool': ParseBool,
@@ -339,6 +386,12 @@ VALID_TYPES = {
     'gs_path': NormalizeGSPath,
     'local_or_gs_path': NormalizeLocalOrGSPath,
     'path_or_uri': NormalizeUri,
+}
+
+VALID_ACTIONS = {
+    'append_option': _AppendOption,
+    'append_option_value': _AppendOptionValue,
+    'split_extend': _SplitExtendAction,
 }
 
 
@@ -364,8 +417,17 @@ class Option(optparse.Option):
 class FilteringOption(Option):
   """Subclass that supports Option filtering for FilteringOptionParser"""
 
+  _EXTRA_ACTIONS = ('split_extend',)
+  ACTIONS = Option.ACTIONS + _EXTRA_ACTIONS
+  STORE_ACTIONS = Option.STORE_ACTIONS + _EXTRA_ACTIONS
+  TYPED_ACTIONS = Option.TYPED_ACTIONS + _EXTRA_ACTIONS
+  ALWAYS_TYPED_ACTIONS = (Option.ALWAYS_TYPED_ACTIONS + _EXTRA_ACTIONS)
+
   def take_action(self, action, dest, opt, value, values, parser):
-    if action in FilteringOption.ACTIONS:
+    if action == 'split_extend':
+      lvalue = value.split()
+      values.ensure_value(dest, []).extend(lvalue)
+    else:
       Option.take_action(self, action, dest, opt, value, values, parser)
 
     if value is None:
@@ -460,6 +522,7 @@ class BaseParser(object):
     self.debug_enabled = (not kwargs.get('manual_debug', False)
                           and 'debug' in self.log_levels)
     self.caching = kwargs.get('caching', False)
+    self._cros_defaults = {}
 
   @staticmethod
   def PopUsedArgs(kwarg_dict):
@@ -470,30 +533,36 @@ class BaseParser(object):
       kwarg_dict.pop(key, None)
 
   def SetupOptions(self):
-    """Sets up special chromite options for an OptionParser."""
+    """Sets up standard chromite options."""
+    # NB: All options here must go through add_common_argument_to_group.
+    # You cannot use add_argument or such helpers directly.  This is to
+    # support default values with subparsers.
+    #
+    # You should also explicitly add default=None here when you want the
+    # default to be set up in the parsed option namespace.
     if self.logging_enabled:
-      self.debug_group = self.add_option_group('Debug options')
-      self.add_option_to_group(
+      self.debug_group = self.add_argument_group('Debug options')
+      self.add_common_argument_to_group(
           self.debug_group, '--log-level', choices=self.log_levels,
           default=self.default_log_level,
           help='Set logging level to report at.')
-      self.add_option_to_group(
+      self.add_common_argument_to_group(
           self.debug_group, '--log_format', action='store',
           default=constants.LOGGER_FMT,
           help='Set logging format to use.')
       if self.debug_enabled:
-        self.add_option_to_group(
+        self.add_common_argument_to_group(
             self.debug_group, '--debug', action='store_const', const='debug',
             dest='log_level', help='Alias for `--log-level=debug`. '
             'Useful for debugging bugs/failures.')
-      self.add_option_to_group(
+      self.add_common_argument_to_group(
           self.debug_group, '--nocolor', action='store_false', dest='color',
           default=None,
           help='Do not use colorized output (or `export NOCOLOR=true`)')
 
     if self.caching:
-      self.caching_group = self.add_option_group('Caching Options')
-      self.add_option_to_group(
+      self.caching_group = self.add_argument_group('Caching Options')
+      self.add_common_argument_to_group(
           self.caching_group, '--cache-dir', default=None, type='path',
           help='Override the calculated chromeos cache directory; '
           "typically defaults to '$REPO/.cache' .")
@@ -530,6 +599,10 @@ class BaseParser(object):
     Returns:
       (opts, args), w/ whatever modification done.
     """
+    for dest, default in self._cros_defaults.items():
+      if not hasattr(opts, dest):
+        setattr(opts, dest, default)
+
     if self.logging_enabled:
       value = self.SetupLogging(opts)
       if self.debug_enabled:
@@ -562,15 +635,6 @@ class BaseParser(object):
   def FindCacheDir(cls, _parser, _opts):
     logging.debug('Cache dir lookup.')
     return path_util.FindCacheDir()
-
-  def add_option_group(self, *args, **kwargs):
-    """Returns a new option group see optparse.OptionParser.add_option_group."""
-    raise NotImplementedError('Subclass must override this method')
-
-  @staticmethod
-  def add_option_to_group(group, *args, **kwargs):
-    """Adds the given option defined by args and kwargs to group."""
-    group.add_option(*args, **kwargs)
 
 
 class ArgumentNamespace(argparse.Namespace):
@@ -616,6 +680,14 @@ class FilteringParser(optparse.OptionParser, BaseParser):
     kwargs.setdefault('option_class', self.DEFAULT_OPTION_CLASS)
     optparse.OptionParser.__init__(self, usage=usage, **kwargs)
     self.SetupOptions()
+
+  def add_common_argument_to_group(self, group, *args, **kwargs):
+    """Adds the given option defined by args and kwargs to group."""
+    return group.add_option(*args, **kwargs)
+
+  def add_argument_group(self, *args, **kwargs):
+    """Return an option group rather than an argument group."""
+    return self.add_option_group(*args, **kwargs)
 
   def parse_args(self, args=None, values=None):
     # If no Values object is specified then use our custom OptionValues.
@@ -663,14 +735,6 @@ class FilteringParser(optparse.OptionParser, BaseParser):
     return accepted, removed
 
 
-class SharedParser(argparse.ArgumentParser):
-  """A type of parser that may be used as a shared parent for subparsers."""
-
-  def __init__(self, **kwargs):
-    kwargs.setdefault('add_help', False)
-    argparse.ArgumentParser.__init__(self, **kwargs)
-
-
 class ArgumentParser(BaseParser, argparse.ArgumentParser):
   """Custom argument parser for use by chromite.
 
@@ -691,15 +755,24 @@ class ArgumentParser(BaseParser, argparse.ArgumentParser):
     """Register types with ArgumentParser."""
     for t, check_f in VALID_TYPES.iteritems():
       self.register('type', t, check_f)
+    for a, class_a in VALID_ACTIONS.iteritems():
+      self.register('action', a, class_a)
 
-  def add_option_group(self, *args, **kwargs):
-    """Return an argument group rather than an option group."""
-    return self.add_argument_group(*args, **kwargs)
+  def add_common_argument_to_group(self, group, *args, **kwargs):
+    """Adds the given argument to the group.
 
-  @staticmethod
-  def add_option_to_group(group, *args, **kwargs):
-    """Adds an argument rather than an option to the given group."""
-    return group.add_argument(*args, **kwargs)
+    This argument is expected to show up across the base parser and subparsers
+    that might be added later on.  The default argparse module does not handle
+    this scenario well -- it processes the base parser first (defaults and the
+    user arguments), then it processes the subparser (defaults and arguments).
+    That means defaults in the subparser will clobber user arguments passed in
+    to the base parser!
+    """
+    default = kwargs.pop('default', None)
+    kwargs['default'] = argparse.SUPPRESS
+    action = group.add_argument(*args, **kwargs)
+    self._cros_defaults.setdefault(action.dest, default)
+    return action
 
   def parse_args(self, args=None, namespace=None):
     """Translates OptionParser call to equivalent ArgumentParser call."""

@@ -5,7 +5,7 @@
 
 """Archives a set of files or directories to an Isolate Server."""
 
-__version__ = '0.8.0'
+__version__ = '0.8.1'
 
 import errno
 import functools
@@ -410,7 +410,7 @@ class Storage(object):
   def __init__(self, storage_api):
     self._storage_api = storage_api
     self._use_zip = isolated_format.is_namespace_with_compression(
-        storage_api.namespace)
+        storage_api.namespace) and not storage_api.internal_compression
     self._hash_algo = isolated_format.get_hash_algo(storage_api.namespace)
     self._cpu_thread_pool = None
     self._net_thread_pool = None
@@ -658,7 +658,7 @@ class Storage(object):
         if self._use_zip:
           stream = zip_decompress(stream, isolated_format.DISK_FILE_CHUNK)
         # Run |stream| through verifier that will assert its size.
-        verifier = FetchStreamVerifier(stream, size)
+        verifier = FetchStreamVerifier(stream, self._hash_algo, digest, size)
         # Verified stream goes to |sink|.
         sink(verifier.run())
       except Exception as err:
@@ -838,11 +838,25 @@ class FetchQueue(object):
 class FetchStreamVerifier(object):
   """Verifies that fetched file is valid before passing it to the LocalCache."""
 
-  def __init__(self, stream, expected_size):
+  def __init__(self, stream, hasher, expected_digest, expected_size):
+    """Initializes the verifier.
+
+    Arguments:
+    * stream: an iterable yielding chunks of content
+    * hasher: an object from hashlib that supports update() and hexdigest()
+      (eg, hashlib.sha1).
+    * expected_digest: if the entire stream is piped through hasher and then
+      summarized via hexdigest(), this should be the result. That is, it
+      should be a hex string like 'abc123'.
+    * expected_size: either the expected size of the stream, or
+      UNKNOWN_FILE_SIZE.
+    """
     assert stream is not None
     self.stream = stream
+    self.expected_digest = expected_digest
     self.expected_size = expected_size
     self.current_size = 0
+    self.rolling_hash = hasher()
 
   def run(self):
     """Generator that yields same items as |stream|.
@@ -877,11 +891,21 @@ class FetchStreamVerifier(object):
   def _inspect_chunk(self, chunk, is_last):
     """Called for each fetched chunk before passing it to consumer."""
     self.current_size += len(chunk)
-    if (is_last and
-        (self.expected_size != UNKNOWN_FILE_SIZE) and
+    self.rolling_hash.update(chunk)
+    if not is_last:
+      return
+
+    if ((self.expected_size != UNKNOWN_FILE_SIZE) and
         (self.expected_size != self.current_size)):
-      raise IOError('Incorrect file size: expected %d, got %d' % (
-          self.expected_size, self.current_size))
+      msg = 'Incorrect file size: want %d, got %d' % (
+          self.expected_size, self.current_size)
+      raise IOError(msg)
+
+    actual_digest = self.rolling_hash.hexdigest()
+    if self.expected_digest != actual_digest:
+      msg = 'Incorrect digest: want %s, got %s' % (
+          self.expected_digest, actual_digest)
+      raise IOError(msg)
 
 
 class CacheMiss(Exception):
@@ -1880,6 +1904,8 @@ def CMDdownload(parser, args):
   options, args = parser.parse_args(args)
   if args:
     parser.error('Unsupported arguments: %s' % args)
+  if not file_path.enable_symlink():
+    logging.error('Symlink support is not enabled')
 
   process_isolate_server_options(parser, options, True, True)
   if bool(options.isolated) == bool(options.file):
@@ -1949,7 +1975,7 @@ def add_isolate_server_options(parser):
            'variable ISOLATE_SERVER if set. No need to specify https://, this '
            'is assumed.')
   parser.add_option(
-      '--is-grpc', action='store_true', help='Communicate to Isolate via gRPC')
+      '--grpc-proxy', help='gRPC proxy by which to communicate to Isolate')
   parser.add_option(
       '--namespace', default='default-gzip',
       help='The namespace to use on the Isolate Server, default: %default')
@@ -1966,8 +1992,8 @@ def process_isolate_server_options(
       parser.error('--isolate-server is required.')
     return
 
-  if options.is_grpc:
-    isolate_storage.set_storage_api_class(isolate_storage.IsolateServerGrpc)
+  if options.grpc_proxy:
+    isolate_storage.set_grpc_proxy(options.grpc_proxy)
   else:
     try:
       options.isolate_server = net.fix_url(options.isolate_server)
@@ -2051,5 +2077,4 @@ if __name__ == '__main__':
   fix_encoding.fix_encoding()
   tools.disable_buffering()
   colorama.init()
-  file_path.enable_symlink()
   sys.exit(main(sys.argv[1:]))

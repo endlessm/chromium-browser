@@ -8,22 +8,13 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/ui/base/deep_utils.html">
 <link rel="import" href="/tracing/value/diagnostics/diagnostic.html">
 <link rel="import" href="/tracing/value/ui/breakdown_span.html">
-<link rel="import" href="/tracing/value/ui/buildbot_info_span.html">
 <link rel="import" href="/tracing/value/ui/collected_related_event_set_span.html">
 <link rel="import" href="/tracing/value/ui/date_range_span.html">
-<link rel="import" href="/tracing/value/ui/device_info_span.html">
 <link rel="import" href="/tracing/value/ui/generic_set_span.html">
-<link rel="import" href="/tracing/value/ui/merged_buildbot_info_span.html">
-<link rel="import" href="/tracing/value/ui/merged_device_info_span.html">
-<link rel="import" href="/tracing/value/ui/merged_revision_info_span.html">
-<link rel="import" href="/tracing/value/ui/merged_telemetry_info_span.html">
 <link rel="import" href="/tracing/value/ui/related_event_set_span.html">
 <link rel="import" href="/tracing/value/ui/related_histogram_map_span.html">
-<link rel="import" href="/tracing/value/ui/related_histogram_set_span.html">
-<link rel="import" href="/tracing/value/ui/revision_info_span.html">
 <link rel="import" href="/tracing/value/ui/scalar_diagnostic_span.html">
 <link rel="import" href="/tracing/value/ui/tag_map_span.html">
-<link rel="import" href="/tracing/value/ui/telemetry_info_span.html">
 <link rel="import" href="/tracing/value/ui/unmergeable_diagnostic_set_span.html">
 
 <script>
@@ -65,12 +56,15 @@ tr.exportTo('tr.v.ui', function() {
    * Create a visualization for |diagnostic|.
    *
    * @param {!tr.v.d.Diagnostic} diagnostic
+   * @param {string} name
+   * @param {!tr.v.Histogram} histogram
    * @return {Element}
    */
-  function createDiagnosticSpan(diagnostic) {
+  function createDiagnosticSpan(diagnostic, name, histogram) {
     const tagName = findElementNameForDiagnostic(diagnostic);
     const span = document.createElement(tagName);
-    span.diagnostic = diagnostic;
+    if (span.build === undefined) throw new Error(tagName);
+    span.build(diagnostic, name, histogram);
     return span;
   }
 

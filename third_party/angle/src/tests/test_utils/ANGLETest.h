@@ -93,11 +93,15 @@ struct GLColor
 
 struct GLColor32F
 {
-    GLColor32F();
-    GLColor32F(GLfloat r, GLfloat g, GLfloat b, GLfloat a);
+    constexpr GLColor32F() : GLColor32F(0.0f, 0.0f, 0.0f, 0.0f) {}
+    constexpr GLColor32F(GLfloat r, GLfloat g, GLfloat b, GLfloat a) : R(r), G(g), B(b), A(a) {}
 
     GLfloat R, G, B, A;
 };
+
+static constexpr GLColor32F kFloatRed   = {1.0f, 0.0f, 0.0f, 1.0f};
+static constexpr GLColor32F kFloatGreen = {0.0f, 1.0f, 0.0f, 1.0f};
+static constexpr GLColor32F kFloatBlue  = {0.0f, 0.0f, 1.0f, 1.0f};
 
 struct WorkaroundsD3D;
 
@@ -246,6 +250,13 @@ class ANGLETestBase
                   GLfloat positionAttribZ,
                   GLfloat positionAttribXYScale,
                   bool useVertexBuffer);
+    void drawQuad(GLuint program,
+                  const std::string &positionAttribName,
+                  GLfloat positionAttribZ,
+                  GLfloat positionAttribXYScale,
+                  bool useVertexBuffer,
+                  bool useInstancedDrawCalls,
+                  GLuint numInstances);
     static std::array<angle::Vector3, 6> GetQuadVertices();
     void drawIndexedQuad(GLuint program,
                          const std::string &positionAttribName,
@@ -259,6 +270,18 @@ class ANGLETestBase
                          GLfloat positionAttribZ,
                          GLfloat positionAttribXYScale,
                          bool useBufferObject);
+
+    void drawIndexedQuad(GLuint program,
+                         const std::string &positionAttribName,
+                         GLfloat positionAttribZ,
+                         GLfloat positionAttribXYScale,
+                         bool useBufferObject,
+                         bool restrictedRange);
+
+    void draw2DTexturedQuad(const std::string &positionAttribName,
+                            GLfloat positionAttribZ,
+                            GLfloat positionAttribXYScale,
+                            bool useVertexBuffer);
 
     static GLuint compileShader(GLenum type, const std::string &source);
     static bool extensionEnabled(const std::string &extName);
@@ -310,6 +333,8 @@ class ANGLETestBase
 
     void checkD3D11SDKLayersMessages();
 
+    GLuint get2DTexturedQuadProgram();
+
     EGLWindow *mEGLWindow;
     int mWidth;
     int mHeight;
@@ -319,6 +344,9 @@ class ANGLETestBase
     // Used for indexed quad rendering
     GLuint mQuadVertexBuffer;
     GLuint mQuadIndexBuffer;
+
+    // Used for texture rendering.
+    GLuint m2DTexturedQuadProgram;
 
     TestPlatformContext mPlatformContext;
 

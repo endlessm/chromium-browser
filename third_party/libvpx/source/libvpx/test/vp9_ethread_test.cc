@@ -50,7 +50,6 @@ class VPxFirstPassEncoderThreadTest
     InitializeConfig();
     SetMode(encoding_mode_);
 
-    cfg_.g_lag_in_frames = 3;
     cfg_.rc_end_usage = VPX_VBR;
     cfg_.rc_2pass_vbr_minsection_pct = 5;
     cfg_.rc_2pass_vbr_maxsection_pct = 2000;
@@ -238,7 +237,6 @@ class VPxEncoderThreadTest
     SetMode(encoding_mode_);
 
     if (encoding_mode_ != ::libvpx_test::kRealTime) {
-      cfg_.g_lag_in_frames = 3;
       cfg_.rc_end_usage = VPX_VBR;
       cfg_.rc_2pass_vbr_minsection_pct = 5;
       cfg_.rc_2pass_vbr_maxsection_pct = 2000;
@@ -340,8 +338,6 @@ TEST_P(VPxEncoderThreadTest, EncoderResultTest) {
   ASSERT_EQ(single_thr_md5, multi_thr_md5);
 
   // Part 2: row_mt_mode_ = 0 vs row_mt_mode_ = 1 single thread bit exact test.
-  // The first-pass stats are not bit exact here, but that difference doesn't
-  // cause a mismatch between the final bitstreams.
   row_mt_mode_ = 1;
 
   // Encode using single thread

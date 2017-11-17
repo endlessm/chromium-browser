@@ -5,9 +5,10 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/iteration_helpers.html">
+<link rel="import" href="/tracing/base/utils.html">
 <link rel="import" href="/tracing/value/diagnostics/add_related_names.html">
 <link rel="import" href="/tracing/value/histogram.html">
+<link rel="import" href="/tracing/value/histogram_grouping.html">
 
 <script>
 'use strict';
@@ -151,8 +152,7 @@ tr.exportTo('tr.v', function() {
     resolveRelatedHistograms() {
       const handleDiagnosticMap = dm => {
         for (const [name, diagnostic] of dm) {
-          if ((diagnostic instanceof tr.v.d.RelatedHistogramSet) ||
-              (diagnostic instanceof tr.v.d.RelatedHistogramMap)) {
+          if (diagnostic instanceof tr.v.d.RelatedHistogramMap) {
             diagnostic.resolve(this);
           }
         }
@@ -177,7 +177,7 @@ tr.exportTo('tr.v', function() {
 
     /**
      * Convert dicts to either Histograms or shared Diagnostics.
-     * Does not resolve RelatedHistogramSet/RelatedHistogramMap diagnostics. See
+     * Does not resolve RelatedHistogramMap diagnostics. See
      * resolveRelatedHistograms().
      *
      * @param {!Object} dicts
@@ -212,22 +212,18 @@ tr.exportTo('tr.v', function() {
 
     /**
      * Find the Histograms that are not contained in any other Histograms'
-     * RelatedHistogramSet or RelatedHistogramMap diagnostics.
+     * RelatedHistogramMap diagnostics.
      *
      * @return {!Array.<!tr.v.Histogram>}
      */
     get sourceHistograms() {
       const sourceHistograms = new Map(this.histogramsByGuid_);
-      // If a Histogram is in a RelatedHistogramSet or RelatedHistogramMap,
+      // If a Histogram is in a RelatedHistogramMap,
       // which can be owned either by Histograms or by numeric samples, then it
       // is not a source Histogram.
       function deleteSourceHistograms(diagnosticMap) {
         for (const [name, diagnostic] of diagnosticMap) {
-          if (diagnostic instanceof tr.v.d.RelatedHistogramSet) {
-            for (const relatedHist of diagnostic) {
-              sourceHistograms.delete(relatedHist.guid);
-            }
-          } else if (diagnostic instanceof tr.v.d.RelatedHistogramMap) {
+          if (diagnostic instanceof tr.v.d.RelatedHistogramMap) {
             for (const [name, relatedHist] of diagnostic) {
               sourceHistograms.delete(relatedHist.guid);
             }
@@ -342,6 +338,32 @@ tr.exportTo('tr.v', function() {
           }
         }
       }
+    }
+
+    /**
+     * @param {!Iterable.<string>} names of GenericSet diagnostics
+     * @return {!Array.<!tr.v.HistogramGrouping>}
+     */
+    buildGroupingsFromTags(names) {
+      const tags = new Map();  // name: Set<string>
+      for (const hist of this) {
+        for (const name of names) {
+          if (!hist.diagnostics.has(name)) continue;
+          if (!tags.has(name)) tags.set(name, new Set());
+          for (const tag of hist.diagnostics.get(name)) {
+            tags.get(name).add(tag);
+          }
+        }
+      }
+
+      const groupings = [];
+      for (const [name, values] of tags) {
+        const built = tr.v.HistogramGrouping.buildFromTags(values, name);
+        for (const grouping of built) {
+          groupings.push(grouping);
+        }
+      }
+      return groupings;
     }
 
     /*

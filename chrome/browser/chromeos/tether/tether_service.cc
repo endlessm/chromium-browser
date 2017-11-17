@@ -14,7 +14,6 @@
 #include "chrome/browser/chromeos/tether/tether_service_factory.h"
 #include "chrome/browser/cryptauth/chrome_cryptauth_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_switches.h"
@@ -30,10 +29,10 @@
 
 namespace {
 
-// TODO (hansberry): Experiment with intervals to determine ideal advertising
-//                   interval parameters. See crbug.com/753215.
 constexpr int64_t kMinAdvertisingIntervalMilliseconds = 100;
 constexpr int64_t kMaxAdvertisingIntervalMilliseconds = 100;
+
+constexpr int64_t kBleNotPresentTruePositiveSeconds = 2;
 
 }  // namespace
 
@@ -70,7 +69,40 @@ void TetherService::RegisterProfilePrefs(PrefRegistrySimple* registry) {
 
 // static
 bool TetherService::IsFeatureFlagEnabled() {
-  return base::FeatureList::IsEnabled(features::kInstantTethering);
+  return base::FeatureList::IsEnabled(features::kInstantTethering) &&
+         base::CommandLine::ForCurrentProcess()->HasSwitch(
+             chromeos::switches::kEnableInstantTethering);
+}
+
+// static.
+std::string TetherService::TetherFeatureStateToString(
+    TetherFeatureState state) {
+  switch (state) {
+    case (TetherFeatureState::OTHER_OR_UNKNOWN):
+      return "[other or unknown]";
+    case (TetherFeatureState::BLE_ADVERTISING_NOT_SUPPORTED):
+      return "[BLE advertising not supported]";
+    case (TetherFeatureState::SCREEN_LOCKED):
+      return "[screen is locked]";
+    case (TetherFeatureState::NO_AVAILABLE_HOSTS):
+      return "[no potential Tether hosts]";
+    case (TetherFeatureState::CELLULAR_DISABLED):
+      return "[Cellular setting disabled]";
+    case (TetherFeatureState::PROHIBITED):
+      return "[prohibited by device policy]";
+    case (TetherFeatureState::BLUETOOTH_DISABLED):
+      return "[Bluetooth is disabled]";
+    case (TetherFeatureState::USER_PREFERENCE_DISABLED):
+      return "[Instant Tethering preference is disabled]";
+    case (TetherFeatureState::ENABLED):
+      return "[Enabled]";
+    case (TetherFeatureState::BLE_NOT_PRESENT):
+      return "[BLE is not present on the device]";
+    default:
+      // |previous_feature_state_| is initialized to TETHER_FEATURE_STATE_MAX,
+      // and this value is never actually used in practice.
+      return "[TetherService initializing]";
+  }
 }
 
 TetherService::TetherService(
@@ -89,6 +121,7 @@ TetherService::TetherService(
               profile_,
               message_center::MessageCenter::Get(),
               chromeos::NetworkConnect::Get())),
+      timer_(base::MakeUnique<base::OneShotTimer>()),
       weak_ptr_factory_(this) {
   power_manager_client_->AddObserver(this);
   session_manager_client_->AddObserver(this);
@@ -130,7 +163,6 @@ void TetherService::StartTetherIfPossible() {
   PA_LOG(INFO) << "Starting up Tether component.";
   initializer_ = chromeos::tether::InitializerImpl::Factory::NewInstance(
       cryptauth_service_, notification_presenter_.get(), profile_->GetPrefs(),
-      ProfileOAuth2TokenServiceFactory::GetForProfile(profile_),
       network_state_handler_,
       chromeos::NetworkHandler::Get()->managed_network_configuration_handler(),
       chromeos::NetworkConnect::Get(),
@@ -138,8 +170,10 @@ void TetherService::StartTetherIfPossible() {
 }
 
 void TetherService::StopTetherIfNecessary() {
-  if (!initializer_)
+  if (!initializer_ ||
+      initializer_->status() != chromeos::tether::Initializer::Status::ACTIVE) {
     return;
+  }
 
   PA_LOG(INFO) << "Shutting down Tether component.";
 
@@ -150,11 +184,6 @@ void TetherService::StopTetherIfNecessary() {
 void TetherService::Shutdown() {
   if (shut_down_)
     return;
-
-  // Record to UMA Tether's last feature state before it is shutdown.
-  // Tether's feature state at the end of its life is the most likely to
-  // accurately represent how it has been used by the user.
-  RecordTetherFeatureState();
 
   shut_down_ = true;
 
@@ -183,6 +212,15 @@ void TetherService::SuspendImminent() {
 
 void TetherService::SuspendDone(const base::TimeDelta& sleep_duration) {
   suspended_ = false;
+
+  // If there was a previous Initializer instance in the process of an
+  // asynchronous shutdown, that session is stale by this point. Kill it now, so
+  // that the next session can start up immediately.
+  if (initializer_) {
+    initializer_->RemoveObserver(this);
+    initializer_.reset();
+  }
+
   UpdateTetherTechnologyState();
 }
 
@@ -271,7 +309,7 @@ void TetherService::OnPrefsChanged() {
 
 bool TetherService::HasSyncedTetherHosts() const {
   return !cryptauth_service_->GetCryptAuthDeviceManager()
-              ->GetTetherHosts()
+              ->GetPixelTetherHosts()
               .empty();
 }
 
@@ -303,10 +341,22 @@ void TetherService::UpdateTetherTechnologyState() {
 
 chromeos::NetworkStateHandler::TechnologyState
 TetherService::GetTetherTechnologyState() {
-  switch (GetTetherFeatureState()) {
+  TetherFeatureState new_feature_state = GetTetherFeatureState();
+  if (new_feature_state != previous_feature_state_) {
+    PA_LOG(INFO) << "Tether state has changed. New state: "
+                 << TetherFeatureStateToString(new_feature_state)
+                 << ", Old state: "
+                 << TetherFeatureStateToString(previous_feature_state_);
+    previous_feature_state_ = new_feature_state;
+
+    RecordTetherFeatureStateIfPossible();
+  }
+
+  switch (new_feature_state) {
     case OTHER_OR_UNKNOWN:
     case BLE_NOT_PRESENT:
     case BLE_ADVERTISING_NOT_SUPPORTED:
+    case WIFI_NOT_PRESENT:
     case SCREEN_LOCKED:
     case NO_AVAILABLE_HOSTS:
     case CELLULAR_DISABLED:
@@ -398,6 +448,11 @@ bool TetherService::IsBluetoothPowered() const {
   return IsBluetoothPresent() && adapter_->IsPowered();
 }
 
+bool TetherService::IsWifiPresent() const {
+  return network_state_handler_->IsTechnologyAvailable(
+      chromeos::NetworkTypePattern::WiFi());
+}
+
 bool TetherService::IsCellularAvailableButNotEnabled() const {
   return (network_state_handler_->IsTechnologyAvailable(
               chromeos::NetworkTypePattern::Cellular()) &&
@@ -420,6 +475,9 @@ TetherService::TetherFeatureState TetherService::GetTetherFeatureState() {
   if (!IsBluetoothPresent())
     return BLE_NOT_PRESENT;
 
+  if (!IsWifiPresent())
+    return WIFI_NOT_PRESENT;
+
   if (!GetIsBleAdvertisingSupportedPref())
     return BLE_ADVERTISING_NOT_SUPPORTED;
 
@@ -438,9 +496,6 @@ TetherService::TetherFeatureState TetherService::GetTetherFeatureState() {
   if (!IsAllowedByPolicy())
     return PROHIBITED;
 
-  // TODO (hansberry): When !IsBluetoothPowered(), this results in a weird
-  // UI state for Settings where the toggle is clickable but immediately
-  // becomes disabled after enabling it. See crbug.com/753195.
   if (!IsBluetoothPowered())
     return BLUETOOTH_DISABLED;
 
@@ -453,13 +508,50 @@ TetherService::TetherFeatureState TetherService::GetTetherFeatureState() {
 void TetherService::RecordTetherFeatureState() {
   TetherFeatureState tether_feature_state = GetTetherFeatureState();
   DCHECK(tether_feature_state != TetherFeatureState::TETHER_FEATURE_STATE_MAX);
-  UMA_HISTOGRAM_ENUMERATION("InstantTethering.FinalFeatureState",
+  UMA_HISTOGRAM_ENUMERATION("InstantTethering.FeatureState",
                             tether_feature_state,
                             TetherFeatureState::TETHER_FEATURE_STATE_MAX);
+}
+
+void TetherService::RecordTetherFeatureStateIfPossible() {
+  TetherFeatureState tether_feature_state = GetTetherFeatureState();
+  if (tether_feature_state == TetherFeatureState::BLE_NOT_PRESENT &&
+      !ble_not_present_false_positive_encountered_) {
+    // On session startup, we will always hit a
+    // TetherFeatureState::BLE_NOT_PRESENT as Bluetooth starts up. We do not
+    // want to record this initial false positive, so we delay recording it.
+    // If no other TetherFeatureState value is reported before the delay runs
+    // out, it was not a false positive.
+
+    ble_not_present_false_positive_encountered_ = true;
+
+    // If this BLE_NOT_PRESENT report is a false positive, it will be canceled
+    // on the next call to this method, which should be much sooner than
+    // kBleNotPresentTruePositiveSeconds.
+    timer_->Start(
+        FROM_HERE,
+        base::TimeDelta::FromSeconds(kBleNotPresentTruePositiveSeconds),
+        base::Bind(&TetherService::RecordTetherFeatureState,
+                   weak_ptr_factory_.GetWeakPtr()));
+
+    return;
+  }
+
+  // If the timer meant to record the initial
+  // TetherFeatureState::BLE_NOT_PRESENT value is running, cancel it -- it is a
+  // false positive report.
+  if (timer_->IsRunning())
+    timer_->Stop();
+
+  RecordTetherFeatureState();
 }
 
 void TetherService::SetNotificationPresenterForTest(
     std::unique_ptr<chromeos::tether::NotificationPresenter>
         notification_presenter) {
   notification_presenter_ = std::move(notification_presenter);
+}
+
+void TetherService::SetTimerForTest(std::unique_ptr<base::Timer> timer) {
+  timer_ = std::move(timer);
 }

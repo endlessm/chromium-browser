@@ -23,14 +23,14 @@ from telemetry.internal.platform.power_monitor import android_dumpsys_power_moni
 from telemetry.internal.platform.power_monitor import android_fuelgauge_power_monitor
 from telemetry.internal.platform.power_monitor import android_temperature_monitor
 from telemetry.internal.platform.power_monitor import (
-  android_power_monitor_controller)
+    android_power_monitor_controller)
 from telemetry.internal.platform.power_monitor import sysfs_power_monitor
 from telemetry.internal.platform.profiler import android_prebuilt_profiler_helper
 from telemetry.internal.util import binary_manager
 from telemetry.internal.util import external_modules
+from telemetry.internal.util import webpagereplay_go_server
 
 psutil = external_modules.ImportOptionalModule('psutil')
-import adb_install_cert
 
 from devil.android import app_ui
 from devil.android import battery_utils
@@ -39,6 +39,7 @@ from devil.android import device_utils
 from devil.android.perf import cache_control
 from devil.android.perf import perf_control
 from devil.android.perf import thermal_throttle
+from devil.android.sdk import shared_prefs
 from devil.android.sdk import version_codes
 from devil.android.tools import video_recorder
 
@@ -50,13 +51,13 @@ except ImportError:
 
 try:
   from devil.android.perf import surface_stats_collector
-except Exception:
+except Exception: # pylint: disable=broad-except
   surface_stats_collector = None
 
 
 _ARCH_TO_STACK_TOOL_ARCH = {
-  'armeabi-v7a': 'arm',
-  'arm64-v8a': 'arm64',
+    'armeabi-v7a': 'arm',
+    'arm64-v8a': 'arm64',
 }
 _DEVICE_COPY_SCRIPT_FILE = os.path.abspath(os.path.join(
     os.path.dirname(__file__), 'efficient_android_directory_copy.sh'))
@@ -77,6 +78,8 @@ class AndroidPlatformBackend(
         self._device.EnableRoot()
       except device_errors.CommandFailedError:
         logging.warning('Unable to root %s', str(self._device))
+    assert self._device.HasRoot(), (
+        'Android device must be rooted to run Telemetry')
     self._battery = battery_utils.BatteryUtils(self._device)
     self._enable_performance_mode = device.enable_performance_mode
     self._surface_stats_collector = None
@@ -87,18 +90,18 @@ class AndroidPlatformBackend(
         self._device.HasRoot() or self._device.NeedsSU())
     self._device_copy_script = None
     self._power_monitor = (
-      android_power_monitor_controller.AndroidPowerMonitorController([
-        android_temperature_monitor.AndroidTemperatureMonitor(self._device),
-        android_dumpsys_power_monitor.DumpsysPowerMonitor(
-          self._battery, self),
-        sysfs_power_monitor.SysfsPowerMonitor(self, standalone=True),
-        android_fuelgauge_power_monitor.FuelGaugePowerMonitor(
-            self._battery),
-    ], self._battery))
+        android_power_monitor_controller.AndroidPowerMonitorController([
+            android_temperature_monitor.AndroidTemperatureMonitor(self._device),
+            android_dumpsys_power_monitor.DumpsysPowerMonitor(
+                self._battery, self),
+            sysfs_power_monitor.SysfsPowerMonitor(self, standalone=True),
+            android_fuelgauge_power_monitor.FuelGaugePowerMonitor(
+                self._battery),
+        ], self._battery))
     self._video_recorder = None
     self._installed_applications = None
 
-    self._device_cert_util = None
+    self._test_ca_installed = None
     self._system_ui = None
 
     _FixPossibleAdbInstability()
@@ -137,6 +140,24 @@ class AndroidPlatformBackend(
       self._system_ui = app_ui.AppUi(self.device, 'com.android.systemui')
     return self._system_ui
 
+  def GetSharedPrefs(self, package, filename):
+    """Creates a Devil SharedPrefs instance.
+
+    See devil.android.sdk.shared_prefs for the documentation of the returned
+    object.
+
+    Args:
+      package: A string containing the package of the app that the SharedPrefs
+          instance will be for.
+      filename: A string containing the specific settings file of the app that
+          the SharedPrefs instance will be for.
+
+    Returns:
+      A reference to a SharedPrefs object for the given package and filename
+      on whatever device the platform backend has a reference to.
+    """
+    return shared_prefs.SharedPrefs(self._device, package, filename)
+
   def IsSvelte(self):
     description = self._device.GetProp('ro.build.description', cache=True)
     if description is not None:
@@ -152,6 +173,15 @@ class AndroidPlatformBackend(
 
   def GetRemotePort(self, port):
     return forwarder.Forwarder.DevicePortForHostPort(port) or 0
+
+  def CreatePortForwarder(self, port_pair, use_remote_port_forwarding):
+    # use_remote_port_forwarding is ignored as it is always true for
+    # Android device.
+    return self.forwarder_factory.Create(port_pair)
+
+  def IsRemoteDevice(self):
+    # Android device is connected via adb which is on remote.
+    return True
 
   def IsDisplayTracingSupported(self):
     return bool(self.GetOSVersionName() >= 'J')
@@ -177,15 +207,17 @@ class AndroidPlatformBackend(
     events = []
     for ts in timestamps:
       events.append({
-        'cat': 'SurfaceFlinger',
-        'name': 'vsync_before',
-        'ts': ts,
-        'pid': pid,
-        'tid': pid,
-        'args': {'data': {
-          'frame_count': 1,
-          'refresh_period': refresh_period,
-        }}
+          'cat': 'SurfaceFlinger',
+          'name': 'vsync_before',
+          'ts': ts,
+          'pid': pid,
+          'tid': pid,
+          'args': {
+              'data': {
+                  'frame_count': 1,
+                  'refresh_period': refresh_period,
+              }
+          }
       })
     return events
 
@@ -234,8 +266,8 @@ class AndroidPlatformBackend(
         self._device, 'memtrack_helper'):
       raise Exception('Error installing memtrack_helper.')
     self._device.RunShellCommand([
-      android_prebuilt_profiler_helper.GetDevicePath('memtrack_helper'),
-      '-d'], as_root=True, check_return=True)
+        android_prebuilt_profiler_helper.GetDevicePath('memtrack_helper'),
+        '-d'], as_root=True, check_return=True)
 
   def EnsureBackgroundApkInstalled(self):
     app = 'push_apps_to_background_apk'
@@ -257,9 +289,9 @@ class AndroidPlatformBackend(
     if not android_prebuilt_profiler_helper.InstallOnDevice(
         self._device, 'purge_ashmem'):
       raise Exception('Error installing purge_ashmem.')
-    output = self._device.RunShellCommand([
-      android_prebuilt_profiler_helper.GetDevicePath('purge_ashmem')],
-      check_return=True)
+    output = self._device.RunShellCommand(
+        [android_prebuilt_profiler_helper.GetDevicePath('purge_ashmem')],
+        check_return=True)
     for l in output:
       logging.info(l)
 
@@ -531,7 +563,7 @@ class AndroidPlatformBackend(
     # return self._device.build_version_sdk <= version_codes.LOLLIPOP_MR1
     return False
 
-  def InstallTestCa(self, ca_cert_path):
+  def InstallTestCa(self):
     """Install a randomly generated root CA on the android device.
 
     This allows transparent HTTPS testing with WPR server without need
@@ -540,13 +572,12 @@ class AndroidPlatformBackend(
     Note: If this method fails with any exception, then RemoveTestCa will be
     automatically called by the network_controller_backend.
     """
-    if self._device_cert_util is not None:
+    if self._test_ca_installed is not None:
       logging.warning('Test certificate authority is already installed.')
       return
-    self._device_cert_util = adb_install_cert.AndroidCertInstaller(
-        self._device.adb.GetDeviceSerial(), None, ca_cert_path,
+    webpagereplay_go_server.ReplayServer.InstallRootCertificate(
+        android_device_id=self._device.adb.GetDeviceSerial(),
         adb_path=self._device.adb.GetAdbPath())
-    self._device_cert_util.install_cert(overwrite_cert=True)
 
   def RemoveTestCa(self):
     """Remove root CA from device installed by InstallTestCa.
@@ -554,11 +585,13 @@ class AndroidPlatformBackend(
     Note: Any exceptions raised by this method will be logged but dismissed by
     the network_controller_backend.
     """
-    if self._device_cert_util is not None:
+    if self._test_ca_installed is not None:
       try:
-        self._device_cert_util.remove_cert()
+        webpagereplay_go_server.ReplayServer.RemoveRootCertificate(
+            android_device_id=self._device.adb.GetDeviceSerial(),
+            adb_path=self._device.adb.GetAdbPath())
       finally:
-        self._device_cert_util = None
+        self._test_ca_installed = None
 
   def PushProfile(self, package, new_profile_dir):
     """Replace application profile with files found on host machine.
@@ -582,7 +615,7 @@ class AndroidPlatformBackend(
     saved_profile_location = '/sdcard/profile/%s' % profile_base
     self._device.PushChangedFiles([(new_profile_dir, saved_profile_location)])
 
-    profile_dir = self._GetProfileDir(package)
+    profile_dir = self.GetProfileDir(package)
     self._EfficientDeviceDirectoryCopy(
         saved_profile_location, profile_dir)
     dumpsys = self._device.RunShellCommand(
@@ -619,13 +652,13 @@ class AndroidPlatformBackend(
         profile is to be deleted.
       ignore_list: List of files to keep.
     """
-    profile_dir = self._GetProfileDir(package)
+    profile_dir = self.GetProfileDir(package)
     if not self._device.PathExists(profile_dir):
       return
     files = [
-      posixpath.join(profile_dir, f)
-      for f in self._device.ListDirectory(profile_dir, as_root=True)
-      if f not in ignore_list]
+        posixpath.join(profile_dir, f)
+        for f in self._device.ListDirectory(profile_dir, as_root=True)
+        if f not in ignore_list]
     if not files:
       return
     self._device.RemovePath(files, recursive=True, as_root=True)
@@ -638,7 +671,7 @@ class AndroidPlatformBackend(
         profile is to be copied.
       output_profile_dir: Location where profile to be stored on host machine.
     """
-    profile_dir = self._GetProfileDir(package)
+    profile_dir = self.GetProfileDir(package)
     logging.info("Pulling profile directory from device: '%s'->'%s'.",
                  profile_dir, output_profile_path)
     # To minimize bandwidth it might be good to look at whether all the data
@@ -664,7 +697,7 @@ class AndroidPlatformBackend(
       for filepath in problem_files:
         logging.warning('- %s', filepath)
 
-  def _GetProfileDir(self, package):
+  def GetProfileDir(self, package):
     """Returns the on-device location where the application profile is stored
     based on Android convention.
 
@@ -695,7 +728,7 @@ class AndroidPlatformBackend(
       try:
         uline = unicode(line, encoding='utf-8')
         return uline.encode('ascii', 'backslashreplace')
-      except Exception:
+      except Exception: # pylint: disable=broad-except
         logging.error('Error encoding UTF-8 logcat line as ASCII.')
         return '<MISSING LOGCAT LINE: FAILED TO ENCODE>'
 

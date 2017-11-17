@@ -53,8 +53,8 @@ class MacPlatformBackend(posix_platform_backend.PosixPlatformBackend):
       return process_statistic_timeline_data.IdleWakeupTimelineData(pid, 0)
     # Numbers reported by top may have a '+' appended.
     wakeup_count = int(top_output[-1].strip('+ '))
-    return process_statistic_timeline_data.IdleWakeupTimelineData(pid,
-        wakeup_count)
+    return process_statistic_timeline_data.IdleWakeupTimelineData(
+        pid, wakeup_count)
 
   def GetCpuStats(self, pid):
     """Returns a dict of cpu statistics for the process represented by |pid|."""
@@ -160,6 +160,8 @@ class MacPlatformBackend(posix_platform_backend.PosixPlatformBackend):
       return os_version_module.ELCAPITAN
     if os_version.startswith('16.'):
       return os_version_module.SIERRA
+    if os_version.startswith('17.'):
+      return os_version_module.HIGHSIERRA
 
     raise NotImplementedError('Unknown mac version %s.' % os_version)
 

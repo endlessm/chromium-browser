@@ -108,6 +108,9 @@ ERROR_MSG_IN_LOADING_LIB = 'python: error while loading shared libraries'
 # 2. for some retriable commands to be retried.
 MAX_RETRY = 5
 
+# Number of times to retry update_engine_client --status. See crbug.com/744212.
+UPDATE_ENGINE_STATUS_RETRY = 30
+
 # The delay between retriable tasks.
 DELAY_SEC_FOR_RETRY = 5
 
@@ -175,6 +178,9 @@ class ChromiumOSFlashUpdater(BaseUpdater):
       'update_engine_performance_monitor.py'
   REMOTE_UPDATE_ENGINE_PERF_RESULTS_PATH = '/var/log/perf_data_results.json'
 
+  # `mode` parameter when copying payload files to the DUT.
+  PAYLOAD_MODE = 'scp'
+
 
   def __init__(self, device, payload_dir, dev_dir='', tempdir=None,
                original_payload_dir=None, do_rootfs_update=True,
@@ -222,7 +228,7 @@ class ChromiumOSFlashUpdater(BaseUpdater):
 
     # Update setting
     self._cmd_kwargs = {}
-    self._cmd_kwargs_omit_error = {}
+    self._cmd_kwargs_omit_error = {'error_code_ok': True}
     self._do_stateful_update = do_stateful_update
     self._do_rootfs_update = do_rootfs_update
     self._disable_verification = disable_verification
@@ -534,10 +540,8 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     logging.info('Copying rootfs payload to device...')
     payload_name = self._GetRootFsPayloadFileName()
     payload = os.path.join(self.payload_dir, payload_name)
-    # ROOTFS_FILENAME=update.gz is an already compressed file, can't use rsync.
-    # TODO(ihf): Expand update.gz after download to devserver and get rid of
-    # this scp below (use rsync probably without --compress).
-    self.device.CopyToDevice(payload, device_payload_dir, mode='scp',
+    self.device.CopyToDevice(payload, device_payload_dir,
+                             mode=self.PAYLOAD_MODE,
                              log_output=True, **self._cmd_kwargs)
 
     if self.is_au_endtoendtest:
@@ -578,18 +582,14 @@ class ChromiumOSFlashUpdater(BaseUpdater):
       original_payload = os.path.join(
           self.original_payload_dir, ds_wrapper.STATEFUL_FILENAME)
       self._EnsureDeviceDirectory(self.device_restore_dir)
-      # STATEFUL_FILENAME=stateful.tgz is an already compressed file tree, so
-      # can't use rsync.
-      # TODO(ihf): Expand stateful.tgz after download to devserver and get rid
-      # of the scp below (use rsync probably without --compress).
       self.device.CopyToDevice(original_payload, self.device_restore_dir,
-                               mode='scp', log_output=True, **self._cmd_kwargs)
+                               mode=self.PAYLOAD_MODE, log_output=True,
+                               **self._cmd_kwargs)
 
     logging.info('Copying target stateful payload to device...')
     payload = os.path.join(self.payload_dir, ds_wrapper.STATEFUL_FILENAME)
-    # TODO(ihf): As above for now we use scp, but this should change to rsync.
-    self.device.CopyToWorkDir(payload, mode='scp', log_output=True,
-                              **self._cmd_kwargs)
+    self.device.CopyToWorkDir(payload, mode=self.PAYLOAD_MODE,
+                              log_output=True, **self._cmd_kwargs)
 
   def RestoreStateful(self):
     """Restore stateful partition for device."""
@@ -632,7 +632,10 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     """Revert the boot partition."""
     part = self.GetRootDev(self.device)
     logging.warning('Reverting update; Boot partition will be %s', part)
-    self.device.RunCommand(['/postinst', part], **self._cmd_kwargs)
+    try:
+      self.device.RunCommand(['/postinst', part], **self._cmd_kwargs)
+    except cros_build_lib.RunCommandError as e:
+      logging.warning('Reverting the boot partition failed: %s', e)
 
   def UpdateRootfs(self):
     """Update the rootfs partition of the device."""
@@ -674,7 +677,7 @@ class ChromiumOSFlashUpdater(BaseUpdater):
 
         #TODO(dhaddock): Remove retry when M61 is stable. See crbug.com/744212.
         op, progress = retry_util.RetryException(cros_build_lib.RunCommandError,
-                                                 MAX_RETRY,
+                                                 UPDATE_ENGINE_STATUS_RETRY,
                                                  self.GetUpdateStatus,
                                                  self.device,
                                                  ['CURRENT_OP', 'PROGRESS'],
@@ -907,9 +910,12 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     """Stop the performance monitoring script and save results to file."""
     cmd = ['python', self.REMOTE_UPDATE_ENGINE_PERF_SCRIPT_PATH, '--stop-bg',
            pid]
-    perf_json_data = self.device.RunCommand(cmd).output.strip()
-    self.device.RunCommand(['echo', json.dumps(perf_json_data), '>',
-                            self.REMOTE_UPDATE_ENGINE_PERF_RESULTS_PATH])
+    try:
+      perf_json_data = self.device.RunCommand(cmd).output.strip()
+      self.device.RunCommand(['echo', json.dumps(perf_json_data), '>',
+                              self.REMOTE_UPDATE_ENGINE_PERF_RESULTS_PATH])
+    except cros_build_lib.RunCommandError as e:
+      logging.debug('Could not stop performance monitoring process: %s', e)
 
 class ChromiumOSUpdater(ChromiumOSFlashUpdater):
   """Used to auto-update Cros DUT with image.
@@ -976,7 +982,6 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
       self._cmd_kwargs_omit_error['log_stdout_to_file'] = log_file
       self._cmd_kwargs_omit_error['append_to_file'] = True
       self._cmd_kwargs_omit_error['combine_stdout_stderr'] = True
-      self._cmd_kwargs_omit_error['error_code_ok'] = True
 
     self.inactive_kernel = None
     if local_devserver:

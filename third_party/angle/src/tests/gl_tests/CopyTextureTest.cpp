@@ -1099,26 +1099,20 @@ TEST_P(CopyTextureTestES3, ES3UnormFormats)
                         GL_UNSIGNED_BYTE, false, true, false, GLColor(0, 0, 0, 128));
 
     // New sRGB dest formats
-    if (IsOpenGLES() || IsOpenGL())
-    {
-        std::cout << "Skipping GL_SRGB and GL_SRGB_ALPHA because it is not implemented yet."
-                  << std::endl;
-    }
-    else
-    {
-        testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128), GL_SRGB,
-                            GL_UNSIGNED_BYTE, false, false, false, GLColor(55, 13, 4, 255));
-        testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128), GL_SRGB,
-                            GL_UNSIGNED_BYTE, false, true, false, GLColor(13, 4, 1, 255));
-        testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128),
-                            GL_SRGB_ALPHA_EXT, GL_UNSIGNED_BYTE, false, false, false,
-                            GLColor(55, 13, 4, 128));
-    }
+    testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128), GL_SRGB,
+                        GL_UNSIGNED_BYTE, false, false, false, GLColor(55, 13, 4, 255));
+    testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128), GL_SRGB,
+                        GL_UNSIGNED_BYTE, false, true, false, GLColor(13, 4, 1, 255));
+    testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128),
+                        GL_SRGB_ALPHA_EXT, GL_UNSIGNED_BYTE, false, false, false,
+                        GLColor(55, 13, 4, 128));
 }
 
 // Test the newly added ES3 float formats
 TEST_P(CopyTextureTestES3, ES3FloatFormats)
 {
+    ANGLE_SKIP_TEST_IF(IsIntel() && IsWindows() && IsOpenGL());
+
     if (!checkExtensions())
     {
         return;
@@ -1234,36 +1228,21 @@ TEST_P(CopyTextureTestES3, ES3FloatFormats)
                         GL_R11F_G11F_B10F, GL_FLOAT, false, false, true,
                         GLColor32F(1.0f, 0.5f, 0.25f, 1.0f));
 
-    if (IsOpenGL() || IsOpenGLES())
-    {
-        std::cout << "Skipping GL_RGB9_E5 because it is not implemented yet." << std::endl;
-    }
-    else
-    {
-        testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128),
-                            GL_RGB9_E5, GL_FLOAT, false, false, false,
-                            GLColor32F(0.5f, 0.25f, 0.125f, 1.0f));
-        testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128),
-                            GL_RGB9_E5, GL_FLOAT, false, true, false,
-                            GLColor32F(0.25f, 0.125f, 0.0625f, 1.0f));
-        testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128),
-                            GL_RGB9_E5, GL_FLOAT, false, false, true,
-                            GLColor32F(1.0f, 0.5f, 0.25f, 1.0f));
-    }
+    testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128), GL_RGB9_E5,
+                        GL_FLOAT, false, false, false, GLColor32F(0.5f, 0.25f, 0.125f, 1.0f));
+    testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128), GL_RGB9_E5,
+                        GL_FLOAT, false, true, false, GLColor32F(0.25f, 0.125f, 0.0625f, 1.0f));
+    testCopyCombination(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, GLColor(128, 64, 32, 128), GL_RGB9_E5,
+                        GL_FLOAT, false, false, true, GLColor32F(1.0f, 0.5f, 0.25f, 1.0f));
 }
 
 // Test the newly added ES3 unsigned integer formats
 TEST_P(CopyTextureTestES3, ES3UintFormats)
 {
+    ANGLE_SKIP_TEST_IF(IsLinux() && IsOpenGL() && IsIntel());
+
     if (!checkExtensions())
     {
-        return;
-    }
-
-    if (IsOpenGL() || IsOpenGLES())
-    {
-        std::cout << "Test on OpenGL and OpenGLES because not all formats are implemented yet."
-                  << std::endl;
         return;
     }
 

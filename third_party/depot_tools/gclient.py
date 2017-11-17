@@ -80,7 +80,7 @@ from __future__ import print_function
 
 __version__ = '0.7'
 
-import ast
+import collections
 import copy
 import json
 import logging
@@ -105,84 +105,138 @@ import subcommand
 import subprocess2
 import setup_color
 
-CHROMIUM_SRC_URL = 'https://chromium.googlesource.com/chromium/src.git'
+
+class GNException(Exception):
+  pass
 
 
-def ast_dict_index(dnode, key):
-  """Search an ast.Dict for the argument key, and return its index."""
-  idx = [i for i in range(len(dnode.keys)) if (
-      type(dnode.keys[i]) is ast.Str and dnode.keys[i].s == key)]
-  if not idx:
-    return -1
-  elif len(idx) > 1:
-    raise gclient_utils.Error('Multiple dict entries with same key in AST')
-  return idx[-1]
+def ToGNString(value, allow_dicts = True):
+  """Returns a stringified GN equivalent of the Python value.
 
-def ast2str(node, indent=0):
-  """Return a pretty-printed rendition of an ast.Node."""
-  t = type(node)
-  if t is ast.Module:
-    return '\n'.join([ast2str(x, indent) for x in node.body])
-  elif t is ast.Assign:
-    return (('  ' * indent) +
-            ' = '.join([ast2str(x) for x in node.targets] +
-                       [ast2str(node.value, indent)]) + '\n')
-  elif t is ast.Name:
-    return node.id
-  elif t is ast.List:
-    if not node.elts:
-      return '[]'
-    elif len(node.elts) == 1:
-      return '[' + ast2str(node.elts[0], indent) + ']'
-    return ('[\n' + ('  ' * (indent + 1)) +
-            (',\n' + ('  ' * (indent + 1))).join(
-                [ast2str(x, indent + 1) for x in node.elts]) +
-            '\n' + ('  ' * indent) + ']')
-  elif t is ast.Dict:
-    if not node.keys:
-      return '{}'
-    elif len(node.keys) == 1:
-      return '{%s: %s}' % (ast2str(node.keys[0]),
-                           ast2str(node.values[0], indent + 1))
-    return ('{\n' + ('  ' * (indent + 1)) +
-            (',\n' + ('  ' * (indent + 1))).join(
-                ['%s: %s' % (ast2str(node.keys[i]),
-                             ast2str(node.values[i], indent + 1))
-                 for i in range(len(node.keys))]) +
-            '\n' + ('  ' * indent) + '}')
-  elif t is ast.Str:
-    return "'%s'" % node.s
-  else:
-    raise gclient_utils.Error("Unexpected AST node at line %d, column %d: %s"
-                              % (node.lineno, node.col_offset, t))
+  allow_dicts indicates if this function will allow converting dictionaries
+  to GN scopes. This is only possible at the top level, you can't nest a
+  GN scope in a list, so this should be set to False for recursive calls."""
+  if isinstance(value, basestring):
+    if value.find('\n') >= 0:
+      raise GNException("Trying to print a string with a newline in it.")
+    return '"' + \
+        value.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$') + \
+        '"'
+
+  if isinstance(value, unicode):
+    return ToGNString(value.encode('utf-8'))
+
+  if isinstance(value, bool):
+    if value:
+      return "true"
+    return "false"
+
+  # NOTE: some type handling removed compared to chromium/src copy.
+
+  raise GNException("Unsupported type when printing to GN.")
 
 
-class GClientKeywords(object):
-  class VarImpl(object):
-    def __init__(self, custom_vars, local_scope):
-      self._custom_vars = custom_vars
-      self._local_scope = local_scope
+class Hook(object):
+  """Descriptor of command ran before/after sync or on demand."""
 
-    def Lookup(self, var_name):
-      """Implements the Var syntax."""
-      if var_name in self._custom_vars:
-        return self._custom_vars[var_name]
-      elif var_name in self._local_scope.get("vars", {}):
-        return self._local_scope["vars"][var_name]
-      raise gclient_utils.Error("Var is not defined: %s" % var_name)
+  def __init__(self, action, pattern=None, name=None, cwd=None, condition=None,
+               variables=None):
+    """Constructor.
+
+    Arguments:
+      action (list of basestring): argv of the command to run
+      pattern (basestring regex): noop with git; deprecated
+      name (basestring): optional name; no effect on operation
+      cwd (basestring): working directory to use
+      condition (basestring): condition when to run the hook
+      variables (dict): variables for evaluating the condition
+    """
+    self._action = gclient_utils.freeze(action)
+    self._pattern = pattern
+    self._name = name
+    self._cwd = cwd
+    self._condition = condition
+    self._variables = variables
+
+  @staticmethod
+  def from_dict(d, variables=None):
+    """Creates a Hook instance from a dict like in the DEPS file."""
+    return Hook(
+        d['action'],
+        d.get('pattern'),
+        d.get('name'),
+        d.get('cwd'),
+        d.get('condition'),
+        variables=variables)
+
+  @property
+  def action(self):
+    return self._action
+
+  @property
+  def pattern(self):
+    return self._pattern
+
+  @property
+  def name(self):
+    return self._name
+
+  def matches(self, file_list):
+    """Returns true if the pattern matches any of files in the list."""
+    if not self._pattern:
+      return True
+    pattern = re.compile(self._pattern)
+    return bool([f for f in file_list if pattern.search(f)])
+
+  def run(self, root):
+    """Executes the hook's command (provided the condition is met)."""
+    if (self._condition and
+        not gclient_eval.EvaluateCondition(self._condition, self._variables)):
+      return
+
+    cmd = [arg.format(**self._variables) for arg in self._action]
+
+    if cmd[0] == 'python':
+      # If the hook specified "python" as the first item, the action is a
+      # Python script.  Run it by starting a new copy of the same
+      # interpreter.
+      cmd[0] = sys.executable
+
+    cwd = root
+    if self._cwd:
+      cwd = os.path.join(cwd, self._cwd)
+    try:
+      start_time = time.time()
+      gclient_utils.CheckCallAndFilterAndHeader(
+          cmd, cwd=cwd, always=True)
+    except (gclient_utils.Error, subprocess2.CalledProcessError) as e:
+      # Use a discrete exit status code of 2 to indicate that a hook action
+      # failed.  Users of this script may wish to treat hook action failures
+      # differently from VC failures.
+      print('Error: %s' % str(e), file=sys.stderr)
+      sys.exit(2)
+    finally:
+      elapsed_time = time.time() - start_time
+      if elapsed_time > 10:
+        print("Hook '%s' took %.2f secs" % (
+            gclient_utils.CommandToStr(cmd), elapsed_time))
 
 
-class DependencySettings(GClientKeywords):
+class DependencySettings(object):
   """Immutable configuration settings."""
   def __init__(
-      self, parent, url, managed, custom_deps, custom_vars,
-      custom_hooks, deps_file, should_process, relative):
-    GClientKeywords.__init__(self)
-
+      self, parent, raw_url, url, managed, custom_deps, custom_vars,
+      custom_hooks, deps_file, should_process, relative,
+      condition, condition_value):
     # These are not mutable:
     self._parent = parent
     self._deps_file = deps_file
+    self._raw_url = raw_url
     self._url = url
+    # The condition as string (or None). Useful to keep e.g. for flatten.
+    self._condition = condition
+    # Boolean value of the condition. If there's no condition, just True.
+    self._condition_value = condition_value
     # 'managed' determines whether or not this dependency is synced/updated by
     # gclient after gclient checks it out initially.  The difference between
     # 'managed' and 'should_process' is that the user specifies 'managed' via
@@ -256,8 +310,22 @@ class DependencySettings(GClientKeywords):
     return self._custom_hooks[:]
 
   @property
+  def raw_url(self):
+    """URL before variable expansion."""
+    return self._raw_url
+
+  @property
   def url(self):
+    """URL after variable expansion."""
     return self._url
+
+  @property
+  def condition(self):
+    return self._condition
+
+  @property
+  def condition_value(self):
+    return self._condition_value
 
   @property
   def target_os(self):
@@ -277,13 +345,14 @@ class DependencySettings(GClientKeywords):
 class Dependency(gclient_utils.WorkItem, DependencySettings):
   """Object that represents a dependency checkout."""
 
-  def __init__(self, parent, name, url, managed, custom_deps,
+  def __init__(self, parent, name, raw_url, url, managed, custom_deps,
                custom_vars, custom_hooks, deps_file, should_process,
-               relative):
+               relative, condition, condition_value):
     gclient_utils.WorkItem.__init__(self, name)
     DependencySettings.__init__(
-        self, parent, url, managed, custom_deps, custom_vars,
-        custom_hooks, deps_file, should_process, relative)
+        self, parent, raw_url, url, managed, custom_deps, custom_vars,
+        custom_hooks, deps_file, should_process, relative,
+        condition, condition_value)
 
     # This is in both .gclient and DEPS files:
     self._deps_hooks = []
@@ -293,6 +362,10 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     # Calculates properties:
     self._parsed_url = None
     self._dependencies = []
+    self._vars = {}
+    self._os_dependencies = {}
+    self._os_deps_hooks = {}
+
     # A cache of the files affected by the current operation, necessary for
     # hooks.
     self._file_list = []
@@ -301,6 +374,9 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     # hosts will be allowed. Non-empty set means whitelist of hosts.
     # allowed_hosts var is scoped to its DEPS file, and so it isn't recursive.
     self._allowed_hosts = frozenset()
+    # Spec for .gni output to write (if any).
+    self._gn_args_file = None
+    self._gn_args = []
     # If it is not set to True, the dependency wasn't processed for its child
     # dependency, i.e. its DEPS wasn't read.
     self._deps_parsed = False
@@ -472,40 +548,107 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     """Returns a new "deps" structure that is the deps sent in updated
     with information from deps_os (the deps_os section of the DEPS
     file) that matches the list of target os."""
-    os_overrides = {}
-    for the_target_os in target_os_list:
-      the_target_os_deps = deps_os.get(the_target_os, {})
-      for os_dep_key, os_dep_value in the_target_os_deps.iteritems():
-        overrides = os_overrides.setdefault(os_dep_key, [])
-        overrides.append((the_target_os, os_dep_value))
-
-    # If any os didn't specify a value (we have fewer value entries
-    # than in the os list), then it wants to use the default value.
-    for os_dep_key, os_dep_value in os_overrides.iteritems():
-      if len(os_dep_value) != len(target_os_list):
-        # Record the default value too so that we don't accidentally
-        # set it to None or miss a conflicting DEPS.
-        if os_dep_key in deps:
-          os_dep_value.append(('default', deps[os_dep_key]))
-
-    target_os_deps = {}
-    for os_dep_key, os_dep_value in os_overrides.iteritems():
-      # os_dep_value is a list of (os, value) pairs.
-      possible_values = set(x[1] for x in os_dep_value if x[1] is not None)
-      if not possible_values:
-        target_os_deps[os_dep_key] = None
-      else:
-        if len(possible_values) > 1:
-          # It would be possible to abort here but it would be
-          # unfortunate if we end up preventing any kind of checkout.
-          logging.error('Conflicting dependencies for %s: %s. (target_os=%s)',
-                        os_dep_key, os_dep_value, target_os_list)
-        # Sorting to get the same result every time in case of conflicts.
-        target_os_deps[os_dep_key] = sorted(possible_values)[0]
-
     new_deps = deps.copy()
-    new_deps.update(target_os_deps)
+    for dep_os, os_deps in deps_os.iteritems():
+      for key, value in os_deps.iteritems():
+        if value is None:
+          # Make this condition very visible, so it's not a silent failure.
+          # It's unclear how to support None override in deps_os.
+          logging.error('Ignoring %r:%r in %r deps_os', key, value, dep_os)
+          continue
+
+        # Normalize value to be a dict which contains |should_process| metadata.
+        if isinstance(value, basestring):
+          value = {'url': value}
+        assert isinstance(value, collections.Mapping), (key, value)
+        value['should_process'] = dep_os in target_os_list
+
+        # Handle collisions/overrides.
+        if key in new_deps and new_deps[key] != value:
+          # Normalize the existing new_deps entry.
+          if isinstance(new_deps[key], basestring):
+            new_deps[key] = {'url': new_deps[key]}
+          assert isinstance(new_deps[key],
+                            collections.Mapping), (key, new_deps[key])
+
+          # It's OK if the "override" sets the key to the same value.
+          # This is mostly for legacy reasons to keep existing DEPS files
+          # working. Often mac/ios and unix/android will do this.
+          if value['url'] != new_deps[key]['url']:
+            raise gclient_utils.Error(
+                ('Value from deps_os (%r; %r: %r) conflicts with existing deps '
+                 'entry (%r).') % (dep_os, key, value, new_deps[key]))
+
+          # We'd otherwise overwrite |should_process| metadata, but a dep should
+          # be processed if _any_ of its references call for that.
+          value['should_process'] = (
+              value['should_process'] or
+              new_deps[key].get('should_process', True))
+
+        new_deps[key] = value
+
     return new_deps
+
+  def _postprocess_deps(self, deps, rel_prefix):
+    """Performs post-processing of deps compared to what's in the DEPS file."""
+    # Make sure the dict is mutable, e.g. in case it's frozen.
+    deps = dict(deps)
+
+    # If a line is in custom_deps, but not in the solution, we want to append
+    # this line to the solution.
+    for d in self.custom_deps:
+      if d not in deps:
+        deps[d] = self.custom_deps[d]
+
+    if rel_prefix:
+      logging.warning('use_relative_paths enabled.')
+      rel_deps = {}
+      for d, url in deps.items():
+        # normpath is required to allow DEPS to use .. in their
+        # dependency local path.
+        rel_deps[os.path.normpath(os.path.join(rel_prefix, d))] = url
+      logging.warning('Updating deps by prepending %s.', rel_prefix)
+      deps = rel_deps
+
+    return deps
+
+  def _deps_to_objects(self, deps, use_relative_paths):
+    """Convert a deps dict to a dict of Dependency objects."""
+    deps_to_add = []
+    for name, dep_value in deps.iteritems():
+      should_process = self.recursion_limit and self.should_process
+      deps_file = self.deps_file
+      if self.recursedeps is not None:
+        ent = self.recursedeps.get(name)
+        if ent is not None:
+          deps_file = ent['deps_file']
+      if dep_value is None:
+        continue
+      condition = None
+      condition_value = True
+      if isinstance(dep_value, basestring):
+        raw_url = dep_value
+      else:
+        # This should be guaranteed by schema checking in gclient_eval.
+        assert isinstance(dep_value, collections.Mapping)
+        raw_url = dep_value['url']
+        # Take into account should_process metadata set by MergeWithOsDeps.
+        should_process = (should_process and
+                          dep_value.get('should_process', True))
+        condition = dep_value.get('condition')
+
+      url = raw_url.format(**self.get_vars())
+
+      if condition:
+        condition_value = gclient_eval.EvaluateCondition(
+            condition, self.get_vars())
+        should_process = should_process and condition_value
+      deps_to_add.append(Dependency(
+          self, name, raw_url, url, None, None, self.custom_vars, None,
+          deps_file, should_process, use_relative_paths, condition,
+          condition_value))
+    deps_to_add.sort(key=lambda x: x.name)
+    return deps_to_add
 
   def ParseDepsFile(self):
     """Parses the DEPS file for this dependency."""
@@ -513,7 +656,6 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     assert not self.dependencies
 
     deps_content = None
-    use_strict = False
 
     # First try to locate the configured deps file.  If it's missing, fallback
     # to DEPS.
@@ -534,25 +676,13 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     if os.path.isfile(filepath):
       deps_content = gclient_utils.FileRead(filepath)
       logging.debug('ParseDepsFile(%s) read:\n%s', self.name, deps_content)
-      use_strict = 'use strict' in deps_content.splitlines()[0]
 
     local_scope = {}
     if deps_content:
-      # One thing is unintuitive, vars = {} must happen before Var() use.
-      var = self.VarImpl(self.custom_vars, local_scope)
-      if use_strict:
-        logging.info(
-          'ParseDepsFile(%s): Strict Mode Enabled', self.name)
-        global_scope = {
-          '__builtins__': {'None': None},
-          'Var': var.Lookup,
-          'deps_os': {},
-        }
-      else:
-        global_scope = {
-          'Var': var.Lookup,
-          'deps_os': {},
-        }
+      global_scope = {
+        'Var': lambda var_name: '{%s}' % var_name,
+        'deps_os': {},
+      }
       # Eval the content.
       try:
         if self._get_option('validate_syntax', False):
@@ -561,41 +691,30 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
           exec(deps_content, global_scope, local_scope)
       except SyntaxError as e:
         gclient_utils.SyntaxErrorToError(filepath, e)
-      if use_strict:
-        for key, val in local_scope.iteritems():
-          if not isinstance(val, (dict, list, tuple, str)):
-            raise gclient_utils.Error(
-              'ParseDepsFile(%s): Strict mode disallows %r -> %r' %
-              (self.name, key, val))
 
-    deps = local_scope.get('deps', {})
-    if 'recursion' in local_scope:
-      self.recursion_override = local_scope.get('recursion')
-      logging.warning(
-          'Setting %s recursion to %d.', self.name, self.recursion_limit)
-    self.recursedeps = None
-    if 'recursedeps' in local_scope:
-      self.recursedeps = {}
-      for ent in local_scope['recursedeps']:
-        if isinstance(ent, basestring):
-          self.recursedeps[ent] = {"deps_file": self.deps_file}
-        else:  # (depname, depsfilename)
-          self.recursedeps[ent[0]] = {"deps_file": ent[1]}
-      logging.warning('Found recursedeps %r.', repr(self.recursedeps))
-    # If present, save 'target_os' in the local_target_os property.
-    if 'target_os' in local_scope:
-      self.local_target_os = local_scope['target_os']
-    # load os specific dependencies if defined.  these dependencies may
-    # override or extend the values defined by the 'deps' member.
-    target_os_list = self.target_os
-    if 'deps_os' in local_scope and target_os_list:
-      deps = self.MergeWithOsDeps(deps, local_scope['deps_os'], target_os_list)
+    if 'allowed_hosts' in local_scope:
+      try:
+        self._allowed_hosts = frozenset(local_scope.get('allowed_hosts'))
+      except TypeError:  # raised if non-iterable
+        pass
+      if not self._allowed_hosts:
+        logging.warning("allowed_hosts is specified but empty %s",
+                        self._allowed_hosts)
+        raise gclient_utils.Error(
+            'ParseDepsFile(%s): allowed_hosts must be absent '
+            'or a non-empty iterable' % self.name)
 
-    # If a line is in custom_deps, but not in the solution, we want to append
-    # this line to the solution.
-    for d in self.custom_deps:
-      if d not in deps:
-        deps[d] = self.custom_deps[d]
+    self._gn_args_file = local_scope.get('gclient_gn_args_file')
+    self._gn_args = local_scope.get('gclient_gn_args', [])
+
+    self._vars = local_scope.get('vars', {})
+    if self.parent:
+      for key, value in self.parent.get_vars().iteritems():
+        if key in self._vars:
+          self._vars[key] = value
+    # Since we heavily post-process things, freeze ones which should
+    # reflect original state of DEPS.
+    self._vars = gclient_utils.freeze(self._vars)
 
     # If use_relative_paths is set in the DEPS file, regenerate
     # the dictionary using paths relative to the directory containing
@@ -611,18 +730,26 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
       rel_prefix = self.name
     elif self._relative:
       rel_prefix = os.path.dirname(self.name)
-    if rel_prefix:
-      logging.warning('use_relative_paths enabled.')
-      rel_deps = {}
-      for d, url in deps.items():
-        # normpath is required to allow DEPS to use .. in their
-        # dependency local path.
-        rel_deps[os.path.normpath(os.path.join(rel_prefix, d))] = url
-      logging.warning('Updating deps by prepending %s.', rel_prefix)
-      deps = rel_deps
 
-      # Update recursedeps if it's set.
-      if self.recursedeps is not None:
+    deps = {}
+    for key, value in local_scope.get('deps', {}).iteritems():
+      deps[key.format(**self.get_vars())] = value
+
+    if 'recursion' in local_scope:
+      self.recursion_override = local_scope.get('recursion')
+      logging.warning(
+          'Setting %s recursion to %d.', self.name, self.recursion_limit)
+    self.recursedeps = None
+    if 'recursedeps' in local_scope:
+      self.recursedeps = {}
+      for ent in local_scope['recursedeps']:
+        if isinstance(ent, basestring):
+          self.recursedeps[ent] = {"deps_file": self.deps_file}
+        else:  # (depname, depsfilename)
+          self.recursedeps[ent[0]] = {"deps_file": ent[1]}
+      logging.warning('Found recursedeps %r.', repr(self.recursedeps))
+
+      if rel_prefix:
         logging.warning('Updating recursedeps by prepending %s.', rel_prefix)
         rel_deps = {}
         for depname, options in self.recursedeps.iteritems():
@@ -630,40 +757,23 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
               os.path.normpath(os.path.join(rel_prefix, depname))] = options
         self.recursedeps = rel_deps
 
+    # If present, save 'target_os' in the local_target_os property.
+    if 'target_os' in local_scope:
+      self.local_target_os = local_scope['target_os']
+    # load os specific dependencies if defined.  these dependencies may
+    # override or extend the values defined by the 'deps' member.
+    target_os_list = self.target_os
+    if 'deps_os' in local_scope:
+      for dep_os, os_deps in local_scope['deps_os'].iteritems():
+        self._os_dependencies[dep_os] = self._deps_to_objects(
+            self._postprocess_deps(os_deps, rel_prefix), use_relative_paths)
+      if target_os_list and not self._get_option(
+          'do_not_merge_os_specific_entries', False):
+        deps = self.MergeWithOsDeps(
+            deps, local_scope['deps_os'], target_os_list)
 
-    if 'allowed_hosts' in local_scope:
-      try:
-        self._allowed_hosts = frozenset(local_scope.get('allowed_hosts'))
-      except TypeError:  # raised if non-iterable
-        pass
-      if not self._allowed_hosts:
-        logging.warning("allowed_hosts is specified but empty %s",
-                        self._allowed_hosts)
-        raise gclient_utils.Error(
-            'ParseDepsFile(%s): allowed_hosts must be absent '
-            'or a non-empty iterable' % self.name)
-
-    # Convert the deps into real Dependency.
-    deps_to_add = []
-    for name, dep_value in deps.iteritems():
-      should_process = self.recursion_limit and self.should_process
-      deps_file = self.deps_file
-      if self.recursedeps is not None:
-        ent = self.recursedeps.get(name)
-        if ent is not None:
-          deps_file = ent['deps_file']
-      if dep_value is None:
-        continue
-      if isinstance(dep_value, basestring):
-        url = dep_value
-      else:
-        # This should be guaranteed by schema checking in gclient_eval.
-        assert isinstance(dep_value, dict)
-        url = dep_value['url']
-      deps_to_add.append(Dependency(
-          self, name, url, None, None, self.custom_vars, None,
-          deps_file, should_process, use_relative_paths))
-    deps_to_add.sort(key=lambda x: x.name)
+    deps_to_add = self._deps_to_objects(
+        self._postprocess_deps(deps, rel_prefix), use_relative_paths)
 
     # override named sets of hooks by the custom hooks
     hooks_to_run = []
@@ -673,10 +783,18 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
         hooks_to_run.append(hook)
     if 'hooks_os' in local_scope and target_os_list:
       hooks_os = local_scope['hooks_os']
+
+      # Keep original contents of hooks_os for flatten.
+      for hook_os, os_hooks in hooks_os.iteritems():
+        self._os_deps_hooks[hook_os] = [
+            Hook.from_dict(hook, variables=self.get_vars())
+            for hook in os_hooks]
+
       # Specifically append these to ensure that hooks_os run after hooks.
-      for the_target_os in target_os_list:
-        the_target_os_hooks = hooks_os.get(the_target_os, [])
-        hooks_to_run.extend(the_target_os_hooks)
+      if not self._get_option('do_not_merge_os_specific_entries', False):
+        for the_target_os in target_os_list:
+          the_target_os_hooks = hooks_os.get(the_target_os, [])
+          hooks_to_run.extend(the_target_os_hooks)
 
     # add the replacements and any additions
     for hook in self.custom_hooks:
@@ -684,8 +802,9 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
         hooks_to_run.append(hook)
 
     if self.recursion_limit:
-      self._pre_deps_hooks = [self.GetHookAction(hook) for hook in
-                              local_scope.get('pre_deps_hooks', [])]
+      self._pre_deps_hooks = [
+          Hook.from_dict(hook, variables=self.get_vars()) for hook in
+          local_scope.get('pre_deps_hooks', [])]
 
     self.add_dependencies_and_close(deps_to_add, hooks_to_run)
     logging.info('ParseDepsFile(%s) done' % self.name)
@@ -701,7 +820,8 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     for dep in deps_to_add:
       if dep.verify_validity():
         self.add_dependency(dep)
-    self._mark_as_parsed(hooks)
+    self._mark_as_parsed(
+        [Hook.from_dict(h, variables=self.get_vars()) for h in hooks])
 
   def findDepsFromNotAllowedHosts(self):
     """Returns a list of depenecies from not allowed hosts.
@@ -767,6 +887,8 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
 
     # Always parse the DEPS file.
     self.ParseDepsFile()
+    if self._gn_args_file and command == 'update':
+      self.WriteGNArgsFile()
     self._run_is_done(file_list or [], parsed_url)
     if command in ('update', 'revert') and not options.noprehooks:
       self.RunPreDepsHooks()
@@ -774,7 +896,8 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     if self.recursion_limit:
       # Parse the dependencies of this dependency.
       for s in self.dependencies:
-        work_queue.enqueue(s)
+        if s.should_process:
+          work_queue.enqueue(s)
 
     if command == 'recurse':
       # Skip file only checkout.
@@ -832,6 +955,12 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
         else:
           print('Skipped missing %s' % cwd, file=sys.stderr)
 
+  def WriteGNArgsFile(self):
+    lines = ['# Generated from %r' % self.deps_file]
+    for arg in self._gn_args:
+      lines.append('%s = %s' % (arg, ToGNString(self.get_vars()[arg])))
+    with open(os.path.join(self.root.root_dir, self._gn_args_file), 'w') as f:
+      f.write('\n'.join(lines))
 
   @gclient_utils.lockedmethod
   def _run_is_done(self, file_list, parsed_url):
@@ -839,18 +968,6 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     self._file_list = file_list
     self._parsed_url = parsed_url
     self._processed = True
-
-  @staticmethod
-  def GetHookAction(hook_dict):
-    """Turns a parsed 'hook' dict into an executable command."""
-    logging.debug(hook_dict)
-    command = hook_dict['action'][:]
-    if command[0] == 'python':
-      # If the hook specified "python" as the first item, the action is a
-      # Python script.  Run it by starting a new copy of the same
-      # interpreter.
-      command[0] = sys.executable
-    return command
 
   def GetHooks(self, options):
     """Evaluates all hooks, and return them in a flat list.
@@ -870,18 +987,11 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
       if (options.force or
           gclient_scm.GetScmName(self.parsed_url) in ('git', None) or
           os.path.isdir(os.path.join(self.root.root_dir, self.name, '.git'))):
-        for hook_dict in self.deps_hooks:
-          result.append(self.GetHookAction(hook_dict))
+        result.extend(self.deps_hooks)
       else:
-        # Run hooks on the basis of whether the files from the gclient operation
-        # match each hook's pattern.
-        for hook_dict in self.deps_hooks:
-          pattern = re.compile(hook_dict['pattern'])
-          matching_file_list = [
-              f for f in self.file_list_and_children if pattern.search(f)
-          ]
-          if matching_file_list:
-            result.append(self.GetHookAction(hook_dict))
+        for hook in self.deps_hooks:
+          if hook.matches(self.file_list_and_children):
+            result.append(hook)
     for s in self.dependencies:
       result.extend(s.GetHooks(options))
     return result
@@ -890,21 +1000,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     assert self.hooks_ran == False
     self._hooks_ran = True
     for hook in self.GetHooks(options):
-      try:
-        start_time = time.time()
-        gclient_utils.CheckCallAndFilterAndHeader(
-            hook, cwd=self.root.root_dir, always=True)
-      except (gclient_utils.Error, subprocess2.CalledProcessError) as e:
-        # Use a discrete exit status code of 2 to indicate that a hook action
-        # failed.  Users of this script may wish to treat hook action failures
-        # differently from VC failures.
-        print('Error: %s' % str(e), file=sys.stderr)
-        sys.exit(2)
-      finally:
-        elapsed_time = time.time() - start_time
-        if elapsed_time > 10:
-          print("Hook '%s' took %.2f secs" % (
-              gclient_utils.CommandToStr(hook), elapsed_time))
+      hook.run(self.root.root_dir)
 
   def RunPreDepsHooks(self):
     assert self.processed
@@ -915,22 +1011,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
       assert not s.processed
     self._pre_deps_hooks_ran = True
     for hook in self.pre_deps_hooks:
-      try:
-        start_time = time.time()
-        gclient_utils.CheckCallAndFilterAndHeader(
-            hook, cwd=self.root.root_dir, always=True)
-      except (gclient_utils.Error, subprocess2.CalledProcessError) as e:
-        # Use a discrete exit status code of 2 to indicate that a hook action
-        # failed.  Users of this script may wish to treat hook action failures
-        # differently from VC failures.
-        print('Error: %s' % str(e), file=sys.stderr)
-        sys.exit(2)
-      finally:
-        elapsed_time = time.time() - start_time
-        if elapsed_time > 10:
-          print("Hook '%s' took %.2f secs" % (
-              gclient_utils.CommandToStr(hook), elapsed_time))
-
+      hook.run(self.root.root_dir)
 
   def subtree(self, include_all):
     """Breadth first recursion excluding root node."""
@@ -941,14 +1022,6 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     for d in dependencies:
       for i in d.subtree(include_all):
         yield i
-
-  def depth_first_tree(self):
-    """Depth-first recursion including the root node."""
-    yield self
-    for i in self.dependencies:
-      for j in i.depth_first_tree():
-        if j.should_process:
-          yield j
 
   @gclient_utils.lockedmethod
   def add_dependency(self, new_dep):
@@ -966,8 +1039,18 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
 
   @property
   @gclient_utils.lockedmethod
+  def os_dependencies(self):
+    return dict(self._os_dependencies)
+
+  @property
+  @gclient_utils.lockedmethod
   def deps_hooks(self):
     return tuple(self._deps_hooks)
+
+  @property
+  @gclient_utils.lockedmethod
+  def os_deps_hooks(self):
+    return dict(self._os_deps_hooks)
 
   @property
   @gclient_utils.lockedmethod
@@ -1062,6 +1145,13 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
       i = i.parent
     return out
 
+  def get_vars(self):
+    """Returns a dictionary of effective variable values
+    (DEPS file contents with applied custom_vars overrides)."""
+    result = dict(self._vars)
+    result.update(self.custom_vars or {})
+    return result
+
 
 class GClient(Dependency):
   """Object that represent a gclient checkout. A tree of Dependency(), one per
@@ -1113,8 +1203,8 @@ solutions = [
     # Do not change previous behavior. Only solution level and immediate DEPS
     # are processed.
     self._recursion_limit = 2
-    Dependency.__init__(self, None, None, None, True, None, None, None,
-                        'unused', True, None)
+    Dependency.__init__(self, None, None, None, None, True, None, None, None,
+                        'unused', True, None, None, True)
     self._options = options
     if options.deps_os:
       enforced_os = options.deps_os.split(',')
@@ -1177,7 +1267,7 @@ it or fix the checkout.
     else:
       self._enforced_os = tuple(set(self._enforced_os).union(target_os))
 
-    cache_dir = config_dict.get('cache_dir')
+    cache_dir = config_dict.get('cache_dir', self._options.cache_dir)
     if cache_dir:
       cache_dir = os.path.join(self.root_dir, cache_dir)
       cache_dir = os.path.abspath(cache_dir)
@@ -1196,14 +1286,16 @@ it or fix the checkout.
     for s in config_dict.get('solutions', []):
       try:
         deps_to_add.append(Dependency(
-            self, s['name'], s['url'],
+            self, s['name'], s['url'], s['url'],
             s.get('managed', True),
             s.get('custom_deps', {}),
             s.get('custom_vars', {}),
             s.get('custom_hooks', []),
             s.get('deps_file', 'DEPS'),
             True,
-            None))
+            None,
+            None,
+            True))
       except KeyError:
         raise gclient_utils.Error('Invalid .gclient file. Solution is '
                                   'incomplete: %s' % s)
@@ -1339,7 +1431,8 @@ it or fix the checkout.
         self._options.jobs, pm, ignore_requirements=ignore_requirements,
         verbose=self._options.verbose)
     for s in self.dependencies:
-      work_queue.enqueue(s)
+      if s.should_process:
+        work_queue.enqueue(s)
     work_queue.flush(revision_overrides, command, args, options=self._options)
     if revision_overrides:
       print('Please fix your script, having invalid --revision flags will soon '
@@ -1451,7 +1544,8 @@ it or fix the checkout.
     work_queue = gclient_utils.ExecutionQueue(
         self._options.jobs, None, False, verbose=self._options.verbose)
     for s in self.dependencies:
-      work_queue.enqueue(s)
+      if s.should_process:
+        work_queue.enqueue(s)
     work_queue.flush({}, None, [], options=self._options)
 
     def GetURLAndRev(dep):
@@ -1595,14 +1689,140 @@ def CMDfetch(parser, args):
       '--jobs=%d' % options.jobs, '--scm=git', 'git', 'fetch'] + args)
 
 
+class Flattener(object):
+  """Flattens a gclient solution."""
+
+  def __init__(self, client, pin_all_deps=False):
+    """Constructor.
+
+    Arguments:
+      client (GClient): client to flatten
+      pin_all_deps (bool): whether to pin all deps, even if they're not pinned
+          in DEPS
+    """
+    self._client = client
+
+    self._deps_string = None
+
+    self._allowed_hosts = set()
+    self._deps = {}
+    self._deps_os = {}
+    self._hooks = []
+    self._hooks_os = {}
+    self._pre_deps_hooks = []
+    self._vars = {}
+
+    self._flatten(pin_all_deps=pin_all_deps)
+
+  @property
+  def deps_string(self):
+    assert self._deps_string is not None
+    return self._deps_string
+
+  def _flatten(self, pin_all_deps=False):
+    """Runs the flattener. Saves resulting DEPS string.
+
+    Arguments:
+      pin_all_deps (bool): whether to pin all deps, even if they're not pinned
+          in DEPS
+    """
+    for solution in self._client.dependencies:
+      self._add_dep(solution)
+      self._flatten_dep(solution)
+
+    if pin_all_deps:
+      for dep in self._deps.itervalues():
+        if dep.parsed_url is None:
+          continue
+
+        scm = gclient_scm.CreateSCM(
+            dep.parsed_url, self._client.root_dir, dep.name, dep.outbuf)
+        revinfo = scm.revinfo(self._client._options, [], None)
+
+        # Make sure the revision is always fully specified (a hash),
+        # as opposed to refs or tags which might change.
+        url, revision = gclient_utils.SplitUrlRevision(dep.parsed_url)
+        if revision and gclient_utils.IsGitSha(revision):
+          continue
+        dep._parsed_url = dep._url = '%s@%s' % (url, revinfo)
+        raw_url, _ = gclient_utils.SplitUrlRevision(dep._raw_url)
+        dep._raw_url = '%s@%s' % (raw_url, revinfo)
+
+    self._deps_string = '\n'.join(
+        _GNSettingsToLines(
+            self._client.dependencies[0]._gn_args_file,
+            self._client.dependencies[0]._gn_args) +
+        _AllowedHostsToLines(self._allowed_hosts) +
+        _DepsToLines(self._deps) +
+        _DepsOsToLines(self._deps_os) +
+        _HooksToLines('hooks', self._hooks) +
+        _HooksToLines('pre_deps_hooks', self._pre_deps_hooks) +
+        _HooksOsToLines(self._hooks_os) +
+        _VarsToLines(self._vars) +
+        [''])  # Ensure newline at end of file.
+
+  def _add_dep(self, dep):
+    """Helper to add a dependency to flattened DEPS.
+
+    Arguments:
+      dep (Dependency): dependency to add
+    """
+    assert dep.name not in self._deps or self._deps.get(dep.name) == dep, (
+        dep.name, self._deps.get(dep.name))
+    if dep.url:
+      self._deps[dep.name] = dep
+
+  def _flatten_dep(self, dep):
+    """Visits a dependency in order to flatten it (see CMDflatten).
+
+    Arguments:
+      dep (Dependency): dependency to process
+    """
+    self._allowed_hosts.update(dep.allowed_hosts)
+
+    for key, value in dep.get_vars().iteritems():
+      # Make sure there are no conflicting variables. It is fine however
+      # to use same variable name, as long as the value is consistent.
+      assert key not in self._vars or self._vars[key][1] == value
+      self._vars[key] = (dep, value)
+
+    self._hooks.extend([(dep, hook) for hook in dep.deps_hooks])
+    self._pre_deps_hooks.extend([(dep, hook) for hook in dep.pre_deps_hooks])
+
+    for sub_dep in dep.dependencies:
+      self._add_dep(sub_dep)
+
+    for hook_os, os_hooks in dep.os_deps_hooks.iteritems():
+      self._hooks_os.setdefault(hook_os, []).extend(
+          [(dep, hook) for hook in os_hooks])
+
+    for dep_os, os_deps in dep.os_dependencies.iteritems():
+      for os_dep in os_deps:
+        self._deps_os.setdefault(dep_os, {})[os_dep.name] = os_dep
+
+    # Process recursedeps.
+    deps_by_name = dict((d.name, d) for d in dep.dependencies)
+    # Allow recursedeps entries that refer to deps_os entries.
+    # In case there are multiple entries with the same name,
+    # we have to pick something - e.g. the first one.
+    for os_deps in dep.os_dependencies.itervalues():
+      for os_dep in os_deps:
+        if os_dep.name not in deps_by_name:
+          deps_by_name[os_dep.name] = os_dep
+    for recurse_dep_name in (dep.recursedeps or []):
+      self._flatten_dep(deps_by_name[recurse_dep_name])
+
+
 def CMDflatten(parser, args):
   """Flattens the solutions into a single DEPS file."""
   parser.add_option('--output-deps', help='Path to the output DEPS file')
   parser.add_option(
-      '--require-pinned-revisions', action='store_true',
-      help='Fail if any of the dependencies uses unpinned revision.')
+      '--pin-all-deps', action='store_true',
+      help=('Pin all deps, even if not pinned in DEPS. CAVEAT: only does so '
+            'for checked out deps, NOT deps_os.'))
   options, args = parser.parse_args(args)
 
+  options.do_not_merge_os_specific_entries = True
   options.nohooks = True
   client = GClient.LoadCurrentConfig(options)
 
@@ -1612,157 +1832,147 @@ def CMDflatten(parser, args):
   if code != 0:
     return code
 
-  deps = {}
-  hooks = []
-  pre_deps_hooks = []
-  unpinned_deps = {}
-
-  for solution in client.dependencies:
-    _FlattenSolution(solution, deps, hooks, pre_deps_hooks, unpinned_deps)
-
-  if options.require_pinned_revisions and unpinned_deps:
-    sys.stderr.write('The following dependencies are not pinned:\n')
-    sys.stderr.write('\n'.join(sorted(unpinned_deps)))
-    return 1
-
-  flattened_deps = '\n'.join(
-    _DepsToLines(deps) +
-    _HooksToLines('hooks', hooks) +
-    _HooksToLines('pre_deps_hooks', pre_deps_hooks) +
-    ['']  # Ensure newline at end of file.
-  )
+  flattener = Flattener(client, pin_all_deps=options.pin_all_deps)
 
   if options.output_deps:
     with open(options.output_deps, 'w') as f:
-      f.write(flattened_deps)
+      f.write(flattener.deps_string)
   else:
-    print(flattened_deps)
+    print(flattener.deps_string)
 
   return 0
 
 
-def _FlattenSolution(solution, deps, hooks, pre_deps_hooks, unpinned_deps):
-  """Visits a solution in order to flatten it (see CMDflatten).
-
-  Arguments:
-    solution (Dependency): one of top-level solutions in .gclient
-
-  Out-parameters:
-    deps (dict of name -> Dependency): will be filled with all Dependency
-        objects indexed by their name
-    hooks (list of (Dependency, hook)): will be filled with flattened hooks
-    pre_deps_hooks (list of (Dependency, hook)): will be filled with flattened
-        pre_deps_hooks
-    unpinned_deps (dict of name -> Dependency): will be filled with unpinned
-        deps
-  """
-  logging.debug('_FlattenSolution(%r)', solution)
-
-  _FlattenDep(solution, deps, hooks, pre_deps_hooks, unpinned_deps)
-  _FlattenRecurse(solution, deps, hooks, pre_deps_hooks, unpinned_deps)
+def _GNSettingsToLines(gn_args_file, gn_args):
+  s = []
+  if gn_args_file:
+    s.extend([
+        'gclient_gn_args_file = "%s"' % gn_args_file,
+        'gclient_gn_args = %r' % gn_args,
+    ])
+  return s
 
 
-def _FlattenDep(dep, deps, hooks, pre_deps_hooks, unpinned_deps):
-  """Visits a dependency in order to flatten it (see CMDflatten).
-
-  Arguments:
-    dep (Dependency): dependency to process
-
-  Out-parameters:
-    deps (dict): will be filled with flattened deps
-    hooks (list): will be filled with flattened hooks
-    pre_deps_hooks (list): will be filled with flattened pre_deps_hooks
-    unpinned_deps (dict): will be filled with unpinned deps
-  """
-  logging.debug('_FlattenDep(%r)', dep)
-
-  _AddDep(dep, deps, unpinned_deps)
-
-  deps_by_name = dict((d.name, d) for d in dep.dependencies)
-  for recurse_dep_name in (dep.recursedeps or []):
-    _FlattenRecurse(
-        deps_by_name[recurse_dep_name], deps, hooks, pre_deps_hooks,
-        unpinned_deps)
-
-  # TODO(phajdan.jr): also handle hooks_os.
-  hooks.extend([(dep, hook) for hook in dep.deps_hooks])
-  pre_deps_hooks.extend(
-      [(dep, {'action': hook}) for hook in dep.pre_deps_hooks])
-
-
-def _FlattenRecurse(dep, deps, hooks, pre_deps_hooks, unpinned_deps):
-  """Helper for flatten that recurses into |dep|'s dependencies.
-
-  Arguments:
-    dep (Dependency): dependency to process
-
-  Out-parameters:
-    deps (dict): will be filled with flattened deps
-    hooks (list): will be filled with flattened hooks
-    pre_deps_hooks (list): will be filled with flattened pre_deps_hooks
-    unpinned_deps (dict): will be filled with unpinned deps
-  """
-  logging.debug('_FlattenRecurse(%r)', dep)
-
-  # TODO(phajdan.jr): also handle deps_os.
-  for dep in dep.dependencies:
-    _FlattenDep(dep, deps, hooks, pre_deps_hooks, unpinned_deps)
-
-
-def _AddDep(dep, deps, unpinned_deps):
-  """Helper to add a dependency to flattened lists.
-
-  Arguments:
-    dep (Dependency): dependency to process
-
-  Out-parameters:
-    deps (dict): will be filled with flattened deps
-    unpinned_deps (dict): will be filled with unpinned deps
-  """
-  logging.debug('_AddDep(%r)', dep)
-
-  assert dep.name not in deps
-  deps[dep.name] = dep
-
-  # Detect unpinned deps.
-  _, revision = gclient_utils.SplitUrlRevision(dep.url)
-  if not revision or not gclient_utils.IsGitSha(revision):
-    unpinned_deps[dep.name] = dep
+def _AllowedHostsToLines(allowed_hosts):
+  """Converts |allowed_hosts| set to list of lines for output."""
+  if not allowed_hosts:
+    return []
+  s = ['allowed_hosts = [']
+  for h in sorted(allowed_hosts):
+    s.append('  "%s",' % h)
+  s.extend([']', ''])
+  return s
 
 
 def _DepsToLines(deps):
   """Converts |deps| dict to list of lines for output."""
+  if not deps:
+    return []
   s = ['deps = {']
   for name, dep in sorted(deps.iteritems()):
+    condition_part = (['    "condition": "%s",' % dep.condition]
+                      if dep.condition else [])
     s.extend([
         '  # %s' % dep.hierarchy(include_url=False),
-        '  "%s": "%s",' % (name, dep.url),
+        '  "%s": {' % (name,),
+        '    "url": "%s",' % (dep.raw_url,),
+    ] + condition_part + [
+        '  },',
         '',
     ])
   s.extend(['}', ''])
   return s
 
 
+def _DepsOsToLines(deps_os):
+  """Converts |deps_os| dict to list of lines for output."""
+  if not deps_os:
+    return []
+  s = ['deps_os = {']
+  for dep_os, os_deps in sorted(deps_os.iteritems()):
+    s.append('  "%s": {' % dep_os)
+    for name, dep in sorted(os_deps.iteritems()):
+      condition_part = (['      "condition": "%s",' % dep.condition]
+                        if dep.condition else [])
+      s.extend([
+          '    # %s' % dep.hierarchy(include_url=False),
+          '    "%s": {' % (name,),
+          '      "url": "%s",' % (dep.raw_url,),
+      ] + condition_part + [
+          '    },',
+          '',
+      ])
+    s.extend(['  },', ''])
+  s.extend(['}', ''])
+  return s
+
+
 def _HooksToLines(name, hooks):
   """Converts |hooks| list to list of lines for output."""
+  if not hooks:
+    return []
   s = ['%s = [' % name]
   for dep, hook in hooks:
     s.extend([
         '  # %s' % dep.hierarchy(include_url=False),
         '  {',
     ])
-    if 'name' in hook:
-      s.append('    "name": "%s",' % hook['name'])
-    if 'pattern' in hook:
-      s.append('    "pattern": "%s",' % hook['pattern'])
-    # TODO(phajdan.jr): actions may contain paths that need to be adjusted,
-    # i.e. they may be relative to the dependency path, not solution root.
+    if hook.name is not None:
+      s.append('    "name": "%s",' % hook.name)
+    if hook.pattern is not None:
+      s.append('    "pattern": "%s",' % hook.pattern)
     s.extend(
+        # Hooks run in the parent directory of their dep.
+        ['    "cwd": "%s",' % os.path.normpath(os.path.dirname(dep.name))] +
         ['    "action": ['] +
-        ['        "%s",' % arg for arg in hook['action']] +
+        ['        "%s",' % arg for arg in hook.action] +
         ['    ]', '  },', '']
     )
   s.extend([']', ''])
+  return s
+
+
+def _HooksOsToLines(hooks_os):
+  """Converts |hooks| list to list of lines for output."""
+  if not hooks_os:
+    return []
+  s = ['hooks_os = {']
+  for hook_os, os_hooks in hooks_os.iteritems():
+    s.append('  "%s": [' % hook_os)
+    for dep, hook in os_hooks:
+      s.extend([
+          '    # %s' % dep.hierarchy(include_url=False),
+          '    {',
+      ])
+      if hook.name is not None:
+        s.append('      "name": "%s",' % hook.name)
+      if hook.pattern is not None:
+        s.append('      "pattern": "%s",' % hook.pattern)
+      s.extend(
+          # Hooks run in the parent directory of their dep.
+          ['      "cwd": "%s",' % os.path.normpath(os.path.dirname(dep.name))] +
+          ['      "action": ['] +
+          ['          "%s",' % arg for arg in hook.action] +
+          ['      ]', '    },', '']
+      )
+    s.extend(['  ],', ''])
+  s.extend(['}', ''])
+  return s
+
+
+def _VarsToLines(variables):
+  """Converts |variables| dict to list of lines for output."""
+  if not variables:
+    return []
+  s = ['vars = {']
+  for key, tup in sorted(variables.iteritems()):
+    dep, value = tup
+    s.extend([
+        '  # %s' % dep.hierarchy(include_url=False),
+        '  "%s": %r,' % (key, value),
+        '',
+    ])
+  s.extend(['}', ''])
   return s
 
 
@@ -1833,10 +2043,6 @@ def CMDconfig(parser, args):
                          'to have the main solution untouched by gclient '
                          '(gclient will check out unmanaged dependencies but '
                          'will never sync them)')
-  parser.add_option('--cache-dir',
-                    help='(git only) Cache all git repos into this dir and do '
-                         'shared clones from the cache, instead of cloning '
-                         'directly from the remote. (experimental)')
   parser.set_defaults(config_filename=None)
   (options, args) = parser.parse_args(args)
   if options.output_config_file:
@@ -1983,6 +2189,10 @@ def CMDsync(parser, args):
                     help='override deps for the specified (comma-separated) '
                          'platform(s); \'all\' will process all deps_os '
                          'references')
+  # TODO(phajdan.jr): use argparse.SUPPRESS to hide internal flags.
+  parser.add_option('--do-not-merge-os-specific-entries', action='store_true',
+                    help='INTERNAL ONLY - disables merging of deps_os and '
+                         'hooks_os to dependencies and hooks')
   parser.add_option('--upstream', action='store_true',
                     help='Make repo state match upstream branch.')
   parser.add_option('--output-json',
@@ -2154,18 +2364,6 @@ def CMDrevinfo(parser, args):
   return 0
 
 
-def CMDhookinfo(parser, args):
-  """Outputs the hooks that would be run by `gclient runhooks`."""
-  (options, args) = parser.parse_args(args)
-  options.force = True
-  client = GClient.LoadCurrentConfig(options)
-  if not client:
-    raise gclient_utils.Error('client not configured; see \'gclient config\'')
-  client.RunOnDeps(None, [])
-  print('; '.join(' '.join(hook) for hook in client.GetHooks(options)))
-  return 0
-
-
 def CMDverify(parser, args):
   """Verifies the DEPS file deps are only from allowed_hosts."""
   (options, args) = parser.parse_args(args)
@@ -2215,6 +2413,12 @@ class OptionParser(optparse.OptionParser):
         '--spec',
         help='create a gclient file containing the provided string. Due to '
             'Cygwin/Python brokenness, it can\'t contain any newlines.')
+    self.add_option(
+        '--cache-dir',
+        help='(git only) Cache all git repos into this dir and do '
+             'shared clones from the cache, instead of cloning '
+             'directly from the remote. (experimental)',
+        default=os.environ.get('GCLIENT_CACHE_DIR'))
     self.add_option(
         '--no-nag-max', default=False, action='store_true',
         help='Ignored for backwards compatibility.')

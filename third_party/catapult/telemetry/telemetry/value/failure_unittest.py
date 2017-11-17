@@ -38,7 +38,7 @@ class ValueTest(TestBase):
     self.assertEquals('Exception', v0.name)
     try:
       raise NotImplementedError()
-    except Exception:
+    except NotImplementedError:
       v1 = failure.FailureValue(self.pages[0], sys.exc_info())
     self.assertEquals('NotImplementedError', v1.name)
 
@@ -59,13 +59,13 @@ class ValueTest(TestBase):
   def testFromDict(self):
     try:
       raise Exception('test')
-    except Exception:
+    except Exception: # pylint: disable=broad-except
       exc_info = sys.exc_info()
     d = {
-      'type': 'failure',
-      'name': exc_info[0].__name__,
-      'units': '',
-      'value': ''.join(traceback.format_exception(*exc_info))
+        'type': 'failure',
+        'name': exc_info[0].__name__,
+        'units': '',
+        'value': ''.join(traceback.format_exception(*exc_info))
     }
     v = value.Value.FromDict(d, {})
 

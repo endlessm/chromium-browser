@@ -62,33 +62,58 @@ if (!gl) {
 
   var loc = gl.getUniformLocation(program, "tex");
 
-  var startTime = Date.now();
-  var frameCount = 0;
+  var RUNTIME = 2000;
+  var THRESHOLD = 0.8;
+  var baseStartTime = 0;
+  var baseFrameCount = 0;
+  var testStartTime = 0;
+  var testFrameCount = 0;
 
-  function draw() {
-    for (var i = 0; i < 200; ++i) {
+  baseStartTime = Date.now();
+  function drawBaseline() {
+    for (var i = 0; i < 400; ++i) {
+      gl.uniform1i(loc, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.uniform1i(loc, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    ++baseFrameCount;
+
+    if (Date.now() - baseStartTime > RUNTIME) {
+      testStartTime = Date.now();
+      requestAnimationFrame(drawTest);
+    } else {
+      requestAnimationFrame(drawBaseline);
+    }
+  }
+
+  function drawTest() {
+    for (var i = 0; i < 400; ++i) {
       gl.uniform1i(loc, 0);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.uniform1i(loc, 1);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
-    ++frameCount;
+    ++testFrameCount;
 
-    if (Date.now() - startTime > 5000) {
-      if (frameCount > 150) {  // 30FPS
-        testPassed("Texture switching did not significantly hurt performance");
+    if (Date.now() - testStartTime > RUNTIME) {
+      var perfString = " - achieved " + testFrameCount + " frames in " + ((Date.now() - testStartTime) / 1000.0) +
+        " seconds (" + (testFrameCount / baseFrameCount).toFixed(2) + " times baseline performance)";
+      if (testFrameCount > baseFrameCount * THRESHOLD) {
+        testPassed("Texture switching did not significantly hurt performance" + perfString);
       } else {
-        testFailed("Texture switching significantly hurt performance");
+        testFailed("Texture switching significantly hurt performance" + perfString);
       }
-      console.log(frameCount);
+      console.log(testFrameCount);
       finishTest();
     } else {
-      requestAnimationFrame(draw);
+      requestAnimationFrame(drawTest);
     }
   }
 
-  requestAnimationFrame(draw);
+  requestAnimationFrame(drawBaseline);
 }
 var successfullyParsed = true;
 </script>

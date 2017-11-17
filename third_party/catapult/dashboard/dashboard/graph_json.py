@@ -144,11 +144,9 @@ def GetGraphJson(
   Returns:
     JSON serialization of a dict with info that will be used to plot a chart.
   """
-  # TODO(qyearsley): Parallelize queries if possible.
   # If a particular test has a lot of children, then a request will be made
   # for data for a lot of unselected series, which may be very slow and may
-  # time out. In this case, return nothing.
-  # TODO(qyearsley): Stop doing this when there's a better solution (#1876).
+  # time out. In this case, return nothing; see issue #1876.
   if not is_selected and len(test_paths) > _MAX_UNSELECTED_TESTS:
     return json.dumps({'data': {}, 'annotations': {}, 'error_bars': {}})
 
@@ -239,7 +237,6 @@ def _PointInfoDict(row, anomaly_annotation_map):
   """Makes a dict of properties of one Row."""
   point_info = {
       'value': row.value,
-      'a_trace_rerun_options': _GetTracingRerunOptions(row),
   }
 
   tracing_uri = _GetTracingUri(row)
@@ -384,20 +381,6 @@ def _GetTracingUri(point):
   return point.a_tracing_uri
 
 
-def _GetTracingRerunOptions(point):
-  """Gets the trace rerun options, if available.
-
-  Args:
-    point: A Row entity.
-
-  Returns:
-    A dict of {description: params} strings, or None.
-  """
-  if not hasattr(point, 'a_trace_rerun_options'):
-    return None
-  return point.a_trace_rerun_options.to_dict()
-
-
 def _GetFlotJson(revision_map, tests):
   """Constructs JSON in the format expected by Flot.
 
@@ -410,8 +393,6 @@ def _GetFlotJson(revision_map, tests):
     (This data may not be passed exactly as-is to the Flot plot function, but
     it will all be used when plotting.)
   """
-  # TODO(qyearsley): Break this function into smaller functions.
-
   # Each entry in the following dict is one Flot series object. The actual
   # x-y values will be put into the 'data' properties for each object.
   cols = {i: _FlotSeries(i) for i in range(len(tests))}

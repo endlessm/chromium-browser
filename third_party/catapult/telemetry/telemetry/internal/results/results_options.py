@@ -12,65 +12,92 @@ from py_utils import cloud_storage  # pylint: disable=import-error
 
 from telemetry.core import util
 from telemetry.internal.results import chart_json_output_formatter
+from telemetry.internal.results import csv_output_formatter
 from telemetry.internal.results import csv_pivot_table_output_formatter
 from telemetry.internal.results import gtest_progress_reporter
 from telemetry.internal.results import histogram_set_json_output_formatter
 from telemetry.internal.results import html_output_formatter
-from telemetry.internal.results import json_output_formatter
 from telemetry.internal.results import json_3_output_formatter
+from telemetry.internal.results import json_output_formatter
 from telemetry.internal.results import legacy_html_output_formatter
 from telemetry.internal.results import page_test_results
 from telemetry.internal.results import progress_reporter
 
 # Allowed output formats. The default is the first item in the list.
 
-_OUTPUT_FORMAT_CHOICES = ('html', 'gtest', 'json', 'json-test-results',
-    'chartjson', 'csv-pivot-table', 'histograms', 'legacy-html', 'none')
+_OUTPUT_FORMAT_CHOICES = (
+    'chartjson',
+    'csv',
+    'csv-pivot-table',
+    'gtest',
+    'histograms',
+    'html',
+    'json',
+    'json-test-results',
+    'legacy-html',
+    'none',
+    )
 
 
 # Filenames to use for given output formats.
 _OUTPUT_FILENAME_LOOKUP = {
+    'chartjson': 'results-chart.json',
+    'csv': 'results.csv',
+    'csv-pivot-table': 'results-pivot-table.csv',
+    'histograms': 'histograms.json',
     'html': 'results.html',
     'json': 'results.json',
     'json-test-results': 'test-results.json',
-    'chartjson': 'results-chart.json',
-    'csv-pivot-table': 'results-pivot-table.csv',
-    'histograms': 'histograms.json',
     'legacy-html': 'legacy-results.html'
 }
 
 
 def AddResultsOptions(parser):
   group = optparse.OptionGroup(parser, 'Results options')
-  group.add_option('--output-format', action='append', dest='output_formats',
-                    choices=_OUTPUT_FORMAT_CHOICES, default=[],
-                    help='Output format. Defaults to "%%default". '
-                    'Can be %s.' % ', '.join(_OUTPUT_FORMAT_CHOICES))
-  group.add_option('-o', '--output',
-                    dest='output_file',
-                    default=None,
-                    help='Redirects output to a file. Defaults to stdout.')
-  group.add_option('--output-dir', default=util.GetBaseDir(),
-                    help='Where to save output data after the run.')
-  group.add_option('--output-trace-tag',
-                    default='',
-                    help='Append a tag to the key of each result trace. Use '
-                    'with html, csv-pivot-table output formats.')
-  group.add_option('--reset-results', action='store_true',
-                    help='Delete all stored results.')
-  group.add_option('--upload-results', action='store_true',
-                    help='Upload the results to cloud storage.')
-  group.add_option('--upload-bucket', default='output',
-                    help='Storage bucket to use for the uploaded results. ' +
-                    'Defaults to output bucket. Supported values are: ' +
-                    ', '.join(cloud_storage.BUCKET_ALIAS_NAMES) +
-                    '; or a valid cloud storage bucket name.')
-  group.add_option('--results-label',
-                    default=None,
-                    help='Optional label to use for the results of a run .')
-  group.add_option('--suppress_gtest_report',
-                   default=False,
-                   help='Whether to suppress GTest progress report.')
+  group.add_option(
+      '--output-format',
+      action='append',
+      dest='output_formats',
+      choices=_OUTPUT_FORMAT_CHOICES,
+      default=[],
+      help='Output format. Defaults to "%%default". '
+      'Can be %s.' % ', '.join(_OUTPUT_FORMAT_CHOICES))
+  group.add_option(
+      '-o',
+      '--output',
+      dest='output_file',
+      default=None,
+      help='Redirects output to a file. Defaults to stdout.')
+  group.add_option(
+      '--output-dir',
+      default=util.GetBaseDir(),
+      help='Where to save output data after the run.')
+  group.add_option(
+      '--output-trace-tag',
+      default='',
+      help='Append a tag to the key of each result trace. Use '
+      'with html, csv-pivot-table output formats.')
+  group.add_option(
+      '--reset-results', action='store_true', help='Delete all stored results.')
+  group.add_option(
+      '--upload-results',
+      action='store_true',
+      help='Upload the results to cloud storage.')
+  group.add_option(
+      '--upload-bucket',
+      default='output',
+      help='Storage bucket to use for the uploaded results. ' +
+      'Defaults to output bucket. Supported values are: ' +
+      ', '.join(cloud_storage.BUCKET_ALIAS_NAMES) +
+      '; or a valid cloud storage bucket name.')
+  group.add_option(
+      '--results-label',
+      default=None,
+      help='Optional label to use for the results of a run .')
+  group.add_option(
+      '--suppress_gtest_report',
+      default=False,
+      help='Whether to suppress GTest progress report.')
   parser.add_option_group(group)
 
 
@@ -100,7 +127,7 @@ def _GetOutputStream(output_format, output_dir):
   output_file = os.path.join(output_dir, _OUTPUT_FILENAME_LOOKUP[output_format])
 
   # TODO(eakuefner): Factor this hack out after we rewrite HTMLOutputFormatter.
-  if output_format == 'html' or output_format == 'legacy-html':
+  if output_format in ['html', 'legacy-html', 'csv']:
     open(output_file, 'a').close() # Create file if it doesn't exist.
     return codecs.open(output_file, mode='r+', encoding='utf-8')
   else:
@@ -155,6 +182,10 @@ def CreateResults(benchmark_metadata, options,
       output_formatters.append(
           chart_json_output_formatter.ChartJsonOutputFormatter(
               output_stream, benchmark_metadata))
+    elif output_format == 'csv':
+      output_formatters.append(
+          csv_output_formatter.CsvOutputFormatter(
+              output_stream, options.reset_results))
     elif output_format == 'histograms':
       output_formatters.append(
           histogram_set_json_output_formatter.HistogramSetJsonOutputFormatter(
@@ -184,7 +215,7 @@ def CreateResults(benchmark_metadata, options,
       benchmark_enabled=benchmark_enabled)
 
   results.telemetry_info.benchmark_name = benchmark_metadata.name
-  results.telemetry_info.benchmark_start_ms = time.time() * 1000.0
+  results.telemetry_info.benchmark_start_epoch = time.time()
   if options.results_label:
     results.telemetry_info.label = options.results_label
 

@@ -8,6 +8,7 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/files/scoped_file.h"
 #include "base/location.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/path_service.h"
@@ -112,6 +113,9 @@ void FakeSessionManagerClient::NotifySupervisedUserCreationFinished() {
 void FakeSessionManagerClient::StartDeviceWipe() {
   start_device_wipe_call_count_++;
 }
+
+void FakeSessionManagerClient::StartTPMFirmwareUpdate(
+    const std::string& update_mode) {}
 
 void FakeSessionManagerClient::RequestLockScreen() {
   request_lock_screen_call_count_++;
@@ -255,6 +259,7 @@ void FakeSessionManagerClient::StartArcInstance(
     const cryptohome::Identification& cryptohome_id,
     bool disable_boot_completed_broadcast,
     bool enable_vendor_privileged,
+    bool native_bridge_experiment,
     const StartArcInstanceCallback& callback) {
   StartArcInstanceResult result;
   std::string container_instance_id;
@@ -265,7 +270,8 @@ void FakeSessionManagerClient::StartArcInstance(
     result = StartArcInstanceResult::UNKNOWN_ERROR;
   }
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, result, container_instance_id));
+      FROM_HERE, base::Bind(callback, result, container_instance_id,
+                            base::Passed(base::ScopedFD())));
 }
 
 void FakeSessionManagerClient::StopArcInstance(const ArcCallback& callback) {

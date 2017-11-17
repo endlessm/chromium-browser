@@ -40,6 +40,7 @@ class FakeSessionManagerClient : public SessionManagerClient {
   void NotifySupervisedUserCreationStarted() override;
   void NotifySupervisedUserCreationFinished() override;
   void StartDeviceWipe() override;
+  void StartTPMFirmwareUpdate(const std::string& update_mode) override;
   void RequestLockScreen() override;
   void NotifyLockScreenShown() override;
   void NotifyLockScreenDismissed() override;
@@ -80,6 +81,7 @@ class FakeSessionManagerClient : public SessionManagerClient {
                         const cryptohome::Identification& cryptohome_id,
                         bool disable_boot_completed_broadcast,
                         bool enable_vendor_privileged,
+                        bool native_bridge_experiment,
                         const StartArcInstanceCallback& callback) override;
   void StopArcInstance(const ArcCallback& callback) override;
   void SetArcCpuRestriction(

@@ -1681,6 +1681,16 @@ static void test_convexity(skiatest::Reporter* reporter) {
                 : SkPath::kUnknown_Convexity);
     }
 
+    path.reset();
+    path.moveTo(SkBits2Float(0xbe9171db), SkBits2Float(0xbd7eeb5d));  // -0.284072f, -0.0622362f
+    path.lineTo(SkBits2Float(0xbe9171db), SkBits2Float(0xbd7eea38));  // -0.284072f, -0.0622351f
+    path.lineTo(SkBits2Float(0xbe9171a0), SkBits2Float(0xbd7ee5a7));  // -0.28407f, -0.0622307f
+    path.lineTo(SkBits2Float(0xbe917147), SkBits2Float(0xbd7ed886));  // -0.284067f, -0.0622182f
+    path.lineTo(SkBits2Float(0xbe917378), SkBits2Float(0xbd7ee1a9));  // -0.284084f, -0.0622269f
+    path.lineTo(SkBits2Float(0xbe9171db), SkBits2Float(0xbd7eeb5d));  // -0.284072f, -0.0622362f
+    path.close();
+    check_convexity(reporter, path, SkPath::kConcave_Convexity);
+
 }
 
 static void test_isLine(skiatest::Reporter* reporter) {
@@ -1955,6 +1965,13 @@ static void test_conservativelyContains(skiatest::Reporter* reporter) {
     path.reset();
     path.lineTo(100, 100);
     REPORTER_ASSERT(reporter, !path.conservativelyContainsRect(SkRect::MakeXYWH(0, 0, 1, 1)));
+
+    // An empty path should not contain any rectangle. It's questionable whether an empty path
+    // contains an empty rectangle. However, since it is a conservative test it is ok to
+    // return false.
+    path.reset();
+    REPORTER_ASSERT(reporter, !path.conservativelyContainsRect(SkRect::MakeWH(1,1)));
+    REPORTER_ASSERT(reporter, !path.conservativelyContainsRect(SkRect::MakeWH(0,0)));
 }
 
 static void test_isRect_open_close(skiatest::Reporter* reporter) {
@@ -2556,7 +2573,7 @@ static void test_corrupt_flattening(skiatest::Reporter* reporter) {
     uint8_t buffer[1024];
     SkDEBUGCODE(size_t size =) path.writeToMemory(buffer);
     SkASSERT(size <= sizeof(buffer));
-    
+
     // find where the counts and verbs are stored : from the impl in SkPathRef.cpp
     int32_t* vCount = (int32_t*)&buffer[16];
     SkASSERT(*vCount == 5);
@@ -2565,35 +2582,35 @@ static void test_corrupt_flattening(skiatest::Reporter* reporter) {
     int32_t* cCount = (int32_t*)&buffer[24];
     SkASSERT(*cCount == 1);
     uint8_t* verbs = &buffer[28];
-    
+
     REPORTER_ASSERT(reporter, path.readFromMemory(buffer, sizeof(buffer)));
-    
+
     // check that we detect under/over-flow of counts
-    
+
     *vCount += 1;
     REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
     *vCount -= 1;   // restore
-    
+
     *pCount += 1;
     REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
     *pCount -= 2;
     REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
     *pCount += 1;   // restore
-    
+
     *cCount += 1;
     REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
     *cCount -= 2;
     REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
     *cCount += 1;   // restore
-    
+
     // Check that we detect when the verbs indicate more or fewer pts/conics
-    
+
     uint8_t save = verbs[0];
     SkASSERT(save == SkPath::kCubic_Verb);
     verbs[0] = SkPath::kQuad_Verb;
     REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
     verbs[0] = save;
-    
+
     save = verbs[1];
     SkASSERT(save == SkPath::kConic_Verb);
     verbs[1] = SkPath::kQuad_Verb;
@@ -2601,7 +2618,7 @@ static void test_corrupt_flattening(skiatest::Reporter* reporter) {
     verbs[1] = SkPath::kCubic_Verb;
     REPORTER_ASSERT(reporter, !path.readFromMemory(buffer, sizeof(buffer)));
     verbs[1] = save;
-    
+
     // Check that we detect invalid verbs
     save = verbs[1];
     verbs[1] = 17;
@@ -2921,7 +2938,7 @@ static void test_iter(skiatest::Reporter* reporter) {
     static const size_t resultPtsSizes3[] = { 1, 2, 2, 2, 1, 0 };
     static const size_t resultPtsSizes4[] = { 1, 2, 1, 1, 0 };
     static const size_t resultPtsSizes5[] = { 1, 2, 1, 1, 1, 0 };
-    static const SkPoint* resultPts1 = 0;
+    static const SkPoint* resultPts1 = nullptr;
     static const SkPoint resultPts2[] = {
         { SK_Scalar1, 0 }, { SK_Scalar1, 0 }, { SK_Scalar1, SK_Scalar1 }, { SK_Scalar1, SK_Scalar1 }, { 0, SK_Scalar1 }
     };
@@ -4460,6 +4477,48 @@ static void test_fuzz_crbug_662730(skiatest::Reporter* reporter) {
     surface->getCanvas()->drawPath(path, paint);
 }
 
+#if !defined(SK_SUPPORT_LEGACY_DELTA_AA)
+static void test_skbug_6947() {
+    SkPath path;
+    SkPoint points[] =
+        {{125.126022f, -0.499872506f}, {125.288895f, -0.499338806f},
+         {125.299316f, -0.499290764f}, {126.294594f, 0.505449712f},
+         {125.999992f, 62.5047531f}, {124.0f, 62.4980202f},
+         {124.122749f, 0.498142242f}, {125.126022f, -0.499872506f},
+         {125.119476f, 1.50011659f}, {125.122749f, 0.50012207f},
+         {126.122749f, 0.502101898f}, {126.0f, 62.5019798f},
+         {125.0f, 62.5f}, {124.000008f, 62.4952469f},
+         {124.294609f, 0.495946467f}, {125.294601f, 0.50069809f},
+         {125.289886f, 1.50068688f}, {125.282349f, 1.50065041f},
+         {125.119476f, 1.50011659f}};
+    constexpr SkPath::Verb kMove = SkPath::kMove_Verb;
+    constexpr SkPath::Verb kLine = SkPath::kLine_Verb;
+    constexpr SkPath::Verb kClose = SkPath::kClose_Verb;
+    SkPath::Verb verbs[] = {kMove, kLine, kLine, kLine, kLine, kLine, kLine, kLine, kClose,
+            kMove, kLine, kLine, kLine, kLine, kLine, kLine, kLine, kLine, kLine, kLine, kClose};
+    int pointIndex = 0;
+    for(auto verb : verbs) {
+        switch (verb) {
+            case kMove:
+                path.moveTo(points[pointIndex++]);
+                break;
+            case kLine:
+                path.lineTo(points[pointIndex++]);
+                break;
+            case kClose:
+            default:
+                path.close();
+                break;
+        }
+    }
+
+    auto surface = SkSurface::MakeRasterN32Premul(250, 125);
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    surface->getCanvas()->drawPath(path, paint);
+}
+#endif
+
 static void test_interp(skiatest::Reporter* reporter) {
     SkPath p1, p2, out;
     REPORTER_ASSERT(reporter, p1.isInterpolatable(p2));
@@ -4532,6 +4591,9 @@ DEF_TEST(Paths, reporter) {
     test_mask_overflow();
     test_path_crbugskia6003();
     test_fuzz_crbug_668907();
+#if !defined(SK_SUPPORT_LEGACY_DELTA_AA)
+    test_skbug_6947();
+#endif
 
     SkSize::Make(3, 4);
 
@@ -4745,7 +4807,7 @@ DEF_TEST(path_tight_bounds, reporter) {
                 SkRect bounds = path.getBounds();
                 SkRect tight = path.computeTightBounds();
                 REPORTER_ASSERT(reporter, bounds.contains(tight));
-                
+
                 SkRect tight2;
                 TightBounds(path, &tight2);
                 REPORTER_ASSERT(reporter, nearly_equal(tight, tight2));
@@ -4774,4 +4836,59 @@ DEF_TEST(skbug_6450, r) {
     SkRRect orr;
     orr.setRectRadii(ro, rdo);
     SkMakeNullCanvas()->drawDRRect(orr, irr, SkPaint());
+}
+
+DEF_TEST(PathRefSerialization, reporter) {
+    SkPath path;
+    const size_t numMoves = 5;
+    const size_t numConics = 7;
+    const size_t numPoints = numMoves + 2 * numConics;
+    const size_t numVerbs = numMoves + numConics;
+    for (size_t i = 0; i < numMoves; ++i) path.moveTo(1, 2);
+    for (size_t i = 0; i < numConics; ++i) path.conicTo(1, 2, 3, 4, 5);
+    REPORTER_ASSERT(reporter, path.countPoints() == numPoints);
+    REPORTER_ASSERT(reporter, path.countVerbs() == numVerbs);
+
+    // Verify that path serializes/deserializes properly.
+    sk_sp<SkData> data = path.serialize();
+    size_t bytesWritten = data->size();
+
+    {
+        SkPath readBack;
+        REPORTER_ASSERT(reporter, readBack != path);
+        size_t bytesRead = readBack.readFromMemory(data->data(), bytesWritten);
+        REPORTER_ASSERT(reporter, bytesRead == bytesWritten);
+        REPORTER_ASSERT(reporter, readBack == path);
+    }
+
+    // uint32_t[] offset into serialized path.
+    const size_t verbCountOffset = 4;
+    const size_t pointCountOffset = 5;
+    const size_t conicCountOffset = 6;
+
+    // Verify that this test is changing the right values.
+    const int* writtenValues = static_cast<const int*>(data->data());
+    REPORTER_ASSERT(reporter, writtenValues[verbCountOffset] == numVerbs);
+    REPORTER_ASSERT(reporter, writtenValues[pointCountOffset] == numPoints);
+    REPORTER_ASSERT(reporter, writtenValues[conicCountOffset] == numConics);
+
+    // Too many verbs, points, or conics fails to deserialize silently.
+    const int tooManyObjects = INT_MAX;
+    size_t offsets[] = {verbCountOffset, pointCountOffset, conicCountOffset};
+    for (size_t i = 0; i < 3; ++i) {
+        SkAutoMalloc storage_copy(bytesWritten);
+        memcpy(storage_copy.get(), data->data(), bytesWritten);
+        static_cast<int*>(storage_copy.get())[offsets[i]] = tooManyObjects;
+        SkPath readBack;
+        size_t bytesRead = readBack.readFromMemory(storage_copy.get(), bytesWritten);
+        REPORTER_ASSERT(reporter, !bytesRead);
+    }
+
+    // One less byte (rounded down to alignment) than was written will also
+    // fail to be deserialized.
+    {
+        SkPath readBack;
+        size_t bytesRead = readBack.readFromMemory(data->data(), bytesWritten - 4);
+        REPORTER_ASSERT(reporter, !bytesRead);
+    }
 }

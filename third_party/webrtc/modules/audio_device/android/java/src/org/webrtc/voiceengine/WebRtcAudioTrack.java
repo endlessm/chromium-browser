@@ -21,6 +21,7 @@ import java.lang.Thread;
 import java.nio.ByteBuffer;
 import org.webrtc.ContextUtils;
 import org.webrtc.Logging;
+import org.webrtc.ThreadUtils;
 
 public class WebRtcAudioTrack {
   private static final boolean DEBUG = false;
@@ -36,6 +37,38 @@ public class WebRtcAudioTrack {
 
   // Average number of callbacks per second.
   private static final int BUFFERS_PER_SECOND = 1000 / CALLBACK_BUFFER_SIZE_MS;
+
+  // The AudioTrackThread is allowed to wait for successful call to join()
+  // but the wait times out afther this amount of time.
+  private static final long AUDIO_TRACK_THREAD_JOIN_TIMEOUT_MS = 2000;
+
+  // By default, WebRTC creates audio tracks with a usage attribute
+  // corresponding to voice communications, such as telephony or VoIP.
+  private static final int DEFAULT_USAGE = getDefaultUsageAttribute();
+  private static int usageAttribute = DEFAULT_USAGE;
+
+  // This method overrides the default usage attribute and allows the user
+  // to set it to something else than AudioAttributes.USAGE_VOICE_COMMUNICATION.
+  // NOTE: calling this method will most likely break existing VoIP tuning.
+  public static synchronized void setAudioTrackUsageAttribute(int usage) {
+    Logging.w(TAG, "Default usage attribute is changed from: "
+        + DEFAULT_USAGE + " to " + usage);
+    usageAttribute = usage;
+  }
+
+  private static int getDefaultUsageAttribute() {
+    if (WebRtcAudioUtils.runningOnLollipopOrHigher()) {
+      return getDefaultUsageAttributeOnLollipopOrHigher();
+    } else {
+      // Not used on SDKs lower than L.
+      return 0;
+    }
+  }
+
+  @TargetApi(21)
+  private static int getDefaultUsageAttributeOnLollipopOrHigher() {
+    return AudioAttributes.USAGE_VOICE_COMMUNICATION;
+  }
 
   private final long nativeAudioTrack;
   private final AudioManager audioManager;
@@ -119,8 +152,10 @@ public class WebRtcAudioTrack {
           bytesWritten = writePreLollipop(audioTrack, byteBuffer, sizeInBytes);
         }
         if (bytesWritten != sizeInBytes) {
-          Logging.e(TAG, "AudioTrack.write failed: " + bytesWritten);
-          if (bytesWritten == AudioTrack.ERROR_INVALID_OPERATION) {
+          Logging.e(TAG, "AudioTrack.write played invalid number of bytes: " + bytesWritten);
+          // If a write() returns a negative value, an error has occurred.
+          // Stop playing and report an error in this case.
+          if (bytesWritten < 0) {
             keepAlive = false;
             reportWebRtcAudioTrackError("AudioTrack.write failed: " + bytesWritten);
           }
@@ -135,13 +170,16 @@ public class WebRtcAudioTrack {
         // audioTrack.getPlaybackHeadPosition().
       }
 
-      try {
-        audioTrack.stop();
-      } catch (IllegalStateException e) {
-        Logging.e(TAG, "AudioTrack.stop failed: " + e.getMessage());
+      // Stops playing the audio data. Since the instance was created in
+      // MODE_STREAM mode, audio will stop playing after the last buffer that
+      // was written has been played.
+      final AudioTrack at = audioTrack;
+      if (at != null) {
+        Logging.d(TAG, "Stopping the audio track...");
+        at.stop();
+        Logging.d(TAG, "The audio track has now been stopped.");
+        at.flush();
       }
-      assertTrue(audioTrack.getPlayState() == AudioTrack.PLAYSTATE_STOPPED);
-      audioTrack.flush();
     }
 
     @TargetApi(21)
@@ -153,15 +191,11 @@ public class WebRtcAudioTrack {
       return audioTrack.write(byteBuffer.array(), byteBuffer.arrayOffset(), sizeInBytes);
     }
 
-    public void joinThread() {
+    // Stops the inner thread loop and also calls AudioTrack.pause() and flush().
+    // Does not block the calling thread.
+    public void stopThread() {
+      Logging.d(TAG, "stopThread");
       keepAlive = false;
-      while (isAlive()) {
-        try {
-          join();
-        } catch (InterruptedException e) {
-          // Ignore.
-        }
-      }
     }
   }
 
@@ -264,8 +298,19 @@ public class WebRtcAudioTrack {
     Logging.d(TAG, "stopPlayout");
     assertTrue(audioThread != null);
     logUnderrunCount();
-    audioThread.joinThread();
+    audioThread.stopThread();
+
+    final Thread aThread = audioThread;
     audioThread = null;
+    if (aThread != null) {
+      Logging.d(TAG, "Stopping the AudioTrackThread...");
+      aThread.interrupt();
+      if (!ThreadUtils.joinUninterruptibly(aThread, AUDIO_TRACK_THREAD_JOIN_TIMEOUT_MS)) {
+        Logging.e(TAG, "Join of AudioTrackThread timed out.");
+      }
+      Logging.d(TAG, "AudioTrackThread has now been stopped.");
+    }
+
     releaseAudioResources();
     return true;
   }
@@ -326,10 +371,13 @@ public class WebRtcAudioTrack {
     if (sampleRateInHz != nativeOutputSampleRate) {
       Logging.w(TAG, "Unable to use fast mode since requested sample rate is not native");
     }
+    if (usageAttribute != DEFAULT_USAGE) {
+      Logging.w(TAG, "A non default usage attribute is used: " + usageAttribute);
+    }
     // Create an audio track where the audio usage is for VoIP and the content type is speech.
     return new AudioTrack(
         new AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+            .setUsage(usageAttribute)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
         .build(),
         new AudioFormat.Builder()
@@ -393,6 +441,7 @@ public class WebRtcAudioTrack {
 
   // Releases the native AudioTrack resources.
   private void releaseAudioResources() {
+    Logging.d(TAG, "releaseAudioResources");
     if (audioTrack != null) {
       audioTrack.release();
       audioTrack = null;

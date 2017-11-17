@@ -21,6 +21,7 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.blink_public.web.WebContextMenuMediaType;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.contextmenu.ChromeContextMenuPopulator.ContextMenuMode;
 import org.chromium.chrome.browser.firstrun.FirstRunStatus;
@@ -78,15 +79,21 @@ public class ChromeContextMenuPopulatorTest {
         final ContextMenuParams contextMenuParams = createLinkContextParams();
 
         List<ContextMenuItem> enabledItems = getEnabledItems(contextMenuParams);
-        Assert.assertThat(enabledItems, Matchers.contains(ChromeContextMenuItem.COPY_LINK_ADDRESS));
+        Assert.assertThat(enabledItems,
+                Matchers.contains(ChromeContextMenuItem.COPY_LINK_ADDRESS,
+                        ChromeContextMenuItem.COPY_LINK_TEXT));
 
         initializePopulator(ChromeContextMenuPopulator.CUSTOM_TAB_MODE);
         enabledItems = getEnabledItems(contextMenuParams);
-        Assert.assertThat(enabledItems, Matchers.contains(ChromeContextMenuItem.COPY_LINK_ADDRESS));
+        Assert.assertThat(enabledItems,
+                Matchers.contains(ChromeContextMenuItem.COPY_LINK_ADDRESS,
+                        ChromeContextMenuItem.COPY_LINK_TEXT));
 
         initializePopulator(ChromeContextMenuPopulator.WEB_APP_MODE);
         enabledItems = getEnabledItems(contextMenuParams);
-        Assert.assertThat(enabledItems, Matchers.contains(ChromeContextMenuItem.COPY_LINK_ADDRESS));
+        Assert.assertThat(enabledItems,
+                Matchers.contains(ChromeContextMenuItem.COPY_LINK_ADDRESS,
+                        ChromeContextMenuItem.COPY_LINK_TEXT));
     }
 
     @Test
@@ -145,12 +152,12 @@ public class ChromeContextMenuPopulatorTest {
     }
 
     private static ContextMenuParams createImageContextParams() {
-        return new ContextMenuParams(ContextMenuParams.MediaType.MEDIA_TYPE_IMAGE, PAGE_URL, "", "",
+        return new ContextMenuParams(WebContextMenuMediaType.MEDIA_TYPE_IMAGE, PAGE_URL, "", "",
                 IMAGE_SRC_URL, IMAGE_TITLE_TEXT, "", false, null, true, 0, 0);
     }
 
     private static ContextMenuParams createImageLinkContextParams() {
-        return new ContextMenuParams(ContextMenuParams.MediaType.MEDIA_TYPE_IMAGE, PAGE_URL,
-                PAGE_URL, LINK_URL, IMAGE_SRC_URL, IMAGE_TITLE_TEXT, "", false, null, true, 0, 0);
+        return new ContextMenuParams(WebContextMenuMediaType.MEDIA_TYPE_IMAGE, PAGE_URL, PAGE_URL,
+                LINK_URL, IMAGE_SRC_URL, IMAGE_TITLE_TEXT, "", false, null, true, 0, 0);
     }
 }

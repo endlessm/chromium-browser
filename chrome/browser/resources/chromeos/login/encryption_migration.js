@@ -17,7 +17,8 @@ var EncryptionMigrationUIState = {
   READY: 1,
   MIGRATING: 2,
   MIGRATION_FAILED: 3,
-  NOT_ENOUGH_SPACE: 4
+  NOT_ENOUGH_SPACE: 4,
+  MIGRATING_MINIMAL: 5
 };
 
 Polymer({
@@ -49,6 +50,11 @@ Polymer({
     batteryPercent: {type: Number, value: 0},
 
     /**
+     * Necessary battery level to start migration in percent.
+     */
+    necessaryBatteryPercent: {type: Number, value: 0},
+
+    /**
      * True if the battery level is enough to start migration.
      */
     isEnoughBattery: {type: Boolean, value: true},
@@ -57,6 +63,11 @@ Polymer({
      * True if the device is charging.
      */
     isCharging: {type: Boolean, value: false},
+
+    /**
+     * True if the migration was skipped.
+     */
+    isSkipped: {type: Boolean, value: false},
 
     /**
      * Formatted string of the current available space size.
@@ -115,12 +126,31 @@ Polymer({
   },
 
   /**
+   * Returns true if we're in minimal migration mode.
+   * @param {EncryptionMigrationUIState} state Current UI state
+   * @priave
+   */
+  isMigratingMinimal_: function(state) {
+    return state == EncryptionMigrationUIState.MIGRATING_MINIMAL;
+  },
+
+  /**
    * Returns true if the current migration progress is unknown.
    * @param {number} progress
    * @private
    */
   isProgressIndeterminate_: function(progress) {
     return progress < 0;
+  },
+
+  /**
+   * Returns true if the 'Update' button should be disabled.
+   * @param {boolean} isEnoughBattery
+   * @param {boolean} isSkipped
+   * @private
+   */
+  isUpdateDisabled_: function(isEnoughBattery, isSkipped) {
+    return !isEnoughBattery || isSkipped;
   },
 
   /**
@@ -145,11 +175,13 @@ Polymer({
 
   /**
    * Computes the label to show the necessary battery level for migration.
+   * @param {number} necessaryBatteryPercent
    * @return {string}
    * @private
    */
-  computeNecessaryBatteryLevelLabel_: function() {
-    return this.i18n('migrationNecessaryBatteryLevelLabel', 30);
+  computeNecessaryBatteryLevelLabel_: function(necessaryBatteryPercent) {
+    return this.i18n(
+        'migrationNecessaryBatteryLevelLabel', necessaryBatteryPercent);
   },
 
   /**
@@ -185,6 +217,7 @@ Polymer({
    * @private
    */
   onSkip_: function() {
+    this.isSkipped = true;
     this.fire('skip');
   },
 

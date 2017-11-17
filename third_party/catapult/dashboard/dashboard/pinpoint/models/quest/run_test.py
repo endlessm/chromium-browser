@@ -8,9 +8,6 @@ This is the only Quest/Execution where the Execution has a reference back to
 modify the Quest.
 """
 
-import json
-import os
-
 from dashboard.pinpoint.models.quest import execution as execution_module
 from dashboard.pinpoint.models.quest import quest
 from dashboard.services import swarming_service
@@ -19,19 +16,6 @@ from dashboard.services import swarming_service
 class RunTestError(Exception):
 
   pass
-
-
-class UnknownConfigError(RunTestError):
-
-  def __init__(self, configuration):
-    self.configuration = configuration
-    super(UnknownConfigError, self).__init__(
-        'There are no swarming bots corresponding to config "%s".' %
-        self.configuration)
-
-  def __reduce__(self):
-    # http://stackoverflow.com/a/36342588
-    return UnknownConfigError, (self.configuration,)
 
 
 class SwarmingTaskError(RunTestError):
@@ -64,29 +48,27 @@ class SwarmingTestError(RunTestError):
 
 class RunTest(quest.Quest):
 
-  def __init__(self, configuration, test_suite, test):
-    self._configuration = configuration
-    self._test_suite = test_suite
-    self._test = test
+  def __init__(self, dimensions, extra_args):
+    self._dimensions = dimensions
+    self._extra_args = extra_args
 
     # We want subsequent executions use the same bot as the first one.
     self._first_execution = None
 
-  def __str__(self):
-    if self._test:
-      running = '/'.join((self._test_suite, self._test))
-    else:
-      running = self._test_suite
-    return 'Run %s on %s' % (running, self._configuration)
+  def __eq__(self, other):
+    return (isinstance(other, type(self)) and
+            self._dimensions == other._dimensions and
+            self._extra_args == other._extra_args and
+            self._first_execution == other._first_execution)
 
-  @property
-  def retry_count(self):
-    return 4
+
+  def __str__(self):
+    return 'Test'
 
   def Start(self, isolate_hash):
-    execution = _RunTestExecution(self._configuration, self._test_suite,
-                                  self._test, isolate_hash,
-                                  first_execution=self._first_execution)
+    execution = _RunTestExecution(
+        self._dimensions, self._extra_args, isolate_hash,
+        first_execution=self._first_execution)
 
     if not self._first_execution:
       self._first_execution = execution
@@ -96,49 +78,60 @@ class RunTest(quest.Quest):
 
 class _RunTestExecution(execution_module.Execution):
 
-  def __init__(self, configuration, test_suite, test, isolate_hash,
+  def __init__(self, dimensions, extra_args, isolate_hash,
                first_execution=None):
     super(_RunTestExecution, self).__init__()
-    self._configuration = configuration
-    self._test_suite = test_suite
-    self._test = test
+    self._dimensions = dimensions
+    self._extra_args = extra_args
     self._isolate_hash = isolate_hash
     self._first_execution = first_execution
 
-    self._task_id = None
-    self._bot_id = None
+    self._task_ids = []
+    self._bot_ids = []
 
   @property
-  def bot_id(self):
-    return self._bot_id
+  def bot_ids(self):
+    return tuple(self._bot_ids)
+
+  def _AsDict(self):
+    return {
+        'bot_ids': self._bot_ids,
+        'task_ids': self._task_ids,
+        'input_isolate_hash': self._isolate_hash,
+    }
 
   def _Poll(self):
-    if not self._task_id:
+    if not self._task_ids:
       self._StartTask()
       return
 
-    result = swarming_service.Task(self._task_id).Result()
+    self._bot_ids = []
+    isolate_hashes = []
+    for task_id in self._task_ids:
+      result = swarming_service.Task(task_id).Result()
 
-    if 'bot_id' in result:
-      # Set bot_id to pass the info back to the Quest.
-      self._bot_id = result['bot_id']
+      if 'bot_id' in result:
+        # Set bot_id to pass the info back to the Quest.
+        self._bot_ids.append(result['bot_id'])
 
-    if result['state'] == 'PENDING' or result['state'] == 'RUNNING':
-      return
+      if result['state'] == 'PENDING' or result['state'] == 'RUNNING':
+        return
 
-    if result['state'] != 'COMPLETED':
-      raise SwarmingTaskError(self._task_id, result['state'])
+      if result['state'] != 'COMPLETED':
+        raise SwarmingTaskError(task_id, result['state'])
 
-    if result['failure']:
-      raise SwarmingTestError(self._task_id, result['exit_code'])
+      if result['failure']:
+        raise SwarmingTestError(task_id, result['exit_code'])
 
-    result_arguments = {'isolate_hash': result['outputs_ref']['isolated']}
+      isolate_hashes.append(result['outputs_ref']['isolated'])
+
+    result_arguments = {'isolate_hashes': tuple(isolate_hashes)}
     self._Complete(result_arguments=result_arguments)
 
 
   def _StartTask(self):
     """Kick off a Swarming task to run a test."""
-    if self._first_execution and not self._first_execution._bot_id:
+    if self._first_execution and not self._first_execution.bot_ids:
       if self._first_execution.failed:
         # If the first Execution fails before it gets a bot ID, it's likely it
         # couldn't find any device to run on. Subsequent Executions probably
@@ -148,54 +141,29 @@ class _RunTestExecution(execution_module.Execution):
       else:
         return
 
-    # TODO: Support non-Telemetry tests.
-    extra_args = [self._test_suite]
-    if self._test:
-      extra_args.append('--story-filter')
-      extra_args.append(self._test)
-    # TODO: Use the correct browser for Android and 64-bit Windows.
-    extra_args += [
-        '-v', '--upload-results',
-        '--output-format=chartjson', '--browser=release',
-        '--isolated-script-test-output=${ISOLATED_OUTDIR}/output.json',
-        '--isolated-script-test-chartjson-output='
-        '${ISOLATED_OUTDIR}/chartjson-output.json',
-    ]
-
     dimensions = [{'key': 'pool', 'value': 'Chrome-perf-pinpoint'}]
     if self._first_execution:
-      dimensions.append({'key': 'id', 'value': self._first_execution.bot_id})
+      dimensions.append({
+          'key': 'id',
+          # TODO: Use all the bot ids.
+          'value': self._first_execution.bot_ids[0]
+      })
     else:
-      dimensions += _ConfigurationDimensions(self._configuration)
+      dimensions += self._dimensions
 
     body = {
-        'name': 'Pinpoint job on %s' % self._configuration,
+        'name': 'Pinpoint job',
         'user': 'Pinpoint',
         'priority': '100',
-        'expiration_secs': '600',
+        'expiration_secs': '36000',  # 10 hours.
         'properties': {
             'inputs_ref': {'isolated': self._isolate_hash},
-            'extra_args': extra_args,
+            'extra_args': self._extra_args,
             'dimensions': dimensions,
-            'execution_timeout_secs': '3600',
+            'execution_timeout_secs': '7200',  # 2 hours.
             'io_timeout_secs': '3600',
         },
-        'tags': [
-            'configuration:' + self._configuration,
-        ],
     }
     response = swarming_service.Tasks().New(body)
 
-    self._task_id = response['task_id']
-
-
-def _ConfigurationDimensions(configuration):
-  bot_dimensions_path = os.path.join(os.path.dirname(__file__),
-                                     'bot_dimensions.json')
-  with open(bot_dimensions_path) as bot_dimensions_file:
-    bot_dimensions = json.load(bot_dimensions_file)
-
-  if configuration not in bot_dimensions:
-    raise UnknownConfigError(configuration)
-
-  return bot_dimensions[configuration]
+    self._task_ids.append(response['task_id'])

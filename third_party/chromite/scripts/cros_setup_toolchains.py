@@ -7,7 +7,9 @@
 from __future__ import print_function
 
 import copy
+import errno
 import glob
+import hashlib
 import json
 import os
 import re
@@ -75,7 +77,6 @@ TARGET_LLVM_PKGS_ENABLED = (
 )
 
 LLVM_PKGS_TABLE = {
-    'ex_llvm-libunwind' : ['--ex-pkg', 'sys-libs/llvm-libunwind'],
     'ex_libcxxabi' : ['--ex-pkg', 'sys-libs/libcxxabi'],
     'ex_libcxx' : ['--ex-pkg', 'sys-libs/libcxx'],
 }
@@ -103,19 +104,57 @@ class Crossdev(object):
   # Packages that needs separate handling, in addition to what we have from
   # crossdev.
   MANUAL_PKGS = {
+      'clang': 'sys-devel',
       'llvm': 'sys-devel',
+      'libcxxabi': 'sys-libs',
+      'libcxx': 'sys-libs',
   }
 
   @classmethod
   def Load(cls, reconfig):
-    """Load crossdev cache from disk."""
+    """Load crossdev cache from disk.
+
+    We invalidate the cache when crossdev updates or this script changes.
+    """
     crossdev_version = GetStablePackageVersion('sys-devel/crossdev', True)
-    cls._CACHE = {'crossdev_version': crossdev_version}
-    if os.path.exists(cls._CACHE_FILE) and not reconfig:
-      with open(cls._CACHE_FILE) as f:
-        data = json.load(f)
-        if crossdev_version == data.get('crossdev_version'):
-          cls._CACHE = data
+    # If we run the compiled/cached .pyc file, we'll read/hash that when we
+    # really always want to track the source .py file.
+    script = os.path.abspath(__file__)
+    if script.endswith('.pyc'):
+      script = script[:-1]
+    setup_toolchains_hash = hashlib.md5(osutils.ReadFile(script)).hexdigest()
+
+    cls._CACHE = {
+        'crossdev_version': crossdev_version,
+        'setup_toolchains_hash': setup_toolchains_hash,
+    }
+
+    logging.debug('cache: checking file: %s', cls._CACHE_FILE)
+    if reconfig:
+      logging.debug('cache: forcing regen due to reconfig')
+      return
+
+    try:
+      file_data = osutils.ReadFile(cls._CACHE_FILE)
+    except IOError as e:
+      if e.errno != errno.ENOENT:
+        logging.warning('cache: reading failed: %s', e)
+        osutils.SafeUnlink(cls._CACHE_FILE)
+      return
+
+    try:
+      data = json.loads(file_data)
+    except ValueError as e:
+      logging.warning('cache: ignoring invalid content: %s', e)
+      return
+
+    if crossdev_version != data.get('crossdev_version'):
+      logging.debug('cache: rebuilding after crossdev upgrade')
+    elif setup_toolchains_hash != data.get('setup_toolchains_hash'):
+      logging.debug('cache: rebuilding after cros_setup_toolchains change')
+    else:
+      logging.debug('cache: content is up-to-date!')
+      cls._CACHE = data
 
   @classmethod
   def Save(cls):
@@ -859,9 +898,6 @@ def _GetFilesForTarget(target, root='/'):
 
   # Find all the files owned by the packages for this target.
   for pkg in GetTargetPackages(target):
-    # Ignore packages that are part of the target sysroot.
-    if pkg in ('kernel', 'libc'):
-      continue
 
     # Skip Go compiler from redistributable packages.
     # The "go" executable has GOROOT=/usr/lib/go/${CTARGET} hardcoded

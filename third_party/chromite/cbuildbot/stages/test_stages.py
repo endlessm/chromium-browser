@@ -7,6 +7,7 @@
 from __future__ import print_function
 
 import collections
+import math
 import os
 
 from chromite.cbuildbot import afdo
@@ -17,6 +18,7 @@ from chromite.cbuildbot.stages import generic_stages
 from chromite.lib import cgroups
 from chromite.lib import config_lib
 from chromite.lib import constants
+from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
 from chromite.lib import gs
@@ -291,11 +293,15 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
 
   def __init__(
       self, builder_run, board, model, suite_config, suffix=None, **kwargs):
+
+    if suffix is None:
+      suffix = ''
+
     if board is not model:
-      if suffix is None:
-        suffix = ' [%s]' % (model)
-      else:
-        suffix = '%s [%s]' % (suffix, model)
+      suffix += ' [%s]' % (model)
+
+    if not self.TestsEnabled(builder_run):
+      suffix += ' [DISABLED]'
 
     suffix = self.UpdateSuffix(suite_config.suite, suffix)
     super(HWTestStage, self).__init__(builder_run, board,
@@ -418,6 +424,14 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
 
     return True
 
+  def TestsEnabled(self, builder_run):
+    """Abstract the logic to decide if tests are enabled."""
+    if (builder_run.options.remote_trybot and
+        (builder_run.options.hwtest or builder_run.config.pre_cq)):
+      return not builder_run.options.debug_forced
+    else:
+      return not builder_run.options.debug
+
   def PerformStage(self):
     if self.suite_config.suite == constants.HWTEST_AFDO_SUITE:
       arch = self._GetPortageEnvVar('ARCH', self._current_board)
@@ -430,12 +444,26 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
                      arch, cpv.version_no_rev.split('_')[0])
         return
 
+    if self.suite_config.suite in [constants.HWTEST_CTS_QUAL_SUITE,
+                                   constants.HWTEST_GTS_QUAL_SUITE]:
+      # Increase the priority for CTS/GTS qualification suite as we want stable
+      # build to have higher priority than beta build (again higher than dev).
+      try:
+        cros_vers = self._run.GetVersionInfo().VersionString().split('.')
+        if not isinstance(self.suite_config.priority, (int, long)):
+          # Convert CTS/GTS priority to corresponding integer value.
+          self.suite_config.priority = constants.HWTEST_PRIORITIES_MAP[
+              self.suite_config.priority]
+        # We add 1/10 of the branch version to the priority. This results in a
+        # modest priority bump the older the branch is. Typically beta priority
+        # would be dev + [1..4] and stable priority dev + [5..9].
+        self.suite_config.priority += int(math.ceil(float(cros_vers[1]) / 10.0))
+      except cbuildbot_run.VersionNotSetError:
+        logging.debug('Could not obtain version info. %s will use initial '
+                      'priority value: %s', self.suite_config.suite,
+                      self.suite_config.priority)
+
     build = '/'.join([self._bot_id, self.version])
-    if (self._run.options.remote_trybot and (self._run.options.hwtest or
-                                             self._run.config.pre_cq)):
-      debug = self._run.options.debug_forced
-    else:
-      debug = self._run.options.debug
 
     # Get the subsystems set for the board to test
     per_board_dict = self._run.attrs.metadata.GetDict()['board-metadata']
@@ -466,7 +494,8 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
         minimum_duts=self.suite_config.minimum_duts,
         suite_min_duts=self.suite_config.suite_min_duts,
         offload_failures_only=self.suite_config.offload_failures_only,
-        debug=debug, subsystems=subsystems, skip_duts_check=skip_duts_check,
+        debug=not self.TestsEnabled(self._run),
+        subsystems=subsystems, skip_duts_check=skip_duts_check,
         job_keyvals=self.GetJobKeyvals())
 
     if config_lib.IsCQType(self._run.config.build_type):
@@ -508,6 +537,15 @@ class AUTestStage(HWTestStage):
       self.UploadArtifact(tarball)
 
     super(AUTestStage, self).PerformStage()
+
+
+class ForgivenVMTestStage(VMTestStage, generic_stages.ForgivingBuilderStage):
+  """Stage that forgives vm test failures."""
+
+  stage_name = "ForgivenVMTest"
+
+  def __init__(self, *args, **kwargs):
+    super(ForgivenVMTestStage, self).__init__(*args, **kwargs)
 
 
 class ASyncHWTestStage(HWTestStage, generic_stages.ForgivingBuilderStage):
@@ -623,6 +661,25 @@ class CrosSigningTestStage(generic_stages.BuilderStage):
   def PerformStage(self):
     """Run the cros-signing unittests."""
     commands.RunCrosSigningTests(self._build_root)
+
+
+class AutotestTestStage(generic_stages.BuilderStage):
+  """Stage that runs Chromite tests, including network tests."""
+
+  SUITE_SCHEDULER_TEST = ('src/third_party/autotest/files/'
+                          'site_utils/suite_scheduler/suite_scheduler.py')
+
+  SUITE_SCHEDULER_INI = ('chromeos-admin/puppet/modules/lab/files/'
+                         'autotest_cautotest/suite_scheduler.ini')
+
+  def PerformStage(self):
+    """Run the tests."""
+    # Run the Suite Scheduler INI test.
+    cmd = [os.path.join(self._build_root, self.SUITE_SCHEDULER_TEST),
+           '--sanity', '-f',
+           os.path.join(self._build_root, self.SUITE_SCHEDULER_INI)]
+
+    cros_build_lib.RunCommand(cmd, cwd=self._build_root)
 
 
 class ChromiteTestStage(generic_stages.BuilderStage):

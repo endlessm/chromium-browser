@@ -38,6 +38,7 @@
 #include "SkTileImageFilter.h"
 #include "SkXfermodeImageFilter.h"
 #include "Test.h"
+#include "sk_tool_utils.h"
 
 #if SK_SUPPORT_GPU
 #include "GrContext.h"
@@ -749,12 +750,9 @@ DEF_TEST(ImageFilterDrawTiled, reporter) {
             }
             untiledCanvas.flush();
             tiledCanvas.flush();
-            for (int y = 0; y < height; y++) {
-                int diffs = memcmp(untiledResult.getAddr32(0, y), tiledResult.getAddr32(0, y), untiledResult.rowBytes());
-                REPORTER_ASSERT_MESSAGE(reporter, !diffs, filters.getName(i));
-                if (diffs) {
-                    break;
-                }
+            if (!sk_tool_utils::equal_pixels(untiledResult, tiledResult, 1)) {
+                REPORTER_ASSERT_MESSAGE(reporter, false, filters.getName(i));
+                break;
             }
         }
     }
@@ -1413,7 +1411,8 @@ DEF_TEST(ImageFilterMatrixConvolutionSanityTest, reporter) {
     REPORTER_ASSERT(reporter, nullptr == conv.get());
 }
 
-static void test_xfermode_cropped_input(SkCanvas* canvas, skiatest::Reporter* reporter) {
+static void test_xfermode_cropped_input(SkSurface* surf, skiatest::Reporter* reporter) {
+    auto canvas = surf->getCanvas();
     canvas->clear(0);
 
     SkBitmap bitmap;
@@ -1442,17 +1441,17 @@ static void test_xfermode_cropped_input(SkCanvas* canvas, skiatest::Reporter* re
 
     uint32_t pixel;
     SkImageInfo info = SkImageInfo::Make(1, 1, kBGRA_8888_SkColorType, kUnpremul_SkAlphaType);
-    canvas->readPixels(info, &pixel, 4, 0, 0);
+    surf->readPixels(info, &pixel, 4, 0, 0);
     REPORTER_ASSERT(reporter, pixel == SK_ColorGREEN);
 
     paint.setImageFilter(std::move(xfermodeNoBg));
     canvas->drawBitmap(bitmap, 0, 0, &paint);   // drawSprite
-    canvas->readPixels(info, &pixel, 4, 0, 0);
+    surf->readPixels(info, &pixel, 4, 0, 0);
     REPORTER_ASSERT(reporter, pixel == SK_ColorGREEN);
 
     paint.setImageFilter(std::move(xfermodeNoFgNoBg));
     canvas->drawBitmap(bitmap, 0, 0, &paint);   // drawSprite
-    canvas->readPixels(info, &pixel, 4, 0, 0);
+    surf->readPixels(info, &pixel, 4, 0, 0);
     REPORTER_ASSERT(reporter, pixel == SK_ColorGREEN);
 }
 
@@ -1491,26 +1490,23 @@ DEF_TEST(ImageFilterNestedSaveLayer, reporter) {
 
     SkImageInfo info = SkImageInfo::Make(1, 1, kBGRA_8888_SkColorType, kUnpremul_SkAlphaType);
     uint32_t pixel;
-    canvas.readPixels(info, &pixel, 4, 25, 25);
+    temp.readPixels(info, &pixel, 4, 25, 25);
     REPORTER_ASSERT(reporter, pixel == SK_ColorGREEN);
 
     // Test that drawSprite() with a filter nested inside a saveLayer() applies the
     // correct offset to the filter matrix.
     canvas.clear(0x0);
-    canvas.readPixels(info, &pixel, 4, 25, 25);
+    temp.readPixels(info, &pixel, 4, 25, 25);
     canvas.saveLayer(&bounds1, nullptr);
     canvas.drawBitmap(bitmap, 20, 20, &filterPaint);    // drawSprite
     canvas.restore();
 
-    canvas.readPixels(info, &pixel, 4, 25, 25);
+    temp.readPixels(info, &pixel, 4, 25, 25);
     REPORTER_ASSERT(reporter, pixel == SK_ColorGREEN);
 }
 
 DEF_TEST(XfermodeImageFilterCroppedInput, reporter) {
-    SkBitmap temp;
-    temp.allocN32Pixels(100, 100);
-    SkCanvas canvas(temp);
-    test_xfermode_cropped_input(&canvas, reporter);
+    test_xfermode_cropped_input(SkSurface::MakeRasterN32Premul(100, 100).get(), reporter);
 }
 
 static void test_composed_imagefilter_offset(skiatest::Reporter* reporter, GrContext* context) {
@@ -1834,9 +1830,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(XfermodeImageFilterCroppedInput_Gpu, reporter
             SkBudgeted::kNo,
             SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType)));
 
-    SkCanvas* canvas = surf->getCanvas();
-
-    test_xfermode_cropped_input(canvas, reporter);
+    test_xfermode_cropped_input(surf.get(), reporter);
 }
 
 DEF_GPUTEST_FOR_ALL_CONTEXTS(ImageFilterBlurLargeImage_Gpu, reporter, ctxInfo) {

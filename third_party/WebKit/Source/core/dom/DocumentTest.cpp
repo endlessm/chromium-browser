@@ -319,8 +319,7 @@ class MockDocumentValidationMessageClient
   // DEFINE_INLINE_VIRTUAL_TRACE() { ValidationMessageClient::trace(visitor); }
 };
 
-class MockWebApplicationCacheHost
-    : NON_EXPORTED_BASE(public blink::WebApplicationCacheHost) {
+class MockWebApplicationCacheHost : public blink::WebApplicationCacheHost {
  public:
   MockWebApplicationCacheHost() {}
   ~MockWebApplicationCacheHost() override {}
@@ -677,7 +676,7 @@ TEST_F(DocumentTest, SynchronousMutationNotifierMoveTreeToNewDocument) {
   move_sample->appendChild(GetDocument().createTextNode("b456"));
   GetDocument().body()->AppendChild(move_sample);
 
-  Document& another_document = *Document::Create();
+  Document& another_document = *Document::CreateForTest();
   another_document.AppendChild(move_sample);
 
   EXPECT_EQ(1u, observer.MoveTreeToNewDocumentNodes().size());
@@ -914,6 +913,26 @@ TEST_F(DocumentTest,
       GetDocument().getElementById("stickyChild"));
   EXPECT_EQ(DocumentLifecycle::kCompositingInputsClean,
             GetDocument().Lifecycle().GetState());
+}
+
+// Tests that the difference in computed style of direction on the html and body
+// elements does not trigger a style recalc for viewport style propagation when
+// the computed style for another element in the document is recalculated.
+TEST_F(DocumentTest, ViewportPropagationNoRecalc) {
+  SetHtmlInnerHTML(
+      "<body style='direction:rtl'>"
+      "  <div id=recalc></div>"
+      "</body>");
+
+  int old_element_count = GetDocument().GetStyleEngine().StyleForElementCount();
+
+  Element* div = GetDocument().getElementById("recalc");
+  div->setAttribute("style", "color:green");
+  GetDocument().UpdateStyleAndLayoutTree();
+
+  int new_element_count = GetDocument().GetStyleEngine().StyleForElementCount();
+
+  EXPECT_EQ(1, new_element_count - old_element_count);
 }
 
 }  // namespace blink

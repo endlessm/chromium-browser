@@ -47,10 +47,14 @@ void TestPaletteDelegate::TakePartialScreenshot(const base::Closure& done) {
 
 void TestPaletteDelegate::CancelPartialScreenshot() {}
 
-void TestPaletteDelegate::ShowMetalayer() {
+void TestPaletteDelegate::ShowMetalayer(base::OnceClosure done,
+                                        bool via_button) {
   ++show_metalayer_count_;
-  if (highlighter_test_api_)
+  if (highlighter_test_api_) {
+    highlighter_test_api_->SetMetalayerDone(std::move(done));
+    highlighter_test_api_->SetViaButton(via_button);
     highlighter_test_api_->SetEnabled(true);
+  }
 }
 
 void TestPaletteDelegate::HideMetalayer() {

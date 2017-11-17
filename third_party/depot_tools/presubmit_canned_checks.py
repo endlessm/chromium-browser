@@ -976,33 +976,6 @@ def _GerritOwnerAndReviewers(input_api, email_regexp, approval_needed=False):
   return owner_email, reviewers
 
 
-def _CheckConstNSObject(input_api, output_api, source_file_filter):
-  """Checks to make sure no objective-c files have |const NSSomeClass*|."""
-  pattern = input_api.re.compile(
-    r'(?<!reinterpret_cast<)'
-    r'const\s+NS(?!(Point|Range|Rect|Size)\s*\*)\w*\s*\*')
-
-  def objective_c_filter(f):
-    return (source_file_filter(f) and
-            input_api.os_path.splitext(f.LocalPath())[1] in ('.h', '.m', '.mm'))
-
-  files = []
-  for f in input_api.AffectedSourceFiles(objective_c_filter):
-    contents = input_api.ReadFile(f)
-    if pattern.search(contents):
-      files.append(f)
-
-  if files:
-    if input_api.is_committing:
-      res_type = output_api.PresubmitPromptWarning
-    else:
-      res_type = output_api.PresubmitNotifyResult
-    return [ res_type('|const NSClass*| is wrong, see ' +
-                      'http://dev.chromium.org/developers/clang-mac',
-                      files) ]
-  return []
-
-
 def CheckSingletonInHeaders(input_api, output_api, source_file_filter=None):
   """Deprecated, must be removed."""
   return [
@@ -1093,9 +1066,6 @@ def PanProjectChecks(input_api, output_api,
   snapshot( "checking stray whitespace")
   results.extend(input_api.canned_checks.CheckChangeHasNoStrayWhitespace(
       input_api, output_api, source_file_filter=sources))
-  snapshot("checking nsobjects")
-  results.extend(_CheckConstNSObject(
-      input_api, output_api, source_file_filter=sources))
   snapshot("checking license")
   results.extend(input_api.canned_checks.CheckLicense(
       input_api, output_api, license_header, source_file_filter=sources))
@@ -1118,7 +1088,7 @@ def PanProjectChecks(input_api, output_api,
 
 def CheckPatchFormatted(input_api, output_api, check_js=False):
   import git_cl
-  cmd = ['cl', 'format', '--dry-run']
+  cmd = ['cl', 'format', '--dry-run', '--presubmit']
   if check_js:
     cmd.append('--js')
   cmd.append(input_api.PresubmitLocalPath())

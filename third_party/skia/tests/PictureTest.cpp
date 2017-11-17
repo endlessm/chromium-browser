@@ -848,8 +848,7 @@ static void test_typeface(skiatest::Reporter* reporter) {
     SkPictureRecorder recorder;
     SkCanvas* canvas = recorder.beginRecording(10, 10);
     SkPaint paint;
-    paint.setTypeface(SkTypeface::MakeFromName("Arial",
-                                               SkFontStyle::FromOldStyle(SkTypeface::kItalic)));
+    paint.setTypeface(SkTypeface::MakeFromName("Arial", SkFontStyle::Italic()));
     canvas->drawString("Q", 0, 10, paint);
     sk_sp<SkPicture> picture(recorder.finishRecordingAsPicture());
     SkDynamicMemoryWStream stream;
@@ -943,7 +942,7 @@ DEF_TEST(DontOptimizeSaveLayerDrawDrawRestore, reporter) {
     SkCanvas* canvas = recorder.beginRecording(100, 100);
     canvas->drawColor(0);
 
-    canvas->saveLayer(0, &semiTransparent);
+    canvas->saveLayer(nullptr, &semiTransparent);
     canvas->drawBitmap(blueBM, 25, 25);
     canvas->drawBitmap(redBM, 50, 50);
     canvas->restore();
@@ -1171,4 +1170,26 @@ DEF_TEST(Picture_UpdatedCull_2, r) {
     canvas->drawRect(SkRect::MakeWH(10,40), SkPaint{});
     pic = recorder.finishRecordingAsPicture();
     REPORTER_ASSERT(r, pic->cullRect() == SkRect::MakeLargest());
+}
+
+DEF_TEST(Picture_RecordsFlush, r) {
+    SkPictureRecorder recorder;
+
+    auto canvas = recorder.beginRecording(SkRect::MakeWH(100,100));
+    for (int i = 0; i < 10; i++) {
+        canvas->clear(0);
+        for (int j = 0; j < 10; j++) {
+            canvas->drawRect(SkRect::MakeXYWH(i*10,j*10,10,10), SkPaint());
+        }
+        canvas->flush();
+    }
+
+    // Did we record the flushes?
+    auto pic = recorder.finishRecordingAsPicture();
+    REPORTER_ASSERT(r, pic->approximateOpCount() == 120);  // 10 clears, 100 draws, 10 flushes
+
+    // Do we serialize and deserialize flushes?
+    auto skp = pic->serialize();
+    auto back = SkPicture::MakeFromData(skp->data(), skp->size());
+    REPORTER_ASSERT(r, back->approximateOpCount() == pic->approximateOpCount());
 }

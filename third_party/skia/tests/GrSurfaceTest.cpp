@@ -12,6 +12,7 @@
 #include "GrContext.h"
 #include "GrContextPriv.h"
 #include "GrGpu.h"
+#include "GrRenderTarget.h"
 #include "GrResourceProvider.h"
 #include "GrTest.h"
 #include "GrTexture.h"
@@ -24,10 +25,11 @@
 DEF_GPUTEST_FOR_NULLGL_CONTEXT(GrSurface, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
     GrSurfaceDesc desc;
-    desc.fConfig = kRGBA_8888_GrPixelConfig;
     desc.fFlags = kRenderTarget_GrSurfaceFlag;
+    desc.fOrigin = kBottomLeft_GrSurfaceOrigin;
     desc.fWidth = 256;
     desc.fHeight = 256;
+    desc.fConfig = kRGBA_8888_GrPixelConfig;
     desc.fSampleCnt = 0;
     sk_sp<GrSurface> texRT1 = context->resourceProvider()->createTexture(desc, SkBudgeted::kNo);
 
@@ -41,6 +43,7 @@ DEF_GPUTEST_FOR_NULLGL_CONTEXT(GrSurface, reporter, ctxInfo) {
                     static_cast<GrSurface*>(texRT1->asTexture()));
 
     desc.fFlags = kNone_GrSurfaceFlags;
+    desc.fOrigin = kTopLeft_GrSurfaceOrigin;
     sk_sp<GrTexture> tex1 = context->resourceProvider()->createTexture(desc, SkBudgeted::kNo);
     REPORTER_ASSERT(reporter, nullptr == tex1->asRenderTarget());
     REPORTER_ASSERT(reporter, tex1.get() == tex1->asTexture());
@@ -55,7 +58,7 @@ DEF_GPUTEST_FOR_NULLGL_CONTEXT(GrSurface, reporter, ctxInfo) {
                                                                backendTexHandle);
 
     sk_sp<GrSurface> texRT2 = context->resourceProvider()->wrapRenderableBackendTexture(
-            backendTex, kTopLeft_GrSurfaceOrigin, 0, kBorrow_GrWrapOwnership);
+            backendTex, 0, kBorrow_GrWrapOwnership);
 
     REPORTER_ASSERT(reporter, texRT2.get() == texRT2->asRenderTarget());
     REPORTER_ASSERT(reporter, texRT2.get() == texRT2->asTexture());
@@ -112,8 +115,8 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(GrSurfaceRenderability, reporter, ctxInfo) {
         for (GrSurfaceOrigin origin : { kTopLeft_GrSurfaceOrigin, kBottomLeft_GrSurfaceOrigin }) {
             desc.fFlags = kNone_GrSurfaceFlags;
             desc.fOrigin = origin;
-            desc.fSampleCnt = 0;
             desc.fConfig = config;
+            desc.fSampleCnt = 0;
 
             sk_sp<GrSurface> tex = resourceProvider->createTexture(desc, SkBudgeted::kNo);
             REPORTER_ASSERT(reporter, SkToBool(tex.get()) == caps->isConfigTexturable(desc.fConfig));
@@ -184,7 +187,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(InitialTextureClear, reporter, context_info) 
                             if (!tex) {
                                 continue;
                             }
-                            auto proxy = GrSurfaceProxy::MakeWrapped(std::move(tex));
+                            auto proxy = GrSurfaceProxy::MakeWrapped(std::move(tex), desc.fOrigin);
                             auto texCtx = context->contextPriv().makeWrappedSurfaceContext(
                                     std::move(proxy), nullptr);
                             SkImageInfo info = SkImageInfo::Make(

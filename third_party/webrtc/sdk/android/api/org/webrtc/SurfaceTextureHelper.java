@@ -10,6 +10,8 @@
 
 package org.webrtc;
 
+import android.annotation.TargetApi;
+import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
@@ -21,6 +23,8 @@ import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import org.webrtc.VideoFrame.I420Buffer;
+import org.webrtc.VideoFrame.TextureBuffer;
 
 /**
  * Helper class to create and synchronize access to a SurfaceTexture. The caller will get notified
@@ -36,10 +40,8 @@ public class SurfaceTextureHelper {
   private static final String TAG = "SurfaceTextureHelper";
   /**
    * Callback interface for being notified that a new texture frame is available. The calls will be
-   * made on a dedicated thread with a bound EGLContext. The thread will be the same throughout the
-   * lifetime of the SurfaceTextureHelper instance, but different from the thread calling the
-   * SurfaceTextureHelper constructor. The callee is not allowed to make another EGLContext current
-   * on the calling thread.
+   * made on the SurfaceTextureHelper handler thread, with a bound EGLContext. The callee is not
+   * allowed to make another EGLContext current on the calling thread.
    */
   public interface OnTextureFrameAvailableListener {
     abstract void onTextureFrameAvailable(
@@ -124,13 +126,24 @@ public class SurfaceTextureHelper {
 
     oesTextureId = GlUtil.generateTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES);
     surfaceTexture = new SurfaceTexture(oesTextureId);
-    surfaceTexture.setOnFrameAvailableListener(new SurfaceTexture.OnFrameAvailableListener() {
-      @Override
-      public void onFrameAvailable(SurfaceTexture surfaceTexture) {
-        hasPendingTexture = true;
-        tryDeliverTextureFrame();
-      }
-    });
+    setOnFrameAvailableListener(surfaceTexture, (SurfaceTexture st) -> {
+      hasPendingTexture = true;
+      tryDeliverTextureFrame();
+    }, handler);
+  }
+
+  @TargetApi(21)
+  private static void setOnFrameAvailableListener(SurfaceTexture surfaceTexture,
+      SurfaceTexture.OnFrameAvailableListener listener, Handler handler) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+      surfaceTexture.setOnFrameAvailableListener(listener, handler);
+    } else {
+      // The documentation states that the listener will be called on an arbitrary thread, but in
+      // pratice, it is always the thread on which the SurfaceTexture was constructed. There are
+      // assertions in place in case this ever changes. For API >= 21, we use the new API to
+      // explicitly specify the handler.
+      surfaceTexture.setOnFrameAvailableListener(listener);
+    }
   }
 
   /**
@@ -276,5 +289,23 @@ public class SurfaceTextureHelper {
     surfaceTexture.release();
     eglBase.release();
     handler.getLooper().quit();
+  }
+
+  /**
+   * Creates a VideoFrame buffer backed by this helper's texture. The |width| and |height| should
+   * match the dimensions of the data placed in the texture. The correct |transformMatrix| may be
+   * obtained from callbacks to OnTextureFrameAvailableListener.
+   *
+   * The returned TextureBuffer holds a reference to the SurfaceTextureHelper that created it. The
+   * buffer calls returnTextureFrame() when it is released.
+   */
+  public TextureBuffer createTextureBuffer(int width, int height, Matrix transformMatrix) {
+    return new TextureBufferImpl(
+        width, height, TextureBuffer.Type.OES, oesTextureId, transformMatrix, this, new Runnable() {
+          @Override
+          public void run() {
+            returnTextureFrame();
+          }
+        });
   }
 }

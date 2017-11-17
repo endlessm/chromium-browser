@@ -17,7 +17,7 @@ from telemetry.internal.util import file_handle
 from telemetry.page import cache_temperature
 from telemetry.page import traffic_setting
 from telemetry.page import legacy_page_test
-from telemetry import story
+from telemetry import story as story_module
 from telemetry.util import screenshot
 from telemetry.util import wpr_modes
 from telemetry.web_perf import timeline_based_measurement
@@ -35,7 +35,7 @@ def _PrepareFinderOptions(finder_options, test, device_type):
                                            finder_options)
 
 
-class SharedPageState(story.SharedState):
+class SharedPageState(story_module.SharedState):
   """
   This class contains all specific logic necessary to run a Chrome browser
   benchmark.
@@ -151,23 +151,42 @@ class SharedPageState(story.SharedState):
     if self._finder_options.profiler:
       self._StopProfiling(results)
     self._AllowInteractionForStage('after-run-story')
-    # We might hang while trying to close the connection, and need to guarantee
-    # the page will get cleaned up to avoid future tests failing in weird ways.
     try:
-      if self._current_tab and self._current_tab.IsAlive():
-        self._current_tab.CloseConnections()
-      self._previous_page = self._current_page
-    except Exception:
-      if self._current_tab:
-        self._current_tab.Close()
-    finally:
-      if self._current_page.credentials and self._did_login_for_current_page:
-        self.browser.credentials.LoginNoLongerNeeded(
-            self._current_tab, self._current_page.credentials)
-      if self._test.StopBrowserAfterPage(self.browser, self._current_page):
+      self._previous_page = None
+      if self.ShouldStopBrowserAfterStoryRun(self._current_page):
         self._StopBrowser()
+      elif self._current_tab:
+        # We might hang while trying to close the connection, and need to
+        # guarantee the page will get cleaned up to avoid future tests failing
+        # in weird ways.
+        try:
+          if self._current_tab.IsAlive():
+            self._current_tab.CloseConnections()
+          if (self._current_page.credentials and
+              self._did_login_for_current_page):
+            self.browser.credentials.LoginNoLongerNeeded(
+                self._current_tab, self._current_page.credentials)
+          self._previous_page = self._current_page
+        except Exception as exc: # pylint: disable=broad-except
+          logging.warning(
+              '%s raised while closing tab connections; tab will be closed.',
+              type(exc).__name__)
+          self._current_tab.Close()
+    finally:
       self._current_page = None
       self._current_tab = None
+
+  def ShouldStopBrowserAfterStoryRun(self, story):
+    """Specify whether the browser should be closed after running a story.
+
+    Defaults to always closing the browser on all platforms to help keeping
+    story runs independent of each other; except on ChromeOS where restarting
+    the browser is expensive.
+
+    Subclasses may override this method to change this behavior.
+    """
+    del story
+    return self.platform.GetOSName() != 'chromeos'
 
   @property
   def platform(self):
@@ -204,13 +223,11 @@ class SharedPageState(story.SharedState):
 
     page_set = page.page_set
     self._current_page = page
-    if self._browser and (self._test.RestartBrowserBeforeEachPage()
-                          or page.startup_url):
+    if self._browser and page.startup_url:
       assert not self.platform.tracing_controller.is_tracing_running, (
           'Should not restart browser when tracing is already running. For '
           'TimelineBasedMeasurement (TBM) benchmarks, you should not use '
-          'startup_url. Use benchmark.ShouldTearDownStateAfterEachStoryRun '
-          'instead.')
+          'startup_url.')
       self._StopBrowser()
     started_browser = not self.browser
 

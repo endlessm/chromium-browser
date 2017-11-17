@@ -91,11 +91,11 @@ class GLSLPipelineDynamicStateTestProcessor : public GrGLSLGeometryProcessor {
         varyingHandler->addPassThroughAttribute(&mp.fColor, args.fOutputColor);
 
         GrGLSLVertexBuilder* v = args.fVertBuilder;
-        v->codeAppendf("vec2 vertex = %s;", mp.fVertex.fName);
+        v->codeAppendf("float2 vertex = %s;", mp.fVertex.fName);
         gpArgs->fPositionVar.set(kVec2f_GrSLType, "vertex");
 
         GrGLSLPPFragmentBuilder* f = args.fFragBuilder;
-        f->codeAppendf("%s = vec4(1);", args.fOutputCoverage);
+        f->codeAppendf("%s = float4(1);", args.fOutputCoverage);
     }
 };
 
@@ -125,17 +125,17 @@ private:
     bool onCombineIfPossible(GrOp* other, const GrCaps& caps) override { return false; }
     void onPrepare(GrOpFlushState*) override {}
     void onExecute(GrOpFlushState* state) override {
-        GrRenderTarget* rt = state->drawOpArgs().fRenderTarget;
-        GrPipeline pipeline(rt, fScissorState, SkBlendMode::kSrc);
+        GrRenderTargetProxy* proxy = state->drawOpArgs().fProxy;
+        GrPipeline pipeline(proxy, fScissorState, SkBlendMode::kSrc);
         SkSTArray<kNumMeshes, GrMesh> meshes;
         for (int i = 0; i < kNumMeshes; ++i) {
             GrMesh& mesh = meshes.emplace_back(GrPrimitiveType::kTriangleStrip);
             mesh.setNonIndexedNonInstanced(4);
             mesh.setVertexData(fVertexBuffer.get(), 4 * i);
         }
-        state->commandBuffer()->draw(pipeline, GrPipelineDynamicStateTestProcessor(),
-                                     meshes.begin(), kDynamicStates, 4,
-                                     SkRect::MakeIWH(kScreenSize, kScreenSize));
+        state->rtCommandBuffer()->draw(pipeline, GrPipelineDynamicStateTestProcessor(),
+                                       meshes.begin(), kDynamicStates, 4,
+                                       SkRect::MakeIWH(kScreenSize, kScreenSize));
     }
 
     ScissorState                fScissorState;

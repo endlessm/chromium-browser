@@ -207,7 +207,11 @@ class USBImager(object):
         '--dst=%s' % device,
         '--skip_postinstall',
     ]
-    cros_build_lib.SudoRunCommand(cmd)
+    cros_build_lib.SudoRunCommand(cmd,
+                                  print_cmd=True,
+                                  debug_level=logging.NOTICE,
+                                  combine_stdout_stderr=True,
+                                  log_output=True)
 
   def CopyImageToDevice(self, image, device):
     """Copies |image| to the removable |device|.
@@ -412,7 +416,7 @@ class RemoteDeviceUpdater(object):
       translated_path, resolved_path = ds_wrapper.GetImagePathWithXbuddy(
           self.image, self.board, static_dir=DEVSERVER_STATIC_DIR,
           lookup_only=True)
-      logging.info('Using image %s', translated_path)
+      logging.notice('Using image %s', translated_path)
       # Convert the translated path to be used in the update request.
       image_path = ds_wrapper.ConvertTranslatedPath(resolved_path,
                                                     translated_path)

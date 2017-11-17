@@ -11,13 +11,15 @@ import datetime
 import os
 import sys
 
+from infra_libs import ts_mon
+
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import goma_util
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import completion_stages
 from chromite.cbuildbot.stages import generic_stages
-from chromite.lib import buildbucket_lib
+from chromite.lib.const import waterfall
 from chromite.lib import cidb
 from chromite.lib import config_lib
 from chromite.lib import constants
@@ -197,10 +199,10 @@ def _UploadAndLinkGomaLogIfNecessary(
   # Just in case, stop the goma. E.g. In case of timeout, we do not want to
   # keep goma compiler_proxy running.
   goma.Stop()
-  goma_url = goma.UploadLogs()
-  if goma_url:
-    logging.PrintBuildbotLink(
-        stage_name + ' Goma compiler_proxy log', goma_url)
+  goma_urls = goma.UploadLogs()
+  if goma_urls:
+    for label, url in goma_urls:
+      logging.PrintBuildbotLink('%s %s' % (stage_name, label), url)
 
 
 class BuildStartStage(generic_stages.BuilderStage):
@@ -259,12 +261,12 @@ class BuildStartStage(generic_stages.BuilderStage):
       db_type = cidb.CIDBConnectionFactory.GetCIDBConnectionType()
       db = cidb.CIDBConnectionFactory.GetCIDBConnectionForBuilder()
       if db:
-        waterfall = d['buildbot-master-name']
-        assert waterfall in constants.CIDB_KNOWN_WATERFALLS
+        wfall = d['buildbot-master-name']
+        assert wfall in waterfall.CIDB_KNOWN_WATERFALLS
         try:
           build_id = db.InsertBuild(
               builder_name=d['builder-name'],
-              waterfall=waterfall,
+              waterfall=wfall,
               build_number=d['build-number'],
               build_config=d['bot-config'],
               bot_hostname=d['bot-hostname'],
@@ -354,7 +356,7 @@ class SlaveFailureSummaryStage(generic_stages.BuilderStage):
         if (failure.stage_status != constants.BUILDER_STATUS_FAILED or
             failure.build_status == constants.BUILDER_STATUS_INFLIGHT):
           continue
-        waterfall_url = constants.WATERFALL_TO_DASHBOARD[failure.waterfall]
+        waterfall_url = waterfall.WATERFALL_TO_DASHBOARD[failure.waterfall]
         slave_stage_url = tree_status.ConstructBuildStageURL(
             waterfall_url,
             failure.builder_name,
@@ -919,46 +921,6 @@ class ReportStage(generic_stages.BuilderStage,
                                         builder_run.debug,
                                         upload_urls=upload_urls)
 
-  def IsSheriffOMaticDispatchBuild(self):
-    """Determine if Sheriff-o-Matic alerts should be dispatched.
-
-    Returns:
-      tree if the alerts should be dispatcher, None otherwise.
-    """
-    if self._run.debug:
-      return None
-    # active_waterfall can be wrong for things like try jobs.
-    for tree in constants.SOM_BUILDS:
-      for build in constants.SOM_BUILDS[tree]:
-        if (os.environ.get('BUILDBOT_MASTERNAME', '') == build[0] and
-            self._run.config.name == build[1]):
-          return tree
-    return None
-
-  @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
-  def RunAlertsDispatcher(self, db_credentials_dir, tree):
-    """Submit alerts summary to Sheriff-o-Matic.
-
-    Args:
-      db_credentials_dir: Path to CIDB database credentials.
-      tree: Sheriff-o-Matic tree to submit alerts to.
-    """
-    dispatcher_cmd = [os.path.join(self._build_root, 'chromite', 'scripts',
-                                   'som_alerts_dispatcher'),
-                      '--som_tree', tree]
-    if buildbucket_lib.GetServiceAccount(constants.CHROMEOS_SERVICE_ACCOUNT):
-      # User the service account file if it exists.
-      dispatcher_cmd.extend(['--service_acct_json',
-                             constants.CHROMEOS_SERVICE_ACCOUNT])
-    if tree != constants.SOM_TREE:
-      dispatcher_cmd.append('--allow_experimental')
-    dispatcher_cmd.append(db_credentials_dir)
-
-    try:
-      cros_build_lib.RunCommand(dispatcher_cmd)
-    except cros_build_lib.RunCommandError as e:
-      logging.warn('Unable to run alerts dispatcher: %s', e)
-
   def PerformStage(self):
     """Perform the actual work for this stage.
 
@@ -1067,6 +1029,19 @@ class ReportStage(generic_stages.BuilderStage,
       metrics.SecondsDistribution(constants.MON_BUILD_DURATION).add(
           duration, fields=mon_fields)
 
+      if self._run.options.sanity_check_build:
+        metrics.Counter(constants.MON_BUILD_SANITY_COMP_COUNT).increment(
+            fields=mon_fields)
+        metrics.Gauge(
+            constants.MON_BUILD_SANITY_ID,
+            description=("The ID of the latest sanity build. Used for "
+                         "recovering the link to the latest failing build in "
+                         "the alert when a sanity build fails."),
+            field_spec=[ts_mon.StringField('status'),
+                        ts_mon.StringField('build_config'),
+                        ts_mon.BooleanField('important')]
+        ).set(build_id, fields=mon_fields)
+
       if config_lib.IsMasterCQ(self._run.config):
         self_destructed = self._run.attrs.metadata.GetValueWithDefault(
             constants.SELF_DESTRUCTED_BUILD, False)
@@ -1080,10 +1055,6 @@ class ReportStage(generic_stages.BuilderStage,
 
       # Dump report about things we retry.
       retry_stats.ReportStats(sys.stdout)
-
-      tree = self.IsSheriffOMaticDispatchBuild()
-      if tree:
-        self.RunAlertsDispatcher(db.db_credentials_dir, tree)
 
   def _GetBuildDuration(self):
     """Fetches the duration of this build in seconds, from cidb.

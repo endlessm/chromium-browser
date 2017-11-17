@@ -62,9 +62,6 @@ class COMPONENTS_PREFS_EXPORT PersistentPrefStore : public WriteablePrefStore {
   // Owns |error_delegate|.
   virtual void ReadPrefsAsync(ReadErrorDelegate* error_delegate) = 0;
 
-  // Starts an asynchronous attempt to commit pending writes to disk.
-  void CommitPendingWrite();
-
   // Starts an asynchronous attempt to commit pending writes to disk. Posts a
   // task to run |done_callback| on the current sequence when disk operations,
   // if any, are complete (even if they are unsuccessful).
@@ -78,6 +75,9 @@ class COMPONENTS_PREFS_EXPORT PersistentPrefStore : public WriteablePrefStore {
 
   // It should be called only for Incognito pref store.
   virtual void ClearMutableValues() = 0;
+
+  // Cleans preference data that may have been saved outside of the store.
+  virtual void OnStoreDeletionFromDisk() = 0;
 
  protected:
   ~PersistentPrefStore() override {}

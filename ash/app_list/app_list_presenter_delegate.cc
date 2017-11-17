@@ -144,21 +144,12 @@ void AppListPresenterDelegate::Init(app_list::AppListView* view,
 
 void AppListPresenterDelegate::OnShown(int64_t display_id) {
   is_visible_ = true;
-  aura::Window* root_window = Shell::GetRootWindowForDisplayId(display_id);
-  Shell::Get()->NotifyAppListVisibilityChanged(is_visible_, root_window);
 }
 
 void AppListPresenterDelegate::OnDismissed() {
   DCHECK(is_visible_);
   DCHECK(view_);
-
   is_visible_ = false;
-  aura::Window* root_window = Shell::GetRootWindowForDisplayId(
-      display::Screen::GetScreen()
-          ->GetDisplayNearestWindow(view_->GetWidget()->GetNativeWindow())
-          .id());
-
-  Shell::Get()->NotifyAppListVisibilityChanged(is_visible_, root_window);
 }
 
 void AppListPresenterDelegate::UpdateBounds() {
@@ -208,7 +199,8 @@ base::TimeDelta AppListPresenterDelegate::GetVisibilityAnimationDuration(
     if (view_->GetBoundsInScreen().y() >
         Shelf::ForWindow(root_window)->GetIdealBounds().y())
       return base::TimeDelta::FromMilliseconds(0);
-    return animation_duration_fullscreen(IsSideShelf(root_window));
+    return GetAnimationDurationFullscreen(IsSideShelf(root_window),
+                                          view_->is_fullscreen());
   }
   return is_visible ? base::TimeDelta::FromMilliseconds(0)
                     : animation_duration();

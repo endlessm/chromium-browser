@@ -31,6 +31,8 @@ const SkColor kSelectedColor = SkColorSetARGB(15, 0, 0, 0);
 // The keyboard select color for grid views, which are on top of a black shield
 // view for new design (12% white).
 const SkColor kGridSelectedColor = SkColorSetARGB(0x1F, 0xFF, 0xFF, 0xFF);
+// Selection color for answer card (3% black).
+const SkColor kAnswerCardSelectedColor = SkColorSetARGB(0x08, 0x00, 0x00, 0x00);
 
 const SkColor kPagerHoverColor = SkColorSetRGB(0xB4, 0xB4, 0xB4);
 const SkColor kPagerNormalColor = SkColorSetRGB(0xE2, 0xE2, 0xE2);
@@ -70,7 +72,7 @@ const SkColor kCardBackgroundColor = SK_ColorWHITE;
 const SkColor kCardBackgroundColorFullscreen = SkColorSetRGB(0xFA, 0xFA, 0xFC);
 
 // Duration in milliseconds for page transition.
-const int kPageTransitionDurationInMs = 180;
+const int kPageTransitionDurationInMs = 250;
 
 // Duration in milliseconds for over scroll page transition.
 const int kOverscrollPageTransitionDurationMs = 50;
@@ -135,9 +137,9 @@ const int kReorderDroppingCircleRadius = 35;
 const int kAppsGridPadding = 24;
 
 // The left and right side padding of the apps grid in fullscreen mode. The
-// space is used for page switcher on the right side. Left side should have the
-// same space to keep the apps grid horizontally centered.
-const int kAppsGridLeftRightPaddingFullscreen = 28;
+// space is used for page switcher and its padding on the right side. Left side
+// should have the same space to keep the apps grid horizontally centered.
+const int kAppsGridLeftRightPaddingFullscreen = 40;
 
 // The left and right padding from the folder name bottom separator to the edge
 // of the left or right edge of the left most and right most app item.
@@ -206,7 +208,7 @@ const char kAppListFolderOpenedHistogram[] = "Apps.AppListFolderOpened";
 // The UMA histogram that logs how the app list transitions from peeking to
 // fullscreen.
 const char kAppListPeekingToFullscreenHistogram[] =
-    "Apps.AppListPeekingToFullscreen";
+    "Apps.AppListPeekingToFullscreenSource";
 
 // The UMA histogram that logs how the app list is shown.
 const char kAppListToggleMethodHistogram[] = "Apps.AppListShowSource";
@@ -267,6 +269,24 @@ const gfx::ShadowValues& IconEndShadows() {
                          (1, gfx::ShadowValue(gfx::Vector2d(0, 4), 8,
                                               SkColorSetARGB(0x50, 0, 0, 0))));
   return icon_shadows;
+}
+
+const gfx::FontList& FullscreenAppListAppTitleFont() {
+  // The max line height of app titles while the fullscreen launcher is enabled,
+  // which is determined by the sizes of app tile views, its paddings, and the
+  // icon.
+  constexpr int kFullscreenAppTitleMaxLineHeight = 16;
+
+  // The font for app titles while the fullscreen launcher is enabled. We're
+  // getting the largest font that doesn't exceed
+  // |kFullscreenAppTitleMaxLineHeight|.
+  // Note: we resize the font to 1px larger, otherwise it looks too small.
+  static const gfx::FontList kFullscreenAppListAppTitleFont =
+      ui::ResourceBundle::GetSharedInstance()
+          .GetFontList(ui::ResourceBundle::LargeFont)
+          .DeriveWithHeightUpperBound(kFullscreenAppTitleMaxLineHeight)
+          .DeriveWithSizeDelta(1);
+  return kFullscreenAppListAppTitleFont;
 }
 
 }  // namespace app_list

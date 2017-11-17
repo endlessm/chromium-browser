@@ -6,7 +6,7 @@
 
 #include "base/command_line.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -177,12 +177,12 @@ int MessageListView::GetHeightForWidth(int width) const {
   return height + GetInsets().height();
 }
 
-void MessageListView::PaintChildren(const ui::PaintContext& context) {
+void MessageListView::PaintChildren(const views::PaintInfo& paint_info) {
   // Paint in the inversed order. Otherwise upper notification may be
   // hidden by the lower one.
   for (int i = child_count() - 1; i >= 0; --i) {
     if (!child_at(i)->layer())
-      child_at(i)->Paint(context);
+      child_at(i)->Paint(paint_info);
   }
 }
 
@@ -260,7 +260,7 @@ void MessageListView::ClearAllClosableNotifications(
       continue;
     if (gfx::IntersectRects(child->bounds(), visible_scroll_rect).IsEmpty())
       continue;
-    if (child->pinned())
+    if (child->GetPinned())
       continue;
     if (deleting_views_.find(child) != deleting_views_.end() ||
         deleted_when_done_.find(child) != deleted_when_done_.end()) {
@@ -334,7 +334,7 @@ void MessageListView::OnBoundsAnimatorDone(views::BoundsAnimator* animator) {
     GetWidget()->SynthesizeMouseMoveEvent();
 
   if (quit_message_loop_after_animation_for_test_)
-    base::MessageLoop::current()->QuitWhenIdle();
+    base::RunLoop::QuitCurrentWhenIdleDeprecated();
 }
 
 bool MessageListView::IsValidChild(const views::View* child) const {

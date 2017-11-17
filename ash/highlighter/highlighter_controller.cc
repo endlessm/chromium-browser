@@ -19,6 +19,11 @@ namespace ash {
 
 namespace {
 
+// Bezel stroke detection margin, in DP.
+const int kScreenEdgeMargin = 2;
+
+const int kInterruptedStrokeTimeoutMs = 500;
+
 // Adjust the height of the bounding box to match the pen tip height,
 // while keeping the same vertical center line. Adjust the width to
 // account for the pen tip width.
@@ -66,6 +71,12 @@ void HighlighterController::SetEnabled(bool enabled) {
     UMA_HISTOGRAM_COUNTS_100(
         "Ash.Shelf.Palette.Assistant.GesturesPerSession.Recognized",
         recognized_gesture_counter_);
+
+    // If |highlighter_view_| is animating it will delete itself when done
+    // animating. |result_view_| will exist only if |highlighter_view_| is
+    // animating, and it will also delete itself when done animating.
+    if (highlighter_view_ && !highlighter_view_->animating())
+      DestroyPointerView();
   }
 }
 
@@ -82,38 +93,79 @@ void HighlighterController::CreatePointerView(
 }
 
 void HighlighterController::UpdatePointerView(ui::TouchEvent* event) {
+  interrupted_stroke_timer_.reset();
+
   highlighter_view_->AddNewPoint(event->root_location_f(), event->time_stamp());
 
-  if (event->type() == ui::ET_TOUCH_RELEASED) {
-    aura::Window* current_window =
-        highlighter_view_->GetWidget()->GetNativeWindow()->GetRootWindow();
+  if (event->type() != ui::ET_TOUCH_RELEASED)
+    return;
 
-    const FastInkPoints& points = highlighter_view_->points();
-    gfx::RectF box = points.GetBoundingBoxF();
+  gfx::Rect bounds = highlighter_view_->GetWidget()
+                         ->GetNativeWindow()
+                         ->GetRootWindow()
+                         ->bounds();
+  bounds.Inset(kScreenEdgeMargin, kScreenEdgeMargin);
 
-    const HighlighterGestureType gesture_type =
-        DetectHighlighterGesture(box, HighlighterView::kPenTipSize, points);
+  const gfx::PointF pos = highlighter_view_->points().GetNewest().location;
+  if (bounds.Contains(
+          gfx::Point(static_cast<int>(pos.x()), static_cast<int>(pos.y())))) {
+    // The stroke has ended far enough from the screen edge, process it
+    // immediately.
+    RecognizeGesture();
+    return;
+  }
 
-    if (gesture_type == HighlighterGestureType::kHorizontalStroke) {
-      UMA_HISTOGRAM_COUNTS_10000(
-          "Ash.Shelf.Palette.Assistant.HighlighterLength",
-          static_cast<int>(box.width()));
+  // The stroke has ended close to the screen edge. Delay gesture recognition
+  // a little to give the pen a chance to re-enter the screen.
+  highlighter_view_->AddGap();
 
-      box = AdjustHorizontalStroke(box, HighlighterView::kPenTipSize);
-    } else if (gesture_type == HighlighterGestureType::kClosedShape) {
-      const float fraction = box.width() * box.height() /
-                             (current_window->bounds().width() *
-                              current_window->bounds().height());
-      UMA_HISTOGRAM_PERCENTAGE("Ash.Shelf.Palette.Assistant.CircledPercentage",
-                               static_cast<int>(fraction * 100));
-    }
+  interrupted_stroke_timer_ = base::MakeUnique<base::OneShotTimer>();
+  interrupted_stroke_timer_->Start(
+      FROM_HERE, base::TimeDelta::FromMilliseconds(kInterruptedStrokeTimeoutMs),
+      base::Bind(&HighlighterController::RecognizeGesture,
+                 base::Unretained(this)));
+}
 
-    highlighter_view_->Animate(
-        box.CenterPoint(), gesture_type,
-        base::Bind(&HighlighterController::DestroyHighlighterView,
-                   base::Unretained(this)));
+void HighlighterController::RecognizeGesture() {
+  interrupted_stroke_timer_.reset();
 
-    if (gesture_type != HighlighterGestureType::kNotRecognized) {
+  aura::Window* current_window =
+      highlighter_view_->GetWidget()->GetNativeWindow()->GetRootWindow();
+  const gfx::Rect bounds = current_window->bounds();
+
+  const FastInkPoints& points = highlighter_view_->points();
+  gfx::RectF box = points.GetBoundingBoxF();
+
+  const HighlighterGestureType gesture_type =
+      DetectHighlighterGesture(box, HighlighterView::kPenTipSize, points);
+
+  if (gesture_type == HighlighterGestureType::kHorizontalStroke) {
+    UMA_HISTOGRAM_COUNTS_10000("Ash.Shelf.Palette.Assistant.HighlighterLength",
+                               static_cast<int>(box.width()));
+
+    box = AdjustHorizontalStroke(box, HighlighterView::kPenTipSize);
+  } else if (gesture_type == HighlighterGestureType::kClosedShape) {
+    const float fraction =
+        box.width() * box.height() / (bounds.width() * bounds.height());
+    UMA_HISTOGRAM_PERCENTAGE("Ash.Shelf.Palette.Assistant.CircledPercentage",
+                             static_cast<int>(fraction * 100));
+  }
+
+  highlighter_view_->Animate(
+      box.CenterPoint(), gesture_type,
+      base::Bind(&HighlighterController::DestroyHighlighterView,
+                 base::Unretained(this)));
+
+  if (gesture_type != HighlighterGestureType::kNotRecognized) {
+    // |box| is not guaranteed to be inside the screen bounds, clip it.
+    // Not converting |box| to gfx::Rect here to avoid accumulating rounding
+    // errors, instead converting |bounds| to gfx::RectF.
+    box.Intersect(
+        gfx::RectF(bounds.x(), bounds.y(), bounds.width(), bounds.height()));
+    if (box.IsEmpty()) {
+      if (observer_)
+        observer_->HandleFailedSelection();
+    } else {
       if (observer_) {
         observer_->HandleSelection(gfx::ToEnclosingRect(
             gfx::ScaleRect(box, GetScreenshotScale(current_window))));
@@ -127,25 +179,27 @@ void HighlighterController::UpdatePointerView(ui::TouchEvent* event) {
 
       recognized_gesture_counter_++;
     }
-
-    gesture_counter_++;
-
-    const base::TimeTicks gesture_start = points.GetOldest().time;
-    if (gesture_counter_ > 1) {
-      // Up to 3 minutes.
-      UMA_HISTOGRAM_MEDIUM_TIMES("Ash.Shelf.Palette.Assistant.GestureInterval",
-                                 gesture_start - previous_gesture_end_);
-    }
-    previous_gesture_end_ = points.GetNewest().time;
-
-    // Up to 10 seconds.
-    UMA_HISTOGRAM_TIMES("Ash.Shelf.Palette.Assistant.GestureDuration",
-                        points.GetNewest().time - gesture_start);
-
-    UMA_HISTOGRAM_ENUMERATION("Ash.Shelf.Palette.Assistant.GestureType",
-                              gesture_type,
-                              HighlighterGestureType::kGestureCount);
+  } else if (observer_) {
+    observer_->HandleFailedSelection();
   }
+
+  gesture_counter_++;
+
+  const base::TimeTicks gesture_start = points.GetOldest().time;
+  if (gesture_counter_ > 1) {
+    // Up to 3 minutes.
+    UMA_HISTOGRAM_MEDIUM_TIMES("Ash.Shelf.Palette.Assistant.GestureInterval",
+                               gesture_start - previous_gesture_end_);
+  }
+  previous_gesture_end_ = points.GetNewest().time;
+
+  // Up to 10 seconds.
+  UMA_HISTOGRAM_TIMES("Ash.Shelf.Palette.Assistant.GestureDuration",
+                      points.GetNewest().time - gesture_start);
+
+  UMA_HISTOGRAM_ENUMERATION("Ash.Shelf.Palette.Assistant.GestureType",
+                            gesture_type,
+                            HighlighterGestureType::kGestureCount);
 }
 
 void HighlighterController::DestroyPointerView() {
@@ -153,8 +207,16 @@ void HighlighterController::DestroyPointerView() {
   DestroyResultView();
 }
 
+bool HighlighterController::CanStartNewGesture(ui::TouchEvent* event) {
+  return !interrupted_stroke_timer_ &&
+         FastInkPointerController::CanStartNewGesture(event);
+}
+
 void HighlighterController::DestroyHighlighterView() {
   highlighter_view_.reset();
+  // |interrupted_stroke_timer_| should never be non null when
+  // |highlighter_view_| is null.
+  interrupted_stroke_timer_.reset();
 }
 
 void HighlighterController::DestroyResultView() {

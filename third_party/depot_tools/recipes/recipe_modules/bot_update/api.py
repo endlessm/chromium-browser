@@ -33,16 +33,11 @@ class BotUpdateApi(recipe_api.RecipeApi):
     assert isinstance(cmd, (list, tuple))
     bot_update_path = self.resource('bot_update.py')
     kwargs.setdefault('infra_step', True)
-    env = self.m.context.env
-    env.setdefault('PATH', '%(PATH)s')
-    env['PATH'] = self.m.path.pathsep.join([
-        env['PATH'], str(self._module.PACKAGE_REPO_ROOT)])
-    # These are to prevent git from hanging.  If the git connection is slower
-    # than 1KB/s for more than 5 minutes then git will kill the connection
-    # and die with an error "error: RPC failed; curl 28 Operation too slow"
-    env['GIT_HTTP_LOW_SPEED_LIMIT'] = 1000
-    env['GIT_HTTP_LOW_SPEED_TIME'] = 300
-    with self.m.context(env=env):
+
+    env_prefixes = {
+        'PATH': [self.m.depot_tools.root],
+    }
+    with self.m.context(env_prefixes=env_prefixes):
       return self.m.python(name, bot_update_path, cmd, **kwargs)
 
   @property
@@ -52,24 +47,26 @@ class BotUpdateApi(recipe_api.RecipeApi):
   # DO NOT USE.
   # TODO(tandrii): refactor this into tryserver.maybe_apply_patch
   def apply_gerrit_ref(self, root, gerrit_no_reset=False,
-                       gerrit_no_rebase_patch_ref=False, **kwargs):
+                       gerrit_no_rebase_patch_ref=False,
+                       gerrit_repo=None, gerrit_ref=None,
+                       step_name='apply_gerrit', **kwargs):
     apply_gerrit_path = self.resource('apply_gerrit.py')
     kwargs.setdefault('infra_step', True)
-    env = self.m.context.env
-    env.setdefault('PATH', '%(PATH)s')
-    env['PATH'] = self.m.path.pathsep.join([
-        env['PATH'], str(self._module.PACKAGE_REPO_ROOT)])
     cmd = [
-        '--gerrit_repo', self._repository,
-        '--gerrit_ref', self._gerrit_ref or '',
+        '--gerrit_repo', gerrit_repo or self._repository,
+        '--gerrit_ref', gerrit_ref or self._gerrit_ref or '',
         '--root', str(root),
     ]
     if gerrit_no_reset:
       cmd.append('--gerrit_no_reset')
     if gerrit_no_rebase_patch_ref:
       cmd.append('--gerrit_no_rebase_patch_ref')
-    with self.m.context(env=env):
-      return self.m.python('apply_gerrit', apply_gerrit_path, cmd, **kwargs)
+
+    env_prefixes = {
+        'PATH': [self.m.depot_tools.root],
+    }
+    with self.m.context(env_prefixes=env_prefixes):
+      return self.m.python(step_name, apply_gerrit_path, cmd, **kwargs)
 
   def ensure_checkout(self, gclient_config=None, suffix=None,
                       patch=True, update_presentation=True,
@@ -178,10 +175,12 @@ class BotUpdateApi(recipe_api.RecipeApi):
 
     flags = [
         # What do we want to check out (spec/root/rev/reverse_rev_map).
-        ['--spec', self.m.gclient.config_to_pythonish(cfg)],
+        ['--spec-path', self.m.raw_io.input(
+            self.m.gclient.config_to_pythonish(cfg))],
         ['--patch_root', root],
         ['--revision_mapping_file', self.m.json.input(reverse_rev_map)],
         ['--git-cache-dir', cfg.cache_dir],
+        ['--cleanup-dir', self.m.path['cleanup'].join('bot_update')],
 
         # How to find the patch, if any (issue/patchset).
         ['--issue', issue],
@@ -194,33 +193,43 @@ class BotUpdateApi(recipe_api.RecipeApi):
         ['--apply_issue_oauth2_file', oauth2_json_file],
 
         # Hookups to JSON output back into recipes.
-        ['--output_json', self.m.json.output()],]
+        ['--output_json', self.m.json.output()],
+    ]
 
-
-    # Collect all fixed revisions to simulate them in the json output.
-    # Fixed revision are the explicit input revisions of bot_update.py, i.e.
-    # every command line parameter "--revision name@value".
-    fixed_revisions = {}
-
+    # Compute requested revisions.
     revisions = {}
     for solution in cfg.solutions:
       if solution.revision:
         revisions[solution.name] = solution.revision
       elif solution == cfg.solutions[0]:
+        # TODO(machenbach): We should explicitly pass HEAD for ALL solutions
+        # that don't specify anything else.
         revisions[solution.name] = (
             self._parent_got_revision or
             self._revision or
             'HEAD')
     if self.m.gclient.c and self.m.gclient.c.revisions:
-      revisions.update(self.m.gclient.c.revisions)
+      # Only update with non-empty values. Some recipe might otherwise
+      # overwrite the HEAD default with an empty string.
+      revisions.update(
+          (k, v) for k, v in self.m.gclient.c.revisions.iteritems() if v)
     if cfg.solutions and root_solution_revision:
       revisions[cfg.solutions[0].name] = root_solution_revision
     # Allow for overrides required to bisect into rolls.
     revisions.update(self._deps_revision_overrides)
+
+    # Compute command-line parameters for requested revisions.
+    # Also collect all fixed revisions to simulate them in the json output.
+    # Fixed revision are the explicit input revisions of bot_update.py, i.e.
+    # every command line parameter "--revision name@value".
+    fixed_revisions = {}
     for name, revision in sorted(revisions.items()):
       fixed_revision = self.m.gclient.resolve_revision(revision)
       if fixed_revision:
         fixed_revisions[name] = fixed_revision
+        if fixed_revision.upper() == 'HEAD':
+          # Sync to correct destination branch if HEAD was specified.
+          fixed_revision = self._destination_branch(cfg, name)
         flags.append(['--revision', '%s@%s' % (name, fixed_revision)])
 
     # Add extra fetch refspecs.
@@ -265,7 +274,8 @@ class BotUpdateApi(recipe_api.RecipeApi):
       # 87 and 88 are the 'patch failure' codes for patch download and patch
       # apply, respectively. We don't actually use the error codes, and instead
       # rely on emitted json to determine cause of failure.
-      step_result = self(name, cmd, step_test_data=step_test_data,
+      step_result = self(
+           name, cmd, step_test_data=step_test_data,
            ok_ret=(0, 87, 88), **kwargs)
     except self.m.step.StepFailure as f:
       step_result = f.result
@@ -313,13 +323,50 @@ class BotUpdateApi(recipe_api.RecipeApi):
 
         # bot_update actually just sets root to be the folder name of the
         # first solution.
-        if result['did_run']:
+        if result['did_run'] and 'checkout' not in self.m.path:
           co_root = result['root']
           cwd = self.m.context.cwd or self.m.path['start_dir']
-          if 'checkout' not in self.m.path:
-            self.m.path['checkout'] = cwd.join(*co_root.split(self.m.path.sep))
+          self.m.path['checkout'] = cwd.join(*co_root.split(self.m.path.sep))
 
     return step_result
+
+  def _destination_branch(self, cfg, path):
+    """Returns the destination branch of a CL for the matching project
+    if available or HEAD otherwise.
+
+    This is a noop if there's no Gerrit CL associated with the run.
+    Otherwise this queries Gerrit for the correct destination branch, which
+    might differ from master.
+
+    Args:
+      cfg: The used gclient config.
+      path: The DEPS path of the project this prefix is for. E.g. 'src' or
+          'src/v8'. The query will only be made for the project that matches
+          the CL's project.
+    Returns:
+        A destination branch as understood by bot_update.py if available
+        and if different from master, returns 'HEAD' otherwise.
+    """
+    # Bail out if this is not a gerrit issue.
+    if (not self.m.tryserver.is_gerrit_issue or
+        not self._gerrit or not self._issue):
+      return 'HEAD'
+
+    # Ignore other project paths than the one belonging to the CL.
+    if path != cfg.patch_projects.get(
+        self.m.properties.get('patch_project'),
+        (cfg.solutions[0].name, None))[0]:
+      return 'HEAD'
+
+    # Query Gerrit to check if a CL's destination branch differs from master.
+    destination_branch = self.m.gerrit.get_change_destination_branch(
+        host=self._gerrit,
+        change=self._issue,
+        name='get_patch_destination_branch',
+    )
+
+    # Only use prefix if different from bot_update.py's default.
+    return destination_branch if destination_branch != 'master' else 'HEAD'
 
   def _resolve_fixed_revisions(self, bot_update_json):
     """Set all fixed revisions from the first sync to their respective

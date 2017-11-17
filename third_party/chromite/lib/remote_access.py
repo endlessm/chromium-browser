@@ -20,6 +20,7 @@ from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 from chromite.lib import timeout_util
+from chromite.lib.workqueue import throttle
 
 
 _path = os.path.dirname(os.path.realpath(__file__))
@@ -622,8 +623,24 @@ class RemoteDevice(object):
     Returns:
       True if the device responded to the ping before |timeout|.
     """
+    try:
+      addrlist = socket.getaddrinfo(self.hostname, 22)
+    except socket.gaierror:
+      # If the hostname is the name of a "Host" entry in ~/.ssh/config,
+      # it might be ssh-able but not pingable.
+      # If the hostname is truly bogus, ssh will fail immediately, so
+      # we can safely skip the ping step.
+      logging.info('Hostname "%s" not found, falling through to ssh',
+                   self.hostname)
+      return True
+
+    if addrlist[0][0] == socket.AF_INET6:
+      ping_command = 'ping6'
+    else:
+      ping_command = 'ping'
+
     result = cros_build_lib.RunCommand(
-        ['ping', '-c', '1', '-w', str(timeout), self.hostname],
+        [ping_command, '-c', '1', '-w', str(timeout), self.hostname],
         error_code_ok=True,
         capture_output=True)
     return result.returncode == 0
@@ -713,12 +730,14 @@ class RemoteDevice(object):
         * Use scp when we have incompressible files (say already compressed),
         especially if we know no previous version exist at the destination.
     """
-    assert mode in ['rsync', 'scp']
+    assert mode in ['rsync', 'scp', 'throttled']
+    if mode == 'throttled':
+      logging.info('Throttled copy: %s -> %s:%s', src, self.hostname, dest)
+      throttle.ThrottledCopy(self.hostname, src, dest, **kwargs)
+      return
     msg = 'Could not copy %s to device.' % src
     # Fall back to scp if device has no rsync. Happens when stateful is cleaned.
-    if not self.HasRsync():
-      mode = 'scp'
-    if mode == 'scp':
+    if mode == 'scp' or not self.HasRsync():
       # scp always follow symlinks
       kwargs.pop('follow_symlinks', None)
       func = self.GetAgent().Scp
@@ -739,11 +758,7 @@ class RemoteDevice(object):
     """
     msg = 'Could not copy %s from device.' % src
     # Fall back to scp if device has no rsync. Happens when stateful is cleaned.
-    if not self.HasRsync():
-      # Use rsync by default if it exists.
-      mode = 'scp'
-
-    if mode == 'scp':
+    if mode == 'scp' or not self.HasRsync():
       # scp always follow symlinks
       kwargs.pop('follow_symlinks', None)
       func = self.GetAgent().ScpToLocal

@@ -12,6 +12,7 @@ __version__ = '1.8.0'
 # caching (between all different invocations of presubmit scripts for a given
 # change). We should add it as our presubmit scripts start feeling slow.
 
+import ast  # Exposed through the API.
 import cpplint
 import cPickle  # Exposed through the API.
 import cStringIO  # Exposed through the API.
@@ -247,10 +248,19 @@ class GerritAccessor(object):
     return self.GetChangeInfo(issue)['owner']['email']
 
   def GetChangeReviewers(self, issue, approving_only=True):
-    cr = self.GetChangeInfo(issue)['labels']['Code-Review']
-    max_value = max(int(k) for k in cr['values'].keys())
-    return [r.get('email') for r in cr.get('all', [])
-            if not approving_only or r.get('value', 0) == max_value]
+    changeinfo = self.GetChangeInfo(issue)
+    if approving_only:
+      labelinfo = changeinfo.get('labels', {}).get('Code-Review', {})
+      values = labelinfo.get('values', {}).keys()
+      try:
+        max_value = max(int(v) for v in values)
+        reviewers = [r for r in labelinfo.get('all', [])
+                     if r.get('value', 0) == max_value]
+      except ValueError:  # values is the empty list
+        reviewers = []
+    else:
+      reviewers = changeinfo.get('reviewers', {}).get('REVIEWER', [])
+    return [r.get('email') for r in reviewers]
 
 
 class OutputApi(object):
@@ -393,6 +403,7 @@ class InputApi(object):
 
     # We expose various modules and functions as attributes of the input_api
     # so that presubmit scripts don't have to import them.
+    self.ast = ast
     self.basename = os.path.basename
     self.cPickle = cPickle
     self.cpplint = cpplint
@@ -568,7 +579,7 @@ class InputApi(object):
   @property
   def tbr(self):
     """Returns if a change is TBR'ed."""
-    return 'TBR' in self.change.tags
+    return 'TBR' in self.change.tags or self.change.TBRsFromDescription()
 
   def RunTests(self, tests_mix, parallel=True):
     tests = []

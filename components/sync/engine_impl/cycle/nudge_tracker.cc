@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "components/sync/engine/polling_constants.h"
 
 namespace syncer {
@@ -43,8 +42,6 @@ base::TimeDelta GetDefaultDelayForType(ModelType model_type,
 
 }  // namespace
 
-size_t NudgeTracker::kDefaultMaxPayloadsPerType = 10;
-
 NudgeTracker::NudgeTracker()
     : invalidations_enabled_(false),
       invalidations_out_of_sync_(true),
@@ -59,7 +56,7 @@ NudgeTracker::NudgeTracker()
   for (ModelTypeSet::Iterator it = protocol_types.First(); it.Good();
        it.Inc()) {
     type_trackers_.insert(
-        std::make_pair(it.Get(), base::MakeUnique<DataTypeTracker>()));
+        std::make_pair(it.Get(), std::make_unique<DataTypeTracker>()));
   }
 }
 

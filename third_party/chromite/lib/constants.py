@@ -8,6 +8,11 @@ from __future__ import print_function
 
 import os
 
+# TODO(akeshet): Once constants.py is more completely split, and the callers are
+# all updated, remove these *-imports. See crbug.com/746047 for context.
+# pylint: disable=wildcard-import
+# pylint: disable=unused-wildcard-import
+from chromite.lib.const.waterfall import *
 
 def _FindSourceRoot():
   """Try and find the root check out of the chromiumos tree"""
@@ -69,58 +74,7 @@ CIDB_PROD_BOT_CREDS = os.path.join(HOME_DIRECTORY, '.cidb_creds',
 CIDB_DEBUG_BOT_CREDS = os.path.join(HOME_DIRECTORY, '.cidb_creds',
                                     'debug_cidb_bot')
 
-WATERFALL_INTERNAL = 'chromeos'
-WATERFALL_EXTERNAL = 'chromiumos'
-WATERFALL_INFRA = 'chromeos.infra'
-WATERFALL_TRYBOT = 'chromiumos.tryserver'
-WATERFALL_RELEASE = 'chromeos_release'
-WATERFALL_BRANCH = 'chromeos.branch'
-# These waterfalls are not yet using cidb.
-WATERFALL_CHROMIUM = 'chromiumos.chromium'
-WATERFALL_CHROME = 'chromeos.chrome'
-WATERFALL_BRILLO = 'internal.client.brillo'
-WATERFALL_WEAVE = 'internal.client.weave'
 
-# These waterfalls should send email reports regardless of cidb connection.
-EMAIL_WATERFALLS = (
-    WATERFALL_INTERNAL,
-    WATERFALL_EXTERNAL,
-    WATERFALL_RELEASE,
-    WATERFALL_BRANCH,
-    WATERFALL_BRILLO,
-    WATERFALL_WEAVE,
-)
-
-CIDB_KNOWN_WATERFALLS = (WATERFALL_INTERNAL,
-                         WATERFALL_EXTERNAL,
-                         WATERFALL_TRYBOT,
-                         WATERFALL_RELEASE,
-                         WATERFALL_BRANCH,
-                         WATERFALL_CHROMIUM,
-                         WATERFALL_CHROME,)
-
-ALL_WATERFALLS = CIDB_KNOWN_WATERFALLS
-
-# URLs to the various waterfalls.
-BUILD_DASHBOARD = 'http://build.chromium.org/p/chromiumos'
-BUILD_INT_DASHBOARD = 'https://uberchromegw.corp.google.com/i/chromeos'
-TRYBOT_DASHBOARD = 'https://uberchromegw.corp.google.com/i/chromiumos.tryserver'
-RELEASE_DASHBOARD = 'https://uberchromegw.corp.google.com/i/chromeos_release'
-BRANCH_DASHBOARD = 'https://uberchromegw.corp.google.com/i/chromeos.branch'
-CHROMIUM_DASHBOARD = ('https://uberchromegw.corp.google.com/'
-                      'i/chromiumos.chromium')
-CHROME_DASHBOARD = 'https://uberchromegw.corp.google.com/i/chromeos.chrome'
-
-# Waterfall to dashboard URL mapping.
-WATERFALL_TO_DASHBOARD = {
-    WATERFALL_INTERNAL: BUILD_INT_DASHBOARD,
-    WATERFALL_EXTERNAL: BUILD_DASHBOARD,
-    WATERFALL_TRYBOT: TRYBOT_DASHBOARD,
-    WATERFALL_RELEASE: RELEASE_DASHBOARD,
-    WATERFALL_BRANCH: BRANCH_DASHBOARD,
-    WATERFALL_CHROMIUM: CHROMIUM_DASHBOARD,
-    WATERFALL_CHROME: CHROME_DASHBOARD,
-}
 
 # Buildbucket build status
 BUILDBUCKET_BUILDER_STATUS_SCHEDULED = 'SCHEDULED'
@@ -263,6 +217,9 @@ MON_PRECQ_LAUNCH_COUNT = 'chromeos/cbuildbot/pre-cq/launch_count'
 MON_PRECQ_CL_LAUNCH_COUNT = 'chromeos/cbuildbot/pre-cq/cl_launch_count'
 MON_PRECQ_TICK_COUNT = 'chromeos/cbuildbot/pre-cq/tick_count'
 MON_BUILD_COMP_COUNT = 'chromeos/cbuildbot/build/completed_count'
+MON_BUILD_SANITY_COMP_COUNT = (
+    'chromeos/cbuildbot/build/sanity_build_completed_count')
+MON_BUILD_SANITY_ID = 'chromeos/cbuildbot/build/sanity_build_id'
 MON_BUILD_DURATION = 'chromeos/cbuildbot/build/durations'
 MON_STAGE_COMP_COUNT = 'chromeos/cbuildbot/stage/completed_count'
 MON_STAGE_DURATION = 'chromeos/cbuildbot/stage/durations'
@@ -295,58 +252,6 @@ MON_BB_CANCEL_PRE_CQ_BUILD_COUNT = ('chromeos/cbuildbot/buildbucket/'
 MON_EXPORT_TO_GCLOUD = 'chromeos/cbuildbot/export_to_gcloud'
 MON_CL_REJECT_COUNT = ('chromeos/cbuildbot/change/rejected_count')
 
-# Sheriff-o-Matic tree which Chrome OS alerts are posted to.
-SOM_TREE = 'chromeos'
-
-# Sheriff-o-Matic severities (all severities must start at 1000 and should
-# be synchronized with:
-# https://cs.chromium.org/chromium/infra/go/src/infra/appengine/sheriff-o-matic/elements/
-SOM_SEVERITY_CQ_FAILURE = 1000
-SOM_SEVERITY_PFQ_FAILURE = 1001
-SOM_SEVERITY_CANARY_FAILURE = 1002
-SOM_SEVERITY_RELEASE_FAILURE = 1003
-SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE = 1004
-SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE = 1005
-
-# List of master builds to generate Sheriff-o-Matics alerts for.
-# Waterfall, build config, SOM alert severity.
-SOM_BUILDS = {
-    SOM_TREE: [
-        (WATERFALL_INTERNAL, 'master-paladin', SOM_SEVERITY_CQ_FAILURE),
-        (WATERFALL_INTERNAL, 'master-android-pfq', SOM_SEVERITY_PFQ_FAILURE),
-        (WATERFALL_INTERNAL, 'master-nyc-android-pfq',
-         SOM_SEVERITY_PFQ_FAILURE),
-        (WATERFALL_INTERNAL, 'master-release', SOM_SEVERITY_CANARY_FAILURE),
-    ],
-
-    # TODO: Once SoM supports alerts being added individually, this should
-    # be changed to a programatically list instead of a hardcoded list.
-    'gardener': [
-        (WATERFALL_INTERNAL, 'master-chromium-pfq', SOM_SEVERITY_PFQ_FAILURE),
-        (WATERFALL_CHROME, 'lumpy-tot-chrome-pfq-informational',
-         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
-        (WATERFALL_CHROME, 'peach_pit-tot-chrome-pfq-informational',
-         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
-        (WATERFALL_CHROME, 'cyan-tot-chrome-pfq-informational',
-         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
-        (WATERFALL_CHROME, 'tricky-tot-chrome-pfq-informational',
-         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
-        (WATERFALL_CHROME, 'veyron_minnie-tot-chrome-pfq-informational',
-         SOM_SEVERITY_CHROME_INFORMATIONAL_FAILURE),
-        (WATERFALL_CHROMIUM, 'x86-generic-tot-chromium-pfq-informational',
-         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
-        (WATERFALL_CHROMIUM, 'amd64-generic-tot-chromium-pfq-informational',
-         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
-        (WATERFALL_CHROMIUM, 'daisy-tot-chromium-pfq-informational',
-         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
-        (WATERFALL_CHROMIUM, 'amd64-generic-tot-asan-informational',
-         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
-        (WATERFALL_CHROMIUM, 'x86-generic-telemetry',
-         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
-        (WATERFALL_CHROMIUM, 'amd64-generic-telemetry',
-         SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE),
-    ],
-}
 
 # Re-execution API constants.
 # Used by --resume and --bootstrap to decipher which options they
@@ -357,17 +262,19 @@ SOM_BUILDS = {
 # Major is used for tracking heavy API breakage- for example, no longer
 # supporting the --resume option.
 REEXEC_API_MAJOR = 0
-REEXEC_API_MINOR = 5
+REEXEC_API_MINOR = 7
 REEXEC_API_VERSION = '%i.%i' % (REEXEC_API_MAJOR, REEXEC_API_MINOR)
 
-# Minor version 5 is the first to support --goma_dir and --goma_client_json
-REEXEC_API_GOMA = 5
-
-# Minor version 4 is the first to support --git-cache-dir
-REEXEC_API_GIT_CACHE_DIR = 4
-
-# Minor version 3 is the first to support --master-build-id
+# Support --master-build-id
 REEXEC_API_MASTER_BUILD_ID = 3
+# Support --git-cache-dir
+REEXEC_API_GIT_CACHE_DIR = 4
+# Support --goma_dir and --goma_client_json
+REEXEC_API_GOMA = 5
+# Support --ts-mon-task-num
+REEXEC_API_TSMON_TASK_NUM = 6
+# Support --sanity-check-build
+REEXEC_API_SANITY_CHECK_BUILD = 7
 
 # We rely on the (waterfall, builder name, build number) to uniquely identify
 # a build. However, future migrations or state wipes of the buildbot master may
@@ -403,9 +310,13 @@ INTERNAL_GOB_URL = 'https://%s' % INTERNAL_GOB_HOST
 INTERNAL_GERRIT_URL = 'https://%s' % INTERNAL_GERRIT_HOST
 
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
+ANDROID_MASTER_ARC_DEV_BUILD_BRANCH = 'git_master-arc-dev'
 ANDROID_MNC_BUILD_BRANCH = 'git_mnc-dr-arc-dev'
 ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc'
-ANDROID_COMMON_BUILD_TARGETS = {
+ANDROID_MASTER_ARC_DEV_BUILD_TARGETS = {
+    'AOSP_X86_USERDEBUG': ('linux-aosp_bertha_x86-userdebug', r'\.zip$'),
+}
+ANDROID_MNC_BUILD_TARGETS = {
     # TODO(b/29509721): Workaround to roll adb with system image. We want to
     # get rid of this.
     'ARM': ('linux-cheets_arm-user', r'(\.zip|/adb)$'),
@@ -413,15 +324,22 @@ ANDROID_COMMON_BUILD_TARGETS = {
     'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
     'AOSP_X86_USERDEBUG': ('linux-aosp_cheets_x86-userdebug', r'\.zip$'),
     'SDK_TOOLS': ('linux-static_sdk_tools', r'/(aapt|adb)$'),
-}
-ANDROID_MNC_BUILD_TARGETS = {
-    # No MNC-specific targets exist, only NYC-specific. Declare the target
-    # dictionary for consistency.
+
 }
 ANDROID_NYC_BUILD_TARGETS = {
+    # TODO(b/29509721): Workaround to roll adb with system image. We want to
+    # get rid of this.
+    'ARM': ('linux-cheets_arm-user', r'(\.zip|/adb)$'),
+    'X86': ('linux-cheets_x86-user', r'\.zip$'),
+    'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
+    'AOSP_X86_USERDEBUG': ('linux-aosp_cheets_x86-userdebug', r'\.zip$'),
+    'SDK_TOOLS': ('linux-static_sdk_tools', r'/(aapt|adb)$'),
     'SDK_GOOGLE_X86_USERDEBUG': ('linux-sdk_google_cheets_x86-userdebug',
                                  r'\.zip$'),
+    'SDK_GOOGLE_X86_64_USERDEBUG': ('linux-sdk_google_cheets_x86_64-userdebug',
+                                    r'\.zip$'),
     'X86_64': ('linux-cheets_x86_64-user', r'\.zip$'),
+    'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
 }
 ANDROID_GTS_BUILD_TARGETS = {
     # "gts_arm64" is the build maintained by GMS team.
@@ -433,15 +351,17 @@ ARC_BUCKET_ACLS = {
     'X86': 'googlestorage_acl_x86.txt',
     'X86_64': 'googlestorage_acl_x86.txt',
     'X86_USERDEBUG': 'googlestorage_acl_x86.txt',
+    'X86_64_USERDEBUG': 'googlestorage_acl_x86.txt',
     'AOSP_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
     'SDK_GOOGLE_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
+    'SDK_GOOGLE_X86_64_USERDEBUG': 'googlestorage_acl_x86.txt',
     'SDK_TOOLS': 'googlestorage_acl_public.txt',
     'XTS': 'googlestorage_acl_cts.txt',
 }
 ARC_USE_FLAG_TO_ARCH = {
     'arm': 'arm',
     'x86': 'x86',
-    'amd64': 'x86',
+    'amd64': 'x86_64',
 }
 ANDROID_SYMBOLS_URL_TEMPLATE = (
     ARC_BUCKET_URL +
@@ -456,8 +376,10 @@ ANDROID_SYMBOLS_FILE = 'android-symbols.zip'
 # the Android bucket to the ARC++ bucket (b/33072485).
 ARC_BUILDS_NEED_ARTIFACTS_RENAMED = {
     'X86_USERDEBUG',
+    'X86_64_USERDEBUG',
     'AOSP_X86_USERDEBUG',
     'SDK_GOOGLE_X86_USERDEBUG',
+    'SDK_GOOGLE_X86_64_USERDEBUG',
 }
 
 GOB_COOKIE_PATH = os.path.expanduser('~/.git-credential-cache/cookie')
@@ -602,9 +524,6 @@ CHROME_PFQ_TYPE = 'chrome'
 # Android PFQ type.  Builds and validates new versions of Android.
 ANDROID_PFQ_TYPE = 'android'
 
-# Config updater type.
-CONFIG_UPDATER_TYPE = 'config'
-
 # Builds from source and non-incremental.  This builds fully wipe their
 # chroot before the start of every build and no not use a BINHOST.
 BUILD_FROM_SOURCE_TYPE = 'full'
@@ -628,6 +547,12 @@ TRYJOB_TYPE = 'tryjob'
 CHROOT_BUILDER_TYPE = 'chroot'
 CHROOT_BUILDER_BOARD = 'amd64-host'
 
+# Use for builds that don't requite a type.
+GENERIC_TYPE = 'generic'
+
+# Build type of Pre-CQs
+PRE_CQ_TYPE = 'pre_cq'
+
 VALID_BUILD_TYPES = (
     PALADIN_TYPE,
     INCREMENTAL_TYPE,
@@ -641,8 +566,9 @@ VALID_BUILD_TYPES = (
     PRE_CQ_LAUNCHER_TYPE,
     PAYLOADS_TYPE,
     TOOLCHAIN_TYPE,
-    CONFIG_UPDATER_TYPE,
     TRYJOB_TYPE,
+    GENERIC_TYPE,
+    PRE_CQ_TYPE
 )
 
 # The default list of pre-cq configs to use.
@@ -654,7 +580,9 @@ PRE_CQ_DEFAULT_CONFIGS = [
     'lumpy-no-vmtest-pre-cq',         # sandybridge  kernel 3.8
     'kevin-no-vmtest-pre-cq',         # arm64        kernel 4.4
     'nyan_blaze-no-vmtest-pre-cq',    # arm32        kernel 3.10
+    # TODO(crbug.com/757474) - Drop reef after reef-uni rollout
     'reef-no-vmtest-pre-cq',          # apollolake   kernel 4.4        vulkan
+    'reef-uni-no-vmtest-pre-cq',      # apollolake   kernel 4.4        vulkan
     'samus-no-vmtest-pre-cq',         # broadwell    kernel 3.14
     'whirlwind-no-vmtest-pre-cq',     # brillo
 ]
@@ -682,6 +610,7 @@ CQ_CONFIG_PRE_CQ_CONFIGS_REGEX = CQ_CONFIG_PRE_CQ_CONFIGS + ':'
 HWTEST_DEFAULT_NUM = 6
 HWTEST_TRYBOT_NUM = 3
 HWTEST_MACH_POOL = 'bvt'
+HWTEST_MACH_POOL_UNI = 'bvt-uni'
 HWTEST_PALADIN_POOL = 'cq'
 HWTEST_TOT_PALADIN_POOL = 'tot-cq'
 HWTEST_PFQ_POOL = 'pfq'
@@ -689,6 +618,7 @@ HWTEST_SUITES_POOL = 'suites'
 HWTEST_CHROME_PERF_POOL = 'chromeperf'
 HWTEST_TRYBOT_POOL = HWTEST_SUITES_POOL
 HWTEST_WIFICELL_PRE_CQ_POOL = 'wificell-pre-cq'
+HWTEST_BLUESTREAK_PRE_CQ_POOL = 'bluestreak-pre-cq'
 HWTEST_CONTINUOUS_POOL = 'continuous'
 HWTEST_CTS_POOL = 'cts'
 HWTEST_GTS_POOL = HWTEST_CTS_POOL
@@ -723,6 +653,8 @@ HWTEST_TOOLCHAIN_SUITE = 'toolchain-tests'
 HWTEST_PROVISION_SUITE = 'bvt-provision'
 HWTEST_CTS_QUAL_SUITE = 'arc-cts-qual'
 HWTEST_GTS_QUAL_SUITE = 'arc-gts-qual'
+HWTEST_CTS_PRIORITY = 11
+HWTEST_GTS_PRIORITY = HWTEST_CTS_PRIORITY
 # Non-blocking informational hardware tests for Chrome, run throughout the
 # day on tip-of-trunk Chrome rather than on the daily Chrome branch.
 HWTEST_CHROME_INFORMATIONAL = 'chrome-informational'
@@ -748,8 +680,9 @@ HWTEST_VALID_PRIORITIES = ['Weekly',
                            HWTEST_CQ_PRIORITY]
 
 # Creates a mapping of priorities to make easy comparsions.
-HWTEST_PRIORITIES_MAP = dict(
-    (p, i) for i, p in enumerate(HWTEST_VALID_PRIORITIES))
+# Use the same priorities mapping as autotest/client/common_lib/priorities.py
+HWTEST_PRIORITIES_MAP = {key: 10 + 10 * index
+                         for index, key in enumerate(HWTEST_VALID_PRIORITIES)}
 
 
 # HWTest result statuses
@@ -783,11 +716,13 @@ FULL_AU_TEST_TYPE = 'full_suite'
 SIMPLE_AU_TEST_TYPE = 'pfq_suite'
 SMOKE_SUITE_TEST_TYPE = 'smoke_suite'
 TELEMETRY_SUITE_TEST_TYPE = 'telemetry_suite'
+VMTEST_INFORMATIONAL_TEST_TYPE = 'vmtest_informational_suite'
 CROS_VM_TEST_TYPE = 'cros_vm_test'
 DEV_MODE_TEST_TYPE = 'dev_mode_test'
 VALID_VM_TEST_TYPES = [FULL_AU_TEST_TYPE, SIMPLE_AU_TEST_TYPE,
                        SMOKE_SUITE_TEST_TYPE, TELEMETRY_SUITE_TEST_TYPE,
-                       CROS_VM_TEST_TYPE, DEV_MODE_TEST_TYPE]
+                       CROS_VM_TEST_TYPE, DEV_MODE_TEST_TYPE,
+                       VMTEST_INFORMATIONAL_TEST_TYPE]
 # GCE tests are suites of tests that run on GCE instances.
 GCE_SMOKE_TEST_TYPE = 'gce_smoke_test'  # suite:gce-smoke
 GCE_SANITY_TEST_TYPE = 'gce_sanity_test'  # suite:gce-sanity
@@ -976,7 +911,7 @@ STRATEGY_CQ_SUCCESS = 'strategy:cq-success'
 STRATEGY_PRECQ_SUBMIT = 'strategy:pre-cq-submit'
 STRATEGY_NONMANIFEST = 'strategy:non-manifest-submit'
 
-# Strategy for CQ parital pool submission
+# Strategy for CQ partial pool submission
 STRATEGY_CQ_PARTIAL_NOT_TESTED = 'strategy:cq-submit-partial-pool-not-tested'
 STRATEGY_CQ_PARTIAL_CQ_HISTORY = 'strategy:cq-submit-partial-pool-cq-history'
 STRATEGY_CQ_PARTIAL_IGNORED_STAGES = (
@@ -985,7 +920,7 @@ STRATEGY_CQ_PARTIAL_SUBSYSTEM = 'strategy:cq-submit-partial-pool-pass-subsystem'
 STRATEGY_CQ_PARTIAL_BUILDS_PASSED = (
     'strategy:cq-submit-partial-pool-builds-passed')
 
-# A dict mapping CQ parital pool submission strategies to their priorities;
+# A dict mapping CQ partial pool submission strategies to their priorities;
 # lower values have higher priorities.
 STRATEGY_CQ_PARTIAL_REASONS = {
     STRATEGY_CQ_PARTIAL_NOT_TESTED: 1,
@@ -1121,16 +1056,12 @@ LAB_STATUS_URL = 'http://chromiumos-lab.appspot.com/current?format=json'
 GOLO_SMTP_SERVER = 'mail.golo.chromium.org'
 
 # Valid sherrif types.
-TREE_SHERIFF = 'tree'
 CHROME_GARDENER = 'chrome'
 
 # URLs to retrieve sheriff names from the waterfall.
-TREE_SHERIFF_URL = '%s/sheriff.js' % (BUILD_DASHBOARD)
-TREE_SHERIFF2_URL = '%s/sheriff2.js' % (BUILD_DASHBOARD)
 CHROME_GARDENER_URL = '%s/sheriff_cr_cros_gardeners.js' % (BUILD_DASHBOARD)
 
 SHERIFF_TYPE_TO_URL = {
-    TREE_SHERIFF: (TREE_SHERIFF_URL, TREE_SHERIFF2_URL),
     CHROME_GARDENER: (CHROME_GARDENER_URL,)
 }
 
@@ -1141,6 +1072,7 @@ CANARY_MASTER = 'master-release'
 PFQ_MASTER = 'master-chromium-pfq'
 BINHOST_PRE_CQ = 'binhost-pre-cq'
 WIFICELL_PRE_CQ = 'wificell-pre-cq'
+BLUESTREAK_PRE_CQ = 'bluestreak-pre-cq'
 MNC_ANDROID_PFQ_MASTER = 'master-android-pfq'
 NYC_ANDROID_PFQ_MASTER = 'master-nyc-android-pfq'
 TOOLCHAIN_MASTTER = 'master-toolchain'

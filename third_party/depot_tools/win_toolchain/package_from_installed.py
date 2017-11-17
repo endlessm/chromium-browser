@@ -45,10 +45,11 @@ def GetVSPath():
   if VS_VERSION == '2015':
     return r'C:\Program Files (x86)\Microsoft Visual Studio 14.0'
   elif VS_VERSION == '2017':
-    # Use vswhere to find the VS 2017 installation. This handles preview
-    # versions automatically. This assumes that only one version is installed.
+    # Use vswhere to find the VS 2017 installation. This will find prerelease
+    # versions because -prerelease is specified. This assumes that only one
+    # version is installed.
     command = (r'C:\Program Files (x86)\Microsoft Visual Studio\Installer'
-               r'\vswhere.exe')
+               r'\vswhere.exe -prerelease')
     marker = 'installationPath: '
     for line in subprocess.check_output(command).splitlines():
       if line.startswith(marker):
@@ -60,9 +61,10 @@ def GetVSPath():
 
 def ExpandWildcards(root, sub_dir):
   # normpath is needed to change '/' to '\\' characters.
-  matches = glob.glob(os.path.normpath(os.path.join(root, sub_dir)))
+  path = os.path.normpath(os.path.join(root, sub_dir))
+  matches = glob.glob(path)
   if len(matches) != 1:
-    raise Exception('%s had %d matches - should be one' % (full, len(matches)))
+    raise Exception('%s had %d matches - should be one' % (path, len(matches)))
   return matches[0]
 
 
@@ -110,18 +112,14 @@ def BuildFileList(override_dir):
     ]
   elif VS_VERSION == '2017':
     paths += [
-        ('VC/redist/MSVC/14.*.*/x86/Microsoft.VC150.CRT', 'sys32'),
-        ('VC/redist/MSVC/14.*.*/x86/Microsoft.VC150.CRT', 'win_sdk/bin/x86'),
-        ('VC/redist/MSVC/14.*.*/x86/Microsoft.VC150.MFC', 'sys32'),
-        ('VC/redist/MSVC/14.*.*/debug_nonredist/x86/Microsoft.VC150.DebugCRT', 'sys32'),
-        ('VC/redist/MSVC/14.*.*/debug_nonredist/x86/Microsoft.VC150.DebugMFC', 'sys32'),
-        ('VC/redist/MSVC/14.*.*/x64/Microsoft.VC150.CRT', 'sys64'),
-        ('VC/redist/MSVC/14.*.*/x64/Microsoft.VC150.CRT', 'VC/bin/amd64_x86'),
-        ('VC/redist/MSVC/14.*.*/x64/Microsoft.VC150.CRT', 'VC/bin/amd64'),
-        ('VC/redist/MSVC/14.*.*/x64/Microsoft.VC150.CRT', 'win_sdk/bin/x64'),
-        ('VC/redist/MSVC/14.*.*/x64/Microsoft.VC150.MFC', 'sys64'),
-        ('VC/redist/MSVC/14.*.*/debug_nonredist/x64/Microsoft.VC150.DebugCRT', 'sys64'),
-        ('VC/redist/MSVC/14.*.*/debug_nonredist/x64/Microsoft.VC150.DebugMFC', 'sys64'),
+        ('VC/redist/MSVC/14.*.*/x86/Microsoft.VC*.CRT', 'sys32'),
+        ('VC/redist/MSVC/14.*.*/x86/Microsoft.VC*.CRT', 'win_sdk/bin/x86'),
+        ('VC/redist/MSVC/14.*.*/debug_nonredist/x86/Microsoft.VC*.DebugCRT', 'sys32'),
+        ('VC/redist/MSVC/14.*.*/x64/Microsoft.VC*.CRT', 'sys64'),
+        ('VC/redist/MSVC/14.*.*/x64/Microsoft.VC*.CRT', 'VC/bin/amd64_x86'),
+        ('VC/redist/MSVC/14.*.*/x64/Microsoft.VC*.CRT', 'VC/bin/amd64'),
+        ('VC/redist/MSVC/14.*.*/x64/Microsoft.VC*.CRT', 'win_sdk/bin/x64'),
+        ('VC/redist/MSVC/14.*.*/debug_nonredist/x64/Microsoft.VC*.DebugCRT', 'sys64'),
     ]
   else:
     raise ValueError('VS_VERSION %s' % VS_VERSION)
@@ -138,6 +136,11 @@ def BuildFileList(override_dir):
       raise Exception('%s not a directory.' % combined)
     for root, _, files in os.walk(combined):
       for f in files:
+        # vctip.exe doesn't shutdown, leaving locks on directories. It's
+        # optional so let's avoid this problem by not packaging it.
+        # https://crbug.com/735226
+        if f.lower() =='vctip.exe':
+          continue
         final_from = os.path.normpath(os.path.join(root, f))
         if isinstance(path, tuple):
           assert final_from.startswith(combined)

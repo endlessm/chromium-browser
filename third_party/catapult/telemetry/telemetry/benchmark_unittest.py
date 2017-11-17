@@ -110,13 +110,13 @@ class BenchmarkTest(unittest.TestCase):
         return False
 
     original_run_fn = story_runner.Run
-    validPredicate = [False]
+    valid_predicate = [False]
 
     def RunStub(test, story_set_module, finder_options, results,
                 *args, **kwargs): # pylint: disable=unused-argument
       predicate = results._value_can_be_added_predicate
       valid = predicate == PredicateBenchmark.ValueCanBeAddedPredicate
-      validPredicate[0] = valid
+      valid_predicate[0] = valid
 
     story_runner.Run = RunStub
 
@@ -133,7 +133,7 @@ class BenchmarkTest(unittest.TestCase):
     finally:
       story_runner.Run = original_run_fn
 
-    self.assertTrue(validPredicate[0])
+    self.assertTrue(valid_predicate[0])
 
   def testBenchmarkExpectations(self):
     b = TestBenchmark(story_module.Story(
@@ -142,7 +142,41 @@ class BenchmarkTest(unittest.TestCase):
     self.assertIsInstance(
         b.GetExpectations(), story_module.expectations.StoryExpectations)
 
-  def testBenchmarkOwnership(self):
+  def testGetOwners(self):
+    @benchmark.Owner(emails=['alice@chromium.org'])
+    class FooBenchmark(benchmark.Benchmark):
+      @classmethod
+      def Name(cls):
+        return "foo"
+
+    @benchmark.Owner(emails=['bob@chromium.org', 'ben@chromium.org'],
+                     component='xyzzyx')
+    class BarBenchmark(benchmark.Benchmark):
+      @classmethod
+      def Name(cls):
+        return "bar"
+
+    @benchmark.Owner(component='xyzzyx')
+    class BazBenchmark(benchmark.Benchmark):
+      @classmethod
+      def Name(cls):
+        return "baz"
+
+    foo_owners_diagnostic = FooBenchmark(None).GetOwners()
+    bar_owners_diagnostic = BarBenchmark(None).GetOwners()
+    baz_owners_diagnostic = BazBenchmark(None).GetOwners()
+
+    self.assertIsInstance(foo_owners_diagnostic, histogram.GenericSet)
+    self.assertIsInstance(bar_owners_diagnostic, histogram.GenericSet)
+    self.assertIsInstance(baz_owners_diagnostic, histogram.GenericSet)
+
+    self.assertEqual(foo_owners_diagnostic.AsDict()['values'],
+                     ['alice@chromium.org'])
+    self.assertEqual(bar_owners_diagnostic.AsDict()['values'],
+                     ['bob@chromium.org', 'ben@chromium.org'])
+    self.assertEqual(baz_owners_diagnostic.AsDict()['values'], [])
+
+  def testGetBugComponents(self):
     @benchmark.Owner(emails=['alice@chromium.org'])
     class FooBenchmark(benchmark.Benchmark):
       @classmethod
@@ -155,16 +189,14 @@ class BenchmarkTest(unittest.TestCase):
       def Name(cls):
         return "bar"
 
-    fooOwnerDiangostic = FooBenchmark(None).GetOwnership()
-    barOwnerDiangostic = BarBenchmark(None).GetOwnership()
+    foo_bug_components_diagnostic = FooBenchmark(None).GetBugComponents()
+    bar_bug_components_diagnostic = BarBenchmark(None).GetBugComponents()
 
-    self.assertIsInstance(fooOwnerDiangostic, histogram.Ownership)
-    self.assertItemsEqual(fooOwnerDiangostic.emails, ['alice@chromium.org'])
-    self.assertIsNone(fooOwnerDiangostic.component)
+    self.assertIsInstance(foo_bug_components_diagnostic, histogram.GenericSet)
+    self.assertIsInstance(bar_bug_components_diagnostic, histogram.GenericSet)
 
-    self.assertIsInstance(barOwnerDiangostic, histogram.Ownership)
-    self.assertItemsEqual(barOwnerDiangostic.emails, ['bob@chromium.org'])
-    self.assertEqual(barOwnerDiangostic.component, 'xyzzyx')
+    self.assertEqual(list(foo_bug_components_diagnostic), [])
+    self.assertEqual(list(bar_bug_components_diagnostic), ['xyzzyx'])
 
   def testGetTBMOptionsSupportsLegacyName(self):
     class TbmBenchmark(benchmark.Benchmark):
@@ -258,3 +290,19 @@ class BenchmarkTest(unittest.TestCase):
         ['string', 'foo', 'stuff', 'bar'],
         tbm._tbm_options.config.atrace_config.categories)
 
+  def testCanRunOnPlatformReturnTrue(self):
+    b = TestBenchmark(story_module.Story(
+        name='test name',
+        shared_state_class=shared_page_state.SharedPageState))
+    # We can pass None for both arguments because it defaults to ALL for
+    # supported platforms, which always returns true.
+    self.assertTrue(b._CanRunOnPlatform(None, None))
+
+  def testCanRunOnPlatformReturnFalse(self):
+    b = TestBenchmark(story_module.Story(
+        name='test name',
+        shared_state_class=shared_page_state.SharedPageState))
+    b.SUPPORTED_PLATFORMS = [] # pylint: disable=invalid-name
+    # We can pass None for both arguments because we select no platforms as
+    # supported, which always returns false.
+    self.assertFalse(b._CanRunOnPlatform(None, None))

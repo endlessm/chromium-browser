@@ -23,6 +23,10 @@ namespace aura {
 class Window;
 }
 
+namespace base {
+class ElapsedTimer;
+}
+
 namespace display {
 class Screen;
 }
@@ -64,6 +68,10 @@ class APP_LIST_EXPORT AppListView : public views::BubbleDialogDelegateView,
 
   // The defualt color of the app list background.
   static constexpr SkColor kDefaultBackgroundColor = SK_ColorBLACK;
+
+  // The duration the AppListView ignores scroll events which could transition
+  // its state.
+  static constexpr int kScrollIgnoreTimeMs = 500;
 
   enum AppListState {
     // Closes |app_list_main_view_| and dismisses the delegate.
@@ -146,8 +154,8 @@ class APP_LIST_EXPORT AppListView : public views::BubbleDialogDelegateView,
   // Called when tablet mode starts and ends.
   void OnTabletModeChanged(bool started);
 
-  // Changes |app_list_state_| from |PEEKING| to |FULLSCREEN_ALL_APPS|.
-  bool HandleScroll(const ui::Event* event);
+  // Handles scroll events from various sources.
+  bool HandleScroll(int offset, ui::EventType type);
 
   // Changes the app list state.
   void SetState(AppListState new_state);
@@ -163,12 +171,9 @@ class APP_LIST_EXPORT AppListView : public views::BubbleDialogDelegateView,
   // whether the search box is empty.
   void SetStateFromSearchBoxView(bool search_box_is_empty);
 
-  // Updates y position and opacity of app list. |is_end_gesture| means it is
-  // the end of the gesture dragging of app list from shelf and should restore
-  // the opacity of the app list.
+  // Updates y position and opacity of app list.
   void UpdateYPositionAndOpacity(int y_position_in_screen,
-                                 float background_opacity,
-                                 bool is_end_gesture);
+                                 float background_opacity);
 
   // Gets the PaginationModel owned by this view's apps grid.
   PaginationModel* GetAppsPaginationModel() const;
@@ -182,6 +187,9 @@ class APP_LIST_EXPORT AppListView : public views::BubbleDialogDelegateView,
 
   // Gets current work area bottom.
   int GetWorkAreaBottom();
+
+  // Layouts the app list during dragging.
+  void DraggingLayout();
 
   views::Widget* get_fullscreen_widget_for_test() const {
     return fullscreen_widget_;
@@ -208,9 +216,8 @@ class APP_LIST_EXPORT AppListView : public views::BubbleDialogDelegateView,
     return app_list_y_position_in_screen_;
   }
 
-  void set_app_list_animation_duration_ms_for_testing(
-      int app_list_animation_duration_ms) {
-    app_list_animation_duration_ms_ = app_list_animation_duration_ms;
+  void set_short_animation_for_testing() {
+    short_animations_for_testing_ = true;
   }
 
   bool drag_started_from_peeking() const { return drag_started_from_peeking_; }
@@ -236,6 +243,12 @@ class APP_LIST_EXPORT AppListView : public views::BubbleDialogDelegateView,
   // Closes the AppListView when a click or tap event propogates to the
   // AppListView.
   void HandleClickOrTap(ui::LocatedEvent* event);
+
+  // Sets or restarts the scroll ignore timer.
+  void SetOrRestartScrollIgnoreTimer();
+
+  // Whether scroll events should be ignored.
+  bool ShouldIgnoreScrollEvents();
 
   // Initializes |initial_drag_point_|.
   void StartDrag(const gfx::Point& location);
@@ -286,9 +299,6 @@ class APP_LIST_EXPORT AppListView : public views::BubbleDialogDelegateView,
   void OnDisplayMetricsChanged(const display::Display& display,
                                uint32_t changed_metrics) override;
 
-  // Layouts the app list during dragging.
-  void DraggingLayout();
-
   // Gets app list background opacity during dragging.
   float GetAppListBackgroundOpacityDuringDragging();
 
@@ -321,6 +331,9 @@ class APP_LIST_EXPORT AppListView : public views::BubbleDialogDelegateView,
   // True if the user is in the process of gesture-dragging on opened app list,
   // or dragging the app list from shelf.
   bool is_in_drag_ = false;
+
+  // Set animation durations to 0 for testing.
+  bool short_animations_for_testing_;
 
   // Y position of the app list in screen space coordinate during dragging.
   int app_list_y_position_in_screen_ = 0;
@@ -358,11 +371,11 @@ class APP_LIST_EXPORT AppListView : public views::BubbleDialogDelegateView,
   // For UMA and testing. If non-null, triggered when the app list is painted.
   base::Closure next_paint_callback_;
 
-  // Animation duration in milliseconds.
-  int app_list_animation_duration_ms_;
-
   // True if the dragging started from PEEKING state.
   bool drag_started_from_peeking_ = false;
+
+  // Timer to ignore scroll events which would close the view by accident.
+  std::unique_ptr<base::ElapsedTimer> scroll_ignore_timer_;
 
   DISALLOW_COPY_AND_ASSIGN(AppListView);
 };

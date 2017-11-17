@@ -22,9 +22,9 @@ namespace ash {
 
 namespace {
 
-bool IsTouchViewEnabled() {
+bool IsTabletModeEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kAshEnableTouchView);
+      switches::kAshEnableTabletMode);
 }
 
 }  // namespace
@@ -36,7 +36,7 @@ const int SessionStateAnimator::kAllLockScreenContainersMask =
 
 const int SessionStateAnimator::kAllNonRootContainersMask =
     SessionStateAnimator::kAllLockScreenContainersMask |
-    SessionStateAnimator::WALLPAPER | SessionStateAnimator::LAUNCHER |
+    SessionStateAnimator::WALLPAPER | SessionStateAnimator::SHELF |
     SessionStateAnimator::NON_LOCK_SCREEN_CONTAINERS;
 
 SessionStateAnimator::AnimationSequence::AnimationSequence(
@@ -95,8 +95,8 @@ base::TimeDelta SessionStateAnimator::GetDuration(
     case ANIMATION_SPEED_UNDO_MOVE_WINDOWS:
       return base::TimeDelta::FromMilliseconds(350);
     case ANIMATION_SPEED_SHUTDOWN:
-      return IsTouchViewEnabled() ? base::TimeDelta::FromMilliseconds(1500)
-                                  : base::TimeDelta::FromMilliseconds(1000);
+      return IsTabletModeEnabled() ? base::TimeDelta::FromMilliseconds(1500)
+                                   : base::TimeDelta::FromMilliseconds(1000);
     case ANIMATION_SPEED_REVERT_SHUTDOWN:
       return base::TimeDelta::FromMilliseconds(500);
   }

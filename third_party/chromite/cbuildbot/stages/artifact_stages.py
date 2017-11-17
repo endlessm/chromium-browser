@@ -186,6 +186,8 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
     #    \- ArchiveManifest
     #    \- ArchiveStrippedPackages
     #    \- ArchiveImageScripts
+    #    \- BuildAndArchiveDeltaSysroot
+    #    \- ArchiveEbuildLogs
 
     def ArchiveManifest():
       """Create manifest.xml snapshot of the built code."""
@@ -227,6 +229,17 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
       if config['upload_standalone_images']:
         parallel.RunTasksInProcessPool(ArchiveStandaloneArtifact,
                                        [[x] for x in self.artifacts])
+
+    def ArchiveEbuildLogs():
+      """Tar and archive Ebuild logs.
+
+      This includes all the files in /build/$BOARD/tmp/portage/logs.
+      """
+      tarpath = commands.BuildEbuildLogsTarball(self._build_root,
+                                                self._current_board,
+                                                self.archive_path)
+      if tarpath is not None:
+        self._upload_queue.put([tarpath])
 
     def ArchiveZipFiles():
       """Build and archive zip files.
@@ -355,7 +368,7 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
     def BuildAndArchiveArtifacts():
       # Run archiving steps in parallel.
       steps = [ArchiveReleaseArtifacts, ArchiveManifest,
-               self.ArchiveStrippedPackages]
+               self.ArchiveStrippedPackages, ArchiveEbuildLogs]
       if config['images']:
         steps.append(ArchiveImageScripts)
       if config['create_delta_sysroot']:

@@ -132,14 +132,6 @@ angle::Vector4 GLColor::toNormalizedVector() const
     return angle::Vector4(ColorNorm(R), ColorNorm(G), ColorNorm(B), ColorNorm(A));
 }
 
-GLColor32F::GLColor32F() : GLColor32F(0.0f, 0.0f, 0.0f, 0.0f)
-{
-}
-
-GLColor32F::GLColor32F(GLfloat r, GLfloat g, GLfloat b, GLfloat a) : R(r), G(g), B(b), A(a)
-{
-}
-
 GLColor ReadColor(GLint x, GLint y)
 {
     GLColor actual;
@@ -207,6 +199,7 @@ ANGLETestBase::ANGLETestBase(const angle::PlatformParameters &params)
       mIgnoreD3D11SDKLayersWarnings(false),
       mQuadVertexBuffer(0),
       mQuadIndexBuffer(0),
+      m2DTexturedQuadProgram(0),
       mDeferContextInit(false)
 {
     mEGLWindow = new EGLWindow(params.majorVersion, params.minorVersion, params.eglParameters);
@@ -240,6 +233,10 @@ ANGLETestBase::~ANGLETestBase()
     if (mQuadIndexBuffer)
     {
         glDeleteBuffers(1, &mQuadIndexBuffer);
+    }
+    if (m2DTexturedQuadProgram)
+    {
+        glDeleteProgram(m2DTexturedQuadProgram);
     }
     SafeDelete(mEGLWindow);
 }
@@ -412,6 +409,18 @@ void ANGLETestBase::drawQuad(GLuint program,
                              GLfloat positionAttribXYScale,
                              bool useVertexBuffer)
 {
+    drawQuad(program, positionAttribName, positionAttribZ, positionAttribXYScale, useVertexBuffer,
+             false, 0u);
+}
+
+void ANGLETestBase::drawQuad(GLuint program,
+                             const std::string &positionAttribName,
+                             GLfloat positionAttribZ,
+                             GLfloat positionAttribXYScale,
+                             bool useVertexBuffer,
+                             bool useInstancedDrawCalls,
+                             GLuint numInstances)
+{
     GLint previousProgram = 0;
     glGetIntegerv(GL_CURRENT_PROGRAM, &previousProgram);
     if (previousProgram != static_cast<GLint>(program))
@@ -441,7 +450,14 @@ void ANGLETestBase::drawQuad(GLuint program,
     }
     glEnableVertexAttribArray(positionLocation);
 
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    if (useInstancedDrawCalls)
+    {
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, numInstances);
+    }
+    else
+    {
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+    }
 
     glDisableVertexAttribArray(positionLocation);
     glVertexAttribPointer(positionLocation, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
@@ -472,6 +488,17 @@ void ANGLETestBase::drawIndexedQuad(GLuint program,
                                     GLfloat positionAttribZ,
                                     GLfloat positionAttribXYScale,
                                     bool useIndexBuffer)
+{
+    drawIndexedQuad(program, positionAttribName, positionAttribZ, positionAttribXYScale,
+                    useIndexBuffer, false);
+}
+
+void ANGLETestBase::drawIndexedQuad(GLuint program,
+                                    const std::string &positionAttribName,
+                                    GLfloat positionAttribZ,
+                                    GLfloat positionAttribXYScale,
+                                    bool useIndexBuffer,
+                                    bool restrictedRange)
 {
     GLint positionLocation = glGetAttribLocation(program, positionAttribName.c_str());
 
@@ -506,7 +533,14 @@ void ANGLETestBase::drawIndexedQuad(GLuint program,
         indices = angle::IndexedQuadIndices;
     }
 
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, indices);
+    if (!restrictedRange)
+    {
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, indices);
+    }
+    else
+    {
+        glDrawRangeElements(GL_TRIANGLES, 0, 3, 6, GL_UNSIGNED_SHORT, indices);
+    }
 
     if (useIndexBuffer)
     {
@@ -520,6 +554,44 @@ void ANGLETestBase::drawIndexedQuad(GLuint program,
     {
         glUseProgram(static_cast<GLuint>(activeProgram));
     }
+}
+
+GLuint ANGLETestBase::get2DTexturedQuadProgram()
+{
+    if (m2DTexturedQuadProgram)
+    {
+        return m2DTexturedQuadProgram;
+    }
+
+    const std::string &vs =
+        "attribute vec2 position;\n"
+        "varying mediump vec2 texCoord;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = vec4(position, 0, 1);\n"
+        "    texCoord = position * 0.5 + vec2(0.5);\n"
+        "}\n";
+
+    const std::string &fs =
+        "varying mediump vec2 texCoord;\n"
+        "uniform sampler2D tex;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = texture2D(tex, texCoord);\n"
+        "}\n";
+
+    m2DTexturedQuadProgram = CompileProgram(vs, fs);
+    return m2DTexturedQuadProgram;
+}
+
+void ANGLETestBase::draw2DTexturedQuad(const std::string &positionAttribName,
+                                       GLfloat positionAttribZ,
+                                       GLfloat positionAttribXYScale,
+                                       bool useVertexBuffer)
+{
+    ASSERT_NE(0u, get2DTexturedQuadProgram());
+    return drawQuad(get2DTexturedQuadProgram(), positionAttribName, positionAttribZ,
+                    positionAttribXYScale, useVertexBuffer);
 }
 
 GLuint ANGLETestBase::compileShader(GLenum type, const std::string &source)

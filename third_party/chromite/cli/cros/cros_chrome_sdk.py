@@ -538,20 +538,20 @@ class ChromeSDKCommand(command.CliCommand):
         '--download-vm', action='store_true', default=False,
         help='Additionally downloads a VM image from cloud storage.')
 
-    parser.add_option_to_group(
-        parser.caching_group, '--clear-sdk-cache', action='store_true',
+    parser.caching_group.add_argument(
+        '--clear-sdk-cache', action='store_true',
         default=False,
         help='Removes everything in the SDK cache before starting.')
 
-    group = parser.add_option_group(
+    group = parser.add_argument_group(
         'Metadata Overrides (Advanced)',
         description='Provide all of these overrides in order to remove '
                     'dependencies on metadata.json existence.')
-    parser.add_option_to_group(
-        group, '--target-tc', action='store', default=None,
+    group.add_argument(
+        '--target-tc', action='store', default=None,
         help='Override target toolchain name, e.g. x86_64-cros-linux-gnu')
-    parser.add_option_to_group(
-        group, '--toolchain-url', action='store', default=None,
+    group.add_argument(
+        '--toolchain-url', action='store', default=None,
         help='Override toolchain url format pattern, e.g. '
              '2014/04/%%(target)s-2014.04.23.220740.tar.xz')
 

@@ -17,7 +17,6 @@
 #include "base/strings/string_piece.h"
 #include "base/time/time.h"
 #include "net/base/net_export.h"
-#include "net/cert/cert_type.h"
 #include "net/cert/x509_cert_types.h"
 #include "net/net_features.h"
 
@@ -154,12 +153,6 @@ class NET_EXPORT X509Certificate
   static scoped_refptr<X509Certificate> CreateFromBytes(const char* data,
                                                         size_t length);
 
-#if defined(USE_NSS_CERTS)
-  // The default nickname of the certificate, based on the certificate type
-  // passed in.
-  std::string GetDefaultNickname(CertType type) const;
-#endif
-
   // Create an X509Certificate from the representation stored in the given
   // pickle.  The data for this object is found relative to the given
   // pickle_iter, which should be passed to the pickle's various Read* methods.
@@ -221,9 +214,11 @@ class NET_EXPORT X509Certificate
   bool HasExpired() const;
 
   // Returns true if this object and |other| represent the same certificate.
+  // Does not consider any associated intermediates.
   bool Equals(const X509Certificate* other) const;
 
-  // Returns intermediate certificates added via AddIntermediateCertificate().
+  // Returns the associated intermediate certificates that were specified
+  // during creation of this object, if any.
   // Ownership follows the "get" rule: it is the caller's responsibility to
   // retain the elements of the result.
   const OSCertHandles& GetIntermediateCertificates() const {
@@ -262,7 +257,7 @@ class NET_EXPORT X509Certificate
   // Encodes the entire certificate chain (this certificate and any
   // intermediate certificates stored in |intermediate_ca_certs_|) as a series
   // of PEM encoded strings. Returns true if all certificates were encoded,
-  // storig the result in |*pem_encoded|, with this certificate stored as
+  // storing the result in |*pem_encoded|, with this certificate stored as
   // the first element.
   bool GetPEMEncodedChain(std::vector<std::string>* pem_encoded) const;
 
@@ -287,16 +282,6 @@ class NET_EXPORT X509Certificate
   // Returns NULL on failure.
   static OSCertHandle CreateOSCertHandleFromBytes(const char* data,
                                                   size_t length);
-
-#if defined(USE_NSS_CERTS)
-  // Creates an OS certificate handle from the DER-encoded representation.
-  // Returns NULL on failure.  Sets the default nickname if |nickname| is
-  // non-NULL.
-  static OSCertHandle CreateOSCertHandleFromBytesWithNickname(
-      const char* data,
-      size_t length,
-      const char* nickname);
-#endif
 
   // Creates all possible OS certificate handles from |data| encoded in a
   // specific |format|. Returns an empty collection on failure.

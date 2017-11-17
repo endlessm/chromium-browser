@@ -200,9 +200,10 @@ class GclientTest(trial_dir.TestCase):
   def testAutofix(self):
     # Invalid urls causes pain when specifying requirements. Make sure it's
     # auto-fixed.
+    url = 'proto://host/path/@revision'
     d = gclient.Dependency(
-        None, 'name', 'proto://host/path/@revision', None, None, None,
-        None, '', True, False)
+        None, 'name', url, url, None, None, None,
+        None, '', True, False, None, True)
     self.assertEquals('proto://host/path@revision', d.url)
 
   def testStr(self):
@@ -212,16 +213,18 @@ class GclientTest(trial_dir.TestCase):
     obj.add_dependencies_and_close(
       [
         gclient.Dependency(
-          obj, 'foo', 'url', None, None, None, None, 'DEPS', True, False),
+          obj, 'foo', 'raw_url', 'url', None, None, None, None, 'DEPS', True,
+          False, None, True),
         gclient.Dependency(
-          obj, 'bar', 'url', None, None, None, None, 'DEPS', True, False),
+          obj, 'bar', 'raw_url', 'url', None, None, None, None, 'DEPS', True,
+          False, None, True),
       ],
       [])
     obj.dependencies[0].add_dependencies_and_close(
       [
         gclient.Dependency(
-          obj.dependencies[0], 'foo/dir1', 'url', None, None, None,
-          None, 'DEPS', True, False),
+          obj.dependencies[0], 'foo/dir1', 'raw_url', 'url', None, None, None,
+          None, 'DEPS', True, False, None, True),
       ],
       [])
     # Make sure __str__() works fine.
@@ -258,7 +261,9 @@ class GclientTest(trial_dir.TestCase):
     for s in client.dependencies:
       work_queue.enqueue(s)
     work_queue.flush({}, None, [], options=options)
-    self.assertEqual(client.GetHooks(options), [x['action'] for x in hooks])
+    self.assertEqual(
+        [h.action for h in client.GetHooks(options)],
+        [tuple(x['action']) for x in hooks])
 
   def testCustomHooks(self):
     topdir = self.root_dir
@@ -307,8 +312,9 @@ class GclientTest(trial_dir.TestCase):
     for s in client.dependencies:
       work_queue.enqueue(s)
     work_queue.flush({}, None, [], options=options)
-    self.assertEqual(client.GetHooks(options),
-                     [x['action'] for x in hooks + extra_hooks + sub_hooks])
+    self.assertEqual(
+        [h.action for h in client.GetHooks(options)],
+        [tuple(x['action']) for x in hooks + extra_hooks + sub_hooks])
 
   def testTargetOS(self):
     """Verifies that specifying a target_os pulls in all relevant dependencies.
@@ -499,12 +505,12 @@ class GclientTest(trial_dir.TestCase):
     obj = gclient.GClient.LoadCurrentConfig(options)
     obj.RunOnDeps('None', args)
     self.assertEqual(['zippy'], sorted(obj.enforced_os))
-    all_hooks = obj.GetHooks(options)
+    all_hooks = [h.action for h in obj.GetHooks(options)]
     self.assertEquals(
         [('.', 'svn://example.com/'),],
         sorted(self._get_processed()))
     self.assertEquals(all_hooks,
-                      [['/usr/bin/python', 'do_a']])
+                      [('python', 'do_a')])
 
     # Test for OS that has extra hooks in hooks_os.
     parser = gclient.OptionParser()
@@ -514,13 +520,13 @@ class GclientTest(trial_dir.TestCase):
     obj = gclient.GClient.LoadCurrentConfig(options)
     obj.RunOnDeps('None', args)
     self.assertEqual(['blorp'], sorted(obj.enforced_os))
-    all_hooks = obj.GetHooks(options)
+    all_hooks = [h.action for h in obj.GetHooks(options)]
     self.assertEquals(
         [('.', 'svn://example.com/'),],
         sorted(self._get_processed()))
     self.assertEquals(all_hooks,
-                      [['/usr/bin/python', 'do_a'],
-                       ['/usr/bin/python', 'do_b']])
+                      [('python', 'do_a'),
+                       ('python', 'do_b')])
 
 
   def testUpdateWithOsDeps(self):
@@ -531,25 +537,36 @@ class GclientTest(trial_dir.TestCase):
     test_data = [
       # Tuples of deps, deps_os, os_list and expected_deps.
       (
-        # OS doesn't need module.
-        {'foo': 'default_foo'},
-        {'os1': { 'foo': None } },
-        ['os1'],
-        {'foo': None}
-        ),
-      (
-        # OS wants a different version of module.
-        {'foo': 'default_foo'},
-        {'os1': { 'foo': 'os1_foo'} },
-        ['os1'],
-        {'foo': 'os1_foo'}
-        ),
-      (
         # OS with no overrides at all.
         {'foo': 'default_foo'},
         {'os1': { 'foo': None } },
         ['os2'],
         {'foo': 'default_foo'}
+        ),
+      (
+        # One OS wants to add a module.
+        {'foo': 'default_foo'},
+        {'os1': { 'bar': 'os1_bar' }},
+        ['os1'],
+        {'foo': 'default_foo',
+         'bar': {'should_process': True, 'url': 'os1_bar'}}
+        ),
+      (
+        # One OS wants to add a module. One doesn't care.
+        {'foo': 'default_foo'},
+        {'os1': { 'bar': 'os1_bar' }},
+        ['os1', 'os2'],
+        {'foo': 'default_foo',
+         'bar': {'should_process': True, 'url': 'os1_bar'}}
+        ),
+      (
+        # Two OSes want to add a module with the same definition.
+        {'foo': 'default_foo'},
+        {'os1': { 'bar': 'os12_bar' },
+         'os2': { 'bar': 'os12_bar' }},
+        ['os1', 'os2'],
+        {'foo': 'default_foo',
+         'bar': {'should_process': True, 'url': 'os12_bar'}}
         ),
       (
         # One OS doesn't need module, one OS wants the default.
@@ -560,37 +577,18 @@ class GclientTest(trial_dir.TestCase):
         {'foo': 'default_foo'}
         ),
       (
-        # One OS doesn't need module, another OS wants a special version.
+        # OS doesn't need module.
         {'foo': 'default_foo'},
-        {'os1': { 'foo': None },
-         'os2': { 'foo': 'os2_foo'}},
-        ['os1', 'os2'],
-        {'foo': 'os2_foo'}
-        ),
-      (
-        # One OS wants to add a module.
-        {'foo': 'default_foo'},
-        {'os1': { 'bar': 'os1_bar' }},
+        {'os1': { 'foo': None } },
         ['os1'],
-        {'foo': 'default_foo',
-         'bar': 'os1_bar'}
+        {'foo': 'default_foo'}
         ),
       (
-        # One OS wants to add a module. One doesn't care.
+        # No-op override. Regression test for http://crbug.com/735418 .
         {'foo': 'default_foo'},
-        {'os1': { 'bar': 'os1_bar' }},
-        ['os1', 'os2'],
-        {'foo': 'default_foo',
-         'bar': 'os1_bar'}
-        ),
-      (
-        # Two OSes want to add a module with the same definition.
-        {'foo': 'default_foo'},
-        {'os1': { 'bar': 'os12_bar' },
-         'os2': { 'bar': 'os12_bar' }},
-        ['os1', 'os2'],
-        {'foo': 'default_foo',
-         'bar': 'os12_bar'}
+        {'os1': { 'foo': 'default_foo' } },
+        [],
+        {'foo': {'should_process': True, 'url': 'default_foo'}}
         ),
       ]
     for deps, deps_os, target_os_list, expected_deps in test_data:
@@ -599,17 +597,37 @@ class GclientTest(trial_dir.TestCase):
       self.assertEqual(result, expected_deps)
       self.assertEqual(deps, orig_deps)
 
+  def testUpdateWithOsDepsInvalid(self):
+    test_data = [
+      # Tuples of deps, deps_os, os_list.
+      (
+        # OS wants a different version of module.
+        {'foo': 'default_foo'},
+        {'os1': { 'foo': 'os1_foo'} },
+        ['os1'],
+        ),
+      (
+        # One OS doesn't need module, another OS wants a special version.
+        {'foo': 'default_foo'},
+        {'os1': { 'foo': None },
+         'os2': { 'foo': 'os2_foo'}},
+        ['os1', 'os2'],
+        ),
+      ]
+    for deps, deps_os, target_os_list in test_data:
+      with self.assertRaises(gclient_utils.Error):
+        gclient.Dependency.MergeWithOsDeps(deps, deps_os, target_os_list)
 
   def testLateOverride(self):
     """Verifies expected behavior of LateOverride."""
     url = "git@github.com:dart-lang/spark.git"
-    d = gclient.Dependency(None, 'name', 'url',
-                           None, None, None, None, '', True, False)
+    d = gclient.Dependency(None, 'name', 'raw_url', 'url',
+                           None, None, None, None, '', True, False, None, True)
     late_url = d.LateOverride(url)
     self.assertEquals(url, late_url)
 
   def testDepsOsOverrideDepsInDepsFile(self):
-    """Verifies that a 'deps_os' path can override a 'deps' path. Also
+    """Verifies that a 'deps_os' path cannot override a 'deps' path. Also
     see testUpdateWithOsDeps above.
     """
 
@@ -639,14 +657,12 @@ class GclientTest(trial_dir.TestCase):
     options.deps_os = 'unix'
 
     obj = gclient.GClient.LoadCurrentConfig(options)
-    obj.RunOnDeps('None', [])
+    with self.assertRaises(gclient_utils.Error):
+      obj.RunOnDeps('None', [])
     self.assertEqual(['unix'], sorted(obj.enforced_os))
     self.assertEquals(
         [
           ('foo', 'svn://example.com/foo'),
-          ('foo/baz', 'svn://example.com/foo/baz'),
-          ('foo/src', 'svn://example.com/foo/src_unix'),
-          ('foo/unix', 'svn://example.com/foo/unix'),
           ],
         sorted(self._get_processed()))
 

@@ -136,19 +136,14 @@ class Payload(utils.RestrictedAttrDict):
     src_image: A representation of image it updates from. None for
                Full updates, or the same type as tgt_image otherwise.
     uri: The URI of the payload. This can be any format understood by urilib.
-    labels: A list of strings. Labels are used to catalogue payloads.
-    skip: A boolean. If true, we skip generating this payload.
     exists: A boolean. If true, artifacts for this build already exist.
   """
   _name = 'Payload definition'
-  _slots = ('tgt_image', 'src_image', 'uri', 'labels', 'skip', 'exists')
+  _slots = ('tgt_image', 'src_image', 'uri', 'exists')
 
-  def __init__(self, labels=None, skip=False, exists=False, *args, **kwargs):
-    kwargs.update(labels=labels, skip=skip, exists=exists)
+  def __init__(self, exists=False, *args, **kwargs):
+    kwargs.update(exists=exists)
     super(Payload, self).__init__(*args, **kwargs)
-
-    if self['labels'] is None:
-      self['labels'] = []
 
   def __str__(self):
     if self.uri:
@@ -368,8 +363,8 @@ class ChromeosReleases(object):
                                    image_type))
 
   @staticmethod
-  def UnsignedImageArchiveUri(channel, board, version, milestone, image_type,
-                              bucket=None):
+  def UnsignedImageUri(channel, board, version, milestone, image_type,
+                       bucket=None):
     """Creates the gspath for a given unsigned build image archive.
 
     Args:
@@ -414,7 +409,7 @@ class ChromeosReleases(object):
     return Image(values)
 
   @classmethod
-  def ParseUnsignedImageArchiveUri(cls, image_uri):
+  def ParseUnsignedImageUri(cls, image_uri):
     """Parse the URI of an image into an UnsignedImageArchive object."""
 
     # The named values in this regex must match the arguments to gspaths.Image.
@@ -472,8 +467,7 @@ class ChromeosReleases(object):
         bin-610c97c30fae8561bde01a6116d65cb9.signed
     """
     if random_str is None:
-      random.seed()
-      random_str = hashlib.md5(str(random.getrandbits(128))).hexdigest()
+      random_str = _RandomString()
 
     if key is None:
       signed_ext = ''
@@ -719,3 +713,13 @@ def IsUnsignedImageArchive(a):
     True if |a| is of UnsignedImageArchive type, False otherwise
   """
   return isinstance(a, UnsignedImageArchive)
+
+
+def _RandomString():
+  """Helper function for generating a random string for a payload name.
+
+  This is an external helper function so that it can be trivially mocked
+  to make test results deterministic.
+  """
+  random.seed()
+  return hashlib.md5(str(random.getrandbits(128))).hexdigest()

@@ -20,7 +20,7 @@ found in the LICENSE file.
 
 <style>
 .model-track {
-  -webkit-box-flex: 1;
+  flex-grow: 1;
 }
 </style>
 
@@ -60,7 +60,7 @@ tr.exportTo('tr.ui.tracks', function() {
     if (times.length === 0) return [];
 
     // Find the lowest and highest index within the viewport.
-    const lowIndex = tr.b.math.findLowIndexInSortedArray(
+    const lowIndex = tr.b.findLowIndexInSortedArray(
         times, (x => x), minTime);
     let highIndex = lowIndex - 1;
     while (times[highIndex + 1] <= maxTime) {
@@ -365,16 +365,22 @@ tr.exportTo('tr.ui.tracks', function() {
         ctx.shadowBlur = 1;
         ctx.shadowColor = 'red';
         ctx.shadowOffsety = 2;
-        ctx.strokeStyle = 'red';
+        ctx.strokeStyle = tr.b.ColorScheme.colorsAsStrings[
+          tr.b.ColorScheme.getVariantColorId(
+              flowEvent.colorId,
+              tr.b.ColorScheme.properties.brightenedOffsets[0])];
       } else if (flowEvent.selectionState === SelectionState.HIGHLIGHTED) {
         ctx.shadowBlur = 1;
         ctx.shadowColor = 'red';
         ctx.shadowOffsety = 2;
-        ctx.strokeStyle = 'red';
+        ctx.strokeStyle = tr.b.ColorScheme.colorsAsStrings[
+          tr.b.ColorScheme.getVariantColorId(
+              flowEvent.colorId,
+              tr.b.ColorScheme.properties.brightenedOffsets[0])];
       } else if (flowEvent.selectionState === SelectionState.DIMMED) {
         ctx.shadowBlur = 0;
         ctx.shadowOffsetX = 0;
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+        ctx.strokeStyle = tr.b.ColorScheme.colorsAsStrings[flowEvent.colorId];
       } else {
         let hasBoost = false;
         const startSlice = flowEvent.startSlice;
@@ -387,11 +393,14 @@ tr.exportTo('tr.ui.tracks', function() {
           ctx.shadowBlur = 1;
           ctx.shadowColor = 'rgba(255, 0, 0, 0.4)';
           ctx.shadowOffsety = 2;
-          ctx.strokeStyle = 'rgba(255, 0, 0, 0.4)';
+          ctx.strokeStyle = tr.b.ColorScheme.colorsAsStrings[
+            tr.b.ColorScheme.getVariantColorId(
+                flowEvent.colorId,
+                tr.b.ColorScheme.properties.brightenedOffsets[0])];
         } else {
           ctx.shadowBlur = 0;
           ctx.shadowOffsetX = 0;
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+          ctx.strokeStyle = tr.b.ColorScheme.colorsAsStrings[flowEvent.colorId];
         }
       }
 
@@ -495,7 +504,7 @@ tr.exportTo('tr.ui.tracks', function() {
         selection.push(instantEvent);
       }
       const instantEventWidth = 3 * viewPixWidthWorld;
-      tr.b.math.iterateOverIntersectingIntervals(this.model_.instantEvents,
+      tr.b.iterateOverIntersectingIntervals(this.model_.instantEvents,
           function(x) { return x.start; },
           function(x) { return x.duration + instantEventWidth; },
           loWX, hiWX,

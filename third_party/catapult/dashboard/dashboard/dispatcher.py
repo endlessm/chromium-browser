@@ -32,6 +32,7 @@ from dashboard import edit_site_config
 from dashboard import email_summary
 from dashboard import file_bug
 from dashboard import get_logs
+from dashboard import get_diagnostics
 from dashboard import get_histogram
 from dashboard import graph_csv
 from dashboard import graph_json
@@ -47,6 +48,7 @@ from dashboard import migrate_test_names
 from dashboard import navbar
 from dashboard import new_points
 from dashboard import oauth2_decorator
+from dashboard import pinpoint_request
 from dashboard import post_bisect_results
 from dashboard import put_entities_task
 from dashboard import report
@@ -94,6 +96,7 @@ _URL_MAPPING = [
     ('/edit_site_config', edit_site_config.EditSiteConfigHandler),
     ('/email_summary', email_summary.EmailSummaryHandler),
     ('/file_bug', file_bug.FileBugHandler),
+    ('/get_diagnostics', get_diagnostics.GetDiagnosticsHandler),
     ('/get_histogram', get_histogram.GetHistogramHandler),
     ('/get_logs', get_logs.GetLogsHandler),
     ('/graph_csv', graph_csv.GraphCsvHandler),
@@ -109,6 +112,7 @@ _URL_MAPPING = [
     ('/deprecate_tests', deprecate_tests.DeprecateTestsHandler),
     ('/navbar', navbar.NavbarHandler),
     ('/new_points', new_points.NewPointsHandler),
+    ('/pinpoint/new', pinpoint_request.PinpointNewRequestHandler),
     ('/post_bisect_results', post_bisect_results.PostBisectResultsHandler),
     ('/put_entities_task', put_entities_task.PutEntitiesTaskHandler),
     ('/report', report.ReportHandler),

@@ -1,3 +1,7 @@
-'use strict';
+"use strict";
 
-module.exports = function (value) { return (value != null) && !isNaN(value); };
+var isValue = require("./is-value");
+
+module.exports = function (value) {
+	return isValue(value) && !isNaN(value);
+};

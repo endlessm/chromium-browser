@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<!--
+Copyright 2017 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/dashboard/pinpoint/elements/base-style.html">
+<link rel="import" href="/dashboard/pinpoint/elements/loading-wrapper.html">
+
+<dom-module id="dep-info">
+  <template>
+    <style include="base-style">
+      th {
+        text-align: right;
+        width: 8em;
+      }
+    </style>
+
+    <div>
+      <loading-wrapper id="loader">
+        <h3>[[subject]]</h3>
+        <table>
+          <tr>
+            <th>Author
+            <td>[[author]]
+          <tr>
+            <th>Git hash
+            <td>[[gitHash]]
+          <tr>
+            <th>Time
+            <td>[[time]]
+        </table>
+      </loading-wrapper>
+    </div>
+  </template>
+
+  <script>
+    'use strict';
+    Polymer({
+      is: 'dep-info',
+
+      properties: {
+        dep: {
+          type: Object,
+          observer: '_depChanged'
+        },
+      },
+
+      async _depChanged() {
+        this.gitHash =
+          this.dep.repository + '@' + this.dep.git_hash.slice(0, 16);
+
+        const params = {
+          repository: this.dep.repository,
+          git_hash_1: this.dep.git_hash
+        };
+        const response = await this.$.loader.load('/api/gitiles', params);
+        if (response) {
+          this.subject = response.message.split('\n')[0];
+          this.author = response.author.email;
+          this.time = new Date(response.committer.time + 'Z').toLocaleString();
+        }
+      }
+    });
+  </script>
+</dom-module>
+
+<dom-module id="change-info">
+  <template>
+    <dep-info dep="[[change.base_commit]]"></dep-info>
+    <template is="dom-repeat" items="[[change.deps]]">
+      <dep-info dep="[[item]]"></dep-info>
+    </template>
+  </template>
+
+  <script>
+    'use strict';
+    Polymer({
+      is: 'change-info',
+
+      properties: {
+        change: {
+          type: Object,
+        }
+      }
+    });
+  </script>
+</dom-module>

@@ -23,20 +23,24 @@ from telemetry.internal.platform.tracing_agent import (
 from tracing.trace_data import trace_data as trace_data_module
 
 
-BROWSER_INSPECTOR_WEBSOCKET_URL = 'ws://127.0.0.1:%i/devtools/browser'
+BROWSER_INSPECTOR_WEBSOCKET_URL = 'ws://127.0.0.1:%i%s'
 
 
 class TabNotFoundError(exceptions.Error):
   pass
 
 
-def IsDevToolsAgentAvailable(port, app_backend):
+def IsDevToolsAgentAvailable(port, browser_target, app_backend):
   """Returns True if a DevTools agent is available on the given port."""
+  if not browser_target:
+    browser_target = '/devtools/browser'
+
   if (isinstance(app_backend, browser_backend.BrowserBackend) and
       app_backend.supports_tracing):
     inspector_websocket_instance = inspector_websocket.InspectorWebsocket()
     try:
-      if not _IsInspectorWebsocketAvailable(inspector_websocket_instance, port):
+      if not _IsInspectorWebsocketAvailable(
+          inspector_websocket_instance, port, browser_target):
         return False
     finally:
       inspector_websocket_instance.Disconnect()
@@ -48,15 +52,16 @@ def IsDevToolsAgentAvailable(port, app_backend):
     devtools_http_instance.Disconnect()
 
 
-def _IsInspectorWebsocketAvailable(inspector_websocket_instance, port):
+def _IsInspectorWebsocketAvailable(inspector_websocket_instance, port,
+                                   browser_target):
   try:
     inspector_websocket_instance.Connect(
-        BROWSER_INSPECTOR_WEBSOCKET_URL % port, timeout=10)
+        BROWSER_INSPECTOR_WEBSOCKET_URL % (port, browser_target), timeout=10)
   except (websocket.WebSocketException, socket.error) as exc:
     logging.info(
         'Websocket at port %i not yet available: %s', port, exc)
     return False
-  except Exception as exc:
+  except Exception as exc: # pylint: disable=broad-except
     logging.exception(
         'Unidentified exception while checking if websocket at port %i is '
         'available.', port)
@@ -83,7 +88,8 @@ class DevToolsClientBackend(object):
   This class owns a map of InspectorBackends. It is responsible for creating
   them and destroying them.
   """
-  def __init__(self, devtools_port, remote_devtools_port, app_backend):
+  def __init__(self, devtools_port, browser_target, remote_devtools_port,
+               app_backend):
     """Creates a new DevToolsClientBackend.
 
     A DevTools agent must exist on the given devtools_port.
@@ -97,6 +103,7 @@ class DevToolsClientBackend(object):
       app_backend: For the app that contains the DevTools agent.
     """
     self._devtools_port = devtools_port
+    self._browser_target = browser_target or '/devtools/browser'
     self._remote_devtools_port = remote_devtools_port
     self._devtools_http = devtools_http.DevToolsHttp(devtools_port)
     self._browser_inspector_websocket = None
@@ -177,7 +184,7 @@ class DevToolsClientBackend(object):
   def IsAlive(self):
     """Whether the DevTools server is available and connectable."""
     return (self._devtools_http and
-        _IsDevToolsAgentAvailable(self._devtools_http))
+            _IsDevToolsAgentAvailable(self._devtools_http))
 
   def Close(self):
     if self._tracing_backend:
@@ -324,14 +331,18 @@ class DevToolsClientBackend(object):
     if not self._system_info_backend:
       self._CreateAndConnectBrowserInspectorWebsocketIfNeeded()
       self._system_info_backend = system_info_backend.SystemInfoBackend(
-          self._devtools_port)
+          self._BrowserTargetWebSocket())
 
   def _CreateAndConnectBrowserInspectorWebsocketIfNeeded(self):
     if not self._browser_inspector_websocket:
       self._browser_inspector_websocket = (
           inspector_websocket.InspectorWebsocket())
       self._browser_inspector_websocket.Connect(
-          BROWSER_INSPECTOR_WEBSOCKET_URL % self._devtools_port, timeout=10)
+          self._BrowserTargetWebSocket(), timeout=10)
+
+  def _BrowserTargetWebSocket(self):
+    return (BROWSER_INSPECTOR_WEBSOCKET_URL % (
+        self._devtools_port, self._browser_target))
 
   def IsChromeTracingSupported(self):
     if not self.supports_tracing:
@@ -363,7 +374,8 @@ class DevToolsClientBackend(object):
           continue
         context_id = context['id']
         backend = context_map.GetInspectorBackend(context_id)
-        backend.EvaluateJavaScript("""
+        backend.EvaluateJavaScript(
+            """
             console.time({{ backend_id }});
             console.timeEnd({{ backend_id }});
             console.time.toString().indexOf('[native code]') != -1;
@@ -494,8 +506,8 @@ class _DevToolsContextMapBackend(object):
       context_id = context['id']
       if context_id not in self._inspector_backends_dict:
         if 'webSocketDebuggerUrl' not in context:
-          logging.debug('webSocketDebuggerUrl missing, removing %s'
-                        % context_id)
+          logging.debug('webSocketDebuggerUrl missing, removing %s',
+                        context_id)
           continue
       valid_contexts.append(context)
     self._contexts = valid_contexts

@@ -20,7 +20,7 @@ class WebPageReplayGoServerTest(unittest.TestCase):
         py_utils.GetHostArchName(),
         py_utils.GetHostOsName())
 
-  @decorators.Disabled('win')  # These platform are not supported yet.
+  @decorators.Disabled('chromeos')  # crbug.com/750323
   def testSmokeStartingWebPageReplayGoServer(self):
     with webpagereplay_go_server.ReplayServer(
         self.archive_path, replay_host='127.0.0.1', http_port=0, https_port=0,
@@ -29,13 +29,13 @@ class WebPageReplayGoServerTest(unittest.TestCase):
       self.assertIsNotNone(server.https_port)
 
       # Make sure that we can establish connection to HTTP port.
-      req = urllib2.Request('http://www.example.com/',
-          origin_req_host='127.0.0.1')
+      req = urllib2.Request(
+          'http://www.example.com/', origin_req_host='127.0.0.1')
       r = urllib2.urlopen(req)
       self.assertEquals(r.getcode(), 200)
 
       # Make sure that we can establish connection to HTTPS port.
-      req = urllib2.Request('https://www.example.com/',
-          origin_req_host='127.0.0.1')
+      req = urllib2.Request(
+          'https://www.example.com/', origin_req_host='127.0.0.1')
       r = urllib2.urlopen(req)
       self.assertEquals(r.getcode(), 200)

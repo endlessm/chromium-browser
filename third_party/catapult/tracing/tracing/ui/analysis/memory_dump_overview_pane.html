@@ -6,10 +6,10 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/fixed_color_scheme.html">
-<link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/base/scalar.html">
 <link rel="import" href="/tracing/base/unit.html">
 <link rel="import" href="/tracing/base/unit_scale.html">
+<link rel="import" href="/tracing/base/utils.html">
 <link rel="import" href="/tracing/model/memory_allocator_dump.html">
 <link rel="import" href="/tracing/ui/analysis/memory_dump_allocator_details_pane.html">
 <link rel="import" href="/tracing/ui/analysis/memory_dump_sub_view_util.html">
@@ -99,7 +99,6 @@ tr.exportTo('tr.ui.analysis', function() {
   const UNMARRIED_PARTNERSHIP_SYMBOL = String.fromCharCode(0x26AF);
   const TRIGRAM_FOR_HEAVEN = String.fromCharCode(0x2630);
 
-  // TODO(petrcermak): Move this to iteration_helpers.html.
   function lazyMap(list, fn, opt_this) {
     opt_this = opt_this || this;
     let result = undefined;
@@ -316,6 +315,22 @@ tr.exportTo('tr.ui.analysis', function() {
   UsedMemoryColumn.TOTALS_MAP = {
     'residentBytes': 'Total resident',
     'peakResidentBytes': 'Peak total resident'
+  };
+
+  // Map from ProcessMemoryDump platform-specific totals fields to column names.
+  UsedMemoryColumn.PLATFORM_SPECIFIC_TOTALS_MAP = {
+    'vm': 'Total virtual',
+    'swp': 'Swapped',
+    'pc': 'Private clean',
+    'pd': 'Private dirty',
+    'sc': 'Shared clean',
+    'sd': 'Shared dirty',
+    'gpu_egl': 'GPU EGL',
+    'gpu_egl_pss': 'GPU EGL PSS',
+    'gpu_gl': 'GPU GL',
+    'gpu_gl_pss': 'GPU GL PSS',
+    'gpu_etc': 'GPU Other',
+    'gpu_etc_pss': 'GPU Other PSS',
   };
 
   // Map from VMRegionByteStats field names to column names.
@@ -606,19 +621,23 @@ tr.exportTo('tr.ui.analysis', function() {
                 // Platform-specific totals (e.g. private resident on Mac).
                 const platformSpecific = totals.platformSpecific;
                 if (platformSpecific !== undefined) {
-                  for (const [name, size] of
-                      Object.entries(platformSpecific)) {
+                  for (const [name, size] of Object.entries(platformSpecific)) {
                     let newName = name;
-                    // Change raw OS-specific total name to a user-friendly
-                    // column title (e.g. 'private_bytes' -> 'Private').
-                    if (name.endsWith(
-                        PLATFORM_SPECIFIC_TOTAL_NAME_SUFFIX)) {
-                      newName = name.substring(0, name.length -
-                      PLATFORM_SPECIFIC_TOTAL_NAME_SUFFIX.length);
+                    if (UsedMemoryColumn.PLATFORM_SPECIFIC_TOTALS_MAP[name] ===
+                        undefined) {
+                      // Change raw OS-specific total name to a friendly
+                      // column title (e.g. 'private_bytes' -> 'Private').
+                      if (name.endsWith(PLATFORM_SPECIFIC_TOTAL_NAME_SUFFIX)) {
+                        newName = name.substring(0, name.length -
+                            PLATFORM_SPECIFIC_TOTAL_NAME_SUFFIX.length);
+                      }
+                      newName = newName.replace('_', ' ').trim();
+                      newName =
+                          newName.charAt(0).toUpperCase() + newName.slice(1);
+                    } else {
+                      newName =
+                          UsedMemoryColumn.PLATFORM_SPECIFIC_TOTALS_MAP[name];
                     }
-                    newName = newName.replace('_', ' ').trim();
-                    newName = newName.charAt(0).toUpperCase() +
-                      newName.slice(1);
                     sizes[newName] = new Scalar(
                     sizeInBytes_smallerIsBetter, size);
                   }

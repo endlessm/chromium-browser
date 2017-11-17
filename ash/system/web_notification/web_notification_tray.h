@@ -25,12 +25,12 @@ class Window;
 
 namespace message_center {
 class MessageCenter;
-class MessageCenterBubble;
 class MessagePopupCollection;
 }
 
 namespace ash {
 class AshPopupAlignmentDelegate;
+class MessageCenterBubble;
 class SystemTray;
 class WebNotificationBubbleWrapper;
 class WebNotificationImage;
@@ -81,24 +81,20 @@ class ASH_EXPORT WebNotificationTray
   void ClickedOutsideBubble() override;
   bool PerformAction(const ui::Event& event) override;
   void CloseBubble() override;
-  void ShowBubble() override;
+  void ShowBubble(bool show_by_click) override;
   views::TrayBubbleView* GetBubbleView() override;
 
   // Overridden from views::TrayBubbleView::Delegate.
   void BubbleViewDestroyed() override;
   void OnMouseEnteredView() override;
   void OnMouseExitedView() override;
-  void RegisterAccelerators(const std::vector<ui::Accelerator>& accelerators,
-                            views::TrayBubbleView* tray_bubble_view) override;
-  void UnregisterAllAccelerators(
-      views::TrayBubbleView* tray_bubble_view) override;
   base::string16 GetAccessibleNameForBubble() override;
   bool ShouldEnableExtraKeyboardAccessibility() override;
   void HideBubble(const views::TrayBubbleView* bubble_view) override;
 
   // Overridden from MessageCenterTrayDelegate.
   void OnMessageCenterTrayChanged() override;
-  bool ShowMessageCenter() override;
+  bool ShowMessageCenter(bool show_by_click) override;
   void HideMessageCenter() override;
   bool ShowPopups() override;
   void HidePopups() override;
@@ -128,9 +124,10 @@ class ASH_EXPORT WebNotificationTray
   void UpdateTrayContent();
 
   // The actual process to show the message center. Set |show_settings| to true
-  // if the message center should be initialized with the settings visible.
-  // Returns true if the center is successfully created.
-  bool ShowMessageCenterInternal(bool show_settings);
+  // if the message center should be initialized with the settings visible. Set
+  // |show_by_click| to true if the message center is shown by mouse or gesture
+  // click. Returns true if the center is successfully created.
+  bool ShowMessageCenterInternal(bool show_settings, bool show_by_click);
 
   // Queries login status and the status area widget to determine visibility of
   // the message center.
@@ -151,7 +148,7 @@ class ASH_EXPORT WebNotificationTray
 
   // Testing accessors.
   bool IsPopupVisible() const;
-  message_center::MessageCenterBubble* GetMessageCenterBubbleForTest();
+  MessageCenterBubble* GetMessageCenterBubbleForTest();
 
   aura::Window* status_area_window_;
   SystemTray* system_tray_;

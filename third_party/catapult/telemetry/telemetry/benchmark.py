@@ -13,9 +13,9 @@ from telemetry.story import expectations
 from telemetry.web_perf import timeline_based_measurement
 from tracing.value import histogram
 
-Disabled = decorators.Disabled
-Enabled = decorators.Enabled
-Owner = decorators.Owner
+Disabled = decorators.Disabled # pylint: disable=invalid-name
+Enabled = decorators.Enabled # pylint: disable=invalid-name
+Owner = decorators.Owner # pylint: disable=invalid-name
 
 
 class InvalidOptionsError(Exception):
@@ -63,6 +63,7 @@ class Benchmark(command_line.Command):
   options = {}
   page_set = None
   test = timeline_based_measurement.TimelineBasedMeasurement
+  SUPPORTED_PLATFORMS = [expectations.ALL]
 
   def __init__(self, max_failures=None):
     """Creates a new Benchmark.
@@ -81,6 +82,16 @@ class Benchmark(command_line.Command):
     #   Benchmark.test set.
     # See https://github.com/catapult-project/catapult/issues/3708
 
+
+  def _CanRunOnPlatform(self, platform, finder_options):
+    for p in self.SUPPORTED_PLATFORMS:
+      # This is reusing StoryExpectation code, so it is a bit unintuitive. We
+      # are trying to detect the opposite of the usual case in StoryExpectations
+      # so we want to return True when ShouldDisable returns true, even though
+      # we do not want to disable.
+      if p.ShouldDisable(platform, finder_options):
+        return True
+    return False
 
   # pylint: disable=unused-argument
   @classmethod
@@ -103,43 +114,6 @@ class Benchmark(command_line.Command):
   @classmethod
   def Name(cls):
     return '%s.%s' % (cls.__module__.split('.')[-1], cls.__name__)
-
-  @classmethod
-  def ShouldTearDownStateAfterEachStoryRun(cls):
-    """Override to specify whether to tear down state after each story run.
-
-    Tearing down all states after each story run, e.g., clearing profiles,
-    stopping the browser, stopping local server, etc. So the browser will not be
-    reused among multiple stories. This is particularly useful to get the
-    startup part of launching the browser in each story.
-
-    This should only be used by TimelineBasedMeasurement (TBM) benchmarks, but
-    not by PageTest based benchmarks.
-    """
-    return True
-
-  # NOTE: this is a temporary workaround for crbug.com/645329, do not rely on
-  # this as a stable public API as we may remove this without public notice.
-  @classmethod
-  def IsShouldTearDownStateAfterEachStoryRunOverriden(cls):
-    return (cls.ShouldTearDownStateAfterEachStoryRun.__func__ !=
-            Benchmark.ShouldTearDownStateAfterEachStoryRun.__func__)
-
-  @classmethod
-  def ShouldTearDownStateAfterEachStorySetRun(cls):
-    """Override to specify whether to tear down state after each story set run.
-
-    Defaults to True in order to reset the state and make individual story set
-    repeats more independent of each other. The intended effect is to average
-    out noise in measurements between repeats.
-
-    Long running benchmarks willing to stess test the browser and have it run
-    for long periods of time may switch this value to False.
-
-    This should only be used by TimelineBasedMeasurement (TBM) benchmarks, but
-    not by PageTest based benchmarks.
-    """
-    return True
 
   @classmethod
   def AddCommandLineArgs(cls, parser):
@@ -221,14 +195,26 @@ class Benchmark(command_line.Command):
     return BenchmarkMetadata(self.Name(), self.__doc__,
                              self.GetTraceRerunCommands())
 
-  def GetOwnership(self):
-    """Returns an Ownership Diagnostic containing the benchmark's information.
+  def GetBugComponents(self):
+    """Returns a GenericSet Diagnostic containing the benchmark's Monorail
+       component.
 
     Returns:
-      Diagnostic with the benchmark's owners' e-mails and component name
+      GenericSet Diagnostic with the benchmark's bug component name
     """
-    return histogram.Ownership(
-        decorators.GetEmails(self), decorators.GetComponent(self))
+    benchmark_component = decorators.GetComponent(self)
+    component_diagnostic_value = (
+        [benchmark_component] if benchmark_component else [])
+    return histogram.GenericSet(component_diagnostic_value)
+
+  def GetOwners(self):
+    """Returns a Generic Diagnostic containing the benchmark's owners' emails
+       in a list.
+
+    Returns:
+      Diagnostic with a list of the benchmark's owners' emails
+    """
+    return histogram.GenericSet(decorators.GetEmails(self) or [])
 
   @decorators.Deprecated(
       2017, 7, 29, 'Use CreateCoreTimelineBasedMeasurementOptions instead.')

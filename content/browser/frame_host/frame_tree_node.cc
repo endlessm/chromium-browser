@@ -97,11 +97,17 @@ class FrameTreeNode::OpenerDestroyedObserver : public FrameTreeNode::Observer {
   // FrameTreeNode::Observer
   void OnFrameTreeNodeDestroyed(FrameTreeNode* node) override {
     if (observing_original_opener_) {
+      // The "original owner" is special. It's used for attribution, and clients
+      // walk down the original owner chain. Therefore, if a link in the chain
+      // is being destroyed, reconnect the observation to the parent of the link
+      // being destroyed.
       CHECK_EQ(owner_->original_opener(), node);
-      owner_->SetOriginalOpener(nullptr);
+      owner_->SetOriginalOpener(node->original_opener());
+      // |this| is deleted at this point.
     } else {
       CHECK_EQ(owner_->opener(), node);
       owner_->SetOpener(nullptr);
+      // |this| is deleted at this point.
     }
   }
 
@@ -141,9 +147,7 @@ FrameTreeNode::FrameTreeNode(FrameTree* frame_tree,
       frame_tree_node_id_(next_frame_tree_node_id_++),
       parent_(parent),
       opener_(nullptr),
-      opener_observer_(nullptr),
       original_opener_(nullptr),
-      original_opener_observer_(nullptr),
       has_committed_real_load_(false),
       is_collapsed_(false),
       replication_state_(
@@ -220,9 +224,7 @@ FrameTreeNode* FrameTreeNode::AddChild(std::unique_ptr<FrameTreeNode> child,
   // about the new frame.  Create a proxy for the child frame in all
   // SiteInstances that have a proxy for the frame's parent, since all frames
   // in a frame tree should have the same set of proxies.
-  // TODO(alexmos, nick): We ought to do this for non-oopif too, for openers.
-  if (SiteIsolationPolicy::AreCrossProcessFramesPossible())
-    render_manager_.CreateProxiesForChildFrame(child.get());
+  render_manager_.CreateProxiesForChildFrame(child.get());
 
   children_.push_back(std::move(child));
   return children_.back().get();
@@ -242,7 +244,7 @@ void FrameTreeNode::RemoveChild(FrameTreeNode* child) {
 }
 
 void FrameTreeNode::ResetForNewProcess() {
-  current_frame_host()->set_last_committed_url(GURL());
+  current_frame_host()->SetLastCommittedUrl(GURL());
   blame_context_.TakeSnapshot();
 
   // Remove child nodes from the tree, then delete them. This destruction
@@ -259,20 +261,23 @@ void FrameTreeNode::SetOpener(FrameTreeNode* opener) {
   opener_ = opener;
 
   if (opener_) {
-    if (!opener_observer_)
-      opener_observer_ = base::MakeUnique<OpenerDestroyedObserver>(this, false);
+    opener_observer_ = base::MakeUnique<OpenerDestroyedObserver>(this, false);
     opener_->AddObserver(opener_observer_.get());
   }
 }
 
 void FrameTreeNode::SetOriginalOpener(FrameTreeNode* opener) {
-  DCHECK(!original_opener_ || !opener);
+  // The original opener tracks main frames only.
   DCHECK(opener == nullptr || !opener->parent());
+
+  if (original_opener_) {
+    original_opener_->RemoveObserver(original_opener_observer_.get());
+    original_opener_observer_.reset();
+  }
 
   original_opener_ = opener;
 
   if (original_opener_) {
-    DCHECK(!original_opener_observer_);
     original_opener_observer_ =
         base::MakeUnique<OpenerDestroyedObserver>(this, true);
     original_opener_->AddObserver(original_opener_observer_.get());
@@ -282,7 +287,7 @@ void FrameTreeNode::SetOriginalOpener(FrameTreeNode* opener) {
 void FrameTreeNode::SetCurrentURL(const GURL& url) {
   if (!has_committed_real_load_ && url != url::kAboutBlankURL)
     has_committed_real_load_ = true;
-  current_frame_host()->set_last_committed_url(url);
+  current_frame_host()->SetLastCommittedUrl(url);
   blame_context_.TakeSnapshot();
 }
 
@@ -474,7 +479,12 @@ void FrameTreeNode::ResetNavigationRequest(bool keep_state,
   CHECK(IsBrowserSideNavigationEnabled());
   if (!navigation_request_)
     return;
-  bool was_renderer_initiated = !navigation_request_->browser_initiated();
+
+  // The renderer should be informed if the caller allows to do so and the
+  // navigation came from a BeginNavigation IPC.
+  int need_to_inform_renderer =
+      inform_renderer && navigation_request_->from_begin_navigation();
+
   NavigationRequest::AssociatedSiteInstanceType site_instance_type =
       navigation_request_->associated_site_instance_type();
   navigation_request_.reset();
@@ -499,9 +509,9 @@ void FrameTreeNode::ResetNavigationRequest(bool keep_state,
   // process asked for the navigation to be aborted, e.g. following a
   // document.open, do not send an IPC to the renderer process as it already
   // expects the navigation to stop.
-  if (was_renderer_initiated && inform_renderer) {
+  if (need_to_inform_renderer) {
     current_frame_host()->Send(
-        new FrameMsg_Stop(current_frame_host()->GetRoutingID()));
+        new FrameMsg_DroppedNavigation(current_frame_host()->GetRoutingID()));
   }
 
 }

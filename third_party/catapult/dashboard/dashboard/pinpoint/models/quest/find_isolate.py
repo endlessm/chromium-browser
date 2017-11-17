@@ -17,39 +17,45 @@ class BuildError(Exception):
 
 class FindIsolate(quest.Quest):
 
-  def __init__(self, configuration):
+  def __init__(self, configuration, target):
     self._builder_name = _BuilderNameForConfiguration(configuration)
+    self._target = target
+
+  def __eq__(self, other):
+    return (isinstance(other, type(self)) and
+            self._builder_name == other._builder_name)
 
   def __str__(self):
-    return 'Build on ' + self._builder_name
-
-  @property
-  def retry_count(self):
-    return 1
+    return 'Build'
 
   def Start(self, change):
-    return _FindIsolateExecution(self._builder_name, change)
+    return _FindIsolateExecution(self._builder_name, self._target, change)
 
 
 class _FindIsolateExecution(execution.Execution):
 
-  def __init__(self, builder_name, change):
+  def __init__(self, builder_name, target, change):
     super(_FindIsolateExecution, self).__init__()
     self._builder_name = builder_name
+    self._target = target
     self._change = change
     self._build = None
 
+  def _AsDict(self):
+    return {
+        'build': self._build,
+    }
+
   def _Poll(self):
     # Look for the .isolate in our cache.
-    # TODO: Support other isolate targets.
-    target = 'telemetry_perf_tests'
     try:
-      isolate_hash = isolate.Get(self._builder_name, self._change, target)
+      isolate_hash = isolate.Get(self._builder_name, self._change, self._target)
     except KeyError:
       isolate_hash = None
 
     if isolate_hash:
-      self._Complete(result_arguments={'isolate_hash': isolate_hash})
+      self._Complete(
+          result_arguments={'isolate_hash': isolate_hash})
       return
 
     # Check the status of a previously requested build.

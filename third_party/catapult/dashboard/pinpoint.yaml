@@ -42,6 +42,16 @@ handlers:
   upload: dashboard/pinpoint/elements/.*\.html$
   secure: always
 
+- url: /flot/(.*\.js)$
+  static_files: flot/\1
+  upload: flot/.*\.js$
+  secure: always
+
+- url: /jquery/(.*\.js)$
+  static_files: jquery/\1
+  upload: jquery/.*\.js$
+  secure: always
+
 - url: /favicon.ico
   static_files: dashboard/static/favicon.ico
   upload: dashboard/static/favicon.ico

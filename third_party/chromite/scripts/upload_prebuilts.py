@@ -170,6 +170,11 @@ def RevGitFile(filename, data, retries=5, dryrun=False):
     git.RunGit(cwd, ['commit', '-m', description])
     git.PushWithRetry(prebuilt_branch, cwd, dryrun=dryrun, retries=retries)
   finally:
+    # We reset the index and the working tree state in case there are any
+    # uncommitted or pending changes, but we don't change any existing commits.
+    git.RunGit(cwd, ['reset', '--hard'])
+
+    # Check out the last good commit as a sanity fallback.
     git.RunGit(cwd, ['checkout', commit])
 
 
@@ -634,15 +639,6 @@ class PrebuiltUploader(object):
         if upload_board_tarball:
           tar_process.join()
           assert tar_process.exitcode == 0
-          # TODO(zbehan): This should be done cleaner.
-          if target.board == constants.CHROOT_BUILDER_BOARD:
-            sdk_conf = os.path.join(self._binhost_conf_dir,
-                                    'host/sdk_version.conf')
-            sdk_settings = {
-                'SDK_LATEST_VERSION': version_str,
-                'TC_PATH': toolchain_upload_path,
-            }
-            RevGitFile(sdk_conf, sdk_settings, dryrun=self._dryrun)
 
       # Record URL where prebuilts were uploaded.
       url_value = '%s/%s/' % (self._binhost_base_url.rstrip('/'),

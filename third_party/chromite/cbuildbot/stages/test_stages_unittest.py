@@ -17,6 +17,7 @@ from chromite.cbuildbot import topology
 from chromite.cbuildbot.stages import artifact_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import test_stages
+from chromite.lib.const import waterfall
 from chromite.lib import cgroups
 from chromite.lib import config_lib
 from chromite.lib import constants
@@ -36,7 +37,7 @@ class GCETestStageTest(generic_stages_unittest.AbstractStageTestCase,
                        cbuildbot_unittest.SimpleBuilderTestCase):
   """Tests for the GCETest stage."""
 
-  BOT_ID = 'x86-generic-full'
+  BOT_ID = 'amd64-generic-full'
   RELEASE_TAG = ''
 
   def setUp(self):
@@ -91,7 +92,7 @@ class VMTestStageTest(generic_stages_unittest.AbstractStageTestCase,
                       cbuildbot_unittest.SimpleBuilderTestCase):
   """Tests for the VMTest stage."""
 
-  BOT_ID = 'x86-generic-full'
+  BOT_ID = 'amd64-generic-full'
   RELEASE_TAG = ''
 
   def setUp(self):
@@ -157,14 +158,14 @@ class VMTestStageTest(generic_stages_unittest.AbstractStageTestCase,
 class UnitTestStageTest(generic_stages_unittest.AbstractStageTestCase):
   """Tests for the UnitTest stage."""
 
-  BOT_ID = 'x86-generic-full'
+  BOT_ID = 'amd64-generic-full'
 
   def setUp(self):
     self.rununittests_mock = self.PatchObject(commands, 'RunUnitTests')
     self.testauzip_mock = self.PatchObject(commands, 'TestAuZip')
 
     self.image_dir = os.path.join(
-        self.build_root, 'src/build/images/x86-generic/latest-cbuildbot')
+        self.build_root, 'src/build/images/amd64-generic/latest-cbuildbot')
 
     self._Prepare()
 
@@ -421,7 +422,7 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
 """
     json_dump_dict = json.loads(json_str)
     db = fake_cidb.FakeCIDBConnection()
-    build_id = db.InsertBuild('build_1', constants.WATERFALL_INTERNAL, 1,
+    build_id = db.InsertBuild('build_1', waterfall.WATERFALL_INTERNAL, 1,
                               'build_1', 'bot_hostname')
 
     # When json_dump_dict is None

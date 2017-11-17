@@ -121,12 +121,10 @@ class AddPointHandler(post_data_handler.PostDataHandler):
     """
     datastore_hooks.SetPrivilegedRequest()
     if not self._CheckIpAgainstWhitelist():
-      # TODO(qyearsley): Add test coverage. See catapult:#1346.
       return
 
     data_str = self.request.get('data')
     if not data_str:
-      # TODO(qyearsley): Add test coverage. See catapult:#1346.
       self.ReportError('Missing "data" parameter.', status=400)
       return
 
@@ -212,7 +210,6 @@ def _DashboardJsonToRawRows(dash_json_dict):
   row_template = _MakeRowTemplate(dash_json_dict)
 
   benchmark_description = chart_data.get('benchmark_description', '')
-  trace_rerun_options = dict(chart_data.get('trace_rerun_options', []))
   is_ref = bool(dash_json_dict.get('is_ref'))
   rows = []
 
@@ -231,9 +228,6 @@ def _DashboardJsonToRawRows(dash_json_dict):
         if specific_vals['tracing_uri']:
           row['supplemental_columns']['a_tracing_uri'] = specific_vals[
               'tracing_uri']
-        if trace_rerun_options:
-          row['supplemental_columns']['a_trace_rerun_options'] = (
-              trace_rerun_options)
         row.update(specific_vals)
         rows.append(row)
 
@@ -367,7 +361,8 @@ def _FlattenTrace(test_suite_name, chart_name, trace_name, trace,
       'cloud_url' in tracing_links[trace_name]):
     tracing_uri = tracing_links[trace_name]['cloud_url'].replace('\\/', '/')
 
-  trace_name = _EscapeName(trace_name)
+  story_name = trace_name
+  trace_name = EscapeName(trace_name)
   if trace_name == 'summary':
     subtest_name = chart_name
   else:
@@ -394,6 +389,9 @@ def _FlattenTrace(test_suite_name, chart_name, trace_name, trace,
       raise BadRequestError('improvement_direction must not be None')
     row_dict['higher_is_better'] = _ImprovementDirectionToHigherIsBetter(
         improvement_direction_str)
+
+  if story_name != trace_name:
+    row_dict['unescaped_story_name'] = story_name
 
   return row_dict
 
@@ -454,7 +452,7 @@ def _IsNumber(v):
   return isinstance(v, float) or isinstance(v, int) or isinstance(v, long)
 
 
-def _EscapeName(name):
+def EscapeName(name):
   """Escapes a trace name so it can be stored in a row.
 
   Args:
@@ -486,7 +484,6 @@ def _GeomMeanAndStdDevFromHistogram(histogram):
   # build/scripts/common/chromium_utils.py and was used initially for
   # processing histogram results on the buildbot side previously.
   if 'buckets' not in histogram:
-    # TODO(qyearsley): Add test coverage. See catapult:#1346.
     return 0.0, 0.0
   count = 0
   sum_of_logs = 0
@@ -494,7 +491,6 @@ def _GeomMeanAndStdDevFromHistogram(histogram):
     if 'high' in bucket:
       bucket['mean'] = (bucket['low'] + bucket['high']) / 2.0
     else:
-      # TODO(qyearsley): Add test coverage. See catapult:#1346.
       bucket['mean'] = bucket['low']
     if bucket['mean'] > 0:
       sum_of_logs += math.log(bucket['mean']) * bucket['count']
@@ -549,7 +545,6 @@ def _ConstructTestPathMap(row_dicts):
   try:
     last_added_revision_entities = ndb.get_multi(last_added_revision_keys)
   except datastore_errors.BadRequestError:
-    # TODO(qyearsley): Add test coverage. See catapult:#1346.
     logging.warn('Datastore BadRequestError when getting %s',
                  repr(last_added_revision_keys))
     return {}
@@ -672,10 +667,8 @@ def _IsAcceptableRowId(row_id, last_row_id, allow_jump=False):
     True if acceptable, False otherwise.
   """
   if last_row_id is None:
-    # TODO(qyearsley): Add test coverage. See catapult:#1346.
     return True
   if row_id <= 0:
-    # TODO(qyearsley): Add test coverage. See catapult:#1346.
     return False
   # Too big of a decrease.
   if row_id < 0.5 * last_row_id:

@@ -8,6 +8,7 @@
 #include "Test.h"
 
 #if SK_SUPPORT_GPU
+#if 0
 
 #include "GrSurfaceProxy.h"
 #include "GrTextureProducer.h"
@@ -137,9 +138,10 @@ static sk_sp<GrTextureProxy> create_proxy(GrResourceProvider* resourceProvider,
     SkBackingFit fit = isExact ? SkBackingFit::kExact : SkBackingFit::kApprox;
 
     GrSurfaceDesc desc;
-    desc.fConfig = kRGBA_8888_GrPixelConfig;
+    desc.fOrigin = kTopLeft_GrSurfaceOrigin;
     desc.fWidth = size;
     desc.fHeight = size;
+    desc.fConfig = kRGBA_8888_GrPixelConfig;
 
     static const char* name = "proxy";
 
@@ -443,4 +445,5 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DetermineDomainModeTest, reporter, ctxInfo) {
     proxy_test(reporter, context->resourceProvider());
 }
 
+#endif
 #endif

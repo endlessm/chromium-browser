@@ -49,7 +49,7 @@ private:
 
     bool onCombineIfPossible(GrOp*, const GrCaps&) override { return false; }
 
-    void onPrepareDraws(Target* target) const override {
+    void onPrepareDraws(Target* target) override {
         class GP : public GrGeometryProcessor {
         public:
             GP(int numAttribs) {
@@ -70,10 +70,10 @@ private:
                     void onEmitCode(EmitArgs& args, GrGPArgs* gpArgs) override {
                         const GP& gp = args.fGP.cast<GP>();
                         args.fVaryingHandler->emitAttributes(gp);
-                        this->setupPosition(args.fVertBuilder, gpArgs, gp.getAttrib(0).fName);
+                        this->writeOutputPosition(args.fVertBuilder, gpArgs, gp.getAttrib(0).fName);
                         GrGLSLPPFragmentBuilder* fragBuilder = args.fFragBuilder;
-                        fragBuilder->codeAppendf("%s = vec4(1);", args.fOutputColor);
-                        fragBuilder->codeAppendf("%s = vec4(1);", args.fOutputCoverage);
+                        fragBuilder->codeAppendf("%s = float4(1);", args.fOutputColor);
+                        fragBuilder->codeAppendf("%s = float4(1);", args.fOutputCoverage);
                     }
                     void setData(const GrGLSLProgramDataManager& pdman,
                                  const GrPrimitiveProcessor& primProc,
@@ -94,7 +94,9 @@ private:
         size_t vertexStride = gp->getVertexStride();
         SkPoint* vertices = reinterpret_cast<SkPoint*>(helper.init(target, vertexStride, 1));
         vertices->setRectFan(0.f, 0.f, 1.f, 1.f, vertexStride);
-        helper.recordDraw(target, gp.get(), target->makePipeline(0, &GrProcessorSet::EmptySet()));
+        helper.recordDraw(target, gp.get(),
+                          target->makePipeline(0, GrProcessorSet::MakeEmptySet(),
+                                               target->detachAppliedClip()));
     }
 
     int fNumAttribs;

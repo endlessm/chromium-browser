@@ -284,9 +284,9 @@ class PowerMetricsPowerMonitor(power_monitor.PowerMonitor):
       if self._powermetrics_process.poll() is None:
         # terminate() can fail when Powermetrics does not have the SetUID set.
         self._backend.LaunchApplication(
-          '/usr/bin/pkill',
-          ['-SIGTERM', os.path.basename(self.binary_path)],
-          elevate_privilege=True)
+            '/usr/bin/pkill',
+            ['-SIGTERM', os.path.basename(self.binary_path)],
+            elevate_privilege=True)
 
   def StopMonitoringPower(self):
     self._CheckStop()
@@ -305,7 +305,7 @@ class PowerMetricsPowerMonitor(power_monitor.PowerMonitor):
         powermetrics_output = output_file.read()
       return PowerMetricsPowerMonitor.ParsePowerMetricsOutput(
           powermetrics_output)
-    except Exception as e:
+    except Exception as e: # pylint: disable=broad-except
       logging.warning(
           'Error when trying to collect power monitoring data: %s', repr(e))
       return PowerMetricsPowerMonitor.ParsePowerMetricsOutput('')

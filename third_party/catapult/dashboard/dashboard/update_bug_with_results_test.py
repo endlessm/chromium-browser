@@ -42,7 +42,7 @@ _SAMPLE_BISECT_RESULTS_JSON = {
     'issue_url': 'https://issue_url/123456',
     'culprit_data': {
         'subject': 'subject',
-        'author': 'author',
+        'author': u'author \u2265 unicode',
         'email': 'author@email.com',
         'cl_date': '1/2/2015',
         'commit_info': 'commit_info',
@@ -319,9 +319,25 @@ class UpdateBugWithResultsTest(testing_common.TestCase):
 
     self.testapp.get('/update_bug_with_results')
     mock_update_bug.assert_called_once_with(
-        mock.ANY, mock.ANY,
-        cc_list=['author@email.com', 'prasadv@google.com'],
-        merge_issue=None, labels=None, owner='author@email.com')
+        mock.ANY,
+        '\n=== Auto-CCing suspected CL author author@email.com ===\n\nHi '
+        'author@email.com, the bisect results pointed to your CL, please take '
+        'a look at the\nresults.\n\n\n=== BISECT JOB RESULTS ===\n<b>Perf '
+        'regression found with culprit</b>\n\nSuspected Commit\n  Author : '
+        'author \xe2\x89\xa5 unicode\n  Commit : 2a1781d64d\n  Date   : '
+        '1/2/2015\n  Subject: subject\n\nBisect Details\n  Configuration: '
+        'linux\n  Benchmark    : page_cycler.intl_ar_fa_he\n  Metric       : '
+        'warm_times/page_load_time\n\nRevision              Result       '
+        'N\nchromium@unknown      70 +- 0      3      '
+        'good\nchromium@unknown      80 +- 0      3      bad\n\nTo Run This '
+        'Test\n  tools/perf/run_benchmark -v --browser=release page_cycler.'
+        'intl_ar_fa_he\n\nMore information on addressing performance '
+        'regressions:\n  http://g.co/ChromePerformanceRegressions\n\n'
+        'Debug information about this bisect:\n  https://issue_url/123456\n\n\n'
+        'For feedback, file a bug with component Speed>Bisection',
+        cc_list=[u'author@email.com', 'prasadv@google.com'],
+        merge_issue=None, labels=None, owner=u'author@email.com',
+        status='Assigned')
 
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
@@ -348,7 +364,8 @@ class UpdateBugWithResultsTest(testing_common.TestCase):
     self.testapp.get('/update_bug_with_results')
     mock_update_bug.assert_called_once_with(
         mock.ANY, mock.ANY,
-        cc_list=[], merge_issue='111222', labels=None, owner=None)
+        cc_list=[], merge_issue='111222', labels=None, owner=None,
+        status=None)
     # Should have skipped updating cache.
     self.assertEqual(
         layered_cache.GetExternal('commit_hash_2a1781d64d'), 111222)
@@ -384,7 +401,8 @@ class UpdateBugWithResultsTest(testing_common.TestCase):
     mock_update_bug.assert_called_once_with(
         mock.ANY, mock.ANY,
         cc_list=['author@email.com', 'prasadv@google.com'],
-        merge_issue=None, labels=None, owner='author@email.com')
+        merge_issue=None, labels=None, owner='author@email.com',
+        status='Assigned')
     # Should have skipped updating cache.
     self.assertEqual(
         layered_cache.GetExternal('commit_hash_2a1781d64d'), 111222)
@@ -416,7 +434,8 @@ class UpdateBugWithResultsTest(testing_common.TestCase):
                                                   'prasadv@google.com'],
                                          merge_issue=None,
                                          labels=None,
-                                         owner='author@email.com')
+                                         owner='author@email.com',
+                                         status='Assigned')
 
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
@@ -530,7 +549,8 @@ class UpdateBugWithResultsTest(testing_common.TestCase):
     mock_update_bug.assert_called_once_with(
         mock.ANY, mock.ANY,
         cc_list=mock.ANY,
-        merge_issue=None, labels=['Restrict-View-Google'], owner=mock.ANY)
+        merge_issue=None, labels=['Restrict-View-Google'], owner=mock.ANY,
+        status='Assigned')
 
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
@@ -729,7 +749,7 @@ class UpdateBugWithResultsTest(testing_common.TestCase):
     self.testapp.get('/update_bug_with_results')
     mock_update_bug.assert_called_once_with(
         12345, mock.ANY, cc_list=mock.ANY, merge_issue=mock.ANY,
-        labels=mock.ANY, owner=mock.ANY)
+        labels=mock.ANY, owner=mock.ANY, status='Assigned')
 
   def testValidateBuildbucketResponse_Scheduled(self):
     job = try_job.TryJob(bug_id=12345, status='started', bot='win_perf')

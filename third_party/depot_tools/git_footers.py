@@ -146,8 +146,15 @@ def remove_footer(message, key):
   top_lines, footer_lines, _ = split_footers(message)
   if not footer_lines:
     return message
-  new_footer_lines = [
-      l for l in footer_lines if normalize_name(parse_footer(l)[0]) != key]
+  new_footer_lines = []
+  for line in footer_lines:
+    try:
+      f = normalize_name(parse_footer(line)[0])
+      if f != key:
+        new_footer_lines.append(line)
+    except TypeError:
+      # If the footer doesn't parse (i.e. is malformed), just let it carry over.
+      new_footer_lines.append(line)
   return '\n'.join(top_lines + new_footer_lines)
 
 
@@ -185,8 +192,8 @@ def main(args):
   parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
   )
-  parser.add_argument('ref', nargs='?', help="Git ref to retrieve footers from."
-                      " Omit to parse stdin.")
+  parser.add_argument('ref', nargs='?', help='Git ref to retrieve footers from.'
+                      ' Omit to parse stdin.')
 
   g = parser.add_mutually_exclusive_group()
   g.add_argument('--key', metavar='KEY',
@@ -195,14 +202,14 @@ def main(args):
   g.add_argument('--position', action='store_true')
   g.add_argument('--position-ref', action='store_true')
   g.add_argument('--position-num', action='store_true')
-  g.add_argument('--json', help="filename to dump JSON serialized headers to.")
+  g.add_argument('--json', help='filename to dump JSON serialized footers to.')
 
   opts = parser.parse_args(args)
 
   if opts.ref:
     message = git.run('log', '-1', '--format=%B', opts.ref)
   else:
-    message = '\n'.join(l for l in sys.stdin)
+    message = sys.stdin.read()
 
   footers = parse_footers(message)
 

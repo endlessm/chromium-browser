@@ -5,16 +5,13 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link type="text/css" rel="stylesheet" href="/dashboard/static/base.css">
-
-<link rel="import" href="/components/polymer/polymer.html">
-
 <link rel="import" href="/dashboard/pinpoint/elements/new-job-dialog.html">
 
 <dom-module id="new-page">
   <template>
     <new-job-dialog id="dialog" endpoint="/api/new"></new-job-dialog>
   </template>
+
   <script>
     'use strict';
     Polymer({
@@ -36,7 +33,6 @@ found in the LICENSE file.
       deselected() {
         this.$.dialog.close();
       }
-
     });
   </script>
 </dom-module>

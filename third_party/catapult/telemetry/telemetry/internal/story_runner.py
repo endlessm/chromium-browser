@@ -58,7 +58,8 @@ def AddCommandLineArgs(parser):
 
   # WPR options
   group = optparse.OptionGroup(parser, 'Web Page Replay options')
-  group.add_option('--use-live-sites',
+  group.add_option(
+      '--use-live-sites',
       dest='use_live_sites', action='store_true',
       help='Run against live sites and ignore the Web Page Replay archives.')
   parser.add_option_group(group)
@@ -131,7 +132,7 @@ def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
         test.DidRunPage(state.platform)
       # And the following normally causes the browser to be closed.
       state.DidRunStory(results)
-    except Exception:
+    except Exception: # pylint: disable=broad-except
       if not has_existing_exception:
         state.DumpStateUponFailure(story, results)
         raise
@@ -140,63 +141,7 @@ def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
           msg='Exception raised when cleaning story run: ')
 
 
-class StoryGroup(object):
-  def __init__(self, shared_state_class):
-    self._shared_state_class = shared_state_class
-    self._stories = []
-
-  @property
-  def shared_state_class(self):
-    return self._shared_state_class
-
-  @property
-  def stories(self):
-    return self._stories
-
-  def AddStory(self, story):
-    assert (story.shared_state_class is
-            self._shared_state_class)
-    self._stories.append(story)
-
-
-def StoriesGroupedByStateClass(story_set, allow_multiple_groups):
-  """ Returns a list of story groups which each contains stories with
-  the same shared_state_class.
-
-  Example:
-    Assume A1, A2, A3 are stories with same shared story class, and
-    similar for B1, B2.
-    If their orders in story set is A1 A2 B1 B2 A3, then the grouping will
-    be [A1 A2] [B1 B2] [A3].
-
-  It's purposefully done this way to make sure that order of
-  stories are the same of that defined in story_set. It's recommended that
-  stories with the same states should be arranged next to each others in
-  story sets to reduce the overhead of setting up & tearing down the
-  shared story state.
-  """
-  story_groups = []
-  story_groups.append(
-      StoryGroup(story_set[0].shared_state_class))
-  for story in story_set:
-    if (story.shared_state_class is not
-        story_groups[-1].shared_state_class):
-      if not allow_multiple_groups:
-        raise ValueError('This StorySet is only allowed to have one '
-                         'SharedState but contains the following '
-                         'SharedState classes: %s, %s.\n Either '
-                         'remove the extra SharedStates or override '
-                         'allow_mixed_story_states.' % (
-                         story_groups[-1].shared_state_class,
-                         story.shared_state_class))
-      story_groups.append(
-          StoryGroup(story.shared_state_class))
-    story_groups[-1].AddStory(story)
-  return story_groups
-
-
 def Run(test, story_set, finder_options, results, max_failures=None,
-        tear_down_after_story=False, tear_down_after_story_set=False,
         expectations=None, metadata=None):
   """Runs a given test against a given page_set with the given options.
 
@@ -229,87 +174,82 @@ def Run(test, story_set, finder_options, results, max_failures=None,
   if effective_max_failures is None:
     effective_max_failures = max_failures
 
-  story_groups = StoriesGroupedByStateClass(
-      stories,
-      story_set.allow_mixed_story_states)
+  state = None
+  device_info_diags = {}
+  try:
+    for storyset_repeat_counter in xrange(finder_options.pageset_repeat):
+      for story in stories:
+        if not state:
+          # Construct shared state by using a copy of finder_options. Shared
+          # state may update the finder_options. If we tear down the shared
+          # state after this story run, we want to construct the shared
+          # state for the next story from the original finder_options.
+          state = story_set.shared_state_class(
+              test, finder_options.Copy(), story_set)
 
-  for group in story_groups:
-    state = None
-    try:
-      for storyset_repeat_counter in xrange(finder_options.pageset_repeat):
-        for story in group.stories:
-          if not state:
-            # Construct shared state by using a copy of finder_options. Shared
-            # state may update the finder_options. If we tear down the shared
-            # state after this story run, we want to construct the shared
-            # state for the next story from the original finder_options.
-            state = group.shared_state_class(
-                test, finder_options.Copy(), story_set)
+        results.WillRunPage(story, storyset_repeat_counter)
 
-          results.WillRunPage(story, storyset_repeat_counter)
+        if expectations:
+          disabled = expectations.IsStoryDisabled(
+              story, state.platform, finder_options)
+          if disabled and not finder_options.run_disabled_tests:
+            results.AddValue(skip.SkipValue(story, disabled))
+            results.DidRunPage(story)
+            continue
 
-          if expectations:
-            disabled = expectations.IsStoryDisabled(
-                story, state.platform, finder_options)
-            if disabled and not finder_options.run_disabled_tests:
-              results.AddValue(skip.SkipValue(story, disabled))
-              results.DidRunPage(story)
-              continue
-
-          try:
-            state.platform.WaitForBatteryTemperature(35)
-            _WaitForThermalThrottlingIfNeeded(state.platform)
-            _RunStoryAndProcessErrorIfNeeded(story, results, state, test)
-          except exceptions.Error:
-            # Catch all Telemetry errors to give the story a chance to retry.
-            # The retry is enabled by tearing down the state and creating
-            # a new state instance in the next iteration.
-            try:
-              # If TearDownState raises, do not catch the exception.
-              # (The Error was saved as a failure value.)
-              state.TearDownState()
-            finally:
-              # Later finally-blocks use state, so ensure it is cleared.
-              state = None
-          finally:
-            has_existing_exception = sys.exc_info() != (None, None, None)
-            try:
-              if state:
-                _CheckThermalThrottling(state.platform)
-              results.DidRunPage(story)
-            except Exception:
-              if not has_existing_exception:
-                raise
-              # Print current exception and propagate existing exception.
-              exception_formatter.PrintFormattedException(
-                  msg='Exception from result processing:')
-            if state and tear_down_after_story:
-              state.TearDownState()
-              state = None
-          if (effective_max_failures is not None and
-              len(results.failures) > effective_max_failures):
-            logging.error('Too many failures. Aborting.')
-            return
-        if state and tear_down_after_story_set:
-          state.TearDownState()
-          state = None
-    finally:
-      results.PopulateHistogramSet(metadata)
-      tagmap = _GenerateTagMapFromStorySet(stories)
-      if tagmap.tags_to_story_names:
-        results.histograms.AddSharedDiagnostic(
-            reserved_infos.TAG_MAP.name, tagmap)
-
-      if state:
-        has_existing_exception = sys.exc_info() != (None, None, None)
         try:
-          state.TearDownState()
-        except Exception:
-          if not has_existing_exception:
-            raise
-          # Print current exception and propagate existing exception.
-          exception_formatter.PrintFormattedException(
-              msg='Exception from TearDownState:')
+          state.platform.WaitForBatteryTemperature(35)
+          _WaitForThermalThrottlingIfNeeded(state.platform)
+          _RunStoryAndProcessErrorIfNeeded(story, results, state, test)
+          device_info_diags = _MakeDeviceInfoDiagnostics(state)
+        except exceptions.Error:
+          # Catch all Telemetry errors to give the story a chance to retry.
+          # The retry is enabled by tearing down the state and creating
+          # a new state instance in the next iteration.
+          try:
+            # If TearDownState raises, do not catch the exception.
+            # (The Error was saved as a failure value.)
+            state.TearDownState()
+          finally:
+            # Later finally-blocks use state, so ensure it is cleared.
+            state = None
+        finally:
+          has_existing_exception = sys.exc_info() != (None, None, None)
+          try:
+            if state:
+              _CheckThermalThrottling(state.platform)
+            results.DidRunPage(story)
+          except Exception: # pylint: disable=broad-except
+            if not has_existing_exception:
+              raise
+            # Print current exception and propagate existing exception.
+            exception_formatter.PrintFormattedException(
+                msg='Exception from result processing:')
+        if (effective_max_failures is not None and
+            len(results.failures) > effective_max_failures):
+          logging.error('Too many failures. Aborting.')
+          return
+  finally:
+    results.PopulateHistogramSet(metadata)
+
+    for name, diag in device_info_diags.iteritems():
+      results.histograms.AddSharedDiagnostic(name, diag)
+
+    tagmap = _GenerateTagMapFromStorySet(stories)
+    if tagmap.tags_to_story_names:
+      results.histograms.AddSharedDiagnostic(
+          reserved_infos.TAG_MAP.name, tagmap)
+
+    if state:
+      has_existing_exception = sys.exc_info() != (None, None, None)
+      try:
+        state.TearDownState()
+      except Exception: # pylint: disable=broad-except
+        if not has_existing_exception:
+          raise
+        # Print current exception and propagate existing exception.
+        exception_formatter.PrintFormattedException(
+            msg='Exception from TearDownState:')
 
 
 def ValidateStory(story):
@@ -339,13 +279,17 @@ def RunBenchmark(benchmark, finder_options):
            '--browser=list' %  finder_options.browser_options.browser_type)
     return 1
 
+  can_run_on_platform = benchmark._CanRunOnPlatform(possible_browser.platform,
+                                                    finder_options)
+
+  # TODO(rnephew): Remove decorators.IsBenchmarkEnabled and IsBenchmarkDisabled
+  # when we have fully moved to _CanRunOnPlatform().
   permanently_disabled = expectations.IsBenchmarkDisabled(
       possible_browser.platform, finder_options)
-  # TODO(rnephew): Remove decorators.IsBenchmarkEnabled when deprecated.
   temporarily_disabled = not decorators.IsBenchmarkEnabled(
       benchmark, possible_browser)
 
-  if permanently_disabled or temporarily_disabled:
+  if permanently_disabled or temporarily_disabled or not can_run_on_platform:
     print '%s is disabled on the selected browser' % benchmark.Name()
     if finder_options.run_disabled_tests and not permanently_disabled:
       print 'Running benchmark anyway due to: --also-run-disabled-tests'
@@ -380,34 +324,31 @@ def RunBenchmark(benchmark, finder_options):
           'PageTest must be used with StorySet containing only '
           'telemetry.page.Page stories.')
 
-  should_tear_down_state_after_each_story_run = (
-      benchmark.ShouldTearDownStateAfterEachStoryRun())
-  # HACK: restarting shared state has huge overhead on cros (crbug.com/645329),
-  # hence we default this to False when test is run against CrOS.
-  # TODO(cros-team): figure out ways to remove this hack.
-  if (possible_browser.platform.GetOSName() == 'chromeos' and
-      not benchmark.IsShouldTearDownStateAfterEachStoryRunOverriden()):
-    should_tear_down_state_after_each_story_run = False
-
   with results_options.CreateResults(
       benchmark_metadata, finder_options,
       benchmark.ValueCanBeAddedPredicate, benchmark_enabled=True) as results:
     try:
       Run(pt, stories, finder_options, results, benchmark.max_failures,
-          should_tear_down_state_after_each_story_run,
-          benchmark.ShouldTearDownStateAfterEachStorySetRun(),
           expectations=expectations, metadata=benchmark.GetMetadata())
       return_code = min(254, len(results.failures))
       # We want to make sure that all expectations are linked to real stories,
       # this will log error messages if names do not match what is in the set.
       benchmark.GetBrokenExpectations(stories)
-    except Exception:
+    except Exception: # pylint: disable=broad-except
       results.telemetry_info.InterruptBenchmark()
       exception_formatter.PrintFormattedException()
       return_code = 255
 
-    results.histograms.AddSharedDiagnostic(
-        reserved_infos.OWNERS.name, benchmark.GetOwnership())
+    benchmark_owners = benchmark.GetOwners()
+    benchmark_component = benchmark.GetBugComponents()
+
+    if benchmark_owners:
+      results.histograms.AddSharedDiagnostic(
+          reserved_infos.OWNERS.name, benchmark_owners)
+
+    if benchmark_component:
+      results.histograms.AddSharedDiagnostic(
+          reserved_infos.BUG_COMPONENTS.name, benchmark_component)
 
     try:
       if finder_options.upload_results:
@@ -508,3 +449,23 @@ def _CheckThermalThrottling(platform):
   if platform.HasBeenThermallyThrottled():
     logging.warning('Device has been thermally throttled during '
                     'performance tests, results will vary.')
+
+def _MakeDeviceInfoDiagnostics(state):
+  if not state or not state.platform:
+    return
+
+  device_info_data = {
+      reserved_infos.ARCHITECTURES.name: state.platform.GetArchName(),
+      reserved_infos.MEMORY_AMOUNTS.name:
+          state.platform.GetSystemTotalPhysicalMemory(),
+      reserved_infos.OS_NAMES.name: state.platform.GetOSName(),
+      reserved_infos.OS_VERSIONS.name: state.platform.GetOSVersionName(),
+  }
+
+  device_info_diangostics = {}
+
+  for name, value in device_info_data.iteritems():
+    if not value:
+      continue
+    device_info_diangostics[name] = histogram.GenericSet([value])
+  return device_info_diangostics

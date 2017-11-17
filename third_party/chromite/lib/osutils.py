@@ -762,7 +762,7 @@ def UmountDir(path, lazy=True, sudo=True, cleanup=True):
   cmd = ['umount', '-d', path]
   if lazy:
     cmd += ['-l']
-  runcmd(cmd)
+  runcmd(cmd, print_cmd=False)
 
   if cleanup:
     # We will randomly get EBUSY here even when the umount worked.  Suspect
@@ -784,6 +784,23 @@ def UmountDir(path, lazy=True, sudo=True, cleanup=True):
         # Something else, we don't know so do not retry.
         return False
     retry_util.GenericRetry(_retry, 60, RmDir, path, sudo=sudo, sleep=1)
+
+
+def UmountTree(path):
+  """Unmounts |path| and any submounts under it."""
+  # Scrape it from /proc/mounts since it's easily accessible;
+  # additionally, unmount in reverse order of what's listed there
+  # rather than trying a reverse sorting; it's possible for
+  # mount /z /foon
+  # mount /foon/blah -o loop /a
+  # which reverse sorting cannot handle.
+  path = os.path.realpath(path).rstrip('/') + '/'
+  mounts = [mtab.destination for mtab in IterateMountPoints() if
+            mtab.destination.startswith(path) or
+            mtab.destination == path.rstrip('/')]
+
+  for mount_pt in reversed(mounts):
+    UmountDir(mount_pt, lazy=False, cleanup=False)
 
 
 def SetEnvironment(env):

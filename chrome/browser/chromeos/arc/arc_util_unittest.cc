@@ -24,6 +24,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/chromeos_switches.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/testing_pref_service.h"
@@ -111,7 +112,7 @@ class FakeInstallAttributesManaged : public chromeos::InstallAttributes {
 class FakeUserManagerWithLocalState : public chromeos::FakeChromeUserManager {
  public:
   FakeUserManagerWithLocalState()
-      : test_local_state_(base::MakeUnique<TestingPrefServiceSimple>()) {
+      : test_local_state_(std::make_unique<TestingPrefServiceSimple>()) {
     RegisterPrefs(test_local_state_->registry());
   }
 
@@ -133,13 +134,13 @@ class ChromeArcUtilTest : public testing::Test {
   ~ChromeArcUtilTest() override = default;
 
   void SetUp() override {
-    command_line_ = base::MakeUnique<base::test::ScopedCommandLine>();
+    command_line_ = std::make_unique<base::test::ScopedCommandLine>();
 
     user_manager_enabler_ =
-        base::MakeUnique<chromeos::ScopedUserManagerEnabler>(
+        std::make_unique<chromeos::ScopedUserManagerEnabler>(
             new FakeUserManagerWithLocalState());
     chromeos::WallpaperManager::Initialize();
-    profile_ = base::MakeUnique<TestingProfile>();
+    profile_ = std::make_unique<TestingProfile>();
     profile_->set_profile_name(kTestProfileName);
   }
 
@@ -436,7 +437,7 @@ TEST_F(ChromeArcUtilTest, ArcPlayStoreEnabledForProfile_Managed) {
   // 1) Set managed preference to true, then try to set the value to false
   // via SetArcPlayStoreEnabledForProfile().
   profile()->GetTestingPrefService()->SetManagedPref(
-      prefs::kArcEnabled, base::MakeUnique<base::Value>(true));
+      prefs::kArcEnabled, std::make_unique<base::Value>(true));
   EXPECT_TRUE(IsArcPlayStoreEnabledPreferenceManagedForProfile(profile()));
   EXPECT_TRUE(IsArcPlayStoreEnabledForProfile(profile()));
   SetArcPlayStoreEnabledForProfile(profile(), false);
@@ -450,7 +451,7 @@ TEST_F(ChromeArcUtilTest, ArcPlayStoreEnabledForProfile_Managed) {
   // 2) Set managed preference to false, then try to set the value to true
   // via SetArcPlayStoreEnabledForProfile().
   profile()->GetTestingPrefService()->SetManagedPref(
-      prefs::kArcEnabled, base::MakeUnique<base::Value>(false));
+      prefs::kArcEnabled, std::make_unique<base::Value>(false));
   EXPECT_TRUE(IsArcPlayStoreEnabledPreferenceManagedForProfile(profile()));
   EXPECT_FALSE(IsArcPlayStoreEnabledForProfile(profile()));
   SetArcPlayStoreEnabledForProfile(profile(), true);
@@ -485,7 +486,7 @@ TEST_F(ChromeArcUtilTest, AreArcAllOptInPreferencesIgnorableForProfile) {
   // Backup-restore pref is managed, while location-service is not, and the
   // function returns false.
   profile()->GetTestingPrefService()->SetManagedPref(
-      prefs::kArcBackupRestoreEnabled, base::MakeUnique<base::Value>(false));
+      prefs::kArcBackupRestoreEnabled, std::make_unique<base::Value>(false));
   EXPECT_FALSE(AreArcAllOptInPreferencesIgnorableForProfile(profile()));
 
   // Location-service pref is managed, while backup-restore is not, and the
@@ -493,12 +494,12 @@ TEST_F(ChromeArcUtilTest, AreArcAllOptInPreferencesIgnorableForProfile) {
   profile()->GetTestingPrefService()->RemoveManagedPref(
       prefs::kArcBackupRestoreEnabled);
   profile()->GetTestingPrefService()->SetManagedPref(
-      prefs::kArcLocationServiceEnabled, base::MakeUnique<base::Value>(false));
+      prefs::kArcLocationServiceEnabled, std::make_unique<base::Value>(false));
   EXPECT_FALSE(AreArcAllOptInPreferencesIgnorableForProfile(profile()));
 
   // Both OptIn prefs are set to managed values, and the function returns true.
   profile()->GetTestingPrefService()->SetManagedPref(
-      prefs::kArcBackupRestoreEnabled, base::MakeUnique<base::Value>(false));
+      prefs::kArcBackupRestoreEnabled, std::make_unique<base::Value>(false));
   EXPECT_TRUE(AreArcAllOptInPreferencesIgnorableForProfile(profile()));
 }
 
@@ -520,42 +521,210 @@ TEST_F(ChromeArcUtilTest, IsActiveDirectoryUserForProfile_AD) {
 
 class ArcMigrationTest : public testing::Test {
  protected:
-  ArcMigrationTest() {
-    auto attributes = base::MakeUnique<FakeInstallAttributesManaged>();
-    attributes_ = attributes.get();
-    policy::BrowserPolicyConnectorChromeOS::SetInstallAttributesForTesting(
-        attributes.release());
-  }
+  ArcMigrationTest() {}
   ~ArcMigrationTest() override {}
 
-  void SetUp() override { chromeos::DeviceSettingsService::Initialize(); }
-
-  void TearDown() override { chromeos::DeviceSettingsService::Shutdown(); }
-
-  void SetDeviceIsEnterpriseManaged(bool is_managed) {
-    attributes_->SetIsManaged(is_managed);
+  void SetUp() override {
+    user_manager_enabler_ =
+        std::make_unique<chromeos::ScopedUserManagerEnabler>(
+            new FakeUserManagerWithLocalState());
+    // Used by FakeChromeUserManager.
+    chromeos::WallpaperManager::Initialize();
+    profile_ = std::make_unique<TestingProfile>();
+    profile_->set_profile_name(kTestProfileName);
   }
 
-  FakeInstallAttributesManaged* attributes_;
+  void TearDown() override {
+    profile_.reset();
+    chromeos::WallpaperManager::Shutdown();
+    user_manager_enabler_.reset();
+    command_line_.reset();
+  }
+
+  TestingProfile* profile() { return profile_.get(); }
+
+  chromeos::FakeChromeUserManager* GetFakeUserManager() const {
+    return static_cast<chromeos::FakeChromeUserManager*>(
+        user_manager::UserManager::Get());
+  }
+
+ private:
+  std::unique_ptr<base::test::ScopedCommandLine> command_line_;
+  content::TestBrowserThreadBundle thread_bundle_;
+  std::unique_ptr<chromeos::ScopedUserManagerEnabler> user_manager_enabler_;
+  std::unique_ptr<TestingProfile> profile_;
+
+  DISALLOW_COPY_AND_ASSIGN(ArcMigrationTest);
 };
 
-TEST_F(ArcMigrationTest, IsMigrationAllowedConsumerOwned) {
-  ResetArcMigrationAllowedForTesting();
-  auto* const command_line = base::CommandLine::ForCurrentProcess();
-  command_line->InitFromArgv({"", "--need-arc-migration-policy-check",
-                              "--arc-availability=officially-supported"});
-  SetDeviceIsEnterpriseManaged(false);
-  EXPECT_TRUE(IsArcMigrationAllowed());
+TEST_F(ArcMigrationTest, IsMigrationAllowedUnmanagedUser) {
+  ScopedLogIn login(GetFakeUserManager(),
+                    AccountId::AdFromUserEmailObjGuid(
+                        profile()->GetProfileUserName(), kTestGaiaId));
+  profile()->GetPrefs()->SetInteger(prefs::kEcryptfsMigrationStrategy, 0);
+  EXPECT_TRUE(IsArcMigrationAllowedByPolicyForProfile(profile()));
 }
 
-TEST_F(ArcMigrationTest, IsMigrationAllowedNoPolicy) {
-  ResetArcMigrationAllowedForTesting();
-  auto* const command_line = base::CommandLine::ForCurrentProcess();
-  command_line->InitFromArgv({"", "--need-arc-migration-policy-check",
-                              "--arc-availability=officially-supported"});
-  SetDeviceIsEnterpriseManaged(true);
-  EXPECT_FALSE(IsArcMigrationAllowed());
+TEST_F(ArcMigrationTest, IsMigrationAllowedDefault_ManagedGaiaUser) {
+  // Don't set any value for kEcryptfsMigrationStrategy pref.
+  ScopedLogIn login(GetFakeUserManager(),
+                    AccountId::FromUserEmailGaiaId(
+                        profile()->GetProfileUserName(), kTestGaiaId));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kArcEnabled, std::make_unique<base::Value>(true));
+  EXPECT_FALSE(IsArcMigrationAllowedByPolicyForProfile(profile()));
 }
+
+TEST_F(ArcMigrationTest, IsMigrationAllowedDefault_ActiveDirectoryUser) {
+  // Don't set any value for kEcryptfsMigrationStrategy pref.
+  ScopedLogIn login(
+      GetFakeUserManager(),
+      AccountId::AdFromObjGuid("f04557de-5da2-40ce-ae9d-b8874d8da96e"),
+      user_manager::USER_TYPE_ACTIVE_DIRECTORY);
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kArcEnabled, std::make_unique<base::Value>(true));
+  EXPECT_TRUE(IsArcMigrationAllowedByPolicyForProfile(profile()));
+}
+
+TEST_F(ArcMigrationTest, IsMigrationAllowedForbiddenByPolicy) {
+  ScopedLogIn login(GetFakeUserManager(),
+                    AccountId::AdFromUserEmailObjGuid(
+                        profile()->GetProfileUserName(), kTestGaiaId));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kArcEnabled, std::make_unique<base::Value>(true));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kEcryptfsMigrationStrategy, std::make_unique<base::Value>(0));
+  EXPECT_FALSE(IsArcMigrationAllowedByPolicyForProfile(profile()));
+}
+
+TEST_F(ArcMigrationTest, IsMigrationAllowedMigrate) {
+  ScopedLogIn login(GetFakeUserManager(),
+                    AccountId::AdFromUserEmailObjGuid(
+                        profile()->GetProfileUserName(), kTestGaiaId));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kArcEnabled, std::make_unique<base::Value>(true));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kEcryptfsMigrationStrategy, std::make_unique<base::Value>(1));
+  EXPECT_TRUE(IsArcMigrationAllowedByPolicyForProfile(profile()));
+}
+
+TEST_F(ArcMigrationTest, IsMigrationAllowedWipe) {
+  ScopedLogIn login(GetFakeUserManager(),
+                    AccountId::AdFromUserEmailObjGuid(
+                        profile()->GetProfileUserName(), kTestGaiaId));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kArcEnabled, std::make_unique<base::Value>(true));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kEcryptfsMigrationStrategy, std::make_unique<base::Value>(2));
+  EXPECT_TRUE(IsArcMigrationAllowedByPolicyForProfile(profile()));
+}
+
+TEST_F(ArcMigrationTest, IsMigrationAllowedAskUser) {
+  ScopedLogIn login(GetFakeUserManager(),
+                    AccountId::AdFromUserEmailObjGuid(
+                        profile()->GetProfileUserName(), kTestGaiaId));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kArcEnabled, std::make_unique<base::Value>(true));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kEcryptfsMigrationStrategy, std::make_unique<base::Value>(3));
+  EXPECT_TRUE(IsArcMigrationAllowedByPolicyForProfile(profile()));
+}
+
+TEST_F(ArcMigrationTest, IsMigrationAllowedMinimalMigration) {
+  ScopedLogIn login(GetFakeUserManager(),
+                    AccountId::AdFromUserEmailObjGuid(
+                        profile()->GetProfileUserName(), kTestGaiaId));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kArcEnabled, std::make_unique<base::Value>(true));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kEcryptfsMigrationStrategy, std::make_unique<base::Value>(4));
+  EXPECT_TRUE(IsArcMigrationAllowedByPolicyForProfile(profile()));
+}
+
+TEST_F(ArcMigrationTest, IsMigrationAllowedCachedValueForbidden) {
+  ScopedLogIn login(GetFakeUserManager(),
+                    AccountId::AdFromUserEmailObjGuid(
+                        profile()->GetProfileUserName(), kTestGaiaId));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kArcEnabled, std::make_unique<base::Value>(true));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kEcryptfsMigrationStrategy, std::make_unique<base::Value>(0));
+  EXPECT_FALSE(IsArcMigrationAllowedByPolicyForProfile(profile()));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kEcryptfsMigrationStrategy, std::make_unique<base::Value>(1));
+
+  // The value of IsArcMigrationAllowedByPolicyForProfile() should be cached.
+  // So, even if the policy is set after the first call, the returned value
+  // should not be changed.
+  EXPECT_FALSE(IsArcMigrationAllowedByPolicyForProfile(profile()));
+}
+
+TEST_F(ArcMigrationTest, IsMigrationAllowedCachedValueAllowed) {
+  ScopedLogIn login(GetFakeUserManager(),
+                    AccountId::AdFromUserEmailObjGuid(
+                        profile()->GetProfileUserName(), kTestGaiaId));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kArcEnabled, std::make_unique<base::Value>(true));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kEcryptfsMigrationStrategy, std::make_unique<base::Value>(1));
+  EXPECT_TRUE(IsArcMigrationAllowedByPolicyForProfile(profile()));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kEcryptfsMigrationStrategy, std::make_unique<base::Value>(0));
+  EXPECT_TRUE(IsArcMigrationAllowedByPolicyForProfile(profile()));
+}
+
+// Defines parameters for parametrized test
+// ArcMigrationAskForEcryptfsArcUsersTest.
+struct AskForEcryptfsArcUserTestParam {
+  bool device_supported_arc;
+  bool arc_enabled;
+  bool expect_migration_allowed;
+};
+
+class ArcMigrationAskForEcryptfsArcUsersTest
+    : public ArcMigrationTest,
+      public testing::WithParamInterface<AskForEcryptfsArcUserTestParam> {
+ protected:
+  ArcMigrationAskForEcryptfsArcUsersTest() {}
+  ~ArcMigrationAskForEcryptfsArcUsersTest() override {}
+};
+
+// Migration policy is 5 (kAskForEcryptfsArcUsers, EDU default).
+TEST_P(ArcMigrationAskForEcryptfsArcUsersTest,
+       IsMigrationAllowedAskForEcryptfsArcUsers) {
+  const AskForEcryptfsArcUserTestParam& param = GetParam();
+
+  ScopedLogIn login(GetFakeUserManager(),
+                    AccountId::AdFromUserEmailObjGuid(
+                        profile()->GetProfileUserName(), kTestGaiaId));
+  if (param.device_supported_arc) {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        chromeos::switches::kArcTransitionMigrationRequired);
+  }
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kEcryptfsMigrationStrategy, std::make_unique<base::Value>(5));
+  profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kArcEnabled, std::make_unique<base::Value>(param.arc_enabled));
+  EXPECT_EQ(param.expect_migration_allowed,
+            IsArcMigrationAllowedByPolicyForProfile(profile()));
+}
+
+INSTANTIATE_TEST_CASE_P(
+    ArcMigrationTest,
+    ArcMigrationAskForEcryptfsArcUsersTest,
+    ::testing::Values(
+        AskForEcryptfsArcUserTestParam{true /* device_supported_arc */,
+                                       true /* arc_enabled */,
+                                       true /* expect_migration_allowed */},
+        AskForEcryptfsArcUserTestParam{true /* device_supported_arc */,
+                                       false /* arc_enabled */,
+                                       false /* expect_migration_allowed */},
+        AskForEcryptfsArcUserTestParam{false /* device_supported_arc */,
+                                       true /* arc_enabled */,
+                                       false /* expect_migration_allowed */},
+        AskForEcryptfsArcUserTestParam{false /* device_supported_arc */,
+                                       false /* arc_enabled */,
+                                       false /* expect_migration_allowed */}));
 
 }  // namespace util
 }  // namespace arc

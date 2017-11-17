@@ -4,7 +4,7 @@
 
 """Start and stop Web Page Replay."""
 
-from telemetry.internal.util import atexit_with_log
+from py_utils import atexit_with_log
 import logging
 import os
 import re
@@ -98,11 +98,11 @@ class ReplayServer(object):
   @staticmethod
   def _GetLoggingLevel(log_level=None):
     return {
-      logging.DEBUG: 'debug',
-      logging.INFO: 'info',
-      logging.WARNING: 'warning',
-      logging.ERROR: 'error',
-      logging.CRITICAL: 'critical',
+        logging.DEBUG: 'debug',
+        logging.INFO: 'info',
+        logging.WARNING: 'warning',
+        logging.ERROR: 'error',
+        logging.CRITICAL: 'critical',
     }[log_level or logging.getLogger().level]
 
   @staticmethod
