@@ -282,7 +282,16 @@ override_dh_install-arch:
 
 	mkdir -p $(CURDIR)/debian/tmp/$(LIB_DIR)
 	(cd out/Release && tar --remove-files $(foreach excl,$(TRASH),--exclude=$(excl) ) --dereference -cf - .;) | (cd debian/tmp/$(LIB_DIR) && tar xvf -;)
-	(cd out/Release && tar --remove-files -cf - $$(find *locales -type f -name en-US.pak) --dereference;) | (cd debian/tmp/$(LIB_DIR) && tar xvf -;)
+
+	# ENDLESS: We're using 'Architecture: any' for the chromium-browser-l10n package, so
+	# we need to manually deal with the language files here, splitting them into separate
+	# temporary directories so that dh_install will do the right thing later on, installing
+	# en-US for the chromium-browser package and every other languages in the l10n package.
+	mkdir -p $(CURDIR)/debian/tmp-l10n-enUS/$(LIB_DIR)
+	(cd out/Release && tar --remove-files -cf - $$(find *locales -type f -name en-US.pak) --dereference;) | (cd debian/tmp-l10n-enUS/$(LIB_DIR) && tar xvf -;)
+
+	mkdir -p $(CURDIR)/debian/tmp-l10n-other/$(LIB_DIR)
+	(cd out/Release && tar --remove-files -cf - $$(find *locales -type f -name \*.pak \! -name en-US.pak) --dereference;) | (cd debian/tmp-l10n-other/$(LIB_DIR) && tar xvf -;)
 #
 	# NaCL may be blacklisted.
 	cp -a out/Release/libppGoogleNaClPluginChrome.so debian/chromium-browser/$(LIB_DIR)/ || echo No NaCl. That is okay.
@@ -386,6 +395,11 @@ endif
 	  exit 1; \
 	fi
 
+	# ENDLESS: We don't install architecture independent packages anymore, so we deal with
+	# directory here, as it's used by other packages (e.g. eos-chrome-plugin-updater).
+	install --directory debian/chromium-browser/etc/chromium-browser/customizations
+	install --owner=root --mode=0644 --no-target-directory debian/chromium-browser-customization-example debian/chromium-browser/etc/chromium-browser/customizations/00-example
+
 	for expr in $(BUILT_UNUSED_MATCH); do if ! grep -E $$expr $(T)/unfiltered-built >/dev/null; then echo "Warning: Unused built matcher: $$expr in $(T)/unfiltered-built "; fi; done
 	for expr in $(PACKAGED_NOT_FROM_TREE_MATCH); do if ! grep -E $$expr $(T)/unfiltered-packaged >/dev/null; then echo "Warning: Unused packaged matcher: $$expr"; fi; done
 	rm -r $(T)
@@ -408,9 +422,6 @@ override_dh_install-indep:
 
 	### Step 2: install into packages
 	dh_install -i
-
-	install --directory debian/chromium-browser/etc/chromium-browser/customizations
-	install --owner=root --mode=0644 --no-target-directory debian/chromium-browser-customization-example debian/chromium-browser/etc/chromium-browser/customizations/00-example
 
 	dh_listpackages -i |while read pkgname; do find debian/$${pkgname} -type f; done |grep -v /DEBIAN |cut -d/ -f3- |grep -v ^usr/lib/debug/ | LC_ALL=C sort >$(T)/unfiltered-packaged
 	grep -E \($(subst $(SPACE),\|,$(INDEP_MATCH))\) $(T)/unfiltered-packaged |grep -v /en-US.pak >$(T)/packaged || true
