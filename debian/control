@@ -30,7 +30,6 @@ Build-Depends:
 	libglib2.0-dev,
 	libgnome-keyring-dev,
 	libudev-dev,
-	libgconf2-dev,
 	libdrm-dev,
 	libcap-dev,
 	libgcrypt-dev,
@@ -40,7 +39,7 @@ Build-Depends:
 	libffi-dev,
 	chrpath,
 	yasm
-Standards-Version: 3.9.6
+Standards-Version: 4.1.0
 
 Package: chromium-browser
 Architecture: i386 amd64 armhf arm64

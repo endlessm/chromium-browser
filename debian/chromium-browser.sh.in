@@ -114,15 +114,6 @@ if test -n "$CHROMIUM_USER_FLAGS"; then
 	CHROMIUM_FLAGS=${CHROMIUM_USER_FLAGS}
 fi
 
-# FFmpeg needs to know where its libs are located
-if [ "Z$LD_LIBRARY_PATH" != Z ] ; then
-  LD_LIBRARY_PATH=$LIBDIR:$LD_LIBRARY_PATH
-else
-  LD_LIBRARY_PATH=$LIBDIR
-fi
-
-export LD_LIBRARY_PATH
-
 # For the Default Browser detection to work, we need to give access
 # to xdg-settings if it's not present on the system (ensures that the system
 # xdg-utils is recent enough). Also set CHROME_WRAPPER in case xdg-settings is

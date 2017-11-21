@@ -1,3 +1,69 @@
+chromium-browser (62.0.3202.62-0ubuntu0.16.04.1308) xenial; urgency=medium
+
+  * Upstream release: 62.0.3202.62
+    - CVE-2017-5124: UXSS with MHTML.
+    - CVE-2017-5125: Heap overflow in Skia.
+    - CVE-2017-5126: Use after free in PDFium.
+    - CVE-2017-5127: Use after free in PDFium.
+    - CVE-2017-5128: Heap overflow in WebGL.
+    - CVE-2017-5129: Use after free in WebAudio.
+    - CVE-2017-5132: Incorrect stack manipulation in WebAssembly.
+    - CVE-2017-5130: Heap overflow in libxml2.
+    - CVE-2017-5131: Out of bounds write in Skia.
+    - CVE-2017-5133: Out of bounds write in Skia.
+    - CVE-2017-15386: UI spoofing in Blink.
+    - CVE-2017-15387: Content security bypass.
+    - CVE-2017-15388: Out of bounds read in Skia.
+    - CVE-2017-15389: URL spoofing in OmniBox.
+    - CVE-2017-15390: URL spoofing in OmniBox.
+    - CVE-2017-15391: Extension limitation bypass in Extensions.
+    - CVE-2017-15392: Incorrect registry key handling in PlatformIntegration.
+    - CVE-2017-15393: Referrer leak in Devtools.
+    - CVE-2017-15394: URL spoofing in extensions UI.
+    - CVE-2017-15395: Null pointer dereference in ImageCapture.
+  * debian/control: bump Standards-Version to 4.1.0
+  * debian/patches/additional-search-engines.patch: refreshed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/enable-chromecast-by-default.patch: refreshed
+  * debian/patches/fix-compilation-for-atk.patch: removed, no longer needed
+  * debian/patches/fix-gn-bootstrap.patch: updated
+  * debian/patches/fix_building_widevinecdm_with_chromium.patch: refreshed
+  * debian/patches/make-base-numerics-build-with-gcc.patch: removed, no longer
+    needed
+  * debian/patches/no-new-ninja-flag.patch: added
+  * debian/patches/revert-clang-nostdlib++.patch: added
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: added
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/widevine-other-locations: refreshed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 18 Oct 2017 22:47:27 +0200
+
+chromium-browser (61.0.3163.100-0ubuntu0.16.04.1306) xenial; urgency=medium
+
+  * debian/patches/set-rpath-on-chromium-executables.patch: added
+    (LP: #1718885)
+  * debian/chromium-browser.sh.in: remove LD_LIBRARY_PATH manipulation,
+    made unnecessary by patch above
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 26 Sep 2017 09:53:03 -0400
+
+chromium-browser (61.0.3163.100-0ubuntu0.16.04.1304) xenial; urgency=medium
+
+  * Upstream release: 61.0.3163.100
+    - CVE-2017-5121: Out-of-bounds access in V8.
+    - CVE-2017-5122: Out-of-bounds access in V8.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 22 Sep 2017 22:30:55 +0200
+
+chromium-browser (61.0.3163.91-0ubuntu0.16.04.1302) xenial; urgency=medium
+
+  * Upstream release: 61.0.3163.91
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 15 Sep 2017 10:41:15 +0200
+
 chromium-browser (61.0.3163.79-0ubuntu0.16.04.1300) xenial; urgency=medium
 
   * Upstream release: 61.0.3163.79
@@ -30,7 +96,19 @@ chromium-browser (61.0.3163.79-0ubuntu0.16.04.1300) xenial; urgency=medium
   * debian/patches/title-bar-default-system.patch-v35: refreshed
   * debian/patches/use-clang-versioned.patch: updated
 
- -- Olivier Tilloy <email address hidden>  Mon, 11 Sep 2017 22:53:22 +0200
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Mon, 11 Sep 2017 22:53:22 +0200
+
+chromium-browser (60.0.3112.113-0ubuntu0.16.04.1298) xenial; urgency=medium
+
+  * Upstream release: 60.0.3112.113
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 25 Aug 2017 08:12:34 +0200
+
+chromium-browser (60.0.3112.90-0ubuntu0.16.04) UNRELEASED; urgency=medium
+
+  * Upstream release: 60.0.3112.90
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 03 Aug 2017 12:38:40 +0200
 
 chromium-browser (60.0.3112.78-0ubuntu0.16.04.1293) xenial; urgency=medium
 
@@ -82,7 +160,36 @@ chromium-browser (60.0.3112.78-0ubuntu0.16.04.1293) xenial; urgency=medium
 
  -- Olivier Tilloy <olivier.tilloy@canonical.com>  Mon, 31 Jul 2017 17:25:16 +0200
 
-chromium-browser (59.0.3071.86-0ubuntu1.1356) artful; urgency=medium
+chromium-browser (59.0.3071.109-0ubuntu0.16.04.1291) xenial; urgency=medium
+
+  * debian/patches/fix-argument-evaluation-order.patch: added (LP: #1702407)
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 07 Jul 2017 10:53:25 +0200
+
+chromium-browser (59.0.3071.109-0ubuntu0.16.04.1289) xenial; urgency=medium
+
+  * Upstream release: 59.0.3071.109
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 21 Jun 2017 06:47:10 +0200
+
+chromium-browser (59.0.3071.104-0ubuntu0.16.04.1287) xenial; urgency=medium
+
+  * Upstream release: 59.0.3071.104
+    - CVE-2017-5087: Sandbox Escape in IndexedDB.
+    - CVE-2017-5088: Out of bounds read in V8.
+    - CVE-2017-5089: Domain spoofing in Omnibox.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 16 Jun 2017 06:51:06 +0200
+
+chromium-browser (59.0.3071.86-0ubuntu0.16.04.1285) xenial; urgency=medium
+
+  * debian/control: build-depend on gcc 5 (LP: #1697496)
+  * debian/patches/use-gcc-versioned: removed, no longer needed
+  * debian/patches/no-fPIC.patch: removed, no longer needed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 13 Jun 2017 10:36:34 +0200
+
+chromium-browser (59.0.3071.86-0ubuntu0.16.04.1283) xenial; urgency=medium
 
   * Upstream release: 59.0.3071.86
     - CVE-2017-5070: Type confusion in V8.
@@ -117,6 +224,7 @@ chromium-browser (59.0.3071.86-0ubuntu1.1356) artful; urgency=medium
   * debian/patches/fix-gn-bootstrap.patch: removed, no longer needed
   * debian/patches/revert-llvm-ar.patch: added
   * debian/patches/linux-dma-buf.patch: added
+  * debian/patches/no-fPIC.patch: added
   * debian/control:
     - bump Standards-Version to 3.9.8
     - remove build dependency on libgtk2.0-dev
@@ -128,12 +236,22 @@ chromium-browser (59.0.3071.86-0ubuntu1.1356) artful; urgency=medium
   * debian/apport/chromium-browser.py:
     - fetch info about libgtk-3-0
     - do not fetch GConf key values
-  * debian/tests/*:
-    - removed stale autopkgtests
-    - added new autopkgtests based on chromium's new headless mode
-  * debian/source/include-binaries: updated to reflect new binary data in tests
 
- -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 06 Jun 2017 06:17:52 +0200
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 06 Jun 2017 06:39:12 +0200
+
+chromium-browser (58.0.3029.110-0ubuntu0.16.04.1281) xenial; urgency=medium
+
+  * Upstream release: 58.0.3029.110
+  * debian/control: bump Standards-Version to 3.9.8
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 10 May 2017 07:23:02 +0200
+
+chromium-browser (58.0.3029.96-0ubuntu0.16.04.1279) xenial; urgency=medium
+
+  * Upstream release: 58.0.3029.96
+    - CVE-2017-5068: Race condition in WebRTC.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 03 May 2017 06:49:16 +0200
 
 chromium-browser (58.0.3029.81-0ubuntu0.16.04.1277) xenial; urgency=medium
 
