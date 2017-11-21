@@ -63,7 +63,7 @@ Description: Chromium web browser, open-source version of Chrome
  stable way for all Internet users to experience the web.
 
 Package: chromium-browser-l10n
-Architecture: all
+Architecture: any
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${misc:Depends}, chromium-browser (>= ${binary:Version}),
  chromium-browser (<< ${binary:Version}.1~)
