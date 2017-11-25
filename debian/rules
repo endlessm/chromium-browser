@@ -284,6 +284,10 @@ override_dh_install-arch:
 
 	install -T -m 644 debian/chromium-browser.default debian/chromium-browser/etc/chromium-browser/default
 
+	# Convert rpath to runpath if needed, so that LD_LIBRARY_PATH (set in our launcher script)
+	# takes precedence. This is required for Endless extra codecs to work properly.
+	chrpath --convert debian/tmp/$(LIB_DIR)/chrome || true
+
 	# Rename the binary from chrome to chromium-browser, this is required as
 	# chromium dereferences all symlinks before starting its children making
 	# the Gnome System Monitor confused with icons
