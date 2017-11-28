@@ -232,7 +232,11 @@ else
       hexargs="$hexargs$(echo -ne "\0$arg" | xxd -p)"
     done
 
-    if echo $hexargs | sed "s/^00//" | xxd -r -p | nc -U "$HOME/.config/chromium/SingletonSocket" 2> /dev/null | grep "^ACK$" > /dev/null; then
+    # The command nc can point either to nc.traditional or to nc.openbsd depending
+    # on the configuratino of alternatives, but we DO want nc.openbsd for sure (the
+    # other one does not have an -U parameter) so we'd better call it directly not
+    # to risk issues if configuration changes at some point.
+    if echo $hexargs | sed "s/^00//" | xxd -r -p | nc.openbsd -NU "$HOME/.config/chromium/SingletonSocket" 2> /dev/null | grep "^ACK$" > /dev/null; then
       exit 0
     fi
   fi
