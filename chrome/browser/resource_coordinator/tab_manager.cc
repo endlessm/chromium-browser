@@ -213,8 +213,8 @@ TabManager::TabManager()
     : discard_count_(0),
       recent_tab_discard_(false),
       discard_once_(false),
-#if !defined(OS_CHROMEOS) && !defined(OS_LINUX)
-      minimum_protection_time_(base::TimeDelta::FromMinutes(10)),
+#if !defined(OS_CHROMEOS)
+      minimum_protection_time_(base::TimeDelta::FromMinutes(5)),
 #endif
       browser_tab_strip_tracker_(this, nullptr, this),
       test_tick_clock_(nullptr),
