@@ -4,6 +4,9 @@
 
 #include "chromeos/dbus/upstart_client.h"
 
+#include <string>
+#include <vector>
+
 #include "base/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "dbus/bus.h"
@@ -36,10 +39,10 @@ class UpstartClientImpl : public UpstartClient {
     dbus::MessageWriter writer(&method_call);
     writer.AppendArrayOfStrings(std::vector<std::string>());
     writer.AppendBool(true);  // Wait for response.
-    auth_proxy_->CallMethod(&method_call,
-                            dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-                            base::Bind(&UpstartClientImpl::HandleAuthResponse,
-                                       weak_ptr_factory_.GetWeakPtr()));
+    auth_proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::BindOnce(&UpstartClientImpl::HandleAuthResponse,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 
   void RestartAuthPolicyService() override {
@@ -47,10 +50,10 @@ class UpstartClientImpl : public UpstartClient {
     dbus::MessageWriter writer(&method_call);
     writer.AppendArrayOfStrings(std::vector<std::string>());
     writer.AppendBool(true);  // Wait for response.
-    auth_proxy_->CallMethod(&method_call,
-                            dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-                            base::Bind(&UpstartClientImpl::HandleAuthResponse,
-                                       weak_ptr_factory_.GetWeakPtr()));
+    auth_proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::BindOnce(&UpstartClientImpl::HandleAuthResponse,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 
   void StartMediaAnalytics(const UpstartCallback& callback) override {
@@ -60,8 +63,8 @@ class UpstartClientImpl : public UpstartClient {
     writer.AppendBool(true);  // Wait for response.
     ma_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&UpstartClientImpl::HandleStartMediaAnalyticsResponse,
-                   weak_ptr_factory_.GetWeakPtr(), callback));
+        base::BindOnce(&UpstartClientImpl::HandleStartMediaAnalyticsResponse,
+                       weak_ptr_factory_.GetWeakPtr(), callback));
   }
 
   void RestartMediaAnalytics(const UpstartCallback& callback) override {
@@ -71,8 +74,8 @@ class UpstartClientImpl : public UpstartClient {
     writer.AppendBool(true);  // Wait for response.
     ma_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&UpstartClientImpl::HandleStartMediaAnalyticsResponse,
-                   weak_ptr_factory_.GetWeakPtr(), callback));
+        base::BindOnce(&UpstartClientImpl::HandleStartMediaAnalyticsResponse,
+                       weak_ptr_factory_.GetWeakPtr(), callback));
   }
 
   void StopMediaAnalytics() override {
@@ -82,8 +85,8 @@ class UpstartClientImpl : public UpstartClient {
     writer.AppendBool(true);  // Wait for response.
     ma_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&UpstartClientImpl::HandleStopMediaAnalyticsResponse,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&UpstartClientImpl::HandleStopMediaAnalyticsResponse,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 
  protected:

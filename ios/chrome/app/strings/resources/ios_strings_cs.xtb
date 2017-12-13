@@ -20,7 +20,6 @@
 <translation id="1254117744268754948">Výběr složky</translation>
 <translation id="1265739287306757398">Postup</translation>
 <translation id="1272079795634619415">Zastavit</translation>
-<translation id="129553762522093515">Nedávno zavřené</translation>
 <translation id="1323735185997015385">Smazat</translation>
 <translation id="132683371494960526">Dvojitým klepnutím změníte nadřazenou složku.</translation>
 <translation id="1340643665687018190">Zavřít nabídku</translation>
@@ -48,7 +47,6 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="1690731385917361335">Žádné položky</translation>
 <translation id="1700629756560807968">Počet vybraných položek: <ph name="NUMBER_OF_SELECTED_BOOKMARKS" /></translation>
 <translation id="1740468249224277719">Dvojitým klepnutím spustíte instalaci.</translation>
-<translation id="1749561566933687563">Synchronizace záložek</translation>
 <translation id="1752547299766512813">Ukládání hesel</translation>
 <translation id="1753905327828125965">Nejnavštěvovanější</translation>
 <translation id="1809939268435598390">Smazat složku</translation>
@@ -80,6 +78,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="2381405137052800939">Základní nastavení</translation>
 <translation id="2386793615875593361">Vybrána 1 fotka</translation>
 <translation id="2435457462613246316">Zobrazit heslo</translation>
+<translation id="2529021024822217800">Otevřít vše</translation>
 <translation id="2572712655377361602">Přístup k vašim fotkám blokují zásady zařízení.</translation>
 <translation id="2584132361465095047">Přidat účet...</translation>
 <translation id="2593774076813182497">Stránku nelze vytisknout.</translation>
@@ -129,7 +128,6 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="3324193307694657476">Druhý řádek adresy</translation>
 <translation id="3329904751041170572">Nelze se připojit k serveru.</translation>
 <translation id="3335947283844343239">Znovu otevřít zavřenou kartu</translation>
-<translation id="3387752218061326363">Zobrazuje se historie ze zařízení, na kterých jste přihlášeni. <ph name="BEGIN_LINK" />Další informace<ph name="END_LINK" /></translation>
 <translation id="3393920035788932672">Vyskakovací okna povolena</translation>
 <translation id="3414292259312108062">Chrome toto heslo uloží ve vašich <ph name="BEGIN_LINK" />uložených heslech Google<ph name="END_LINK" /> a automaticky vám jej vyplní, abyste si jej nemuseli pamatovat.</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> min</translation>
@@ -181,6 +179,7 @@ Chcete-li vyhledávací dotaz upravit, proveďte výběr dlouhým stisknutím. C
 <translation id="4342284590510997375">Nové</translation>
 <translation id="434816576838749873">Vybrat e-mailovou aplikaci</translation>
 <translation id="4359125752503270327">Tato stránka se otevře v jiné aplikaci.</translation>
+<translation id="4370827530403103842">Synchronizace nefunguje. Problém odstraníte klepnutím.</translation>
 <translation id="4375040482473363939">Hledání QR kódu</translation>
 <translation id="4378154925671717803">Telefon</translation>
 <translation id="441868831736628555">Oznámení o ochraně soukromí</translation>
@@ -188,6 +187,7 @@ Chcete-li vyhledávací dotaz upravit, proveďte výběr dlouhým stisknutím. C
 <translation id="4508750114462689118">Zavřít propagační zprávu ohledně přihlášení</translation>
 <translation id="4526249700380860531">Uložená hesla můžete zobrazit a upravit na adrese <ph name="BEGIN_LINK" />passwords.google.com<ph name="END_LINK" /></translation>
 <translation id="4536418791685807335">Zkuste se přihlásit znovu.</translation>
+<translation id="457386861538956877">Další...</translation>
 <translation id="461440297010471931">Vyhledává se pomocí Googlu</translation>
 <translation id="4620246317052452550">Stránky, které jste si přečetli</translation>
 <translation id="4636930964841734540">Informace</translation>
@@ -309,6 +309,7 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="6785453220513215166">Odesílání zprávy o selhání...</translation>
 <translation id="679325081238418596">Synchronizujte záložky, historii, hesla a nastavení do všech svých zařízení</translation>
 <translation id="6797885426782475225">Hlasové vyhledávání</translation>
+<translation id="6807889908376551050">Zobrazit vše…</translation>
 <translation id="681368974849482173">Položka byla vytvořena</translation>
 <translation id="6896758677409633944">Kopírovat</translation>
 <translation id="6903907808598579934">Zapnout synchronizaci</translation>
@@ -319,7 +320,6 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="7031882061095297553">Synchronizace s účty</translation>
 <translation id="7062545763355031412">Přijmout a přepnout účet</translation>
 <translation id="7108338896283013870">Skrýt</translation>
-<translation id="7131892264600713844">Zobrazuje se historie z tohoto zařízení. <ph name="BEGIN_LINK" />Další informace<ph name="END_LINK" /></translation>
 <translation id="7133798577887235672">Celé jméno</translation>
 <translation id="7136892417564438900">Kamera je nedostupná</translation>
 <translation id="7159472599653637159">Vyžádat web pro mobily</translation>
@@ -356,7 +356,6 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="7769602470925380267">Přijmout a odhlásit se</translation>
 <translation id="7772032839648071052">Potvrďte heslovou frázi</translation>
 <translation id="780301667611848630">Ne, děkuji</translation>
-<translation id="7851858861565204677">Jiná zařízení</translation>
 <translation id="7859704718976024901">Historie procházení</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7947953824732555851">Přijmout a přihlásit</translation>
@@ -382,6 +381,7 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="8458397775385147834">Smazána 1 položka</translation>
 <translation id="8487700953926739672">Dostupné offline</translation>
 <translation id="8503813439785031346">Uživatelské jméno</translation>
+<translation id="850600235656508448">Otevřít v anonymním okně</translation>
 <translation id="8517375800490286174">Licence open source</translation>
 <translation id="8524799873541103884"><ph name="INCOGNITO" /> – karty <ph name="FIRST_VISIBLE_TAB" /> až <ph name="LAST_VISIBLE_TAB" /> z <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8532105204136943229">Rok vypršení platnosti</translation>
@@ -400,6 +400,7 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="8775144690796719618">Neplatná adresa URL</translation>
 <translation id="8820817407110198400">Záložky</translation>
 <translation id="8840513115188359703">Nebudete odhlášeni ze svého účtu Google.</translation>
+<translation id="8870413625673593573">Nedávno zavřené</translation>
 <translation id="8881801611828450202">Vyhledat tento obrázek ve službě <ph name="SEARCH_ENGINE" /></translation>
 <translation id="8904976895050290827">Chrome Sync</translation>
 <translation id="895541991026785598">Nahlásit problém</translation>

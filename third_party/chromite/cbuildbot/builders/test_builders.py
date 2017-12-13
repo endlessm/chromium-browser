@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2015 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -19,6 +20,7 @@ from chromite.cbuildbot.stages import chrome_stages
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import sync_stages
 from chromite.cbuildbot.stages import test_stages
+from chromite.cbuildbot.stages import vm_test_stages
 
 
 class SuccessStage(generic_stages.BuilderStage):
@@ -86,7 +88,7 @@ class AutotestTestsBuilder(generic_builders.PreCqBuilder):
   """Builder that runs autotest unit tests."""
   def RunTestStages(self):
     """Run after sync/reexec."""
-    self._RunStage(test_stages.AutotesTestStage)
+    self._RunStage(test_stages.AutotestTestStage)
 
 
 class ChromiteTestsBuilder(generic_builders.PreCqBuilder):
@@ -95,6 +97,7 @@ class ChromiteTestsBuilder(generic_builders.PreCqBuilder):
     """Run something after sync/reexec."""
     self._RunStage(build_stages.InitSDKStage)
     self._RunStage(test_stages.ChromiteTestStage)
+    self._RunStage(test_stages.CidbIntegrationTestStage)
 
 
 class VMInformationalBuilder(simple_builders.SimpleBuilder):
@@ -120,6 +123,6 @@ class VMInformationalBuilder(simple_builders.SimpleBuilder):
     self._RunStage(build_stages.BuildImageStage, board)
 
     parallel.RunParallelSteps([
-        lambda: self._RunStage(test_stages.VMTestStage, board),
+        lambda: self._RunStage(vm_test_stages.VMTestStage, board),
         lambda: self._RunDebugSymbolStages(self._run, board),
     ])

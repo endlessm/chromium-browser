@@ -182,10 +182,12 @@ class TabManager : public TabStripModelObserver,
   // TODO(tasak): rename this to CanPurgeBackgroundedRenderer.
   bool CanSuspendBackgroundedRenderer(int render_process_id) const;
 
-  // Indicates how TabManager should load pending background tabs.
+  // Indicates how TabManager should load pending background tabs. The mode is
+  // recorded in tracing for easier debugging. The existing explicit numbering
+  // should be kept as is when new modes are added.
   enum BackgroundTabLoadingMode {
-    kStaggered,  // Load a background tab after another tab has done loading.
-    kPaused      // Pause loading background tabs unless the user selects it.
+    kStaggered = 0,  // Load a background tab after another tab is done loading.
+    kPaused = 1      // Pause loading background tabs unless a user selects it.
   };
 
   // Maybe throttle a tab's navigation based on current system status.
@@ -225,6 +227,17 @@ class TabManager : public TabStripModelObserver,
   // Returns true if the tab was created by session restore and initially in
   // foreground.
   bool IsTabRestoredInForeground(content::WebContents* web_contents) const;
+
+  // Returns the number of background tabs that are loading in a background tab
+  // opening session.
+  size_t GetBackgroundTabLoadingCount() const;
+
+  // Returns the number of background tabs that are pending in a background tab
+  // opening session.
+  size_t GetBackgroundTabPendingCount() const;
+
+  // Returns the number of tabs open in all browser instances.
+  int GetTabCount() const;
 
  private:
   friend class TabManagerStatsCollectorTest;
@@ -286,11 +299,11 @@ class TabManager : public TabStripModelObserver,
   // The initial value was chosen because most of users activate backgrounded
   // tabs within 30 minutes. (c.f. Tabs.StateTransfer.Time_Inactive_Active)
   static constexpr base::TimeDelta kDefaultMinTimeToPurge =
-      base::TimeDelta::FromMinutes(30);
+      base::TimeDelta::FromMinutes(1);
 
   // The min/max time to purge ratio. The max time to purge is set to be
   // min time to purge times this value.
-  const int kDefaultMinMaxTimeToPurgeRatio = 2;
+  const int kDefaultMinMaxTimeToPurgeRatio = 4;
 
   // Finds TabStripModel which has a WebContents whose id is the given
   // web_contents_id, and returns the WebContents index and the TabStripModel.
@@ -324,9 +337,6 @@ class TabManager : public TabStripModelObserver,
 
   // Purges data structures in the browser that can be easily recomputed.
   void PurgeBrowserMemory();
-
-  // Returns the number of tabs open in all browser instances.
-  int GetTabCount() const;
 
   // Adds all the stats of the tabs in |browser_info| into |stats_list|.
   // |window_is_active| indicates whether |browser_info|'s window is active.

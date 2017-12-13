@@ -58,14 +58,14 @@ foo:
 	addq (%rax), %rax
 	movq (%rax), %rax
 	popf
-	movq %rax, %xmm0
+	vmovq %rax, %xmm0
 	popq %rax
 	leaq 128(%rsp), %rsp
 # WAS vmovq foo@GOTPCREL(%rip), %xmm0
 	leaq -128(%rsp), %rsp
 	pushq %rax
 	leaq	.Lfoo_local_target(%rip), %rax
-	movq %rax, %xmm0
+	vmovq %rax, %xmm0
 	popq %rax
 	leaq 128(%rsp), %rsp
 
@@ -97,6 +97,24 @@ foo:
 	je 999f
 	leaq	.Lfoo_local_target(%rip), %r11
 999:
+
+# WAS movsd foo@GOTPCREL(%rip), %xmm0
+	leaq -128(%rsp), %rsp
+	pushq %rax
+	leaq	.Lfoo_local_target(%rip), %rax
+	movq %rax, %xmm0
+	popq %rax
+	leaq 128(%rsp), %rsp
+# WAS vmovsd foo@GOTPCREL(%rip), %xmm0
+	leaq -128(%rsp), %rsp
+	pushq %rax
+	leaq	.Lfoo_local_target(%rip), %rax
+	vmovq %rax, %xmm0
+	popq %rax
+	leaq 128(%rsp), %rsp
+
+	# movsd without arguments should be left as-is.
+	movsd
 
 	# Synthesized symbols do not use the GOT.
 # WAS movq BORINGSSL_bcm_text_start@GOTPCREL(%rip), %r11

@@ -24,8 +24,6 @@ class MediaEngagementContentsObserver : public content::WebContentsObserver {
       content::NavigationHandle* navigation_handle) override;
   void ReadyToCommitNavigation(
       content::NavigationHandle* navigation_handle) override;
-  void WasShown() override;
-  void WasHidden() override;
   void MediaStartedPlaying(const MediaPlayerInfo& media_player_info,
                            const MediaPlayerId& media_player_id) override;
   void MediaStoppedPlaying(const MediaPlayerInfo& media_player_info,
@@ -110,6 +108,7 @@ class MediaEngagementContentsObserver : public content::WebContentsObserver {
     base::Optional<bool> significant_size;  // The video track has at least
                                             // a certain frame size.
     base::Optional<bool> has_audio;         // The media has an audio track.
+    base::Optional<bool> has_video;         // The media has a video track.
 
     // The engagement score of the origin at playback has been recorded
     // to a histogram.
@@ -151,6 +150,9 @@ class MediaEngagementContentsObserver : public content::WebContentsObserver {
       const MediaPlayerId& id,
       MediaEngagementContentsObserver::InsignificantHistogram histogram);
 
+  // Commits any pending data to website settings.
+  void MaybeCommitPendingData();
+
   static const char* const kHistogramSignificantNotAddedAfterFirstTimeName;
   static const char* const kHistogramSignificantNotAddedFirstTimeName;
   static const char* const kHistogramSignificantRemovedName;
@@ -159,12 +161,17 @@ class MediaEngagementContentsObserver : public content::WebContentsObserver {
   // Record the score and change in score to UKM.
   void RecordUkmMetrics();
 
-  bool is_visible_ = false;
   bool significant_playback_recorded_ = false;
 
   // Records the engagement score for the current origin to a histogram so we
   // can identify whether the playback would have been blocked.
   void RecordEngagementScoreToHistogramAtPlayback(const MediaPlayerId& id);
+
+  // Stores pending media engagement data that needs to be committed either
+  // after a navigation to another domain, when the observer is destroyed or
+  // when we have had a media playback. A visit is automatically implied. If
+  // the bool is true then a playback will be recorded too.
+  base::Optional<bool> pending_data_to_commit_;
 
   url::Origin committed_origin_;
 

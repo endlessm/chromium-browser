@@ -16,6 +16,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -40,12 +41,11 @@
 #include "ui/views/widget/root_view.h"
 #include "ui/views/widget/widget.h"
 
-#if defined(USE_ASH)
-#include "ash/accelerators/accelerator_commands.h"  // nogncheck
-#include "ash/shell.h"                   // nogncheck
-#include "ash/wm/tablet_mode/tablet_mode_controller.h"  // nogncheck
-#include "ash/wm/window_state.h"  // nogncheck
-#include "ui/wm/core/coordinate_conversion.h"  // nogncheck
+#if defined(OS_CHROMEOS)
+#include "ash/public/cpp/window_properties.h"               // nogncheck
+#include "ash/public/interfaces/window_state_type.mojom.h"  // nogncheck
+#include "chrome/browser/ui/ash/tablet_mode_client.h"
+#include "ui/wm/core/coordinate_conversion.h"
 #endif
 
 #if defined(USE_AURA)
@@ -97,13 +97,15 @@ const int kStackedDistance = 36;
 // maximized size.
 const int kMaximizedWindowInset = 10;  // DIPs.
 
-#if defined(USE_ASH)
+#if defined(OS_CHROMEOS)
 // Returns true if |tab_strip| browser window is snapped.
 bool IsSnapped(const TabStrip* tab_strip) {
   DCHECK(tab_strip);
-  ash::wm::WindowState* window_state =
-      ash::wm::GetWindowState(tab_strip->GetWidget()->GetNativeWindow());
-  return window_state->IsSnapped();
+  ash::mojom::WindowStateType type =
+      tab_strip->GetWidget()->GetNativeWindow()->GetProperty(
+          ash::kWindowStateTypeKey);
+  return type == ash::mojom::WindowStateType::LEFT_SNAPPED ||
+         type == ash::mojom::WindowStateType::RIGHT_SNAPPED;
 }
 #else
 bool IsSnapped(const TabStrip* tab_strip) {
@@ -257,9 +259,9 @@ void TabDragController::Init(
   //     Mouse capture is not synchronous on desktop Linux. Chrome makes
   //     transferring capture between widgets without releasing capture appear
   //     synchronous on desktop Linux, so use that.
-  // - Ash
+  // - Chrome OS
   //     Releasing capture on Ash cancels gestures so avoid it.
-#if defined(OS_LINUX) || defined(USE_ASH)
+#if defined(OS_LINUX)
   can_release_capture_ = false;
 #endif
   start_point_in_screen_ = gfx::Point(source_tab_offset, mouse_offset.y());
@@ -298,12 +300,9 @@ void TabDragController::Init(
   if (event_source == EVENT_SOURCE_TOUCH)
     source_tabstrip_->GetWidget()->SetCapture(source_tabstrip_);
 
-#if defined(USE_ASH)
-  if (ash::Shell::HasInstance() && ash::Shell::Get()
-                                       ->tablet_mode_controller()
-                                       ->IsTabletModeWindowManagerEnabled()) {
+#if defined(OS_CHROMEOS)
+  if (TabletModeClient::Get()->tablet_mode_enabled())
     detach_behavior_ = NOT_DETACHABLE;
-  }
 #endif
 }
 
@@ -584,10 +583,10 @@ TabDragController::DragBrowserToNewTabStrip(
     // ReleaseCapture() is going to result in calling back to us (because it
     // results in a move). That'll cause all sorts of problems.  Reset the
     // observer so we don't get notified and process the event.
-#if defined(USE_ASH)
+#if defined(OS_CHROMEOS)
     move_loop_widget_->RemoveObserver(this);
     move_loop_widget_ = nullptr;
-#endif  // USE_ASH
+#endif  // OS_CHROMEOS
     views::Widget* browser_widget = GetAttachedBrowserWidget();
     // Need to release the drag controller before starting the move loop as it's
     // going to trigger capture lost, which cancels drag.
@@ -1529,11 +1528,11 @@ void TabDragController::MaximizeAttachedWindow() {
     added_observer_to_move_loop_widget_ = false;
   }
   GetAttachedBrowserWidget()->Maximize();
-#if defined(USE_ASH)
+#if defined(OS_CHROMEOS)
   if (was_source_fullscreen_) {
     // In fullscreen mode it is only possible to get here if the source
     // was in "immersive fullscreen" mode, so toggle it back on.
-    ash::accelerators::ToggleFullscreen();
+    GetAttachedBrowserWidget()->SetFullscreen(true);
   }
 #endif
 }
@@ -1566,7 +1565,7 @@ void TabDragController::BringWindowUnderPointToFront(
     if (!widget_window)
       return;
 
-#if defined(USE_ASH)
+#if defined(OS_CHROMEOS)
     // TODO(varkha): The code below ensures that the phantom drag widget
     // is shown on top of browser windows. The code should be moved to ash/
     // and the phantom should be able to assert its top-most state on its own.
@@ -1748,8 +1747,11 @@ Browser* TabDragController::CreateBrowserForDrag(
 }
 
 gfx::Point TabDragController::GetCursorScreenPoint() {
-#if defined(USE_ASH)
-  if (event_source_ == EVENT_SOURCE_TOUCH &&
+#if defined(OS_CHROMEOS)
+  // TODO(erg): Temporarily disable getting location from the gesture
+  // recognizer in mash until the mus side/window manager side RunMoveLoop() is
+  // fixed to understand routing touch events. crbug.com/769507
+  if (!ash_util::IsRunningInMash() && event_source_ == EVENT_SOURCE_TOUCH &&
       aura::Env::GetInstance()->is_touch_down()) {
     views::Widget* widget = GetAttachedBrowserWidget();
     DCHECK(widget);

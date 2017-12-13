@@ -4,6 +4,8 @@
 
 package com.android.webview.chromium;
 
+import android.annotation.TargetApi;
+import android.os.Build;
 import android.webkit.WebSettings.LayoutAlgorithm;
 import android.webkit.WebSettings.PluginState;
 import android.webkit.WebSettings.RenderPriority;
@@ -19,6 +21,7 @@ import org.chromium.base.annotations.SuppressFBWarnings;
  */
 @SuppressWarnings("deprecation")
 @SuppressFBWarnings("CHROMIUM_SYNCHRONIZED_METHOD")
+@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 public class ContentSettingsAdapter extends android.webkit.WebSettings {
     private AwSettings mAwSettings;
 
@@ -182,12 +185,13 @@ public class ContentSettingsAdapter extends android.webkit.WebSettings {
 
     @Override
     public void setDefaultZoom(ZoomDensity zoom) {
-        mAwSettings.setDefaultZoom(zoom);
+        // Intentional no-op
     }
 
     @Override
     public ZoomDensity getDefaultZoom() {
-        return mAwSettings.getDefaultZoom();
+        // Intentional no-op
+        return ZoomDensity.MEDIUM;
     }
 
     @Override
@@ -234,12 +238,39 @@ public class ContentSettingsAdapter extends android.webkit.WebSettings {
 
     @Override
     public synchronized void setLayoutAlgorithm(LayoutAlgorithm l) {
-        mAwSettings.setLayoutAlgorithm(l);
+        switch (l) {
+            case NORMAL:
+                mAwSettings.setLayoutAlgorithm(AwSettings.LAYOUT_ALGORITHM_NORMAL);
+                return;
+            case SINGLE_COLUMN:
+                mAwSettings.setLayoutAlgorithm(AwSettings.LAYOUT_ALGORITHM_SINGLE_COLUMN);
+                return;
+            case NARROW_COLUMNS:
+                mAwSettings.setLayoutAlgorithm(AwSettings.LAYOUT_ALGORITHM_NARROW_COLUMNS);
+                return;
+            case TEXT_AUTOSIZING:
+                mAwSettings.setLayoutAlgorithm(AwSettings.LAYOUT_ALGORITHM_TEXT_AUTOSIZING);
+                return;
+            default:
+                throw new IllegalArgumentException("Unsupported value: " + l);
+        }
     }
 
     @Override
     public synchronized LayoutAlgorithm getLayoutAlgorithm() {
-        return mAwSettings.getLayoutAlgorithm();
+        int value = mAwSettings.getLayoutAlgorithm();
+        switch (value) {
+            case AwSettings.LAYOUT_ALGORITHM_NORMAL:
+                return LayoutAlgorithm.NORMAL;
+            case AwSettings.LAYOUT_ALGORITHM_SINGLE_COLUMN:
+                return LayoutAlgorithm.SINGLE_COLUMN;
+            case AwSettings.LAYOUT_ALGORITHM_NARROW_COLUMNS:
+                return LayoutAlgorithm.NARROW_COLUMNS;
+            case AwSettings.LAYOUT_ALGORITHM_TEXT_AUTOSIZING:
+                return LayoutAlgorithm.TEXT_AUTOSIZING;
+            default:
+                throw new IllegalArgumentException("Unsupported value: " + value);
+        }
     }
 
     @Override
@@ -394,7 +425,19 @@ public class ContentSettingsAdapter extends android.webkit.WebSettings {
 
     @Override
     public synchronized void setPluginState(PluginState state) {
-        mAwSettings.setPluginState(state);
+        switch (state) {
+            case OFF:
+                mAwSettings.setPluginState(AwSettings.PLUGIN_STATE_OFF);
+                return;
+            case ON:
+                mAwSettings.setPluginState(AwSettings.PLUGIN_STATE_ON);
+                return;
+            case ON_DEMAND:
+                mAwSettings.setPluginState(AwSettings.PLUGIN_STATE_ON_DEMAND);
+                return;
+            default:
+                throw new IllegalArgumentException("Unsupported value: " + state);
+        }
     }
 
     @Override
@@ -475,7 +518,17 @@ public class ContentSettingsAdapter extends android.webkit.WebSettings {
 
     @Override
     public synchronized PluginState getPluginState() {
-        return mAwSettings.getPluginState();
+        int value = mAwSettings.getPluginState();
+        switch (value) {
+            case AwSettings.PLUGIN_STATE_OFF:
+                return PluginState.OFF;
+            case AwSettings.PLUGIN_STATE_ON:
+                return PluginState.ON;
+            case AwSettings.PLUGIN_STATE_ON_DEMAND:
+                return PluginState.ON_DEMAND;
+            default:
+                throw new IllegalArgumentException("Unsupported value: " + value);
+        }
     }
 
     @Override

@@ -11,6 +11,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/base/utils.html">
 <link rel="import" href="/tracing/extras/chrome/chrome_processes.html">
 <link rel="import" href="/tracing/metrics/metric_registry.html">
+<link rel="import" href="/tracing/metrics/system_health/utils.html">
 <link rel="import" href="/tracing/model/container_memory_dump.html">
 <link rel="import" href="/tracing/model/helpers/chrome_model_helper.html">
 <link rel="import" href="/tracing/model/memory_allocator_dump.html">
@@ -57,74 +58,11 @@ tr.exportTo('tr.metrics.sh', function() {
     const rangeOfInterest =
       opt_options ? opt_options.rangeOfInterest : undefined;
     const browserNameToGlobalDumps =
-        splitGlobalDumpsByBrowserName(model, rangeOfInterest);
+        tr.metrics.sh.splitGlobalDumpsByBrowserName(model, rangeOfInterest);
     addGeneralMemoryDumpValues(browserNameToGlobalDumps, values);
     addDetailedMemoryDumpValues(browserNameToGlobalDumps, values);
     addMemoryDumpCountValues(browserNameToGlobalDumps, values);
   }
-
-  /**
-   * Splits the global memory dumps in |model| by browser name.
-   *
-   * @param {!tr.Model} model The trace model from which the global dumps
-   *     should be extracted.
-   * @param {!tr.b.math.Range=} opt_rangeOfInterest If provided, global memory
-   *     dumps that do not inclusively intersect the range will be skipped.
-   * @return {!Map<string, !Array<!tr.model.GlobalMemoryDump>} A map from
-   *     browser names to the associated global memory dumps.
-   */
-  function splitGlobalDumpsByBrowserName(model, opt_rangeOfInterest) {
-    const chromeModelHelper =
-        model.getOrCreateHelper(tr.model.helpers.ChromeModelHelper);
-    const browserNameToGlobalDumps = new Map();
-    const globalDumpToBrowserHelper = new WeakMap();
-
-    // 1. For each browser process in the model, add its global memory dumps to
-    // |browserNameToGlobalDumps|. |chromeModelHelper| can be undefined if
-    // it fails to find any browser, renderer or GPU process (see
-    // tr.model.helpers.ChromeModelHelper.supportsModel).
-    if (chromeModelHelper) {
-      chromeModelHelper.browserHelpers.forEach(function(helper) {
-        // Retrieve the associated global memory dumps and check that they
-        // haven't been classified as belonging to another browser process.
-        const globalDumps = skipDumpsThatDoNotIntersectRange(
-            helper.process.memoryDumps.map(d => d.globalMemoryDump),
-            opt_rangeOfInterest);
-        globalDumps.forEach(function(globalDump) {
-          const existingHelper = globalDumpToBrowserHelper.get(globalDump);
-          if (existingHelper !== undefined) {
-            throw new Error('Memory dump ID clash across multiple browsers ' +
-                'with PIDs: ' + existingHelper.pid + ' and ' + helper.pid);
-          }
-          globalDumpToBrowserHelper.set(globalDump, helper);
-        });
-
-        makeKeyUniqueAndSet(browserNameToGlobalDumps,
-            tr.e.chrome.chrome_processes.canonicalizeName(helper.browserName),
-            globalDumps);
-      });
-    }
-
-    // 2. If any global memory dump does not have any associated browser
-    // process for some reason, associate it with an 'unknown_browser' browser
-    // so that we don't lose the data.
-    const unclassifiedGlobalDumps = skipDumpsThatDoNotIntersectRange(
-        model.globalMemoryDumps.filter(g => !globalDumpToBrowserHelper.has(g)),
-        opt_rangeOfInterest);
-    if (unclassifiedGlobalDumps.length > 0) {
-      makeKeyUniqueAndSet(
-          browserNameToGlobalDumps, 'unknown_browser', unclassifiedGlobalDumps);
-    }
-
-    return browserNameToGlobalDumps;
-  }
-
-  function skipDumpsThatDoNotIntersectRange(dumps, opt_range) {
-    if (!opt_range) return dumps;
-    return dumps.filter(d => opt_range.intersectsExplicitRangeInclusive(
-        d.start, d.end));
-  }
-
 
   const USER_FRIENDLY_BROWSER_NAMES = {
     'chrome': 'Chrome',
@@ -185,36 +123,6 @@ tr.exportTo('tr.metrics.sh', function() {
   }
 
   /**
-   * Function for adding entries with duplicate keys to a map without
-   * overriding existing entries.
-   *
-   * This is achieved by appending numeric indices (2, 3, 4, ...) to duplicate
-   * keys. Example:
-   *
-   *   const map = new Map();
-   *   // map = Map {}.
-   *
-   *   makeKeyUniqueAndSet(map, 'key', 'a');
-   *   // map = Map {"key" => "a"}.
-   *
-   *   makeKeyUniqueAndSet(map, 'key', 'b');
-   *   // map = Map {"key" => "a", "key2" => "b"}.
-   *                                ^^^^
-   *   makeKeyUniqueAndSet(map, 'key', 'c');
-   *   // map = Map {"key" => "a", "key2" => "b", "key3" => "c"}.
-   *                                ^^^^           ^^^^
-   */
-  function makeKeyUniqueAndSet(map, key, value) {
-    let uniqueKey = key;
-    let nextIndex = 2;
-    while (map.has(uniqueKey)) {
-      uniqueKey = key + nextIndex;
-      nextIndex++;
-    }
-    map.set(uniqueKey, value);
-  }
-
-  /**
    * Add general memory dump values calculated from all global memory dumps to
    * |values|. In particular, this function adds the following values:
    *
@@ -256,6 +164,12 @@ tr.exportTo('tr.metrics.sh', function() {
               property: PEAK_RESIDENT_SIZE,
               component: ['system_memory'],
               value: processDump.totals.peakResidentBytes
+            });
+            addProcessScalar({
+              source: 'reported_by_os',
+              property: PRIVATE_FOOTPRINT_SIZE,
+              component: ['system_memory'],
+              value: processDump.totals.privateFootprintBytes,
             });
           }
 
@@ -557,6 +471,15 @@ tr.exportTo('tr.metrics.sh', function() {
     buildDescriptionPrefix(componentPath, processName) {
       return buildOsValueDescriptionPrefix(componentPath, processName,
           'private dirty size');
+    }
+  };
+
+  const PRIVATE_FOOTPRINT_SIZE = {
+    name: 'private_footprint_size',
+    unit: sizeInBytes_smallerIsBetter,
+    buildDescriptionPrefix(componentPath, processName) {
+      return buildOsValueDescriptionPrefix(componentPath, processName,
+          'private footprint size');
     }
   };
 
@@ -1198,6 +1121,33 @@ tr.exportTo('tr.metrics.sh', function() {
     return numeric;
   }
 
+  function buildSampleDiagnostics(value, node) {
+    if (node.children.length < 2) return undefined;
+    const diagnostics = new Map();
+    const i = node.values.indexOf(value);
+
+    const processBreakdown = new tr.v.d.Breakdown();
+    processBreakdown.colorScheme =
+      tr.e.chrome.chrome_processes.PROCESS_COLOR_SCHEME_NAME;
+    for (const [name, subNode] of node.children[0]) {
+      processBreakdown.set(name, subNode.values[i].total);
+    }
+    if (processBreakdown.size > 0) {
+      diagnostics.set('processes', processBreakdown);
+    }
+
+    const componentBreakdown = new tr.v.d.Breakdown();
+    for (const [name, subNode] of node.children[1]) {
+      componentBreakdown.set(name, subNode.values[i].total);
+    }
+    if (componentBreakdown.size > 0) {
+      diagnostics.set('components', componentBreakdown);
+    }
+
+    if (diagnostics.size === 0) return undefined;
+    return diagnostics;
+  }
+
   /**
    * Create a memory tr.v.Histogram with |unit| and add all total values in
    * |node| to it.
@@ -1205,7 +1155,10 @@ tr.exportTo('tr.metrics.sh', function() {
   function buildMemoryNumericFromNode(name, node, unit) {
     const histogram = new tr.v.Histogram(
         name, unit, BOUNDARIES_FOR_UNIT_MAP.get(unit));
-    node.values.forEach(v => histogram.addSample(v.total));
+
+    node.values.forEach(v => histogram.addSample(
+        v.total, buildSampleDiagnostics(v, node)));
+
     return histogram;
   }
 

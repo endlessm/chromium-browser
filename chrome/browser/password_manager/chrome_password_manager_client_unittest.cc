@@ -19,7 +19,6 @@
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/profile_sync_test_util.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/autofill/content/common/autofill_agent.mojom.h"
@@ -40,20 +39,22 @@
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/web_contents_tester.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/url_constants.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/common/constants.h"
 #endif
 
 #if defined(SAFE_BROWSING_DB_LOCAL)
+#include "components/safe_browsing/db/database_manager.h"
 #include "components/safe_browsing/password_protection/password_protection_service.h"
-#include "components/safe_browsing_db/database_manager.h"
 #endif
 
 using browser_sync::ProfileSyncServiceMock;
@@ -102,6 +103,13 @@ class MockPasswordProtectionService
                void(const GURL&, const std::string&, content::WebContents*));
   MOCK_METHOD0(GetSyncAccountType,
                safe_browsing::PasswordProtectionService::SyncAccountType());
+  MOCK_METHOD2(ShowModalWarning,
+               void(content::WebContents*, const std::string&));
+  MOCK_METHOD3(OnUserAction,
+               void(content::WebContents*, WarningUIType, WarningAction));
+  MOCK_METHOD2(UpdateSecurityState,
+               void(safe_browsing::SBThreatType, content::WebContents*));
+  MOCK_METHOD1(UserClickedThroughSBInterstitial, bool(content::WebContents*));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockPasswordProtectionService);
@@ -442,6 +450,16 @@ TEST_F(ChromePasswordManagerClientTest, SavingDependsOnAutomation) {
   EXPECT_FALSE(client->IsSavingAndFillingEnabledForCurrentPage());
 }
 
+// Check that password manager is disabled on about:blank pages.
+// See https://crbug.com/756587.
+TEST_F(ChromePasswordManagerClientTest, SavingAndFillingDisbledForAboutBlank) {
+  GURL kUrl(url::kAboutBlankURL);
+  NavigateAndCommit(kUrl);
+  EXPECT_EQ(kUrl, GetClient()->GetLastCommittedEntryURL());
+  EXPECT_FALSE(GetClient()->IsSavingAndFillingEnabledForCurrentPage());
+  EXPECT_FALSE(GetClient()->IsFillingEnabledForCurrentPage());
+}
+
 TEST_F(ChromePasswordManagerClientTest, GetLastCommittedEntryURL_Empty) {
   EXPECT_EQ(GURL::EmptyGURL(), GetClient()->GetLastCommittedEntryURL());
 }
@@ -667,3 +685,14 @@ TEST_F(ChromePasswordManagerClientTest, VerifyLogPasswordReuseDetectedEvent) {
 }
 
 #endif
+
+TEST_F(ChromePasswordManagerClientTest, MissingUIDelegate) {
+  // Checks that the saving fallback methods don't crash if there is no UI
+  // delegate. It can happen on ChromeOS login form, for example.
+  GURL kUrl("https://example.com/");
+  NavigateAndCommit(kUrl);
+  std::unique_ptr<password_manager::PasswordFormManager> form_manager;
+  GetClient()->ShowManualFallbackForSaving(std::move(form_manager), false,
+                                           false);
+  GetClient()->HideManualFallbackForSaving();
+}

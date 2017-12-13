@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -299,7 +300,7 @@ class MasterSlaveSyncCompletionStageTestWithMasterPaladin(
         ('build_2', 'buildbucket_id_2', 2)
     }
     self._run.attrs.metadata.ExtendKeyListWithList(
-        constants.METADATA_SCHEDULED_SLAVES, scheduled_slaves_list)
+        constants.METADATA_SCHEDULED_IMPORTANT_SLAVES, scheduled_slaves_list)
     return completion_stages.MasterSlaveSyncCompletionStage(
         self._run, sync_stage, success=True)
 
@@ -1081,7 +1082,7 @@ class PublishUprevChangesStageTest(
 
   def testAndroidPush(self):
     """Test values for PublishUprevChanges with Android PFQ."""
-    self._Prepare(bot_id=constants.MNC_ANDROID_PFQ_MASTER,
+    self._Prepare(bot_id=constants.NYC_ANDROID_PFQ_MASTER,
                   extra_config={'push_overlays': constants.PUBLIC_OVERLAYS},
                   extra_cmd_args=['--android_rev',
                                   constants.ANDROID_REV_LATEST])

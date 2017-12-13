@@ -379,9 +379,7 @@ PrerenderContents::~PrerenderContents() {
   DCHECK_NE(ORIGIN_MAX, origin());
 
   prerender_manager_->RecordFinalStatus(origin(), final_status());
-
-  bool used = final_status() == FINAL_STATUS_USED;
-  prerender_manager_->RecordNetworkBytes(origin(), used, network_bytes_);
+  prerender_manager_->RecordNetworkBytesConsumed(origin(), network_bytes_);
 
   // Broadcast the removal of aliases.
   for (content::RenderProcessHost::iterator host_iterator =
@@ -487,8 +485,7 @@ bool PrerenderContents::CheckURL(const GURL& url) {
     Destroy(FINAL_STATUS_UNSUPPORTED_SCHEME);
     return false;
   }
-  if (origin() != ORIGIN_OFFLINE &&
-      prerender_manager_->HasRecentlyBeenNavigatedTo(origin(), url)) {
+  if (prerender_manager_->HasRecentlyBeenNavigatedTo(origin(), url)) {
     Destroy(FINAL_STATUS_RECENTLY_VISITED);
     return false;
   }
@@ -609,13 +606,6 @@ void PrerenderContents::DidFinishNavigation(
     Destroy(FINAL_STATUS_UNSUPPORTED_SCHEME);
     return;
   }
-
-  // Prevent ORIGIN_OFFLINE prerenders from being destroyed on location.href
-  // change, since the history is never merged for offline prerenders. Also
-  // avoid adding aliases as they may potentially mark other valid requests to
-  // offline as duplicate.
-  if (origin() == ORIGIN_OFFLINE)
-    return;
 
   // If the prerender made a second navigation entry, abort the prerender. This
   // avoids having to correctly implement a complex history merging case (this

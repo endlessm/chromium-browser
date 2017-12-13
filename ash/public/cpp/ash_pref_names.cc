@@ -23,18 +23,15 @@ const char kAccessibilitySpokenFeedbackEnabled[] = "settings.accessibility";
 const char kAccessibilityHighContrastEnabled[] =
     "settings.a11y.high_contrast_enabled";
 // A boolean pref which determines whether screen magnifier is enabled.
+// NOTE: We previously had prefs named settings.a11y.screen_magnifier_type and
+// settings.a11y.screen_magnifier_type2, but we only shipped one type (full).
+// See http://crbug.com/170850 for history.
 const char kAccessibilityScreenMagnifierEnabled[] =
     "settings.a11y.screen_magnifier";
 // A boolean pref which determines whether screen magnifier should center
 // the text input focus.
 const char kAccessibilityScreenMagnifierCenterFocus[] =
     "settings.a11y.screen_magnifier_center_focus";
-// An integer pref which determines what type of screen magnifier is enabled.
-// Note that: 'screen_magnifier_type' had been used as string pref. Hence,
-// we are using another name pref here.
-// NOTE: We only shipped one type (full). http://crbug.com/170850
-const char kAccessibilityScreenMagnifierType[] =
-    "settings.a11y.screen_magnifier_type2";
 // A double pref which determines a zooming scale of the screen magnifier.
 const char kAccessibilityScreenMagnifierScale[] =
     "settings.a11y.screen_magnifier_scale";
@@ -137,6 +134,13 @@ const char kUserBluetoothAdapterEnabled[] =
 // Boolean pref indicating system-wide setting for bluetooth adapter power.
 const char kSystemBluetoothAdapterEnabled[] =
     "ash.system.bluetooth.adapter_enabled";
+
+// Boolean prefs for the status of the touchscreen and the touchpad.
+const char kTouchpadEnabled[] = "events.touch_pad.enabled";
+const char kTouchscreenEnabled[] = "events.touch_screen.enabled";
+
+// String pref storing the salt for the pin quick unlock mechanism.
+const char kQuickUnlockPinSalt[] = "quick_unlock.pin.salt";
 
 // NOTE: New prefs should start with the "ash." prefix. Existing prefs moved
 // into this file should not be renamed, since they may be synced.

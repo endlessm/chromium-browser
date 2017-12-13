@@ -5,10 +5,11 @@
 #include "chrome/browser/ui/views/ash/chrome_browser_main_extra_parts_ash.h"
 
 #include "ash/public/cpp/mus_property_mirror_ash.h"
-#include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/window_pin_type.h"
 #include "ash/public/cpp/window_properties.h"
+#include "ash/public/cpp/window_state_type.h"
 #include "ash/public/interfaces/window_pin_type.mojom.h"
+#include "ash/public/interfaces/window_state_type.mojom.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
 #include "base/memory/ptr_util.h"
@@ -19,7 +20,6 @@
 #include "chrome/browser/ui/ash/chrome_new_window_client.h"
 #include "chrome/browser/ui/ash/chrome_shell_content_state.h"
 #include "chrome/browser/ui/ash/ime_controller_client.h"
-#include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/lock_screen_client.h"
 #include "chrome/browser/ui/ash/media_client.h"
 #include "chrome/browser/ui/ash/session_controller_client.h"
@@ -73,6 +73,9 @@ void ChromeBrowserMainExtraPartsAsh::ServiceManagerConnectionStarted(
         ash::kShelfItemTypeKey,
         ui::mojom::WindowManager::kShelfItemType_Property,
         base::Bind(&ash::IsValidShelfItemType));
+    converter->RegisterPrimitiveProperty(
+        ash::kWindowStateTypeKey, ash::mojom::kWindowStateType_Property,
+        base::Bind(&ash::IsValidWindowStateType));
     converter->RegisterPrimitiveProperty(
         ash::kWindowPinTypeKey, ash::mojom::kWindowPinType_Property,
         base::Bind(&ash::IsValidWindowPinType));
@@ -128,26 +131,21 @@ void ChromeBrowserMainExtraPartsAsh::PreProfileInit() {
 }
 
 void ChromeBrowserMainExtraPartsAsh::PostProfileInit() {
-  if (ash_util::IsRunningInMash()) {
-    DCHECK(!ash::Shell::HasInstance());
-    DCHECK(!ChromeLauncherController::instance());
-    chrome_shelf_model_ = base::MakeUnique<ash::ShelfModel>();
-    chrome_launcher_controller_ = base::MakeUnique<ChromeLauncherController>(
-        nullptr, chrome_shelf_model_.get());
-    chrome_launcher_controller_->Init();
+  if (ash_util::IsRunningInMash())
     chrome_shell_content_state_ = base::MakeUnique<ChromeShellContentState>();
-  }
 
   cast_config_client_media_router_ =
       base::MakeUnique<CastConfigClientMediaRouter>();
   media_client_ = base::MakeUnique<MediaClient>();
   lock_screen_client_ = base::MakeUnique<LockScreenClient>();
 
-  if (!ash::Shell::HasInstance())
+  // TODO(mash): Port TabScrubber and keyboard initialization.
+  if (ash_util::IsRunningInMash())
     return;
 
   // Initialize TabScrubber after the Ash Shell has been initialized.
   TabScrubber::GetInstance();
+
   // Activate virtual keyboard after profile is initialized. It depends on the
   // default profile.
   ash::Shell::GetPrimaryRootWindowController()->ActivateKeyboard(
@@ -161,8 +159,6 @@ void ChromeBrowserMainExtraPartsAsh::PostMainMessageLoopRun() {
   exo_parts_.reset();
 #endif
 
-  chrome_launcher_controller_.reset();
-  chrome_shelf_model_.reset();
   vpn_list_forwarder_.reset();
   volume_controller_.reset();
   new_window_client_.reset();

@@ -33,11 +33,15 @@ import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.locale.DefaultSearchEngineDialogHelperUtils;
 import org.chromium.chrome.browser.locale.LocaleManager;
 import org.chromium.chrome.browser.locale.LocaleManager.SearchEnginePromoType;
+import org.chromium.chrome.browser.search_engines.TemplateUrlService;
+import org.chromium.chrome.browser.search_engines.TemplateUrlService.TemplateUrl;
 import org.chromium.chrome.browser.searchwidget.SearchActivity;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.MultiActivityTestRule;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
+
+import java.util.List;
 
 /**
  * Integration test suite for the first run experience.
@@ -252,6 +256,11 @@ public class FirstRunIntegrationTest {
             public int getSearchEnginePromoShowType() {
                 return searchPromoType;
             }
+
+            @Override
+            public List<TemplateUrl> getSearchEnginesForPromoDialog(int promoType) {
+                return TemplateUrlService.getInstance().getSearchEngines();
+            }
         };
         LocaleManager.setInstanceForTest(mockManager);
 
@@ -281,7 +290,7 @@ public class FirstRunIntegrationTest {
         Assert.assertEquals(0, mTestObserver.updateCachedEngineCallback.getCallCount());
 
         // Accept the ToS.
-        if (freProperties.getBoolean(FirstRunActivity.SHOW_WELCOME_PAGE)) {
+        if (freProperties.getBoolean(FirstRunActivityBase.SHOW_WELCOME_PAGE)) {
             clickButton(mActivity, R.id.terms_accept, "Failed to accept ToS");
             mTestObserver.jumpToPageCallback.waitForCallback(
                     "Failed to try moving to the next screen", 0);
@@ -290,7 +299,7 @@ public class FirstRunIntegrationTest {
         }
 
         // Acknowledge that Data Saver will be enabled.
-        if (freProperties.getBoolean(FirstRunActivity.SHOW_DATA_REDUCTION_PAGE)) {
+        if (freProperties.getBoolean(FirstRunActivityBase.SHOW_DATA_REDUCTION_PAGE)) {
             int jumpCallCount = mTestObserver.jumpToPageCallback.getCallCount();
             clickButton(mActivity, R.id.next_button, "Failed to skip data saver");
             mTestObserver.jumpToPageCallback.waitForCallback(
@@ -300,10 +309,10 @@ public class FirstRunIntegrationTest {
         // Select a default search engine.
         if (searchPromoType == LocaleManager.SEARCH_ENGINE_PROMO_DONT_SHOW) {
             Assert.assertFalse("Search engine page was shown.",
-                    freProperties.getBoolean(FirstRunActivity.SHOW_SEARCH_ENGINE_PAGE));
+                    freProperties.getBoolean(FirstRunActivityBase.SHOW_SEARCH_ENGINE_PAGE));
         } else {
             Assert.assertTrue("Search engine page wasn't shown.",
-                    freProperties.getBoolean(FirstRunActivity.SHOW_SEARCH_ENGINE_PAGE));
+                    freProperties.getBoolean(FirstRunActivityBase.SHOW_SEARCH_ENGINE_PAGE));
             int jumpCallCount = mTestObserver.jumpToPageCallback.getCallCount();
             DefaultSearchEngineDialogHelperUtils.clickOnFirstEngine(
                     mActivity.findViewById(android.R.id.content));
@@ -313,7 +322,7 @@ public class FirstRunIntegrationTest {
         }
 
         // Don't sign in the user.
-        if (freProperties.getBoolean(FirstRunActivity.SHOW_SIGNIN_PAGE)) {
+        if (freProperties.getBoolean(FirstRunActivityBase.SHOW_SIGNIN_PAGE)) {
             int jumpCallCount = mTestObserver.jumpToPageCallback.getCallCount();
             clickButton(mActivity, R.id.negative_button, "Failed to skip signing-in");
             mTestObserver.jumpToPageCallback.waitForCallback(

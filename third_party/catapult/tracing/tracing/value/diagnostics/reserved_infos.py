@@ -35,6 +35,7 @@ BUILDS = _Info('builds', 'GenericSet', int)
 CATAPULT_REVISIONS = _Info('catapultRevisions', 'GenericSet', str)
 CHROMIUM_COMMIT_POSITIONS = _Info('chromiumCommitPositions', 'GenericSet', int)
 CHROMIUM_REVISIONS = _Info('chromiumRevisions', 'GenericSet', str)
+DEVICE_IDS = _Info('deviceIds', 'GenericSet', str)
 GPUS = _Info('gpus', 'GenericSet', str)
 GROUPING_PATH = _Info('groupingPath')
 LABELS = _Info('labels', 'GenericSet', str)
@@ -63,3 +64,8 @@ def GetTypeForName(name):
   for info in globals().itervalues():
     if isinstance(info, _Info) and info.name == name:
       return info.type
+
+def AllInfos():
+  for info in globals().itervalues():
+    if isinstance(info, _Info):
+      yield info

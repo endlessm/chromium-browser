@@ -6,8 +6,14 @@
 
 #import <Foundation/Foundation.h>
 
-#include "ios/net/cookies/system_cookie_util.h"
+#include "base/memory/ptr_util.h"
+#import "ios/net/cookies/ns_http_system_cookie_store.h"
+#import "ios/net/cookies/system_cookie_util.h"
 #include "net/cookies/cookie_monster.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace net {
 
@@ -17,7 +23,7 @@ namespace net {
 CookieStoreIOSPersistent::CookieStoreIOSPersistent(
     net::CookieMonster::PersistentCookieStore* persistent_store)
     : CookieStoreIOS(persistent_store,
-                     [NSHTTPCookieStorage sharedHTTPCookieStorage]) {}
+                     base::MakeUnique<net::NSHTTPSystemCookieStore>()) {}
 
 CookieStoreIOSPersistent::~CookieStoreIOSPersistent() {}
 

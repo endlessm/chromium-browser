@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2016 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -13,6 +14,8 @@ import subprocess
 
 from chromite.lib import cros_logging as logging
 from chromite.lib import metrics
+
+from infra_libs import ts_mon
 
 _METRIC_ROOT_PATH = 'prod_hosts/'
 _ATEST_PROGRAM = '/usr/local/autotest/cli/atest'
@@ -86,26 +89,26 @@ class _AtestSource(object):
 
 
 def _get_hostname(server):
-    """Get server hostname from an atest dict.
+  """Get server hostname from an atest dict.
 
-    >>> server = {'hostname': 'foo.example.com'}  # from atest
-    >>> _get_hostname(server)
-    'foo'
-    """
-    return server['hostname'].partition('.')[0]
+  >>> server = {'hostname': 'foo.example.com'}  # from atest
+  >>> _get_hostname(server)
+  'foo'
+  """
+  return server['hostname'].partition('.')[0]
 
 
 def _get_data_center(server):
-    """Get server data center from an atest dict.
+  """Get server data center from an atest dict.
 
-    >>> server = {'hostname': 'foo.mtv.example.com'}  # from atest
-    >>> _get_data_center(server)
-    'mtv'
-    """
-    try:
-      return server['hostname'].split('.')[1]
-    except IndexError:
-      raise ValueError('%r hostname is invalid' % server)
+  >>> server = {'hostname': 'foo.mtv.example.com'}  # from atest
+  >>> _get_data_center(server)
+  'mtv'
+  """
+  try:
+    return server['hostname'].split('.')[1]
+  except IndexError:
+    raise ValueError('%r hostname is invalid' % server)
 
 
 Server = collections.namedtuple(
@@ -132,6 +135,11 @@ class _TsMonSink(object):
     Args:
       servers: Iterable of Server instances.
     """
+    # See crbug.com/767265: Without this .reset() call, we will continue to
+    # emit old presence and roles data.
+    self._presence_metric.reset()
+    self._roles_metric.reset()
+
     for server in servers:
       fields = {
           'target_hostname': server.hostname,
@@ -142,11 +150,21 @@ class _TsMonSink(object):
 
   @property
   def _presence_metric(self):
-    return metrics.Boolean(self._metric_root_path + 'presence')
+    return metrics.Boolean(
+        self._metric_root_path + 'presence',
+        description=(
+            "A boolean indicating whether a server is in the machines db."),
+        field_spec=[ts_mon.StringField('target_data_center'),
+                    ts_mon.StringField('target_hostname'),])
 
   @property
   def _roles_metric(self):
-    return metrics.String(self._metric_root_path + 'roles')
+    return metrics.String(
+        self._metric_root_path + 'roles',
+        description=(
+            "A string indicating the role of a server in the machines db."),
+        field_spec=[ts_mon.StringField('target_data_center'),
+                    ts_mon.StringField('target_hostname'),])
 
   def _format_roles(self, roles):
     return ','.join(sorted(roles))

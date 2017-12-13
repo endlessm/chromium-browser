@@ -21,6 +21,8 @@ from systrace import util
 ADB_IGNORE_REGEXP = r'^capturing trace\.\.\. done|^capturing trace\.\.\.'
 # The number of seconds to wait on output from ADB.
 ADB_STDOUT_READ_TIMEOUT = 0.2
+# The number of seconds to wait for large output from ADB.
+ADB_LARGE_OUTPUT_TIMEOUT = 600
 # The adb shell command to initiate a trace.
 ATRACE_BASE_ARGS = ['atrace']
 # If a custom list of categories is not specified, traces will include
@@ -230,14 +232,15 @@ class AtraceAgent(tracing_agents.TracingAgent):
       shell.RunCommand(cmd, close=True)
       did_record_sync_marker_callback(t1, sync_id)
 
-  def _stop_trace(self):
+  def _stop_collect_trace(self):
     """Stops atrace.
 
     Note that prior to Api 23, --async-stop may not actually stop tracing.
     Thus, this uses a fallback method of running a zero-length synchronous
     trace if tracing is still on."""
-    self._device_utils.RunShellCommand(
-        self._tracer_args + ['--async_stop'], check_return=True)
+    result = self._device_utils.RunShellCommand(
+        self._tracer_args + ['--async_stop'], raw_output=True,
+        large_output=True, check_return=True, timeout=ADB_LARGE_OUTPUT_TIMEOUT)
     is_trace_enabled_file = '/sys/kernel/debug/tracing/tracing_on'
 
     if self._device_sdk_version < version_codes.MARSHMALLOW:
@@ -246,11 +249,11 @@ class AtraceAgent(tracing_agents.TracingAgent):
         self._device_utils.RunShellCommand(
             self._tracer_args + ['-t 0'], check_return=True)
 
+    return result
+
   def _collect_trace_data(self):
     """Reads the output from atrace and stops the trace."""
-    dump_cmd = self._tracer_args + ['--async_dump']
-    result = self._device_utils.RunShellCommand(
-        dump_cmd, raw_output=True, large_output=True, check_return=True)
+    result = self._stop_collect_trace()
 
     data_start = re.search(TRACE_START_REGEXP, result)
     if data_start:
@@ -258,7 +261,6 @@ class AtraceAgent(tracing_agents.TracingAgent):
     else:
       raise IOError('Unable to get atrace data. Did you forget adb root?')
     output = re.sub(ADB_IGNORE_REGEXP, '', result[data_start:])
-    self._stop_trace()
     return output
 
   def _preprocess_trace_data(self, trace_data):

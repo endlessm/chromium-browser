@@ -7,8 +7,6 @@
 
 #import <UIKit/UIKit.h>
 
-#include "ios/chrome/browser/ui/tabs/tab_strip_controller.h"
-
 @class AlertCoordinator;
 @protocol ApplicationCommands;
 @protocol BrowserCommands;
@@ -16,7 +14,6 @@
 @class MessageBubbleView;
 @class PKPass;
 @class PKAddPassesViewController;
-@protocol PreloadProvider;
 @class TabModel;
 class ToolbarModelDelegateIOS;
 class ToolbarModelIOS;
@@ -31,10 +28,6 @@ class InfoBarManager;
 namespace ios {
 class ChromeBrowserState;
 }
-
-// The category for all messages presented by the
-// BrowserViewControllerDependencyFactory via |showSnackbarWithMessage:|.
-extern NSString* const kBrowserViewControllerSnackbarCategory;
 
 // Creates helper objects needed by BrowserViewController.
 @interface BrowserViewControllerDependencyFactory : NSObject
@@ -51,25 +44,17 @@ extern NSString* const kBrowserViewControllerSnackbarCategory;
 - (void)showPassKitErrorInfoBarForManager:
     (infobars::InfoBarManager*)infoBarManager;
 
-- (TabStripController*)
-newTabStripControllerWithTabModel:(TabModel*)model
-                       dispatcher:
-                           (id<ApplicationCommands, BrowserCommands>)dispatcher;
-
 - (ToolbarModelIOS*)newToolbarModelIOSWithDelegate:
     (ToolbarModelDelegateIOS*)delegate;
 
 - (WebToolbarController*)
 newWebToolbarControllerWithDelegate:(id<WebToolbarDelegate>)delegate
                           urlLoader:(id<UrlLoader>)urlLoader
-                    preloadProvider:(id<PreloadProvider>)preload
                          dispatcher:(id<ApplicationCommands, BrowserCommands>)
                                         dispatcher;
 
 // Returns a new keyboard commands coordinator to handle keyboard commands.
 - (KeyCommandsProvider*)newKeyCommandsProvider;
-
-- (void)showSnackbarWithMessage:(NSString*)message;
 
 - (AlertCoordinator*)alertCoordinatorWithTitle:(NSString*)title
                                        message:(NSString*)message

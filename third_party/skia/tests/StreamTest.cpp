@@ -227,9 +227,9 @@ static void test_fully_peekable_stream(skiatest::Reporter* r, SkStream* stream, 
 static void test_peeking_front_buffered_stream(skiatest::Reporter* r,
                                                const SkStream& original,
                                                size_t bufferSize) {
-    SkStream* dupe = original.duplicate();
+    std::unique_ptr<SkStream> dupe(original.duplicate());
     REPORTER_ASSERT(r, dupe != nullptr);
-    std::unique_ptr<SkStream> bufferedStream(SkFrontBufferedStream::Create(dupe, bufferSize));
+    auto bufferedStream = SkFrontBufferedStream::Make(std::move(dupe), bufferSize);
     REPORTER_ASSERT(r, bufferedStream != nullptr);
 
     size_t peeked = 0;
@@ -249,7 +249,7 @@ static void test_peeking_front_buffered_stream(skiatest::Reporter* r,
     }
 
     // Test that attempting to peek beyond the length of the buffer does not prevent rewinding.
-    bufferedStream.reset(SkFrontBufferedStream::Create(original.duplicate(), bufferSize));
+    bufferedStream = SkFrontBufferedStream::Make(original.duplicate(), bufferSize);
     REPORTER_ASSERT(r, bufferedStream != nullptr);
 
     const size_t bytesToPeek = bufferSize + 1;

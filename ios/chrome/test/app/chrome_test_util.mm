@@ -5,7 +5,6 @@
 #import "ios/chrome/test/app/chrome_test_util.h"
 
 #include "base/mac/foundation_util.h"
-#import "breakpad/src/client/ios/BreakpadController.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
 #import "ios/chrome/app/application_delegate/metrics_mediator.h"
@@ -22,12 +21,11 @@
 #import "ios/chrome/browser/metrics/previous_session_info_private.h"
 #import "ios/chrome/browser/tabs/tab.h"
 #import "ios/chrome/browser/ui/browser_view_controller.h"
-#import "ios/chrome/browser/ui/commands/UIKit+ChromeExecuteCommand.h"
-#import "ios/chrome/browser/ui/commands/generic_chrome_command.h"
 #import "ios/chrome/browser/ui/main/main_view_controller.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_controller.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_switcher.h"
 #import "ios/web/public/test/native_controller_test_util.h"
+#import "third_party/breakpad/breakpad/src/client/ios/BreakpadController.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -152,10 +150,6 @@ id<ApplicationCommands, BrowserCommands> DispatcherForActiveViewController() {
     return tabSwitcher.dispatcher;
   }
   return nil;
-}
-
-void RunCommandWithActiveViewController(GenericChromeCommand* command) {
-  [GetActiveViewController() chromeExecuteCommand:command];
 }
 
 void RemoveAllInfoBars() {

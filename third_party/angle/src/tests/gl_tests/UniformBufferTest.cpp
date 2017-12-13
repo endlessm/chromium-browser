@@ -29,14 +29,23 @@ class UniformBufferTest : public ANGLETest
     {
         ANGLETest::SetUp();
 
-        mVertexShaderSource = SHADER_SOURCE(#version 300 es\n in vec4 position;
-                                            void main() { gl_Position = position; });
+        mVertexShaderSource =
+            R"(#version 300 es
+            in vec4 position;
+            void main()
+            {
+                gl_Position = position;
+            })";
+
         mFragmentShaderSource =
-            SHADER_SOURCE(#version 300 es\n precision highp float; uniform uni { vec4 color; };
-
-                          out vec4 fragColor;
-
-                          void main() { fragColor = color; });
+            R"(#version 300 es
+            precision highp float;
+            uniform uni { vec4 color; };
+            out vec4 fragColor;
+            void main()
+            {
+                fragColor = color;
+            })";
 
         mProgram = CompileProgram(mVertexShaderSource, mFragmentShaderSource);
         ASSERT_NE(mProgram, 0u);
@@ -947,6 +956,80 @@ TEST_P(UniformBufferTest, BlockContainingNestedStructs)
     float *vAsFloat = reinterpret_cast<float *>(v.data());
 
     vAsFloat[1] = 1.0f;
+
+    glBufferData(GL_UNIFORM_BUFFER, kDataSize, v.data(), GL_STATIC_DRAW);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, mUniformBuffer);
+    glUniformBlockBinding(program, uniformBufferIndex, 0);
+    drawQuad(program.get(), "position", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+// Tests GetUniformBlockIndex return value on error.
+TEST_P(UniformBufferTest, GetUniformBlockIndexDefaultReturn)
+{
+    ASSERT_FALSE(glIsProgram(99));
+    EXPECT_EQ(GL_INVALID_INDEX, glGetUniformBlockIndex(99, "farts"));
+    EXPECT_GL_ERROR(GL_INVALID_VALUE);
+}
+
+// Block names can be reserved names in GLSL, as long as they're not reserved in GLSL ES.
+TEST_P(UniformBufferTest, UniformBlockReservedOpenGLName)
+{
+    const std::string &fragmentShader =
+        "#version 300 es\n"
+        "precision highp float;\n"
+        "out vec4 my_FragColor;\n"
+        "layout(std140) uniform buffer { vec4 color; };\n"
+        "void main()\n"
+        "{\n"
+        "    my_FragColor = color;\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, mVertexShaderSource, fragmentShader);
+    GLint uniformBufferIndex = glGetUniformBlockIndex(program, "buffer");
+
+    glBindBuffer(GL_UNIFORM_BUFFER, mUniformBuffer);
+    const GLsizei kElementsPerVector = 4;
+    const GLsizei kBytesPerElement   = 4;
+    const GLsizei kDataSize          = kElementsPerVector * kBytesPerElement;
+    std::vector<GLubyte> v(kDataSize, 0);
+    float *vAsFloat = reinterpret_cast<float *>(v.data());
+
+    vAsFloat[1] = 1.0f;
+    vAsFloat[3] = 1.0f;
+
+    glBufferData(GL_UNIFORM_BUFFER, kDataSize, v.data(), GL_STATIC_DRAW);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, mUniformBuffer);
+    glUniformBlockBinding(program, uniformBufferIndex, 0);
+    drawQuad(program.get(), "position", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+// Block instance names can be reserved names in GLSL, as long as they're not reserved in GLSL ES.
+TEST_P(UniformBufferTest, UniformBlockInstanceReservedOpenGLName)
+{
+    const std::string &fragmentShader =
+        "#version 300 es\n"
+        "precision highp float;\n"
+        "out vec4 my_FragColor;\n"
+        "layout(std140) uniform dmat2 { vec4 color; } buffer;\n"
+        "void main()\n"
+        "{\n"
+        "    my_FragColor = buffer.color;\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, mVertexShaderSource, fragmentShader);
+    GLint uniformBufferIndex = glGetUniformBlockIndex(program, "dmat2");
+
+    glBindBuffer(GL_UNIFORM_BUFFER, mUniformBuffer);
+    const GLsizei kElementsPerVector = 4;
+    const GLsizei kBytesPerElement   = 4;
+    const GLsizei kDataSize          = kElementsPerVector * kBytesPerElement;
+    std::vector<GLubyte> v(kDataSize, 0);
+    float *vAsFloat = reinterpret_cast<float *>(v.data());
+
+    vAsFloat[1] = 1.0f;
+    vAsFloat[3] = 1.0f;
 
     glBufferData(GL_UNIFORM_BUFFER, kDataSize, v.data(), GL_STATIC_DRAW);
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, mUniformBuffer);

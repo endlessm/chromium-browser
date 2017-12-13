@@ -22,15 +22,6 @@
 
 #if BUILDFLAG(USE_BYTE_CERTS)
 #include "third_party/boringssl/src/include/openssl/base.h"
-#elif defined(OS_WIN)
-#include <windows.h>
-#include "crypto/wincrypt_shim.h"
-#elif defined(OS_MACOSX)
-#include <CoreFoundation/CFArray.h>
-#include <Security/SecBase.h>
-#elif defined(USE_OPENSSL_CERTS)
-// Forward declaration; real one in <x509.h>
-typedef struct x509_st X509;
 #elif defined(USE_NSS_CERTS)
 // Forward declaration; real one in <cert.h>
 struct CERTCertificateStr;
@@ -61,12 +52,6 @@ class NET_EXPORT X509Certificate
   // TODO(mattm): Remove OSCertHandle type and clean up the interfaces once all
   // platforms use the CRYPTO_BUFFER version.
   typedef CRYPTO_BUFFER* OSCertHandle;
-#elif defined(OS_WIN)
-  typedef PCCERT_CONTEXT OSCertHandle;
-#elif defined(OS_MACOSX)
-  typedef SecCertificateRef OSCertHandle;
-#elif defined(USE_OPENSSL_CERTS)
-  typedef X509* OSCertHandle;
 #elif defined(USE_NSS_CERTS)
   typedef struct CERTCertificateStr* OSCertHandle;
 #else
@@ -141,6 +126,18 @@ class NET_EXPORT X509Certificate
       OSCertHandle cert_handle,
       const OSCertHandles& intermediates);
 
+  // Options for configuring certificate parsing.
+  // Do not use without consulting //net owners.
+  struct UnsafeCreateOptions {
+    bool printable_string_is_utf8 = false;
+  };
+  // Create an X509Certificate with non-standard parsing options.
+  // Do not use without consulting //net owners.
+  static scoped_refptr<X509Certificate> CreateFromHandleUnsafeOptions(
+      OSCertHandle cert_handle,
+      const OSCertHandles& intermediates,
+      UnsafeCreateOptions options);
+
   // Create an X509Certificate from a chain of DER encoded certificates. The
   // first certificate in the chain is the end-entity certificate to which a
   // handle is returned. The other certificates in the chain are intermediate
@@ -152,6 +149,13 @@ class NET_EXPORT X509Certificate
   // Returns NULL on failure.
   static scoped_refptr<X509Certificate> CreateFromBytes(const char* data,
                                                         size_t length);
+
+  // Create an X509Certificate with non-standard parsing options.
+  // Do not use without consulting //net owners.
+  static scoped_refptr<X509Certificate> CreateFromBytesUnsafeOptions(
+      const char* data,
+      size_t length,
+      UnsafeCreateOptions options);
 
   // Create an X509Certificate from the representation stored in the given
   // pickle.  The data for this object is found relative to the given
@@ -325,11 +329,14 @@ class NET_EXPORT X509Certificate
   // in the underlying crypto library.
   X509Certificate(OSCertHandle cert_handle,
                   const OSCertHandles& intermediates);
+  X509Certificate(OSCertHandle cert_handle,
+                  const OSCertHandles& intermediates,
+                  UnsafeCreateOptions options);
 
   ~X509Certificate();
 
   // Common object initialization code.  Called by the constructors only.
-  bool Initialize();
+  bool Initialize(UnsafeCreateOptions options);
 
   // Verifies that |hostname| matches one of the certificate names or IP
   // addresses supplied, based on TLS name matching rules - specifically,
@@ -361,7 +368,7 @@ class NET_EXPORT X509Certificate
 
   // Writes a single certificate to |pickle| in DER form. Returns false on
   // failure.
-  static bool WriteOSCertHandleToPickle(OSCertHandle handle,
+  static void WriteOSCertHandleToPickle(OSCertHandle handle,
                                         base::Pickle* pickle);
 
   // The subject of the certificate.

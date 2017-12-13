@@ -10,6 +10,7 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/mac/mac_logging.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/macros.h"
@@ -22,6 +23,7 @@
 #include "media/audio/mac/audio_auhal_mac.h"
 #include "media/audio/mac/audio_input_mac.h"
 #include "media/audio/mac/audio_low_latency_input_mac.h"
+#include "media/audio/mac/coreaudio_dispatch_override.h"
 #include "media/audio/mac/scoped_audio_unit.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/bind_to_current_loop.h"
@@ -891,6 +893,8 @@ AudioParameters AudioManagerMac::GetPreferredOutputStreamParameters(
 
 void AudioManagerMac::InitializeOnAudioThread() {
   DCHECK(GetTaskRunner()->BelongsToCurrentThread());
+  if (base::FeatureList::IsEnabled(kSerializeCoreAudioPauseResume))
+    InitializeCoreAudioDispatchOverride();
   power_observer_.reset(new AudioPowerObserver());
 }
 

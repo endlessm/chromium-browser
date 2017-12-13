@@ -5,12 +5,13 @@
 #ifndef IOS_CHROME_BROWSER_UI_COMMANDS_BROWSER_COMMANDS_H_
 #define IOS_CHROME_BROWSER_UI_COMMANDS_BROWSER_COMMANDS_H_
 
-#include <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 
 #import "ios/chrome/browser/ui/commands/activity_service_commands.h"
 #import "ios/chrome/browser/ui/commands/history_popup_commands.h"
+#import "ios/chrome/browser/ui/commands/page_info_commands.h"
 #import "ios/chrome/browser/ui/commands/qr_scanner_commands.h"
+#import "ios/chrome/browser/ui/commands/snackbar_commands.h"
 
 @class OpenNewTabCommand;
 @class ReadingListAddCommand;
@@ -19,7 +20,9 @@
 // which in practice is the BrowserViewController instance displaying the tab.
 @protocol BrowserCommands<NSObject,
                           ActivityServiceCommands,
+                          PageInfoCommands,
                           QRScannerCommands,
+                          SnackbarCommands,
                           TabHistoryPopupCommands>
 
 // Closes the current tab.
@@ -88,18 +91,20 @@
 // tab.
 - (void)findPreviousStringInPage;
 
-// Show the page security info. |originPoint| is the midpoint of the UI element
-// which triggered this command and should be in window coordinates.
-- (void)showPageInfoForOriginPoint:(CGPoint)originPoint;
-
-// Hide the page security info.
-- (void)hidePageInfo;
-
-// Show the security help page.
-- (void)showSecurityHelpPage;
-
 // Shows the online help page in a tab.
 - (void)showHelpPage;
+
+// Shows the bookmarks manager.
+- (void)showBookmarksManager;
+
+// Shows recent tabs.
+- (void)showRecentTabs;
+
+// Requests the "desktop" version of the current page in the active tab.
+- (void)requestDesktopSite;
+
+// Requests the "mobile" version of the current page in the active tab.
+- (void)requestMobileSite;
 
 @end
 

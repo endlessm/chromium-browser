@@ -4,13 +4,17 @@
 
 #include "ash/system/web_notification/web_notification_tray.h"
 
-#include "ash/accessibility_delegate.h"
+#include <memory>
+
+#include "ash/accessibility/accessibility_delegate.h"
+#include "ash/message_center/message_center_bubble.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_constants.h"
 #include "ash/shell.h"
+#include "ash/strings/grit/ash_strings.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/tray/system_tray.h"
 #include "ash/system/tray/tray_bubble_wrapper.h"
@@ -18,7 +22,6 @@
 #include "ash/system/tray/tray_container.h"
 #include "ash/system/tray/tray_utils.h"
 #include "ash/system/web_notification/ash_popup_alignment_delegate.h"
-#include "ash/system/web_notification/message_center_bubble.h"
 #include "base/auto_reset.h"
 #include "base/i18n/number_formatting.h"
 #include "base/i18n/rtl.h"
@@ -29,8 +32,8 @@
 #include "ui/display/screen.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/message_center/message_center.h"
-#include "ui/message_center/message_center_style.h"
 #include "ui/message_center/message_center_tray_delegate.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
 #include "ui/message_center/views/message_popup_collection.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/bubble/tray_bubble_view.h"
@@ -48,7 +51,8 @@ constexpr int kEnableQuietModeDay = 2;
 
 constexpr int kMaximumSmallIconCount = 3;
 
-constexpr gfx::Size kTrayItemInnerIconSize(16, 16);
+constexpr int kTrayItemInnerIconSize = 16;
+;
 constexpr gfx::Size kTrayItemOuterSize(26, 26);
 constexpr int kTrayMainAxisInset = 3;
 constexpr int kTrayCrossAxisInset = 0;
@@ -56,6 +60,8 @@ constexpr int kTrayCrossAxisInset = 0;
 constexpr int kTrayItemAnimationDurationMS = 200;
 
 constexpr size_t kMaximumNotificationNumber = 99;
+
+constexpr size_t kPaddingFromScreenTop = 8;  // in px. See crbug.com/754307.
 
 // Flag to disable animation. Only for testing.
 bool disable_animations_for_test = false;
@@ -82,7 +88,7 @@ class WebNotificationBubbleWrapper {
     init_params.min_width = width;
     init_params.max_width = width;
     init_params.max_height = bubble->max_height();
-    init_params.bg_color = message_center::kBackgroundDarkColor;
+    init_params.bg_color = SkColorSetRGB(0xe7, 0xe7, 0xe7);
     init_params.show_by_click = show_by_click;
 
     views::TrayBubbleView* bubble_view = new views::TrayBubbleView(init_params);
@@ -216,9 +222,12 @@ class WebNotificationImage : public WebNotificationItem {
                        gfx::AnimationContainer* container,
                        WebNotificationTray* tray)
       : WebNotificationItem(container, tray) {
+    DCHECK(image.size() ==
+           gfx::Size(kTrayItemInnerIconSize, kTrayItemInnerIconSize));
     view_ = new views::ImageView();
     view_->SetImage(image);
-    view_->SetImageSize(kTrayItemInnerIconSize);
+    view_->SetTooltipText(
+        l10n_util::GetStringUTF16(IDS_ASH_MESSAGE_CENTER_FOOTER_TITLE));
     AddChildView(view_);
   }
 
@@ -321,10 +330,12 @@ bool WebNotificationTray::ShowMessageCenterInternal(bool show_settings,
 
   // In the horizontal case, message center starts from the top of the shelf.
   // In the vertical case, it starts from the bottom of WebNotificationTray.
-  const int max_height = shelf()->IsHorizontalAlignment()
-                             ? shelf()->GetIdealBounds().y()
-                             : GetBoundsInScreen().bottom();
-  message_center_bubble->SetMaxHeight(max_height);
+  const int max_height =
+      (shelf()->IsHorizontalAlignment() ? shelf()->GetIdealBounds().y()
+                                        : GetBoundsInScreen().bottom());
+  // Sets the maximum height, considering the padding from the top edge of
+  // screen. This padding should be applied in all types of shelf alignment.
+  message_center_bubble->SetMaxHeight(max_height - kPaddingFromScreenTop);
 
   if (show_settings)
     message_center_bubble->SetSettingsVisible();
@@ -405,6 +416,7 @@ void WebNotificationTray::UpdateAfterShelfAlignmentChange() {
 void WebNotificationTray::AnchorUpdated() {
   if (message_center_bubble()) {
     UpdateClippingWindowBounds();
+    system_tray_->UpdateClippingWindowBounds();
     message_center_bubble()->bubble_view()->UpdateBubble();
     // Should check |message_center_bubble_| again here. Since UpdateBubble
     // above set the bounds of the bubble which will stop the current
@@ -417,7 +429,10 @@ void WebNotificationTray::AnchorUpdated() {
 }
 
 base::string16 WebNotificationTray::GetAccessibleNameForTray() {
-  return l10n_util::GetStringUTF16(IDS_MESSAGE_CENTER_ACCESSIBLE_NAME);
+  return l10n_util::GetStringFUTF16Int(
+      IDS_MESSAGE_CENTER_ACCESSIBLE_NAME,
+      static_cast<int>(
+          message_center_tray_->message_center()->NotificationCount()));
 }
 
 void WebNotificationTray::HideBubbleWithView(
@@ -459,10 +474,6 @@ bool WebNotificationTray::ShowNotifierSettings() {
   }
   return ShowMessageCenterInternal(true /* show_settings */,
                                    false /* show_by_click */);
-}
-
-bool WebNotificationTray::IsContextMenuEnabled() const {
-  return ShouldShowMessageCenter();
 }
 
 message_center::MessageCenterTray* WebNotificationTray::GetMessageCenterTray() {
@@ -507,7 +518,7 @@ void WebNotificationTray::UpdateTrayContent() {
   should_update_tray_content_ = false;
 
   std::unordered_set<std::string> notification_ids;
-  for (auto pair : visible_small_icons_)
+  for (auto& pair : visible_small_icons_)
     notification_ids.insert(pair.first);
 
   // Add small icons (up to kMaximumSmallIconCount = 3).
@@ -515,7 +526,8 @@ void WebNotificationTray::UpdateTrayContent() {
       message_center_tray_->message_center();
   size_t visible_small_icon_count = 0;
   for (const auto* notification : message_center->GetVisibleNotifications()) {
-    gfx::Image image = notification->GenerateMaskedSmallIcon(kTrayIconColor);
+    gfx::Image image = notification->GenerateMaskedSmallIcon(
+        kTrayItemInnerIconSize, kTrayIconColor);
     if (image.IsEmpty())
       continue;
 
@@ -527,17 +539,17 @@ void WebNotificationTray::UpdateTrayContent() {
     if (visible_small_icons_.count(notification->id()) != 0)
       continue;
 
-    auto* item = new WebNotificationImage(image.AsImageSkia(),
-                                          animation_container_.get(), this);
-    visible_small_icons_.insert(std::make_pair(notification->id(), item));
-
-    tray_container()->AddChildViewAt(item, 0);
+    auto item = std::make_unique<WebNotificationImage>(
+        image.AsImageSkia(), animation_container_.get(), this);
+    tray_container()->AddChildViewAt(item.get(), 0);
     item->SetVisible(true);
+    visible_small_icons_.insert(
+        std::make_pair(notification->id(), std::move(item)));
   }
 
   // Remove unnecessary icons.
   for (const std::string& id : notification_ids) {
-    WebNotificationImage* item = visible_small_icons_[id];
+    WebNotificationImage* item = visible_small_icons_[id].release();
     visible_small_icons_.erase(id);
     item->HideAndDelete();
   }

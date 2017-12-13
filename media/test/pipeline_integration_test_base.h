@@ -203,7 +203,8 @@ class PipelineIntegrationTestBase : public Pipeline::Client {
       FakeEncryptedMedia* encrypted_media);
 
   void OnSeeked(base::TimeDelta seek_time, PipelineStatus status);
-  void OnStatusCallback(PipelineStatus status);
+  void OnStatusCallback(const base::Closure& quit_run_loop_closure,
+                        PipelineStatus status);
   void DemuxerEncryptedMediaInitDataCB(EmeInitDataType type,
                                        const std::vector<uint8_t>& init_data);
 
@@ -240,6 +241,20 @@ class PipelineIntegrationTestBase : public Pipeline::Client {
   MOCK_METHOD0(OnVideoAverageKeyframeDistanceUpdate, void());
 
  private:
+  // Helpers that run |*run_loop|, where OnEnded() or OnError() are each
+  // conditionally setup to quit |*run_loop| when it becomes idle. Once
+  // |*run_loop|'s Run() Quits, these helpers also run
+  // |scoped_task_environment_| until Idle.
+  void RunUntilIdle(base::RunLoop* run_loop);
+  void RunUntilIdleOrEnded(base::RunLoop* run_loop);
+  void RunUntilIdleOrEndedOrError(base::RunLoop* run_loop);
+  void RunUntilIdleEndedOrErrorInternal(base::RunLoop* run_loop,
+                                        bool run_until_ended,
+                                        bool run_until_error);
+
+  base::Closure on_ended_closure_;
+  base::Closure on_error_closure_;
+
   DISALLOW_COPY_AND_ASSIGN(PipelineIntegrationTestBase);
 };
 

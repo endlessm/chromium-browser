@@ -92,6 +92,11 @@ def IsGitSha(revision):
   return re.match('^[a-fA-F0-9]{6,40}$', revision) is not None
 
 
+def IsFullGitSha(revision):
+  """Returns true if the given string is a valid hex-encoded full sha"""
+  return re.match('^[a-fA-F0-9]{40}$', revision) is not None
+
+
 def IsDateRevision(revision):
   """Returns true if the given revision is of the form "{ ... }"."""
   return bool(revision and re.match(r'^\{.+\}$', str(revision)))
@@ -286,7 +291,7 @@ def CheckCallAndFilterAndHeader(args, always=False, header=None, **kwargs):
   """
   stdout = kwargs.setdefault('stdout', sys.stdout)
   if header is None:
-    header = "\n________ running '%s' in '%s'\n" % (
+    header = "________ running '%s' in '%s'\n" % (
                  ' '.join(args), kwargs.get('cwd', '.'))
 
   if always:

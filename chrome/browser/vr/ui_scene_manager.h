@@ -7,8 +7,8 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/memory/weak_ptr.h"
 #include "base/values.h"
+#include "chrome/browser/vr/browser_ui_interface.h"
 #include "chrome/browser/vr/color_scheme.h"
 #include "chrome/browser/vr/elements/simple_textured_element.h"
 #include "chrome/browser/vr/ui_interface.h"
@@ -19,78 +19,128 @@ namespace vr {
 
 class ContentElement;
 class ContentInputDelegate;
-class ExclusiveScreenToast;
 class Grid;
-class LoadingIndicator;
 class Rect;
-class Text;
+class TransientElement;
 class WebVrUrlToast;
 class UiBrowserInterface;
 class UiElement;
 class UiScene;
 class UrlBar;
 class ExitPrompt;
+struct Model;
+struct UiInitialState;
 
+// The scene manager creates and maintains a UiElement hierarchy.
+//
+// kRoot
+//   k2dBrowsingRoot
+//     k2dBrowsingBackground
+//       kBackgroundLeft
+//       kBackgroundRight
+//       kBackgroundTop
+//       kBackgroundBottom
+//       kBackgroundFront
+//       kBackgroundBack
+//       kFloor
+//       kCeiling
+//     k2dBrowsingForeground
+//       k2dBrowsingContentGroup
+//         kBackplane
+//         kContentQuad
+//         kIndicatorLayout
+//           kAudioCaptureIndicator
+//           kVideoCaptureIndicator
+//           kScreenCaptureIndicator
+//           kLocationAccessIndicator
+//           kBluetoothConnectedIndicator
+//       kExitPrompt
+//         kExitPromptBackplane
+//       kExclusiveScreenToastTransientParent
+//         kExclusiveScreenToast
+//       kCloseButton
+//       kUrlBar
+//         kLoadingIndicator
+//         kExitButton
+//     kFullscreenToast
+//     kScreenDimmer
+//     k2dBrowsingViewportAwareRoot
+//       kExitWarning
+//   kWebVrRoot
+//     kWebVrViewportAwareRoot
+//       kExclusiveScreenToastTransientParent
+//         kExclusiveScreenToastViewportAware
+//       kWebVrPermanentHttpSecurityWarning
+//       kWebVrTransientHttpSecurityWarningTransientParent
+//         kWebVrTransientHttpSecurityWarning
+//       kWebVrUrlToastTransientParent
+//         kWebVrUrlToast
+//   kSplashScreenRoot
+//     kSplashScreenViewportAwareRoot
+//       kSplashScreenTransientParent
+//         kSplashScreenText
+//           kSplashScreenBackground
+//
+// TODO(vollick): The above hierarchy is complex, brittle, and would be easier
+// to manage if it were specified in a declarative format.
 class UiSceneManager {
  public:
   UiSceneManager(UiBrowserInterface* browser,
                  UiScene* scene,
                  ContentInputDelegate* content_input_delegate,
-                 bool in_cct,
-                 bool in_web_vr,
-                 bool web_vr_autopresentation_expected);
+                 Model* model,
+                 const UiInitialState& ui_initial_state);
   ~UiSceneManager();
 
-  base::WeakPtr<UiSceneManager> GetWeakPtr();
-
+  // BrowserUiInterface support methods.
   void SetFullscreen(bool fullscreen);
   void SetIncognito(bool incognito);
   void SetToolbarState(const ToolbarState& state);
-  void SetWebVrSecureOrigin(bool secure);
   void SetWebVrMode(bool web_vr, bool show_toast);
-  void SetLoading(bool loading);
-  void SetLoadProgress(float progress);
   void SetIsExiting();
   void SetVideoCapturingIndicator(bool enabled);
   void SetScreenCapturingIndicator(bool enabled);
   void SetAudioCapturingIndicator(bool enabled);
   void SetLocationAccessIndicator(bool enabled);
   void SetBluetoothConnectedIndicator(bool enabled);
-
-  // These methods are currently stubbed.
   void SetHistoryButtonsEnabled(bool can_go_back, bool can_go_forward);
-
-  void OnGlInitialized(unsigned int content_texture_id);
-  void OnAppButtonClicked();
-  void OnAppButtonGesturePerformed(UiInterface::Direction direction);
-  void OnWebVrFrameAvailable();
-  void OnWebVrTimedOut();
-  void OnProjMatrixChanged(const gfx::Transform& proj_matrix);
-
   void SetExitVrPromptEnabled(bool enabled, UiUnsupportedMode reason);
 
+  // UiInterface support methods.
+  bool ShouldRenderWebVr();
+  void OnGlInitialized(unsigned int content_texture_id,
+                       UiElementRenderer::TextureLocation content_location);
+  void OnAppButtonClicked();
+  void OnAppButtonGesturePerformed(UiInterface::Direction direction);
+  void OnProjMatrixChanged(const gfx::Transform& proj_matrix);
+  void OnWebVrFrameAvailable();
+  void OnWebVrTimedOut();
+
+  void OnSplashScreenHidden(TransientElementHideReason);
   void OnSecurityIconClickedForTesting();
   void OnExitPromptChoiceForTesting(bool chose_exit);
+
+  // TODO(vollick): this should move to the model.
+  const ColorScheme& color_scheme() const;
 
  private:
   void Create2dBrowsingSubtreeRoots();
   void CreateWebVrRoot();
   void CreateScreenDimmer();
-  void CreateSecurityWarnings();
+  void CreateWebVRExitWarning();
   void CreateSystemIndicators();
   void CreateContentQuad(ContentInputDelegate* delegate);
   void CreateSplashScreen();
   void CreateUnderDevelopmentNotice();
   void CreateBackground();
   void CreateViewportAwareRoot();
-  void CreateUrlBar();
+  void CreateUrlBar(Model* model);
   void CreateWebVrUrlToast();
   void CreateCloseButton();
   void CreateExitPrompt();
   void CreateToasts();
 
   void ConfigureScene();
-  void ConfigureSecurityWarnings();
   void ConfigureExclusiveScreenToast();
   void ConfigureIndicators();
   void ConfigureBackgroundColor();
@@ -101,16 +151,20 @@ class UiSceneManager {
   void OnCloseButtonClicked();
   void OnUnsupportedMode(UiUnsupportedMode mode);
   ColorScheme::Mode mode() const;
-  const ColorScheme& color_scheme() const;
+
+  TransientElement* AddTransientParent(UiElementName name,
+                                       UiElementName parent_name,
+                                       int timeout_seconds,
+                                       bool animate_opacity);
 
   UiBrowserInterface* browser_;
   UiScene* scene_;
 
   // UI element pointers (not owned by the scene manager).
-  UiElement* permanent_security_warning_ = nullptr;
-  TransientSecurityWarning* transient_security_warning_ = nullptr;
-  ExclusiveScreenToast* exclusive_screen_toast_ = nullptr;
-  ExclusiveScreenToast* exclusive_screen_toast_viewport_aware_ = nullptr;
+  TransientElement* exclusive_screen_toast_transient_parent_ = nullptr;
+  TransientElement* exclusive_screen_toast_viewport_aware_transient_parent_ =
+      nullptr;
+  ShowUntilSignalTransientElement* splash_screen_transient_parent_ = nullptr;
   ExitPrompt* exit_prompt_ = nullptr;
   UiElement* exit_prompt_backplane_ = nullptr;
   UiElement* exit_warning_ = nullptr;
@@ -124,10 +178,9 @@ class UiSceneManager {
   Rect* ceiling_ = nullptr;
   Grid* floor_ = nullptr;
   UiElement* close_button_ = nullptr;
-  Text* splash_screen_text_ = nullptr;
   UrlBar* url_bar_ = nullptr;
+  TransientElement* webvr_url_toast_transient_parent_ = nullptr;
   WebVrUrlToast* webvr_url_toast_ = nullptr;
-  LoadingIndicator* loading_indicator_ = nullptr;
 
   std::vector<UiElement*> system_indicators_;
 
@@ -141,8 +194,8 @@ class UiSceneManager {
   bool showing_web_vr_splash_screen_ = false;
   bool prompting_to_exit_ = false;
   bool exiting_ = false;
+  bool browsing_disabled_ = false;
 
-  bool secure_origin_ = false;
   bool fullscreen_ = false;
   bool incognito_ = false;
   bool audio_capturing_ = false;
@@ -157,8 +210,7 @@ class UiSceneManager {
   std::vector<UiElement*> control_elements_;
 
   gfx::SizeF last_content_screen_bounds_;
-
-  base::WeakPtrFactory<UiSceneManager> weak_ptr_factory_;
+  float last_content_aspect_ratio_ = 0.0f;
 
   DISALLOW_COPY_AND_ASSIGN(UiSceneManager);
 };

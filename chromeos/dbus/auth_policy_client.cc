@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 #include "chromeos/dbus/auth_policy_client.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/memory/weak_ptr.h"
@@ -72,8 +74,8 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
     writer.AppendFileDescriptor(password_fd);
     proxy_->CallMethod(
         &method_call, kSlowDbusTimeoutMilliseconds,
-        base::Bind(&AuthPolicyClientImpl::HandleJoinCallback,
-                   weak_ptr_factory_.GetWeakPtr(), base::Passed(&callback)));
+        base::BindOnce(&AuthPolicyClientImpl::HandleJoinCallback,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void AuthenticateUser(const std::string& user_principal_name,
@@ -88,9 +90,9 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
     writer.AppendFileDescriptor(password_fd);
     proxy_->CallMethod(
         &method_call, kSlowDbusTimeoutMilliseconds,
-        base::Bind(&AuthPolicyClientImpl::HandleCallback<
-                       authpolicy::ActiveDirectoryAccountInfo>,
-                   weak_ptr_factory_.GetWeakPtr(), base::Passed(&callback)));
+        base::BindOnce(&AuthPolicyClientImpl::HandleCallback<
+                           authpolicy::ActiveDirectoryAccountInfo>,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void GetUserStatus(const std::string& object_guid,
@@ -101,9 +103,9 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
     writer.AppendString(object_guid);
     proxy_->CallMethod(
         &method_call, kSlowDbusTimeoutMilliseconds,
-        base::Bind(&AuthPolicyClientImpl::HandleCallback<
-                       authpolicy::ActiveDirectoryUserStatus>,
-                   weak_ptr_factory_.GetWeakPtr(), base::Passed(&callback)));
+        base::BindOnce(&AuthPolicyClientImpl::HandleCallback<
+                           authpolicy::ActiveDirectoryUserStatus>,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void GetUserKerberosFiles(const std::string& object_guid,
@@ -114,9 +116,9 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
     writer.AppendString(object_guid);
     proxy_->CallMethod(
         &method_call, kSlowDbusTimeoutMilliseconds,
-        base::Bind(
+        base::BindOnce(
             &AuthPolicyClientImpl::HandleCallback<authpolicy::KerberosFiles>,
-            weak_ptr_factory_.GetWeakPtr(), base::Passed(&callback)));
+            weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void RefreshDevicePolicy(RefreshPolicyCallback callback) override {
@@ -124,8 +126,8 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
                                  authpolicy::kRefreshDevicePolicyMethod);
     proxy_->CallMethod(
         &method_call, kSlowDbusTimeoutMilliseconds,
-        base::Bind(&AuthPolicyClientImpl::HandleRefreshPolicyCallback,
-                   weak_ptr_factory_.GetWeakPtr(), base::Passed(&callback)));
+        base::BindOnce(&AuthPolicyClientImpl::HandleRefreshPolicyCallback,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void RefreshUserPolicy(const AccountId& account_id,
@@ -137,8 +139,8 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
     writer.AppendString(account_id.GetAccountIdKey());
     proxy_->CallMethod(
         &method_call, kSlowDbusTimeoutMilliseconds,
-        base::Bind(&AuthPolicyClientImpl::HandleRefreshPolicyCallback,
-                   weak_ptr_factory_.GetWeakPtr(), base::Passed(&callback)));
+        base::BindOnce(&AuthPolicyClientImpl::HandleRefreshPolicyCallback,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void ConnectToSignal(
@@ -147,7 +149,7 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
       dbus::ObjectProxy::OnConnectedCallback on_connected_callback) override {
     proxy_->ConnectToSignal(authpolicy::kAuthPolicyInterface,
                             std::move(signal_name), std::move(signal_callback),
-                            on_connected_callback);
+                            std::move(on_connected_callback));
   }
 
  protected:

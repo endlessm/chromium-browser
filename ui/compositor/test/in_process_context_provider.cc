@@ -11,7 +11,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
-#include "cc/output/managed_memory_policy.h"
 #include "components/viz/common/gpu/context_cache_controller.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/gles2_lib.h"
@@ -112,9 +111,14 @@ void InProcessContextProvider::DetachFromThread() {
   context_thread_checker_.DetachFromThread();
 }
 
-gpu::Capabilities InProcessContextProvider::ContextCapabilities() {
+const gpu::Capabilities& InProcessContextProvider::ContextCapabilities() const {
   DCHECK(context_thread_checker_.CalledOnValidThread());
   return context_->GetImplementation()->capabilities();
+}
+
+const gpu::GpuFeatureInfo& InProcessContextProvider::GetGpuFeatureInfo() const {
+  DCHECK(context_thread_checker_.CalledOnValidThread());
+  return context_->GetGpuFeatureInfo();
 }
 
 gpu::gles2::GLES2Interface* InProcessContextProvider::ContextGL() {

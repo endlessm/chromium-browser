@@ -120,7 +120,8 @@ void ShelfWindowWatcher::UserWindowObserver::OnWindowPropertyChanged(
     intptr_t old) {
   // ShelfIDs should never change except when replacing Mash temporary defaults.
   // TODO(msw): Extend this Mash behavior to all Ash configs.
-  if (Shell::GetAshConfig() == Config::MASH && key == kShelfIDKey) {
+  if (Shell::GetAshConfig() == Config::MASH && key == kShelfIDKey &&
+      window_watcher_->user_windows_with_items_.count(window) > 0) {
     ShelfID old_id = ShelfID::Deserialize(reinterpret_cast<std::string*>(old));
     ShelfID new_id = ShelfID::Deserialize(window->GetProperty(kShelfIDKey));
     if (old_id != new_id && !old_id.IsNull() && !new_id.IsNull() &&
@@ -183,7 +184,7 @@ void ShelfWindowWatcher::AddShelfItem(aura::Window* window) {
 
   model_->SetShelfItemDelegate(
       item.id,
-      base::MakeUnique<ShelfWindowWatcherItemDelegate>(item.id, window));
+      std::make_unique<ShelfWindowWatcherItemDelegate>(item.id, window));
 
   // Panels are inserted on the left so as not to push all existing panels over.
   model_->AddAt(item.type == TYPE_APP_PANEL ? 0 : model_->item_count(), item);

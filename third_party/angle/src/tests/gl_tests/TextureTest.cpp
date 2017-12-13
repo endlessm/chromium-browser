@@ -49,9 +49,8 @@ class TexCoordDrawTest : public ANGLETest
 
     virtual std::string getVertexShaderSource()
     {
-        return std::string(SHADER_SOURCE
-        (
-            precision highp float;
+        return
+            R"(precision highp float;
             attribute vec4 position;
             varying vec2 texcoord;
 
@@ -59,9 +58,7 @@ class TexCoordDrawTest : public ANGLETest
             {
                 gl_Position = vec4(position.xy, 0.0, 1.0);
                 texcoord = (position.xy * 0.5) + 0.5;
-            }
-        )
-        );
+            })";
     }
 
     virtual std::string getFragmentShaderSource() = 0;
@@ -140,18 +137,15 @@ class Texture2DTest : public TexCoordDrawTest
 
     std::string getFragmentShaderSource() override
     {
-        return std::string(SHADER_SOURCE
-        (
-            precision highp float;
+        return
+            R"(precision highp float;
             uniform sampler2D tex;
             varying vec2 texcoord;
 
             void main()
             {
                 gl_FragColor = texture2D(tex, texcoord);
-            }
-        )
-        );
+            })";
     }
 
     virtual const char *getTextureUniformName() { return "tex"; }
@@ -497,9 +491,8 @@ class Texture2DTestWithDrawScale : public Texture2DTest
 
     std::string getVertexShaderSource() override
     {
-        return std::string(SHADER_SOURCE
-        (
-            precision highp float;
+        return
+            R"(precision highp float;
             attribute vec4 position;
             varying vec2 texcoord;
 
@@ -509,9 +502,7 @@ class Texture2DTestWithDrawScale : public Texture2DTest
             {
                 gl_Position = vec4(position.xy * drawScale, 0.0, 1.0);
                 texcoord = (position.xy * 0.5) + 0.5;
-            }
-        )
-        );
+            })";
     }
 
     void SetUp() override
@@ -539,9 +530,8 @@ class Sampler2DAsFunctionParameterTest : public Texture2DTest
 
     std::string getFragmentShaderSource() override
     {
-        return std::string(SHADER_SOURCE
-        (
-            precision highp float;
+        return
+            R"(precision highp float;
             uniform sampler2D tex;
             varying vec2 texcoord;
 
@@ -553,9 +543,7 @@ class Sampler2DAsFunctionParameterTest : public Texture2DTest
             void main()
             {
                 gl_FragColor = computeFragColor(tex);
-            }
-        )
-        );
+            })";
     }
 
     void SetUp() override
@@ -579,9 +567,8 @@ class TextureCubeTest : public TexCoordDrawTest
 
     std::string getFragmentShaderSource() override
     {
-        return std::string(SHADER_SOURCE
-        (
-            precision highp float;
+        return
+            R"(precision highp float;
             uniform sampler2D tex2D;
             uniform samplerCube texCube;
             varying vec2 texcoord;
@@ -590,9 +577,7 @@ class TextureCubeTest : public TexCoordDrawTest
             {
                 gl_FragColor = texture2D(tex2D, texcoord);
                 gl_FragColor += textureCube(texCube, vec3(texcoord, 0));
-            }
-        )
-        );
+            })";
     }
 
     void SetUp() override
@@ -630,6 +615,12 @@ class TextureCubeTest : public TexCoordDrawTest
     GLint mTextureCubeUniformLocation;
 };
 
+class TextureCubeTestES3 : public ANGLETest
+{
+  protected:
+    TextureCubeTestES3() {}
+};
+
 class SamplerArrayTest : public TexCoordDrawTest
 {
   protected:
@@ -644,18 +635,15 @@ class SamplerArrayTest : public TexCoordDrawTest
 
     std::string getFragmentShaderSource() override
     {
-        return std::string(SHADER_SOURCE
-        (
-            precision mediump float;
+        return
+            R"(precision mediump float;
             uniform highp sampler2D tex2DArray[2];
             varying vec2 texcoord;
             void main()
             {
                 gl_FragColor = texture2D(tex2DArray[0], texcoord);
                 gl_FragColor += texture2D(tex2DArray[1], texcoord);
-            }
-        )
-        );
+            })";
     }
 
     void SetUp() override
@@ -722,9 +710,8 @@ class SamplerArrayAsFunctionParameterTest : public SamplerArrayTest
 
     std::string getFragmentShaderSource() override
     {
-        return std::string(SHADER_SOURCE
-        (
-            precision mediump float;
+        return
+            R"(precision mediump float;
             uniform highp sampler2D tex2DArray[2];
             varying vec2 texcoord;
 
@@ -736,9 +723,7 @@ class SamplerArrayAsFunctionParameterTest : public SamplerArrayTest
             void main()
             {
                 gl_FragColor = computeFragColor(tex2DArray);
-            }
-        )
-        );
+            })";
     }
 };
 
@@ -1508,9 +1493,8 @@ TEST_P(Texture2DTest, TexStorage)
     EXPECT_PIXEL_EQ(width / 4, height / 4, 255, 0, 0, 255);
 
     // Validate that the region of the texture without data has an alpha of 1.0
-    GLubyte pixel[4];
-    glReadPixels(3 * width / 4, 3 * height / 4, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
-    EXPECT_EQ(pixel[3], 255);
+    angle::GLColor pixel = ReadColor(3 * width / 4, 3 * height / 4);
+    EXPECT_EQ(255, pixel.A);
 }
 
 // Test that glTexSubImage2D combined with a PBO works properly when glTexStorage2DEXT has initialized the image with a default color.
@@ -3777,6 +3761,210 @@ TEST_P(Texture3DTestES3, BasicUnpackBufferOOB)
     }
 }
 
+// Tests behaviour with a single texture and multiple sampler objects.
+TEST_P(Texture2DTestES3, SingleTextureMultipleSamplers)
+{
+    GLint maxTextureUnits = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &maxTextureUnits);
+    ANGLE_SKIP_TEST_IF(maxTextureUnits < 4);
+
+    constexpr int kSize = 16;
+
+    // Make a single-level texture, fill it with red.
+    std::vector<GLColor> redColors(kSize * kSize, GLColor::red);
+    GLTexture tex;
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 redColors.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // Simple sanity check.
+    draw2DTexturedQuad(0.5f, 1.0f, true);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Bind texture to unit 1 with a sampler object making it incomplete.
+    GLSampler sampler;
+    glBindSampler(0, sampler);
+    glSamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+    glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // Make a mipmap texture, fill it with blue.
+    std::vector<GLColor> blueColors(kSize * kSize, GLColor::blue);
+    GLTexture mipmapTex;
+    glBindTexture(GL_TEXTURE_2D, mipmapTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 blueColors.data());
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    // Draw with the sampler, expect blue.
+    draw2DTexturedQuad(0.5f, 1.0f, true);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+
+    // Simple multitexturing program.
+    const std::string vs =
+        "#version 300 es\n"
+        "in vec2 position;\n"
+        "out vec2 texCoord;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = vec4(position, 0, 1);\n"
+        "    texCoord = position * 0.5 + vec2(0.5);\n"
+        "}";
+    const std::string fs =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "in vec2 texCoord;\n"
+        "uniform sampler2D tex1;\n"
+        "uniform sampler2D tex2;\n"
+        "uniform sampler2D tex3;\n"
+        "uniform sampler2D tex4;\n"
+        "out vec4 color;\n"
+        "void main()\n"
+        "{\n"
+        "    color = (texture(tex1, texCoord) + texture(tex2, texCoord) \n"
+        "          +  texture(tex3, texCoord) + texture(tex4, texCoord)) * 0.25;\n"
+        "}";
+
+    ANGLE_GL_PROGRAM(program, vs, fs);
+
+    std::array<GLint, 4> texLocations = {
+        {glGetUniformLocation(program, "tex1"), glGetUniformLocation(program, "tex2"),
+         glGetUniformLocation(program, "tex3"), glGetUniformLocation(program, "tex4")}};
+    for (GLint location : texLocations)
+    {
+        ASSERT_NE(-1, location);
+    }
+
+    // Init the uniform data.
+    glUseProgram(program);
+    for (GLint location = 0; location < 4; ++location)
+    {
+        glUniform1i(texLocations[location], location);
+    }
+
+    // Initialize four samplers
+    GLSampler samplers[4];
+
+    // 0: non-mipped.
+    glBindSampler(0, samplers[0]);
+    glSamplerParameteri(samplers[0], GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glSamplerParameteri(samplers[0], GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // 1: mipped.
+    glBindSampler(1, samplers[1]);
+    glSamplerParameteri(samplers[1], GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+    glSamplerParameteri(samplers[1], GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // 2: non-mipped.
+    glBindSampler(2, samplers[2]);
+    glSamplerParameteri(samplers[2], GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glSamplerParameteri(samplers[2], GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // 3: mipped.
+    glBindSampler(3, samplers[3]);
+    glSamplerParameteri(samplers[3], GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+    glSamplerParameteri(samplers[3], GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // Bind two blue mipped textures and two single layer textures, should all draw.
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, mipmapTex);
+
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, mipmapTex);
+
+    ASSERT_GL_NO_ERROR();
+
+    drawQuad(program, "position", 0.5f);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_NEAR(0, 0, 128, 0, 128, 255, 2);
+
+    // Bind four single layer textures, two should be incomplete.
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    drawQuad(program, "position", 0.5f);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_NEAR(0, 0, 128, 0, 0, 255, 2);
+}
+
+// The test is added to cover http://anglebug.com/2153. Cubemap completeness checks used to start
+// always at level 0 instead of the base level resulting in an incomplete texture if the faces at
+// level 0 are not created. The test creates a cubemap texture, specifies the images only for mip
+// level 1 filled with white color, updates the base level to be 1 and renders a quad. The program
+// samples the cubemap using a direction vector (1,1,1).
+TEST_P(TextureCubeTestES3, SpecifyAndSampleFromBaseLevel1)
+{
+    if (IsOSX())
+    {
+        // Check http://anglebug.com/2155.
+        std::cout << "Test skipped on OSX." << std::endl;
+        return;
+    }
+    const std::string vs =
+        R"(#version 300 es
+        precision mediump float;
+        in vec3 pos;
+        void main() {
+            gl_Position = vec4(pos, 1.0);
+        })";
+
+    const std::string fs =
+        R"(#version 300 es
+        precision mediump float;
+        out vec4 color;
+        uniform samplerCube uTex;
+        void main(){
+            color = texture(uTex, vec3(1.0));
+        })";
+    ANGLE_GL_PROGRAM(program, vs, fs);
+    glUseProgram(program);
+
+    glUniform1i(glGetUniformLocation(program, "uTex"), 0);
+    glActiveTexture(GL_TEXTURE0);
+
+    GLTexture cubeTex;
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeTex);
+
+    const int kFaceWidth  = 1;
+    const int kFaceHeight = 1;
+    std::vector<uint32_t> texData(kFaceWidth * kFaceHeight, 0xFFFFFFFF);
+    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 1, GL_RGBA8, kFaceWidth, kFaceHeight, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, texData.data());
+    glTexImage2D(GL_TEXTURE_CUBE_MAP_NEGATIVE_X, 1, GL_RGBA8, kFaceWidth, kFaceHeight, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, texData.data());
+    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_Y, 1, GL_RGBA8, kFaceWidth, kFaceHeight, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, texData.data());
+    glTexImage2D(GL_TEXTURE_CUBE_MAP_NEGATIVE_Y, 1, GL_RGBA8, kFaceWidth, kFaceHeight, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, texData.data());
+    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_Z, 1, GL_RGBA8, kFaceWidth, kFaceHeight, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, texData.data());
+    glTexImage2D(GL_TEXTURE_CUBE_MAP_NEGATIVE_Z, 1, GL_RGBA8, kFaceWidth, kFaceHeight, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, texData.data());
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 1);
+
+    drawQuad(program, "pos", 0.5f, 1.0f, true);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, angle::GLColor::white);
+}
+
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these tests should be run against.
 // TODO(oetuaho): Enable all below tests on OpenGL. Requires a fix for ANGLE bug 1278.
 ANGLE_INSTANTIATE_TEST(Texture2DTest,
@@ -3861,5 +4049,6 @@ ANGLE_INSTANTIATE_TEST(SamplerInStructAndOtherVariableTest,
                        ES2_OPENGLES());
 ANGLE_INSTANTIATE_TEST(TextureLimitsTest, ES2_D3D11(), ES2_OPENGL(), ES2_OPENGLES());
 ANGLE_INSTANTIATE_TEST(Texture2DNorm16TestES3, ES3_D3D11(), ES3_OPENGL(), ES3_OPENGLES());
+ANGLE_INSTANTIATE_TEST(TextureCubeTestES3, ES3_D3D11(), ES3_OPENGL(), ES3_OPENGLES());
 
 }  // anonymous namespace

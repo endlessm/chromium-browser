@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -12,6 +13,7 @@ import datetime
 import errno
 import fnmatch
 import getpass
+import itertools
 import hashlib
 import os
 import re
@@ -23,11 +25,21 @@ from chromite.lib import constants
 from chromite.lib import cache
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import metrics
 from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import retry_stats
 from chromite.lib import retry_util
+from chromite.lib import signals
 from chromite.lib import timeout_util
+
+# TODO(crbug.com/765864): Remove this import guard when we have a wrapper
+try:
+  from infra_libs import ts_mon
+except (ImportError, RuntimeError):
+  import mock
+  ts_mon = mock.Mock()
+
 
 # Public path, only really works for files.
 PUBLIC_BASE_HTTPS_URL = 'https://storage.googleapis.com/'
@@ -201,6 +213,46 @@ GSListResult = collections.namedtuple(
     ('url', 'creation_time', 'content_length', 'generation', 'metageneration'))
 
 
+def NamedTupleWithDefaults(name, fields, field_defaults=None):
+  """Returns a subclass of namedtuple which fills in some default fields.
+
+  Args:
+    name: The name of the class to return.
+    fields: The fields of the namedtuple
+    field_defaults: A dict mapping field names to default values.
+  """
+  field_defaults = field_defaults or {}
+  to_wrap = collections.namedtuple(name, fields)
+
+  # pylint: disable=slots-on-old-class,no-init
+  class DefaultWrapped(to_wrap):
+    """A namedtuple with some defaults"""
+    __slots__ = ()
+    def __new__(cls, *args, **kwargs):
+      # fill in the fields that weren't used
+      for k in fields[len(args):]:
+        try:
+          if k not in kwargs:
+            kwargs[k] = field_defaults[k]
+        except KeyError:
+          raise TypeError(
+              "Field %s is not optional when constructiong %s", k, name)
+      return to_wrap.__new__(cls, *args, **kwargs)
+
+  DefaultWrapped.__name__ = name
+
+  return DefaultWrapped
+
+
+_ErrorDetails = NamedTupleWithDefaults(
+    'ErrorDetails',
+    ('type', 'message_pattern', 'retriable', 'exception'),
+    field_defaults={
+        'message_pattern': '',
+        'exception': None,
+    })
+
+
 class GSCounter(object):
   """A counter class for Google Storage."""
 
@@ -308,7 +360,7 @@ class GSContext(object):
   # (1*sleep) the first time, then (2*sleep), continuing via attempt * sleep.
   DEFAULT_SLEEP_TIME = 60
 
-  GSUTIL_VERSION = '4.19'
+  GSUTIL_VERSION = '4.27'
   GSUTIL_TAR = 'gsutil_%s.tar.gz' % GSUTIL_VERSION
   GSUTIL_URL = (PUBLIC_BASE_HTTPS_URL +
                 'chromeos-mirror/gentoo/distfiles/%s' % GSUTIL_TAR)
@@ -318,6 +370,37 @@ class GSContext(object):
                             'progress')
   RESUMABLE_DOWNLOAD_ERROR = ('Too many resumable download attempts failed '
                               'without progress')
+
+  # TODO: Below is a list of known flaky errors that we should
+  # retry. The list needs to be extended.
+  RESUMABLE_ERROR_MESSAGE = (
+      RESUMABLE_DOWNLOAD_ERROR,
+      RESUMABLE_UPLOAD_ERROR,
+      'ResumableUploadException',
+      'ResumableUploadAbortException',
+      'ResumableDownloadException',
+      'ssl.SSLError: The read operation timed out',
+      # TODO: Error messages may change in different library versions,
+      # use regexes to match resumable error messages.
+      'ssl.SSLError: (\'The read operation timed out\',)',
+      'ssl.SSLError: _ssl.c:495: The handshake operation timed out',
+      'Unable to find the server',
+      'doesn\'t match cloud-supplied digest',
+      'ssl.SSLError: [Errno 8]',
+      'EOF occurred in violation of protocol',
+  )
+
+  # We have seen flaky errors with 5xx return codes
+  # See b/17376491 for the "JSON decoding" error.
+  # We have seen transient Oauth 2.0 credential errors (crbug.com/414345).
+  TRANSIENT_ERROR_MESSAGE = (
+      'ServiceException: 5',
+      'Failure: No JSON object could be decoded',
+      'Oauth 2.0 User Account',
+      'InvalidAccessKeyId',
+      'socket.error: [Errno 104] Connection reset by peer',
+      'Received bad request from server',
+  )
 
   @classmethod
   def GetDefaultGSUtilBin(cls, cache_dir=None, cache_user=None):
@@ -483,6 +566,14 @@ class GSContext(object):
     self.retries = self.DEFAULT_RETRIES if retries is None else int(retries)
     self._sleep_time = self.DEFAULT_SLEEP_TIME if sleep is None else int(sleep)
 
+    # TODO(phobbs) make a class level constant after crbug.com/755415 is fixed.
+    self._error_metric = metrics.Counter(
+        constants.MON_GS_ERROR,
+        description="Errors encountered with Google Storage",
+        field_spec=[ts_mon.StringField('type'),
+                    ts_mon.StringField('message_pattern'),
+                    ts_mon.BooleanField('retriable')])
+
     if init_boto and not dry_run:
       # We can't really expect gsutil to even be present in dry_run mode.
       self._InitBoto()
@@ -623,25 +714,44 @@ class GSContext(object):
     return hashed_filenames
 
   def _RetryFilter(self, e):
-    """Function to filter retry-able RunCommandError exceptions.
+    """Returns whether to retry RunCommandError exception |e|.
 
     Args:
       e: Exception object to filter. Exception may be re-raised as
          as different type, if _RetryFilter determines a more appropriate
-         exception type based on the contents of e.
+         exception type based on the contents of |e|.
+    """
+    error_details = self._MatchKnownError(e)
+    self._error_metric.increment(fields={
+        'type': error_details.type,
+        'message_pattern': error_details.message_pattern,
+        'retriable': error_details.retriable,
+    })
+    if error_details.exception:
+      raise error_details.exception
+    return error_details.retriable
+
+  def _MatchKnownError(self, e):
+    """Function to match known RunCommandError exceptions.
+
+    Args:
+      e: Exception object to filter.
 
     Returns:
-      True for exceptions thrown by a RunCommand gsutil that should be retried.
+      An _ErrorDetails instance with details about the message pattern found.
     """
     if not retry_util.ShouldRetryCommandCommon(e):
-      return False
+      if not isinstance(e, cros_build_lib.RunCommandError):
+        error_type = 'unknown'
+      else:
+        error_type = 'failed_to_launch'
+      return _ErrorDetails(error_type, retriable=False)
 
     # e is guaranteed by above filter to be a RunCommandError
-
     if e.result.returncode < 0:
-      logging.info('Child process received signal %d; not retrying.',
-                   -e.result.returncode)
-      return False
+      sig_name = signals.StrSignal(-e.result.returncode)
+      logging.info('Child process received signal %d; not retrying.', sig_name)
+      return _ErrorDetails('received_signal', sig_name, False)
 
     error = e.result.error
     if error:
@@ -649,7 +759,8 @@ class GSContext(object):
       # It may also print "ResumableUploadAbortException: 412 Precondition
       # Failed", so the logic needs to be a little more general.
       if 'PreconditionException' in error or '412 Precondition Failed' in error:
-        raise GSContextPreconditionFailed(e)
+        return _ErrorDetails('precondition_exception', retriable=False,
+                             exception=GSContextPreconditionFailed(e))
 
       # If the file does not exist, one of the following errors occurs. The
       # "stat" command leaves off the "CommandException: " prefix, but it also
@@ -658,33 +769,16 @@ class GSContext(object):
       if ('CommandException: No URLs matched' in error or
           'NotFoundException:' in error or
           'One or more URLs matched no objects' in error):
-        raise GSNoSuchKey(e)
+        return _ErrorDetails('no_such_key', retriable=False,
+                             exception=GSNoSuchKey(e))
 
       logging.warning('GS_ERROR: %s ', error)
-
-      # TODO: Below is a list of known flaky errors that we should
-      # retry. The list needs to be extended.
 
       # Temporary fix: remove the gsutil tracker files so that our retry
       # can hit a different backend. This should be removed after the
       # bug is fixed by the Google Storage team (see crbug.com/308300).
-      RESUMABLE_ERROR_MESSAGE = (
-          self.RESUMABLE_DOWNLOAD_ERROR,
-          self.RESUMABLE_UPLOAD_ERROR,
-          'ResumableUploadException',
-          'ResumableUploadAbortException',
-          'ResumableDownloadException',
-          'ssl.SSLError: The read operation timed out',
-          # TODO: Error messages may change in different library versions,
-          # use regexes to match resumable error messages.
-          'ssl.SSLError: (\'The read operation timed out\',)',
-          'ssl.SSLError: _ssl.c:495: The handshake operation timed out',
-          'Unable to find the server',
-          'doesn\'t match cloud-supplied digest',
-          'ssl.SSLError: [Errno 8]',
-          'EOF occurred in violation of protocol',
-      )
-      if any(x in error for x in RESUMABLE_ERROR_MESSAGE):
+      resumable_error = _FirstSubstring(error, self.RESUMABLE_ERROR_MESSAGE)
+      if resumable_error:
         # Only remove the tracker files if we try to upload/download a file.
         if 'cp' in e.result.cmd[:-2]:
           # Assume a command: gsutil [options] cp [options] src_path dest_path
@@ -702,23 +796,13 @@ class GSContext(object):
               logging.info('The content of the tracker file: %s',
                            osutils.ReadFile(tracker_file_path))
               osutils.SafeUnlink(tracker_file_path)
-        return True
+        return _ErrorDetails('resumable', resumable_error, retriable=True)
 
-      # We have seen flaky errors with 5xx return codes
-      # See b/17376491 for the "JSON decoding" error.
-      # We have seen transient Oauth 2.0 credential errors (crbug.com/414345).
-      TRANSIENT_ERROR_MESSAGE = (
-          'ServiceException: 5',
-          'Failure: No JSON object could be decoded',
-          'Oauth 2.0 User Account',
-          'InvalidAccessKeyId',
-          'socket.error: [Errno 104] Connection reset by peer',
-          'Received bad request from server',
-      )
-      if any(x in error for x in TRANSIENT_ERROR_MESSAGE):
-        return True
+      transient_error = _FirstSubstring(error, self.TRANSIENT_ERROR_MESSAGE)
+      if transient_error:
+        return _ErrorDetails('transient', transient_error, retriable=True)
 
-    return False
+    return _ErrorDetails('unknown', retriable=False)
 
   # TODO(mtennant): Make a private method.
   def DoCommand(self, gsutil_cmd, headers=(), retries=None, version=None,
@@ -901,6 +985,7 @@ class GSContext(object):
       # gsutil doesn't support listing a local path, so just run 'ls'.
       kwargs.pop('retries', None)
       kwargs.pop('headers', None)
+      kwargs['capture_output'] = True
       result = cros_build_lib.RunCommand(['ls', path], **kwargs)
       return result.output.splitlines()
     else:
@@ -975,16 +1060,18 @@ class GSContext(object):
     Args:
       src_path: Fully qualified local path or full gs:// path of the src file.
       dest_path: Fully qualified local path or full gs:// path of the dest file.
+      kwargs: See options that DoCommand takes.
     """
     cmd = ['mv', '--', src_path, dest_path]
     return self.DoCommand(cmd, **kwargs)
 
-  def SetACL(self, upload_url, acl=None):
+  def SetACL(self, upload_url, acl=None, **kwargs):
     """Set access on a file already in google storage.
 
     Args:
       upload_url: gs:// url that will have acl applied to it.
       acl: An ACL permissions file or canned ACL.
+      kwargs: See options that DoCommand takes.
     """
     if acl is None:
       if not self.acl:
@@ -992,9 +1079,9 @@ class GSContext(object):
             'SetAcl invoked w/out a specified acl, nor a default acl.')
       acl = self.acl
 
-    self.DoCommand(['acl', 'set', acl, upload_url])
+    self.DoCommand(['acl', 'set', acl, upload_url], **kwargs)
 
-  def ChangeACL(self, upload_url, acl_args_file=None, acl_args=None):
+  def ChangeACL(self, upload_url, acl_args_file=None, acl_args=None, **kwargs):
     """Change access on a file already in google storage with "acl ch".
 
     Args:
@@ -1006,6 +1093,7 @@ class GSContext(object):
                      set.
       acl_args: A list of arguments for the gsutil acl ch command. Exactly
                 one of this argument or acl_args must be set.
+      kwargs: See options that DoCommand takes.
     """
     if acl_args_file and acl_args:
       raise GSContextException(
@@ -1020,7 +1108,7 @@ class GSContext(object):
       lines = [x.split('#', 1)[0].strip() for x in lines]
       acl_args = ' '.join([x for x in lines if x]).split()
 
-    self.DoCommand(['acl', 'ch'] + acl_args + [upload_url])
+    self.DoCommand(['acl', 'ch'] + acl_args + [upload_url], **kwargs)
 
   def Exists(self, path, **kwargs):
     """Checks whether the given object exists.
@@ -1256,6 +1344,26 @@ class GSContext(object):
       return matching_names
     except timeout_util.TimeoutError:
       return None
+
+
+def _FirstMatch(predicate, elems):
+  """Returns the first element matching the given |predicate|.
+
+  Args:
+    predicate: A function which takes an element and returns a bool
+    elems: A sequence of elements.
+  """
+  return next(itertools.ifilter(predicate, elems), None)
+
+
+def _FirstSubstring(superstring, haystack):
+  """Returns the first elem of |haystack| which is a substring of |superstring|.
+
+  Args:
+    superstring: A string to search for substrings of.
+    haystack: A sequence of strings to search through.
+  """
+  return _FirstMatch(lambda s: s in superstring, haystack)
 
 
 @contextlib.contextmanager

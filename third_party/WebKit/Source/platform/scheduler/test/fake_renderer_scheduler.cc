@@ -6,6 +6,7 @@
 
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "build/build_config.h"
 #include "public/platform/WebThread.h"
 
 namespace blink {
@@ -36,11 +37,6 @@ FakeRendererScheduler::LoadingTaskRunner() {
 
 scoped_refptr<SingleThreadIdleTaskRunner>
 FakeRendererScheduler::IdleTaskRunner() {
-  return nullptr;
-}
-
-scoped_refptr<base::SingleThreadTaskRunner>
-FakeRendererScheduler::TimerTaskRunner() {
   return nullptr;
 }
 
@@ -80,9 +76,16 @@ void FakeRendererScheduler::SetRendererHidden(bool hidden) {}
 
 void FakeRendererScheduler::SetRendererBackgrounded(bool backgrounded) {}
 
-void FakeRendererScheduler::PauseRenderer() {}
+std::unique_ptr<FakeRendererScheduler::RendererPauseHandle>
+FakeRendererScheduler::PauseRenderer() {
+  return nullptr;
+}
 
-void FakeRendererScheduler::ResumeRenderer() {}
+#if defined(OS_ANDROID)
+void FakeRendererScheduler::PauseTimersForAndroidWebView() {}
+
+void FakeRendererScheduler::ResumeTimersForAndroidWebView() {}
+#endif
 
 void FakeRendererScheduler::AddPendingNavigation(NavigatingFrameType type) {}
 
@@ -104,16 +107,11 @@ void FakeRendererScheduler::RemoveTaskObserver(
 
 void FakeRendererScheduler::Shutdown() {}
 
-void FakeRendererScheduler::PauseTimerQueue() {}
-
-void FakeRendererScheduler::ResumeTimerQueue() {}
-
 void FakeRendererScheduler::VirtualTimePaused() {}
 
 void FakeRendererScheduler::VirtualTimeResumed() {}
 
-void FakeRendererScheduler::SetTimerQueueStoppingWhenBackgroundedEnabled(
-    bool enabled) {}
+void FakeRendererScheduler::SetStoppingWhenBackgroundedEnabled(bool enabled) {}
 
 void FakeRendererScheduler::SetTopLevelBlameContext(
     base::trace_event::BlameContext* blame_context) {}

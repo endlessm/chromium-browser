@@ -4,12 +4,12 @@
 
 #include "chrome/browser/chromeos/arc/video/gpu_arc_video_service_host.h"
 
+#include <memory>
 #include <string>
 #include <utility>
 
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "base/message_loop/message_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -112,7 +112,7 @@ void GpuArcVideoServiceHost::OnInstanceReady() {
 }
 
 void GpuArcVideoServiceHost::OnBootstrapVideoAcceleratorFactory(
-    const OnBootstrapVideoAcceleratorFactoryCallback& callback) {
+    OnBootstrapVideoAcceleratorFactoryCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   // Hardcode pid 0 since it is unused in mojo.
@@ -133,15 +133,15 @@ void GpuArcVideoServiceHost::OnBootstrapVideoAcceleratorFactory(
       channel_pair.PassClientHandle(), &wrapped_handle);
   if (wrap_result != MOJO_RESULT_OK) {
     LOG(ERROR) << "Pipe failed to wrap handles. Closing: " << wrap_result;
-    callback.Run(mojo::ScopedHandle(), std::string());
+    std::move(callback).Run(mojo::ScopedHandle(), std::string());
     return;
   }
   mojo::ScopedHandle child_handle{mojo::Handle(wrapped_handle)};
 
-  callback.Run(std::move(child_handle), token);
+  std::move(callback).Run(std::move(child_handle), token);
 
   mojo::MakeStrongBinding(
-      base::MakeUnique<VideoAcceleratorFactoryService>(),
+      std::make_unique<VideoAcceleratorFactoryService>(),
       mojom::VideoAcceleratorFactoryRequest(std::move(server_pipe)));
 }
 

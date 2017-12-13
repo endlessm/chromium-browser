@@ -112,8 +112,8 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
         mToolbar = (HistoryManagerToolbar) mSelectableListLayout.initializeToolbar(
                 R.layout.history_toolbar, mSelectionDelegate, R.string.menu_history, null,
                 R.id.normal_menu_group, R.id.selection_mode_menu_group,
-                FeatureUtilities.isChromeHomeModernEnabled() ? R.color.modern_toolbar_bg
-                                                             : R.color.modern_primary_color,
+                FeatureUtilities.isChromeHomeEnabled() ? R.color.modern_toolbar_bg
+                                                       : R.color.modern_primary_color,
                 this, true);
         mToolbar.setManager(this);
         mToolbar.initializeSearchView(this, R.string.history_manager_search, R.id.search_menu_id);
@@ -233,6 +233,20 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
      */
     public ViewGroup getView() {
         return mSelectableListLayout;
+    }
+
+    /**
+     * @return The {@link RecyclerView} that contains the list of history items.
+     */
+    public RecyclerView getRecyclerView() {
+        return mRecyclerView;
+    }
+
+    /**
+     * @return The empty {@link TextView} used for when there's no history.
+     */
+    public TextView getEmptyView() {
+        return mEmptyView;
     }
 
     /**
@@ -386,11 +400,6 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
     }
 
     @VisibleForTesting
-    TextView getEmptyViewForTests() {
-        return mEmptyView;
-    }
-
-    @VisibleForTesting
     public HistoryAdapter getAdapterForTests() {
         return mHistoryAdapter;
     }
@@ -469,5 +478,12 @@ public class HistoryManager implements OnMenuItemClickListener, SignInStateObser
     @Override
     public void onDismissNoAction(Object actionData) {
         // Handler for the link copied snackbar. Do nothing.
+    }
+
+    /**
+     * Called to scroll to the top of the history list.
+     */
+    public void scrollToTop() {
+        mRecyclerView.smoothScrollToPosition(0);
     }
 }

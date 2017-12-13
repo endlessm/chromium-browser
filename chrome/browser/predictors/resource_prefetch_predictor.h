@@ -65,7 +65,7 @@ struct PreconnectPrediction {
   PreconnectPrediction(const PreconnectPrediction& other);
   ~PreconnectPrediction();
 
-  bool is_redirected;
+  bool is_redirected = false;
   std::string host;
   std::vector<GURL> preconnect_origins;
   std::vector<GURL> preresolve_hosts;
@@ -140,6 +140,8 @@ class ResourcePrefetchPredictor : public history::HistoryServiceObserver {
 
   // Returns true if prefetching data exists for the |main_frame_url|.
   virtual bool IsUrlPrefetchable(const GURL& main_frame_url) const;
+  // Returns true if preconnect data exists for the |main_frame_url|.
+  virtual bool IsUrlPreconnectable(const GURL& main_frame_url) const;
 
   // Returns true iff |resource| has sufficient confidence level and required
   // number of hits.
@@ -158,7 +160,8 @@ class ResourcePrefetchPredictor : public history::HistoryServiceObserver {
 
   // Returns true iff there is OriginData that can be used for a |url| and fills
   // |prediction| with origins and hosts that need to be preconnected and
-  // preresolved respectively.
+  // preresolved respectively. |prediction| pointer may be nullptr to get return
+  // value only.
   virtual bool PredictPreconnectOrigins(const GURL& url,
                                         PreconnectPrediction* prediction) const;
 
@@ -264,6 +267,7 @@ class ResourcePrefetchPredictor : public history::HistoryServiceObserver {
                      RedirectDataMap* redirect_data);
 
   void LearnOrigins(const std::string& host,
+                    const GURL& main_frame_origin,
                     const std::map<GURL, OriginRequestSummary>& summaries);
 
   // Reports database readiness metric defined as percentage of navigated hosts

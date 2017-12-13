@@ -20,7 +20,6 @@
 <translation id="1254117744268754948">Escolher Pasta</translation>
 <translation id="1265739287306757398">Saiba como</translation>
 <translation id="1272079795634619415">Parar</translation>
-<translation id="129553762522093515">Fechados recentemente</translation>
 <translation id="1323735185997015385">Eliminar</translation>
 <translation id="132683371494960526">Toque duas vezes para alterar a pasta principal.</translation>
 <translation id="1340643665687018190">Fechar menu</translation>
@@ -48,7 +47,6 @@ Por exemplo, alguns Sites poderão mostrar anúncios que não sejam baseados nou
 <translation id="1690731385917361335">Sem itens</translation>
 <translation id="1700629756560807968"><ph name="NUMBER_OF_SELECTED_BOOKMARKS" /> selecionados</translation>
 <translation id="1740468249224277719">Toque duas vezes para instalar.</translation>
-<translation id="1749561566933687563">Sincronizar os marcadores</translation>
 <translation id="1752547299766512813">Guardar Palavras-passe</translation>
 <translation id="1753905327828125965">Mais visitados</translation>
 <translation id="1809939268435598390">Eliminar pasta</translation>
@@ -80,6 +78,7 @@ Por exemplo, alguns Sites poderão mostrar anúncios que não sejam baseados nou
 <translation id="2381405137052800939">Noções básicas</translation>
 <translation id="2386793615875593361">1 selecionada</translation>
 <translation id="2435457462613246316">Mostrar palavra-passe</translation>
+<translation id="2529021024822217800">Abrir todos</translation>
 <translation id="2572712655377361602">Uma política do dispositivo bloqueou o acesso às suas fotos</translation>
 <translation id="2584132361465095047">Adicionar conta...</translation>
 <translation id="2593774076813182497">Não é pos. impr. página.</translation>
@@ -129,7 +128,6 @@ Por exemplo, alguns Sites poderão mostrar anúncios que não sejam baseados nou
 <translation id="3324193307694657476">Morada 2</translation>
 <translation id="3329904751041170572">Não foi possível ligar ao servidor.</translation>
 <translation id="3335947283844343239">Reabrir separador fechado</translation>
-<translation id="3387752218061326363">A mostrar o histórico dos seus dispositivos com sessão iniciada... <ph name="BEGIN_LINK" />Saiba mais<ph name="END_LINK" />.</translation>
 <translation id="3393920035788932672">Pop-ups Permitidos</translation>
 <translation id="3414292259312108062">O Chrome armazena esta informação nas suas <ph name="BEGIN_LINK" />palavras-passe guardadas do Google<ph name="END_LINK" /> e preenche-a automaticamente por si para que não a tenha de memorizar.</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> min.</translation>
@@ -162,7 +160,7 @@ Para ajustar o termo de pesquisa, prima continuamente para selecionar. Para refi
 <translation id="3897092660631435901">Menu</translation>
 <translation id="3928666092801078803">Combinar os meus dados</translation>
 <translation id="3950820424414687140">Iniciar sessão</translation>
-<translation id="3963231839620026525">Novo separ. de naveg. anónima</translation>
+<translation id="3963231839620026525">Novo separador anónimo</translation>
 <translation id="3967822245660637423">Transferência concluída</translation>
 <translation id="3989635538409502728">Terminar sessão</translation>
 <translation id="4002066346123236978">Título</translation>
@@ -181,6 +179,7 @@ Para ajustar o termo de pesquisa, prima continuamente para selecionar. Para refi
 <translation id="4342284590510997375">Novo</translation>
 <translation id="434816576838749873">Escolher aplicação de email</translation>
 <translation id="4359125752503270327">Esta página abre noutra aplicação.</translation>
+<translation id="4370827530403103842">A sincronização não está a funcionar. Toque para corrigir.</translation>
 <translation id="4375040482473363939">Pesquisa de códigos QR</translation>
 <translation id="4378154925671717803">Telefone</translation>
 <translation id="441868831736628555">Aviso de Privacidade</translation>
@@ -188,6 +187,7 @@ Para ajustar o termo de pesquisa, prima continuamente para selecionar. Para refi
 <translation id="4508750114462689118">Fechar a promoção de início de sessão</translation>
 <translation id="4526249700380860531">Ver e gerir as palavras-passe guardadas em <ph name="BEGIN_LINK" />passwords.google.com<ph name="END_LINK" /></translation>
 <translation id="4536418791685807335">Experimente iniciar sessão novamente.</translation>
+<translation id="457386861538956877">Mais...</translation>
 <translation id="461440297010471931">Pesquisar com o Google</translation>
 <translation id="4620246317052452550">Páginas lidas</translation>
 <translation id="4636930964841734540">Informações</translation>
@@ -309,6 +309,7 @@ Os dados foram encriptados com a sua frase de acesso de sincronização em <ph n
 <translation id="6785453220513215166">A enviar relatório de falha...</translation>
 <translation id="679325081238418596">Obter os marcadores, histórico, palavras-passe e outras definições em todos os dispositivos</translation>
 <translation id="6797885426782475225">Pesquisa por voz</translation>
+<translation id="6807889908376551050">Mostrar todos...</translation>
 <translation id="681368974849482173">Item criado</translation>
 <translation id="6896758677409633944">Copiar</translation>
 <translation id="6903907808598579934">Ativar sincronização</translation>
@@ -319,7 +320,6 @@ Os dados foram encriptados com a sua frase de acesso de sincronização em <ph n
 <translation id="7031882061095297553">Sincronizar com</translation>
 <translation id="7062545763355031412">Aceitar e mudar de contas</translation>
 <translation id="7108338896283013870">Ocultar</translation>
-<translation id="7131892264600713844">A mostrar o histórico deste dispositivo. <ph name="BEGIN_LINK" />Saiba mais<ph name="END_LINK" /></translation>
 <translation id="7133798577887235672">Nome completo</translation>
 <translation id="7136892417564438900">A câmara não está disponível</translation>
 <translation id="7159472599653637159">Pedir site para dispositivos móveis</translation>
@@ -356,7 +356,6 @@ Os dados foram encriptados com a sua frase de acesso de sincronização em <ph n
 <translation id="7769602470925380267">Aceitar e terminar sessão</translation>
 <translation id="7772032839648071052">Confirmar frase de acesso</translation>
 <translation id="780301667611848630">Não, obrigado</translation>
-<translation id="7851858861565204677">Outros aparelhos</translation>
 <translation id="7859704718976024901">Histórico de navegação</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7947953824732555851">Aceitar e in. sessão</translation>
@@ -382,6 +381,7 @@ Os dados foram encriptados com a sua frase de acesso de sincronização em <ph n
 <translation id="8458397775385147834">1 item eliminado</translation>
 <translation id="8487700953926739672">Disponível offline</translation>
 <translation id="8503813439785031346">Nome de utilizador</translation>
+<translation id="850600235656508448">Abrir no modo de navegação anónima</translation>
 <translation id="8517375800490286174">Licenças de Código Aberto</translation>
 <translation id="8524799873541103884">Separadores <ph name="INCOGNITO" /> <ph name="FIRST_VISIBLE_TAB" /> a <ph name="LAST_VISIBLE_TAB" /> de <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8532105204136943229">Ano de validade</translation>
@@ -400,6 +400,7 @@ Os dados foram encriptados com a sua frase de acesso de sincronização em <ph n
 <translation id="8775144690796719618">URL inválido</translation>
 <translation id="8820817407110198400">Marcadores</translation>
 <translation id="8840513115188359703">A sessão na sua Conta Google não é terminada.</translation>
+<translation id="8870413625673593573">Fechadas recentemente</translation>
 <translation id="8881801611828450202">Pesquisar esta imagem no <ph name="SEARCH_ENGINE" /></translation>
 <translation id="8904976895050290827">Sincronização do Google Chrome</translation>
 <translation id="895541991026785598">Comunicar um problema</translation>

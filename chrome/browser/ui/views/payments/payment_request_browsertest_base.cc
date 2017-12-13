@@ -79,7 +79,9 @@ PaymentRequestBrowserTestBase::PaymentRequestBrowserTestBase(
     : test_file_path_(test_file_path),
       delegate_(nullptr),
       is_incognito_(false),
-      is_valid_ssl_(true) {}
+      is_valid_ssl_(true),
+      is_browser_window_active_(true) {}
+
 PaymentRequestBrowserTestBase::~PaymentRequestBrowserTestBase() {}
 
 void PaymentRequestBrowserTestBase::SetUpCommandLine(
@@ -127,9 +129,18 @@ void PaymentRequestBrowserTestBase::SetInvalidSsl() {
   is_valid_ssl_ = false;
 }
 
+void PaymentRequestBrowserTestBase::SetBrowserWindowInactive() {
+  is_browser_window_active_ = false;
+}
+
 void PaymentRequestBrowserTestBase::OnCanMakePaymentCalled() {
   if (event_observer_)
     event_observer_->Observe(DialogEvent::CAN_MAKE_PAYMENT_CALLED);
+}
+
+void PaymentRequestBrowserTestBase::OnCanMakePaymentReturned() {
+  if (event_observer_)
+    event_observer_->Observe(DialogEvent::CAN_MAKE_PAYMENT_RETURNED);
 }
 
 void PaymentRequestBrowserTestBase::OnNotSupportedError() {
@@ -460,7 +471,8 @@ void PaymentRequestBrowserTestBase::CreatePaymentRequestForTest(
   DCHECK(web_contents);
   std::unique_ptr<TestChromePaymentRequestDelegate> delegate =
       base::MakeUnique<TestChromePaymentRequestDelegate>(
-          web_contents, this /* observer */, is_incognito_, is_valid_ssl_);
+          web_contents, this /* observer */, is_incognito_, is_valid_ssl_,
+          is_browser_window_active_);
   delegate_ = delegate.get();
   PaymentRequestWebContentsManager::GetOrCreateForWebContents(web_contents)
       ->CreatePaymentRequest(web_contents->GetMainFrame(), web_contents,
@@ -813,6 +825,9 @@ std::ostream& operator<<(
       break;
     case DialogEvent::CAN_MAKE_PAYMENT_CALLED:
       out << "CAN_MAKE_PAYMENT_CALLED";
+      break;
+    case DialogEvent::CAN_MAKE_PAYMENT_RETURNED:
+      out << "CAN_MAKE_PAYMENT_RETURNED";
       break;
     case DialogEvent::ERROR_MESSAGE_SHOWN:
       out << "ERROR_MESSAGE_SHOWN";

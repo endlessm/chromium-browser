@@ -46,8 +46,8 @@
 #include "third_party/WebKit/public/platform/modules/permissions/permission_status.mojom.h"
 
 #if BUILDFLAG(ENABLE_BACKGROUND)
-#include "chrome/browser/lifetime/keep_alive_registry.h"
-#include "chrome/browser/lifetime/keep_alive_types.h"
+#include "components/keep_alive_registry/keep_alive_registry.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
 #endif
 
 namespace {
@@ -88,7 +88,7 @@ class PlatformNotificationServiceBrowserTest : public InProcessBrowserTest {
 
   void SetUpOnMainThread() override {
     display_service_tester_ =
-        base::MakeUnique<NotificationDisplayServiceTester>(
+        std::make_unique<NotificationDisplayServiceTester>(
             browser()->profile());
 
     SiteEngagementScore::SetParamValuesForTesting();
@@ -478,8 +478,11 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
       GetDisplayedNotifications(true /* is_persistent */);
   ASSERT_EQ(1u, notifications.size());
 
-  EXPECT_EQ(TestPageUrl().spec(),
-            notifications[0].service_worker_scope().spec());
+  EXPECT_EQ(
+      TestPageUrl(),
+      PersistentNotificationMetadata::From(
+          display_service_tester_->GetMetadataForNotification(notifications[0]))
+          ->service_worker_scope);
 }
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
@@ -672,8 +675,8 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
       base::StartsWith(notification.id(), "p:", base::CompareCase::SENSITIVE));
 
   display_service_tester_->RemoveNotification(
-      NotificationCommon::PERSISTENT, notification.delegate_id(),
-      false /* by_user */, true /* silent */);
+      NotificationCommon::PERSISTENT, notification.id(), false /* by_user */,
+      true /* silent */);
 
   ASSERT_TRUE(RunScript("GetDisplayedNotifications()", &script_result));
   EXPECT_EQ("ok", script_result);

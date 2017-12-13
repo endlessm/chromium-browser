@@ -6,6 +6,7 @@
 #include "ash/login/ui/login_test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/widget/widget.h"
 
 namespace ash {
 
@@ -30,10 +31,10 @@ class LoginAuthUserViewUnittest : public LoginTestBase {
     container_->SetLayoutManager(
         new views::BoxLayout(views::BoxLayout::kVertical));
     container_->AddChildView(view_);
-    ShowWidgetWithContent(container_);
+    SetWidget(CreateWidgetWithContent(container_));
   }
 
-  mojom::UserInfoPtr user_;
+  mojom::LoginUserInfoPtr user_;
   views::View* container_ = nullptr;   // Owned by test widget view hierarchy.
   LoginAuthUserView* view_ = nullptr;  // Owned by test widget view hierarchy.
   base::Optional<int> value_;

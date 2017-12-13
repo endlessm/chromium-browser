@@ -14,10 +14,10 @@
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/metrics_hashes.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_util.h"
 #include "base/task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "components/machine_intelligence/proto/ranker_model.pb.h"
 #include "components/machine_intelligence/proto/translate_ranker_model.pb.h"
 #include "components/machine_intelligence/ranker_model.h"
@@ -25,7 +25,7 @@
 #include "components/translate/core/browser/translate_download_manager.h"
 #include "components/translate/core/common/translate_switches.h"
 #include "components/variations/variations_associated_data.h"
-#include "services/metrics/public/cpp/ukm_entry_builder.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "url/gurl.h"
 
@@ -74,14 +74,26 @@ RankerModelStatus ValidateModel(const RankerModel& model) {
 
 }  // namespace
 
+const char kDefaultTranslateRankerModelURL[] =
+    "https://www.gstatic.com/chrome/intelligence/assist/ranker/models/"
+    "translate/2017/03/translate_ranker_model_20170329.pb.bin";
 const base::Feature kTranslateRankerQuery{"TranslateRankerQuery",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
+                                          base::FEATURE_ENABLED_BY_DEFAULT};
 
+#if defined(OS_ANDROID)
 const base::Feature kTranslateRankerEnforcement{
     "TranslateRankerEnforcement", base::FEATURE_DISABLED_BY_DEFAULT};
+#else
+const base::Feature kTranslateRankerEnforcement{
+    "TranslateRankerEnforcement", base::FEATURE_ENABLED_BY_DEFAULT};
+#endif
 
-const base::Feature kTranslateRankerDecisionOverride{
-    "TranslateRankerDecisionOverride", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kTranslateRankerAutoBlacklistOverride{
+    "TranslateRankerAutoBlacklistOverride", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kTranslateRankerPreviousLanguageMatchesOverride{
+    "TranslateRankerPreviousLanguageMatchesOverride",
+    base::FEATURE_DISABLED_BY_DEFAULT};
 
 TranslateRankerFeatures::TranslateRankerFeatures() {}
 
@@ -139,8 +151,11 @@ TranslateRankerImpl::TranslateRankerImpl(const base::FilePath& model_path,
       is_query_enabled_(base::FeatureList::IsEnabled(kTranslateRankerQuery)),
       is_enforcement_enabled_(
           base::FeatureList::IsEnabled(kTranslateRankerEnforcement)),
-      is_decision_override_enabled_(base::FeatureList::IsEnabled(
-          translate::kTranslateRankerDecisionOverride)),
+      is_auto_blacklist_override_enabled_(base::FeatureList::IsEnabled(
+          translate::kTranslateRankerAutoBlacklistOverride)),
+      is_previous_language_matches_override_enabled_(
+          base::FeatureList::IsEnabled(
+              translate::kTranslateRankerPreviousLanguageMatchesOverride)),
       weak_ptr_factory_(this) {
   if (is_query_enabled_ || is_enforcement_enabled_) {
     model_loader_ = base::MakeUnique<machine_intelligence::RankerModelLoader>(
@@ -168,6 +183,10 @@ base::FilePath TranslateRankerImpl::GetModelPath(
 
 // static
 GURL TranslateRankerImpl::GetModelURL() {
+  if (!base::FeatureList::IsEnabled(kTranslateRankerQuery) &&
+      !base::FeatureList::IsEnabled(kTranslateRankerEnforcement)) {
+    return GURL();
+  }
   // Allow override of the ranker model URL from the command line.
   std::string raw_url;
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -179,6 +198,9 @@ GURL TranslateRankerImpl::GetModelURL() {
     raw_url = variations::GetVariationParamValueByFeature(
         kTranslateRankerQuery, switches::kTranslateRankerModelURL);
   }
+  // If the ranker URL is still not defined, use the default.
+  if (raw_url.empty())
+    raw_url = kDefaultTranslateRankerModelURL;
 
   DVLOG(3) << switches::kTranslateRankerModelURL << " = " << raw_url;
 
@@ -227,11 +249,6 @@ bool TranslateRankerImpl::ShouldOfferTranslation(
   }
 
   SCOPED_UMA_HISTOGRAM_TIMER("Translate.Ranker.Timer.ShouldOfferTranslation");
-
-  // TODO(rogerm): Remove ScopedTracker below once crbug.com/646711 is closed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "646711 translate::TranslateRankerImpl::ShouldOfferTranslation"));
 
   bool result = GetModelDecision(*translate_event);
 
@@ -304,22 +321,18 @@ void TranslateRankerImpl::SendEventToUKM(
   DVLOG(3) << "Sending event for url: " << url.spec();
   ukm::SourceId source_id = ukm_recorder_->GetNewSourceID();
   ukm_recorder_->UpdateSourceURL(source_id, url);
-  std::unique_ptr<ukm::UkmEntryBuilder> builder =
-      ukm_recorder_->GetEntryBuilder(source_id, "Translate");
-  // The metrics added here should be kept in sync with the documented
-  // metrics in tools/metrics/ukm/ukm.xml.
   // TODO(hamelphi): Remove hashing functions once UKM accepts strings metrics.
-  builder->AddMetric("SourceLanguage",
-                     base::HashMetricName(event.source_language()));
-  builder->AddMetric("TargetLanguage",
-                     base::HashMetricName(event.target_language()));
-  builder->AddMetric("Country", base::HashMetricName(event.country()));
-  builder->AddMetric("AcceptCount", event.accept_count());
-  builder->AddMetric("DeclineCount", event.decline_count());
-  builder->AddMetric("IgnoreCount", event.ignore_count());
-  builder->AddMetric("RankerVersion", event.ranker_version());
-  builder->AddMetric("RankerResponse", event.ranker_response());
-  builder->AddMetric("EventType", event.event_type());
+  ukm::builders::Translate(source_id)
+      .SetSourceLanguage(base::HashMetricName(event.source_language()))
+      .SetTargetLanguage(base::HashMetricName(event.target_language()))
+      .SetCountry(base::HashMetricName(event.country()))
+      .SetAcceptCount(event.accept_count())
+      .SetDeclineCount(event.decline_count())
+      .SetIgnoreCount(event.ignore_count())
+      .SetRankerVersion(event.ranker_version())
+      .SetRankerResponse(event.ranker_response())
+      .SetEventType(event.event_type())
+      .Record(ukm_recorder_);
 }
 
 void TranslateRankerImpl::AddTranslateEvent(
@@ -361,7 +374,11 @@ bool TranslateRankerImpl::ShouldOverrideDecision(
     const GURL& url,
     metrics::TranslateEventProto* translate_event) {
   DCHECK(metrics::TranslateEventProto::EventType_IsValid(event_type));
-  if (is_decision_override_enabled_) {
+  if ((event_type == metrics::TranslateEventProto::MATCHES_PREVIOUS_LANGUAGE &&
+       is_previous_language_matches_override_enabled_) ||
+      (event_type ==
+           metrics::TranslateEventProto::LANGUAGE_DISABLED_BY_AUTO_BLACKLIST &&
+       is_auto_blacklist_override_enabled_)) {
     translate_event->add_decision_overrides(
         static_cast<metrics::TranslateEventProto::EventType>(event_type));
     DVLOG(3) << "Overriding decision of type: " << event_type;

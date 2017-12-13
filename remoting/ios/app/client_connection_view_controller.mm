@@ -17,6 +17,7 @@
 #import "remoting/ios/app/pin_entry_view.h"
 #import "remoting/ios/app/remoting_theme.h"
 #import "remoting/ios/app/session_reconnect_view.h"
+#import "remoting/ios/app/view_utils.h"
 #import "remoting/ios/domain/client_session_details.h"
 #import "remoting/ios/domain/host_info.h"
 #import "remoting/ios/facade/remoting_authentication.h"
@@ -129,14 +130,15 @@ static const CGFloat kKeyboardAnimationTime = 0.3;
   _activityIndicator.radius = kActivityIndicatorRadius;
   _activityIndicator.trackEnabled = YES;
   _activityIndicator.strokeWidth = kActivityIndicatorStrokeWidth;
-  _activityIndicator.cycleColors = @[ UIColor.whiteColor ];
+  _activityIndicator.cycleColors =
+      @[ RemotingTheme.connectionViewForegroundColor ];
   _activityIndicator.translatesAutoresizingMaskIntoConstraints = NO;
   [self.view addSubview:_activityIndicator];
 
   _statusLabel = [[UILabel alloc] initWithFrame:CGRectZero];
   _statusLabel.numberOfLines = 1;
   _statusLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-  _statusLabel.textColor = [UIColor whiteColor];
+  _statusLabel.textColor = RemotingTheme.connectionViewForegroundColor;
   _statusLabel.textAlignment = NSTextAlignmentCenter;
   _statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
   [self.view addSubview:_statusLabel];
@@ -410,6 +412,7 @@ static const CGFloat kKeyboardAnimationTime = 0.3;
   [_pinEntryView endEditing:YES];
   _statusLabel.text =
       [self stringWithHostNameForId:IDS_CONNECTING_TO_HOST_MESSAGE];
+  [self focusOnStatusLabel];
 
   _pinEntryView.hidden = YES;
 
@@ -418,7 +421,8 @@ static const CGFloat kKeyboardAnimationTime = 0.3;
   _iconView.backgroundColor = RemotingTheme.hostOnlineColor;
 
   [_activityIndicator stopAnimating];
-  _activityIndicator.cycleColors = @[ [UIColor whiteColor] ];
+  _activityIndicator.cycleColors =
+      @[ RemotingTheme.connectionViewForegroundColor ];
   _activityIndicator.indicatorMode = MDCActivityIndicatorModeIndeterminate;
   _activityIndicator.hidden = NO;
   [_activityIndicator startAnimating];
@@ -447,6 +451,7 @@ static const CGFloat kKeyboardAnimationTime = 0.3;
   [_pinEntryView endEditing:YES];
   _statusLabel.text =
       [self stringWithHostNameForId:IDS_CONNECTED_TO_HOST_MESSAGE];
+  [self focusOnStatusLabel];
 
   _pinEntryView.hidden = YES;
   [_pinEntryView clearPinEntry];
@@ -456,7 +461,7 @@ static const CGFloat kKeyboardAnimationTime = 0.3;
   _activityIndicator.progress = 0.0;
   _activityIndicator.hidden = NO;
   _activityIndicator.indicatorMode = MDCActivityIndicatorModeDeterminate;
-  _activityIndicator.cycleColors = @[ [UIColor greenColor] ];
+  _activityIndicator.cycleColors = @[ RemotingTheme.hostOnlineColor ];
   [_activityIndicator startAnimating];
   _activityIndicator.progress = 1.0;
 
@@ -474,6 +479,7 @@ static const CGFloat kKeyboardAnimationTime = 0.3;
 - (void)showReconnect {
   _statusLabel.text =
       [self stringWithHostNameForId:IDS_CONNECTION_CLOSED_FOR_HOST_MESSAGE];
+  [self focusOnStatusLabel];
 
   _iconView.backgroundColor = RemotingTheme.hostErrorColor;
 
@@ -549,6 +555,7 @@ static const CGFloat kKeyboardAnimationTime = 0.3;
     _reconnectView.errorText = message;
   }
   _reconnectView.hidden = NO;
+  remoting::SetAccessibilityFocusElement(_reconnectView);
 }
 
 - (void)didProvidePin:(NSString*)pin createPairing:(BOOL)createPairing {
@@ -595,8 +602,13 @@ static const CGFloat kKeyboardAnimationTime = 0.3;
       state = ClientViewError;
       break;
     case SessionClosed:
-      // If the session closes, offer the user to reconnect.
-      state = ClientViewReconnect;
+      // If the session is closed by the host, just go back to the host list and
+      // show a toast.
+      state = ClientViewClosed;
+      [MDCSnackbarManager
+          showMessage:[MDCSnackbarMessage
+                          messageWithText:l10n_util::GetNSString(
+                                              IDS_MESSAGE_SESSION_FINISHED)]];
       break;
     case SessionCancelled:
       state = ClientViewClosed;
@@ -614,6 +626,10 @@ static const CGFloat kKeyboardAnimationTime = 0.3;
 - (NSString*)stringWithHostNameForId:(int)messageId {
   return l10n_util::GetNSStringF(messageId,
                                  base::SysNSStringToUTF16(_remoteHostName));
+}
+
+- (void)focusOnStatusLabel {
+  remoting::SetAccessibilityFocusElement(_statusLabel);
 }
 
 @end

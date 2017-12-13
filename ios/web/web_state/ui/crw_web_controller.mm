@@ -36,7 +36,6 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #import "ios/net/http_response_headers_util.h"
-#import "ios/net/nsurlrequest_util.h"
 #include "ios/web/history_state_util.h"
 #import "ios/web/interstitials/web_interstitial_impl.h"
 #import "ios/web/navigation/crw_placeholder_navigation_info.h"
@@ -676,6 +675,8 @@ registerLoadRequestForURL:(const GURL&)URL
 - (void)forgetNullWKNavigation:(WKNavigation*)navigation;
 
 - (BOOL)isLoaded;
+// Returns YES if the current live view is a web view with an image MIME type.
+- (BOOL)contentIsImage;
 // Extracts the current page's viewport tag information and calls |completion|.
 // If the page has changed before the viewport tag is successfully extracted,
 // |completion| is called with nullptr.
@@ -923,6 +924,7 @@ const NSTimeInterval kSnapshotOverlayTransition = 0.5;
 @synthesize loadPhase = _loadPhase;
 @synthesize shouldSuppressDialogs = _shouldSuppressDialogs;
 @synthesize webProcessCrashed = _webProcessCrashed;
+@synthesize visible = _visible;
 @synthesize nativeProvider = _nativeProvider;
 @synthesize swipeRecognizerProvider = _swipeRecognizerProvider;
 @synthesize webViewProxy = _webViewProxy;
@@ -1474,7 +1476,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
   context->SetIsSameDocument(sameDocumentNavigation);
 
   _webStateImpl->SetIsLoading(true);
-  _webStateImpl->OnNavigationStarted(context.get());
+  [_webUIManager loadWebUIForURL:requestURL];
   return context;
 }
 
@@ -1721,6 +1723,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
 
 - (void)loadNativeViewWithSuccess:(BOOL)loadSuccess
                 navigationContext:(web::NavigationContextImpl*)context {
+  _webStateImpl->OnNavigationStarted(context);
   const GURL currentURL([self currentURL]);
   [self didStartLoadingURL:currentURL];
   _loadPhase = web::PAGE_LOADED;
@@ -1953,6 +1956,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
                          referrer:self.currentNavItemReferrer
                        transition:ui::PageTransition::PAGE_TRANSITION_RELOAD
            sameDocumentNavigation:NO];
+    _webStateImpl->OnNavigationStarted(navigationContext.get());
     [self didStartLoadingURL:url];
     [self.nativeController reload];
     _webStateImpl->OnNavigationFinished(navigationContext.get());
@@ -1995,6 +1999,15 @@ registerLoadRequestForURL:(const GURL&)requestURL
 
 - (BOOL)isLoaded {
   return _loadPhase == web::PAGE_LOADED;
+}
+
+- (BOOL)contentIsImage {
+  if (!_webView)
+    return NO;
+
+  const std::string image = "image";
+  std::string MIMEType = self.webState->GetContentsMimeType();
+  return MIMEType.compare(0, image.length(), image) == 0;
 }
 
 - (void)didFinishNavigation:(WKNavigation*)navigation {
@@ -2767,12 +2780,14 @@ registerLoadRequestForURL:(const GURL&)requestURL
 }
 
 - (void)wasShown {
+  self.visible = YES;
   if ([self.nativeController respondsToSelector:@selector(wasShown)]) {
     [self.nativeController wasShown];
   }
 }
 
 - (void)wasHidden {
+  self.visible = NO;
   if (_isHalted)
     return;
   [self recordStateInHistory];
@@ -3731,7 +3746,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
   NSString* host = base::SysUTF8ToNSString(_documentURL.host());
   BOOL hasOnlySecureContent = [_webView hasOnlySecureContent];
   base::ScopedCFTypeRef<SecTrustRef> trust;
-  if (base::ios::IsRunningOnIOS10OrLater()) {
+  if (@available(iOS 10, *)) {
     trust.reset([_webView serverTrust], base::scoped_policy::RETAIN);
   } else {
     trust = web::CreateServerTrustFromChain([_webView certificateChain], host);
@@ -3972,6 +3987,12 @@ registerLoadRequestForURL:(const GURL&)requestURL
   _webProcessCrashed = YES;
   _webStateImpl->CancelDialogs();
   _webStateImpl->OnRenderProcessGone();
+  if (@available(iOS 11, *)) {
+    // On iOS 11 WKWebView does not repaint after crash and reload. Recreating
+    // web view fixes the issue. TODO(crbug.com/770914): Remove this workaround
+    // once rdar://35063950 is fixed.
+    [self removeWebView];
+  }
 }
 
 - (web::WKWebViewConfigurationProvider&)webViewConfigurationProvider {
@@ -4179,6 +4200,33 @@ registerLoadRequestForURL:(const GURL&)requestURL
                        }];
 }
 
+- (BOOL)webView:(WKWebView*)webView
+    shouldPreviewElement:(WKPreviewElementInfo*)elementInfo
+    API_AVAILABLE(ios(10.0)) {
+  return self.webStateImpl->ShouldPreviewLink(
+      net::GURLWithNSURL(elementInfo.linkURL));
+}
+
+- (UIViewController*)webView:(WKWebView*)webView
+    previewingViewControllerForElement:(WKPreviewElementInfo*)elementInfo
+                        defaultActions:
+                            (NSArray<id<WKPreviewActionItem>>*)previewActions
+    API_AVAILABLE(ios(10.0)) {
+  // Prevent |_contextMenuController| from intercepting the default behavior for
+  // the current on-going touch. Otherwise it would cancel the on-going Peek&Pop
+  // action and show its own context menu instead (crbug.com/770619).
+  [_contextMenuController allowSystemUIForCurrentGesture];
+
+  return self.webStateImpl->GetPreviewingViewController(
+      net::GURLWithNSURL(elementInfo.linkURL));
+}
+
+- (void)webView:(WKWebView*)webView
+    commitPreviewingViewController:(UIViewController*)previewingViewController {
+  return self.webStateImpl->CommitPreviewingViewController(
+      previewingViewController);
+}
+
 #pragma mark -
 #pragma mark WKNavigationDelegate Methods
 
@@ -4363,6 +4411,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
 
       _lastRegisteredRequestURL = webViewURL;
     }
+    _webStateImpl->OnNavigationStarted(context);
     return;
   }
 
@@ -4399,6 +4448,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
 
   std::unique_ptr<web::NavigationContextImpl> navigationContext =
       [self registerLoadRequestForURL:webViewURL sameDocumentNavigation:NO];
+  _webStateImpl->OnNavigationStarted(navigationContext.get());
   [_navigationStates setContext:std::move(navigationContext)
                   forNavigation:navigation];
   DCHECK(self.loadPhase == web::LOAD_REQUESTED);
@@ -4544,7 +4594,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
   // This point should closely approximate the document object change, so reset
   // the list of injected scripts to those that are automatically injected.
   _injectedScriptManagers = [[NSMutableSet alloc] init];
-  if ([self contentIsHTML] || self.webState->GetContentsMimeType().empty()) {
+  if ([self contentIsHTML] || [self contentIsImage] ||
+      self.webState->GetContentsMimeType().empty()) {
     // In unit tests MIME type will be empty, because loadHTML:forURL: does not
     // notify web view delegate about received response, so web controller does
     // not get a chance to properly update MIME type.
@@ -5014,13 +5065,14 @@ registerLoadRequestForURL:(const GURL&)requestURL
   [self setDocumentURL:newURL];
 
   if (!_changingHistoryState) {
-    [self didStartLoadingURL:_documentURL];
-
     // Pass either newly created context (if it exists) or context that already
     // existed before.
     web::NavigationContextImpl* navigationContext = newNavigationContext.get();
     if (!navigationContext)
       navigationContext = [self contextForPendingNavigationWithURL:newURL];
+    DCHECK(navigationContext->IsSameDocument());
+    _webStateImpl->OnNavigationStarted(navigationContext);
+    [self didStartLoadingURL:_documentURL];
     _webStateImpl->OnNavigationFinished(navigationContext);
 
     [self updateSSLStatusForCurrentNavigationItem];

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -24,13 +25,13 @@ from chromite.lib import constants
 from chromite.lib import failures_lib
 from chromite.cbuildbot import swarming_lib
 from chromite.cbuildbot import topology
-from chromite.cli.cros.tests import cros_vm_test
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import gob_util
 from chromite.lib import gs
 from chromite.lib import metrics
 from chromite.lib import osutils
+from chromite.lib import parallel
 from chromite.lib import path_util
 from chromite.lib import portage_util
 from chromite.lib import retry_util
@@ -52,10 +53,6 @@ _AUTOTEST_RPC_HOSTNAME = 'master2'
 _LOCAL_BUILD_FLAGS = ['--nousepkg', '--reuse_pkgs_from_local_boards']
 UPLOADED_LIST_FILENAME = 'UPLOADED'
 STATEFUL_FILE = 'stateful.tgz'
-# For sorting through VM test results.
-_TEST_REPORT_FILENAME = 'test_report.log'
-_TEST_PASSED = 'PASSED'
-_TEST_FAILED = 'FAILED'
 # For swarming proxy
 _SWARMING_ADDITIONAL_TIMEOUT = 60 * 60
 _DEFAULT_HWTEST_TIMEOUT_MINS = 1440
@@ -336,14 +333,12 @@ def RunBranchUtilTest(buildroot, version):
   """Tests that branch-util works at the given manifest version."""
   with osutils.TempDir() as tempdir:
     cmd = [
-        'cbuildbot',
-        'branch-util',
-        '--local',
+        'cros', 'tryjob', '--local', '--yes',
         '--skip-remote-push',
         '--branch-name', 'test_branch',
         '--version', version,
         '--buildroot', tempdir,
-        '--no-buildbot-tags',
+        'branch-util',
     ]
     RunBuildScript(buildroot, cmd, chromite_cmd=True)
 
@@ -364,25 +359,6 @@ def RunCrosSigningTests(buildroot, network=False):
   if network:
     cmd.append('--network')
   cros_build_lib.RunCommand(cmd, enter_chroot=True)
-
-
-def RunChromiteTests(buildroot, network=False):
-  """Run the chromite unittests.
-
-  Normal builds run these via an ebuild. This runs them directly.
-
-  Args:
-    buildroot: The buildroot of the current build.
-    network: Do we run the network tests? (bool)
-  """
-  cmd = [os.path.join(buildroot, 'chromite', 'cbuildbot', 'run_tests')]
-  if network:
-    cmd.append('--network')
-
-  # Since Chromite tests include testing our ability to enter the chroot, they
-  # must run outside the chroot. Also note, this command will create the chroot
-  # if it doesn't already exist.
-  cros_build_lib.RunCommand(cmd, cwd=os.path.join(buildroot, 'chromite'))
 
 
 def UpdateBinhostJson(buildroot):
@@ -522,11 +498,9 @@ def FindFirmwareVersions(cmd_output):
   if match:
     ec_rw = match.group('version')
 
-  ec_match_input = ec or ec_rw
-  if ec_match_input:
-    match = re.search(r'(?P<model>.*)_v\d+\.\d+\..*', ec_match_input)
-    if match:
-      model = match.group('model')
+  match = re.search(r'Model:\s*(?P<model>.*)', cmd_output)
+  if match:
+    model = match.group('model')
 
   return FirmwareVersions(model, main, main_rw, ec, ec_rw)
 
@@ -544,7 +518,9 @@ def GetAllFirmwareVersions(buildroot, board):
   """
   result = {}
   cmd_result = GetFirmwareVersionCmdResult(buildroot, board)
-  firmware_version_payloads = cmd_result.split('BIOS image:')
+
+  # There is a blank line between the version info for each model.
+  firmware_version_payloads = cmd_result.split('\n\n')
   for firmware_version_payload in firmware_version_payloads:
     if 'BIOS' in firmware_version_payload:
       firmware_version = FindFirmwareVersions(firmware_version_payload)
@@ -721,180 +697,6 @@ def RunUnitTests(buildroot, board, blacklist=None, extra_env=None):
                  extra_env=extra_env or {})
 
 
-def RunTestSuite(buildroot, board, image_path, results_dir, test_type,
-                 whitelist_chrome_crashes, archive_dir, ssh_private_key=None):
-  """Runs the test harness suite."""
-  results_dir_in_chroot = os.path.join(buildroot, 'chroot',
-                                       results_dir.lstrip('/'))
-  osutils.RmDir(results_dir_in_chroot, ignore_missing=True)
-
-  cwd = os.path.join(buildroot, 'src', 'scripts')
-  dut_type = 'gce' if test_type in constants.VALID_GCE_TEST_TYPES else 'vm'
-
-  cmd = ['bin/ctest',
-         '--board=%s' % board,
-         '--type=%s' % dut_type,
-         '--no_graphics',
-         '--verbose',
-         '--target_image=%s' % image_path,
-         '--test_results_root=%s' % results_dir_in_chroot
-        ]
-
-  if test_type not in (constants.VALID_VM_TEST_TYPES +
-                       constants.VALID_GCE_TEST_TYPES):
-    raise AssertionError('Unrecognized test type %r' % test_type)
-
-  if test_type == constants.FULL_AU_TEST_TYPE:
-    cmd.append('--archive_dir=%s' % archive_dir)
-  else:
-    if test_type == constants.SMOKE_SUITE_TEST_TYPE:
-      cmd.append('--only_verify')
-      cmd.append('--suite=smoke')
-    elif test_type == constants.VMTEST_INFORMATIONAL_TEST_TYPE:
-      cmd.append('--only_verify')
-      cmd.append('--suite=vmtest-informational')
-    elif test_type == constants.GCE_SMOKE_TEST_TYPE:
-      cmd.append('--only_verify')
-      cmd.append('--suite=gce-smoke')
-    elif test_type == constants.GCE_SANITY_TEST_TYPE:
-      cmd.append('--only_verify')
-      cmd.append('--suite=gce-sanity')
-    elif test_type == constants.TELEMETRY_SUITE_TEST_TYPE:
-      cmd.append('--only_verify')
-      cmd.append('--suite=telemetry_unit_server')
-    else:
-      cmd.append('--quick_update')
-
-  if whitelist_chrome_crashes:
-    cmd.append('--whitelist_chrome_crashes')
-
-  if ssh_private_key is not None:
-    cmd.append('--ssh_private_key=%s' % ssh_private_key)
-
-  # Give tests 10 minutes to clean up before shutting down.
-  result = cros_build_lib.RunCommand(cmd, cwd=cwd, error_code_ok=True,
-                                     kill_timeout=10 * 60)
-  if result.returncode:
-    if os.path.exists(results_dir_in_chroot):
-      error = '%s exited with code %d' % (' '.join(cmd), result.returncode)
-      with open(results_dir_in_chroot + '/failed_test_command', 'w') as failed:
-        failed.write(error)
-
-    raise failures_lib.TestFailure(
-        '** VMTests failed with code %d **' % result.returncode)
-
-
-def RunDevModeTest(buildroot, board, image_dir):
-  """Runs the dev mode testing script to verify dev-mode scripts work."""
-  crostestutils = os.path.join(buildroot, 'src', 'platform', 'crostestutils')
-  image_path = os.path.join(image_dir, constants.TEST_IMAGE_BIN)
-  test_script = 'devmode-test/devinstall_test.py'
-  cmd = [os.path.join(crostestutils, test_script), '--verbose', board,
-         image_path]
-  cros_build_lib.RunCommand(cmd)
-
-
-def RunCrosVMTest(board, image_dir):
-  """Runs cros_vm_test script to verify cros commands work."""
-  image_path = os.path.join(image_dir, constants.TEST_IMAGE_BIN)
-  test = cros_vm_test.CrosVMTest(board, image_path)
-  test.Run()
-
-
-def ListFailedTests(results_path):
-  """Returns a list of failed tests.
-
-  Parse the test report logs from autotest to find failed tests.
-
-  Args:
-    results_path: Path to the directory of test results.
-
-  Returns:
-    A lists of (test_name, relative/path/to/failed/tests)
-  """
-  # TODO: we don't have to parse the log to find failed tests once
-  # crbug.com/350520 is fixed.
-  reports = []
-  for path, _, filenames in os.walk(results_path):
-    reports.extend([os.path.join(path, x) for x in filenames
-                    if x == _TEST_REPORT_FILENAME])
-
-  failed_tests = []
-  processed_tests = []
-  for report in reports:
-    logging.info('Parsing test report %s', report)
-    # Format used in the report:
-    #   /path/to/base/dir/test_harness/all/SimpleTestUpdateAndVerify/ \
-    #     2_autotest_tests/results-01-security_OpenSSLBlacklist [  FAILED  ]
-    #   /path/to/base/dir/test_harness/all/SimpleTestUpdateAndVerify/ \
-    #     2_autotest_tests/results-01-security_OpenSSLBlacklist/ \
-    #     security_OpenBlacklist [  FAILED  ]
-    with open(report) as f:
-      failed_re = re.compile(r'([\./\w-]*)\s*\[\s*(\S+?)\s*\]')
-      test_name_re = re.compile(r'results-[\d]+?-([\.\w_]*)')
-      for line in f:
-        r = failed_re.search(line)
-        if r and r.group(2) == _TEST_FAILED:
-          # Process only failed tests.
-          file_path = r.group(1)
-          match = test_name_re.search(file_path)
-          if match:
-            test_name = match.group(1)
-          else:
-            # If no match is found (due to format change or other
-            # reasons), simply use the last component of file_path.
-            test_name = os.path.basename(file_path)
-
-          # A test may have subtests. We don't want to list all subtests.
-          if test_name not in processed_tests:
-            base_dirname = os.path.basename(results_path)
-            # Get the relative path from the test_results directory. Note
-            # that file_path is a chroot path, while results_path is a
-            # non-chroot path, so we cannot use os.path.relpath directly.
-            rel_path = file_path.split(base_dirname)[1].lstrip(os.path.sep)
-            failed_tests.append((test_name, rel_path))
-            processed_tests.append(test_name)
-
-  return failed_tests
-
-
-def GetTestResultsDir(buildroot, test_results_dir):
-  """Returns the test results directory located in chroot.
-
-  Args:
-    buildroot: Root directory where build occurs.
-    test_results_dir: Path from buildroot/chroot to find test results.
-      This must a subdir of /tmp.
-  """
-  test_results_dir = test_results_dir.lstrip('/')
-  return os.path.join(buildroot, constants.DEFAULT_CHROOT_DIR, test_results_dir)
-
-
-def ArchiveTestResults(results_path, archive_dir):
-  """Archives the test results to |archive_dir|.
-
-  Args:
-    results_path: Path to test results.
-    archive_dir: Local directory to archive to.
-  """
-  cros_build_lib.SudoRunCommand(['chmod', '-R', 'a+rw', results_path],
-                                print_cmd=False)
-  if os.path.exists(archive_dir):
-    osutils.RmDir(archive_dir)
-
-  def _ShouldIgnore(dirname, file_list):
-    # Note: We exclude VM disk and memory images. Instead, they are
-    # archived via ArchiveVMFiles. Also skip any symlinks. gsutil
-    # hangs on broken symlinks.
-    return [x for x in file_list if
-            x.startswith(constants.VM_DISK_PREFIX) or
-            x.startswith(constants.VM_MEM_PREFIX) or
-            os.path.islink(os.path.join(dirname, x))]
-
-  shutil.copytree(results_path, archive_dir, symlinks=False,
-                  ignore=_ShouldIgnore)
-
-
 def BuildAndArchiveTestResultsTarball(src_dir, buildroot):
   """Create a compressed tarball of test results.
 
@@ -913,49 +715,6 @@ def BuildAndArchiveTestResultsTarball(src_dir, buildroot):
   return os.path.basename(target)
 
 
-def ArchiveVMFiles(buildroot, test_results_dir, archive_path):
-  """Archives the VM memory and disk images into tarballs.
-
-  There may be multiple tests (e.g. SimpleTestUpdate and
-  SimpleTestUpdateAndVerify), and multiple files for each test (one
-  for the VM disk, and one for the VM memory). We create a separate
-  tar file for each of these files, so that each can be downloaded
-  independently.
-
-  Args:
-    buildroot: Build root directory.
-    test_results_dir: Path from buildroot/chroot to find test results.
-      This must a subdir of /tmp.
-    archive_path: Directory the tarballs should be written to.
-
-  Returns:
-    The paths to the tarballs.
-  """
-  images_dir = os.path.join(buildroot, 'chroot', test_results_dir.lstrip('/'))
-  images = []
-  for path, _, filenames in os.walk(images_dir):
-    images.extend([os.path.join(path, filename) for filename in
-                   fnmatch.filter(filenames, constants.VM_DISK_PREFIX + '*')])
-    images.extend([os.path.join(path, filename) for filename in
-                   fnmatch.filter(filenames, constants.VM_MEM_PREFIX + '*')])
-
-  tar_files = []
-  for image_path in images:
-    image_rel_path = os.path.relpath(image_path, images_dir)
-    image_parent_dir = os.path.dirname(image_path)
-    image_file = os.path.basename(image_path)
-    tarball_path = os.path.join(archive_path,
-                                "%s.tar" % image_rel_path.replace('/', '_'))
-    # Note that tar will chdir to |image_parent_dir|, so that |image_file|
-    # is at the top-level of the tar file.
-    cros_build_lib.CreateTarball(tarball_path,
-                                 image_parent_dir,
-                                 compression=cros_build_lib.COMP_BZIP2,
-                                 inputs=[image_file])
-    tar_files.append(tarball_path)
-  return tar_files
-
-
 HWTestSuiteResult = collections.namedtuple('HWTestSuiteResult',
                                            ['to_raise', 'json_dump_result'])
 
@@ -963,7 +722,7 @@ HWTestSuiteResult = collections.namedtuple('HWTestSuiteResult',
                              timeout_util.TimeoutError)
 def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
                    wait_for_results=None, priority=None, timeout_mins=None,
-                   retry=None, max_retries=None,
+                   max_runtime_mins=None, retry=None, max_retries=None,
                    minimum_duts=0, suite_min_duts=0,
                    offload_failures_only=None, debug=True, subsystems=None,
                    skip_duts_check=False, job_keyvals=None):
@@ -981,6 +740,7 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
     wait_for_results: If True, wait for autotest results before returning.
     priority: Priority of this suite run.
     timeout_mins: Timeout in minutes for the suite job and its sub-jobs.
+    max_runtime_mins: Maximum runtime for the suite job and its sub-jobs.
     retry: If True, will enable job-level retry. Only works when
            wait_for_results is True.
     max_retries: Integer, maximum job retries allowed at suite level.
@@ -1006,9 +766,10 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
   try:
     cmd = [RUN_SUITE_PATH]
     cmd += _GetRunSuiteArgs(build, suite, board, pool, num, file_bugs,
-                            priority, timeout_mins, retry, max_retries,
-                            minimum_duts, suite_min_duts, offload_failures_only,
-                            subsystems, skip_duts_check, job_keyvals)
+                            priority, timeout_mins, max_runtime_mins, retry,
+                            max_retries, minimum_duts, suite_min_duts,
+                            offload_failures_only, subsystems, skip_duts_check,
+                            job_keyvals)
     swarming_args = _CreateSwarmingArgs(build, suite, board, priority,
                                         timeout_mins)
     running_json_dump_flag = False
@@ -1115,12 +876,11 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
 
 
 # pylint: disable=docstring-missing-args
-def _GetRunSuiteArgs(build, suite, board, pool=None, num=None,
-                     file_bugs=None, priority=None, timeout_mins=None,
+def _GetRunSuiteArgs(build, suite, board, pool=None, num=None, file_bugs=None,
+                     priority=None, timeout_mins=None, max_runtime_mins=None,
                      retry=None, max_retries=None, minimum_duts=0,
                      suite_min_duts=0, offload_failures_only=None,
-                     subsystems=None, skip_duts_check=False,
-                     job_keyvals=None):
+                     subsystems=None, skip_duts_check=False, job_keyvals=None):
   """Get a list of args for run_suite.
 
   Args:
@@ -1151,6 +911,13 @@ def _GetRunSuiteArgs(build, suite, board, pool=None, num=None,
 
   if timeout_mins is not None:
     args += ['--timeout_mins', str(timeout_mins)]
+    # The default for max_runtime_mins is one day. We increase this if longer
+    # timeouts are requested to avoid premature (and unexpected) aborts.
+    if not max_runtime_mins and timeout_mins > 1440:
+      args += ['--max_runtime_mins', str(timeout_mins)]
+
+  if max_runtime_mins is not None:
+    args += ['--max_runtime_mins', str(max_runtime_mins)]
 
   if retry is not None:
     args += ['--retry', str(retry)]
@@ -1633,6 +1400,12 @@ def UprevPackages(buildroot, boards, overlays):
          '--drop_file=%s' % drop_file,
          'commit']
   RunBuildScript(buildroot, cmd, chromite_cmd=True)
+
+
+def RegenPortageCache(overlays):
+  """Regenerate portage cache for the list of overlays."""
+  task_inputs = [[o] for o in overlays if os.path.isdir(o)]
+  parallel.RunTasksInProcessPool(portage_util.RegenCache, task_inputs)
 
 
 def UprevPush(buildroot, overlays, dryrun, staging_branch=None):
@@ -2201,53 +1974,6 @@ def FindFilesWithPattern(pattern, target='./', cwd=os.curdir, exclude_dirs=()):
   os.chdir(old_cwd)
 
   return matches
-
-def BuildAUTestTarball(buildroot, board, work_dir, version, archive_url):
-  """Tar up the au test artifacts into the tarball_dir.
-
-  Args:
-    buildroot: Root directory where build occurs.
-    board: Board type that was built on this machine.
-    work_dir: Location for doing work.
-    version: Basic version of the build i.e. 3289.23.0.
-    archive_url: GS directory where we uploaded payloads.
-  """
-  au_test_tarball = os.path.join(work_dir, 'au_control.tar.bz2')
-
-  cwd = os.path.join(buildroot, 'src', 'third_party', 'autotest', 'files')
-  control_files_subdir = os.path.join('autotest', 'au_control_files')
-
-  autotest_dir = os.path.join(work_dir, control_files_subdir)
-  os.makedirs(autotest_dir)
-
-  # Get basic version without R*.
-  basic_version = re.search(r'R[0-9]+-([0-9][\w.]+)', version).group(1)
-
-  # Pass in the python paths to the libs full release test needs.
-  env_dict = dict(
-      chromite_path=buildroot,
-      devserver_path=os.path.join(buildroot, 'src', 'platform', 'dev'))
-
-  python_path = '%(chromite_path)s:%(devserver_path)s' % env_dict
-  cmd = ['site_utils/autoupdate/full_release_test.py',
-         '--npo', '--nmo', '--dump',
-         '--dump_dir', autotest_dir, '--archive_url', archive_url,
-         basic_version, board, '--log=debug']
-
-  gs_context_dir = os.path.dirname(gs.GSContext.GetDefaultGSUtilBin())
-  run_env = None
-  if not gs_context_dir in os.environ['PATH']:
-    run_env = os.environ.copy()
-    run_env['PATH'] += ':%s' % gs_context_dir
-  else:
-    run_env = os.environ
-
-  run_env.setdefault('PYTHONPATH', '')
-  run_env['PYTHONPATH'] += ':%s' % python_path
-
-  cros_build_lib.RunCommand(cmd, env=run_env, cwd=cwd)
-  BuildTarball(buildroot, [control_files_subdir], au_test_tarball, cwd=work_dir)
-  return au_test_tarball
 
 
 def BuildAutotestControlFilesTarball(buildroot, cwd, tarball_dir):
@@ -2841,6 +2567,9 @@ class ChromeSDK(object):
       cmd: Command (list) to run inside 'cros chrome-sdk'.
       extra_args: Extra arguments for 'cros chorme-sdk'.
       run_args: If set (dict), pass to RunCommand as kwargs.
+
+    Returns:
+      A CommandResult object.
     """
     if run_args is None:
       run_args = {}
@@ -2855,7 +2584,7 @@ class ChromeSDK(object):
       self.extra_args += ['--toolchain-url', self.toolchain_url]
     cros_cmd += ['chrome-sdk', '--board', self.board] + self.extra_args
     cros_cmd += (extra_args or []) + ['--'] + cmd
-    cros_build_lib.RunCommand(cros_cmd, cwd=self.cwd, **run_args)
+    return cros_build_lib.RunCommand(cros_cmd, cwd=self.cwd, **run_args)
 
   def Ninja(self, jobs=None, debug=False, targets=None, run_args=None):
     """Run 'ninja' inside a chrome-sdk context.
@@ -2865,11 +2594,51 @@ class ChromeSDK(object):
       debug: Whether to do a Debug build (defaults to Release).
       targets: The targets to compile.
       run_args: If set (dict), pass to RunCommand as kwargs.
+
+    Returns:
+      A CommandResult object.
+    """
+    cmd = self.GetNinjaCommand(jobs=jobs, debug=debug, targets=targets)
+    return self.Run(cmd, run_args=run_args)
+
+  def GetNinjaCommand(self, jobs=None, debug=False, targets=None):
+    """Returns a command line to run "ninja".
+
+    Args:
+      jobs: The number of -j jobs to run.
+      debug: Whether to do a Debug build (defaults to Release).
+      targets: The  targets to compile.
+
+    Returns:
+      Command line to run "ninja".
     """
     if jobs is None:
       jobs = self.DEFAULT_JOBS_GOMA if self.goma else self.DEFAULT_JOBS
     if targets is None:
       targets = self._GetDefaultTargets()
+    return ['ninja',
+            '-C', self._GetOutDirectory(debug=debug),
+            '-j', str(jobs)] + list(targets)
+
+  def _GetOutDirectory(self, debug=False):
+    """Returns the path to the output directory.
+
+    Args:
+      debug: Whether to do a Debug build (defaults to Release).
+
+    Returns:
+      Path to the output directory.
+    """
     flavor = 'Debug' if debug else 'Release'
-    cmd = ['ninja', '-C', 'out_%s/%s' % (self.board, flavor), '-j', str(jobs)]
-    self.Run(cmd + list(targets), run_args=run_args)
+    return 'out_%s/%s' % (self.board, flavor)
+
+  def GetNinjaLogPath(self, debug=False):
+    """Returns the path to the .ninja_log file.
+
+    Args:
+      debug: Whether to do a Debug build (defaults to Release).
+
+    Returns:
+      Path to the .ninja_log file.
+    """
+    return os.path.join(self._GetOutDirectory(debug=debug), '.ninja_log')

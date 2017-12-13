@@ -12,13 +12,14 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.text.TextUtils;
-import android.util.Log;
 
 import org.chromium.base.CommandLine;
+import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.ChromeVersionInfo;
 import org.chromium.chrome.browser.UrlConstants;
 import org.chromium.chrome.browser.partnerbookmarks.PartnerBookmarksReader;
 
@@ -29,14 +30,14 @@ import java.util.List;
  * Reads and caches partner browser customizations information if it exists.
  */
 public class PartnerBrowserCustomizations {
-    private static final String TAG = "PartnerBrowserProvider";
+    private static final String TAG = "PartnerCustomize";
     private static final String PROVIDER_AUTHORITY = "com.android.partnerbrowsercustomizations";
 
     // Private homepage structure.
     static final String PARTNER_HOMEPAGE_PATH = "homepage";
     static final String PARTNER_DISABLE_BOOKMARKS_EDITING_PATH = "disablebookmarksediting";
     @VisibleForTesting
-    public static final String PARTNER_DISABLE_INCOGNITO_MODE_PATH = "disableincognitomode";
+    static final String PARTNER_DISABLE_INCOGNITO_MODE_PATH = "disableincognitomode";
 
     private static String sProviderAuthority = PROVIDER_AUTHORITY;
     private static boolean sIgnoreBrowserProviderSystemPackageCheck;
@@ -51,7 +52,7 @@ public class PartnerBrowserCustomizations {
      *         this method reads is not initialized until the asynchronous initialization of this
      *         class has been completed.
      */
-    public static boolean isHomepageProviderAvailableAndEnabled() {
+    static boolean isHomepageProviderAvailableAndEnabled() {
         return !TextUtils.isEmpty(getHomePageUrl());
     }
 
@@ -81,7 +82,7 @@ public class PartnerBrowserCustomizations {
     }
 
     @VisibleForTesting
-    public static void setProviderAuthorityForTests(String providerAuthority) {
+    static void setProviderAuthorityForTests(String providerAuthority) {
         sProviderAuthority = providerAuthority;
     }
 
@@ -93,12 +94,12 @@ public class PartnerBrowserCustomizations {
      * @param ignore whether we should ignore browser provider system package checking.
      */
     @VisibleForTesting
-    public static void ignoreBrowserProviderSystemPackageCheckForTests(boolean ignore) {
+    static void ignoreBrowserProviderSystemPackageCheckForTests(boolean ignore) {
         sIgnoreBrowserProviderSystemPackageCheck = ignore;
     }
 
     @VisibleForTesting
-    public static Uri buildQueryUri(String path) {
+    static Uri buildQueryUri(String path) {
         return new Uri.Builder()
                 .scheme(UrlConstants.CONTENT_SCHEME)
                 .authority(sProviderAuthority)
@@ -178,16 +179,26 @@ public class PartnerBrowserCustomizations {
             @Override
             protected Void doInBackground(Void... params) {
                 try {
+                    boolean systemOrPreStable =
+                            (context.getApplicationInfo().flags & ApplicationInfo.FLAG_SYSTEM) == 1
+                            || !ChromeVersionInfo.isStableBuild();
+                    if (!systemOrPreStable) {
+                        // Only allow partner customization if this browser is a system package, or
+                        // forced for testing purposes.
+                        return null;
+                    }
+
                     ProviderInfo providerInfo = context.getPackageManager()
                             .resolveContentProvider(sProviderAuthority, 0);
                     if (providerInfo == null) return null;
 
                     if ((providerInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) == 0
                             && !sIgnoreBrowserProviderSystemPackageCheck) {
-                        Log.w("TAG", "Browser Cutomizations content provider package, "
-                                + providerInfo.packageName + ", is not a system package. "
-                                + "This could be a malicious attepment from a third party app, "
-                                + "so skip reading the browser content provider.");
+                        Log.w(TAG,
+                                "Browser Customizations content provider package, "
+                                        + providerInfo.packageName + ", is not a system package. "
+                                        + "This could be a malicious attempt from a third party "
+                                        + "app, so skip reading the browser content provider.");
                         return null;
                     }
 

@@ -46,42 +46,6 @@
 #include "ui/gl/gl_surface.h"
 
 namespace android_webview {
-namespace {
-
-class AwAccessTokenStore : public device::AccessTokenStore {
- public:
-  AwAccessTokenStore() { }
-
-  // device::AccessTokenStore implementation
-  void LoadAccessTokens(const LoadAccessTokensCallback& request) override {
-    AccessTokenStore::AccessTokenMap access_token_map;
-    // AccessTokenMap and net::URLRequestContextGetter not used on Android,
-    // but Run needs to be called to finish the geolocation setup.
-    request.Run(access_token_map, NULL);
-  }
-  void SaveAccessToken(const GURL& server_url,
-                       const base::string16& access_token) override {}
-
- private:
-  ~AwAccessTokenStore() override {}
-
-  DISALLOW_COPY_AND_ASSIGN(AwAccessTokenStore);
-};
-
-// A provider of Geolocation services to override AccessTokenStore.
-class AwGeolocationDelegate : public device::GeolocationDelegate {
- public:
-  AwGeolocationDelegate() = default;
-
-  scoped_refptr<device::AccessTokenStore> CreateAccessTokenStore() final {
-    return new AwAccessTokenStore();
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AwGeolocationDelegate);
-};
-
-}  // anonymous namespace
 
 AwBrowserMainParts::AwBrowserMainParts(AwContentBrowserClient* browser_client)
     : browser_client_(browser_client) {
@@ -158,9 +122,6 @@ int AwBrowserMainParts::PreCreateThreads() {
 
 void AwBrowserMainParts::PreMainMessageLoopRun() {
   browser_client_->InitBrowserContext()->PreMainMessageLoopRun();
-
-  device::GeolocationProvider::SetGeolocationDelegate(
-      new AwGeolocationDelegate());
 
   content::RenderFrameHost::AllowInjectingJavaScriptForAndroidWebView();
 

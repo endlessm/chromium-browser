@@ -7,16 +7,13 @@ package org.chromium.chrome.browser.suggestions;
 import android.annotation.SuppressLint;
 import android.content.res.Resources;
 import android.support.annotation.Nullable;
-import android.support.v7.widget.RecyclerView;
-import android.support.v7.widget.RecyclerView.OnScrollListener;
-import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.View.OnAttachStateChangeListener;
 import android.view.ViewGroup;
 
-import org.chromium.base.ApiCompatibilityUtils;
-import org.chromium.base.Callback;
+import org.chromium.base.CollectionUtil;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeFeatureList;
@@ -27,25 +24,23 @@ import org.chromium.chrome.browser.ntp.LogoBridge.LogoObserver;
 import org.chromium.chrome.browser.ntp.LogoDelegateImpl;
 import org.chromium.chrome.browser.ntp.LogoView;
 import org.chromium.chrome.browser.ntp.cards.NewTabPageAdapter;
-import org.chromium.chrome.browser.ntp.snippets.SnippetArticle;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
 import org.chromium.chrome.browser.omnibox.LocationBar;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlService;
 import org.chromium.chrome.browser.search_engines.TemplateUrlService.TemplateUrlServiceObserver;
 import org.chromium.chrome.browser.snackbar.SnackbarManager;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.util.FeatureUtilities;
-import org.chromium.chrome.browser.widget.FadingShadow;
-import org.chromium.chrome.browser.widget.FadingShadowView;
+import org.chromium.chrome.browser.util.ViewUtils;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
+import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet.StateChangeReason;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetContentController;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetNewTabController;
 import org.chromium.chrome.browser.widget.displaystyle.UiConfig;
-import org.chromium.ui.widget.Toast;
 
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Provides content to be displayed inside of the Home tab of bottom sheet.
@@ -61,20 +56,23 @@ public class SuggestionsBottomSheetContent implements BottomSheet.BottomSheetCon
     @Nullable
     private final SuggestionsCarousel mSuggestionsCarousel;
     private final SuggestionsSheetVisibilityChangeObserver mBottomSheetObserver;
+    private final ChromeActivity mActivity;
     private final BottomSheet mSheet;
     private final LogoView mLogoView;
     private final LogoDelegateImpl mLogoDelegate;
-    private final View mToolbarView;
+    private final ViewGroup mControlContainerView;
+    private final View mToolbarPullHandle;
+    private final View mToolbarShadow;
 
     private boolean mNewTabShown;
     private boolean mSearchProviderHasLogo = true;
     private float mLastSheetHeightFraction = 1f;
 
-    // The sheet height fractions at which the logo transitions start and end.
-    private static final float LOGO_TRANSITION_BOTTOM_START = 0.3f;
-    private static final float LOGO_TRANSITION_BOTTOM_END = 0.1f;
-    private static final float LOGO_TRANSITION_TOP_START = 0.75f;
-    private static final float LOGO_TRANSITION_TOP_END = 0.95f;
+    /**
+     * Whether {@code mView} is currently attached to the window. This is used in place of
+     * {@link View#isAttachedToWindow()} to support older versions of Android (KitKat & JellyBean).
+     */
+    private boolean mIsAttachedToWindow;
 
     public SuggestionsBottomSheetContent(final ChromeActivity activity, final BottomSheet sheet,
             TabModelSelector tabModelSelector, SnackbarManager snackbarManager) {
@@ -82,12 +80,13 @@ public class SuggestionsBottomSheetContent implements BottomSheet.BottomSheetCon
         Profile profile = Profile.getLastUsedProfile();
         SuggestionsNavigationDelegate navigationDelegate =
                 new SuggestionsNavigationDelegateImpl(activity, profile, sheet, tabModelSelector);
+        mActivity = activity;
         mSheet = sheet;
         mTileGroupDelegate =
                 new TileGroupDelegateImpl(activity, profile, navigationDelegate, snackbarManager);
         mSuggestionsUiDelegate = new SuggestionsUiDelegateImpl(
                 depsFactory.createSuggestionSource(profile), depsFactory.createEventReporter(),
-                navigationDelegate, profile, sheet, activity.getReferencePool());
+                navigationDelegate, profile, sheet, activity.getReferencePool(), snackbarManager);
 
         mView = LayoutInflater.from(activity).inflate(
                 R.layout.suggestions_bottom_sheet_content, null);
@@ -97,34 +96,28 @@ public class SuggestionsBottomSheetContent implements BottomSheet.BottomSheetCon
         mRecyclerView = mView.findViewById(R.id.recycler_view);
         mRecyclerView.setBackgroundColor(backgroundColor);
 
-        TouchEnabledDelegate touchEnabledDelegate = new TouchEnabledDelegate() {
-            @Override
-            public void setTouchEnabled(boolean enabled) {
-                activity.getBottomSheet().setTouchEnabled(enabled);
-            }
-        };
-
-        mContextMenuManager =
-                new ContextMenuManager(activity, navigationDelegate, touchEnabledDelegate);
+        TouchEnabledDelegate touchEnabledDelegate = activity.getBottomSheet()::setTouchEnabled;
+        mContextMenuManager = new ContextMenuManager(
+                navigationDelegate, touchEnabledDelegate, activity::closeContextMenu);
         activity.getWindowAndroid().addContextMenuCloseListener(mContextMenuManager);
-        mSuggestionsUiDelegate.addDestructionObserver(new DestructionObserver() {
-            @Override
-            public void onDestroy() {
-                activity.getWindowAndroid().removeContextMenuCloseListener(mContextMenuManager);
-            }
+        mSuggestionsUiDelegate.addDestructionObserver(() -> {
+            activity.getWindowAndroid().removeContextMenuCloseListener(mContextMenuManager);
         });
 
         UiConfig uiConfig = new UiConfig(mRecyclerView);
         mRecyclerView.init(uiConfig, mContextMenuManager);
 
+        OfflinePageBridge offlinePageBridge = OfflinePageBridge.getForProfile(profile);
+
         mSuggestionsCarousel =
                 ChromeFeatureList.isEnabled(ChromeFeatureList.CONTEXTUAL_SUGGESTIONS_CAROUSEL)
-                ? new SuggestionsCarousel(uiConfig, mSuggestionsUiDelegate)
+                ? new SuggestionsCarousel(
+                          uiConfig, mSuggestionsUiDelegate, mContextMenuManager, offlinePageBridge)
                 : null;
 
         final NewTabPageAdapter adapter = new NewTabPageAdapter(mSuggestionsUiDelegate,
-                /* aboveTheFoldView = */ null, uiConfig, OfflinePageBridge.getForProfile(profile),
-                mContextMenuManager, mTileGroupDelegate, mSuggestionsCarousel);
+                /* aboveTheFoldView = */ null, uiConfig, offlinePageBridge, mContextMenuManager,
+                mTileGroupDelegate, mSuggestionsCarousel);
 
         mBottomSheetObserver = new SuggestionsSheetVisibilityChangeObserver(this, activity) {
             @Override
@@ -164,13 +157,15 @@ public class SuggestionsBottomSheetContent implements BottomSheet.BottomSheetCon
                     SuggestionsMetrics.recordSurfaceFullyVisible();
                     mRecyclerView.setScrollEnabled(true);
                 }
+
                 updateLogoTransition();
             }
 
             @Override
-            public void onSheetClosed() {
-                super.onSheetClosed();
+            public void onSheetClosed(@StateChangeReason int reason) {
+                super.onSheetClosed(reason);
                 mRecyclerView.setAdapter(null);
+                updateLogoTransition();
             }
 
             @Override
@@ -179,8 +174,6 @@ public class SuggestionsBottomSheetContent implements BottomSheet.BottomSheetCon
                 updateLogoTransition();
             }
         };
-
-        initializeShadow();
 
         final LocationBar locationBar = (LocationBar) sheet.findViewById(R.id.location_bar);
         mRecyclerView.setOnTouchListener(new View.OnTouchListener() {
@@ -197,7 +190,9 @@ public class SuggestionsBottomSheetContent implements BottomSheet.BottomSheetCon
         });
 
         mLogoView = mView.findViewById(R.id.search_provider_logo);
-        mToolbarView = activity.findViewById(R.id.control_container);
+        mControlContainerView = (ViewGroup) activity.findViewById(R.id.control_container);
+        mToolbarPullHandle = activity.findViewById(R.id.toolbar_handle);
+        mToolbarShadow = activity.findViewById(R.id.bottom_toolbar_shadow);
         mLogoDelegate = new LogoDelegateImpl(navigationDelegate, mLogoView, profile);
         updateSearchProviderHasLogo();
         if (mSearchProviderHasLogo) {
@@ -206,11 +201,30 @@ public class SuggestionsBottomSheetContent implements BottomSheet.BottomSheetCon
         }
         TemplateUrlService.getInstance().addObserver(this);
         sheet.getNewTabController().addObserver(this);
+
+        mView.addOnAttachStateChangeListener(new OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View v) {
+                mIsAttachedToWindow = true;
+                updateLogoTransition();
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View v) {
+                mIsAttachedToWindow = false;
+                updateLogoTransition();
+            }
+        });
     }
 
     @Override
     public View getContentView() {
         return mView;
+    }
+
+    @Override
+    public List<View> getViewsForPadding() {
+        return CollectionUtil.newArrayList(mRecyclerView);
     }
 
     @Override
@@ -239,6 +253,7 @@ public class SuggestionsBottomSheetContent implements BottomSheet.BottomSheetCon
         mSuggestionsUiDelegate.onDestroy();
         mTileGroupDelegate.destroy();
         TemplateUrlService.getInstance().removeObserver(this);
+        mSheet.getNewTabController().removeObserver(this);
     }
 
     @Override
@@ -268,54 +283,14 @@ public class SuggestionsBottomSheetContent implements BottomSheet.BottomSheetCon
         updateLogoTransition();
     }
 
-    private void initializeShadow() {
-        final FadingShadowView shadowView = (FadingShadowView) mView.findViewById(R.id.shadow);
-
-        if (FeatureUtilities.isChromeHomeModernEnabled()) {
-            ((ViewGroup) mView).removeView(shadowView);
-            return;
-        }
-
-        shadowView.init(
-                ApiCompatibilityUtils.getColor(mView.getResources(), R.color.toolbar_shadow_color),
-                FadingShadow.POSITION_TOP);
-
-        mRecyclerView.addOnScrollListener(new OnScrollListener() {
-            @Override
-            public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
-                boolean shadowVisible = mRecyclerView.canScrollVertically(-1);
-                shadowView.setVisibility(shadowVisible ? View.VISIBLE : View.GONE);
-            }
-        });
-    }
-
     private void maybeUpdateContextualSuggestions() {
         if (mSuggestionsCarousel == null) return;
         assert ChromeFeatureList.isEnabled(ChromeFeatureList.CONTEXTUAL_SUGGESTIONS_CAROUSEL);
 
-        if (mSheet.getActiveTab() == null) {
-            mSuggestionsCarousel.clearSuggestions();
-            return;
-        }
+        Tab activeTab = mSheet.getActiveTab();
+        final String currentUrl = activeTab == null ? null : activeTab.getUrl();
 
-        final String url = mSheet.getActiveTab().getUrl();
-
-        // Do nothing if there are already suggestions in the carousel for the current context.
-        if (TextUtils.equals(url, mSuggestionsCarousel.getCurrentCarouselContextUrl())) return;
-
-        // Context has changed, so we want to remove any old suggestions from the carousel.
-        mSuggestionsCarousel.clearSuggestions();
-
-        String text = String.format(Locale.US, "Fetching contextual suggestions...");
-        Toast.makeText(mRecyclerView.getContext(), text, Toast.LENGTH_SHORT).show();
-        mSuggestionsUiDelegate.getSuggestionsSource().fetchContextualSuggestions(
-                url, new Callback<List<SnippetArticle>>() {
-                    @Override
-                    public void onResult(List<SnippetArticle> contextualSuggestions) {
-                        mSuggestionsCarousel.newContextualSuggestionsAvailable(
-                                url, contextualSuggestions);
-                    }
-                });
+        mSuggestionsCarousel.refresh(mSheet.getContext(), currentUrl);
     }
 
     private void updateSearchProviderHasLogo() {
@@ -323,12 +298,18 @@ public class SuggestionsBottomSheetContent implements BottomSheet.BottomSheetCon
     }
 
     /**
-     * Loads the search provider logo (e.g. Google doodle), if any.
+     * Loads the search provider logo, if any.
      */
     private void loadSearchProviderLogo() {
         if (!mSearchProviderHasLogo) return;
 
-        mLogoView.showSearchProviderInitialView();
+        boolean isShowingLogo = mLogoView.showSearchProviderInitialView();
+
+        // Doodles appear too small in the sheet to be useful, so only fetch a search provider logo
+        // if the default logo isn't shown, which effectively disables non-3p (Google) doodles.
+        // TODO(https://crbug.com/773657): Make doodles work in the smaller view; until that
+        // happens, ensure that any third-party doodles look acceptable.
+        if (isShowingLogo) return;
 
         mLogoDelegate.getSearchProviderLogo(new LogoObserver() {
             @Override
@@ -342,40 +323,56 @@ public class SuggestionsBottomSheetContent implements BottomSheet.BottomSheetCon
     }
 
     private void updateLogoTransition() {
-        boolean showLogo = mSearchProviderHasLogo && mNewTabShown
-                && FeatureUtilities.isChromeHomeDoodleEnabled() && mBottomSheetObserver.isVisible();
+        boolean showLogo = mSearchProviderHasLogo && mNewTabShown && mSheet.isSheetOpen()
+                && !mActivity.getTabModelSelector().isIncognitoSelected() && mIsAttachedToWindow
+                && !mSheet.isSmallScreen()
+                && mActivity.getTabModelSelector().getModel(false).getCount() > 0
+                && FeatureUtilities.isChromeHomeDoodleEnabled();
 
         if (!showLogo) {
             mLogoView.setVisibility(View.GONE);
-            mToolbarView.setTranslationY(0);
+            mControlContainerView.setTranslationY(0);
+            mToolbarPullHandle.setTranslationY(0);
+            mToolbarShadow.setTranslationY(0);
             mRecyclerView.setTranslationY(0);
+            ViewUtils.setAncestorsShouldClipChildren(mControlContainerView, true);
             return;
         }
 
         mLogoView.setVisibility(View.VISIBLE);
-
-        // TODO(mvanouwerkerk): Consider using Material animation curves.
-        final float transitionFraction;
-        if (mLastSheetHeightFraction > LOGO_TRANSITION_TOP_START) {
-            float range = LOGO_TRANSITION_TOP_END - LOGO_TRANSITION_TOP_START;
-            transitionFraction =
-                    Math.min((mLastSheetHeightFraction - LOGO_TRANSITION_TOP_START) / range, 1.0f);
-        } else if (mLastSheetHeightFraction < LOGO_TRANSITION_BOTTOM_START) {
-            float range = LOGO_TRANSITION_BOTTOM_START - LOGO_TRANSITION_BOTTOM_END;
-            transitionFraction = Math.min(
-                    (LOGO_TRANSITION_BOTTOM_START - mLastSheetHeightFraction) / range, 1.0f);
-        } else {
-            transitionFraction = 0.0f;
-        }
+        ViewUtils.setAncestorsShouldClipChildren(mControlContainerView, false);
 
         ViewGroup.MarginLayoutParams logoParams =
                 (ViewGroup.MarginLayoutParams) mLogoView.getLayoutParams();
+        float maxToolbarOffset = logoParams.height + logoParams.topMargin + logoParams.bottomMargin;
+
+        // Transform the sheet height fraction back to pixel scale.
+        float rangePx =
+                (mSheet.getFullRatio() - mSheet.getPeekRatio()) * mSheet.getSheetContainerHeight();
+        float sheetHeightPx = mLastSheetHeightFraction * rangePx;
+
+        // Calculate the transition fraction for hiding the logo: 0 means the logo is fully visible,
+        // 1 means it is fully invisible.
+        // The transition starts when the sheet is `2 * maxToolbarOffset` from the bottom or the
+        // top. This makes the toolbar stay vertically centered in the sheet during the
+        // bottom transition.
+        float transitionFraction =
+                Math.max(Math.max(1 - sheetHeightPx / (2 * maxToolbarOffset),
+                                 1 + (sheetHeightPx - rangePx) / (2 * maxToolbarOffset)),
+                        0);
+
         mLogoView.setTranslationY(logoParams.topMargin * -transitionFraction);
         mLogoView.setAlpha(Math.max(0.0f, 1.0f - (transitionFraction * 3.0f)));
 
-        float maxToolbarOffset = logoParams.height + logoParams.topMargin + logoParams.bottomMargin;
         float toolbarOffset = maxToolbarOffset * (1.0f - transitionFraction);
-        mToolbarView.setTranslationY(toolbarOffset);
+        mControlContainerView.setTranslationY(toolbarOffset);
+        mToolbarPullHandle.setTranslationY(-toolbarOffset);
+        mToolbarShadow.setTranslationY(-toolbarOffset);
         mRecyclerView.setTranslationY(toolbarOffset);
+    }
+
+    @Override
+    public void scrollToTop() {
+        mRecyclerView.smoothScrollToPosition(0);
     }
 }

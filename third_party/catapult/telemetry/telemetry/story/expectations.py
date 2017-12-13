@@ -24,6 +24,13 @@ class StoryExpectations(object):
     self.SetExpectations()
     self._Freeze()
 
+  def AsDict(self):
+    """Returns information on disabled stories/benchmarks as a dictionary"""
+    return {
+        'platforms': self._disabled_platforms,
+        'stories': self._expectations
+    }
+
   def GetBrokenExpectations(self, story_set):
     story_set_story_names = [s.name for s in story_set.stories]
     invalid_story_names = []
@@ -70,10 +77,6 @@ class StoryExpectations(object):
       assert isinstance(condition, _TestCondition)
 
     self._disabled_platforms.append((conditions, reason))
-
-  # TODO(rnephew): Remove this when all chromium instances are moved to
-  # DisableBenchmark.
-  PermanentlyDisableBenchmark = DisableBenchmark
 
   def IsBenchmarkDisabled(self, platform, finder_options):
     """Returns the reason the benchmark was disabled, or None if not disabled.
@@ -241,9 +244,10 @@ ALL = _AllTestCondition()
 ALL_MAC = _TestConditionByPlatformList(['mac'], 'Mac Platforms')
 ALL_WIN = _TestConditionByPlatformList(['win'], 'Win Platforms')
 ALL_LINUX = _TestConditionByPlatformList(['linux'], 'Linux Platforms')
+ALL_CHROMEOS = _TestConditionByPlatformList(['chromeos'], 'ChromeOS Platforms')
 ALL_ANDROID = _TestConditionByPlatformList(['android'], 'Android Platforms')
 ALL_DESKTOP = _TestConditionByPlatformList(
-    ['mac', 'linux', 'win'], 'Desktop Platforms')
+    ['mac', 'linux', 'win', 'chromeos'], 'Desktop Platforms')
 ALL_MOBILE = _TestConditionByPlatformList(['android'], 'Mobile Platforms')
 ANDROID_NEXUS5 = _TestConditionByAndroidModel('Nexus 5')
 ANDROID_NEXUS5X = _TestConditionByAndroidModel('Nexus 5X')

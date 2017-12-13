@@ -58,6 +58,8 @@ enum ShelfAlignmentUmaEnumValue {
   SHELF_ALIGNMENT_UMA_ENUM_VALUE_COUNT,
 };
 
+// ShelfView contains the shelf items visible within an active user session.
+// ShelfView and LoginShelfView should never be shown together.
 class ASH_EXPORT ShelfView : public views::View,
                              public ShelfModelObserver,
                              public InkDropButtonListener,
@@ -135,8 +137,19 @@ class ASH_EXPORT ShelfView : public views::View,
                            views::View* replaced_view,
                            const gfx::Vector2d& cursor_offset_from_center,
                            float scale_factor) override;
+
+  void CreateDragIconProxyByLocationWithNoAnimation(
+      const gfx::Point& origin_in_screen_coordinates,
+      const gfx::ImageSkia& icon,
+      views::View* replaced_view,
+      float scale_factor) override;
+
   void UpdateDragIconProxy(
       const gfx::Point& location_in_screen_coordinates) override;
+
+  void UpdateDragIconProxyByLocation(
+      const gfx::Point& origin_in_screen_coordinates) override;
+
   void DestroyDragIconProxy() override;
   bool StartDrag(const std::string& app_id,
                  const gfx::Point& location_in_screen_coordinates) override;
@@ -161,6 +174,9 @@ class ASH_EXPORT ShelfView : public views::View,
 
   // Updates the background for the shelf items.
   void UpdateShelfItemBackground(SkColor color);
+
+  // True if the current |drag_view_| is the given |drag_view|.
+  bool IsDraggedView(const ShelfButton* drag_view) const;
 
   // Return the view model for test purposes.
   const views::ViewModel* view_model_for_test() const {
@@ -309,12 +325,14 @@ class ASH_EXPORT ShelfView : public views::View,
   void ShelfItemChanged(int model_index, const ShelfItem& old_item) override;
   void ShelfItemMoved(int start_index, int target_index) override;
   void ShelfItemDelegateChanged(const ShelfID& id,
+                                ShelfItemDelegate* old_delegate,
                                 ShelfItemDelegate* delegate) override;
 
   // Handles the result when querying ShelfItemDelegates for context menu items.
   // Shows a default shelf context menu with optional extra custom |menu_items|.
   void AfterGetContextMenuItems(const ShelfID& shelf_id,
                                 const gfx::Point& point,
+                                views::View* source,
                                 ui::MenuSourceType source_type,
                                 std::vector<mojom::MenuItemPtr> menu_items);
 
@@ -441,9 +459,6 @@ class ASH_EXPORT ShelfView : public views::View,
 
   // The timestamp of the event which closed the last menu - or 0.
   base::TimeTicks closing_event_time_;
-
-  // The timestamp of the last shelf item touch press event.
-  base::TimeTicks touch_press_time_;
 
   // True if a drag and drop operation created/pinned the item in the launcher
   // and it needs to be deleted/unpinned again if the operation gets cancelled.

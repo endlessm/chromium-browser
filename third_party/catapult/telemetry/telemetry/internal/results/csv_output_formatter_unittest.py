@@ -69,10 +69,11 @@ class CsvOutputFormatterTest(unittest.TestCase):
             improvement_direction=improvement_direction.DOWN)])])
     expected = '\r\n'.join([
         'name,unit,avg,count,max,min,std,sum,architectures,benchmarks,' +
-        'benchmarkStart,bots,builds,displayLabel,masters,memoryAmounts,' +
-        'osNames,osVersions,productVersions,stories,storysetRepeats,traceStart',
-        'foo,ms,3000,1,3000,3000,0,3000,,benchmark,2017-07-14 02:40:00,,,' +
-        'benchmark 2017-07-14 02:40:00,,,,,,http://www.foo.com/,,',
+        'benchmarkStart,bots,builds,deviceIds,displayLabel,masters,' +
+        'memoryAmounts,osNames,osVersions,productVersions,stories,' +
+        'storysetRepeats,traceStart,traceUrls',
+        'foo,ms,3000,1,3000,3000,0,3000,,benchmark,2017-07-14 02:40:00,,,,' +
+        'benchmark 2017-07-14 02:40:00,,,,,,http://www.foo.com/,,,',
         ''])
 
     self.assertEqual(expected, self.Format())
@@ -81,8 +82,9 @@ class CsvOutputFormatterTest(unittest.TestCase):
   def testMultiplePagesAndValues(self, cs_insert_mock):
     cs_insert_mock.return_value = 'https://cloud_storage_url/foo'
     trace_value = trace.TraceValue(
-        None, trace_data.CreateTraceDataFromRawData('{"traceEvents": []}'))
-    trace_value.UploadToCloud(bucket='foo')
+        None, trace_data.CreateTraceDataFromRawData('{"traceEvents": []}'),
+        remote_path='rp', upload_bucket='foo', cloud_url='http://google.com')
+    trace_value.UploadToCloud()
     self.SimulateBenchmarkRun([
         (self._story_set[0], [
             scalar.ScalarValue(
@@ -111,5 +113,5 @@ class CsvOutputFormatterTest(unittest.TestCase):
     self.assertEquals(len(set((v[2] for v in values))), 4)  # 4 value names.
     self.assertEquals(values[2], [
         'foo', 'ms', '3400', '1', '3400', '3400', '0', '3400', '', 'benchmark',
-        '2017-07-14 02:40:00', '', '', 'benchmark 2017-07-14 02:40:00', '', '',
-        '', '', '', 'http://www.bar.com/', '', ''])
+        '2017-07-14 02:40:00', '', '', '', 'benchmark 2017-07-14 02:40:00', '',
+        '', '', '', '', 'http://www.bar.com/', '', '', 'http://google.com'])

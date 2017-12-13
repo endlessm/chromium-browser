@@ -6,6 +6,7 @@
 
 Notification::Notification(
     message_center::NotificationType type,
+    const std::string& id,
     const base::string16& title,
     const base::string16& body,
     const gfx::Image& icon,
@@ -14,9 +15,9 @@ Notification::Notification(
     const GURL& origin_url,
     const std::string& tag,
     const message_center::RichNotificationData& rich_notification_data,
-    scoped_refptr<NotificationDelegate> delegate)
+    scoped_refptr<message_center::NotificationDelegate> delegate)
     : message_center::Notification(type,
-                                   delegate->id(),
+                                   id,
                                    title,
                                    body,
                                    icon,
@@ -25,29 +26,20 @@ Notification::Notification(
                                    notifier_id,
                                    rich_notification_data,
                                    delegate),
-      tag_(tag),
-      delegate_(delegate) {}
+      tag_(tag) {}
 
 Notification::Notification(const std::string& id,
                            const Notification& notification)
     : message_center::Notification(id, notification),
-      tag_(notification.tag()),
-      service_worker_scope_(notification.service_worker_scope()),
-      delegate_(notification.delegate()) {
-}
+      tag_(notification.tag()) {}
 
 Notification::Notification(const Notification& notification)
-    : message_center::Notification(notification),
-      tag_(notification.tag()),
-      service_worker_scope_(notification.service_worker_scope()),
-      delegate_(notification.delegate()) {}
+    : message_center::Notification(notification), tag_(notification.tag()) {}
 
 Notification::~Notification() {}
 
 Notification& Notification::operator=(const Notification& notification) {
   message_center::Notification::operator=(notification);
   tag_ = notification.tag();
-  service_worker_scope_ = notification.service_worker_scope();
-  delegate_ = notification.delegate();
   return *this;
 }

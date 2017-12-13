@@ -22,6 +22,7 @@
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/network/device_state.h"
 #include "chromeos/network/network_connection_handler.h"
+#include "chromeos/network/network_device_handler.h"
 #include "chromeos/network/network_event_log.h"
 #include "chromeos/network/network_handler_callbacks.h"
 #include "chromeos/network/network_state.h"
@@ -128,9 +129,8 @@ std::unique_ptr<NetworkStateHandler> NetworkStateHandler::InitializeForTest() {
   return handler;
 }
 
-void NetworkStateHandler::AddObserver(
-    NetworkStateHandlerObserver* observer,
-    const tracked_objects::Location& from_here) {
+void NetworkStateHandler::AddObserver(NetworkStateHandlerObserver* observer,
+                                      const base::Location& from_here) {
   observers_.AddObserver(observer);
   device_event_log::AddEntry(
       from_here.file_name(), from_here.line_number(),
@@ -138,9 +138,8 @@ void NetworkStateHandler::AddObserver(
       base::StringPrintf("NetworkStateHandler::AddObserver: 0x%p", observer));
 }
 
-void NetworkStateHandler::RemoveObserver(
-    NetworkStateHandlerObserver* observer,
-    const tracked_objects::Location& from_here) {
+void NetworkStateHandler::RemoveObserver(NetworkStateHandlerObserver* observer,
+                                         const base::Location& from_here) {
   observers_.RemoveObserver(observer);
   device_event_log::AddEntry(
       from_here.file_name(), from_here.line_number(),
@@ -879,9 +878,20 @@ void NetworkStateHandler::GetDeviceListByType(const NetworkTypePattern& type,
   }
 }
 
-void NetworkStateHandler::RequestScan() {
-  NET_LOG_USER("RequestScan", "");
-  shill_property_handler_->RequestScan();
+void NetworkStateHandler::RequestScan(const NetworkTypePattern& type) {
+  NET_LOG_USER("RequestScan", type.ToDebugString());
+  bool did_scan = false;
+  if (type.MatchesType(shill::kTypeWifi)) {
+    shill_property_handler_->RequestScanByType(shill::kTypeWifi);
+    did_scan = true;
+  }
+  if (type.Equals(NetworkTypePattern::Primitive(shill::kTypeCellular))) {
+    // Only request a Cellular scan if Cellular is requested explicitly.
+    shill_property_handler_->RequestScanByType(shill::kTypeCellular);
+    did_scan = true;
+  }
+  if (!did_scan)
+    NET_LOG(ERROR) << "RequestScan: Invalid type: " << type.ToDebugString();
   NotifyScanRequested();
 }
 
@@ -1288,16 +1298,26 @@ void NetworkStateHandler::SortNetworkList() {
 
   // Note: usually active networks will precede inactive networks, however
   // this may briefly be untrue during state transitions (e.g. a network may
-  // transition to idle before the list is updated).
-  ManagedStateList active, non_wifi_visible, wifi_visible, hidden, new_networks;
+  // transition to idle before the list is updated). Also separate Cellular
+  // networks (see below).
+  ManagedStateList cellular, active, non_wifi_visible, wifi_visible, hidden,
+      new_networks;
   for (ManagedStateList::iterator iter = network_list_.begin();
        iter != network_list_.end(); ++iter) {
     NetworkState* network = (*iter)->AsNetworkState();
+    // NetworkState entries are created when they appear in the list, but the
+    // details are not populated until an update is received.
     if (!network->update_received()) {
       new_networks.push_back(std::move(*iter));
       continue;
     }
-    if (network->IsConnectedState() || network->IsConnectingState()) {
+    if (NetworkTypePattern::Cellular().MatchesType(network->type())) {
+      cellular.push_back(std::move(*iter));
+      continue;
+    }
+    // Ethernet networks are always considered active.
+    if (network->IsConnectingOrConnected() ||
+        NetworkTypePattern::Ethernet().MatchesType(network->type())) {
       active.push_back(std::move(*iter));
       continue;
     }
@@ -1310,12 +1330,20 @@ void NetworkStateHandler::SortNetworkList() {
       hidden.push_back(std::move(*iter));
     }
   }
-  network_list_.clear();
+  EnsureCellularNetwork(&cellular);
+  // List active non Cellular network first.
   network_list_ = std::move(active);
+  // Ethernet is always active so list any Cellular network next.
+  std::move(cellular.begin(), cellular.end(),
+            std::back_inserter(network_list_));
+  // List any other non WiFi visible networks (i.e. WiMAX).
   std::move(non_wifi_visible.begin(), non_wifi_visible.end(),
             std::back_inserter(network_list_));
+  // List WiFi networks last.
   std::move(wifi_visible.begin(), wifi_visible.end(),
             std::back_inserter(network_list_));
+  // Include hidden and new networks in the list at the end; they should not
+  // be shown by the UI.
   std::move(hidden.begin(), hidden.end(), std::back_inserter(network_list_));
   std::move(new_networks.begin(), new_networks.end(),
             std::back_inserter(network_list_));
@@ -1409,11 +1437,14 @@ void NetworkStateHandler::UpdateGuid(NetworkState* network) {
     // If the network is saved in a profile, remove the entry from the map.
     // Otherwise ensure that the entry matches the specified GUID. (e.g. in
     // case a visible network with a specified guid gets configured with a
-    // new guid).
-    if (network->IsInProfile())
+    // new guid). Exception: Ethernet and Cellular expect to have a single
+    // network and a consistent GUID.
+    if (network->type() != shill::kTypeEthernet &&
+        network->type() != shill::kTypeCellular && network->IsInProfile()) {
       specifier_guid_map_.erase(specifier);
-    else
+    } else {
       specifier_guid_map_[specifier] = network->guid();
+    }
     return;
   }
   // Ensure that the NetworkState has a valid GUID.
@@ -1426,6 +1457,45 @@ void NetworkStateHandler::UpdateGuid(NetworkState* network) {
     specifier_guid_map_[specifier] = guid;
   }
   network->SetGuid(guid);
+}
+
+void NetworkStateHandler::EnsureCellularNetwork(
+    ManagedStateList* cellular_networks) {
+  const DeviceState* device =
+      GetDeviceStateByType(NetworkTypePattern::Cellular());
+  if (!device) {
+    cellular_networks->clear();
+    return;
+  }
+  if (cellular_networks->empty()) {
+    // If no SIM is present there will not be useful user facing Device
+    // information, so do not create a default Cellular network.
+    if (device->IsSimAbsent())
+      return;
+    // Create a default Cellular network. Properties from the associated Device
+    // will be provided to the UI.
+    std::unique_ptr<NetworkState> network =
+        NetworkState::CreateDefaultCellular(device->path());
+    std::string name = device->home_provider_id();
+    if (name.empty())
+      name = shill::kTypeCellular;
+    network->set_name(name);
+    UpdateGuid(network.get());
+    cellular_networks->push_back(std::move(network));
+    return;
+  }
+  if (cellular_networks->size() == 1)
+    return;
+  // If we have > 1 Cellular NetworkState, then Shill provided a Cellular
+  // Service after the default Cellular NetworkState was created, so remove the
+  // default state.
+  for (auto iter = cellular_networks->begin(); iter != cellular_networks->end();
+       ++iter) {
+    if ((*iter)->AsNetworkState()->IsDefaultCellular()) {
+      cellular_networks->erase(iter);
+      break;  // There will only ever be one default Cellular network.
+    }
+  }
 }
 
 void NetworkStateHandler::NotifyNetworkListChanged() {

@@ -5,7 +5,6 @@
 #include "chrome/browser/sync_file_system/drive_backend/metadata_database.h"
 
 #include <algorithm>
-#include <stack>
 #include <utility>
 
 #include "base/bind.h"
@@ -39,7 +38,6 @@
 #include "storage/common/fileapi/file_system_util.h"
 #include "third_party/leveldatabase/env_chromium.h"
 #include "third_party/leveldatabase/src/include/leveldb/db.h"
-#include "third_party/leveldatabase/src/include/leveldb/env.h"
 #include "third_party/leveldatabase/src/include/leveldb/status.h"
 #include "third_party/leveldatabase/src/include/leveldb/write_batch.h"
 
@@ -1548,7 +1546,7 @@ void MetadataDatabase::RemoveUnneededTrackersForMissingFile(
 }
 
 void MetadataDatabase::UpdateByFileMetadata(
-    const tracked_objects::Location& from_where,
+    const base::Location& from_where,
     std::unique_ptr<FileMetadata> metadata,
     UpdateOption option) {
   DCHECK(metadata);

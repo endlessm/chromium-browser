@@ -16,7 +16,7 @@ namespace feature_engagement {
 // new tab button. NewTabTracker is the interface through which the event
 // constants for the NewTab feature can be be altered. Once all of the event
 // constants are met, NewTabTracker calls for the NewTabPromo to be shown, along
-// with recording when the NewTabPromo is dimissed. The requirements to show
+// with recording when the NewTabPromo is dismissed. The requirements to show
 // the NewTabPromo are as follows:
 //
 // - At least two hours of observed session time have elapsed.
@@ -37,8 +37,12 @@ class NewTabTracker : public FeatureTracker {
   void OnOmniboxFocused();
   // Clears the flag for whether there is any in-product help being displayed.
   void OnPromoClosed();
-  // Returns whether or not the promo should be displayed.
-  bool ShouldShowPromo();
+  // Shows new tab in-product help promo bubble in last active browser.
+  void ShowPromo();
+
+  // Returns whether there was a bubble that was closed. A bubble closes only
+  // when it exists.
+  void CloseBubble();
 
  protected:
   // Alternate constructor to support unit testing.
@@ -52,11 +56,7 @@ class NewTabTracker : public FeatureTracker {
   FRIEND_TEST_ALL_PREFIXES(NewTabTrackerBrowserTest, TestShowPromo);
 
   // FeatureTracker:
-  int GetSessionTimeRequiredToShowInMinutes() override;
   void OnSessionTimeMet() override;
-
-  // Sets the NewTabInProductHelp pref to true and calls the New Tab Promo.
-  void ShowPromo();
 
   DISALLOW_COPY_AND_ASSIGN(NewTabTracker);
 };

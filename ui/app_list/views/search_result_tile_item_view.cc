@@ -9,10 +9,13 @@
 #include "base/strings/utf_string_conversions.h"
 #include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_view_delegate.h"
+#include "ui/app_list/pagination_model.h"
 #include "ui/app_list/search_result.h"
 #include "ui/app_list/vector_icons/vector_icons.h"
 #include "ui/app_list/views/search_result_container_view.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/strings/grit/ui_strings.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
@@ -45,12 +48,14 @@ constexpr SkColor kSearchRatingStarColor =
 SearchResultTileItemView::SearchResultTileItemView(
     SearchResultContainerView* result_container,
     AppListViewDelegate* view_delegate,
+    PaginationModel* pagination_model,
     bool is_suggested_app,
     bool is_fullscreen_app_list_enabled,
     bool is_play_store_search_enabled)
     : is_suggested_app_(is_suggested_app),
       result_container_(result_container),
       view_delegate_(view_delegate),
+      pagination_model_(pagination_model),
       is_fullscreen_app_list_enabled_(is_fullscreen_app_list_enabled) {
   // When |item_| is null, the tile is invisible. Calling SetSearchResult with a
   // non-null item makes the tile visible.
@@ -158,8 +163,12 @@ void SearchResultTileItemView::SetSearchResult(SearchResult* item) {
   }
 
   base::string16 accessible_name = title()->text();
-  if (rating_ && rating_->visible())
-    accessible_name += base::UTF8ToUTF16(", ") + rating_->text();
+  if (rating_ && rating_->visible()) {
+    accessible_name +=
+        base::UTF8ToUTF16(", ") +
+        l10n_util::GetStringFUTF16(IDS_APP_ACCESSIBILITY_STAR_RATING_ARC,
+                                   rating_->text());
+  }
   if (price_ && price_->visible())
     accessible_name += base::UTF8ToUTF16(", ") + price_->text();
   SetAccessibleName(accessible_name);
@@ -206,18 +215,33 @@ void SearchResultTileItemView::LogAppLaunch() const {
 
 void SearchResultTileItemView::ButtonPressed(views::Button* sender,
                                              const ui::Event& event) {
-  LogAppLaunch();
+  if (is_suggested_app_)
+    LogAppLaunch();
+
   view_delegate_->OpenSearchResult(item_, false, event.flags());
 }
 
 bool SearchResultTileItemView::OnKeyPressed(const ui::KeyEvent& event) {
   if (event.key_code() == ui::VKEY_RETURN) {
-    LogAppLaunch();
+    if (is_suggested_app_)
+      LogAppLaunch();
+
     view_delegate_->OpenSearchResult(item_, false, event.flags());
     return true;
   }
 
   return false;
+}
+
+void SearchResultTileItemView::OnFocus() {
+  if (pagination_model_ && is_recommendation() &&
+      view_delegate_->GetModel()->state() == AppListModel::STATE_APPS) {
+    // Go back to first page when app in suggestions container is focused.
+    pagination_model_->SelectPage(0, false);
+  } else if (!is_recommendation()) {
+    ScrollRectToVisible(GetLocalBounds());
+  }
+  TileItemView::OnFocus();
 }
 
 void SearchResultTileItemView::OnIconChanged() {

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2016 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -88,6 +89,25 @@ class CbuildbotLaunchTest(cros_test_lib.MockTestCase):
     self.assertNotIn('LC_MONETARY', os.environ)
 
 
+class RunDepotToolsEnsureBootstrap(cros_build_lib_unittest.RunCommandTestCase,
+                                   cros_test_lib.TempDirTestCase):
+  """Test the helper function DepotToolsEnsureBootstrap."""
+
+  def testEnsureBootstrap(self):
+    """Verify that the script is run if present."""
+    script = os.path.join(self.tempdir, 'ensure_bootstrap')
+    osutils.Touch(script, makedirs=True)
+
+    cbuildbot_launch.DepotToolsEnsureBootstrap(self.tempdir)
+    self.assertCommandCalled(
+        [script], extra_env={'PATH': mock.ANY}, cwd=self.tempdir)
+
+  def testEnsureBootstrapMissing(self):
+    """Verify that the script is NOT run if not present."""
+    cbuildbot_launch.DepotToolsEnsureBootstrap(self.tempdir)
+    self.assertEqual(self.rc.call_count, 0)
+
+
 class RunTests(cros_build_lib_unittest.RunCommandTestCase):
   """Tests for cbuildbot_launch script."""
 
@@ -103,10 +123,11 @@ class RunTests(cros_build_lib_unittest.RunCommandTestCase):
         cros_build_lib, 'GetTargetChromiteApiVersion', autospec=True,
         return_value=version)
 
-    cbuildbot_launch.RunCbuildbot('/cbuildbot_buildroot', args)
+    cbuildbot_launch.RunCbuildbot('/cbuildbot_buildroot', '/depot_tools', args)
 
     self.assertCommandCalled(
-        expected_cmd, cwd='/cbuildbot_buildroot', error_code_ok=True)
+        expected_cmd, extra_env={'PATH': mock.ANY},
+        cwd='/cbuildbot_buildroot', error_code_ok=True)
 
   def testRunCbuildbotSimple(self):
     """Ensure we invoke cbuildbot correctly."""
@@ -175,6 +196,7 @@ class RunTests(cros_build_lib_unittest.RunCommandTestCase):
             '-r', '/root/repository',
             '--ts-mon-task-num', '1',
         ],
+        extra_env={'PATH': mock.ANY},
         cwd='/root/repository',
         error_code_ok=True)
 
@@ -231,6 +253,7 @@ class RunTests(cros_build_lib_unittest.RunCommandTestCase):
             '--remote-trybot',
             '--ts-mon-task-num', '1',
         ],
+        extra_env={'PATH': mock.ANY},
         cwd='/root/repository',
         error_code_ok=True)
 
@@ -302,6 +325,7 @@ class CleanBuildRootTest(cros_test_lib.MockTempDirTestCase):
     """Test CleanBuildRoot with a change in branches."""
     self.populateBuildroot('2 branchA')
     self.mock_repo.branch = 'branchB'
+    m = self.PatchObject(cros_build_lib, 'CleanupChrootMount')
 
     cbuildbot_launch.CleanBuildRoot(
         self.root, self.mock_repo, self.metrics)
@@ -310,6 +334,7 @@ class CleanBuildRootTest(cros_test_lib.MockTempDirTestCase):
     self.assertExists(self.repo)
     self.assertNotExists(self.chroot)
     self.assertExists(self.general)
+    m.assert_called()
 
   def testBuildrootBranchMatch(self):
     """Test CleanBuildRoot with no change in branch."""

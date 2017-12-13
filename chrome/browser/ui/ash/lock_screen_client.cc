@@ -9,6 +9,7 @@
 #include "ash/public/interfaces/constants.mojom.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
 #include "chrome/browser/chromeos/login/reauth_stats.h"
+#include "chrome/browser/chromeos/login/ui/user_adding_screen.h"
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
@@ -48,8 +49,8 @@ void LockScreenClient::AuthenticateUser(const AccountId& account_id,
                                         bool authenticated_by_pin,
                                         AuthenticateUserCallback callback) {
   if (delegate_)
-    delegate_->HandleAuthenticateUser(account_id, hashed_password,
-                                    authenticated_by_pin, std::move(callback));
+    delegate_->HandleAuthenticateUser(
+        account_id, hashed_password, authenticated_by_pin, std::move(callback));
 }
 
 void LockScreenClient::ShowLockScreen(
@@ -82,12 +83,24 @@ void LockScreenClient::OnNoPodFocused() {
     delegate_->HandleOnNoPodFocused();
 }
 
+void LockScreenClient::FocusLockScreenApps(bool reverse) {
+  // If delegate is not set, or it fails to handle focus request, call
+  // |HandleFocusLeavingLockScreenApps| so the lock screen mojo service can
+  // give focus to the next window in the tab order.
+  if (!delegate_ || !delegate_->HandleFocusLockScreenApps(reverse))
+    HandleFocusLeavingLockScreenApps(reverse);
+}
+
 void LockScreenClient::LoadWallpaper(const AccountId& account_id) {
   chromeos::WallpaperManager::Get()->SetUserWallpaperDelayed(account_id);
 }
 
 void LockScreenClient::SignOutUser() {
   chromeos::ScreenLocker::default_screen_locker()->Signout();
+}
+
+void LockScreenClient::CancelAddUser() {
+  chromeos::UserAddingScreen::Get()->Cancel();
 }
 
 void LockScreenClient::OnMaxIncorrectPasswordAttempted(
@@ -133,6 +146,10 @@ void LockScreenClient::LoadUsers(
 void LockScreenClient::SetPinEnabledForUser(const AccountId& account_id,
                                             bool is_enabled) {
   lock_screen_->SetPinEnabledForUser(account_id, is_enabled);
+}
+
+void LockScreenClient::HandleFocusLeavingLockScreenApps(bool reverse) {
+  lock_screen_->HandleFocusLeavingLockScreenApps(reverse);
 }
 
 void LockScreenClient::SetDelegate(Delegate* delegate) {

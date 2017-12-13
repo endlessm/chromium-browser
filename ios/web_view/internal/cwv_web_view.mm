@@ -7,7 +7,6 @@
 #include <memory>
 #include <utility>
 
-#import "base/ios/weak_nsobject.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "google_apis/google_api_keys.h"
@@ -34,11 +33,16 @@
 #import "ios/web_view/internal/web_view_java_script_dialog_presenter.h"
 #import "ios/web_view/internal/web_view_web_state_policy_decider.h"
 #import "ios/web_view/public/cwv_navigation_delegate.h"
+#import "ios/web_view/public/cwv_preview_element_info.h"
 #import "ios/web_view/public/cwv_ui_delegate.h"
 #import "ios/web_view/public/cwv_web_view_configuration.h"
 #import "net/base/mac/url_conversions.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace {
 // A key used in NSCoder to store the session storage object.
@@ -306,14 +310,15 @@ static NSString* gUserAgentProduct = nil;
   CWVNavigationAction* navigationAction =
       [[CWVNavigationAction alloc] initWithRequest:request
                                      userInitiated:initiatedByUser];
-  // TODO(crbug.com/702298): Window created by CWVUIDelegate should be closable.
   CWVWebView* webView = [_UIDelegate webView:self
               createWebViewWithConfiguration:_configuration
                          forNavigationAction:navigationAction];
   if (!webView) {
     return nullptr;
   }
-  return webView->_webState.get();
+  web::WebState* webViewWebState = webView->_webState.get();
+  webViewWebState->SetHasOpener(true);
+  return webViewWebState;
 }
 
 - (void)closeWebState:(web::WebState*)webState {
@@ -326,6 +331,38 @@ static NSString* gUserAgentProduct = nil;
 - (web::JavaScriptDialogPresenter*)javaScriptDialogPresenterForWebState:
     (web::WebState*)webState {
   return _javaScriptDialogPresenter.get();
+}
+
+- (BOOL)webState:(web::WebState*)webState
+    shouldPreviewLinkWithURL:(const GURL&)linkURL {
+  SEL selector = @selector(webView:shouldPreviewElement:);
+  if ([_UIDelegate respondsToSelector:selector]) {
+    CWVPreviewElementInfo* elementInfo = [[CWVPreviewElementInfo alloc]
+        initWithLinkURL:net::NSURLWithGURL(linkURL)];
+    return [_UIDelegate webView:self shouldPreviewElement:elementInfo];
+  }
+  return NO;
+}
+
+- (UIViewController*)webState:(web::WebState*)webState
+    previewingViewControllerForLinkWithURL:(const GURL&)linkURL {
+  SEL selector = @selector(webView:previewingViewControllerForElement:);
+  if ([_UIDelegate respondsToSelector:selector]) {
+    CWVPreviewElementInfo* elementInfo = [[CWVPreviewElementInfo alloc]
+        initWithLinkURL:net::NSURLWithGURL(linkURL)];
+    return [_UIDelegate webView:self
+        previewingViewControllerForElement:elementInfo];
+  }
+  return nil;
+}
+
+- (void)webState:(web::WebState*)webState
+    commitPreviewingViewController:(UIViewController*)previewingViewController {
+  SEL selector = @selector(webView:commitPreviewingViewController:);
+  if ([_UIDelegate respondsToSelector:selector]) {
+    [_UIDelegate webView:self
+        commitPreviewingViewController:previewingViewController];
+  }
 }
 
 #pragma mark - Translation

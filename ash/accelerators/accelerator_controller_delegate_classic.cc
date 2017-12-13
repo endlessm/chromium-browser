@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -19,14 +20,13 @@
 #include "ash/root_window_controller.h"
 #include "ash/screenshot_delegate.h"
 #include "ash/shell.h"
+#include "ash/system/power/power_button_controller.h"
 #include "ash/system/system_notifier.h"
 #include "ash/touch/touch_hud_debug.h"
 #include "ash/utility/screenshot_controller.h"
-#include "ash/wm/power_button_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/wm_event.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/sys_info.h"
@@ -52,7 +52,7 @@ void HandleMagnifyScreen(int delta_index) {
     float scale = Shell::Get()->magnification_controller()->GetScale();
     // Calculate rounded logarithm (base kMagnificationScaleFactor) of scale.
     int scale_index =
-        std::floor(std::log(scale) / std::log(kMagnificationScaleFactor) + 0.5);
+        std::round(std::log(scale) / std::log(kMagnificationScaleFactor));
 
     int new_scale_index = std::max(0, std::min(8, scale_index + delta_index));
 
@@ -83,11 +83,11 @@ void HandleTakeScreenshot(ScreenshotDelegate* screenshot_delegate) {
 }
 
 bool CanHandleUnpin() {
-  // Returns true only for WINDOW_STATE_TYPE_PINNED.
-  // WINDOW_STATE_TYPE_TRUSTED_PINNED does not accept user's unpin operation.
+  // Returns true only for WindowStateType::PINNED.
+  // WindowStateType::TRUSTED_PINNED does not accept user's unpin operation.
   wm::WindowState* window_state = wm::GetActiveWindowState();
   return window_state &&
-         window_state->GetStateType() == wm::WINDOW_STATE_TYPE_PINNED;
+         window_state->GetStateType() == mojom::WindowStateType::PINNED;
 }
 
 bool CanHandleTouchHud() {

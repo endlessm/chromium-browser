@@ -151,11 +151,6 @@ int WebMainLoop::CreateThreads(
         thread_to_start = &db_thread_;
         options.timer_slack = base::TIMER_SLACK_MAXIMUM;
         break;
-      case WebThread::FILE:
-        thread_to_start = &file_thread_;
-        options = io_message_loop_options;
-        options.timer_slack = base::TIMER_SLACK_MAXIMUM;
-        break;
       case WebThread::IO:
         thread_to_start = &io_thread_;
         options = io_message_loop_options;
@@ -230,9 +225,6 @@ void WebMainLoop::ShutdownThreadsAndCleanUp() {
       case WebThread::DB:
         db_thread_.reset();
         break;
-      case WebThread::FILE:
-        file_thread_.reset();
-        break;
       case WebThread::IO:
         io_thread_.reset();
         break;
@@ -244,13 +236,12 @@ void WebMainLoop::ShutdownThreadsAndCleanUp() {
     }
   }
 
-  // Close the blocking I/O pool after the other threads. Other threads such
-  // as the I/O thread may need to schedule work like closing files or flushing
-  // data during shutdown, so the blocking pool needs to be available. There
-  // may also be slow operations pending that will block shutdown, so closing
-  // it here (which will block until required operations are complete) gives
-  // more head start for those operations to finish.
-  WebThreadImpl::ShutdownThreadPool();
+  // Shutdown TaskScheduler after the other threads. Other threads such as the
+  // I/O thread may need to schedule work like closing files or flushing data
+  // during shutdown, so TaskScheduler needs to be available. There may also be
+  // slow operations pending that will block shutdown, so closing it here (which
+  // will block until required operations are complete) gives more head start
+  // for those operations to finish.
   base::TaskScheduler::GetInstance()->Shutdown();
 
   URLDataManagerIOS::DeleteDataSources();

@@ -4,14 +4,6 @@
 
 #include "chrome/browser/ui/ash/palette_delegate_chromeos.h"
 
-#include "ash/accelerators/accelerator_controller_delegate_classic.h"
-#include "ash/highlighter/highlighter_controller.h"
-#include "ash/highlighter/highlighter_selection_observer.h"
-#include "ash/screenshot_delegate.h"
-#include "ash/shell.h"
-#include "ash/shell_port_classic.h"
-#include "ash/system/palette/palette_utils.h"
-#include "ash/utility/screenshot_controller.h"
 #include "base/memory/ptr_util.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/arc/voice_interaction/arc_voice_interaction_framework_service.h"
@@ -28,73 +20,6 @@
 
 namespace chromeos {
 
-constexpr int kMetalayerSelectionDelayMs = 600;
-
-class VoiceInteractionSelectionObserver
-    : public ash::HighlighterSelectionObserver {
- public:
-  explicit VoiceInteractionSelectionObserver(Profile* profile)
-      : profile_(profile) {
-    ash::Shell::Get()->highlighter_controller()->SetObserver(this);
-  }
-
-  ~VoiceInteractionSelectionObserver() override {
-    if (ash::Shell::HasInstance() &&
-        ash::Shell::Get()->highlighter_controller()) {
-      ash::Shell::Get()->highlighter_controller()->SetObserver(nullptr);
-    }
-  };
-
-  void set_on_selection_done(base::OnceClosure done) {
-    on_selection_done_ = std::move(done);
-  }
-
-  void set_disable_on_failed_selection(bool disable_on_failed_selection) {
-    disable_on_failed_selection_ = disable_on_failed_selection;
-  }
-
- private:
-  void HandleSelection(const gfx::Rect& rect) override {
-    // Delay the actual voice interaction service invocation for better
-    // visual synchronization with the metalayer animation.
-    delay_timer_ = base::MakeUnique<base::Timer>(
-        FROM_HERE,
-        base::TimeDelta::FromMilliseconds(kMetalayerSelectionDelayMs),
-        base::Bind(&VoiceInteractionSelectionObserver::ReportSelection,
-                   base::Unretained(this), rect),
-        false /* not repeating */);
-    delay_timer_->Reset();
-    DisableMetalayer();
-  }
-
-  void HandleFailedSelection() override {
-    if (disable_on_failed_selection_)
-      DisableMetalayer();
-  }
-
-  void DisableMetalayer() {
-    DCHECK(on_selection_done_);
-    std::move(on_selection_done_).Run();
-  }
-
-  void ReportSelection(const gfx::Rect& rect) {
-    auto* framework =
-        arc::ArcVoiceInteractionFrameworkService::GetForBrowserContext(
-            profile_);
-    if (!framework)
-      return;
-    framework->StartSessionFromUserInteraction(rect);
-  }
-
-  Profile* const profile_;  // Owned by ProfileManager.
-
-  std::unique_ptr<base::Timer> delay_timer_;
-  base::OnceClosure on_selection_done_;
-  bool disable_on_failed_selection_ = true;
-
-  DISALLOW_COPY_AND_ASSIGN(VoiceInteractionSelectionObserver);
-};
-
 PaletteDelegateChromeOS::PaletteDelegateChromeOS() : weak_factory_(this) {
   registrar_.Add(this, chrome::NOTIFICATION_SESSION_STARTED,
                  content::NotificationService::AllSources());
@@ -102,8 +27,7 @@ PaletteDelegateChromeOS::PaletteDelegateChromeOS() : weak_factory_(this) {
                  content::NotificationService::AllSources());
 }
 
-PaletteDelegateChromeOS::~PaletteDelegateChromeOS() {
-}
+PaletteDelegateChromeOS::~PaletteDelegateChromeOS() {}
 
 std::unique_ptr<PaletteDelegateChromeOS::EnableListenerSubscription>
 PaletteDelegateChromeOS::AddPaletteEnableListener(
@@ -183,12 +107,6 @@ void PaletteDelegateChromeOS::SetProfile(Profile* profile) {
   OnPaletteEnabledPrefChanged();
 }
 
-void PaletteDelegateChromeOS::OnPartialScreenshotDone(
-    const base::Closure& then) {
-  if (then)
-    then.Run();
-}
-
 bool PaletteDelegateChromeOS::ShouldAutoOpenPalette() {
   if (!profile_)
     return false;
@@ -201,57 +119,6 @@ bool PaletteDelegateChromeOS::ShouldShowPalette() {
     return false;
 
   return profile_->GetPrefs()->GetBoolean(prefs::kEnableStylusTools);
-}
-
-void PaletteDelegateChromeOS::TakeScreenshot() {
-  auto* screenshot_delegate = ash::ShellPortClassic::Get()
-                                  ->accelerator_controller_delegate()
-                                  ->screenshot_delegate();
-  screenshot_delegate->HandleTakeScreenshotForAllRootWindows();
-}
-
-void PaletteDelegateChromeOS::TakePartialScreenshot(const base::Closure& done) {
-  auto* screenshot_controller = ash::Shell::Get()->screenshot_controller();
-  auto* screenshot_delegate = ash::ShellPortClassic::Get()
-                                  ->accelerator_controller_delegate()
-                                  ->screenshot_delegate();
-  screenshot_controller->set_pen_events_only(true);
-  screenshot_controller->StartPartialScreenshotSession(
-      screenshot_delegate, false /* draw_overlay_immediately */);
-  screenshot_controller->set_on_screenshot_session_done(
-      base::Bind(&PaletteDelegateChromeOS::OnPartialScreenshotDone,
-                 weak_factory_.GetWeakPtr(), done));
-}
-
-void PaletteDelegateChromeOS::CancelPartialScreenshot() {
-  ash::Shell::Get()->screenshot_controller()->CancelScreenshotSession();
-}
-
-void PaletteDelegateChromeOS::ShowMetalayer(base::OnceClosure done,
-                                            bool via_button) {
-  auto* service =
-      arc::ArcVoiceInteractionFrameworkService::GetForBrowserContext(profile_);
-  if (!service)
-    return;
-  service->ShowMetalayer();
-
-  if (!highlighter_selection_observer_) {
-    highlighter_selection_observer_ =
-        base::MakeUnique<VoiceInteractionSelectionObserver>(profile_);
-  }
-  highlighter_selection_observer_->set_on_selection_done(std::move(done));
-  highlighter_selection_observer_->set_disable_on_failed_selection(via_button);
-  ash::Shell::Get()->highlighter_controller()->SetEnabled(true);
-}
-
-void PaletteDelegateChromeOS::HideMetalayer() {
-  auto* service =
-      arc::ArcVoiceInteractionFrameworkService::GetForBrowserContext(profile_);
-  if (!service)
-    return;
-  service->HideMetalayer();
-
-  ash::Shell::Get()->highlighter_controller()->SetEnabled(false);
 }
 
 }  // namespace chromeos

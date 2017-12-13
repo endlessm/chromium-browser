@@ -57,6 +57,10 @@ void WebrtcVideoEncoderGpu::Encode(std::unique_ptr<webrtc::DesktopFrame> frame,
   DCHECK_GT(params.duration, base::TimeDelta::FromMilliseconds(0));
 
   if (state_ == INITIALIZATION_ERROR) {
+    // TODO(zijiehe): The screen resolution limitation of H264 encoder is much
+    // smaller (3840x2176) than VP8 (16k x 16k) or VP9 (65k x 65k). It's more
+    // likely the initialization may fail by using H264 encoder. We should
+    // provide a way to tell the WebrtcVideoStream to stop the video stream.
     DLOG(ERROR) << "Encoder failed to initialize; dropping encode request";
     std::move(done).Run(nullptr);
     return;
@@ -98,11 +102,12 @@ void WebrtcVideoEncoderGpu::Encode(std::unique_ptr<webrtc::DesktopFrame> frame,
   video_frame->set_timestamp(new_timestamp);
   previous_timestamp_ = new_timestamp;
 
+  // H264 encoder on Windows supports only I420.
   ArgbToI420(*frame, video_frame);
 
   callbacks_[video_frame->timestamp()] = std::move(done);
 
-  video_encode_accelerator_->Encode(video_frame, /*force_keyframe=*/false);
+  video_encode_accelerator_->Encode(video_frame, params.key_frame);
 }
 
 void WebrtcVideoEncoderGpu::RequireBitstreamBuffers(
@@ -126,8 +131,7 @@ void WebrtcVideoEncoderGpu::RequireBitstreamBuffers(
   for (unsigned int i = 0; i < kWebrtcVideoEncoderGpuOutputBufferCount; ++i) {
     auto shm = base::MakeUnique<base::SharedMemory>();
     // TODO(gusss): Do we need to handle mapping failure more gracefully?
-    // LOG_ASSERT will simply cause a crash.
-    LOG_ASSERT(shm->CreateAndMapAnonymous(output_buffer_size_));
+    CHECK(shm->CreateAndMapAnonymous(output_buffer_size_));
     output_buffers_.push_back(std::move(shm));
   }
 
@@ -136,9 +140,7 @@ void WebrtcVideoEncoderGpu::RequireBitstreamBuffers(
   }
 
   state_ = INITIALIZED;
-
-  if (pending_encode_)
-    std::move(pending_encode_).Run();
+  RunAnyPendingEncode();
 }
 
 void WebrtcVideoEncoderGpu::BitstreamBufferReady(int32_t bitstream_buffer_id,
@@ -155,11 +157,13 @@ void WebrtcVideoEncoderGpu::BitstreamBufferReady(int32_t bitstream_buffer_id,
       base::MakeUnique<EncodedFrame>();
   base::SharedMemory* output_buffer =
       output_buffers_[bitstream_buffer_id].get();
+  DCHECK(output_buffer->memory());
   encoded_frame->data.assign(reinterpret_cast<char*>(output_buffer->memory()),
                              payload_size);
   encoded_frame->key_frame = key_frame;
   encoded_frame->size = webrtc::DesktopSize(input_coded_size_.width(),
                                             input_coded_size_.height());
+  encoded_frame->quantizer = 0;
 
   UseOutputBitstreamBufferId(bitstream_buffer_id);
 
@@ -192,6 +196,7 @@ void WebrtcVideoEncoderGpu::BeginInitialization() {
   if (!video_encode_accelerator_) {
     LOG(ERROR) << "Could not create VideoEncodeAccelerator";
     state_ = INITIALIZATION_ERROR;
+    RunAnyPendingEncode();
     return;
   }
 
@@ -202,16 +207,26 @@ void WebrtcVideoEncoderGpu::UseOutputBitstreamBufferId(
     int32_t bitstream_buffer_id) {
   DVLOG(3) << __func__ << " id=" << bitstream_buffer_id;
   video_encode_accelerator_->UseOutputBitstreamBuffer(media::BitstreamBuffer(
-      bitstream_buffer_id, output_buffers_[bitstream_buffer_id]->handle(),
+      bitstream_buffer_id,
+      output_buffers_[bitstream_buffer_id]->handle().Duplicate(),
       output_buffer_size_));
+}
+
+void WebrtcVideoEncoderGpu::RunAnyPendingEncode() {
+  if (pending_encode_)
+    std::move(pending_encode_).Run();
 }
 
 // static
 std::unique_ptr<WebrtcVideoEncoderGpu> WebrtcVideoEncoderGpu::CreateForH264() {
   DVLOG(3) << __func__;
 
-  // TODO(gusss): what profile should be picked here? Currently, baseline was
-  // chosen arbitrarily.
+  // MediaFoundationVideoEncodeAccelerator supports only baseline profile.
+  // TODO(zijiehe): H264 encoder on Windows supports more input formats and
+  // profiles than the limitation in MediaFoundationVideoEncodeAccelerator.
+  // https://msdn.microsoft.com/en-us/library/windows/desktop/dd797816(v=vs.85).aspx
+  // Loosen the limitation in MediaFoundationVideoEncodeAccelerator and use a
+  // profile with higher quality here.
   return base::WrapUnique(new WebrtcVideoEncoderGpu(
       media::VideoCodecProfile::H264PROFILE_BASELINE));
 }

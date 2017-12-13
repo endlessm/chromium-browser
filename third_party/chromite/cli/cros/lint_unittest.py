@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -44,6 +45,14 @@ class TestNode(object):
 
   def display_type(self):
     return self._display_type
+
+
+class StatStub(object):
+  """Dummy object to stand in for stat checks."""
+
+  def __init__(self, size=0, mode=0o644):
+    self.st_size = size
+    self.st_mode = mode
 
 
 class CheckerTestCase(cros_test_lib.TestCase):
@@ -392,18 +401,18 @@ class SourceCheckerTest(CheckerTestCase):
 
   CHECKER = lint.SourceChecker
 
-  def _testShebang(self, shebangs, exp, fileno):
+  def _testShebang(self, shebangs, exp, mode):
     """Helper for shebang tests"""
     for shebang in shebangs:
       self.results = []
       node = TestNode()
       stream = StringIO.StringIO(shebang)
-      stream.fileno = lambda: fileno
-      self.checker._check_shebang(node, stream)
+      st = StatStub(size=len(shebang), mode=mode)
+      self.checker._check_shebang(node, stream, st)
       self.assertEqual(len(self.results), exp,
                        msg='processing shebang failed: %r' % shebang)
 
-  def testBadShebangNoExec(self):
+  def testBadShebang(self):
     """Verify _check_shebang rejects bad shebangs"""
     shebangs = (
         '#!/usr/bin/python\n',
@@ -412,8 +421,15 @@ class SourceCheckerTest(CheckerTestCase):
         '#! /usr/bin/env python2 \n',
         '#!/usr/bin/python2\n',
     )
-    with open('/dev/null') as f:
-      self._testShebang(shebangs, 2, f.fileno())
+    self._testShebang(shebangs, 1, 0o755)
+
+  def testGoodShebangNoExec(self):
+    """Verify _check_shebang rejects shebangs on non-exec files"""
+    shebangs = (
+        '#!/usr/bin/env python2\n',
+        '#!/usr/bin/env python3\n',
+    )
+    self._testShebang(shebangs, 1, 0o644)
 
   def testGoodShebang(self):
     """Verify _check_shebang accepts good shebangs"""
@@ -422,8 +438,7 @@ class SourceCheckerTest(CheckerTestCase):
         '#!/usr/bin/env python3\n',
         '#!/usr/bin/env python2\t\n',
     )
-    with open('/bin/sh') as f:
-      self._testShebang(shebangs, 0, f.fileno())
+    self._testShebang(shebangs, 0, 0o755)
 
   def testGoodUnittestName(self):
     """Verify _check_module_name accepts good unittest names"""

@@ -5,7 +5,6 @@
 #include "ui/display/manager/display_manager.h"
 
 #include "ash/accelerators/accelerator_commands.h"
-#include "ash/ash_switches.h"
 #include "ash/display/display_configuration_controller.h"
 #include "ash/display/display_util.h"
 #include "ash/display/mirror_window_controller.h"
@@ -14,6 +13,7 @@
 #include "ash/display/screen_orientation_controller_test_api.h"
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/public/cpp/app_types.h"
+#include "ash/public/cpp/ash_switches.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
@@ -160,11 +160,11 @@ TEST_F(DisplayManagerTest, UpdateDisplayTest) {
             display_manager()->GetDisplayAt(0).bounds().ToString());
 
   EXPECT_EQ("2 1 0 1 1", GetCountSummary());
-  EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), changed()[0].id());
-  EXPECT_EQ(display_manager()->GetDisplayAt(0).id(), changed()[1].id());
+  EXPECT_EQ(display_manager()->GetDisplayAt(0).id(), changed()[0].id());
+  EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), changed()[1].id());
   EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), added()[0].id());
-  EXPECT_EQ("500,0 400x400", changed()[0].bounds().ToString());
-  EXPECT_EQ("0,0 500x500", changed()[1].bounds().ToString());
+  EXPECT_EQ("0,0 500x500", changed()[0].bounds().ToString());
+  EXPECT_EQ("500,0 400x400", changed()[1].bounds().ToString());
   // Secondary display is on right.
   EXPECT_EQ("500,0 400x400", added()[0].bounds().ToString());
   EXPECT_EQ("0,501 400x400",
@@ -299,14 +299,14 @@ TEST_F(DisplayManagerTest, UpdateThreeDisplaysWithDefaultLayout) {
             display_manager()->GetDisplayAt(2).bounds().ToString());
 
   EXPECT_EQ("3 2 0 1 1", GetCountSummary());
-  EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), changed()[0].id());
-  EXPECT_EQ(display_manager()->GetDisplayAt(2).id(), changed()[1].id());
-  EXPECT_EQ(display_manager()->GetDisplayAt(0).id(), changed()[2].id());
+  EXPECT_EQ(display_manager()->GetDisplayAt(0).id(), changed()[0].id());
+  EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), changed()[1].id());
+  EXPECT_EQ(display_manager()->GetDisplayAt(2).id(), changed()[2].id());
   EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), added()[0].id());
   EXPECT_EQ(display_manager()->GetDisplayAt(2).id(), added()[1].id());
-  EXPECT_EQ("640,0 320x200", changed()[0].bounds().ToString());
-  EXPECT_EQ("960,0 400x300", changed()[1].bounds().ToString());
-  EXPECT_EQ("0,0 640x480", changed()[2].bounds().ToString());
+  EXPECT_EQ("0,0 640x480", changed()[0].bounds().ToString());
+  EXPECT_EQ("640,0 320x200", changed()[1].bounds().ToString());
+  EXPECT_EQ("960,0 400x300", changed()[2].bounds().ToString());
   // Secondary and terniary displays are on right.
   EXPECT_EQ("640,0 320x200", added()[0].bounds().ToString());
   EXPECT_EQ("1000,0 320x200",
@@ -1137,29 +1137,33 @@ TEST_F(DisplayManagerTest, TouchCalibrationTest) {
   const display::ManagedDisplayInfo display_info1 = GetDisplayInfoAt(0);
   const display::ManagedDisplayInfo display_info2 = GetDisplayInfoAt(1);
 
-  EXPECT_FALSE(display_info2.has_touch_calibration_data());
+  constexpr uint32_t touch_device_identifier_2 = 2345;
 
-  display::TouchCalibrationData::CalibrationPointPairQuad point_pair_quad = {
-      {std::make_pair(gfx::Point(50, 50), gfx::Point(43, 51)),
-       std::make_pair(gfx::Point(950, 50), gfx::Point(975, 45)),
-       std::make_pair(gfx::Point(50, 550), gfx::Point(48, 534)),
-       std::make_pair(gfx::Point(950, 550), gfx::Point(967, 574))}};
-  gfx::Size bounds_at_calibration(display_info2.size_in_pixel());
+  EXPECT_FALSE(display_info2.touch_calibration_data_map().size());
+
+  const display::TouchCalibrationData::CalibrationPointPairQuad
+      point_pair_quad = {
+          {std::make_pair(gfx::Point(50, 50), gfx::Point(43, 51)),
+           std::make_pair(gfx::Point(950, 50), gfx::Point(975, 45)),
+           std::make_pair(gfx::Point(50, 550), gfx::Point(48, 534)),
+           std::make_pair(gfx::Point(950, 550), gfx::Point(967, 574))}};
+  const gfx::Size bounds_at_calibration(display_info2.size_in_pixel());
   const display::TouchCalibrationData touch_data(point_pair_quad,
                                                  bounds_at_calibration);
 
   // Set the touch calibration data for the secondary display.
   display_manager()->SetTouchCalibrationData(
-      display_info2.id(), point_pair_quad, bounds_at_calibration);
+      display_info2.id(), point_pair_quad, bounds_at_calibration,
+      touch_device_identifier_2);
 
-  display::ManagedDisplayInfo updated_display_info2 = GetDisplayInfoAt(1);
-  EXPECT_TRUE(updated_display_info2.has_touch_calibration_data());
-  EXPECT_EQ(touch_data, updated_display_info2.GetTouchCalibrationData());
+  EXPECT_TRUE(GetDisplayInfoAt(1).touch_calibration_data_map().size());
+  EXPECT_EQ(touch_data, GetDisplayInfoAt(1).GetTouchCalibrationData(
+                            touch_device_identifier_2));
 
   // Clearing touch calibration data from the secondary display.
-  display_manager()->ClearTouchCalibrationData(display_info2.id());
-  updated_display_info2 = GetDisplayInfoAt(1);
-  EXPECT_FALSE(updated_display_info2.has_touch_calibration_data());
+  display_manager()->ClearTouchCalibrationData(GetDisplayInfoAt(1).id(),
+                                               touch_device_identifier_2);
+  EXPECT_FALSE(GetDisplayInfoAt(1).touch_calibration_data_map().size());
 
   // Make sure that SetTouchCalibrationData() is idempotent.
   display::TouchCalibrationData::CalibrationPointPairQuad point_pair_quad_2 =
@@ -1169,22 +1173,18 @@ TEST_F(DisplayManagerTest, TouchCalibrationTest) {
   display::TouchCalibrationData touch_data_2(point_pair_quad_2,
                                              bounds_at_calibration);
   display_manager()->SetTouchCalibrationData(
-      display_info2.id(), point_pair_quad_2, bounds_at_calibration);
+      display_info2.id(), point_pair_quad_2, bounds_at_calibration,
+      touch_device_identifier_2);
 
-  updated_display_info2 = GetDisplayInfoAt(1);
-  EXPECT_TRUE(updated_display_info2.has_touch_calibration_data());
-  EXPECT_EQ(touch_data_2, updated_display_info2.GetTouchCalibrationData());
-
-  display_manager()->SetTouchCalibrationData(
-      display_info2.id(), point_pair_quad, bounds_at_calibration);
-  EXPECT_TRUE(updated_display_info2.has_touch_calibration_data());
-  EXPECT_EQ(touch_data_2, updated_display_info2.GetTouchCalibrationData());
+  EXPECT_TRUE(GetDisplayInfoAt(1).touch_calibration_data_map().size());
+  EXPECT_EQ(touch_data_2, GetDisplayInfoAt(1).GetTouchCalibrationData(
+                              touch_device_identifier_2));
 
   // Recreate a new 2nd display. It won't apply the touhc calibration data
   // because the new display has a different ID.
   UpdateDisplay("0+0-500x500");
   UpdateDisplay("0+0-500x500,0+501-400x400");
-  EXPECT_FALSE(GetDisplayInfoAt(1).has_touch_calibration_data());
+  EXPECT_FALSE(GetDisplayInfoAt(1).touch_calibration_data_map().size());
 
   // Recreate the displays with the same ID.  It should apply the touch
   // calibration associated data.
@@ -1193,10 +1193,23 @@ TEST_F(DisplayManagerTest, TouchCalibrationTest) {
   display_info_list.push_back(display_info1);
   display_info_list.push_back(display_info2);
   display_manager()->OnNativeDisplaysChanged(display_info_list);
-  updated_display_info2 = GetDisplayInfoAt(1);
 
-  EXPECT_FALSE(updated_display_info2.has_touch_calibration_data());
-  EXPECT_EQ(touch_data, updated_display_info2.GetTouchCalibrationData());
+  // Make sure multiple touch devices works.
+  display_manager()->SetTouchCalibrationData(
+      display_info2.id(), point_pair_quad, bounds_at_calibration,
+      touch_device_identifier_2);
+
+  EXPECT_TRUE(GetDisplayInfoAt(1).touch_calibration_data_map().size());
+  EXPECT_EQ(touch_data, GetDisplayInfoAt(1).GetTouchCalibrationData(
+                            touch_device_identifier_2));
+
+  uint32_t touch_device_identifier_2_2 = 2456;
+  display_manager()->SetTouchCalibrationData(
+      display_info2.id(), point_pair_quad_2, bounds_at_calibration,
+      touch_device_identifier_2_2);
+  EXPECT_EQ(GetDisplayInfoAt(1).touch_calibration_data_map().size(), 2UL);
+  EXPECT_EQ(touch_data_2, GetDisplayInfoAt(1).GetTouchCalibrationData(
+                              touch_device_identifier_2_2));
 }
 
 TEST_F(DisplayManagerTest, TestDeviceScaleOnlyChange) {
@@ -1474,12 +1487,12 @@ TEST_F(DisplayManagerTest, DontRememberBestResolution) {
   display::ManagedDisplayInfo native_display_info =
       CreateDisplayInfo(display_id, gfx::Rect(0, 0, 1000, 500));
   display::ManagedDisplayInfo::ManagedDisplayModeList display_modes;
-  display_modes.push_back(make_scoped_refptr(new display::ManagedDisplayMode(
-      gfx::Size(1000, 500), 58.0f, false, true)));
-  display_modes.push_back(make_scoped_refptr(new display::ManagedDisplayMode(
-      gfx::Size(800, 300), 59.0f, false, false)));
-  display_modes.push_back(make_scoped_refptr(new display::ManagedDisplayMode(
-      gfx::Size(400, 500), 60.0f, false, false)));
+  display_modes.push_back(base::MakeRefCounted<display::ManagedDisplayMode>(
+      gfx::Size(1000, 500), 58.0f, false, true));
+  display_modes.push_back(base::MakeRefCounted<display::ManagedDisplayMode>(
+      gfx::Size(800, 300), 59.0f, false, false));
+  display_modes.push_back(base::MakeRefCounted<display::ManagedDisplayMode>(
+      gfx::Size(400, 500), 60.0f, false, false));
 
   native_display_info.SetManagedDisplayModes(display_modes);
 
@@ -1541,12 +1554,12 @@ TEST_F(DisplayManagerTest, ResolutionFallback) {
   display::ManagedDisplayInfo native_display_info =
       CreateDisplayInfo(display_id, gfx::Rect(0, 0, 1000, 500));
   display::ManagedDisplayInfo::ManagedDisplayModeList display_modes;
-  display_modes.push_back(make_scoped_refptr(new display::ManagedDisplayMode(
-      gfx::Size(1000, 500), 58.0f, false, true)));
-  display_modes.push_back(make_scoped_refptr(new display::ManagedDisplayMode(
-      gfx::Size(800, 300), 59.0f, false, false)));
-  display_modes.push_back(make_scoped_refptr(new display::ManagedDisplayMode(
-      gfx::Size(400, 500), 60.0f, false, false)));
+  display_modes.push_back(base::MakeRefCounted<display::ManagedDisplayMode>(
+      gfx::Size(1000, 500), 58.0f, false, true));
+  display_modes.push_back(base::MakeRefCounted<display::ManagedDisplayMode>(
+      gfx::Size(800, 300), 59.0f, false, false));
+  display_modes.push_back(base::MakeRefCounted<display::ManagedDisplayMode>(
+      gfx::Size(400, 500), 60.0f, false, false));
 
   display::ManagedDisplayInfo::ManagedDisplayModeList copy = display_modes;
   native_display_info.SetManagedDisplayModes(copy);
@@ -1994,7 +2007,7 @@ TEST_F(DisplayManagerTest, FHD125DefaultsTo08UIScalingNoOverride) {
   const gfx::Insets dummy_overscan_insets;
   display_manager()->RegisterDisplayProperty(
       display_id, display::Display::ROTATE_0, 1.0f, &dummy_overscan_insets,
-      gfx::Size(), 1.0f, nullptr);
+      gfx::Size(), 1.0f, nullptr /* touch_calibration_data_map */);
 
   // Setup the display modes with UI-scale.
   display::ManagedDisplayInfo native_display_info =
@@ -2858,9 +2871,9 @@ TEST_F(DisplayManagerFontTest,
 
 TEST_F(DisplayManagerTest, CheckInitializationOfRotationProperty) {
   int64_t id = display_manager()->GetDisplayAt(0).id();
-  display_manager()->RegisterDisplayProperty(id, display::Display::ROTATE_90,
-                                             1.0f, nullptr, gfx::Size(), 1.0f,
-                                             nullptr);
+  display_manager()->RegisterDisplayProperty(
+      id, display::Display::ROTATE_90, 1.0f, nullptr, gfx::Size(), 1.0f,
+      nullptr /* touch_calibration_data_map */);
 
   const display::ManagedDisplayInfo& info =
       display_manager()->GetDisplayInfo(id);
@@ -2986,6 +2999,7 @@ TEST_F(DisplayManagerTest, DisconnectedInternalDisplayShouldUpdateDisplayInfo) {
           .SetId(external_id)
           .SetNativeMode(MakeDisplayMode())
           .AddMode(MakeDisplayMode())
+          .SetOrigin({0, 1000})
           .Build();
   // "Connectd display" has the current mode.
   external_snapshot->set_current_mode(external_snapshot->native_mode());
@@ -3012,6 +3026,101 @@ TEST_F(DisplayManagerTest, DisconnectedInternalDisplayShouldUpdateDisplayInfo) {
     }
   }
   EXPECT_TRUE(has_default);
+}
+
+TEST_F(DisplayManagerTest, UpdateInternalDisplayNativeBounds) {
+  constexpr int64_t external_id = 123;
+  const int64_t internal_id =
+      display::test::DisplayManagerTestApi(display_manager())
+          .SetFirstDisplayAsInternalDisplay();
+  display::Screen* screen = display::Screen::GetScreen();
+  DCHECK(screen);
+  Shell* shell = Shell::Get();
+  display::DisplayChangeObserver observer(shell->display_configurator(),
+                                          display_manager());
+  display::DisplayConfigurator::DisplayStateList outputs;
+  std::unique_ptr<display::DisplaySnapshot> internal_snapshot =
+      display::FakeDisplaySnapshot::Builder()
+          .SetId(internal_id)
+          .SetType(display::DISPLAY_CONNECTION_TYPE_INTERNAL)
+          .SetDPI(210)  // 1.6f
+          .SetNativeMode(MakeDisplayMode())
+          .Build();
+  internal_snapshot->set_current_mode(internal_snapshot->native_mode());
+  outputs.push_back(internal_snapshot.get());
+
+  observer.GetStateForDisplayIds(outputs);
+  observer.OnDisplayModeChanged(outputs);
+  EXPECT_EQ(1u, display_manager()->GetNumDisplays());
+
+  internal_snapshot->set_origin({0, 1000});
+
+  std::unique_ptr<display::DisplaySnapshot> external_snapshot =
+      display::FakeDisplaySnapshot::Builder()
+          .SetId(external_id)
+          .SetNativeMode(MakeDisplayMode())
+          .AddMode(MakeDisplayMode())
+          .Build();
+  // "Connectd display" has the current mode.
+  external_snapshot->set_current_mode(external_snapshot->native_mode());
+  outputs.push_back(external_snapshot.get());
+
+  reset();
+  observer.GetStateForDisplayIds(outputs);
+  observer.OnDisplayModeChanged(outputs);
+
+  EXPECT_EQ(2u, display_manager()->GetNumDisplays());
+  EXPECT_TRUE(changed_metrics() &
+              display::DisplayObserver::DISPLAY_METRIC_BOUNDS);
+}
+
+// It's difficult to test with full stack due to crbug.com/771178.
+// Improve the coverage once it is fixed.
+TEST_F(DisplayManagerTest, ForcedMirrorMode) {
+  constexpr int64_t id1 = 1;
+  constexpr int64_t id2 = 2;
+  display::Screen* screen = display::Screen::GetScreen();
+  DCHECK(screen);
+  Shell* shell = Shell::Get();
+  display::DisplayChangeObserver observer(shell->display_configurator(),
+                                          display_manager());
+  display::DisplayConfigurator::DisplayStateList outputs;
+  std::unique_ptr<display::DisplaySnapshot> snapshot1 =
+      display::FakeDisplaySnapshot::Builder()
+          .SetId(id1)
+          .SetNativeMode(MakeDisplayMode())
+          .Build();
+  std::unique_ptr<display::DisplaySnapshot> snapshot2 =
+      display::FakeDisplaySnapshot::Builder()
+          .SetId(id2)
+          .SetNativeMode(MakeDisplayMode())
+          .SetOrigin({0, 1000})
+          .Build();
+  snapshot1->set_current_mode(snapshot1->native_mode());
+  snapshot2->set_current_mode(snapshot2->native_mode());
+
+  outputs.push_back(snapshot1.get());
+  outputs.push_back(snapshot2.get());
+
+  EXPECT_EQ(display::MULTIPLE_DISPLAY_STATE_MULTI_EXTENDED,
+            observer.GetStateForDisplayIds(outputs));
+
+  display_manager()->layout_store()->set_forced_mirror_mode(true);
+
+  observer.OnDisplayModeChanged(outputs);
+
+  const display::DisplayIdList current_list =
+      display_manager()->GetCurrentDisplayIdList();
+  display_manager()->layout_store()->UpdateMultiDisplayState(
+      current_list, true /* mirrored */, false /* unified */);
+  EXPECT_FALSE(display_manager()->GetCurrentDisplayLayout().mirrored);
+  EXPECT_EQ(display::MULTIPLE_DISPLAY_STATE_DUAL_MIRROR,
+            observer.GetStateForDisplayIds(outputs));
+
+  display_manager()->layout_store()->set_forced_mirror_mode(false);
+
+  EXPECT_EQ(display::MULTIPLE_DISPLAY_STATE_MULTI_EXTENDED,
+            observer.GetStateForDisplayIds(outputs));
 }
 
 namespace {

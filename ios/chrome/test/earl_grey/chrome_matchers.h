@@ -31,14 +31,6 @@ id<GREYMatcher> StaticTextWithAccessibilityLabelId(int message_id);
 // accessibility trait UIAccessibilityTraitStaticText.
 id<GREYMatcher> StaticTextWithAccessibilityLabel(NSString* label);
 
-// Returns matcher for WKWebView containing a blocked |image_id|.  When blocked,
-// the image element will be smaller than actual image.
-id<GREYMatcher> WebViewContainingBlockedImage(std::string image_id);
-
-// Returns matcher for WKWebView containing loaded image with |image_id|.  When
-// loaded, the image element will have the same size as actual image.
-id<GREYMatcher> WebViewContainingLoadedImage(std::string image_id);
-
 // Returns matcher for a cancel button.
 id<GREYMatcher> CancelButton();
 
@@ -156,6 +148,28 @@ id<GREYMatcher> PaymentRequestView();
 // Returns matcher for the error confirmation view for payment request.
 id<GREYMatcher> PaymentRequestErrorView();
 
+// Returns matcher for the voice search button on the main Settings screen.
+id<GREYMatcher> VoiceSearchButton();
+
+// Returns matcher for the settings main menu view.
+id<GREYMatcher> SettingsCollectionView();
+
+// Returns matcher for the clear browsing history cell on the clear browsing
+// data panel.
+id<GREYMatcher> ClearBrowsingHistoryButton();
+
+// Returns matcher for the clear cookies cell on the clear browsing data panel.
+id<GREYMatcher> ClearCookiesButton();
+
+// Returns matcher for the clear cache cell on the clear browsing data panel.
+id<GREYMatcher> ClearCacheButton();
+
+// Returns matcher for the clear saved passwords cell on the clear browsing data
+// panel.
+id<GREYMatcher> ClearSavedPasswordsButton();
+
+// Returns matcher for the collection view of content suggestion.
+id<GREYMatcher> ContentSuggestionCollectionView();
 }  // namespace chrome_test_util
 
 #endif  // IOS_CHROME_TEST_EARL_GREY_CHROME_MATCHERS_H_

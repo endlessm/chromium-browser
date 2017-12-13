@@ -5,19 +5,22 @@
 #include "ash/accelerators/accelerator_controller.h"
 
 #include "ash/accelerators/accelerator_table.h"
-#include "ash/accessibility_delegate.h"
+#include "ash/accessibility/accessibility_delegate.h"
 #include "ash/accessibility_types.h"
-#include "ash/ash_switches.h"
 #include "ash/ime/ime_controller.h"
+#include "ash/media_controller.h"
+#include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/interfaces/ime_info.mojom.h"
 #include "ash/session/session_controller.h"
+#include "ash/session/test_session_controller_client.h"
 #include "ash/shell.h"
 #include "ash/shell_port.h"
 #include "ash/system/brightness_control_delegate.h"
 #include "ash/system/keyboard_brightness_control_delegate.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/test_media_client.h"
 #include "ash/test_screenshot_delegate.h"
 #include "ash/wm/lock_state_controller.h"
 #include "ash/wm/lock_state_controller_test_api.h"
@@ -28,6 +31,7 @@
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "base/command_line.h"
+#include "base/run_loop.h"
 #include "base/test/user_action_tester.h"
 #include "services/ui/public/interfaces/window_manager_constants.mojom.h"
 #include "ui/app_list/presenter/app_list.h"
@@ -235,6 +239,16 @@ class AcceleratorControllerTest : public AshTestBase {
     return GetController()->Process(accelerator);
   }
 
+  bool ContainsHighContrastNotification() const {
+    return nullptr != message_center()->FindVisibleNotificationById(
+                          kHighContrastToggleAccelNotificationId);
+  }
+
+  void RemoveAllNotifications() const {
+    message_center()->RemoveAllNotifications(
+        false /* by_user */, message_center::MessageCenter::RemoveType::ALL);
+  }
+
   static const ui::Accelerator& GetPreviousAccelerator() {
     return GetController()->accelerator_history()->previous_accelerator();
   }
@@ -259,6 +273,10 @@ class AcceleratorControllerTest : public AshTestBase {
   }
   static bool is_exiting(ExitWarningHandler* ewh) {
     return ewh->state_ == ExitWarningHandler::EXITING;
+  }
+
+  message_center::MessageCenter* message_center() const {
+    return message_center::MessageCenter::Get();
   }
 
   void SetBrightnessControlDelegate(
@@ -631,7 +649,6 @@ TEST_F(AcceleratorControllerTest, DontRepeatToggleFullscreen) {
 }
 
 // TODO(oshima): Fix this test to use EventGenerator.
-#if defined(USE_X11)
 TEST_F(AcceleratorControllerTest, ProcessOnce) {
   // The IME event filter interferes with the basic key event propagation we
   // attempt to do here, so we disable it.
@@ -643,9 +660,7 @@ TEST_F(AcceleratorControllerTest, ProcessOnce) {
   // The accelerator is processed only once.
   ui::EventSink* sink = Shell::GetPrimaryRootWindow()->GetHost()->event_sink();
 
-  ui::ScopedXI2Event key_event;
-  key_event.InitKeyEvent(ui::ET_KEY_PRESSED, ui::VKEY_A, 0);
-  ui::KeyEvent key_event1(key_event);
+  ui::KeyEvent key_event1(ui::ET_KEY_PRESSED, ui::VKEY_A, ui::EF_NONE);
   ui::EventDispatchDetails details = sink->OnEventFromSource(&key_event1);
   EXPECT_TRUE(key_event1.handled() || details.dispatcher_destroyed);
 
@@ -653,13 +668,11 @@ TEST_F(AcceleratorControllerTest, ProcessOnce) {
   details = sink->OnEventFromSource(&key_event2);
   EXPECT_FALSE(key_event2.handled() || details.dispatcher_destroyed);
 
-  key_event.InitKeyEvent(ui::ET_KEY_RELEASED, ui::VKEY_A, 0);
-  ui::KeyEvent key_event3(key_event);
+  ui::KeyEvent key_event3(ui::ET_KEY_RELEASED, ui::VKEY_A, ui::EF_NONE);
   details = sink->OnEventFromSource(&key_event3);
   EXPECT_FALSE(key_event3.handled() || details.dispatcher_destroyed);
   EXPECT_EQ(1, target.accelerator_pressed_count());
 }
-#endif
 
 TEST_F(AcceleratorControllerTest, GlobalAccelerators) {
   // TODO: TestScreenshotDelegate is null in mash http://crbug.com/632111.
@@ -868,6 +881,25 @@ TEST_F(AcceleratorControllerTest, GlobalAcceleratorsToggleAppList) {
       CreateReleaseAccelerator(ui::VKEY_LWIN, ui::EF_NONE)));
   RunAllPendingInMessageLoop();
   EXPECT_EQ(3u, test_app_list_presenter.toggle_count());
+}
+
+TEST_F(AcceleratorControllerTest, MediaGlobalAccelerators) {
+  TestMediaClient client;
+  Shell::Get()->media_controller()->SetClient(client.CreateAssociatedPtrInfo());
+  EXPECT_EQ(0, client.handle_media_next_track_count());
+  ProcessInController(ui::Accelerator(ui::VKEY_MEDIA_NEXT_TRACK, ui::EF_NONE));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(1, client.handle_media_next_track_count());
+
+  EXPECT_EQ(0, client.handle_media_play_pause_count());
+  ProcessInController(ui::Accelerator(ui::VKEY_MEDIA_PLAY_PAUSE, ui::EF_NONE));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(1, client.handle_media_play_pause_count());
+
+  EXPECT_EQ(0, client.handle_media_prev_track_count());
+  ProcessInController(ui::Accelerator(ui::VKEY_MEDIA_PREV_TRACK, ui::EF_NONE));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(1, client.handle_media_prev_track_count());
 }
 
 TEST_F(AcceleratorControllerTest, ImeGlobalAccelerators) {
@@ -1222,6 +1254,25 @@ TEST_F(AcceleratorControllerTest, DisallowedWithNoWindow) {
   }
 }
 
+TEST_F(AcceleratorControllerTest, TestToggleHighContrast) {
+  ui::Accelerator accelerator(ui::VKEY_H,
+                              ui::EF_COMMAND_DOWN | ui::EF_CONTROL_DOWN);
+  // High Contrast Mode Enabled notification should be shown.
+  EXPECT_TRUE(ProcessInController(accelerator));
+  EXPECT_TRUE(ContainsHighContrastNotification());
+
+  // High Contrast Mode Enabled notification should be hidden as the feature is
+  // disabled.
+  EXPECT_TRUE(ProcessInController(accelerator));
+  EXPECT_FALSE(ContainsHighContrastNotification());
+
+  // It should be shown again when toggled.
+  EXPECT_TRUE(ProcessInController(accelerator));
+  EXPECT_TRUE(ContainsHighContrastNotification());
+
+  RemoveAllNotifications();
+}
+
 namespace {
 
 // defines a class to test the behavior of deprecated accelerators.
@@ -1251,15 +1302,6 @@ class DeprecatedAcceleratorTester : public AcceleratorControllerTest {
 
   bool IsMessageCenterEmpty() const {
     return message_center()->GetVisibleNotifications().empty();
-  }
-
-  void RemoveAllNotifications() const {
-    message_center()->RemoveAllNotifications(
-        false /* by_user */, message_center::MessageCenter::RemoveType::ALL);
-  }
-
-  message_center::MessageCenter* message_center() const {
-    return message_center::MessageCenter::Get();
   }
 
  private:
@@ -1331,6 +1373,20 @@ TEST_F(DeprecatedAcceleratorTester, TestNewAccelerators) {
   }
 
   RemoveAllNotifications();
+}
+
+using AcceleratorControllerGuestModeTest = NoSessionAshTestBase;
+
+TEST_F(AcceleratorControllerGuestModeTest, IncognitoWindowDisabled) {
+  // Simulate a guest mode login.
+  TestSessionControllerClient* session = GetSessionControllerClient();
+  session->Reset();
+  session->AddUserSession("user1@test.com", user_manager::USER_TYPE_GUEST);
+  session->SetSessionState(session_manager::SessionState::ACTIVE);
+
+  // New incognito window is disabled.
+  EXPECT_FALSE(Shell::Get()->accelerator_controller()->PerformActionIfEnabled(
+      NEW_INCOGNITO_WINDOW));
 }
 
 }  // namespace ash

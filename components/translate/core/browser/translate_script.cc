@@ -8,7 +8,6 @@
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
@@ -155,8 +154,9 @@ void TranslateScript::OnScriptFetchComplete(
         &data_, "var securityOrigin = '%s';", security_origin.spec().c_str());
 
     // Append embedded translate.js and a remote element library.
-    base::StringPiece str = ResourceBundle::GetSharedInstance().
-        GetRawDataResource(IDR_TRANSLATE_JS);
+    base::StringPiece str =
+        ui::ResourceBundle::GetSharedInstance().GetRawDataResource(
+            IDR_TRANSLATE_JS);
     str.AppendToString(&data_);
     data_ += data;
 

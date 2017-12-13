@@ -12,7 +12,7 @@ namespace {
 
 class FakeTaskRunner : public base::TaskRunner {
  public:
-  bool PostDelayedTask(const tracked_objects::Location& from_here,
+  bool PostDelayedTask(const base::Location& from_here,
                        base::OnceClosure task,
                        base::TimeDelta delay) override {
     std::move(task).Run();
@@ -62,10 +62,6 @@ user_manager::User* MockUserManager::GetActiveUser() {
 
 const user_manager::User* MockUserManager::GetPrimaryUser() const {
   return GetActiveUser();
-}
-
-BootstrapManager* MockUserManager::GetBootstrapManager() {
-  return nullptr;
 }
 
 MultiProfileUserController* MockUserManager::GetMultiProfileUserController() {

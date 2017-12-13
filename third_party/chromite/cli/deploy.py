@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2015 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -348,7 +349,7 @@ print(json.dumps(pkg_info))
     """Initializes a dictionary of packages installed on |device|."""
     get_vartree_script = self._GetVartreeSnippet(root)
     try:
-      result = device.GetAgent().RemoteSh('python', remote_sudo=True,
+      result = device.GetAgent().RemoteSh(['python'], remote_sudo=True,
                                           input=get_vartree_script)
     except cros_build_lib.RunCommandError as e:
       logging.error('Cannot get target vartree:\n%s', e.result.error)

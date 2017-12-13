@@ -10,6 +10,7 @@
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/memory/ptr_util.h"
+#include "base/time/default_tick_clock.h"
 #include "build/build_config.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browser_process.h"
@@ -54,6 +55,7 @@
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
 #include "chrome/browser/ui/blocked_content/popup_blocker_tab_helper.h"
+#include "chrome/browser/ui/blocked_content/popup_opener_tab_helper.h"
 #include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "chrome/browser/ui/navigation_correction_tab_observer.h"
 #include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
@@ -71,6 +73,8 @@
 #include "components/autofill/core/browser/autofill_manager.h"
 #include "components/dom_distiller/content/browser/web_contents_main_frame_observer.h"
 #include "components/dom_distiller/core/dom_distiller_switches.h"
+#include "components/download/content/factory/navigation_monitor_factory.h"
+#include "components/download/content/public/download_navigation_observer.h"
 #include "components/history/content/browser/web_contents_top_sites_observer.h"
 #include "components/history/core/browser/top_sites.h"
 #include "components/offline_pages/features/features.h"
@@ -78,6 +82,7 @@
 #include "components/subresource_filter/content/browser/content_subresource_filter_driver_factory.h"
 #include "components/subresource_filter/core/browser/subresource_filter_features.h"
 #include "components/tracing/common/tracing_switches.h"
+#include "components/ukm/content/source_url_recorder.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/browser_side_navigation_policy.h"
 #include "extensions/features/features.h"
@@ -202,6 +207,9 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
 
   Profile* profile =
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  download::DownloadNavigationObserver::CreateForWebContents(
+      web_contents,
+      download::NavigationMonitorFactory::GetForBrowserContext(profile));
   history::WebContentsTopSitesObserver::CreateForWebContents(
       web_contents, TopSitesFactory::GetForProfile(profile).get());
   HistoryTabHelper::CreateForWebContents(web_contents);
@@ -217,6 +225,8 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
   PDFPluginPlaceholderObserver::CreateForWebContents(web_contents);
   PermissionRequestManager::CreateForWebContents(web_contents);
   PopupBlockerTabHelper::CreateForWebContents(web_contents);
+  PopupOpenerTabHelper::CreateForWebContents(
+      web_contents, base::MakeUnique<base::DefaultTickClock>());
   PrefsTabHelper::CreateForWebContents(web_contents);
   prerender::PrerenderTabHelper::CreateForWebContents(web_contents);
   PreviewsInfoBarTabHelper::CreateForWebContents(web_contents);
@@ -225,12 +235,8 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
   SecurityStateTabHelper::CreateForWebContents(web_contents);
   if (SiteEngagementService::IsEnabled())
     SiteEngagementService::Helper::CreateForWebContents(web_contents);
-#if !defined(OS_ANDROID)
-  // For now, even when the flag is enabled, this will only be enabled on
-  // desktop.
   if (base::FeatureList::IsEnabled(features::kSoundContentSetting))
     SoundContentSettingObserver::CreateForWebContents(web_contents);
-#endif
   sync_sessions::SyncSessionsRouterTabHelper::CreateForWebContents(
       web_contents,
       sync_sessions::SyncSessionsWebContentsRouterFactory::GetForProfile(
@@ -238,6 +244,7 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
   // TODO(vabr): Remove TabSpecificContentSettings from here once their function
   // is taken over by ChromeContentSettingsClient. http://crbug.com/387075
   TabSpecificContentSettings::CreateForWebContents(web_contents);
+  ukm::InitializeSourceUrlRecorderForWebContents(web_contents);
   vr::VrTabHelper::CreateForWebContents(web_contents);
 
   // NO! Do not just add your tab helper here. This is a large alphabetized

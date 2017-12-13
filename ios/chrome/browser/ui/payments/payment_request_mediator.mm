@@ -53,8 +53,8 @@ using ::payment_request_util::GetShippingSectionTitle;
 
 @interface PaymentRequestMediator ()
 
-// The PaymentRequest object owning an instance of web::PaymentRequest as
-// provided by the page invoking the Payment Request API. This is a weak
+// The PaymentRequest object owning an instance of payments::WebPaymentRequest
+// as provided by the page invoking the Payment Request API. This is a weak
 // pointer and should outlive this class.
 @property(nonatomic, assign) payments::PaymentRequest* paymentRequest;
 
@@ -126,7 +126,7 @@ using ::payment_request_util::GetShippingSectionTitle;
   return item;
 }
 
-- (CollectionViewItem*)shippingSectionHeaderItem {
+- (PaymentsTextItem*)shippingSectionHeaderItem {
   PaymentsTextItem* item = [[PaymentsTextItem alloc] init];
   item.text = GetShippingSectionTitle(self.paymentRequest->shipping_type());
   return item;
@@ -149,6 +149,9 @@ using ::payment_request_util::GetShippingSectionTitle;
       GetShippingAddressSectionString(self.paymentRequest->shipping_type()));
   if (self.paymentRequest->shipping_profiles().empty()) {
     item.detailText = [l10n_util::GetNSString(IDS_ADD)
+        uppercaseStringWithLocale:[NSLocale currentLocale]];
+  } else if (!profile) {
+    item.detailText = [l10n_util::GetNSString(IDS_CHOOSE)
         uppercaseStringWithLocale:[NSLocale currentLocale]];
   } else {
     item.accessoryType = MDCCollectionViewCellAccessoryDisclosureIndicator;
@@ -173,11 +176,17 @@ using ::payment_request_util::GetShippingSectionTitle;
   CollectionViewDetailItem* item = [[CollectionViewDetailItem alloc] init];
   item.text = base::SysUTF16ToNSString(
       GetShippingOptionSectionString(self.paymentRequest->shipping_type()));
-  item.accessoryType = MDCCollectionViewCellAccessoryDisclosureIndicator;
+
+  if (!option) {
+    item.detailText = [l10n_util::GetNSString(IDS_CHOOSE)
+        uppercaseStringWithLocale:[NSLocale currentLocale]];
+  } else {
+    item.accessoryType = MDCCollectionViewCellAccessoryDisclosureIndicator;
+  }
   return item;
 }
 
-- (CollectionViewItem*)paymentMethodSectionHeaderItem {
+- (PaymentsTextItem*)paymentMethodSectionHeaderItem {
   if (!self.paymentRequest->selected_payment_method())
     return nil;
   PaymentsTextItem* item = [[PaymentsTextItem alloc] init];
@@ -195,14 +204,20 @@ using ::payment_request_util::GetShippingSectionTitle;
     item.methodDetail = base::SysUTF16ToNSString(paymentMethod->GetSublabel());
 
     switch (paymentMethod->type()) {
-      case payments::PaymentInstrument::Type::AUTOFILL:
+      case payments::PaymentInstrument::Type::AUTOFILL: {
         item.methodTypeIcon = NativeImage(paymentMethod->icon_resource_id());
         break;
-      case payments::PaymentInstrument::Type::NATIVE_MOBILE_APP:
+      }
+      case payments::PaymentInstrument::Type::NATIVE_MOBILE_APP: {
         payments::IOSPaymentInstrument* mobileApp =
             static_cast<payments::IOSPaymentInstrument*>(paymentMethod);
         item.methodTypeIcon = mobileApp->icon_image();
         break;
+      }
+      case payments::PaymentInstrument::Type::SERVICE_WORKER_APP: {
+        NOTIMPLEMENTED();
+        break;
+      }
     }
 
     item.accessoryType = MDCCollectionViewCellAccessoryDisclosureIndicator;
@@ -215,13 +230,16 @@ using ::payment_request_util::GetShippingSectionTitle;
   if (self.paymentRequest->payment_methods().empty()) {
     item.detailText = [l10n_util::GetNSString(IDS_ADD)
         uppercaseStringWithLocale:[NSLocale currentLocale]];
+  } else if (!paymentMethod) {
+    item.detailText = [l10n_util::GetNSString(IDS_CHOOSE)
+        uppercaseStringWithLocale:[NSLocale currentLocale]];
   } else {
     item.accessoryType = MDCCollectionViewCellAccessoryDisclosureIndicator;
   }
   return item;
 }
 
-- (CollectionViewItem*)contactInfoSectionHeaderItem {
+- (PaymentsTextItem*)contactInfoSectionHeaderItem {
   if (!self.paymentRequest->selected_contact_profile())
     return nil;
   PaymentsTextItem* item = [[PaymentsTextItem alloc] init];
@@ -252,6 +270,9 @@ using ::payment_request_util::GetShippingSectionTitle;
   item.text = l10n_util::GetNSString(IDS_PAYMENTS_CONTACT_DETAILS_LABEL);
   if (self.paymentRequest->contact_profiles().empty()) {
     item.detailText = [l10n_util::GetNSString(IDS_ADD)
+        uppercaseStringWithLocale:[NSLocale currentLocale]];
+  } else if (!profile) {
+    item.detailText = [l10n_util::GetNSString(IDS_CHOOSE)
         uppercaseStringWithLocale:[NSLocale currentLocale]];
   } else {
     item.accessoryType = MDCCollectionViewCellAccessoryDisclosureIndicator;

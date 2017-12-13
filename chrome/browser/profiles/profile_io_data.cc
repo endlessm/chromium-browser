@@ -32,8 +32,6 @@
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
-#include "chrome/browser/devtools/devtools_network_controller.h"
-#include "chrome/browser/devtools/devtools_network_transaction_factory.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/chrome_http_user_agent_settings.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
@@ -65,6 +63,7 @@
 #include "components/cookie_config/cookie_store_util.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
 #include "components/dom_distiller/core/url_constants.h"
+#include "components/domain_reliability/monitor.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
 #include "components/net_log/chrome_net_log.h"
@@ -78,9 +77,12 @@
 #include "components/sync/base/pref_names.h"
 #include "components/url_formatter/url_fixer.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/devtools_network_transaction_factory.h"
+#include "content/public/browser/ignore_errors_cert_verifier.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/resource_context.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/network/url_request_context_builder_mojo.h"
 #include "extensions/features/features.h"
 #include "net/cert/cert_verifier.h"
 #include "net/cert/ct_log_verifier.h"
@@ -107,7 +109,6 @@
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
-#include "net/url_request/url_request_context_builder_mojo.h"
 #include "net/url_request/url_request_context_storage.h"
 #include "net/url_request/url_request_file_job.h"
 #include "net/url_request/url_request_intercepting_job_factory.h"
@@ -143,6 +144,7 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/net/nss_context.h"
+#include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/tpm/tpm_token_info_getter.h"
@@ -243,13 +245,6 @@ class DebugDevToolsInterceptor : public net::URLRequestInterceptor {
 };
 #endif  // BUILDFLAG(DEBUG_DEVTOOLS)
 
-std::unique_ptr<net::HttpTransactionFactory> CreateDevToolsTransactionFactory(
-    DevToolsNetworkController* devtools_network_controller,
-    net::HttpNetworkSession* session) {
-  return base::WrapUnique(new DevToolsNetworkTransactionFactory(
-      devtools_network_controller, session));
-}
-
 #if defined(OS_CHROMEOS)
 // The following four functions are responsible for initializing NSS for each
 // profile on ChromeOS, which has a separate NSS database and TPM slot
@@ -290,16 +285,14 @@ std::unique_ptr<net::HttpTransactionFactory> CreateDevToolsTransactionFactory(
 void DidGetTPMInfoForUserOnUIThread(
     std::unique_ptr<chromeos::TPMTokenInfoGetter> getter,
     const std::string& username_hash,
-    const chromeos::TPMTokenInfo& info) {
+    base::Optional<chromeos::CryptohomeClient::TpmTokenInfo> token_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  if (info.tpm_is_enabled && info.token_slot_id != -1) {
+  if (token_info.has_value() && token_info->slot != -1) {
     DVLOG(1) << "Got TPM slot for " << username_hash << ": "
-             << info.token_slot_id;
-    BrowserThread::PostTask(
-        BrowserThread::IO,
-        FROM_HERE,
-        base::Bind(&crypto::InitializeTPMForChromeOSUser,
-                   username_hash, info.token_slot_id));
+             << token_info->slot;
+    BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
+                            base::Bind(&crypto::InitializeTPMForChromeOSUser,
+                                       username_hash, token_info->slot));
   } else {
     NOTREACHED() << "TPMTokenInfoGetter reported invalid token.";
   }
@@ -321,10 +314,9 @@ void GetTPMInfoForUserOnUIThread(const AccountId& account_id,
   // before TPM token info is fetched.
   // TODO(tbarzic, pneubeck): Handle this in a nicer way when this logic is
   //     moved to a separate profile service.
-  token_info_getter->Start(
-      base::Bind(&DidGetTPMInfoForUserOnUIThread,
-                 base::Passed(&scoped_token_info_getter),
-                 username_hash));
+  token_info_getter->Start(base::BindOnce(&DidGetTPMInfoForUserOnUIThread,
+                                          std::move(scoped_token_info_getter),
+                                          username_hash));
 }
 
 void StartTPMSlotInitializationOnIOThread(const AccountId& account_id,
@@ -628,6 +620,7 @@ ProfileIOData::ProfileIOData(Profile::ProfileType profile_type)
 #endif
       main_request_context_(nullptr),
       resource_context_(new ResourceContext(this)),
+      domain_reliability_monitor_unowned_(nullptr),
       profile_type_(profile_type) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 }
@@ -677,6 +670,9 @@ ProfileIOData::~ProfileIOData() {
     memcpy(&media_context_vtable_cache[current_context],
            static_cast<void*>(it->second), sizeof(void*));
   }
+
+  if (domain_reliability_monitor_unowned_)
+    domain_reliability_monitor_unowned_->Shutdown();
 
   if (main_request_context_) {
     // Prevent the TreeStateTracker from getting any more notifications by
@@ -1015,16 +1011,13 @@ void ProfileIOData::Init(
   extensions_request_context_->set_name("extensions");
 
   // Create the main request context.
-  std::unique_ptr<net::URLRequestContextBuilderMojo> builder =
-      base::MakeUnique<net::URLRequestContextBuilderMojo>();
-  builder->set_name("main");
+  std::unique_ptr<content::URLRequestContextBuilderMojo> builder =
+      base::MakeUnique<content::URLRequestContextBuilderMojo>();
 
   builder->set_net_log(io_thread->net_log());
   builder->set_shared_http_user_agent_settings(
       chrome_http_user_agent_settings_.get());
   builder->set_ssl_config_service(profile_params_->ssl_config_service);
-
-  builder->set_enable_brotli(io_thread_globals->enable_brotli);
 
   std::unique_ptr<ChromeNetworkDelegate> chrome_network_delegate(
       new ChromeNetworkDelegate(
@@ -1058,6 +1051,9 @@ void ProfileIOData::Init(
       &allowed_domains_for_apps_);
   chrome_network_delegate->set_data_use_aggregator(
       io_thread_globals->data_use_aggregator.get(), IsOffTheRecord());
+
+  ChromeNetworkDelegate* chrome_network_delegate_unowned =
+      chrome_network_delegate.get();
 
   std::unique_ptr<net::NetworkDelegate> network_delegate =
       ConfigureNetworkDelegate(profile_params_->io_thread,
@@ -1115,6 +1111,10 @@ void ProfileIOData::Init(
       cert_verifier_ = base::MakeUnique<net::CachingCertVerifier>(
           base::MakeUnique<net::MultiThreadedCertVerifier>(verify_proc.get()));
     }
+    const base::CommandLine& command_line =
+        *base::CommandLine::ForCurrentProcess();
+    cert_verifier_ = content::IgnoreErrorsCertVerifier::MaybeWrapCertVerifier(
+        command_line, switches::kUserDataDir, std::move(cert_verifier_));
     builder->set_shared_cert_verifier(cert_verifier_.get());
 #else
     builder->set_shared_cert_verifier(
@@ -1152,14 +1152,26 @@ void ProfileIOData::Init(
                      std::move(request_interceptors));
 
   builder->SetCreateHttpTransactionFactoryCallback(
-      base::BindOnce(&CreateDevToolsTransactionFactory,
-                     network_controller_handle_.GetController()));
+      base::BindOnce(&content::CreateDevToolsNetworkTransactionFactory));
 
   main_network_context_ =
       io_thread_globals->network_service->CreateNetworkContextWithBuilder(
           std::move(profile_params_->main_network_context_request),
           std::move(profile_params_->main_network_context_params),
           std::move(builder), &main_request_context_);
+
+  if (chrome_network_delegate_unowned->domain_reliability_monitor()) {
+    // Save a pointer to shut down Domain Reliability cleanly before the
+    // URLRequestContext is dismantled.
+    domain_reliability_monitor_unowned_ =
+        chrome_network_delegate_unowned->domain_reliability_monitor();
+
+    domain_reliability_monitor_unowned_->InitURLRequestContext(
+        main_request_context_);
+    domain_reliability_monitor_unowned_->AddBakedInConfigs();
+    domain_reliability_monitor_unowned_->SetDiscardUploads(
+        !GetMetricsEnabledStateOnIOThread());
+  }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   extension_cookie_notifier_ =
@@ -1396,8 +1408,7 @@ std::unique_ptr<net::HttpCache> ProfileIOData::CreateMainHttpFactory(
     net::HttpNetworkSession* session,
     std::unique_ptr<net::HttpCache::BackendFactory> main_backend) const {
   return base::MakeUnique<net::HttpCache>(
-      base::WrapUnique(new DevToolsNetworkTransactionFactory(
-          network_controller_handle_.GetController(), session)),
+      content::CreateDevToolsNetworkTransactionFactory(session),
       std::move(main_backend), true /* is_main_cache */);
 }
 
@@ -1407,8 +1418,7 @@ std::unique_ptr<net::HttpCache> ProfileIOData::CreateHttpFactory(
   DCHECK(main_http_factory);
   net::HttpNetworkSession* shared_session = main_http_factory->GetSession();
   return base::MakeUnique<net::HttpCache>(
-      base::WrapUnique(new DevToolsNetworkTransactionFactory(
-          network_controller_handle_.GetController(), shared_session)),
+      content::CreateDevToolsNetworkTransactionFactory(shared_session),
       std::move(backend), false /* is_main_cache */);
 }
 

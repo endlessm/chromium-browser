@@ -14,6 +14,7 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "components/previews/core/previews_experiments.h"
 #include "components/previews/core/previews_io_data.h"
+#include "components/previews/core/previews_logger.h"
 #include "components/previews/core/previews_opt_out_store.h"
 #include "components/previews/core/previews_opt_out_store_sql.h"
 #include "components/previews/core/previews_ui_service.h"
@@ -36,6 +37,8 @@ bool IsPreviewsTypeEnabled(previews::PreviewsType type) {
       return server_previews_enabled ||
              (data_reduction_proxy::params::IsLoFiOnViaFlags() &&
               data_reduction_proxy::params::AreLitePagesEnabledViaFlags());
+    case previews::PreviewsType::AMP_REDIRECTION:
+      return previews::params::IsAMPRedirectionPreviewEnabled();
     case previews::PreviewsType::NONE:
     case previews::PreviewsType::LAST:
       break;
@@ -54,6 +57,8 @@ int GetPreviewsTypeVersion(previews::PreviewsType type) {
       return previews::params::ClientLoFiVersion();
     case previews::PreviewsType::LITE_PAGE:
       return data_reduction_proxy::params::LitePageVersion();
+    case previews::PreviewsType::AMP_REDIRECTION:
+      return previews::params::AMPRedirectionPreviewsVersion();
     case previews::PreviewsType::NONE:
     case previews::PreviewsType::LAST:
       break;
@@ -104,5 +109,6 @@ void PreviewsService::Initialize(
           io_task_runner, background_task_runner,
           profile_path.Append(chrome::kPreviewsOptOutDBFilename),
           GetEnabledPreviews()),
-      base::Bind(&IsPreviewsTypeEnabled));
+      base::Bind(&IsPreviewsTypeEnabled),
+      base::MakeUnique<previews::PreviewsLogger>());
 }

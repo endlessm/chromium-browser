@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2017 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -6,13 +7,40 @@
 
 from __future__ import print_function
 
+import argparse
+
 from chromite.cros_bisect import autotest_evaluator
-from chromite.cros_bisect import git_bisector
+from chromite.cros_bisect import chrome_on_cros_bisector
+from chromite.cros_bisect import manual_evaluator
 from chromite.cros_bisect import simple_chrome_builder
 from chromite.cli import command
 from chromite.lib import commandline
 from chromite.lib import cros_logging as logging
 from chromite.lib import remote_access
+
+
+def GoodBadCommitType(value):
+  """Checks if the input is legal last known good/bad string.
+
+  Currently, the legal formats are:
+  1. SHA1 (for Chromium commit)
+  2. CrOS version, e.g. R60-9531.0.0 or 60.9531.0.0
+
+  Args:
+    value: string to represent last known good/bad commit/version.
+
+  Returns:
+    Normalized commit/version value.
+
+  Raises:
+    argparse.ArgumentTypeError if input is illegal.
+  """
+  normalized_value = (
+      chrome_on_cros_bisector.ChromeOnCrosBisector.CheckCommitFormat(value))
+  if not normalized_value:
+    raise argparse.ArgumentTypeError(
+        '%s is neither commit SHA1 or CrOS version.' % value)
+  return normalized_value
 
 
 @command.CommandDecorator('bisect')
@@ -30,19 +58,22 @@ that is close to the failure point, in particular from the corresponding branch.
 
   REPO = ('chromium', )
   BUILDER = {'chromium': simple_chrome_builder.SimpleChromeBuilder}
-  EVALUATOR = ('autotest', )
+  EVALUATOR = {'autotest': autotest_evaluator.AutotestEvaluator,
+               'manual': manual_evaluator.ManualEvaluator}
 
   @classmethod
   def AddParser(cls, parser):
     super(BisectCommand, cls).AddParser(parser)
     parser.add_argument(
         '-G', '--good', metavar='good_commit', required=True,
-        help='A good revision to start bisection. Should be earlier than the '
-             'bad revision.')
+        type=GoodBadCommitType,
+        help='A good revision (commit SHA) or CrOS image (e.g. R60-9531.0.0) '
+             'to start bisection. Should be earlier than the bad revision.')
     parser.add_argument(
-        '-B', '--bad', metavar='bad_commit', default='HEAD',
-        help='A bad revision to start bisection. Should be later than the good '
-             'revision. Default HEAD (ToT).')
+        '-B', '--bad', metavar='bad_commit', required=True,
+        type=GoodBadCommitType,
+        help='A bad revision (commit SHA) or CrOS image (e.g. R60-9532.0.0) '
+             'to start bisection. Should be later than the good revision.')
     parser.add_argument(
         '-r', '--remote', metavar='IP address / hostname', required=True,
         type=commandline.DeviceParser(commandline.DEVICE_SCHEME_SSH),
@@ -57,7 +88,7 @@ that is close to the failure point, in particular from the corresponding branch.
              'Later it will support catapult git repository and even ChromeOS '
              'repositories.')
     parser.add_argument(
-        '--evaluator', default='autotest', choices=cls.EVALUATOR,
+        '--evaluator', default='autotest', choices=cls.EVALUATOR.keys(),
         help='Evaluator used to determine if a commit is good or bad. Now it '
              'supports autotest. Later it will support telemetry.')
     parser.add_argument(
@@ -68,6 +99,10 @@ that is close to the failure point, in particular from the corresponding branch.
         '--chromium-dir', type='path',
         help='If specified, use it as chromium repository. Otherwise, use '
              '"[base-dir]/chromium".')
+    parser.add_argument(
+        '--cros-dir', type='path',
+        help='If specified, use it to enter CrOS chroot environment. '
+             'Otherwise, use "[base-dir]/cros".')
     parser.add_argument(
         '--build-dir', type='path',
         help='If specified, use it to store build results. Otherwise, use '
@@ -89,6 +124,10 @@ that is close to the failure point, in particular from the corresponding branch.
         action='store_false',
         help='If set, do not archive the build.')
     parser.add_argument(
+        '--auto-threshold', action='store_true',
+        help='If set, set threshold in the middle between good and bad '
+             'score instead of prompting user to set it.')
+    parser.add_argument(
         '--test-name', help='Test name to run against')
     parser.add_argument(
         '--metric',
@@ -104,6 +143,17 @@ that is close to the failure point, in particular from the corresponding branch.
         '--eval-repeat', type=int, default=3,
         help='Repeat evaluate commit for N times to calculate mean and '
              'standard deviation. Default 3.')
+    parser.add_argument(
+        '--cros-flash-retry', type=int, default=3,
+        help='Max #retry for "cros flash" command. Default 3.')
+    parser.add_argument(
+        '--cros-flash-sleep', type=int, default=60,
+        help='Wait #seconds before retry. See cros-flash-backoff for detail.')
+    parser.add_argument(
+        '--cros-flash-backoff', type=float, default=1,
+        help='Backoff factor for sleep between "cros flash" retry. If backoff '
+             'factor is 1, sleep_duration = sleep * num_retry. Otherwise, '
+             'sleep_duration = sleep * (backoff_factor) ** (num_retry - 1)')
 
   def ProcessOptions(self):
     """Process self.options.
@@ -128,7 +178,8 @@ that is close to the failure point, in particular from the corresponding branch.
     # Note that for the objects consuming command line options, please evaluate
     # its SanityCheckOptions() in testAddParser in cros_bisect_unittest.
     builder = self.BUILDER[self.options.repo](self.options)
-    evaluator = autotest_evaluator.AutotestEvaluator(self.options)
-    bisector = git_bisector.GitBisector(self.options, builder, evaluator)
+    evaluator = self.EVALUATOR[self.options.evaluator](self.options)
+    bisector = chrome_on_cros_bisector.ChromeOnCrosBisector(
+        self.options, builder, evaluator)
     bisector.SetUp()
     bisector.Run()

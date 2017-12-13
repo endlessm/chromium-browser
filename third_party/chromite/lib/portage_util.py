@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -927,6 +928,9 @@ class EBuild(object):
   def _ShouldRevEBuild(self, commit_ids, srcdirs, subdirs_to_rev):
     """Determine whether we should attempt to rev |ebuild|.
 
+    If CROS_WORKON_SUBDIRS_TO_REV is not defined for |ebuild|, and
+    subdirs_to_rev is empty, this function trivially returns True.
+
     Args:
       commit_ids: Commit ID of the tip of tree for the source dir.
       srcdirs: Source direutory where the git repo is located.
@@ -944,15 +948,22 @@ class EBuild(object):
       return True
     if len(srcdirs) != 1:
       return True
-    if len(subdirs_to_rev) == 0:
+    if not subdirs_to_rev and not self.cros_workon_vars.rev_subdirs:
       return True
 
     current_commit_hash = commit_ids[0]
     stable_commit_hash = self.cros_workon_vars.commit
     srcdir = srcdirs[0]
     logrange = '%s..%s' % (stable_commit_hash, current_commit_hash)
-    git_args = ['log', '--oneline', logrange, '--']
-    git_args.extend(subdirs_to_rev)
+    dirs = []
+    dirs.extend(self.cros_workon_vars.rev_subdirs)
+    dirs.extend(subdirs_to_rev)
+    if dirs:
+      # Any change to the unstable ebuild must generate an uprev. If there are
+      # no dirs then this happens automatically (since the git log has no file
+      # list). Otherwise we must ensure that it works here.
+      dirs.append('*9999.ebuild')
+    git_args = ['log', '--oneline', logrange, '--'] + dirs
 
     try:
       output = EBuild._RunGit(srcdir, git_args)

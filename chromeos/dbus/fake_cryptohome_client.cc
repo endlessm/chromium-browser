@@ -7,10 +7,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -76,84 +79,81 @@ void FakeCryptohomeClient::SetDircryptoMigrationProgressHandler(
 }
 
 void FakeCryptohomeClient::WaitForServiceToBeAvailable(
-    const WaitForServiceToBeAvailableCallback& callback) {
+    WaitForServiceToBeAvailableCallback callback) {
   if (service_is_available_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  base::Bind(callback, true));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), true));
   } else {
-    pending_wait_for_service_to_be_available_callbacks_.push_back(callback);
+    pending_wait_for_service_to_be_available_callbacks_.push_back(
+        std::move(callback));
   }
 }
 
-void FakeCryptohomeClient::IsMounted(
-    const BoolDBusMethodCallback& callback) {
+void FakeCryptohomeClient::IsMounted(DBusMethodCallback<bool> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, true));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
-void FakeCryptohomeClient::Unmount(const BoolDBusMethodCallback& callback) {
+void FakeCryptohomeClient::Unmount(DBusMethodCallback<bool> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, unmount_result_));
+      FROM_HERE, base::BindOnce(std::move(callback), unmount_result_));
 }
 
 void FakeCryptohomeClient::AsyncCheckKey(
     const cryptohome::Identification& cryptohome_id,
     const std::string& key,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodResult(callback);
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodResult(std::move(callback));
 }
 
 void FakeCryptohomeClient::AsyncMigrateKey(
     const cryptohome::Identification& cryptohome_id,
     const std::string& from_key,
     const std::string& to_key,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodResult(callback);
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodResult(std::move(callback));
 }
 
 void FakeCryptohomeClient::AsyncRemove(
     const cryptohome::Identification& cryptohome_id,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodResult(callback);
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodResult(std::move(callback));
 }
 
 void FakeCryptohomeClient::RenameCryptohome(
     const cryptohome::Identification& cryptohome_id_from,
     const cryptohome::Identification& cryptohome_id_to,
-    const ProtobufMethodCallback& callback) {
-  cryptohome::BaseReply reply;
-  ReturnProtobufMethodCallback(reply, callback);
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
+  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
 void FakeCryptohomeClient::GetAccountDiskUsage(
     const cryptohome::Identification& account_id,
-    const ProtobufMethodCallback& callback) {
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
   cryptohome::BaseReply reply;
   cryptohome::GetAccountDiskUsageReply* get_account_disk_usage_reply =
       reply.MutableExtension(cryptohome::GetAccountDiskUsageReply::reply);
   // Sets 100 MB as a fake usage.
   get_account_disk_usage_reply->set_size(100 * 1024 * 1024);
-  ReturnProtobufMethodCallback(reply, callback);
+  ReturnProtobufMethodCallback(reply, std::move(callback));
 }
 
 void FakeCryptohomeClient::GetSystemSalt(
-    const GetSystemSaltCallback& callback) {
+    DBusMethodCallback<std::vector<uint8_t>> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, system_salt_));
+      FROM_HERE, base::BindOnce(std::move(callback), system_salt_));
 }
 
 void FakeCryptohomeClient::GetSanitizedUsername(
     const cryptohome::Identification& cryptohome_id,
-    const StringDBusMethodCallback& callback) {
+    DBusMethodCallback<std::string> callback) {
   // Even for stub implementation we have to return different values so that
   // multi-profiles would work.
-  auto task =
-      service_is_available_
-          ? base::BindOnce(callback, DBUS_METHOD_CALL_SUCCESS,
-                           GetStubSanitizedUsername(cryptohome_id))
-          : base::BindOnce(callback, DBUS_METHOD_CALL_FAILURE, std::string());
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(task));
+  auto id = service_is_available_
+                ? base::make_optional(GetStubSanitizedUsername(cryptohome_id))
+                : base::nullopt;
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), id));
 }
 
 std::string FakeCryptohomeClient::BlockingGetSanitizedUsername(
@@ -166,40 +166,37 @@ void FakeCryptohomeClient::AsyncMount(
     const cryptohome::Identification& cryptohome_id,
     const std::string& key,
     int flags,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodResult(callback);
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodResult(std::move(callback));
 }
 
 void FakeCryptohomeClient::AsyncAddKey(
     const cryptohome::Identification& cryptohome_id,
     const std::string& key,
     const std::string& new_key,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodResult(callback);
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodResult(std::move(callback));
 }
 
-void FakeCryptohomeClient::AsyncMountGuest(
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodResult(callback);
+void FakeCryptohomeClient::AsyncMountGuest(AsyncMethodCallback callback) {
+  ReturnAsyncMethodResult(std::move(callback));
 }
 
 void FakeCryptohomeClient::AsyncMountPublic(
     const cryptohome::Identification& public_mount_id,
     int flags,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodResult(callback);
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodResult(std::move(callback));
 }
 
-void FakeCryptohomeClient::TpmIsReady(
-    const BoolDBusMethodCallback& callback) {
+void FakeCryptohomeClient::TpmIsReady(DBusMethodCallback<bool> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, true));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
-void FakeCryptohomeClient::TpmIsEnabled(
-    const BoolDBusMethodCallback& callback) {
+void FakeCryptohomeClient::TpmIsEnabled(DBusMethodCallback<bool> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, true));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 bool FakeCryptohomeClient::CallTpmIsEnabledAndBlock(bool* enabled) {
@@ -208,17 +205,16 @@ bool FakeCryptohomeClient::CallTpmIsEnabledAndBlock(bool* enabled) {
 }
 
 void FakeCryptohomeClient::TpmGetPassword(
-    const StringDBusMethodCallback& callback) {
-  const char kStubTpmPassword[] = "Stub-TPM-password";
+    DBusMethodCallback<std::string> callback) {
+  constexpr char kStubTpmPassword[] = "Stub-TPM-password";
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS,
-                            std::string(kStubTpmPassword)));
+      FROM_HERE,
+      base::BindOnce(std::move(callback), std::string(kStubTpmPassword)));
 }
 
-void FakeCryptohomeClient::TpmIsOwned(
-    const BoolDBusMethodCallback& callback) {
+void FakeCryptohomeClient::TpmIsOwned(DBusMethodCallback<bool> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, true));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 bool FakeCryptohomeClient::CallTpmIsOwnedAndBlock(bool* owned) {
@@ -226,10 +222,9 @@ bool FakeCryptohomeClient::CallTpmIsOwnedAndBlock(bool* owned) {
   return true;
 }
 
-void FakeCryptohomeClient::TpmIsBeingOwned(
-    const BoolDBusMethodCallback& callback) {
+void FakeCryptohomeClient::TpmIsBeingOwned(DBusMethodCallback<bool> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, true));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 bool FakeCryptohomeClient::CallTpmIsBeingOwnedAndBlock(bool* owning) {
@@ -240,13 +235,13 @@ bool FakeCryptohomeClient::CallTpmIsBeingOwnedAndBlock(bool* owning) {
 void FakeCryptohomeClient::TpmCanAttemptOwnership(
     VoidDBusMethodCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), DBUS_METHOD_CALL_SUCCESS));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 void FakeCryptohomeClient::TpmClearStoredPassword(
     VoidDBusMethodCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), DBUS_METHOD_CALL_SUCCESS));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 bool FakeCryptohomeClient::CallTpmClearStoredPasswordAndBlock() {
@@ -254,26 +249,26 @@ bool FakeCryptohomeClient::CallTpmClearStoredPasswordAndBlock() {
 }
 
 void FakeCryptohomeClient::Pkcs11IsTpmTokenReady(
-    const BoolDBusMethodCallback& callback) {
+    DBusMethodCallback<bool> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, true));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 void FakeCryptohomeClient::Pkcs11GetTpmTokenInfo(
-    const Pkcs11GetTpmTokenInfoCallback& callback) {
+    DBusMethodCallback<TpmTokenInfo> callback) {
   const char kStubTPMTokenName[] = "StubTPMTokenName";
   const char kStubUserPin[] = "012345";
   const int kStubSlot = 0;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS,
-                            std::string(kStubTPMTokenName),
-                            std::string(kStubUserPin), kStubSlot));
+      FROM_HERE,
+      base::BindOnce(std::move(callback),
+                     TpmTokenInfo{kStubTPMTokenName, kStubUserPin, kStubSlot}));
 }
 
 void FakeCryptohomeClient::Pkcs11GetTpmTokenInfoForUser(
     const cryptohome::Identification& cryptohome_id,
-    const Pkcs11GetTpmTokenInfoCallback& callback) {
-  Pkcs11GetTpmTokenInfo(callback);
+    DBusMethodCallback<TpmTokenInfo> callback) {
+  Pkcs11GetTpmTokenInfo(std::move(callback));
 }
 
 bool FakeCryptohomeClient::InstallAttributesGet(const std::string& name,
@@ -359,9 +354,9 @@ bool FakeCryptohomeClient::InstallAttributesFinalize(bool* successful) {
 }
 
 void FakeCryptohomeClient::InstallAttributesIsReady(
-    const BoolDBusMethodCallback& callback) {
+    DBusMethodCallback<bool> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, true));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 bool FakeCryptohomeClient::InstallAttributesIsInvalid(bool* is_invalid) {
@@ -376,32 +371,34 @@ bool FakeCryptohomeClient::InstallAttributesIsFirstInstall(
 }
 
 void FakeCryptohomeClient::TpmAttestationIsPrepared(
-    const BoolDBusMethodCallback& callback) {
+    DBusMethodCallback<bool> callback) {
+  auto result = service_is_available_
+                    ? base::make_optional(tpm_attestation_is_prepared_)
+                    : base::nullopt;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(callback, DBUS_METHOD_CALL_SUCCESS,
-                                tpm_attestation_is_prepared_));
+      FROM_HERE, base::BindOnce(std::move(callback), result));
 }
 
 void FakeCryptohomeClient::TpmAttestationIsEnrolled(
-    const BoolDBusMethodCallback& callback) {
-  auto task = service_is_available_
-                  ? base::BindOnce(callback, DBUS_METHOD_CALL_SUCCESS,
-                                   tpm_attestation_is_enrolled_)
-                  : base::BindOnce(callback, DBUS_METHOD_CALL_FAILURE, false);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(task));
+    DBusMethodCallback<bool> callback) {
+  auto result = service_is_available_
+                    ? base::make_optional(tpm_attestation_is_enrolled_)
+                    : base::nullopt;
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), result));
 }
 
 void FakeCryptohomeClient::AsyncTpmAttestationCreateEnrollRequest(
     chromeos::attestation::PrivacyCAType pca_type,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodData(callback, std::string());
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodData(std::move(callback), std::string());
 }
 
 void FakeCryptohomeClient::AsyncTpmAttestationEnroll(
     chromeos::attestation::PrivacyCAType pca_type,
     const std::string& pca_response,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodResult(callback);
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodResult(std::move(callback));
 }
 
 void FakeCryptohomeClient::AsyncTpmAttestationCreateCertRequest(
@@ -409,8 +406,8 @@ void FakeCryptohomeClient::AsyncTpmAttestationCreateCertRequest(
     attestation::AttestationCertificateProfile certificate_profile,
     const cryptohome::Identification& cryptohome_id,
     const std::string& request_origin,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodData(callback, std::string());
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodData(std::move(callback), std::string());
 }
 
 void FakeCryptohomeClient::AsyncTpmAttestationFinishCertRequest(
@@ -418,19 +415,19 @@ void FakeCryptohomeClient::AsyncTpmAttestationFinishCertRequest(
     attestation::AttestationKeyType key_type,
     const cryptohome::Identification& cryptohome_id,
     const std::string& key_name,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodData(callback, std::string());
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodData(std::move(callback), std::string());
 }
 
 void FakeCryptohomeClient::TpmAttestationDoesKeyExist(
     attestation::AttestationKeyType key_type,
     const cryptohome::Identification& cryptohome_id,
     const std::string& key_name,
-    const BoolDBusMethodCallback& callback) {
+    DBusMethodCallback<bool> callback) {
   if (!service_is_available_ ||
       !tpm_attestation_does_key_exist_should_succeed_) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(callback, DBUS_METHOD_CALL_FAILURE, false));
+        FROM_HERE, base::BindOnce(std::move(callback), base::nullopt));
     return;
   }
 
@@ -446,56 +443,54 @@ void FakeCryptohomeClient::TpmAttestationDoesKeyExist(
   }
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(callback, DBUS_METHOD_CALL_SUCCESS, result));
+      FROM_HERE, base::BindOnce(std::move(callback), result));
 }
 
 void FakeCryptohomeClient::TpmAttestationGetCertificate(
     attestation::AttestationKeyType key_type,
     const cryptohome::Identification& cryptohome_id,
     const std::string& key_name,
-    const DataMethodCallback& callback) {
-  bool result = false;
-  std::string certificate;
+    DBusMethodCallback<TpmAttestationDataResult> callback) {
+  TpmAttestationDataResult result;
   switch (key_type) {
     case attestation::KEY_DEVICE: {
       const auto it = device_certificate_map_.find(key_name);
       if (it != device_certificate_map_.end()) {
-        result = true;
-        certificate = it->second;
+        result.success = true;
+        result.data = it->second;
       }
       break;
     }
     case attestation::KEY_USER: {
       const auto it = user_certificate_map_.find({cryptohome_id, key_name});
       if (it != user_certificate_map_.end()) {
-        result = true;
-        certificate = it->second;
+        result.success = true;
+        result.data = it->second;
       }
       break;
     }
   }
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::BindOnce(callback, DBUS_METHOD_CALL_SUCCESS, result, certificate));
+      FROM_HERE, base::BindOnce(std::move(callback), std::move(result)));
 }
 
 void FakeCryptohomeClient::TpmAttestationGetPublicKey(
     attestation::AttestationKeyType key_type,
     const cryptohome::Identification& cryptohome_id,
     const std::string& key_name,
-    const DataMethodCallback& callback) {
+    DBusMethodCallback<TpmAttestationDataResult> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, false, std::string()));
+      base::BindOnce(std::move(callback), TpmAttestationDataResult{}));
 }
 
 void FakeCryptohomeClient::TpmAttestationRegisterKey(
     attestation::AttestationKeyType key_type,
     const cryptohome::Identification& cryptohome_id,
     const std::string& key_name,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodData(callback, std::string());
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodData(std::move(callback), std::string());
 }
 
 void FakeCryptohomeClient::TpmAttestationSignEnterpriseChallenge(
@@ -506,8 +501,8 @@ void FakeCryptohomeClient::TpmAttestationSignEnterpriseChallenge(
     const std::string& device_id,
     attestation::AttestationChallengeOptions options,
     const std::string& challenge,
-    const AsyncMethodCallback& callback) {
-  ReturnAsyncMethodData(callback, std::string());
+    AsyncMethodCallback callback) {
+  ReturnAsyncMethodData(std::move(callback), std::string());
 }
 
 void FakeCryptohomeClient::TpmAttestationSignSimpleChallenge(
@@ -515,31 +510,29 @@ void FakeCryptohomeClient::TpmAttestationSignSimpleChallenge(
     const cryptohome::Identification& cryptohome_id,
     const std::string& key_name,
     const std::string& challenge,
-    const AsyncMethodCallback& callback) {
+    AsyncMethodCallback callback) {
   chromeos::attestation::SignedData signed_data;
   signed_data.set_data(challenge + kTwentyBytesNonce);
   signed_data.set_signature(kSignature);
-  ReturnAsyncMethodData(callback, signed_data.SerializeAsString());
+  ReturnAsyncMethodData(std::move(callback), signed_data.SerializeAsString());
 }
 
 void FakeCryptohomeClient::TpmAttestationGetKeyPayload(
     attestation::AttestationKeyType key_type,
     const cryptohome::Identification& cryptohome_id,
     const std::string& key_name,
-    const DataMethodCallback& callback) {
-  bool result = false;
-  std::string payload;
+    DBusMethodCallback<TpmAttestationDataResult> callback) {
+  TpmAttestationDataResult result;
   if (key_type == attestation::KEY_DEVICE) {
     const auto it = device_key_payload_map_.find(key_name);
     if (it != device_key_payload_map_.end()) {
-      result = true;
-      payload = it->second;
+      result.success = true;
+      result.data = it->second;
     }
   }
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::BindOnce(callback, DBUS_METHOD_CALL_SUCCESS, result, payload));
+      FROM_HERE, base::BindOnce(std::move(callback), std::move(result)));
 }
 
 void FakeCryptohomeClient::TpmAttestationSetKeyPayload(
@@ -547,7 +540,7 @@ void FakeCryptohomeClient::TpmAttestationSetKeyPayload(
     const cryptohome::Identification& cryptohome_id,
     const std::string& key_name,
     const std::string& payload,
-    const BoolDBusMethodCallback& callback) {
+    DBusMethodCallback<bool> callback) {
   bool result = false;
   // Currently only KEY_DEVICE case is supported just because there's no user
   // for KEY_USER.
@@ -556,29 +549,29 @@ void FakeCryptohomeClient::TpmAttestationSetKeyPayload(
     result = true;
   }
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(callback, DBUS_METHOD_CALL_SUCCESS, result));
+      FROM_HERE, base::BindOnce(std::move(callback), result));
 }
 
 void FakeCryptohomeClient::TpmAttestationDeleteKeys(
     attestation::AttestationKeyType key_type,
     const cryptohome::Identification& cryptohome_id,
     const std::string& key_prefix,
-    const BoolDBusMethodCallback& callback) {
+    DBusMethodCallback<bool> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, true));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
-void FakeCryptohomeClient::TpmGetVersion(TpmGetVersionCallback callback) {
+void FakeCryptohomeClient::TpmGetVersion(
+    DBusMethodCallback<TpmVersionInfo> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), DBUS_METHOD_CALL_SUCCESS,
-                                TpmVersionInfo()));
+      FROM_HERE, base::BindOnce(std::move(callback), TpmVersionInfo()));
 }
 
 void FakeCryptohomeClient::GetKeyDataEx(
     const cryptohome::Identification& cryptohome_id,
     const cryptohome::AuthorizationRequest& auth,
     const cryptohome::GetKeyDataRequest& request,
-    const ProtobufMethodCallback& callback) {
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
   cryptohome::BaseReply reply;
   const auto it = key_data_map_.find(cryptohome_id);
   if (it == key_data_map_.end()) {
@@ -588,23 +581,22 @@ void FakeCryptohomeClient::GetKeyDataEx(
         reply.MutableExtension(cryptohome::GetKeyDataReply::reply);
     *key_data_reply->add_key_data() = it->second;
   }
-  ReturnProtobufMethodCallback(reply, callback);
+  ReturnProtobufMethodCallback(reply, std::move(callback));
 }
 
 void FakeCryptohomeClient::CheckKeyEx(
     const cryptohome::Identification& cryptohome_id,
     const cryptohome::AuthorizationRequest& auth,
     const cryptohome::CheckKeyRequest& request,
-    const ProtobufMethodCallback& callback) {
-  cryptohome::BaseReply reply;
-  ReturnProtobufMethodCallback(reply, callback);
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
+  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
 void FakeCryptohomeClient::MountEx(
     const cryptohome::Identification& cryptohome_id,
     const cryptohome::AuthorizationRequest& auth,
     const cryptohome::MountRequest& request,
-    const ProtobufMethodCallback& callback) {
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
   cryptohome::BaseReply reply;
   cryptohome::MountReply* mount =
       reply.MutableExtension(cryptohome::MountReply::reply);
@@ -614,59 +606,54 @@ void FakeCryptohomeClient::MountEx(
       !request.to_migrate_from_ecryptfs()) {
     reply.set_error(cryptohome::CRYPTOHOME_ERROR_MOUNT_OLD_ENCRYPTION);
   }
-  ReturnProtobufMethodCallback(reply, callback);
+  ReturnProtobufMethodCallback(reply, std::move(callback));
 }
 
 void FakeCryptohomeClient::AddKeyEx(
     const cryptohome::Identification& cryptohome_id,
     const cryptohome::AuthorizationRequest& auth,
     const cryptohome::AddKeyRequest& request,
-    const ProtobufMethodCallback& callback) {
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
   key_data_map_.insert(std::make_pair(cryptohome_id, request.key().data()));
-  cryptohome::BaseReply reply;
-  ReturnProtobufMethodCallback(reply, callback);
+  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
 void FakeCryptohomeClient::RemoveKeyEx(
     const cryptohome::Identification& cryptohome_id,
     const cryptohome::AuthorizationRequest& auth,
     const cryptohome::RemoveKeyRequest& request,
-    const ProtobufMethodCallback& callback) {
-  cryptohome::BaseReply reply;
-  ReturnProtobufMethodCallback(reply, callback);
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
+  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
 void FakeCryptohomeClient::UpdateKeyEx(
     const cryptohome::Identification& cryptohome_id,
     const cryptohome::AuthorizationRequest& auth,
     const cryptohome::UpdateKeyRequest& request,
-    const ProtobufMethodCallback& callback) {
-  cryptohome::BaseReply reply;
-  ReturnProtobufMethodCallback(reply, callback);
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
+  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
 void FakeCryptohomeClient::GetBootAttribute(
     const cryptohome::GetBootAttributeRequest& request,
-    const ProtobufMethodCallback& callback) {
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
   cryptohome::BaseReply reply;
   cryptohome::GetBootAttributeReply* attr_reply =
       reply.MutableExtension(cryptohome::GetBootAttributeReply::reply);
   attr_reply->set_value("");
-  ReturnProtobufMethodCallback(reply, callback);
+  ReturnProtobufMethodCallback(reply, std::move(callback));
 }
 
 void FakeCryptohomeClient::SetBootAttribute(
     const cryptohome::SetBootAttributeRequest& request,
-    const ProtobufMethodCallback& callback) {
-  cryptohome::BaseReply reply;
-  ReturnProtobufMethodCallback(reply, callback);
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
+  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
 void FakeCryptohomeClient::FlushAndSignBootAttributes(
     const cryptohome::FlushAndSignBootAttributesRequest& request,
-    const ProtobufMethodCallback& callback) {
-  cryptohome::BaseReply reply;
-  ReturnProtobufMethodCallback(reply, callback);
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
+  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
 void FakeCryptohomeClient::MigrateToDircrypto(
@@ -674,7 +661,7 @@ void FakeCryptohomeClient::MigrateToDircrypto(
     const cryptohome::MigrateToDircryptoRequest& request,
     VoidDBusMethodCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), DBUS_METHOD_CALL_SUCCESS));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
   dircrypto_migration_progress_ = 0;
   dircrypto_migration_progress_timer_.Start(
       FROM_HERE,
@@ -684,32 +671,33 @@ void FakeCryptohomeClient::MigrateToDircrypto(
 
 void FakeCryptohomeClient::RemoveFirmwareManagementParametersFromTpm(
     const cryptohome::RemoveFirmwareManagementParametersRequest& request,
-    const ProtobufMethodCallback& callback) {
-  ReturnProtobufMethodCallback(cryptohome::BaseReply(), callback);
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
+  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
 void FakeCryptohomeClient::SetFirmwareManagementParametersInTpm(
     const cryptohome::SetFirmwareManagementParametersRequest& request,
-    const ProtobufMethodCallback& callback) {
-  ReturnProtobufMethodCallback(cryptohome::BaseReply(), callback);
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
+  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
 void FakeCryptohomeClient::NeedsDircryptoMigration(
     const cryptohome::Identification& cryptohome_id,
-    const BoolDBusMethodCallback& callback) {
+    DBusMethodCallback<bool> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS,
-                            needs_dircrypto_migration_));
+      FROM_HERE,
+      base::BindOnce(std::move(callback), needs_dircrypto_migration_));
 }
 
 void FakeCryptohomeClient::SetServiceIsAvailable(bool is_available) {
   service_is_available_ = is_available;
-  if (is_available) {
-    std::vector<WaitForServiceToBeAvailableCallback> callbacks;
-    callbacks.swap(pending_wait_for_service_to_be_available_callbacks_);
-    for (size_t i = 0; i < callbacks.size(); ++i)
-      callbacks[i].Run(is_available);
-  }
+  if (!is_available)
+    return;
+
+  std::vector<WaitForServiceToBeAvailableCallback> callbacks;
+  callbacks.swap(pending_wait_for_service_to_be_available_callbacks_);
+  for (auto& callback : callbacks)
+    std::move(callback).Run(true);
 }
 
 void FakeCryptohomeClient::SetTpmAttestationUserCertificate(
@@ -748,47 +736,47 @@ std::vector<uint8_t> FakeCryptohomeClient::GetStubSystemSalt() {
 
 void FakeCryptohomeClient::ReturnProtobufMethodCallback(
     const cryptohome::BaseReply& reply,
-    const ProtobufMethodCallback& callback) {
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, DBUS_METHOD_CALL_SUCCESS, true, reply));
+      FROM_HERE, base::BindOnce(std::move(callback), reply));
 }
 
 void FakeCryptohomeClient::ReturnAsyncMethodResult(
-    const AsyncMethodCallback& callback) {
+    AsyncMethodCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(&FakeCryptohomeClient::ReturnAsyncMethodResultInternal,
-                 weak_ptr_factory_.GetWeakPtr(), callback));
+      base::BindOnce(&FakeCryptohomeClient::ReturnAsyncMethodResultInternal,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
-void FakeCryptohomeClient::ReturnAsyncMethodData(
-    const AsyncMethodCallback& callback,
-    const std::string& data) {
+void FakeCryptohomeClient::ReturnAsyncMethodData(AsyncMethodCallback callback,
+                                                 const std::string& data) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(&FakeCryptohomeClient::ReturnAsyncMethodDataInternal,
-                 weak_ptr_factory_.GetWeakPtr(), callback, data));
+      base::BindOnce(&FakeCryptohomeClient::ReturnAsyncMethodDataInternal,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback),
+                     data));
 }
 
 void FakeCryptohomeClient::ReturnAsyncMethodResultInternal(
-    const AsyncMethodCallback& callback) {
-  callback.Run(async_call_id_);
+    AsyncMethodCallback callback) {
+  std::move(callback).Run(async_call_id_);
   if (!async_call_status_handler_.is_null()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(async_call_status_handler_, async_call_id_, true,
-                              cryptohome::MOUNT_ERROR_NONE));
+        FROM_HERE, base::BindOnce(async_call_status_handler_, async_call_id_,
+                                  true, cryptohome::MOUNT_ERROR_NONE));
   }
   ++async_call_id_;
 }
 
 void FakeCryptohomeClient::ReturnAsyncMethodDataInternal(
-    const AsyncMethodCallback& callback,
+    AsyncMethodCallback callback,
     const std::string& data) {
-  callback.Run(async_call_id_);
+  std::move(callback).Run(async_call_id_);
   if (!async_call_status_data_handler_.is_null()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(async_call_status_data_handler_, async_call_id_,
-                              true, data));
+        FROM_HERE, base::BindOnce(async_call_status_data_handler_,
+                                  async_call_id_, true, data));
   }
   ++async_call_id_;
 }

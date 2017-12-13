@@ -9,10 +9,13 @@
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_synchronizing.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_utils.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_commands.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_header_view_controller_delegate.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
 #import "ios/chrome/browser/ui/image_util.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
+#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #import "ios/chrome/common/material_timing.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/chrome/grit/ios_theme_resources.h"
@@ -30,12 +33,19 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
 
 @interface NTPHomeHeaderViewController ()
 
+// |YES| if the header view is visible.  When set to |NO| various UI updates are
+// ignored, like shifting the tiles up when the omnibox is focused.
+@property(nonatomic, assign) BOOL isShowing;
+
 // |YES| if this consumer is has voice search enabled.
 @property(nonatomic, assign) BOOL voiceSearchIsEnabled;
 
-// Redifined as readwrite
-@property(nonatomic, assign, getter=isOmniboxFocused, readwrite)
-    BOOL omniboxFocused;
+@property(nonatomic, assign) BOOL promoCanShow;
+// Exposes view and methods to drive the doodle.
+@property(nonatomic, weak, nullable) id<LogoVendor> logoVendor;
+
+// Whether the omnibox is currently focused.
+@property(nonatomic, assign, getter=isOmniboxFocused) BOOL omniboxFocused;
 
 @property(nonatomic, strong) UIButton* fakeOmnibox;
 @property(nonatomic, strong) NSLayoutConstraint* hintLabelLeadingConstraint;
@@ -66,34 +76,17 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
 @synthesize fakeOmniboxTopMarginConstraint = _fakeOmniboxTopMarginConstraint;
 @synthesize fakeOmniboxBorder = _fakeOmniboxBorder;
 @synthesize fakeOmniboxShadow = _fakeOmniboxShadow;
+@synthesize collectionSynchronizer = _collectionSynchronizer;
+@synthesize isShowing = _isShowing;
+@synthesize promoCanShow = _promoCanShow;
+@synthesize delegate = _delegate;
+@synthesize commandHandler = _commandHandler;
 
-#pragma mark - NTPHomeHeaderConsumer
+#pragma mark - ContentSuggestionsHeaderControlling
 
-- (void)collectionWillShiftDown {
-  if (IsIPadIdiom())
-    return;
-
-  self.fakeOmnibox.hidden = NO;
-  // TODO(crbug.com/740793): Remove alert once the protocol to send commands
-  // to the toolbar is implemented.
-  [self showAlert:@"Omnibox unfocused"];
-}
-
-- (void)collectionDidShiftUp {
-  if (IsIPadIdiom())
-    return;
-
-  // TODO(crbug.com/740793): Remove alert once the protocol to send commands
-  // to the toolbar is implemented.
-  [self showAlert:@"Omnibox animation completed"];
-  [UIView animateWithDuration:ios::material::kDuration1
-                   animations:^{
-                     [self.fakeOmniboxShadow setAlpha:0];
-                   }];
-  [self.fakeOmnibox setHidden:YES];
-}
-
-- (void)updateFakeOmniboxForOffset:(CGFloat)offset {
+- (void)updateFakeOmniboxForOffset:(CGFloat)offset
+                       screenWidth:(CGFloat)screenWidth
+                    safeAreaInsets:(UIEdgeInsets)safeAreaInsets {
   // The scroll offset at which point the fake omnibox's frame should stop
   // growing.
   CGFloat maxScaleOffset =
@@ -141,19 +134,43 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
       content_suggestions::searchFieldWidth(width);
 }
 
-- (void)setLogoIsShowing:(BOOL)logoIsShowing {
-  self.logoVendor.showingLogo = logoIsShowing;
-  [self.doodleHeightConstraint
-      setConstant:content_suggestions::doodleHeight(logoIsShowing)];
-  if (IsIPadIdiom())
-    [self.fakeOmnibox setHidden:!logoIsShowing];
+- (void)unfocusOmnibox {
+  if (self.omniboxFocused) {
+    // TODO(crbug.com/740793): Remove alert once the protocol to send commands
+    // to the toolbar is implemented.
+    [self showAlert:@"Cancel omnibox edit"];
+  } else {
+    [self locationBarResignsFirstResponder];
+  }
 }
 
 - (void)layoutHeader {
   [self.view layoutIfNeeded];
 }
 
-#pragma mark - NTPHomeHeaderProvider
+- (CGFloat)pinnedOffsetY {
+  CGFloat headerHeight = content_suggestions::heightForLogoHeader(
+      self.logoVendor.showingLogo, self.promoCanShow, NO);
+  CGFloat offsetY =
+      headerHeight - ntp_header::kScrolledToTopOmniboxBottomMargin;
+  if (!IsIPadIdiom())
+    offsetY -= ntp_header::kToolbarHeight;
+
+  return offsetY;
+}
+
+- (CGFloat)headerHeight {
+  return content_suggestions::heightForLogoHeader(self.logoVendor.showingLogo,
+                                                  self.promoCanShow, NO);
+}
+
+#pragma mark - ChromeBroadcastObserver
+
+- (void)broadcastSelectedNTPPanel:(ntp_home::PanelIdentifier)panelIdentifier {
+  self.isShowing = panelIdentifier == ntp_home::HOME_PANEL;
+}
+
+#pragma mark - ContentSuggestionsHeaderProvider
 
 - (UIView*)headerForWidth:(CGFloat)width {
   if (!self.fakeOmnibox) {
@@ -180,6 +197,93 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
   return self.view;
 }
 
+#pragma mark - GoogleLandingConsumer
+
+- (void)setLogoIsShowing:(BOOL)logoIsShowing {
+  if (self.logoVendor.showingLogo != logoIsShowing) {
+    self.logoVendor.showingLogo = logoIsShowing;
+    [self.doodleHeightConstraint
+        setConstant:content_suggestions::doodleHeight(logoIsShowing)];
+    if (IsIPadIdiom())
+      [self.fakeOmnibox setHidden:!logoIsShowing];
+    [self.collectionSynchronizer invalidateLayout];
+  }
+}
+
+- (void)setMaximumMostVisitedSitesShown:
+    (NSUInteger)maximumMostVisitedSitesShown {
+  // Do nothing as it is handled elsewhere.
+}
+
+- (void)setPromoText:(NSString*)promoText {
+  // Do nothing as it is handled elsewhere.
+}
+
+- (void)setPromoIcon:(WhatsNewIcon)promoIcon {
+  // Do nothing as it is handled elsewhere.
+}
+
+- (void)setTabCount:(int)tabCount {
+  // Do nothing as it is handled elsewhere.
+}
+
+- (void)setCanGoForward:(BOOL)canGoForward {
+  // Do nothing as it is handled elsewhere.
+}
+
+- (void)setCanGoBack:(BOOL)canGoBack {
+  // Do nothing as it is handled elsewhere.
+}
+
+- (void)mostVisitedDataUpdated {
+  // Do nothing as it is handled elsewhere.
+}
+
+- (void)mostVisitedIconMadeAvailableAtIndex:(NSUInteger)index {
+  // Do nothing as it is handled elsewhere.
+}
+
+- (void)locationBarResignsFirstResponder {
+  if (!self.isShowing && ![self.delegate isScrolledToTop])
+    return;
+
+  self.omniboxFocused = NO;
+  if ([self.delegate isContextMenuVisible]) {
+    return;
+  }
+
+  if (IsIPadIdiom())
+    return;
+
+  self.fakeOmnibox.hidden = NO;
+  // TODO(crbug.com/740793): Remove alert once the protocol to send commands
+  // to the toolbar is implemented.
+  [self showAlert:@"Omnibox unfocused"];
+  [self.collectionSynchronizer shiftTilesDown];
+  [self.commandHandler dismissModals];
+}
+
+- (void)locationBarBecomesFirstResponder {
+  if (!self.isShowing)
+    return;
+
+  self.omniboxFocused = YES;
+  void (^completionBlock)() = ^{
+    if (IsIPadIdiom())
+      return;
+
+    // TODO(crbug.com/740793): Remove alert once the protocol to send commands
+    // to the toolbar is implemented.
+    [self showAlert:@"Omnibox animation completed"];
+    [UIView animateWithDuration:ios::material::kDuration1
+                     animations:^{
+                       [self.fakeOmniboxShadow setAlpha:0];
+                     }];
+    [self.fakeOmnibox setHidden:YES];
+  };
+  [self.collectionSynchronizer shiftTilesUpWithCompletionBlock:completionBlock];
+}
+
 #pragma mark - Private
 
 // Initialize and add a search field tap target and a voice search button.
@@ -192,12 +296,7 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
                                 forState:UIControlStateNormal];
   }
   [self.fakeOmnibox setAdjustsImageWhenHighlighted:NO];
-  [self.fakeOmnibox addTarget:self
-                       action:@selector(fakeOmniboxTapped:)
-             forControlEvents:UIControlEventTouchUpInside];
 
-  [self.fakeOmnibox
-      setAccessibilityLabel:l10n_util::GetNSString(IDS_OMNIBOX_EMPTY_HINT)];
   // Set isAccessibilityElement to NO so that Voice Search button is accessible.
   [self.fakeOmnibox setIsAccessibilityElement:NO];
   self.fakeOmnibox.accessibilityIdentifier =
@@ -212,6 +311,22 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
       constraintEqualToAnchor:[self.fakeOmnibox leadingAnchor]
                      constant:ntp_header::kHintLabelSidePadding];
   [_hintLabelLeadingConstraint setActive:YES];
+
+  // Set a button the same size as the fake omnibox as the accessibility
+  // element. If the hint is the only accessible element, when the fake omnibox
+  // is taking the full width, there are few points that are not accessible and
+  // allow to select the content below it.
+  searchHintLabel.isAccessibilityElement = NO;
+  UIButton* accessibilityButton = [[UIButton alloc] init];
+  [accessibilityButton addTarget:self
+                          action:@selector(fakeOmniboxTapped:)
+                forControlEvents:UIControlEventTouchUpInside];
+  accessibilityButton.isAccessibilityElement = YES;
+  accessibilityButton.accessibilityLabel =
+      l10n_util::GetNSString(IDS_OMNIBOX_EMPTY_HINT);
+  [self.fakeOmnibox addSubview:accessibilityButton];
+  accessibilityButton.translatesAutoresizingMaskIntoConstraints = NO;
+  AddSameConstraints(self.fakeOmnibox, accessibilityButton);
 
   // Add a voice search button.
   UIButton* voiceTapTarget = [[UIButton alloc] init];

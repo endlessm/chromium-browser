@@ -4,10 +4,13 @@
 
 #include "ash/wm/window_state.h"
 
+#include <memory>
 #include <utility>
 
 #include "ash/public/cpp/window_properties.h"
+#include "ash/public/cpp/window_state_type.h"
 #include "ash/public/interfaces/window_pin_type.mojom.h"
+#include "ash/public/interfaces/window_state_type.mojom.h"
 #include "ash/screen_util.h"
 #include "ash/wm/default_state.h"
 #include "ash/wm/window_animations.h"
@@ -18,7 +21,6 @@
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "base/auto_reset.h"
-#include "base/memory/ptr_util.h"
 #include "services/ui/public/interfaces/window_manager_constants.mojom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/layout_manager.h"
@@ -114,44 +116,44 @@ void WindowState::SetDelegate(std::unique_ptr<WindowStateDelegate> delegate) {
   delegate_ = std::move(delegate);
 }
 
-WindowStateType WindowState::GetStateType() const {
+mojom::WindowStateType WindowState::GetStateType() const {
   return current_state_->GetType();
 }
 
 bool WindowState::IsMinimized() const {
-  return GetStateType() == WINDOW_STATE_TYPE_MINIMIZED;
+  return GetStateType() == mojom::WindowStateType::MINIMIZED;
 }
 
 bool WindowState::IsMaximized() const {
-  return GetStateType() == WINDOW_STATE_TYPE_MAXIMIZED;
+  return GetStateType() == mojom::WindowStateType::MAXIMIZED;
 }
 
 bool WindowState::IsFullscreen() const {
-  return GetStateType() == WINDOW_STATE_TYPE_FULLSCREEN;
+  return GetStateType() == mojom::WindowStateType::FULLSCREEN;
 }
 
 bool WindowState::IsMaximizedOrFullscreenOrPinned() const {
-  return GetStateType() == WINDOW_STATE_TYPE_MAXIMIZED ||
-         GetStateType() == WINDOW_STATE_TYPE_FULLSCREEN || IsPinned();
+  return GetStateType() == mojom::WindowStateType::MAXIMIZED ||
+         GetStateType() == mojom::WindowStateType::FULLSCREEN || IsPinned();
 }
 
 bool WindowState::IsSnapped() const {
-  return GetStateType() == WINDOW_STATE_TYPE_LEFT_SNAPPED ||
-         GetStateType() == WINDOW_STATE_TYPE_RIGHT_SNAPPED;
+  return GetStateType() == mojom::WindowStateType::LEFT_SNAPPED ||
+         GetStateType() == mojom::WindowStateType::RIGHT_SNAPPED;
 }
 
 bool WindowState::IsPinned() const {
-  return GetStateType() == WINDOW_STATE_TYPE_PINNED ||
-         GetStateType() == WINDOW_STATE_TYPE_TRUSTED_PINNED;
+  return GetStateType() == mojom::WindowStateType::PINNED ||
+         GetStateType() == mojom::WindowStateType::TRUSTED_PINNED;
 }
 
 bool WindowState::IsTrustedPinned() const {
-  return GetStateType() == WINDOW_STATE_TYPE_TRUSTED_PINNED;
+  return GetStateType() == mojom::WindowStateType::TRUSTED_PINNED;
 }
 
 bool WindowState::IsNormalStateType() const {
-  return GetStateType() == WINDOW_STATE_TYPE_NORMAL ||
-         GetStateType() == WINDOW_STATE_TYPE_DEFAULT;
+  return GetStateType() == mojom::WindowStateType::NORMAL ||
+         GetStateType() == mojom::WindowStateType::DEFAULT;
 }
 
 bool WindowState::IsNormalOrSnapped() const {
@@ -338,7 +340,7 @@ void WindowState::set_bounds_changed_by_user(bool bounds_changed_by_user) {
 void WindowState::CreateDragDetails(const gfx::Point& point_in_parent,
                                     int window_component,
                                     ::wm::WindowMoveSource source) {
-  drag_details_ = base::MakeUnique<DragDetails>(window_, point_in_parent,
+  drag_details_ = std::make_unique<DragDetails>(window_, point_in_parent,
                                                 window_component, source);
 }
 
@@ -393,9 +395,9 @@ void WindowState::AdjustSnappedBounds(gfx::Rect* bounds) {
     return;
   gfx::Rect maximized_bounds =
       ScreenUtil::GetMaximizedWindowBoundsInParent(window_);
-  if (GetStateType() == WINDOW_STATE_TYPE_LEFT_SNAPPED)
+  if (GetStateType() == mojom::WindowStateType::LEFT_SNAPPED)
     bounds->set_x(maximized_bounds.x());
-  else if (GetStateType() == WINDOW_STATE_TYPE_RIGHT_SNAPPED)
+  else if (GetStateType() == mojom::WindowStateType::RIGHT_SNAPPED)
     bounds->set_x(maximized_bounds.right() - bounds->width());
   bounds->set_y(maximized_bounds.y());
   bounds->set_height(maximized_bounds.height());
@@ -409,11 +411,16 @@ void WindowState::UpdateWindowPropertiesFromStateType() {
     window_->SetProperty(aura::client::kShowStateKey, new_window_state);
   }
 
+  if (GetStateType() != window_->GetProperty(kWindowStateTypeKey)) {
+    base::AutoReset<bool> resetter(&ignore_property_change_, true);
+    window_->SetProperty(kWindowStateTypeKey, GetStateType());
+  }
+
   // sync up current window show state with PinType property.
   ash::mojom::WindowPinType pin_type = ash::mojom::WindowPinType::NONE;
-  if (GetStateType() == WINDOW_STATE_TYPE_PINNED)
+  if (GetStateType() == mojom::WindowStateType::PINNED)
     pin_type = ash::mojom::WindowPinType::PINNED;
-  else if (GetStateType() == WINDOW_STATE_TYPE_TRUSTED_PINNED)
+  else if (GetStateType() == mojom::WindowStateType::TRUSTED_PINNED)
     pin_type = ash::mojom::WindowPinType::TRUSTED_PINNED;
   if (pin_type != GetPinType()) {
     base::AutoReset<bool> resetter(&ignore_property_change_, true);
@@ -422,13 +429,13 @@ void WindowState::UpdateWindowPropertiesFromStateType() {
 }
 
 void WindowState::NotifyPreStateTypeChange(
-    WindowStateType old_window_state_type) {
+    mojom::WindowStateType old_window_state_type) {
   for (auto& observer : observer_list_)
     observer.OnPreWindowStateTypeChange(this, old_window_state_type);
 }
 
 void WindowState::NotifyPostStateTypeChange(
-    WindowStateType old_window_state_type) {
+    mojom::WindowStateType old_window_state_type) {
   for (auto& observer : observer_list_)
     observer.OnPostWindowStateTypeChange(this, old_window_state_type);
 }
@@ -485,8 +492,6 @@ void WindowState::SetBoundsDirectCrossFade(const gfx::Rect& new_bounds) {
     return;
   }
 
-  const gfx::Rect old_bounds = window_->bounds();
-
   // Create fresh layers for the window and all its children to paint into.
   // Takes ownership of the old layer and all its children, which will be
   // cleaned up after the animation completes.
@@ -494,19 +499,9 @@ void WindowState::SetBoundsDirectCrossFade(const gfx::Rect& new_bounds) {
   // windows of |window|.
   std::unique_ptr<ui::LayerTreeOwner> old_layer_owner =
       ::wm::RecreateLayers(window_);
-  ui::Layer* old_layer = old_layer_owner->root();
-  DCHECK(old_layer);
-  ui::Layer* new_layer = window_->layer();
 
   // Resize the window to the new size, which will force a layout and paint.
   SetBoundsDirect(new_bounds);
-
-  // Ensure the higher-resolution layer is on top.
-  bool old_on_top = (old_bounds.width() > new_bounds.width());
-  if (old_on_top)
-    old_layer->parent()->StackBelow(new_layer, old_layer);
-  else
-    old_layer->parent()->StackAbove(new_layer, old_layer);
 
   CrossFadeAnimation(window_, std::move(old_layer_owner), gfx::Tween::EASE_OUT);
 }
@@ -550,6 +545,13 @@ void WindowState::OnWindowPropertyChanged(aura::Window* window,
     if (!ignore_property_change_) {
       WMEvent event(WMEventTypeFromWindowPinType(GetPinType()));
       OnWMEvent(&event);
+    }
+    return;
+  }
+  if (key == kWindowStateTypeKey) {
+    if (!ignore_property_change_) {
+      // This change came from somewhere else. Revert it.
+      window->SetProperty(kWindowStateTypeKey, GetStateType());
     }
     return;
   }

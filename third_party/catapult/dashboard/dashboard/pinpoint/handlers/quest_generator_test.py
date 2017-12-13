@@ -9,8 +9,8 @@ from dashboard.pinpoint.models import quest
 
 
 _MIN_TELEMETRY_RUN_TEST_ARGUMENTS = [
-    'speedometer', '--pageset-repeat', '20', '--browser', 'release',
-    '-v', '--upload-results', '--output-format', 'chartjson',
+    'speedometer', '--pageset-repeat', '1', '--browser', 'release',
+    '-v', '--upload-results', '--output-format=chartjson',
     '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
     '--isolated-script-test-chartjson-output',
     '${ISOLATED_OUTDIR}/chartjson-output.json',
@@ -19,8 +19,19 @@ _MIN_TELEMETRY_RUN_TEST_ARGUMENTS = [
 
 _ALL_TELEMETRY_RUN_TEST_ARGUMENTS = [
     'speedometer', '--story-filter', 'http://www.fifa.com/',
-    '--pageset-repeat', '50', '--browser', 'release',
-    '-v', '--upload-results', '--output-format', 'chartjson',
+    '--pageset-repeat', '1', '--browser', 'release',
+    '--custom-arg', 'custom value',
+    '-v', '--upload-results', '--output-format=chartjson',
+    '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
+    '--isolated-script-test-chartjson-output',
+    '${ISOLATED_OUTDIR}/chartjson-output.json',
+]
+
+
+_STARTUP_BENCHMARK_RUN_TEST_ARGUMENTS = [
+    'start_with_url.warm.startup_pages',
+    '--pageset-repeat', '2', '--browser', 'release',
+    '-v', '--upload-results', '--output-format=chartjson',
     '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
     '--isolated-script-test-chartjson-output',
     '${ISOLATED_OUTDIR}/chartjson-output.json',
@@ -28,7 +39,7 @@ _ALL_TELEMETRY_RUN_TEST_ARGUMENTS = [
 
 
 _MIN_GTEST_RUN_TEST_ARGUMENTS = [
-    '--gtest_repeat', '20',
+    '--gtest_repeat=1',
     '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
     '--isolated-script-test-chartjson-output',
     '${ISOLATED_OUTDIR}/chartjson-output.json',
@@ -36,7 +47,8 @@ _MIN_GTEST_RUN_TEST_ARGUMENTS = [
 
 
 _ALL_GTEST_RUN_TEST_ARGUMENTS = [
-    '--gtest_filter', 'test_name', '--gtest_repeat', '50',
+    '--gtest_filter=test_name', '--gtest_repeat=1',
+    '--custom-arg', 'custom value',
     '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
     '--isolated-script-test-chartjson-output',
     '${ISOLATED_OUTDIR}/chartjson-output.json',
@@ -115,12 +127,41 @@ class TelemetryRunTest(unittest.TestCase):
         'benchmark': 'speedometer',
         'browser': 'release',
         'story': 'http://www.fifa.com/',
-        'repeat_count': '50',
+        'extra_test_args': '["--custom-arg", "custom value"]',
     }
 
     expected_quests = [
         quest.FindIsolate('chromium-rel-mac11-pro', 'telemetry_perf_tests'),
         quest.RunTest({'key': 'value'}, _ALL_TELEMETRY_RUN_TEST_ARGUMENTS),
+    ]
+    self.assertEqual(quest_generator.GenerateQuests(arguments),
+                     (arguments, expected_quests))
+
+  def testInvalidExtraTestArgs(self):
+    arguments = {
+        'configuration': 'chromium-rel-mac11-pro',
+        'target': 'telemetry_perf_tests',
+        'dimensions': '{}',
+        'benchmark': 'speedometer',
+        'browser': 'release',
+        'extra_test_args': '"this is a string"',
+    }
+
+    with self.assertRaises(TypeError):
+      quest_generator.GenerateQuests(arguments)
+
+  def testStartupBenchmarkRepeatCount(self):
+    arguments = {
+        'configuration': 'chromium-rel-mac11-pro',
+        'target': 'telemetry_perf_tests',
+        'dimensions': '{}',
+        'benchmark': 'start_with_url.warm.startup_pages',
+        'browser': 'release',
+    }
+
+    expected_quests = [
+        quest.FindIsolate('chromium-rel-mac11-pro', 'telemetry_perf_tests'),
+        quest.RunTest({}, _STARTUP_BENCHMARK_RUN_TEST_ARGUMENTS),
     ]
     self.assertEqual(quest_generator.GenerateQuests(arguments),
                      (arguments, expected_quests))
@@ -149,7 +190,7 @@ class GTestRunTest(unittest.TestCase):
         'target': 'net_perftests',
         'dimensions': '{"key": "value"}',
         'test': 'test_name',
-        'repeat_count': '50',
+        'extra_test_args': '["--custom-arg", "custom value"]',
     }
 
     expected_quests = [
@@ -188,8 +229,6 @@ class ReadChartJsonValue(unittest.TestCase):
         'dimensions': '{"key": "value"}',
         'benchmark': 'speedometer',
         'browser': 'release',
-        'story': 'http://www.fifa.com/',
-        'repeat_count': '50',
         'tir_label': 'pcv1-cold',
         'chart': 'timeToFirst',
         'trace': 'trace_name',
@@ -197,7 +236,7 @@ class ReadChartJsonValue(unittest.TestCase):
 
     expected_quests = [
         quest.FindIsolate('chromium-rel-mac11-pro', 'telemetry_perf_tests'),
-        quest.RunTest({'key': 'value'}, _ALL_TELEMETRY_RUN_TEST_ARGUMENTS),
+        quest.RunTest({'key': 'value'}, _MIN_TELEMETRY_RUN_TEST_ARGUMENTS),
         quest.ReadChartJsonValue('timeToFirst', 'pcv1-cold', 'trace_name'),
     ]
     self.assertEqual(quest_generator.GenerateQuests(arguments),
@@ -212,7 +251,6 @@ class ReadGraphJsonValue(unittest.TestCase):
         'target': 'net_perftests',
         'dimensions': '{"key": "value"}',
         'test': 'test_name',
-        'repeat_count': '50',
         'trace': 'trace_name',
     }
 
@@ -224,7 +262,6 @@ class ReadGraphJsonValue(unittest.TestCase):
         'target': 'net_perftests',
         'dimensions': '{"key": "value"}',
         'test': 'test_name',
-        'repeat_count': '50',
         'chart': 'chart_name',
     }
 
@@ -236,16 +273,27 @@ class ReadGraphJsonValue(unittest.TestCase):
         'configuration': 'chromium-rel-mac11-pro',
         'target': 'net_perftests',
         'dimensions': '{"key": "value"}',
-        'test': 'test_name',
-        'repeat_count': '50',
         'chart': 'chart_name',
         'trace': 'trace_name',
     }
 
     expected_quests = [
         quest.FindIsolate('chromium-rel-mac11-pro', 'net_perftests'),
-        quest.RunTest({'key': 'value'}, _ALL_GTEST_RUN_TEST_ARGUMENTS),
+        quest.RunTest({'key': 'value'}, _MIN_GTEST_RUN_TEST_ARGUMENTS),
         quest.ReadGraphJsonValue('chart_name', 'trace_name'),
     ]
     self.assertEqual(quest_generator.GenerateQuests(arguments),
                      (arguments, expected_quests))
+
+  def testInvalidExtraTestArgs(self):
+    arguments = {
+        'configuration': 'chromium-rel-mac11-pro',
+        'target': 'net_perftests',
+        'dimensions': '{"key": "value"}',
+        'test': 'test_name',
+        'chart': 'chart_name',
+        'extra_test_args': '"this is a string"',
+    }
+
+    with self.assertRaises(TypeError):
+      quest_generator.GenerateQuests(arguments)

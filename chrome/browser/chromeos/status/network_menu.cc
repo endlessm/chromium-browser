@@ -8,16 +8,16 @@
 
 #include <algorithm>
 
-#include "ash/strings/grit/ash_strings.h"
 #include "ash/system/network/network_icon.h"
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/chromeos/login/ui/internet_detail_dialog.h"
 #include "chrome/browser/chromeos/mobile_config.h"
 #include "chrome/browser/chromeos/options/network_config_view.h"
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/sim_dialog_delegate.h"
-#include "chrome/browser/chromeos/ui/choose_mobile_network_dialog.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/url_constants.h"
@@ -338,13 +338,9 @@ ui::MenuModelDelegate* NetworkMenuModel::GetMenuModelDelegate() const {
 // NetworkMenuModel, private methods:
 
 void NetworkMenuModel::ShowOther(const std::string& type) const {
-  if (type == shill::kTypeCellular) {
-    // TODO(jamescook): This should not need a parent.
-    ChooseMobileNetworkDialog::ShowDialog(
-        owner_->delegate()->GetNativeWindow());
-  } else {
-    NetworkConfigView::ShowForType(shill::kTypeWifi);
-  }
+  // Note: this UI is deprecated and generally unused. If |type| is 'cellular'
+  // this will do nothing.
+  NetworkConfigView::ShowForType(type);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -496,7 +492,7 @@ void MainMenuModel::InitMenuItems(bool should_open_button_options) {
   if (handler->IsTechnologyEnabled(NetworkTypePattern::WiFi())) {
     // List Wifi networks.
     int scanning_msg = handler->GetScanningByType(NetworkTypePattern::WiFi())
-                           ? IDS_ASH_STATUS_TRAY_WIFI_SCANNING_MESSAGE
+                           ? IDS_WIFI_SCANNING_MESSAGE
                            : 0;
     for (NetworkStateHandler::NetworkStateList::const_iterator iter =
              network_list.begin(); iter != network_list.end(); ++iter) {

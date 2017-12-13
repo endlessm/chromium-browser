@@ -5,6 +5,7 @@
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 
 #include <list>
+#include <vector>
 
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
@@ -329,11 +330,6 @@ void TabSpecificContentSettings::OnContentBlockedWithDetail(
     status.blockage_indicated_to_user = false;
   }
 #endif
-
-  if (type == CONTENT_SETTINGS_TYPE_PLUGINS && !details.empty() &&
-      !base::ContainsValue(blocked_plugin_names_, details)) {
-    blocked_plugin_names_.push_back(details);
-  }
 
   if (!status.blocked) {
     status.blocked = true;
@@ -741,7 +737,7 @@ void TabSpecificContentSettings::OnContentSettingChanged(
     GetRendererContentSettingRules(map, &rules);
 
     IPC::ChannelProxy* channel =
-        web_contents()->GetRenderProcessHost()->GetChannel();
+        web_contents()->GetMainFrame()->GetProcess()->GetChannel();
     // channel might be NULL in tests.
     if (channel) {
       chrome::mojom::RendererConfigurationAssociatedPtr rc_interface;
@@ -805,7 +801,6 @@ void TabSpecificContentSettings::DidFinishNavigation(
 
   // Clear "blocked" flags.
   ClearContentSettingsExceptForNavigationRelatedSettings();
-  blocked_plugin_names_.clear();
   GeolocationDidNavigate(navigation_handle);
   MidiDidNavigate(navigation_handle);
 

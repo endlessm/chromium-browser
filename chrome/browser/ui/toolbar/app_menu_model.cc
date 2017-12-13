@@ -41,6 +41,7 @@
 #include "chrome/browser/ui/toolbar/recent_tabs_sub_menu_model.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
 #include "chrome/browser/upgrade_detector.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/profiling.h"
@@ -73,6 +74,7 @@
 #endif
 
 #if defined(OS_CHROMEOS)
+#include "ash/shell.h"
 #include "chromeos/chromeos_switches.h"
 #endif
 
@@ -81,10 +83,6 @@
 #include "base/win/windows_version.h"
 #include "chrome/browser/win/enumerate_modules_model.h"
 #include "content/public/browser/gpu_data_manager.h"
-#endif
-
-#if defined(USE_ASH)
-#include "ash/shell.h"  // nogncheck
 #endif
 
 using base::UserMetricsAction;
@@ -156,7 +154,7 @@ class AppMenuModel::HelpMenuModel : public ui::SimpleMenuModel {
     if (base::FeatureList::IsEnabled(kIncludeBetaForumMenuItem))
       AddItem(IDC_SHOW_BETA_FORUM, l10n_util::GetStringUTF16(IDS_BETA_FORUM));
     if (browser_defaults::kShowHelpMenuItemIcon) {
-      ui::ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+      ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
       SetIcon(GetIndexOfCommandId(IDC_HELP_PAGE_VIA_MENU),
               rb.GetNativeImageNamed(IDR_HELP_MENU));
     }
@@ -187,15 +185,11 @@ ToolsMenuModel::~ToolsMenuModel() {}
 void ToolsMenuModel::Build(Browser* browser) {
   AddItemWithStringId(IDC_SAVE_PAGE, IDS_SAVE_PAGE);
 
-  if (extensions::util::IsNewBookmarkAppsEnabled()) {
-    int string_id = IDS_ADD_TO_DESKTOP;
-#if defined(OS_MACOSX)
-    string_id = IDS_ADD_TO_APPLICATIONS;
-#endif
-#if defined(USE_ASH)
-    string_id = IDS_ADD_TO_SHELF;
-#endif  // defined(USE_ASH)
-    AddItemWithStringId(IDC_CREATE_HOSTED_APP, string_id);
+  if (extensions::util::IsNewBookmarkAppsEnabled() &&
+      // If kExperimentalAppBanners is enabled, this is moved to the top level
+      // menu.
+      !base::FeatureList::IsEnabled(features::kExperimentalAppBanners)) {
+    AddItemWithStringId(IDC_CREATE_HOSTED_APP, IDS_ADD_TO_OS_LAUNCH_SURFACE);
   }
 
   AddSeparator(ui::NORMAL_SEPARATOR);
@@ -732,6 +726,11 @@ void AppMenuModel::Build() {
     AddItemWithStringId(IDC_ROUTE_MEDIA, IDS_MEDIA_ROUTER_MENU_ITEM_TITLE);
 
   AddItemWithStringId(IDC_FIND, IDS_FIND);
+  if (extensions::util::IsNewBookmarkAppsEnabled() &&
+      base::FeatureList::IsEnabled(features::kExperimentalAppBanners)) {
+    AddItemWithStringId(IDC_CREATE_HOSTED_APP, IDS_ADD_TO_OS_LAUNCH_SURFACE);
+  }
+
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableDomDistiller))
     AddItemWithStringId(IDC_DISTILL_PAGE, IDS_DISTILL_PAGE);

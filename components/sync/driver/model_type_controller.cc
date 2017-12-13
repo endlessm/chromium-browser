@@ -70,7 +70,6 @@ ModelTypeController::ModelTypeController(
       model_thread_(model_thread),
       sync_prefs_(sync_client->GetPrefService()),
       state_(NOT_RUNNING) {
-  DCHECK(model_thread_);
 }
 
 ModelTypeController::~ModelTypeController() {}
@@ -263,10 +262,11 @@ BridgeProvider ModelTypeController::GetBridgeProvider() {
   return base::Bind(&ReturnCapturedBridge, bridge);
 }
 
-void ModelTypeController::PostBridgeTask(
-    const tracked_objects::Location& location,
-    const BridgeTask& task) {
+void ModelTypeController::PostBridgeTask(const base::Location& location,
+                                         const BridgeTask& task) {
+  DCHECK(model_thread_);
   model_thread_->PostTask(
       location, base::Bind(&RunBridgeTask, GetBridgeProvider(), task));
 }
+
 }  // namespace syncer

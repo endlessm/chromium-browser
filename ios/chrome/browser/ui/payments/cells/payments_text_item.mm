@@ -6,6 +6,7 @@
 
 #import "ios/chrome/browser/ui/collection_view/cells/MDCCollectionViewCell+Chrome.h"
 #import "ios/chrome/browser/ui/payments/cells/accessibility_util.h"
+#import "ios/chrome/browser/ui/rtl_geometry.h"
 #import "ios/third_party/material_components_ios/src/components/Palettes/src/MaterialPalettes.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
 
@@ -31,6 +32,8 @@ const CGFloat kVerticalSpacingBetweenLabels = 8;
 
 @synthesize text = _text;
 @synthesize detailText = _detailText;
+@synthesize textColor = _textColor;
+@synthesize detailTextColor = _detailTextColor;
 @synthesize image = _image;
 @synthesize accessoryType = _accessoryType;
 @synthesize complete = _complete;
@@ -45,11 +48,27 @@ const CGFloat kVerticalSpacingBetweenLabels = 8;
   return self;
 }
 
+- (UIColor*)textColor {
+  if (!_textColor) {
+    _textColor = [[MDCPalette greyPalette] tint900];
+  }
+  return _textColor;
+}
+
+- (UIColor*)detailTextColor {
+  if (!_detailTextColor) {
+    _detailTextColor = [[MDCPalette greyPalette] tint900];
+  }
+  return _detailTextColor;
+}
+
 - (void)configureCell:(PaymentsTextCell*)cell {
   [super configureCell:cell];
   [cell cr_setAccessoryType:self.accessoryType];
   cell.textLabel.text = self.text;
+  cell.textLabel.textColor = self.textColor;
   cell.detailTextLabel.text = self.detailText;
+  cell.detailTextLabel.textColor = self.detailTextColor;
   cell.imageView.image = self.image;
 }
 
@@ -87,7 +106,7 @@ const CGFloat kVerticalSpacingBetweenLabels = 8;
   _stackView = [[UIStackView alloc] initWithArrangedSubviews:@[]];
   _stackView.axis = UILayoutConstraintAxisVertical;
   _stackView.layoutMarginsRelativeArrangement = YES;
-  _stackView.layoutMargins = UIEdgeInsetsMake(
+  _stackView.layoutMargins = UIEdgeInsetsMakeDirected(
       kVerticalPadding, 0, kVerticalPadding, kHorizontalPadding);
   _stackView.alignment = UIStackViewAlignmentLeading;
   _stackView.spacing = kVerticalSpacingBetweenLabels;
@@ -108,12 +127,10 @@ const CGFloat kVerticalSpacingBetweenLabels = 8;
 // Set default font and text colors for labels.
 - (void)setDefaultViewStyling {
   _textLabel.font = [MDCTypography body2Font];
-  _textLabel.textColor = [[MDCPalette greyPalette] tint900];
   _textLabel.numberOfLines = 0;
   _textLabel.lineBreakMode = NSLineBreakByWordWrapping;
 
   _detailTextLabel.font = [MDCTypography body1Font];
-  _detailTextLabel.textColor = [[MDCPalette greyPalette] tint900];
   _detailTextLabel.numberOfLines = 0;
   _detailTextLabel.lineBreakMode = NSLineBreakByWordWrapping;
 }

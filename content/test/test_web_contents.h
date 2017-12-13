@@ -10,6 +10,7 @@
 #include <list>
 #include <map>
 #include <string>
+#include <utility>
 
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/test/web_contents_tester.h"
@@ -47,7 +48,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
                                  scoped_refptr<SiteInstance> instance);
 
   // WebContentsImpl overrides (returning the same values, but in Test* types)
-  TestRenderFrameHost* GetMainFrame() override;
+  TestRenderFrameHost* GetMainFrame() const override;
   TestRenderViewHost* GetRenderViewHost() const override;
   // Overrides to avoid establishing Mojo connection with renderer process.
   int DownloadImage(const GURL& url,
@@ -59,7 +60,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
 
   // WebContentsTester implementation.
   void CommitPendingNavigation() override;
-  TestRenderFrameHost* GetPendingMainFrame() const override;
+  TestRenderFrameHost* GetPendingMainFrame() override;
   void NavigateAndCommit(const GURL& url) override;
   void TestSetIsLoading(bool value) override;
   void ProceedWithCrossSiteNavigation() override;
@@ -101,6 +102,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
       RenderViewHost* render_view_host,
       int opener_frame_routing_id,
       int proxy_routing_id,
+      const base::UnguessableToken& devtools_frame_token,
       const FrameReplicationState& replicated_frame_state) override;
   void UpdateRenderViewSizeForRenderManager() override {}
 

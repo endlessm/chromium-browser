@@ -11,7 +11,6 @@
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/profiler/scoped_tracker.h"
 #include "components/signin/core/browser/signin_client.h"
 #include "components/signin/core/browser/signin_metrics.h"
 #include "components/signin/core/browser/webdata/token_web_data.h"
@@ -327,12 +326,6 @@ void MutableProfileOAuth2TokenServiceDelegate::OnWebDataServiceRequestDone(
           << (result.get() == nullptr ? -1
                                       : static_cast<int>(result->GetType()));
 
-  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "422460 MutableProfileOAuth2Token...::OnWebDataServiceRequestDone"));
-
   DCHECK_EQ(web_data_service_request_, handle);
   web_data_service_request_ = 0;
 
@@ -346,7 +339,6 @@ void MutableProfileOAuth2TokenServiceDelegate::OnWebDataServiceRequestDone(
   } else {
     load_credentials_state_ = LOAD_CREDENTIALS_FINISHED_WITH_UNKNOWN_ERRORS;
   }
-  FireRefreshTokensLoaded();
 
   // Make sure that we have an entry for |loading_primary_account_id_| in the
   // map.  The entry could be missing if there is a corruption in the token DB
@@ -370,6 +362,7 @@ void MutableProfileOAuth2TokenServiceDelegate::OnWebDataServiceRequestDone(
   }
 
   loading_primary_account_id_.clear();
+  FireRefreshTokensLoaded();
 }
 
 void MutableProfileOAuth2TokenServiceDelegate::LoadAllCredentialsIntoMemory(

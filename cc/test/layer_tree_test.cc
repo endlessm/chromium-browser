@@ -13,6 +13,7 @@
 #include "cc/animation/animation.h"
 #include "cc/animation/animation_host.h"
 #include "cc/animation/animation_player.h"
+#include "cc/animation/animation_ticker.h"
 #include "cc/animation/timing_function.h"
 #include "cc/base/switches.h"
 #include "cc/input/input_handler.h"
@@ -260,7 +261,7 @@ class LayerTreeHostImplForTesting : public LayerTreeHostImpl {
     LayerTreeHostImpl::UpdateAnimationState(start_ready_animations);
     bool has_unfinished_animation = false;
     for (const auto& it : animation_host()->ticking_players_for_testing()) {
-      if (it->HasTickingAnimation()) {
+      if (it->animation_ticker()->HasTickingAnimation()) {
         has_unfinished_animation = true;
         break;
       }
@@ -472,7 +473,7 @@ class LayerTreeTestLayerTreeFrameSinkClient
       : hooks_(hooks) {}
 
   // viz::TestLayerTreeFrameSinkClient implementation.
-  std::unique_ptr<OutputSurface> CreateDisplayOutputSurface(
+  std::unique_ptr<viz::OutputSurface> CreateDisplayOutputSurface(
       scoped_refptr<viz::ContextProvider> compositor_context_provider)
       override {
     return hooks_->CreateDisplayOutputSurfaceOnThread(
@@ -482,11 +483,13 @@ class LayerTreeTestLayerTreeFrameSinkClient
       const viz::LocalSurfaceId& local_surface_id) override {
     hooks_->DisplayReceivedLocalSurfaceIdOnThread(local_surface_id);
   }
-  void DisplayReceivedCompositorFrame(const CompositorFrame& frame) override {
+  void DisplayReceivedCompositorFrame(
+      const viz::CompositorFrame& frame) override {
     hooks_->DisplayReceivedCompositorFrameOnThread(frame);
   }
-  void DisplayWillDrawAndSwap(bool will_draw_and_swap,
-                              const RenderPassList& render_passes) override {
+  void DisplayWillDrawAndSwap(
+      bool will_draw_and_swap,
+      const viz::RenderPassList& render_passes) override {
     hooks_->DisplayWillDrawAndSwapOnThread(will_draw_and_swap, render_passes);
   }
   void DisplayDidDrawAndSwap() override {
@@ -894,7 +897,7 @@ LayerTreeTest::CreateLayerTreeFrameSink(
       refresh_rate);
 }
 
-std::unique_ptr<OutputSurface>
+std::unique_ptr<viz::OutputSurface>
 LayerTreeTest::CreateDisplayOutputSurfaceOnThread(
     scoped_refptr<viz::ContextProvider> compositor_context_provider) {
   // By default the Display shares a context with the LayerTreeHostImpl.

@@ -36,10 +36,8 @@ class D3DTextureTest : public ANGLETest
     {
         ANGLETest::SetUp();
 
-        // clang-format off
-        const std::string vsSource = SHADER_SOURCE
-        (
-            precision highp float;
+        const std::string vsSource =
+            R"(precision highp float;
             attribute vec4 position;
             varying vec2 texcoord;
 
@@ -48,31 +46,25 @@ class D3DTextureTest : public ANGLETest
                 gl_Position = position;
                 texcoord = (position.xy * 0.5) + 0.5;
                 texcoord.y = 1.0 - texcoord.y;
-            }
-        );
+            })";
 
-        const std::string textureFSSource = SHADER_SOURCE
-        (
-            precision highp float;
+        const std::string textureFSSource =
+            R"(precision highp float;
             uniform sampler2D tex;
             varying vec2 texcoord;
 
             void main()
             {
                 gl_FragColor = texture2D(tex, texcoord);
-            }
-        );
+            })";
 
-        const std::string textureFSSourceNoSampling = SHADER_SOURCE
-        (
-            precision highp float;
+        const std::string textureFSSourceNoSampling =
+            R"(precision highp float;
 
             void main()
             {
                 gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0);
-            }
-        );
-        // clang-format on
+            })";
 
         mTextureProgram = CompileProgram(vsSource, textureFSSource);
         ASSERT_NE(0u, mTextureProgram) << "shader compilation failed.";
@@ -492,7 +484,7 @@ TEST_P(D3DTextureTest, NonReadablePBuffer)
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
 
     // Draw with the texture and expect green.
-    draw2DTexturedQuad("position", 0.5f, 1.0f, false);
+    draw2DTexturedQuad(0.5f, 1.0f, false);
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 
     // Make current with fixture EGL to ensure the Surface can be released immediately.

@@ -205,8 +205,8 @@ interface TestObject {
     [RuntimeEnabled=FeatureName] attribute long runtimeEnabledLongAttribute;
     [SetterCallWith=(CurrentWindow,EnteredWindow)] attribute DOMString setterCallWithCurrentWindowAndEnteredWindowStringAttribute;
     [SetterCallWith=ExecutionContext] attribute DOMString setterCallWithExecutionContextStringAttribute;
-    [TreatNullAs=EmptyString] attribute DOMString treatNullAsEmptyStringStringAttribute;
-    [TreatNullAs=NullString] attribute DOMString treatNullAsNullStringStringAttribute;
+    attribute [TreatNullAs=EmptyString] DOMString treatNullAsEmptyStringStringAttribute;
+    attribute [TreatNullAs=NullString] DOMString treatNullAsNullStringStringAttribute;
     [LegacyInterfaceTypeChecking] attribute float legacyInterfaceTypeCheckingFloatAttribute; // nop for non-interface types
     [LegacyInterfaceTypeChecking] attribute TestInterface legacyInterfaceTypeCheckingTestInterfaceAttribute;
     [LegacyInterfaceTypeChecking] attribute TestInterface? legacyInterfaceTypeCheckingTestInterfaceOrNullAttribute;
@@ -537,6 +537,7 @@ interface TestObject {
     [Unforgeable] void unforgeableVoidMethod();
     void voidMethodTestInterfaceGarbageCollectedSequenceArg(sequence<TestInterfaceGarbageCollected> testInterfaceGarbageCollectedSequenceArg);
     [NewObject] TestInterface newObjectTestInterfaceMethod();
+    [NewObject] Promise<TestInterface> newObjectTestInterfacePromiseMethod();
     [RuntimeCallStatsCounter=RuntimeCallStatsCounterMethod] void RuntimeCallStatsCounterMethod();
 
 
@@ -548,6 +549,6 @@ interface TestObject {
     attribute TestInterfaceGarbageCollected testInterfaceGarbageCollectedAttribute; // [GarbageCollected]
     attribute TestInterfaceGarbageCollected? testInterfaceGarbageCollectedOrNullAttribute; // [GarbageCollected]
 
-    maplike<long, DOMStringOrDouble>;
+    maplike<[EnforceRange] long, DOMStringOrDouble>;
     [RuntimeEnabled=FeatureName, CallWith=ScriptState, RaisesException, ImplementedAs=myMaplikeClear] boolean clear();
 };

@@ -23,7 +23,6 @@
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/permissions/permission_decision_auto_blocker.h"
 #include "chrome/browser/permissions/permission_manager.h"
-#include "chrome/browser/permissions/permission_queue_controller.h"
 #include "chrome/browser/permissions/permission_request_id.h"
 #include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/permissions/permission_uma_util.h"
@@ -36,8 +35,8 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
-#include "components/safe_browsing_db/database_manager.h"
-#include "components/safe_browsing_db/test_database_manager.h"
+#include "components/safe_browsing/db/database_manager.h"
+#include "components/safe_browsing/db/test_database_manager.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
@@ -250,7 +249,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     base::HistogramTester histograms;
 
     const PermissionRequestID id(
-        web_contents()->GetRenderProcessHost()->GetID(),
+        web_contents()->GetMainFrame()->GetProcess()->GetID(),
         web_contents()->GetMainFrame()->GetRoutingID(), -1);
     permission_context.SetRespondPermissionCallback(
         base::Bind(&PermissionContextBaseTests::RespondToPermission,
@@ -311,7 +310,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
       TestPermissionContext permission_context(profile(),
                                                content_settings_type);
       const PermissionRequestID id(
-          web_contents()->GetRenderProcessHost()->GetID(),
+          web_contents()->GetMainFrame()->GetProcess()->GetID(),
           web_contents()->GetMainFrame()->GetRoutingID(), i);
 
       permission_context.SetRespondPermissionCallback(
@@ -362,7 +361,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
 
     TestPermissionContext permission_context(profile(), content_settings_type);
     const PermissionRequestID id(
-        web_contents()->GetRenderProcessHost()->GetID(),
+        web_contents()->GetMainFrame()->GetProcess()->GetID(),
         web_contents()->GetMainFrame()->GetRoutingID(), -1);
 
     permission_context.SetRespondPermissionCallback(
@@ -401,7 +400,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
             profile(), CONTENT_SETTINGS_TYPE_GEOLOCATION);
 
         const PermissionRequestID id(
-            web_contents()->GetRenderProcessHost()->GetID(),
+            web_contents()->GetMainFrame()->GetProcess()->GetID(),
             web_contents()->GetMainFrame()->GetRoutingID(), i);
 
         permission_context.SetRespondPermissionCallback(
@@ -486,7 +485,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
           profile(), CONTENT_SETTINGS_TYPE_MIDI_SYSEX);
 
       const PermissionRequestID id(
-          web_contents()->GetRenderProcessHost()->GetID(),
+          web_contents()->GetMainFrame()->GetProcess()->GetID(),
           web_contents()->GetMainFrame()->GetRoutingID(), i);
       permission_context.SetRespondPermissionCallback(
           base::Bind(&PermissionContextBaseTests::RespondToPermission,
@@ -547,7 +546,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
                          std::string());
 
     const PermissionRequestID id(
-        web_contents()->GetRenderProcessHost()->GetID(),
+        web_contents()->GetMainFrame()->GetProcess()->GetID(),
         web_contents()->GetMainFrame()->GetRoutingID(), -1);
     permission_context.RequestPermission(
         web_contents(), id, url, true /* user_gesture */,
@@ -570,7 +569,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     SetUpUrl(url);
 
     const PermissionRequestID id(
-        web_contents()->GetRenderProcessHost()->GetID(),
+        web_contents()->GetMainFrame()->GetProcess()->GetID(),
         web_contents()->GetMainFrame()->GetRoutingID(), -1);
     permission_context.SetRespondPermissionCallback(
         base::Bind(&PermissionContextBaseTests::RespondToPermission,
@@ -625,10 +624,10 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     SetUpUrl(url);
 
     const PermissionRequestID id0(
-        web_contents()->GetRenderProcessHost()->GetID(),
+        web_contents()->GetMainFrame()->GetProcess()->GetID(),
         web_contents()->GetMainFrame()->GetRoutingID(), 0);
     const PermissionRequestID id1(
-        web_contents()->GetRenderProcessHost()->GetID(),
+        web_contents()->GetMainFrame()->GetProcess()->GetID(),
         web_contents()->GetMainFrame()->GetRoutingID(), 1);
 
     bool persist = (response == CONTENT_SETTING_ALLOW ||
@@ -676,7 +675,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
         ->SetSafeBrowsingDatabaseManagerAndTimeoutForTesting(db_manager,
                                                              timeout);
     const PermissionRequestID id(
-        web_contents()->GetRenderProcessHost()->GetID(),
+        web_contents()->GetMainFrame()->GetProcess()->GetID(),
         web_contents()->GetMainFrame()->GetRoutingID(), -1);
 
     // A response only needs to be made to the permission request if we do not
@@ -723,7 +722,6 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     PermissionRequestManager* manager =
         PermissionRequestManager::FromWebContents(web_contents());
     prompt_factory_.reset(new MockPermissionPromptFactory(manager));
-    manager->DisplayPendingRequests();
   }
 
   void TearDown() override {

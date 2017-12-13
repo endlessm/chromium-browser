@@ -128,6 +128,7 @@ class ExtensionInstallDialogView : public views::DialogDelegateView,
 class BulletedView : public views::View {
  public:
   explicit BulletedView(views::View* view);
+
  private:
   DISALLOW_COPY_AND_ASSIGN(BulletedView);
 };

@@ -124,6 +124,8 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
      */
     public static final int MINIMUM_LOAD_PROGRESS = 5;
 
+    private static final String CHROME_MEMEX_URL = "https://chrome-memex.corp.google.com";
+
     private final ToolbarLayout mToolbar;
     private final ToolbarControlContainer mControlContainer;
 
@@ -331,6 +333,12 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             }
 
             @Override
+            public void onShown(Tab tab) {
+                if (TextUtils.isEmpty(tab.getUrl())) return;
+                mControlContainer.setReadyForBitmapCapture(true);
+            }
+
+            @Override
             public void onCrash(Tab tab, boolean sadTabShown) {
                 updateTabLoadingState(false);
                 updateButtonStatus();
@@ -497,39 +505,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
                     return;
                 }
 
-                // TODO(shaktisahu): Find out if the download menu button is enabled (crbug/712438).
-                if (!(activity instanceof ChromeTabbedActivity) || DeviceFormFactor.isTablet()
-                        || activity.isInOverviewMode()
-                        || !DownloadUtils.isAllowedToDownloadPage(tab)) {
-                    return;
-                }
-
-                final Tracker tracker = TrackerFactory.getTrackerForProfile(tab.getProfile());
-
-                if (!tracker.shouldTriggerHelpUI(FeatureConstants.DOWNLOAD_PAGE_FEATURE)) return;
-
-                mTextBubble = new ViewAnchoredTextBubble(mToolbar.getContext(), getMenuButton(),
-                        R.string.iph_download_page_for_offline_usage_text,
-                        R.string.iph_download_page_for_offline_usage_accessibility_text);
-                mTextBubble.setDismissOnTouchInteraction(true);
-                mTextBubble.addOnDismissListener(new OnDismissListener() {
-                    @Override
-                    public void onDismiss() {
-                        mHandler.postDelayed(new Runnable() {
-                            @Override
-                            public void run() {
-                                tracker.dismissed(FeatureConstants.DOWNLOAD_PAGE_FEATURE);
-                                activity.getAppMenuHandler().setMenuHighlight(null);
-                            }
-                        }, ViewHighlighter.IPH_MIN_DELAY_BETWEEN_TWO_HIGHLIGHTS);
-                    }
-                });
-                activity.getAppMenuHandler().setMenuHighlight(R.id.offline_page_id);
-                int yInsetPx = mToolbar.getContext().getResources().getDimensionPixelOffset(
-                        R.dimen.text_bubble_menu_anchor_y_inset);
-                mTextBubble.setInsetPx(0, FeatureUtilities.isChromeHomeEnabled() ? yInsetPx : 0, 0,
-                        FeatureUtilities.isChromeHomeEnabled() ? 0 : yInsetPx);
-                mTextBubble.show();
+                showDownloadPageTextBubble(tab, FeatureConstants.DOWNLOAD_PAGE_FEATURE);
             }
 
             private void handleIPHForErrorPageShown(Tab tab) {
@@ -613,6 +589,49 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
         };
 
         mLoadProgressSimulator = new LoadProgressSimulator(this);
+    }
+
+    /**
+     * Show the download page in-product-help bubble. Also used by download page screenshot IPH.
+     * @param tab The current tab.
+     * @param featureName The associated feature name.
+     */
+    public void showDownloadPageTextBubble(final Tab tab, String featureName) {
+        if (tab == null) return;
+
+        // TODO(shaktisahu): Find out if the download menu button is enabled (crbug/712438).
+        ChromeActivity activity = tab.getActivity();
+        if (!(activity instanceof ChromeTabbedActivity) || DeviceFormFactor.isTablet()
+                || activity.isInOverviewMode() || !DownloadUtils.isAllowedToDownloadPage(tab)) {
+            return;
+        }
+
+        final Tracker tracker = TrackerFactory.getTrackerForProfile(tab.getProfile());
+
+        if (!tracker.shouldTriggerHelpUI(featureName)) return;
+
+        mTextBubble = new ViewAnchoredTextBubble(mToolbar.getContext(), getMenuButton(),
+                R.string.iph_download_page_for_offline_usage_text,
+                R.string.iph_download_page_for_offline_usage_accessibility_text);
+        mTextBubble.setDismissOnTouchInteraction(true);
+        mTextBubble.addOnDismissListener(new OnDismissListener() {
+            @Override
+            public void onDismiss() {
+                mHandler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        tracker.dismissed(featureName);
+                        activity.getAppMenuHandler().setMenuHighlight(null);
+                    }
+                }, ViewHighlighter.IPH_MIN_DELAY_BETWEEN_TWO_HIGHLIGHTS);
+            }
+        });
+        activity.getAppMenuHandler().setMenuHighlight(R.id.offline_page_id);
+        int yInsetPx = mToolbar.getContext().getResources().getDimensionPixelOffset(
+                R.dimen.text_bubble_menu_anchor_y_inset);
+        mTextBubble.setInsetPx(0, FeatureUtilities.isChromeHomeEnabled() ? yInsetPx : 0, 0,
+                FeatureUtilities.isChromeHomeEnabled() ? 0 : yInsetPx);
+        mTextBubble.show();
     }
 
     /**
@@ -956,6 +975,13 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             homePageUrl = UrlConstants.NTP_URL;
         }
         currentTab.loadUrl(new LoadUrlParams(homePageUrl, PageTransition.HOME_PAGE));
+    }
+
+    @Override
+    public void openMemexUI() {
+        Tab currentTab = mToolbarModel.getTab();
+        if (currentTab == null) return;
+        currentTab.loadUrl(new LoadUrlParams(CHROME_MEMEX_URL, PageTransition.AUTO_BOOKMARK));
     }
 
     /**

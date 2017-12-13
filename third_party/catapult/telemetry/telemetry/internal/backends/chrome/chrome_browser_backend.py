@@ -3,7 +3,9 @@
 # found in the LICENSE file.
 
 import logging
+import os
 import pprint
+import re
 import shlex
 import sys
 
@@ -72,6 +74,20 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
         'ts_proxy_server')
     args = []
     args.extend(self.browser_options.extra_browser_args)
+
+    # TODO(crbug.com/760319): This is a hack to temporarily disable modal
+    # permission prompts on Android. Remove after implementing a longer term
+    # solution.
+    if self.browser_options.block_modal_permission_prompts:
+      for i, arg in enumerate(args):
+        if arg.startswith('--enable-features='):
+          args[i] = re.sub(r',\w+<PermissionPromptUIAndroidModal\b', '', arg)
+        elif arg.startswith('--force-fieldtrials='):
+          args[i] = re.sub(r'\bPermissionPromptUIAndroidModal/\w+/', '', arg)
+        elif arg.startswith('--disable-features='):
+          args[i] = ','.join([
+              args[i], 'ModalPermissionPrompts<PermissionPromptUIAndroidModal'])
+
     args.append('--enable-net-benchmarking')
     args.append('--metrics-recording-only')
     args.append('--no-default-browser-check')
@@ -120,6 +136,12 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
 
     return args
 
+  # TODO(crbug.com/753948): remove this property once webview supports
+  # --ignore-certificate-errors-spki-list.
+  @property
+  def is_webview(self):
+    return False
+
   def GetReplayBrowserStartupArgs(self):
     replay_args = []
     network_backend = self.platform_backend.network_controller_backend
@@ -127,9 +149,22 @@ class ChromeBrowserBackend(browser_backend.BrowserBackend):
       return []
     proxy_port = network_backend.forwarder.port_pair.remote_port
     replay_args.append('--proxy-server=socks://localhost:%s' % proxy_port)
-    if not network_backend.is_test_ca_installed:
-      # Ignore certificate errors if the platform backend has not created
-      # and installed a root certificate.
+    if not self.is_webview:
+      # Ignore certificate errors for certs that are signed with Wpr's root.
+      # For more details on this flag, see crbug.com/753948.
+      wpr_public_hash_file = os.path.join(util.GetCatapultDir(),
+                                          'web_page_replay_go',
+                                          'wpr_public_hash.txt')
+      if not os.path.exists(wpr_public_hash_file):
+        raise exceptions.PathMissingError('Unable to find %s' %
+                                          wpr_public_hash_file)
+      with open(wpr_public_hash_file) as f:
+        wpr_public_hash = f.readline().strip()
+        replay_args.append('--ignore-certificate-errors-spki-list=' +
+                           wpr_public_hash)
+    elif self.is_webview:
+      # --ignore-certificate-errors-spki-list doesn't work with webview yet
+      # (crbug.com/753948)
       replay_args.append('--ignore-certificate-errors')
     return replay_args
 

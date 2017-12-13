@@ -11,6 +11,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/vr/color_scheme.h"
+#include "chrome/browser/vr/elements/ui_element.h"
+#include "chrome/browser/vr/elements/ui_element_iterator.h"
 #include "chrome/browser/vr/elements/ui_element_name.h"
 #include "third_party/skia/include/core/SkColor.h"
 
@@ -32,15 +34,6 @@ class UiElement;
 
 class UiScene {
  public:
-  enum Command {
-    ADD_ELEMENT,
-    UPDATE_ELEMENT,
-    REMOVE_ELEMENT,
-    ADD_ANIMATION,
-    REMOVE_ANIMATION,
-    CONFIGURE_SCENE,
-  };
-
   UiScene();
   virtual ~UiScene();
 
@@ -60,18 +53,17 @@ class UiScene {
   void OnBeginFrame(const base::TimeTicks& current_time,
                     const gfx::Vector3dF& look_at);
 
-  // This function gets called just before rendering the elements in the
-  // frame lifecycle. After this function, no element should be dirtied.
-  void PrepareToDraw();
-
   UiElement& root_element();
 
   UiElement* GetUiElementById(int element_id) const;
   UiElement* GetUiElementByName(UiElementName name) const;
 
-  std::vector<const UiElement*> GetWorldElements() const;
-  std::vector<const UiElement*> GetOverlayElements() const;
-  std::vector<const UiElement*> GetViewportAwareElements() const;
+  typedef std::vector<const UiElement*> Elements;
+
+  Elements GetVisible2dBrowsingElements() const;
+  Elements GetVisible2dBrowsingOverlayElements() const;
+  Elements GetVisibleSplashScreenElements() const;
+  Elements GetVisibleWebVrOverlayForegroundElements() const;
 
   float background_distance() const { return background_distance_; }
   void set_background_distance(float d) { background_distance_ = d; }

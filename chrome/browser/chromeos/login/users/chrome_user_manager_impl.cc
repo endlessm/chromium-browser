@@ -11,6 +11,8 @@
 #include <utility>
 
 #include "ash/multi_profile_uma.h"
+#include "ash/public/interfaces/constants.mojom.h"
+#include "ash/public/interfaces/session_controller.mojom.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
@@ -48,7 +50,6 @@
 #include "chrome/browser/chromeos/login/users/supervised_user_manager_impl.h"
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/profiles/multiprofiles_session_aborted_dialog.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/session_length_limiter.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
@@ -60,6 +61,7 @@
 #include "chrome/browser/signin/easy_unlock_service.h"
 #include "chrome/browser/supervised_user/chromeos/manager_password_service_factory.h"
 #include "chrome/browser/supervised_user/chromeos/supervised_user_password_service_factory.h"
+#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/crash_keys.h"
@@ -84,6 +86,8 @@
 #include "components/user_manager/user_type.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/common/service_manager_connection.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/resources/grit/ui_chromeos_resources.h"
@@ -181,7 +185,6 @@ void ChromeUserManagerImpl::RegisterPrefs(PrefRegistrySimple* registry) {
 
   SupervisedUserManager::RegisterPrefs(registry);
   SessionLengthLimiter::RegisterPrefs(registry);
-  BootstrapManager::RegisterPrefs(registry);
   enterprise_user_session_metrics::RegisterPrefs(registry);
 }
 
@@ -198,7 +201,6 @@ ChromeUserManagerImpl::ChromeUserManagerImpl()
       cros_settings_(CrosSettings::Get()),
       device_local_account_policy_service_(NULL),
       supervised_user_manager_(new SupervisedUserManagerImpl(this)),
-      bootstrap_manager_(new BootstrapManager(this)),
       weak_factory_(this) {
   UpdateNumberOfUsers();
 
@@ -207,14 +209,11 @@ ChromeUserManagerImpl::ChromeUserManagerImpl()
   if (base::ThreadTaskRunnerHandle::IsSet())
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  registrar_.Add(this,
-                 chrome::NOTIFICATION_OWNERSHIP_STATUS_CHANGED,
+  registrar_.Add(this, chrome::NOTIFICATION_OWNERSHIP_STATUS_CHANGED,
                  content::NotificationService::AllSources());
-  registrar_.Add(this,
-                 chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED,
+  registrar_.Add(this, chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED,
                  content::NotificationService::AllSources());
-  registrar_.Add(this,
-                 chrome::NOTIFICATION_PROFILE_CREATED,
+  registrar_.Add(this, chrome::NOTIFICATION_PROFILE_CREATED,
                  content::NotificationService::AllSources());
 
   // Since we're in ctor postpone any actions till this is fully created.
@@ -224,6 +223,20 @@ ChromeUserManagerImpl::ChromeUserManagerImpl()
         base::BindOnce(&ChromeUserManagerImpl::RetrieveTrustedDevicePolicies,
                        weak_factory_.GetWeakPtr()));
   }
+
+  allow_guest_subscription_ = cros_settings_->AddSettingsObserver(
+      kAccountsPrefAllowGuest,
+      base::Bind(&UserManager::NotifyUsersSignInConstraintsChanged,
+                 weak_factory_.GetWeakPtr()));
+  allow_supervised_user_subscription_ = cros_settings_->AddSettingsObserver(
+      kAccountsPrefSupervisedUsersEnabled,
+      base::Bind(&UserManager::NotifyUsersSignInConstraintsChanged,
+                 weak_factory_.GetWeakPtr()));
+  // user whitelist
+  users_subscription_ = cros_settings_->AddSettingsObserver(
+      kAccountsPrefUsers,
+      base::Bind(&UserManager::NotifyUsersSignInConstraintsChanged,
+                 weak_factory_.GetWeakPtr()));
 
   local_accounts_subscription_ = cros_settings_->AddSettingsObserver(
       kAccountsPrefDeviceLocalAccounts,
@@ -256,8 +269,7 @@ ChromeUserManagerImpl::ChromeUserManagerImpl()
     enterprise_user_session_metrics::RecordStoredSessionLength();
 }
 
-ChromeUserManagerImpl::~ChromeUserManagerImpl() {
-}
+ChromeUserManagerImpl::~ChromeUserManagerImpl() {}
 
 void ChromeUserManagerImpl::Shutdown() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -284,18 +296,13 @@ void ChromeUserManagerImpl::Shutdown() {
 
   for (UserImageManagerMap::iterator it = user_image_managers_.begin(),
                                      ie = user_image_managers_.end();
-       it != ie;
-       ++it) {
+       it != ie; ++it) {
     it->second->Shutdown();
   }
   multi_profile_user_controller_.reset();
   avatar_policy_observer_.reset();
   wallpaper_policy_observer_.reset();
   registrar_.RemoveAll();
-}
-
-BootstrapManager* ChromeUserManagerImpl::GetBootstrapManager() {
-  return bootstrap_manager_.get();
 }
 
 MultiProfileUserController*
@@ -335,8 +342,7 @@ user_manager::UserList ChromeUserManagerImpl::GetUsersAllowedForMultiProfile()
   user_manager::UserList result;
   const user_manager::UserList& users = GetUsers();
   for (user_manager::UserList::const_iterator it = users.begin();
-       it != users.end();
-       ++it) {
+       it != users.end(); ++it) {
     if ((*it)->GetType() == user_manager::USER_TYPE_REGULAR &&
         !(*it)->is_logged_in()) {
       MultiProfileUserController::UserAllowedInSessionReason check;
@@ -492,9 +498,11 @@ void ChromeUserManagerImpl::Observe(
           ManagerPasswordServiceFactory::GetForProfile(profile);
 
         if (!profile->IsOffTheRecord()) {
-          AuthSyncObserver* sync_observer =
-              AuthSyncObserverFactory::GetInstance()->GetForProfile(profile);
-          sync_observer->StartObserving();
+          if (AuthSyncObserver::ShouldObserve(profile)) {
+            AuthSyncObserver* sync_observer =
+                AuthSyncObserverFactory::GetInstance()->GetForProfile(profile);
+            sync_observer->StartObserving();
+          }
           multi_profile_user_controller_->StartObserving(profile);
         }
       }
@@ -666,15 +674,11 @@ void ChromeUserManagerImpl::PerformPreUserListLoadingActions() {
   // This process also should not trigger EnsureUsersLoaded again.
   if (supervised_user_manager_->HasFailedUserCreationTransaction())
     supervised_user_manager_->RollbackUserCreationTransaction();
-
-  // Abandon all unfinished bootstraps.
-  bootstrap_manager_->RemoveAllPendingBootstrap();
 }
 
 void ChromeUserManagerImpl::PerformPostUserListLoadingActions() {
   for (user_manager::UserList::iterator ui = users_.begin(), ue = users_.end();
-       ui != ue;
-       ++ui) {
+       ui != ue; ++ui) {
     GetUserImageManager((*ui)->GetAccountId())->LoadUserImage();
   }
 }
@@ -761,7 +765,7 @@ void ChromeUserManagerImpl::GuestUserLoggedIn() {
   // http://crosbug.com/230859
   active_user_->SetStubImage(
       base::MakeUnique<user_manager::UserImage>(
-          *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
+          *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
               IDR_LOGIN_DEFAULT_USER)),
       user_manager::User::USER_IMAGE_INVALID, false);
 
@@ -841,11 +845,6 @@ void ChromeUserManagerImpl::SupervisedUserLoggedIn(
   GetLocalState()->CommitPendingWrite();
 }
 
-bool ChromeUserManagerImpl::HasPendingBootstrap(
-    const AccountId& account_id) const {
-  return bootstrap_manager_->HasPendingBootstrap(account_id);
-}
-
 void ChromeUserManagerImpl::PublicAccountUserLoggedIn(
     user_manager::User* user) {
   SetIsCurrentUserNew(true);
@@ -873,7 +872,7 @@ void ChromeUserManagerImpl::KioskAppLoggedIn(user_manager::User* user) {
   active_user_ = user;
   active_user_->SetStubImage(
       base::MakeUnique<user_manager::UserImage>(
-          *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
+          *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
               IDR_LOGIN_DEFAULT_USER)),
       user_manager::User::USER_IMAGE_INVALID, false);
 
@@ -888,8 +887,7 @@ void ChromeUserManagerImpl::KioskAppLoggedIn(user_manager::User* user) {
   const policy::DeviceLocalAccount* account = NULL;
   for (std::vector<policy::DeviceLocalAccount>::const_iterator it =
            device_local_accounts.begin();
-       it != device_local_accounts.end();
-       ++it) {
+       it != device_local_accounts.end(); ++it) {
     if (it->user_id == kiosk_app_account_id.GetUserEmail()) {
       account = &*it;
       break;
@@ -927,7 +925,7 @@ void ChromeUserManagerImpl::ArcKioskAppLoggedIn(user_manager::User* user) {
   active_user_ = user;
   active_user_->SetStubImage(
       base::MakeUnique<user_manager::UserImage>(
-          *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
+          *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
               IDR_LOGIN_DEFAULT_USER)),
       user_manager::User::USER_IMAGE_INVALID, false);
 
@@ -946,7 +944,7 @@ void ChromeUserManagerImpl::DemoAccountLoggedIn() {
       user_manager::User::CreateKioskAppUser(user_manager::DemoAccountId());
   active_user_->SetStubImage(
       base::MakeUnique<user_manager::UserImage>(
-          *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
+          *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
               IDR_LOGIN_DEFAULT_USER)),
       user_manager::User::USER_IMAGE_INVALID, false);
   WallpaperManager::Get()->SetUserWallpaperNow(user_manager::DemoAccountId());
@@ -1015,8 +1013,7 @@ void ChromeUserManagerImpl::CleanUpDeviceLocalAccountNonCryptohomeData(
     const std::vector<std::string>& old_device_local_accounts) {
   std::set<std::string> users;
   for (user_manager::UserList::const_iterator it = users_.begin();
-       it != users_.end();
-       ++it)
+       it != users_.end(); ++it)
     users.insert((*it)->GetAccountId().GetUserEmail());
 
   // If the user is logged into a device local account that has been removed
@@ -1176,6 +1173,37 @@ bool ChromeUserManagerImpl::AreSupervisedUsersAllowed() const {
   return supervised_users_allowed;
 }
 
+bool ChromeUserManagerImpl::IsGuestSessionAllowed() const {
+  bool is_guest_allowed = false;
+  cros_settings_->GetBoolean(kAccountsPrefAllowGuest, &is_guest_allowed);
+  return is_guest_allowed;
+}
+
+bool ChromeUserManagerImpl::IsGaiaUserAllowed(
+    const user_manager::User& user) const {
+  DCHECK(user.HasGaiaAccount());
+  return CrosSettings::IsWhitelisted(user.GetAccountId().GetUserEmail(),
+                                     nullptr);
+}
+
+bool ChromeUserManagerImpl::IsUserAllowed(
+    const user_manager::User& user) const {
+  DCHECK(user.GetType() == user_manager::USER_TYPE_REGULAR ||
+         user.GetType() == user_manager::USER_TYPE_GUEST ||
+         user.GetType() == user_manager::USER_TYPE_SUPERVISED ||
+         user.GetType() == user_manager::USER_TYPE_CHILD);
+
+  if (user.GetType() == user_manager::USER_TYPE_GUEST &&
+      !IsGuestSessionAllowed())
+    return false;
+  if (user.GetType() == user_manager::USER_TYPE_SUPERVISED &&
+      !AreSupervisedUsersAllowed())
+    return false;
+  if (user.HasGaiaAccount() && !IsGaiaUserAllowed(user))
+    return false;
+  return true;
+}
+
 UserFlow* ChromeUserManagerImpl::GetDefaultUserFlow() const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!default_flow_.get())
@@ -1209,13 +1237,13 @@ void ChromeUserManagerImpl::NotifyUserAddedToSession(
 void ChromeUserManagerImpl::OnUserNotAllowed(const std::string& user_email) {
   LOG(ERROR) << "Shutdown session because a user is not allowed to be in the "
                 "current session";
-  chromeos::ShowMultiprofilesSessionAbortedDialog(user_email);
-}
-
-void ChromeUserManagerImpl::RemovePendingBootstrapUser(
-    const AccountId& account_id) {
-  DCHECK(HasPendingBootstrap(account_id));
-  RemoveNonOwnerUserInternal(account_id, nullptr);
+  ash::mojom::SessionControllerPtr session_controller;
+  content::ServiceManagerConnection::GetForProcess()
+      ->GetConnector()
+      ->BindInterface(ash::mojom::kServiceName, &session_controller);
+  session_controller->ShowMultiprofilesSessionAbortedDialog(user_email);
+  chrome::RecordDialogCreation(
+      chrome::DialogIdentifier::MULTIPROFILES_SESSION_ABORTED);
 }
 
 void ChromeUserManagerImpl::UpdateNumberOfUsers() {
@@ -1362,7 +1390,7 @@ bool ChromeUserManagerImpl::HasBrowserRestarted() const {
 
 const gfx::ImageSkia& ChromeUserManagerImpl::GetResourceImagekiaNamed(
     int id) const {
-  return *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(id);
+  return *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(id);
 }
 
 base::string16 ChromeUserManagerImpl::GetResourceStringUTF16(

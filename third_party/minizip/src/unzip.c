@@ -1,16 +1,17 @@
 /* unzip.c -- IO for uncompress .zip files using zlib
-   Version 1.1, February 14h, 2010
+   Version 1.2.0, September 16th, 2017
    part of the MiniZip project
 
+   Copyright (C) 2010-2017 Nathan Moinvaziri
+     Modifications for AES, PKWARE disk spanning
+     https://github.com/nmoinvaz/minizip
+   Copyright (C) 2009-2010 Mathias Svensson
+     Modifications for Zip64 support on both zip and unzip
+     http://result42.com
+   Copyright (C) 2007-2008 Even Rouault
+     Modifications of Unzip for Zip64
    Copyright (C) 1998-2010 Gilles Vollant
      http://www.winimage.com/zLibDll/minizip.html
-   Modifications of Unzip for Zip64
-     Copyright (C) 2007-2008 Even Rouault
-   Modifications for Zip64 support on both zip and unzip
-     Copyright (C) 2009-2010 Mathias Svensson
-     http://result42.com
-   Modifications for AES, PKWARE disk spanning
-     Copyright (C) 2010-2014 Nathan Moinvaziri
 
    This program is distributed under the terms of the same license as zlib.
    See the accompanying LICENSE file for the full text of the license.
@@ -73,10 +74,9 @@
 #  define TRYFREE(p) {if (p) free(p);}
 #endif
 
-const char unz_copyright[] =
-   " unzip 1.01 Copyright 1998-2004 Gilles Vollant - http://www.winimage.com/zLibDll";
+const char unz_copyright[] = " unzip 1.2.0 Copyright 1998-2017 - https://github.com/nmoinvaz/minizip";
 
-/* unz_file_info_interntal contain internal info about a file in zipfile*/
+/* unz_file_info_internal contain internal info about a file in zipfile*/
 typedef struct unz_file_info64_internal_s
 {
     uint64_t offset_curfile;            /* relative offset of local header 8 bytes */
@@ -353,9 +353,6 @@ static unzFile unzOpenInternal(const void *path, zlib_filefunc64_32_def *pzlib_f
     uint64_t value64 = 0;
     voidpf filestream = NULL;
     int err = UNZ_OK;
-
-    if (unz_copyright[0] != ' ')
-        return NULL;
 
     us.filestream = NULL;
     us.filestream_with_CD = NULL;
@@ -947,7 +944,7 @@ static int unzCheckCurrentFileCoherencyHeader(unz64_s *s, uint32_t *psize_variab
     uint32_t magic = 0;
     uint16_t value16 = 0;
     uint32_t value32 = 0;
-    uint32_t flags = 0;;
+    uint32_t flags = 0;
     uint16_t size_filename = 0;
     uint16_t size_extra_field = 0;
     uint16_t compression_method = 0;
@@ -1089,7 +1086,10 @@ extern int ZEXPORT unzOpenCurrentFile3(unzFile file, int *method, int *level, in
     {
         compression_method = s->cur_file_info_internal.aes_compression_method;
         if (password == NULL)
+        {
+            TRYFREE(pfile_in_zip_read_info);
             return UNZ_PARAMERROR;
+        }
     }
 #endif
 
@@ -1322,7 +1322,7 @@ extern int ZEXPORT unzReadCurrentFile(unzFile file, voidp buf, uint32_t len)
             s->pfile_in_zip_read->stream.avail_out = (uint16_t)s->pfile_in_zip_read->rest_read_uncompressed;
     }
 
-    while (s->pfile_in_zip_read->stream.avail_out > 0)
+    do
     {
         if (s->pfile_in_zip_read->stream.avail_in == 0)
         {
@@ -1330,7 +1330,6 @@ extern int ZEXPORT unzReadCurrentFile(unzFile file, voidp buf, uint32_t len)
             uint32_t bytes_not_read = 0;
             uint32_t bytes_read = 0;
             uint32_t total_bytes_read = 0;
-            uint32_t i = 0;
 
             if (s->pfile_in_zip_read->stream.next_in != NULL)
                 bytes_not_read = (uint32_t)(s->pfile_in_zip_read->read_buffer + UNZ_BUFSIZE -
@@ -1381,6 +1380,8 @@ extern int ZEXPORT unzReadCurrentFile(unzFile file, voidp buf, uint32_t len)
 #endif
                 if (s->pcrc_32_tab != NULL)
                 {
+                    uint32_t i = 0;
+
                     for (i = 0; i < total_bytes_read; i++)
                       s->pfile_in_zip_read->read_buffer[i] =
                           zdecode(s->keys, s->pcrc_32_tab, s->pfile_in_zip_read->read_buffer[i]);
@@ -1522,7 +1523,6 @@ extern int ZEXPORT unzReadCurrentFile(unzFile file, voidp buf, uint32_t len)
 #else
         else
         {
-
             uint64_t total_out_before = 0;
             uint64_t total_out_after = 0;
             uint64_t out_bytes = 0;
@@ -1560,6 +1560,7 @@ extern int ZEXPORT unzReadCurrentFile(unzFile file, voidp buf, uint32_t len)
         }
 #endif
     }
+    while (s->pfile_in_zip_read->stream.avail_out > 0);
 
     if (err == Z_OK)
         return read;

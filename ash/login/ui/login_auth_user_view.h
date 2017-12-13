@@ -11,6 +11,7 @@
 #include "ash/ash_export.h"
 #include "ash/login/ui/login_password_view.h"
 #include "ash/login/ui/login_user_view.h"
+#include "ash/login/ui/non_accessible_view.h"
 #include "ash/public/interfaces/user_info.mojom.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/view.h"
@@ -22,7 +23,7 @@ class LoginPinView;
 
 // Wraps a UserView which also has authentication available. Adds additional
 // views below the UserView instance which show authentication UIs.
-class ASH_EXPORT LoginAuthUserView : public views::View {
+class ASH_EXPORT LoginAuthUserView : public NonAccessibleView {
  public:
   // TestApi is used for tests to get internal implementation details.
   class ASH_EXPORT TestApi {
@@ -50,7 +51,7 @@ class ASH_EXPORT LoginAuthUserView : public views::View {
 
   // |on_auth| is executed whenever an authentication result is available;
   // cannot be null.
-  LoginAuthUserView(const mojom::UserInfoPtr& user,
+  LoginAuthUserView(const mojom::LoginUserInfoPtr& user,
                     const OnAuthCallback& on_auth,
                     const LoginUserView::OnTap& on_tap);
   ~LoginAuthUserView() override;
@@ -68,12 +69,13 @@ class ASH_EXPORT LoginAuthUserView : public views::View {
   void ApplyAnimationPostLayout();
 
   // Update the displayed name, icon, etc to that of |user|.
-  void UpdateForUser(const mojom::UserInfoPtr& user);
+  void UpdateForUser(const mojom::LoginUserInfoPtr& user);
 
-  const mojom::UserInfoPtr& current_user() const;
+  const mojom::LoginUserInfoPtr& current_user() const;
+
+  LoginPasswordView* password_view() { return password_view_; }
 
   // views::View:
-  const char* GetClassName() const override;
   gfx::Size CalculatePreferredSize() const override;
   void RequestFocus() override;
 
@@ -81,7 +83,7 @@ class ASH_EXPORT LoginAuthUserView : public views::View {
   struct AnimationState;
 
   // Called when the user submits an auth method. Runs mojo call.
-  void OnAuthSubmit(bool is_pin, const base::string16& password);
+  void OnAuthSubmit(const base::string16& password);
 
   AuthMethods auth_methods_ = AUTH_NONE;
   views::View* non_pin_root_ = nullptr;

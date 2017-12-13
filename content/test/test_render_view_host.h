@@ -98,7 +98,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
       viz::mojom::CompositorFrameSinkClient* renderer_compositor_frame_sink)
       override;
   void SubmitCompositorFrame(const viz::LocalSurfaceId& local_surface_id,
-                             cc::CompositorFrame frame) override;
+                             viz::CompositorFrame frame) override;
   void ClearCompositorFrame() override {}
   void SetNeedsBeginFrames(bool needs_begin_frames) override {}
 
@@ -239,6 +239,7 @@ class TestRenderViewHost
 
   bool CreateRenderView(int opener_frame_route_id,
                         int proxy_route_id,
+                        const base::UnguessableToken& devtools_frame_token,
                         const FrameReplicationState& replicated_frame_state,
                         bool window_was_created_with_opener) override;
   void OnWebkitPreferencesChanged() override;

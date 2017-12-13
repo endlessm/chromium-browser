@@ -5,13 +5,13 @@
 #import "ios/chrome/browser/ui/activity_services/activity_service_legacy_coordinator.h"
 
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/passwords/password_tab_helper.h"
 #import "ios/chrome/browser/tabs/tab.h"
 #import "ios/chrome/browser/tabs/tab_model.h"
 #import "ios/chrome/browser/ui/activity_services/activity_service_controller.h"
 #import "ios/chrome/browser/ui/activity_services/requirements/activity_service_password.h"
 #import "ios/chrome/browser/ui/activity_services/requirements/activity_service_positioner.h"
 #import "ios/chrome/browser/ui/activity_services/requirements/activity_service_presentation.h"
-#import "ios/chrome/browser/ui/activity_services/requirements/activity_service_snackbar.h"
 #import "ios/chrome/browser/ui/activity_services/share_protocol.h"
 #import "ios/chrome/browser/ui/activity_services/share_to_data.h"
 #import "ios/chrome/browser/ui/activity_services/share_to_data_builder.h"
@@ -33,7 +33,6 @@
 
 @synthesize positionProvider = _positionProvider;
 @synthesize presentationProvider = _presentationProvider;
-@synthesize snackbarProvider = _snackbarProvider;
 
 #pragma mark - Public methods
 
@@ -76,17 +75,20 @@
 
   [controller shareWithData:data
                browserState:self.browserState
-                 dispatcher:static_cast<id<BrowserCommands>>(self.dispatcher)
+                 dispatcher:static_cast<id<BrowserCommands, SnackbarCommands>>(
+                                self.dispatcher)
            passwordProvider:self
            positionProvider:self.positionProvider
-       presentationProvider:self.presentationProvider
-           snackbarProvider:self.snackbarProvider];
+       presentationProvider:self.presentationProvider];
 }
 
 #pragma mark - Providers
 
-- (PasswordController*)currentPasswordController {
-  return [self.tabModel.currentTab passwordController];
+- (id<PasswordFormFiller>)currentPasswordFormFiller {
+  web::WebState* webState = self.tabModel.currentTab.webState;
+  return webState ? PasswordTabHelper::FromWebState(webState)
+                        ->GetPasswordFormFiller()
+                  : nil;
 }
 
 @end

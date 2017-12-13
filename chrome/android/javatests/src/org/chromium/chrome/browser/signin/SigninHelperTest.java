@@ -39,8 +39,9 @@ public class SigninHelperTest {
                 InstrumentationRegistry.getInstrumentation().getTargetContext());
         mEventChecker = new MockChangeEventChecker();
 
-        mAccountManager = new FakeAccountManagerDelegate(mContext);
-        AccountManagerFacade.overrideAccountManagerFacadeForTests(mContext, mAccountManager);
+        mAccountManager = new FakeAccountManagerDelegate(
+                FakeAccountManagerDelegate.DISABLE_PROFILE_DATA_SOURCE);
+        AccountManagerFacade.overrideAccountManagerFacadeForTests(mAccountManager);
     }
 
     @After
@@ -148,7 +149,7 @@ public class SigninHelperTest {
         mEventChecker.insertRenameEvent("D", "A"); // Looped.
         Account account = AccountManagerFacade.createAccountFromName("D");
         AccountHolder accountHolder = AccountHolder.builder(account).build();
-        mAccountManager.addAccountHolderExplicitly(accountHolder);
+        mAccountManager.addAccountHolderBlocking(accountHolder);
         SigninHelper.updateAccountRenameData(mContext, mEventChecker);
         Assert.assertEquals("D", getNewSignedInAccountName());
     }

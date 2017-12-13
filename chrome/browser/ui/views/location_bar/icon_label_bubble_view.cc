@@ -81,11 +81,16 @@ void IconLabelBubbleView::SeparatorView::UpdateOpacity() {
     SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
 
-  ui::ScopedLayerAnimationSettings animation(layer()->GetAnimator());
-  animation.SetTransitionDuration(base::TimeDelta::FromMilliseconds(duration));
-  animation.SetTweenType(gfx::Tween::Type::EASE_IN);
-  animation.AddObserver(this);
-  layer()->SetOpacity(opacity);
+  if (disable_animation_for_test_) {
+    layer()->SetOpacity(opacity);
+  } else {
+    ui::ScopedLayerAnimationSettings animation(layer()->GetAnimator());
+    animation.SetTransitionDuration(
+        base::TimeDelta::FromMilliseconds(duration));
+    animation.SetTweenType(gfx::Tween::Type::EASE_IN);
+    animation.AddObserver(this);
+    layer()->SetOpacity(opacity);
+  }
 }
 
 //////////////////////////////////////////////////////////////////
@@ -137,6 +142,9 @@ IconLabelBubbleView::~IconLabelBubbleView() {
 void IconLabelBubbleView::InkDropAnimationStarted() {
   separator_view_->UpdateOpacity();
 }
+
+void IconLabelBubbleView::InkDropRippleAnimationEnded(
+    views::InkDropState state) {}
 
 void IconLabelBubbleView::SetLabel(const base::string16& label) {
   label_->SetText(label);
@@ -246,6 +254,7 @@ void IconLabelBubbleView::AddInkDropLayer(ui::Layer* ink_drop_layer) {
 
 void IconLabelBubbleView::RemoveInkDropLayer(ui::Layer* ink_drop_layer) {
   ink_drop_container_->RemoveInkDropLayer(ink_drop_layer);
+  separator_view_->UpdateOpacity();
 }
 
 std::unique_ptr<views::InkDrop> IconLabelBubbleView::CreateInkDrop() {

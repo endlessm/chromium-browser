@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -49,21 +50,15 @@ KERNEL_B_PARTITION = 4
 KILL_PROC_MAX_WAIT = 10
 POST_KILL_WAIT = 2
 
-MOUNT_RW_COMMAND = 'mount -o remount,rw /'
-LSOF_COMMAND = 'lsof %s/chrome'
+# Complicated commands that unittests want to mock out.
+# All others should be inlined.
+MOUNT_RW_COMMAND = ['mount', '-o', 'remount,rw', '/']
 
 _ANDROID_DIR = '/system/chrome'
 _ANDROID_DIR_EXTRACT_PATH = 'system/chrome/*'
 
 _CHROME_DIR = '/opt/google/chrome'
 _CHROME_DIR_MOUNT = '/mnt/stateful_partition/deploy_rootfs/opt/google/chrome'
-
-_UMOUNT_DIR_IF_MOUNTPOINT_CMD = (
-    'if mountpoint -q %(dir)s; then umount %(dir)s; fi')
-_BIND_TO_FINAL_DIR_CMD = 'mount --rbind %s %s'
-_SET_MOUNT_FLAGS_CMD = 'mount -o remount,exec,suid %s'
-
-DF_COMMAND = 'df -k %s'
 
 
 def _UrlBaseName(url):
@@ -103,7 +98,7 @@ class DeployChrome(object):
     self.chrome_dir = _CHROME_DIR
 
   def _GetRemoteMountFree(self, remote_dir):
-    result = self.device.RunCommand(DF_COMMAND % remote_dir)
+    result = self.device.RunCommand(['df', '-k', remote_dir])
     line = result.output.splitlines()[1]
     value = line.split()[3]
     multipliers = {
@@ -114,7 +109,7 @@ class DeployChrome(object):
     return int(value.rstrip('GMK')) * multipliers.get(value[-1], 1)
 
   def _GetRemoteDirSize(self, remote_dir):
-    result = self.device.RunCommand('du -ks %s' % remote_dir,
+    result = self.device.RunCommand(['du', '-ks', remote_dir],
                                     capture_output=True)
     return int(result.output.split()[0])
 
@@ -125,8 +120,9 @@ class DeployChrome(object):
     return int(result.output.split()[0])
 
   def _ChromeFileInUse(self):
-    result = self.device.RunCommand(LSOF_COMMAND % (self.options.target_dir,),
-                                    error_code_ok=True, capture_output=True)
+    result = self.device.RunCommand(
+        ['lsof', os.path.join(self.options.target_dir, 'chrome')],
+        error_code_ok=True, capture_output=True)
     return result.returncode == 0
 
   def _Reboot(self):
@@ -146,17 +142,17 @@ class DeployChrome(object):
         # Since we stopped Chrome earlier, it's good form to start it up again.
         if self.options.startui:
           logging.info('Starting Chrome...')
-          self.device.RunCommand('start ui')
+          self.device.RunCommand(['start', 'ui'])
         raise DeployFailure('Need rootfs verification to be disabled. '
                             'Aborting.')
 
     logging.info('Removing rootfs verification from %s', self.options.to)
     # Running in VM's cause make_dev_ssd's firmware sanity checks to fail.
     # Use --force to bypass the checks.
-    cmd = ('/usr/share/vboot/bin/make_dev_ssd.sh --partitions %d '
-           '--remove_rootfs_verification --force')
+    cmd = ['/usr/share/vboot/bin/make_dev_ssd.sh', '--force',
+           '--remove_rootfs_verification', '--partitions']
     for partition in (KERNEL_A_PARTITION, KERNEL_B_PARTITION):
-      self.device.RunCommand(cmd % partition, error_code_ok=True)
+      self.device.RunCommand(cmd + [str(partition)], error_code_ok=True)
 
     self._Reboot()
 
@@ -171,7 +167,7 @@ class DeployChrome(object):
     # <job_name> <status> ['process' <pid>].
     # <status> is in the format <goal>/<state>.
     try:
-      result = self.device.RunCommand('status ui', capture_output=True)
+      result = self.device.RunCommand(['status', 'ui'], capture_output=True)
     except cros_build_lib.RunCommandError as e:
       if 'Unknown job' in e.result.error:
         return False
@@ -183,7 +179,7 @@ class DeployChrome(object):
   def _KillProcsIfNeeded(self):
     if self._CheckUiJobStarted():
       logging.info('Shutting down Chrome...')
-      self.device.RunCommand('stop ui')
+      self.device.RunCommand(['stop', 'ui'])
 
     # Developers sometimes run session_manager manually, in which case we'll
     # need to help shut the chrome processes down.
@@ -193,7 +189,7 @@ class DeployChrome(object):
           logging.warning('The chrome binary on the device is in use.')
           logging.warning('Killing chrome and session_manager processes...\n')
 
-          self.device.RunCommand("pkill 'chrome|session_manager'",
+          self.device.RunCommand(['pkill', 'chrome|session_manager'],
                                  error_code_ok=True)
           # Wait for processes to actually terminate
           time.sleep(POST_KILL_WAIT)
@@ -255,8 +251,6 @@ class DeployChrome(object):
       return not self.device.HasGigabitEthernet()
 
   def _Deploy(self):
-    old_dbus_checksums = self._GetDBusChecksums()
-
     logging.info('Copying Chrome to %s on device...', self.options.target_dir)
     # CopyToDevice will fall back to scp if rsync is corrupted on stateful.
     # This does not work for deploy.
@@ -274,28 +268,26 @@ class DeployChrome(object):
     for p in self.copy_paths:
       if p.mode:
         # Set mode if necessary.
-        self.device.RunCommand('chmod %o %s/%s' % (
-            p.mode, self.options.target_dir, p.src if not p.dest else p.dest))
+        self.device.RunCommand(
+            ['chmod', '%o' % p.mode,
+             '%s/%s' % (self.options.target_dir,
+                        p.src if not p.dest else p.dest)])
 
-    new_dbus_checksums = self._GetDBusChecksums()
-    if old_dbus_checksums != new_dbus_checksums:
-      if self.options.target_dir == _CHROME_DIR:
-        logging.info('Detected change to D-Bus service files, rebooting.')
-        self._Reboot()
-        return
-      else:
-        logging.warn('Detected change in D-Bus service files, but target dir '
-                     'is not %s. D-Bus changes will not be picked up by '
-                     'dbus-daemon at boot time.', _CHROME_DIR)
+    # Send SIGHUP to dbus-daemon to tell it to reload its configs. This won't
+    # pick up major changes (bus type, logging, etc.), but all we care about is
+    # getting the latest policy from /opt/google/chrome/dbus so that Chrome will
+    # be authorized to take ownership of its service names.
+    self.device.RunCommand(['killall', '-HUP', 'dbus-daemon'],
+                           error_code_ok=True)
 
     if self.options.startui:
       logging.info('Starting UI...')
-      self.device.RunCommand('start ui')
+      self.device.RunCommand(['start', 'ui'])
 
   def _CheckConnection(self):
     try:
       logging.info('Testing connection to the device...')
-      self.device.RunCommand('true')
+      self.device.RunCommand(['true'])
     except cros_build_lib.RunCommandError as ex:
       logging.error('Error connecting to the test device.')
       raise DeployFailure(ex)
@@ -323,25 +315,16 @@ class DeployChrome(object):
     logging.info('Mounting Chrome...')
 
     # Create directory if does not exist
-    self.device.RunCommand('mkdir -p --mode 0775 %s' % (
-        self.options.mount_dir,))
+    self.device.RunCommand(['mkdir', '-p', '--mode', '0775',
+                            self.options.mount_dir])
     # Umount the existing mount on mount_dir if present first
-    self.device.RunCommand(_UMOUNT_DIR_IF_MOUNTPOINT_CMD %
-                           {'dir': self.options.mount_dir})
-    self.device.RunCommand(_BIND_TO_FINAL_DIR_CMD % (self.options.target_dir,
-                                                     self.options.mount_dir))
+    cmd = 'if mountpoint -q %(dir)s; then umount %(dir)s; fi'
+    self.device.RunCommand(cmd % {'dir': self.options.mount_dir}, shell=True)
+    self.device.RunCommand(['mount', '--rbind', self.options.target_dir,
+                            self.options.mount_dir])
     # Chrome needs partition to have exec and suid flags set
-    self.device.RunCommand(_SET_MOUNT_FLAGS_CMD % (self.options.mount_dir,))
-
-  def _GetDBusChecksums(self):
-    """Returns Checksums for D-Bus files deployed with Chrome.
-
-    This is used to determine if a reboot is required after deploying Chrome.
-    """
-    path = os.path.join(_CHROME_DIR, 'dbus/*')
-    result = self.device.RunCommand('md5sum ' + path,
-                                    error_code_ok=True)
-    return result.output
+    self.device.RunCommand(['mount', '-o', 'remount,exec,suid',
+                            self.options.mount_dir])
 
   def Cleanup(self):
     """Clean up RemoteDevice."""

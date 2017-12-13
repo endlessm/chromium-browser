@@ -7,7 +7,12 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_utils_ios.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#import "ios/third_party/material_components_ios/src/components/Palettes/src/MaterialPalettes.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace {
 // Preferred image size in points.
@@ -17,14 +22,28 @@ const CGFloat kBookmarkTableCellDefaultImageSize = 16.0;
 const CGFloat kBookmarkTableCellImagePadding = 16.0;
 }  // namespace
 
-@interface BookmarkTableCell ()
+@interface BookmarkTableCell ()<UITextFieldDelegate>
 
 // The label, that displays placeholder text when favicon is missing.
 @property(nonatomic, strong) UILabel* placeholderLabel;
+
+// The title text.
+@property(nonatomic, strong) UITextField* titleText;
+
+// Separator view. Displayed at 1 pixel height at the bottom.
+@property(nonatomic, strong) UIView* separatorView;
+
+// Lists the accessibility elements that are to be seen by UIAccessibility.
+@property(nonatomic, readonly) NSMutableArray* accessibilityElements;
+
 @end
 
 @implementation BookmarkTableCell
 @synthesize placeholderLabel = _placeholderLabel;
+@synthesize titleText = _titleText;
+@synthesize textDelegate = _textDelegate;
+@synthesize separatorView = _separatorView;
+@synthesize accessibilityElements = _accessibilityElements;
 
 #pragma mark - Initializer
 
@@ -32,15 +51,43 @@ const CGFloat kBookmarkTableCellImagePadding = 16.0;
   self = [super initWithStyle:UITableViewCellStyleDefault
               reuseIdentifier:bookmarkCellIdentifier];
   if (self) {
-    self.textLabel.font = [MDCTypography subheadFont];
+    _titleText = [[UITextField alloc] initWithFrame:CGRectZero];
+    _titleText.textColor = [[MDCPalette greyPalette] tint900];
+    _titleText.font = [MDCTypography subheadFont];
+    _titleText.userInteractionEnabled = NO;
+    [self.contentView addSubview:_titleText];
 
     self.imageView.clipsToBounds = YES;
     [self.imageView setHidden:NO];
 
     _placeholderLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     _placeholderLabel.textAlignment = NSTextAlignmentCenter;
+    _placeholderLabel.font = [MDCTypography captionFont];
+
     [_placeholderLabel setHidden:YES];
     [self.contentView addSubview:_placeholderLabel];
+
+    // Add separator view.
+    _separatorView = [[UIView alloc] initWithFrame:CGRectZero];
+    [self.contentView addSubview:_separatorView];
+
+    CGFloat pixelSize = 1 / [[UIScreen mainScreen] scale];
+    [NSLayoutConstraint activateConstraints:@[
+      [_separatorView.leadingAnchor
+          constraintEqualToAnchor:_titleText.leadingAnchor],
+      [_separatorView.trailingAnchor
+          constraintEqualToAnchor:self.trailingAnchor],
+      [_separatorView.heightAnchor constraintEqualToConstant:pixelSize],
+      [_separatorView.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+    ]];
+    _separatorView.translatesAutoresizingMaskIntoConstraints = NO;
+    _separatorView.backgroundColor = [UIColor colorWithWhite:0.0 alpha:.12];
+
+    // Setup accessibility elements.
+    _accessibilityElements = [[NSMutableArray alloc] init];
+    self.contentView.isAccessibilityElement = YES;
+    self.contentView.accessibilityTraits |= UIAccessibilityTraitButton;
+    [_accessibilityElements addObject:self.contentView];
   }
   return self;
 }
@@ -48,15 +95,50 @@ const CGFloat kBookmarkTableCellImagePadding = 16.0;
 #pragma mark - Public
 
 - (void)setNode:(const bookmarks::BookmarkNode*)node {
-  self.textLabel.text = bookmark_utils_ios::TitleForBookmarkNode(node);
-  self.textLabel.accessibilityIdentifier = self.textLabel.text;
+  self.titleText.text = bookmark_utils_ios::TitleForBookmarkNode(node);
+  [self updateAccessibilityValues];
 
-  self.imageView.image = [UIImage imageNamed:@"bookmark_gray_folder"];
+  self.imageView.image = [UIImage imageNamed:@"bookmark_gray_folder_new"];
   if (node->is_folder()) {
     [self setAccessoryType:UITableViewCellAccessoryDisclosureIndicator];
   } else {
     [self setAccessoryType:UITableViewCellAccessoryNone];
   }
+}
+
+- (void)startEdit {
+  // TODO(crbug.com/695749): Prevent the keyboard from overlapping the editing
+  // cell.
+  // The folder name will be submitted only when the return key is pressed.
+  // It will revert to 'New Folder' when the following happen:
+  // 1. Click on 'Done' or 'Back' of the navigation bar.
+  // 2. Click on 'New Folder' or 'Select' of the context bar.
+  // 3. Click on other folder or bookmark.
+  self.titleText.userInteractionEnabled = YES;
+  self.titleText.enablesReturnKeyAutomatically = YES;
+  self.titleText.keyboardType = UIKeyboardTypeDefault;
+  self.titleText.returnKeyType = UIReturnKeyDone;
+  self.titleText.accessibilityIdentifier = @"bookmark_editing_text";
+  self.accessoryType = UITableViewCellAccessoryNone;
+  [self.titleText becomeFirstResponder];
+  // selectAll doesn't work immediately after calling becomeFirstResponder.
+  // Do selectAll on the next run loop.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if ([self.titleText isFirstResponder]) {
+      [self.titleText selectAll:nil];
+    }
+  });
+  if (![self.accessibilityElements containsObject:self.titleText]) {
+    [self.accessibilityElements addObject:self.titleText];
+  }
+  self.titleText.delegate = self;
+}
+
+- (void)stopEdit {
+  [self.textDelegate textDidChangeTo:self.titleText.text];
+  self.titleText.userInteractionEnabled = NO;
+  [self.titleText endEditing:YES];
+  [self.accessibilityElements removeObject:self.titleText];
 }
 
 + (NSString*)reuseIdentifier {
@@ -94,18 +176,17 @@ const CGFloat kBookmarkTableCellImagePadding = 16.0;
   self.imageView.image = nil;
   self.placeholderLabel.hidden = YES;
   self.imageView.hidden = NO;
-  self.textLabel.text = nil;
-  self.textLabel.accessibilityIdentifier = nil;
+  self.titleText.text = nil;
+  self.titleText.accessibilityIdentifier = nil;
+  self.titleText.userInteractionEnabled = NO;
+  self.textDelegate = nil;
   [super prepareForReuse];
 }
 
 - (void)layoutSubviews {
   [super layoutSubviews];
-  CGFloat textLabelStart =
+  CGFloat titleTextStart =
       kBookmarkTableCellDefaultImageSize + kBookmarkTableCellImagePadding * 2;
-  // TODO(crbug.com/695749): Investigate why this separator inset is not
-  // set correctly in landscape mode.
-  [self setSeparatorInset:UIEdgeInsetsMake(0, textLabelStart, 0, 0)];
 
   // TODO(crbug.com/695749): Investigate using constraints instead of manual
   // layout.
@@ -121,10 +202,49 @@ const CGFloat kBookmarkTableCellImagePadding = 16.0;
   self.placeholderLabel.center =
       CGPointMake(self.placeholderLabel.center.x, self.contentView.center.y);
 
-  CGRect textLabelFrame = self.textLabel.frame;
-  self.textLabel.frame =
-      CGRectMake(textLabelStart, textLabelFrame.origin.y,
-                 textLabelFrame.size.width, textLabelFrame.size.height);
+  self.titleText.frame = CGRectMake(
+      titleTextStart, 0,
+      self.contentView.frame.size.width - titleTextStart -
+          self.accessoryView.bounds.size.width - kBookmarkTableCellImagePadding,
+      self.contentView.frame.size.height);
+}
+
+- (void)setSelected:(BOOL)selected animated:(BOOL)animated {
+  [super setSelected:selected animated:animated];
+  if (selected) {
+    self.contentView.accessibilityTraits |= UIAccessibilityTraitSelected;
+  } else {
+    self.contentView.accessibilityTraits &= ~UIAccessibilityTraitSelected;
+  }
+}
+
+#pragma mark - Accessibility
+
+- (void)updateAccessibilityValues {
+  self.contentView.accessibilityLabel = self.titleText.text;
+  self.contentView.accessibilityIdentifier = self.titleText.text;
+}
+
+- (NSInteger)accessibilityElementCount {
+  return [self.accessibilityElements count];
+}
+
+- (id)accessibilityElementAtIndex:(NSInteger)index {
+  return [self.accessibilityElements objectAtIndex:index];
+}
+
+- (NSInteger)indexOfAccessibilityElement:(id)element {
+  return [self.accessibilityElements indexOfObject:element];
+}
+
+#pragma mark - UITextFieldDelegate
+
+// This method hides the keyboard when the return key is pressed.
+- (BOOL)textFieldShouldReturn:(UITextField*)textField {
+  [self.textDelegate textDidChangeTo:self.titleText.text];
+  self.titleText.userInteractionEnabled = NO;
+  [textField endEditing:YES];
+  return YES;
 }
 
 @end

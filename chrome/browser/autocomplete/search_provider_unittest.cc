@@ -172,7 +172,7 @@ class SearchProviderTest : public testing::Test,
   std::unique_ptr<base::FieldTrialList> field_trial_list_;
 
   // Default values used for testing.
-  static const std::string kNotApplicable;
+  static const char kNotApplicable[];
   static const ExpectedMatch kEmptyExpectedMatch;
 
   // Adds a search for |term|, using the engine |t_url| to the history, and
@@ -259,7 +259,7 @@ class SearchProviderTest : public testing::Test,
 };
 
 // static
-const std::string SearchProviderTest::kNotApplicable = "Not Applicable";
+const char SearchProviderTest::kNotApplicable[] = "Not Applicable";
 const SearchProviderTest::ExpectedMatch
     SearchProviderTest::kEmptyExpectedMatch = { kNotApplicable, false };
 
@@ -284,8 +284,6 @@ void SearchProviderTest::SetUp() {
   data.SetShortName(ASCIIToUTF16("t"));
   data.SetURL("http://defaultturl/{searchTerms}");
   data.suggestions_url = "http://defaultturl2/{searchTerms}";
-  data.instant_url = "http://does/not/exist?strk=1";
-  data.search_terms_replacement_key = "strk";
   default_t_url_ = turl_model->Add(base::MakeUnique<TemplateURL>(data));
   turl_model->SetUserSelectedDefaultSearchProvider(default_t_url_);
   TemplateURLID default_provider_id = default_t_url_->id();
@@ -329,11 +327,9 @@ void SearchProviderTest::RunTest(TestData* cases,
                                  bool prefer_keyword) {
   ACMatches matches;
   for (int i = 0; i < num_cases; ++i) {
-    AutocompleteInput input(cases[i].input, base::string16::npos, std::string(),
-                            GURL(), base::string16(),
-                            metrics::OmniboxEventProto::INVALID_SPEC, false,
-                            prefer_keyword, true, true, false,
+    AutocompleteInput input(cases[i].input, metrics::OmniboxEventProto::OTHER,
                             ChromeAutocompleteSchemeClassifier(&profile_));
+    input.set_prefer_keyword(prefer_keyword);
     provider_->Start(input, false);
     matches = provider_->matches();
     SCOPED_TRACE(
@@ -375,11 +371,10 @@ void SearchProviderTest::QueryForInput(const base::string16& text,
                                        bool prevent_inline_autocomplete,
                                        bool prefer_keyword) {
   // Start a query.
-  AutocompleteInput input(
-      text, base::string16::npos, std::string(), GURL(), base::string16(),
-      metrics::OmniboxEventProto::INVALID_SPEC, prevent_inline_autocomplete,
-      prefer_keyword, true, true, false,
-      ChromeAutocompleteSchemeClassifier(&profile_));
+  AutocompleteInput input(text, metrics::OmniboxEventProto::OTHER,
+                          ChromeAutocompleteSchemeClassifier(&profile_));
+  input.set_prevent_inline_autocomplete(prevent_inline_autocomplete);
+  input.set_prefer_keyword(prefer_keyword);
   provider_->Start(input, false);
 
   // RunUntilIdle so that the task scheduled by SearchProvider to create the
@@ -1007,10 +1002,10 @@ TEST_F(SearchProviderTest, KeywordOrderingAndDescriptions) {
   AutocompleteController controller(
       base::WrapUnique(new ChromeAutocompleteProviderClient(&profile_)),
       nullptr, AutocompleteProvider::TYPE_SEARCH);
-  controller.Start(AutocompleteInput(
-      ASCIIToUTF16("k t"), base::string16::npos, std::string(), GURL(),
-      base::string16(), metrics::OmniboxEventProto::INVALID_SPEC, false, false,
-      true, true, false, ChromeAutocompleteSchemeClassifier(&profile_)));
+  AutocompleteInput input(ASCIIToUTF16("k t"),
+                          metrics::OmniboxEventProto::OTHER,
+                          ChromeAutocompleteSchemeClassifier(&profile_));
+  controller.Start(input);
   const AutocompleteResult& result = controller.result();
 
   // There should be three matches, one for the keyword history, one for
@@ -3224,8 +3219,6 @@ TEST_F(SearchProviderTest, CanSendURL) {
   template_url_data.SetShortName(ASCIIToUTF16("t"));
   template_url_data.SetURL("http://www.google.com/{searchTerms}");
   template_url_data.suggestions_url = "http://www.google.com/{searchTerms}";
-  template_url_data.instant_url = "http://does/not/exist?strk=1";
-  template_url_data.search_terms_replacement_key = "strk";
   template_url_data.id = SEARCH_ENGINE_GOOGLE;
   TemplateURL google_template_url(template_url_data);
 
@@ -3613,19 +3606,21 @@ TEST_F(SearchProviderTest, RemoveExtraAnswers) {
 }
 
 TEST_F(SearchProviderTest, DoesNotProvideOnFocus) {
-  AutocompleteInput input(
-      base::ASCIIToUTF16("f"), base::string16::npos, std::string(), GURL(),
-      base::string16(), metrics::OmniboxEventProto::INVALID_SPEC, false, true,
-      true, true, true, ChromeAutocompleteSchemeClassifier(&profile_));
+  AutocompleteInput input(base::ASCIIToUTF16("f"),
+                          metrics::OmniboxEventProto::OTHER,
+                          ChromeAutocompleteSchemeClassifier(&profile_));
+  input.set_prefer_keyword(true);
+  input.set_from_omnibox_focus(true);
   provider_->Start(input, false);
   EXPECT_TRUE(provider_->matches().empty());
 }
 
 TEST_F(SearchProviderTest, SendsWarmUpRequestOnFocus) {
-  AutocompleteInput input(
-      base::ASCIIToUTF16("f"), base::string16::npos, std::string(), GURL(),
-      base::string16(), metrics::OmniboxEventProto::INVALID_SPEC, false, true,
-      true, true, true, ChromeAutocompleteSchemeClassifier(&profile_));
+  AutocompleteInput input(base::ASCIIToUTF16("f"),
+                          metrics::OmniboxEventProto::OTHER,
+                          ChromeAutocompleteSchemeClassifier(&profile_));
+  input.set_prefer_keyword(true);
+  input.set_from_omnibox_focus(true);
 
   {
     // First, verify that without the warm-up feature enabled, the provider

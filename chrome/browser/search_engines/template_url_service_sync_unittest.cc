@@ -81,7 +81,6 @@ syncer::SyncData CreateCustomSyncData(const TemplateURL& turl,
   se_specifics->set_prepopulate_id(prepopulate_id == -1 ? turl.prepopulate_id()
                                                         : prepopulate_id);
   se_specifics->set_autogenerate_keyword(autogenerate_keyword);
-  se_specifics->set_instant_url(turl.instant_url());
   se_specifics->set_last_modified(turl.last_modified().ToInternalValue());
   se_specifics->set_sync_guid(sync_guid);
   return syncer::SyncData::CreateLocalData(turl.sync_guid(),  // Must be valid!
@@ -100,7 +99,7 @@ class TestChangeProcessor : public syncer::SyncChangeProcessor {
 
   // Store a copy of all the changes passed in so we can examine them later.
   syncer::SyncError ProcessSyncChanges(
-      const tracked_objects::Location& from_here,
+      const base::Location& from_here,
       const syncer::SyncChangeList& change_list) override;
 
   syncer::SyncDataList GetAllSyncData(syncer::ModelType type) const override {
@@ -135,7 +134,7 @@ TestChangeProcessor::~TestChangeProcessor() {
 }
 
 syncer::SyncError TestChangeProcessor::ProcessSyncChanges(
-    const tracked_objects::Location& from_here,
+    const base::Location& from_here,
     const syncer::SyncChangeList& change_list) {
   if (erroneous_)
     return syncer::SyncError(
@@ -1697,7 +1696,6 @@ TEST_F(TemplateURLServiceSyncTest, SyncWithManagedDefaultSearch) {
   managed.favicon_url = GURL("http://manageddefault.com/icon.jpg");
   managed.input_encodings = {"UTF-16", "UTF-32"};
   managed.alternate_urls = {"http://manageddefault.com/search#t={searchTerms}"};
-  managed.search_terms_replacement_key = "espv";
 
   SetManagedDefaultSearchPreferences(managed, true, test_util_a_->profile());
   const TemplateURL* dsp_turl = model()->GetDefaultSearchProvider();
@@ -2457,6 +2455,25 @@ TEST_F(TemplateURLServiceSyncTest, MergeNonEditedPrepopulatedEngine) {
   EXPECT_EQ(default_turl->keyword(), result_turl->keyword());
   EXPECT_EQ(default_turl->short_name(), result_turl->short_name());
   EXPECT_EQ(default_turl->url(), result_turl->url());
+}
+
+TEST_F(TemplateURLServiceSyncTest, MergePrepopulatedEngineIgnoresId0) {
+  // The newly registered keyword will have prepulate_id 0 since that is the
+  // default value.
+  model()->RegisterOmniboxKeyword("extension1", "unittest", "keyword1",
+                                  "http://extension1", Time());
+
+  // Try to merge in a turl with preopulate_id also set to 0. This should work.
+  syncer::SyncDataList initial_data;
+  std::unique_ptr<TemplateURL> turl(CreateTestTemplateURL(
+      ASCIIToUTF16("what"), "http://thewhat.com/{searchTerms}", "normal_guid",
+      10, true, false, 0));
+  initial_data.push_back(
+      TemplateURLService::CreateSyncDataFromTemplateURL(*turl));
+
+  syncer::SyncMergeResult merge_result = model()->MergeDataAndStartSyncing(
+      syncer::SEARCH_ENGINES, initial_data, PassProcessor(),
+      CreateAndPassSyncErrorFactory());
 }
 
 TEST_F(TemplateURLServiceSyncTest, GUIDUpdatedOnDefaultSearchChange) {

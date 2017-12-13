@@ -65,6 +65,10 @@ content::PermissionManager* FakeProfile::GetPermissionManager() {
   return nullptr;
 }
 
+content::BackgroundFetchDelegate* FakeProfile::GetBackgroundFetchDelegate() {
+  return nullptr;
+}
+
 content::BackgroundSyncController* FakeProfile::GetBackgroundSyncController() {
   return nullptr;
 }
@@ -183,11 +187,6 @@ PrefProxyConfigTracker* FakeProfile::GetProxyConfigTracker() {
 }
 
 chrome_browser_net::Predictor* FakeProfile::GetNetworkPredictor() {
-  return nullptr;
-}
-
-DevToolsNetworkControllerHandle*
-FakeProfile::GetDevToolsNetworkControllerHandle() {
   return nullptr;
 }
 

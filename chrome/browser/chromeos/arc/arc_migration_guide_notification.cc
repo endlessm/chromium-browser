@@ -4,9 +4,11 @@
 
 #include "chrome/browser/chromeos/arc/arc_migration_guide_notification.h"
 
+#include <memory>
+
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/system/power/power_status.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/app/vector_icons/vector_icons.h"
@@ -15,8 +17,8 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/arc/arc_prefs.h"
 #include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/known_user.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -26,6 +28,7 @@
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/notification.h"
 #include "ui/message_center/notification_delegate.h"
+#include "ui/message_center/public/cpp/message_center_switches.h"
 
 namespace arc {
 
@@ -54,7 +57,7 @@ class ArcMigrationGuideNotificationDelegate
 void DoShowArcMigrationSuccessNotification(
     const message_center::NotifierId& notifier_id) {
   message_center::MessageCenter::Get()->AddNotification(
-      base::MakeUnique<message_center::Notification>(
+      std::make_unique<message_center::Notification>(
           message_center::NOTIFICATION_TYPE_SIMPLE, kSuccessNotificationId,
           base::string16(),  // title
           l10n_util::GetStringUTF16(IDS_ARC_MIGRATE_ENCRYPTION_SUCCESS_MESSAGE),
@@ -91,19 +94,32 @@ void ShowArcMigrationGuideNotification(Profile* profile) {
           : l10n_util::GetStringUTF16(
                 IDS_ARC_MIGRATE_ENCRYPTION_NOTIFICATION_MESSAGE);
 
-  message_center::RichNotificationData data;
-  data.buttons.push_back(message_center::ButtonInfo(l10n_util::GetStringUTF16(
-      IDS_ARC_MIGRATE_ENCRYPTION_NOTIFICATION_RESTART_BUTTON)));
-  message_center::MessageCenter::Get()->AddNotification(
-      base::MakeUnique<message_center::Notification>(
-          message_center::NOTIFICATION_TYPE_SIMPLE, kSuggestNotificationId,
-          l10n_util::GetStringUTF16(
-              IDS_ARC_MIGRATE_ENCRYPTION_NOTIFICATION_TITLE),
-          message,
-          gfx::Image(gfx::CreateVectorIcon(
-              kArcMigrateEncryptionNotificationIcon, gfx::kPlaceholderColor)),
-          base::string16(), GURL(), notifier_id, data,
-          new ArcMigrationGuideNotificationDelegate()));
+  if (message_center::IsNewStyleNotificationEnabled()) {
+    message_center::MessageCenter::Get()->AddNotification(
+        message_center::Notification::CreateSystemNotification(
+            message_center::NOTIFICATION_TYPE_SIMPLE, kSuggestNotificationId,
+            l10n_util::GetStringUTF16(
+                IDS_ARC_MIGRATE_ENCRYPTION_NOTIFICATION_TITLE),
+            message, gfx::Image(), base::string16(), GURL(), notifier_id,
+            message_center::RichNotificationData(),
+            new ArcMigrationGuideNotificationDelegate(),
+            ash::kNotificationSettingsIcon,
+            message_center::SystemNotificationWarningLevel::NORMAL));
+  } else {
+    message_center::RichNotificationData data;
+    data.buttons.push_back(message_center::ButtonInfo(l10n_util::GetStringUTF16(
+        IDS_ARC_MIGRATE_ENCRYPTION_NOTIFICATION_RESTART_BUTTON)));
+    message_center::MessageCenter::Get()->AddNotification(
+        std::make_unique<message_center::Notification>(
+            message_center::NOTIFICATION_TYPE_SIMPLE, kSuggestNotificationId,
+            l10n_util::GetStringUTF16(
+                IDS_ARC_MIGRATE_ENCRYPTION_NOTIFICATION_TITLE),
+            message,
+            gfx::Image(gfx::CreateVectorIcon(
+                kArcMigrateEncryptionNotificationIcon, gfx::kPlaceholderColor)),
+            base::string16(), GURL(), notifier_id, data,
+            new ArcMigrationGuideNotificationDelegate()));
+  }
 }
 
 void ShowArcMigrationSuccessNotificationIfNeeded(Profile* profile) {

@@ -5,6 +5,7 @@
 #include "net/ssl/client_cert_store_win.h"
 
 #include <algorithm>
+#include <memory>
 #include <string>
 
 #define SECURITY_WIN32  // Needs to be defined before including security.h
@@ -15,7 +16,6 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -187,16 +187,13 @@ ClientCertIdentityList GetClientCertsImpl(HCERTSTORE cert_store,
       intermediates.pop_back();
     }
 
-    // TODO(mattm): The following comment is only true when not using
-    // USE_BYTE_CERTS. Remove it once the non-byte-certs code is also removed.
-    // TODO(svaldez): cert currently wraps cert_context2 which may be backed
-    // by a smartcard with threading difficulties. Instead, create a fresh
-    // X509Certificate with CreateFromBytes and route cert_context2 into the
-    // SSLPrivateKey. Probably changing CertificateList to be a
-    // pair<X509Certificate, SSLPrivateKeyCallback>.
+    // Allow UTF-8 inside PrintableStrings in client certificates. See
+    // crbug.com/770323.
+    X509Certificate::UnsafeCreateOptions options;
+    options.printable_string_is_utf8 = true;
     scoped_refptr<X509Certificate> cert =
-        x509_util::CreateX509CertificateFromCertContexts(cert_context2,
-                                                         intermediates);
+        x509_util::CreateX509CertificateFromCertContexts(
+            cert_context2, intermediates, options);
     if (cert) {
       selected_identities.push_back(std::make_unique<ClientCertIdentityWin>(
           std::move(cert),
@@ -237,7 +234,6 @@ void ClientCertStoreWin::GetClientCerts(
     return;
   }
 
-#if BUILDFLAG(USE_BYTE_CERTS)
   if (base::PostTaskAndReplyWithResult(
           GetSSLPlatformKeyTaskRunner().get(), FROM_HERE,
           // Caller is responsible for keeping the |request| alive
@@ -250,11 +246,6 @@ void ClientCertStoreWin::GetClientCerts(
 
   // If the task could not be posted, behave as if there were no certificates.
   callback.Run(ClientCertIdentityList());
-#else
-  // When using PCERT_CONTEXT based X509Certificate, must do this on the same
-  // thread.
-  callback.Run(GetClientCertsWithMyCertStore(request));
-#endif
 }
 
 // static

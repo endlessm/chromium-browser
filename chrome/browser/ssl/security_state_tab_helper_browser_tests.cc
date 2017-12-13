@@ -10,11 +10,12 @@
 #include "base/run_loop.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/histogram_tester.h"
 #include "base/test/scoped_command_line.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile_window.h"
-#include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
 #include "chrome/browser/ssl/cert_verifier_browser_test.h"
 #include "chrome/browser/ssl/ssl_blocking_page.h"
 #include "chrome/browser/ui/browser.h"
@@ -28,7 +29,6 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/features.h"
-#include "components/safe_browsing/password_protection/password_protection_service.h"
 #include "components/security_state/content/ssl_status_input_event_data.h"
 #include "components/security_state/core/security_state.h"
 #include "components/security_state/core/switches.h"
@@ -43,6 +43,7 @@
 #include "content/public/browser/security_style_explanations.h"
 #include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/page_type.h"
 #include "content/public/common/referrer.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/base/net_errors.h"
@@ -330,6 +331,8 @@ class SecurityStateTabHelperTest : public CertVerifierBrowserTest {
     ASSERT_TRUE(embedded_test_server()->Start());
     ASSERT_TRUE(https_server_.Start());
     host_resolver()->AddRule("*", "127.0.0.1");
+    // Allow tests to trigger error pages.
+    host_resolver()->AddSimulatedFailure("nonexistent.test");
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -472,6 +475,36 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest, HttpsPage) {
       false /* expect cert status error */);
 }
 
+// Tests that interstitial.ssl.visited_site_after_warning is being logged to
+// correctly.
+IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest, UMALogsVisitsAfterWarning) {
+  const char kHistogramName[] = "interstitial.ssl.visited_site_after_warning";
+  base::HistogramTester histograms;
+  SetUpMockCertVerifierForHttpsServer(net::CERT_STATUS_DATE_INVALID,
+                                      net::ERR_CERT_DATE_INVALID);
+  ui_test_utils::NavigateToURL(browser(),
+                               https_server_.GetURL("/ssl/google.html"));
+  // Histogram shouldn't log before clicking through interstitial.
+  histograms.ExpectTotalCount(kHistogramName, 0);
+  ProceedThroughInterstitial(
+      browser()->tab_strip_model()->GetActiveWebContents());
+  // Histogram should log after clicking through.
+  histograms.ExpectTotalCount(kHistogramName, 1);
+  histograms.ExpectBucketCount(kHistogramName, true, 1);
+}
+
+// Tests that interstitial.ssl.visited_site_after_warning is not being logged
+// to on errors that do not trigger a full site interstitial.
+IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest, UMADoesNotLogOnMinorError) {
+  const char kHistogramName[] = "interstitial.ssl.visited_site_after_warning";
+  base::HistogramTester histograms;
+  SetUpMockCertVerifierForHttpsServer(
+      net::CERT_STATUS_UNABLE_TO_CHECK_REVOCATION, net::OK);
+  ui_test_utils::NavigateToURL(browser(),
+                               https_server_.GetURL("/ssl/google.html"));
+  histograms.ExpectTotalCount(kHistogramName, 0);
+}
+
 // Test security state after clickthrough for a SHA-1 certificate that is
 // blocked by default.
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest, SHA1CertificateBlocked) {
@@ -492,10 +525,10 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest, SHA1CertificateBlocked) {
 
   const content::SecurityStyleExplanations& interstitial_explanation =
       observer.latest_explanations();
-  ASSERT_EQ(1u, interstitial_explanation.insecure_explanations.size());
-  ASSERT_EQ(1u, interstitial_explanation.neutral_explanations.size());
+  ASSERT_EQ(2u, interstitial_explanation.insecure_explanations.size());
+  ASSERT_EQ(0u, interstitial_explanation.neutral_explanations.size());
   EXPECT_EQ(l10n_util::GetStringUTF8(IDS_SHA1),
-            interstitial_explanation.neutral_explanations[0].summary);
+            interstitial_explanation.insecure_explanations[0].summary);
 
   ProceedThroughInterstitial(
       browser()->tab_strip_model()->GetActiveWebContents());
@@ -507,10 +540,10 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest, SHA1CertificateBlocked) {
 
   const content::SecurityStyleExplanations& page_explanation =
       observer.latest_explanations();
-  ASSERT_EQ(1u, page_explanation.insecure_explanations.size());
-  ASSERT_EQ(1u, page_explanation.neutral_explanations.size());
+  ASSERT_EQ(2u, page_explanation.insecure_explanations.size());
+  ASSERT_EQ(0u, page_explanation.neutral_explanations.size());
   EXPECT_EQ(l10n_util::GetStringUTF8(IDS_SHA1),
-            page_explanation.neutral_explanations[0].summary);
+            page_explanation.insecure_explanations[0].summary);
 }
 
 // Test security state for a SHA-1 certificate that is allowed by policy.
@@ -875,17 +908,25 @@ IN_PROC_BROWSER_TEST_F(
                                https_server_.GetURL("/ssl/google.html"));
   // Update security state of the current page to match
   // SB_THREAT_TYPE_PASSWORD_REUSE.
-  safe_browsing::PasswordProtectionService* service =
-      g_browser_process->safe_browsing_service()->GetPasswordProtectionService(
-          browser()->profile());
-  service->UpdateSecurityState(safe_browsing::SB_THREAT_TYPE_PASSWORD_REUSE,
-                               contents);
+  safe_browsing::ChromePasswordProtectionService* service =
+      safe_browsing::ChromePasswordProtectionService::
+          GetPasswordProtectionService(browser()->profile());
+  service->ShowModalWarning(contents, "unused-token");
   observer.WaitForDidChangeVisibleSecurityState();
 
   security_state::SecurityInfo security_info;
   helper->GetSecurityInfo(&security_info);
   EXPECT_EQ(security_state::DANGEROUS, security_info.security_level);
   EXPECT_EQ(security_state::MALICIOUS_CONTENT_STATUS_PASSWORD_REUSE,
+            security_info.malicious_content_status);
+
+  // Simulates a Gaia password change, then malicious content status will
+  // change to MALICIOUS_CONTENT_STATUS_SOCIAL_ENGINEERING.
+  service->OnGaiaPasswordChanged();
+  base::RunLoop().RunUntilIdle();
+  helper->GetSecurityInfo(&security_info);
+  EXPECT_EQ(security_state::DANGEROUS, security_info.security_level);
+  EXPECT_EQ(security_state::MALICIOUS_CONTENT_STATUS_SOCIAL_ENGINEERING,
             security_info.malicious_content_status);
 }
 
@@ -899,7 +940,9 @@ IN_PROC_BROWSER_TEST_F(
       browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(contents);
 
-  // safe_browsing::kGoogleBrandedPhishingWarning feature is disabled by default
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndDisableFeature(
+      safe_browsing::kGoogleBrandedPhishingWarning);
 
   SecurityStyleTestObserver observer(contents);
 
@@ -912,8 +955,8 @@ IN_PROC_BROWSER_TEST_F(
   // Update security state of the current page to match
   // SB_THREAT_TYPE_PASSWORD_REUSE.
   safe_browsing::PasswordProtectionService* service =
-      g_browser_process->safe_browsing_service()->GetPasswordProtectionService(
-          browser()->profile());
+      safe_browsing::ChromePasswordProtectionService::
+          GetPasswordProtectionService(browser()->profile());
   service->UpdateSecurityState(safe_browsing::SB_THREAT_TYPE_PASSWORD_REUSE,
                                contents);
   observer.WaitForDidChangeVisibleSecurityState();
@@ -923,6 +966,35 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_EQ(security_state::SECURE, security_info.security_level);
   EXPECT_EQ(security_state::MALICIOUS_CONTENT_STATUS_NONE,
             security_info.malicious_content_status);
+}
+
+// Tests that the security level of ftp: URLs is always downgraded to
+// HTTP_SHOW_WARNING.
+IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
+                       SecurityLevelDowngradedOnFtpUrl) {
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+
+  SecurityStyleTestObserver observer(contents);
+
+  SecurityStateTabHelper* helper =
+      SecurityStateTabHelper::FromWebContents(contents);
+  ASSERT_TRUE(helper);
+
+  ui_test_utils::NavigateToURL(browser(), GURL("ftp://example.test/"));
+  security_state::SecurityInfo security_info;
+  helper->GetSecurityInfo(&security_info);
+  EXPECT_EQ(security_state::HTTP_SHOW_WARNING, security_info.security_level);
+
+  // Ensure that WebContentsObservers don't show an incorrect Form Not Secure
+  // explanation. Regression test for https://crbug.com/691412.
+  EXPECT_EQ(0u, observer.latest_explanations().neutral_explanations.size());
+  EXPECT_EQ(blink::kWebSecurityStyleNeutral, observer.latest_security_style());
+
+  content::NavigationEntry* entry = contents->GetController().GetVisibleEntry();
+  ASSERT_TRUE(entry);
+  EXPECT_EQ(content::SSLStatus::NORMAL_CONTENT, entry->GetSSL().content_status);
 }
 
 const char kReportURI[] = "https://report-hpkp.test";
@@ -2061,9 +2133,18 @@ IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperTest,
 }
 
 // Tests that the security level of a HTTP page is NEUTRAL when MarkHttpAs is
-// not set.
+// not set to either kMarkHttpAsNonSecureWhileIncognito or
+// kMarkHttpAsNonSecureWhileIncognitoOrEditing.
 IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperIncognitoTest,
                        SecurityLevelNeutralByDefaultForHTTP) {
+  // We must explicitly specify a configuration using the command-line
+  // argument or this test can fail based on the values inside the
+  // fieldtrial_testing_config.json file.
+  base::test::ScopedCommandLine scoped_command_line;
+  scoped_command_line.GetProcessCommandLine()->AppendSwitchASCII(
+      security_state::switches::kMarkHttpAs,
+      security_state::switches::kMarkHttpAsNonSecureAfterEditing);
+
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(contents);
@@ -2369,6 +2450,40 @@ IN_PROC_BROWSER_TEST_F(
       obsolete_description,
       base::ASCIIToUTF16(
           observer.latest_explanations().info_explanations[0].description));
+}
+
+// Tests that the Not Secure chip does not show for error pages on http:// URLs.
+// Regression test for https://crbug.com/760647.
+IN_PROC_BROWSER_TEST_F(SecurityStateTabHelperIncognitoTest, HttpErrorPage) {
+  // Set the mode using the command line flag rather than the field trial to
+  // ensure that fieldtrial_testing_config.json does not interfere.
+  base::test::ScopedCommandLine scoped_command_line;
+  scoped_command_line.GetProcessCommandLine()->AppendSwitchASCII(
+      security_state::switches::kMarkHttpAs,
+      security_state::switches::kMarkHttpAsNonSecureWhileIncognito);
+
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  SecurityStateTabHelper* helper =
+      SecurityStateTabHelper::FromWebContents(contents);
+  ASSERT_TRUE(helper);
+
+  // Navigate to a URL that results in an error page. Even though the displayed
+  // URL is http://, there shouldn't be a Not Secure warning because the browser
+  // hasn't really navigated to an http:// page.
+  ui_test_utils::NavigateToURL(browser(), GURL("http://nonexistent.test:17"));
+  // Sanity-check that it is indeed an error page.
+  content::NavigationEntry* entry = browser()
+                                        ->tab_strip_model()
+                                        ->GetActiveWebContents()
+                                        ->GetController()
+                                        .GetVisibleEntry();
+  ASSERT_TRUE(entry);
+  ASSERT_EQ(content::PAGE_TYPE_ERROR, entry->GetPageType());
+
+  security_state::SecurityInfo security_info;
+  helper->GetSecurityInfo(&security_info);
+  EXPECT_EQ(security_state::NONE, security_info.security_level);
 }
 
 }  // namespace

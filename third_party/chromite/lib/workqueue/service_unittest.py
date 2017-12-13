@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2017 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -108,6 +109,9 @@ class _TestTaskManager(tasks.TaskManager):
     self._start_tick_allowed = True
     self._sleep_allowed = True
     self._current_tick = 0
+
+  def __len__(self):
+    return len(self.running_tasks)
 
   def SetSequence(self, sequence_data):
     """Initialize a sequence of events for `ProcessRequests()`."""

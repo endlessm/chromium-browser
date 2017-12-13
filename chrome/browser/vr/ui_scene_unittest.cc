@@ -4,8 +4,6 @@
 
 #include "chrome/browser/vr/ui_scene.h"
 
-#define _USE_MATH_DEFINES  // For M_PI in MSVC.
-#include <cmath>
 #include <utility>
 #include <vector>
 
@@ -13,6 +11,7 @@
 #include "base/test/gtest_util.h"
 #include "base/values.h"
 #include "chrome/browser/vr/elements/draw_phase.h"
+#include "chrome/browser/vr/elements/transient_element.h"
 #include "chrome/browser/vr/elements/ui_element.h"
 #include "chrome/browser/vr/elements/ui_element_transform_operations.h"
 #include "chrome/browser/vr/elements/viewport_aware_root.h"
@@ -38,32 +37,6 @@ size_t NumElementsInSubtree(UiElement* element) {
     count += NumElementsInSubtree(child.get());
   }
   return count;
-}
-
-void MakeViewportAwareElements(UiScene* scene,
-                               UiElement** child,
-                               UiElement** grandchild) {
-  auto element = base::MakeUnique<UiElement>();
-  UiElement* container = element.get();
-  element->set_draw_phase(0);
-  scene->AddUiElement(kRoot, std::move(element));
-
-  auto root = base::MakeUnique<ViewportAwareRoot>();
-  UiElement* viewport_aware_root = root.get();
-  root->set_draw_phase(0);
-  container->AddChild(std::move(root));
-
-  element = base::MakeUnique<UiElement>();
-  *child = element.get();
-  element->set_viewport_aware(true);
-  element->set_draw_phase(0);
-  viewport_aware_root->AddChild(std::move(element));
-
-  element = base::MakeUnique<UiElement>();
-  *grandchild = element.get();
-  element->set_viewport_aware(false);
-  element->set_draw_phase(0);
-  (*child)->AddChild(std::move(element));
 }
 
 }  // namespace
@@ -141,7 +114,7 @@ TEST(UiScene, ParentTransformAppliesToChild) {
   gfx::Point3F origin(0, 0, 0);
   gfx::Point3F point(1, 0, 0);
 
-  scene.OnBeginFrame(MicrosecondsToTicks(1), gfx::Vector3dF());
+  scene.OnBeginFrame(MicrosecondsToTicks(1), gfx::Vector3dF(0.f, 0.f, -1.0f));
   child->world_space_transform().TransformPoint(&origin);
   child->world_space_transform().TransformPoint(&point);
   EXPECT_VEC3F_NEAR(gfx::Point3F(6, 10, 0), origin);
@@ -163,31 +136,37 @@ TEST(UiScene, Opacity) {
   element->set_draw_phase(0);
   parent->AddChild(std::move(element));
 
-  scene.OnBeginFrame(MicrosecondsToTicks(0), gfx::Vector3dF());
+  scene.OnBeginFrame(MicrosecondsToTicks(0), gfx::Vector3dF(0.f, 0.f, -1.0f));
   EXPECT_EQ(0.5f, parent->computed_opacity());
   EXPECT_EQ(0.25f, child->computed_opacity());
 }
 
-TEST(UiScene, ViewportAware) {
-  UiScene scene;
-  UiElement* child = nullptr;
-  UiElement* grandchild = nullptr;
-  MakeViewportAwareElements(&scene, &child, &grandchild);
-
-  scene.OnBeginFrame(MicrosecondsToTicks(0), gfx::Vector3dF(0.f, 0.f, -1.0f));
-  EXPECT_TRUE(child->computed_viewport_aware());
-  EXPECT_TRUE(grandchild->computed_viewport_aware());
-}
-
 TEST(UiScene, NoViewportAwareElementWhenNoVisibleChild) {
   UiScene scene;
-  UiElement* child = nullptr;
-  UiElement* grandchild = nullptr;
-  MakeViewportAwareElements(&scene, &child, &grandchild);
+  auto element = base::MakeUnique<UiElement>();
+  UiElement* container = element.get();
+  element->set_name(kWebVrRoot);
+  element->set_draw_phase(kPhaseNone);
+  scene.AddUiElement(kRoot, std::move(element));
 
-  EXPECT_FALSE(scene.GetViewportAwareElements().empty());
+  auto root = base::MakeUnique<ViewportAwareRoot>();
+  UiElement* viewport_aware_root = root.get();
+  root->set_draw_phase(kPhaseNone);
+  container->AddChild(std::move(root));
+
+  element = base::MakeUnique<UiElement>();
+  UiElement* child = element.get();
+  element->set_draw_phase(kPhaseOverlayForeground);
+  viewport_aware_root->AddChild(std::move(element));
+
+  element = base::MakeUnique<UiElement>();
+  element->set_draw_phase(kPhaseOverlayForeground);
+  child->AddChild(std::move(element));
+
+  EXPECT_FALSE(scene.GetVisibleWebVrOverlayForegroundElements().empty());
   child->SetVisible(false);
-  EXPECT_TRUE(scene.GetViewportAwareElements().empty());
+  scene.root_element().UpdateComputedOpacityRecursive();
+  EXPECT_TRUE(scene.GetVisibleWebVrOverlayForegroundElements().empty());
 }
 
 typedef struct {
@@ -218,7 +197,7 @@ TEST_P(AnchoringTest, VerifyCorrectPosition) {
   element->set_draw_phase(0);
   parent->AddChild(std::move(element));
 
-  scene.OnBeginFrame(MicrosecondsToTicks(0), gfx::Vector3dF());
+  scene.OnBeginFrame(MicrosecondsToTicks(0), gfx::Vector3dF(0.f, 0.f, -1.0f));
   EXPECT_NEAR(GetParam().expected_x, child->GetCenter().x(), TOLERANCE);
   EXPECT_NEAR(GetParam().expected_y, child->GetCenter().y(), TOLERANCE);
 }

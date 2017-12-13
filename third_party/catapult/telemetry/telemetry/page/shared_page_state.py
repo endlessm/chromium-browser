@@ -51,7 +51,7 @@ class SharedPageState(story_module.SharedState):
             'This is a Timeline Based Measurement benchmark. You cannot run it '
             'with trace profiler enabled. If you need trace data, tracing is '
             'always enabled in Timeline Based Measurement benchmarks and you '
-            'can get the trace data by adding --output-format=json.')
+            'can get the trace data with the default --output-format=html.')
       # This is to avoid the cyclic-import caused by timeline_based_page_test.
       from telemetry.web_perf import timeline_based_page_test
       self._test = timeline_based_page_test.TimelineBasedPageTest(test)
@@ -87,17 +87,8 @@ class SharedPageState(story_module.SharedState):
       self.platform.network_controller.Close()
     self.platform.network_controller.InitializeIfNeeded(
         use_live_traffic=use_live_traffic)
-    use_wpr_go = False
-    if wpr_mode == wpr_modes.WPR_RECORD:
-      use_wpr_go = self._finder_options.use_wpr_go
-    elif self._finder_options.use_wpr_go:
-      raise ValueError('Cannot set --use-wpr-go for non recording mode')
-    elif wpr_mode == wpr_modes.WPR_REPLAY:
-      use_wpr_go = (story_set.wpr_archive_info and
-                    story_set.wpr_archive_info.is_using_wpr_go_archives)
     self.platform.network_controller.Open(wpr_mode,
-                                          browser_options.extra_wpr_args,
-                                          use_wpr_go=use_wpr_go)
+                                          browser_options.extra_wpr_args)
     self.platform.Initialize()
 
   @property
@@ -205,6 +196,8 @@ class SharedPageState(story_module.SharedState):
     self._test.WillStartBrowser(self.platform)
     if page.startup_url:
       self._finder_options.browser_options.startup_url = page.startup_url
+    self._finder_options.browser_options.AppendExtraBrowserArgs(
+        page.extra_browser_args)
     self._browser = self._possible_browser.Create(self._finder_options)
     self._test.DidStartBrowser(self.browser)
 

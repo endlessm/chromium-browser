@@ -10,6 +10,7 @@ import json
 import math
 import optparse
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -71,31 +72,16 @@ _NEGATIVE_FILTER = [
     'ChromeDriverTest.testAlertOnNewWindow',
     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1882
     'PerfTest.testColdExecuteScript',
+    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1819
+    'ChromeExtensionsCapabilityTest.testIFrameWithExtensionsSource',
 ]
 
 _VERSION_SPECIFIC_FILTER = {}
 _VERSION_SPECIFIC_FILTER['HEAD'] = [
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1819
-    'ChromeExtensionsCapabilityTest.testIFrameWithExtensionsSource',
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1918
-    'ChromeDriverTest.testWindowFullScreen',
-    'ChromeDriverTest.testWindowMaximize',
-    'ChromeDriverTest.testWindowPosition',
-    'ChromeDriverTest.testWindowSize',
-    'ChromeLoggingCapabilityTest.testPerformanceLogger',
-    'MobileEmulationCapabilityTest.testDeviceMetricsWithStandardWidth',
-]
-_VERSION_SPECIFIC_FILTER['61'] = [
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1819
-    'ChromeExtensionsCapabilityTest.testIFrameWithExtensionsSource',
-]
-_VERSION_SPECIFIC_FILTER['60'] = [
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1819
-    'ChromeExtensionsCapabilityTest.testIFrameWithExtensionsSource',
-]
-_VERSION_SPECIFIC_FILTER['59'] = [
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=717
-    'ChromeDriverTest.testCloseWindowUsingJavascript',
+    # https://bugs.chromium.org/p/chromium/issues/detail?id=764519
+    'MobileEmulationCapabilityTest.testDeviceName',
+    'MobileEmulationCapabilityTest.testNetworkConnectionTypeIsAppliedToAllTabs',
+    'MobileEmulationCapabilityTest.testNetworkConnectionTypeIsAppliedToAllTabsImmediately',
 ]
 
 _OS_SPECIFIC_FILTER = {}
@@ -116,6 +102,9 @@ _OS_SPECIFIC_FILTER['mac'] = [
     'MobileEmulationCapabilityTest.testTapElement',
     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1945
     'ChromeDriverTest.testWindowFullScreen',
+    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2025
+    'ChromeDriverPageLoadTimeoutTest.testHistoryNavigationWithPageLoadTimeout',
+    'ChromeDriverPageLoadTimeoutTest.testRefreshWithPageLoadTimeout',
 ]
 
 _DESKTOP_NEGATIVE_FILTER = [
@@ -2114,11 +2103,13 @@ class MobileEmulationCapabilityTest(ChromeDriverBaseTest):
     self.assertEqual(360, driver.ExecuteScript('return window.screen.width'))
     self.assertEqual(640, driver.ExecuteScript('return window.screen.height'))
     body_tag = driver.FindElement('tag name', 'body')
-    self.assertEqual(
-        'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) '
-        'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile '
-        'Safari/537.36',
-        body_tag.GetText())
+    self.assertRegexpMatches(
+        body_tag.GetText(),
+        '^' +
+        re.escape('Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) '
+                  'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/') +
+        r'\d+\.\d+\.\d+\.\d+' +
+        re.escape(' Mobile Safari/537.36') + '$')
 
   def testSendKeysToElement(self):
     driver = self.CreateDriver(

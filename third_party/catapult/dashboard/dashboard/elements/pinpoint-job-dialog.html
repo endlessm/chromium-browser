@@ -5,8 +5,6 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link type="text/css" rel="stylesheet" href="/dashboard/static/base.css">
-
 <link rel="import" href="/components/app-route/app-route.html">
 <link rel="import" href="/components/iron-form/iron-form.html">
 <link rel="import" href="/components/paper-button/paper-button.html">
@@ -18,6 +16,7 @@ found in the LICENSE file.
 <link rel="import" href="/components/paper-spinner/paper-spinner.html">
 <link rel="import" href="/components/polymer/polymer.html">
 
+<link rel="import" href="/dashboard/static/base.html">
 <link rel="import" href="/dashboard/static/simple_xhr.html">
 
 <dom-module id="pinpoint-job-dialog">
@@ -42,28 +41,34 @@ found in the LICENSE file.
     #container {
       width: 500px;
     }
+    #loading {
+      width: 28px;
+      margin-left: auto;
+      margin-right: auto;
+      display: block;
+    }
     </style>
 
     <paper-dialog id="container" autoCloseDisabled="true">
       <form>
+        <paper-input id="test-path" label="Test Path" value="{{test_path::input}}" disabled></paper-input>
         <paper-input id="bug-id" label="Bug ID" value="{{bug_id::input}}"></paper-input>
-        <paper-input id="test" label="test" value="{{test::input}}"></paper-input>
-        <paper-input id="start_git_hash" label="start_git_hash" value="{{start_git_hash::input}}" allowed-pattern="[A-Fa-f0-9]" required auto-validate prevent-invalid-input></paper-input>
-        <paper-input id="end_git_hash" label="end_git_hash" value="{{end_git_hash::input}}" allowed-pattern="[A-Fa-f0-9]" required auto-validate prevent-invalid-input></paper-input>
-        <paper-radio-group id="bisect-mode" selected="performance">
-          <paper-radio-button id="performance" name="performance" on-change="onBisectModeChanged">Performance</paper-radio-button>
-          <paper-radio-button id="functional" name="functional" on-change="onBisectModeChanged">Functional</paper-radio-button>
+        <paper-input id="start_commit" label="start_commit" value="{{start_commit::input}}" allowed-pattern="[A-Fa-f0-9]" required auto-validate prevent-invalid-input></paper-input>
+        <paper-input id="end_commit" label="end_commit" value="{{end_commit::input}}" allowed-pattern="[A-Fa-f0-9]" required auto-validate prevent-invalid-input></paper-input>
+        <paper-input id="story-filter" label="Story Filter" value="{{story_filter::input}}" disabled$="[[loading]]"></paper-input>
+        <paper-radio-group id="bisect_mode" selected="performance">
+          <paper-radio-button id="performance" name="performance">Performance</paper-radio-button>
+          <paper-radio-button id="functional" name="functional">Functional</paper-radio-button>
         </paper-radio-group>
         <div>
-          <paper-button raised disabled disabled$="{{create_disabled}}" on-click="onCreateJob">Create</paper-button>
+          <paper-button raised disabled$="[[getCreateDisabled(create_disabled, loading)]]" on-click="onCreateJob">Create</paper-button>
         </div>
         <p class="error">{{error}}</p>
         <div class="close-icon" on-click="close">
           ❌ <!-- cross mark U+274C -->
         </div>
       </form>
-
-      <template is="dom-if" if="{{loading}}">
+      <template is="dom-if" if="[[loading]]">
         <div id="loading">
           <paper-spinner active></paper-spinner>
         </div>
@@ -84,15 +89,15 @@ found in the LICENSE file.
           type: String,
           value: '',
         },
-        test: {
+        story_filter: {
           type: String,
           value: '',
         },
-        start_git_hash: {
+        start_commit: {
           type: String,
           value: '',
         },
-        end_git_hash: {
+        end_commit: {
           type: String,
           value: '',
         },
@@ -104,15 +109,17 @@ found in the LICENSE file.
           type: String,
           value: '',
         },
+        loading: {
+          type: Boolean,
+          value: false,
+        },
         create_disabled: {
           type: Boolean,
           value: false,
-          notify: true
         },
         error: {
           type: String,
           value: '',
-          notify: true
         }
       },
 
@@ -120,29 +127,23 @@ found in the LICENSE file.
         return !!e;
       },
 
-      onBisectModeChanged(e) {
-        if (e.target.name == this.$.performance.name) {
-          this.$.metric.hidden = false;
-        } else {
-          this.$.metric.hidden = true;
-        }
-      },
-
       async onCreateJob(e) {
         const params = {
           test_path: this.test_path,
-          test: this.test,
-          start_git_hash: this.start_git_hash,
-          end_git_hash: this.end_git_hash,
+          start_commit: this.start_commit,
+          end_commit: this.end_commit,
           start_repository: this.start_repository,
           end_repository: this.end_repository,
-          bug_id: this.bug_id
+          bug_id: this.bug_id,
+          story_filter: this.story_filter,
+          bisect_mode: this.$.bisect_mode.selected
         };
 
         try {
           this.error = '';
           this.create_disabled = true;
-          const results = await simple_xhr.asPromise('/pinpoint/new', params);
+          const results = await simple_xhr.asPromise(
+              '/pinpoint/new/bisect', params);
           this.fire('pinpoint-new-response', {
             'jobId': results.jobId,
             'jobUrl': results.jobUrl,
@@ -157,13 +158,33 @@ found in the LICENSE file.
       ready() {
       },
 
+      getCreateDisabled(createDisabled, loading) {
+        return createDisabled || loading;
+      },
+
       /**
        * Initializes and shows the bisect form.
        */
-      show() {
+      async show() {
         this.create_disabled = false;
+        this.loading = true;
+        this.story_filter = '';
         this.error = '';
         this.open();
+
+        try {
+          const params = {
+            test_path: this.test_path,
+          };
+
+          const results = await simple_xhr.asPromise(
+              '/pinpoint/new/prefill', params);
+          this.story_filter = results.story_filter;
+        } catch (e) {
+          this.error = e;
+        }
+
+        this.loading = false;
       },
 
       open() {

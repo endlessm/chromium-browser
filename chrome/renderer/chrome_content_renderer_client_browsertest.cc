@@ -61,23 +61,21 @@ TEST_F(InstantProcessNavigationTest, ForkForNavigationsFromInstantProcess) {
 // Tests that renderer-initiated navigations from a non-Instant render process
 // to potentially Instant URLs get bounced back to the browser to be rebucketed
 // into an Instant renderer if necessary.
-TEST_F(InstantProcessNavigationTest, ForkForNavigationsToSearchURLs) {
+TEST_F(InstantProcessNavigationTest, ForkForNavigationsToNewTabURLs) {
   ChromeContentRendererClient* client =
       static_cast<ChromeContentRendererClient*>(content_renderer_client_.get());
   chrome_render_thread_->set_io_task_runner(
       base::ThreadTaskRunnerHandle::Get());
   client->RenderThreadStarted();
-  std::vector<GURL> search_urls;
-  search_urls.push_back(GURL("http://example.com/search"));
-  SearchBouncer::GetInstance()->SetSearchURLs(
-      search_urls, GURL("http://example.com/newtab"));
+  SearchBouncer::GetInstance()->SetNewTabPageURL(
+      GURL("http://example.com/newtab"));
   bool unused;
   EXPECT_TRUE(client->ShouldFork(
       GetMainFrame(), GURL("http://example.com/newtab"), "GET", false, false,
       &unused));
-  EXPECT_TRUE(client->ShouldFork(
-      GetMainFrame(), GURL("http://example.com/search?q=foo"), "GET", false,
-      false, &unused));
+  EXPECT_FALSE(client->ShouldFork(GetMainFrame(),
+                                  GURL("http://example.com/search?q=foo"),
+                                  "GET", false, false, &unused));
   EXPECT_FALSE(client->ShouldFork(
       GetMainFrame(), GURL("http://example.com/"), "GET", false, false,
       &unused));
@@ -132,42 +130,18 @@ struct FlashEmbedsTestData {
 };
 
 const FlashEmbedsTestData kFlashEmbedsTestData[] = {
-  {
-    "Valid URL, no parameters",
-    "www.youtube.com",
-    "/v/deadbeef",
-    "application/x-shockwave-flash",
-    "/embed/deadbeef"
-  },
-  {
-    "Valid URL, no parameters, subdomain",
-    "www.foo.youtube.com",
-    "/v/deadbeef",
-    "application/x-shockwave-flash",
-    "/embed/deadbeef"
-  },
-  {
-    "Valid URL, many parameters",
-    "www.youtube.com",
-    "/v/deadbeef?start=4&fs=1",
-    "application/x-shockwave-flash",
-    "/embed/deadbeef?start=4&fs=1"
-  },
-  {
-    "Invalid parameter construct, many parameters",
-    "www.youtube.com",
-    "/v/deadbeef&bar=4&foo=6",
-    "application/x-shockwave-flash",
-    "/embed/deadbeef?bar=4&foo=6"
-  },
-  {
-    "Valid URL, enablejsapi=1",
-    "www.youtube.com",
-    "/v/deadbeef?enablejsapi=1",
-    "",
-    "/v/deadbeef?enablejsapi=1"
-  }
-};
+    {"Valid URL, no parameters", "www.youtube.com", "/v/deadbeef",
+     "application/x-shockwave-flash", "/embed/deadbeef"},
+    {"Valid URL, no parameters, subdomain", "www.foo.youtube.com",
+     "/v/deadbeef", "application/x-shockwave-flash", "/embed/deadbeef"},
+    {"Valid URL, many parameters", "www.youtube.com",
+     "/v/deadbeef?start=4&fs=1", "application/x-shockwave-flash",
+     "/embed/deadbeef?start=4&fs=1"},
+    {"Invalid parameter construct, many parameters", "www.youtube.com",
+     "/v/deadbeef&bar=4&foo=6", "application/x-shockwave-flash",
+     "/embed/deadbeef?bar=4&foo=6"},
+    {"Valid URL, enablejsapi=1", "www.youtube.com", "/v/deadbeef?enablejsapi=1",
+     "application/x-shockwave-flash", "/embed/deadbeef?enablejsapi=1"}};
 
 }  // namespace
 
@@ -214,8 +188,10 @@ class ChromeContentRendererClientBrowserTest :
   scoped_refptr<content::MessageLoopRunner> message_runner_;
 };
 
+// TODO(crbug.com/771338): This test needs to be rewritten to work with
+// preloaded HSTS for youtube.com
 IN_PROC_BROWSER_TEST_P(ChromeContentRendererClientBrowserTest,
-                       RewriteYouTubeFlashEmbed) {
+                       DISABLED_RewriteYouTubeFlashEmbed) {
   GURL url(embedded_test_server()->GetURL("/flash_embeds.html"));
   ui_test_utils::NavigateToURL(browser(), url);
   content::WebContents* web_contents =
@@ -229,8 +205,10 @@ IN_PROC_BROWSER_TEST_P(ChromeContentRendererClientBrowserTest,
   WaitForYouTubeRequest();
 }
 
+// TODO(crbug.com/771338): This test needs to be rewritten to work with
+// preloaded HSTS for youtube.com
 IN_PROC_BROWSER_TEST_P(ChromeContentRendererClientBrowserTest,
-                       RewriteYouTubeFlashEmbedObject) {
+                       DISABLED_RewriteYouTubeFlashEmbedObject) {
   GURL url(embedded_test_server()->GetURL("/flash_embeds.html"));
   ui_test_utils::NavigateToURL(browser(), url);
   content::WebContents* web_contents =

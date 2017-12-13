@@ -99,9 +99,13 @@ void MediaGalleriesDialogViews::InitChildViews() {
   contents_->RemoveAllChildViews(true);
   checkbox_map_.clear();
 
-  int dialog_content_width = views::Widget::GetLocalizedContentsWidth(
+  ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
+  contents_->SetBorder(views::CreateEmptyBorder(
+      provider->GetDialogInsetsForContentType(views::TEXT, views::CONTROL)));
+
+  const int dialog_content_width = views::Widget::GetLocalizedContentsWidth(
       IDS_MEDIA_GALLERIES_DIALOG_CONTENT_WIDTH_CHARS);
-  views::GridLayout* layout = views::GridLayout::CreatePanel(contents_);
+  views::GridLayout* layout = views::GridLayout::CreateAndInstall(contents_);
 
   int column_set_id = 0;
   views::ColumnSet* columns = layout->AddColumnSet(column_set_id);
@@ -113,7 +117,6 @@ void MediaGalleriesDialogViews::InitChildViews() {
                      0);
 
   // Message text.
-  ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
   const int vertical_padding =
       provider->GetDistanceMetric(views::DISTANCE_RELATED_CONTROL_VERTICAL);
   views::Label* subtext = new views::Label(controller_->GetSubtext());

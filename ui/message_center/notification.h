@@ -127,6 +127,8 @@ class MESSAGE_CENTER_EXPORT RichNotificationData {
   std::vector<NotificationItem> items;
 
   // Progress, in range of [0-100], of NOTIFICATION_TYPE_PROGRESS notifications.
+  // Values outside of the range (e.g. -1) will show an infinite loading
+  // progress bar.
   int progress = 0;
 
   // Status text string shown in NOTIFICATION_TYPE_PROGRESS notifications.
@@ -143,7 +145,7 @@ class MESSAGE_CENTER_EXPORT RichNotificationData {
   bool should_make_spoken_feedback_for_popup_updates = true;
 
   // Whether it should be possible for the user to click on the notification.
-  bool clickable = true;
+  bool clickable = false;
 
 #if defined(OS_CHROMEOS)
   // Flag if the notification is pinned. If true, the notification is pinned
@@ -347,7 +349,7 @@ class MESSAGE_CENTER_EXPORT Notification {
   // filled by the |color|.
   // Otherwise, it uses alpha channel of the rasterized |small_image| for
   // masking.
-  gfx::Image GenerateMaskedSmallIcon(SkColor color) const;
+  gfx::Image GenerateMaskedSmallIcon(int dip_size, SkColor color) const;
 
   // Buttons, with icons fetched asynchronously.
   const std::vector<ButtonInfo>& buttons() const {
@@ -473,7 +475,8 @@ class MESSAGE_CENTER_EXPORT Notification {
   gfx::Image icon_;
 
   // The display string for the source of the notification.  Could be
-  // the same as origin_url_, or the name of an extension.
+  // the same as |origin_url_|, or the name of an extension.
+  // Expected to be a localized user facing string.
   base::string16 display_source_;
 
  private:

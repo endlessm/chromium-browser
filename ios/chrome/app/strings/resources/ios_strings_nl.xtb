@@ -20,7 +20,6 @@
 <translation id="1254117744268754948">Map kiezen</translation>
 <translation id="1265739287306757398">Meer informatie</translation>
 <translation id="1272079795634619415">Stop</translation>
-<translation id="129553762522093515">Recent gesloten</translation>
 <translation id="1323735185997015385">Verwijderen</translation>
 <translation id="132683371494960526">Dubbeltik om de hoofdmap te wijzigen.</translation>
 <translation id="1340643665687018190">Menu sluiten</translation>
@@ -48,7 +47,6 @@ Zo kunnen sommige websites op dit verzoek reageren door advertenties weer te gev
 <translation id="1690731385917361335">Geen items</translation>
 <translation id="1700629756560807968"><ph name="NUMBER_OF_SELECTED_BOOKMARKS" /> geselecteerd</translation>
 <translation id="1740468249224277719">Dubbeltik om te installeren.</translation>
-<translation id="1749561566933687563">Synchroniseer je bladwijzers</translation>
 <translation id="1752547299766512813">Wachtwoorden opslaan</translation>
 <translation id="1753905327828125965">Meest bezocht</translation>
 <translation id="1809939268435598390">Map verwijderen</translation>
@@ -80,6 +78,7 @@ Zo kunnen sommige websites op dit verzoek reageren door advertenties weer te gev
 <translation id="2381405137052800939">Basisinstellingen</translation>
 <translation id="2386793615875593361">1 geselecteerd</translation>
 <translation id="2435457462613246316">Wachtwoord weergeven</translation>
+<translation id="2529021024822217800">Alles openen</translation>
 <translation id="2572712655377361602">Een apparaatbeleid blokkeert toegang tot je foto's</translation>
 <translation id="2584132361465095047">Account toevoegen…</translation>
 <translation id="2593774076813182497">Kan pagina niet afdrukken.</translation>
@@ -129,7 +128,6 @@ Zo kunnen sommige websites op dit verzoek reageren door advertenties weer te gev
 <translation id="3324193307694657476">Adres 2</translation>
 <translation id="3329904751041170572">Kan geen verbinding maken met de server.</translation>
 <translation id="3335947283844343239">Open gesloten tabblad opnieuw</translation>
-<translation id="3387752218061326363">Geschiedenis van je ingelogde apparaten wordt weergegeven. <ph name="BEGIN_LINK" />Meer informatie<ph name="END_LINK" />.</translation>
 <translation id="3393920035788932672">Pop-ups toegestaan</translation>
 <translation id="3414292259312108062">Chrome slaat dit op in je <ph name="BEGIN_LINK" />door Google opgeslagen wachtwoorden<ph name="END_LINK" /> en vult dit automatisch voor je aan, zodat je je wachtwoord niet zelf hoeft te onthouden.</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> min.</translation>
@@ -181,6 +179,7 @@ Als je de zoekterm wilt aanpassen, houd je deze aangeraakt om de term te selecte
 <translation id="4342284590510997375">Nieuw</translation>
 <translation id="434816576838749873">E-mail-app kiezen</translation>
 <translation id="4359125752503270327">Deze pagina wordt geopend in een andere app.</translation>
+<translation id="4370827530403103842">Synchronisatie werkt niet. Tik om te herstellen.</translation>
 <translation id="4375040482473363939">Zoeken naar QR-code</translation>
 <translation id="4378154925671717803">Telefoon</translation>
 <translation id="441868831736628555">Privacybeleid</translation>
@@ -188,6 +187,7 @@ Als je de zoekterm wilt aanpassen, houd je deze aangeraakt om de term te selecte
 <translation id="4508750114462689118">Inlogpromo sluiten</translation>
 <translation id="4526249700380860531">Opgeslagen wachtwoorden bekijken en beheren via <ph name="BEGIN_LINK" />passwords.google.com<ph name="END_LINK" /></translation>
 <translation id="4536418791685807335">Probeer opnieuw in te loggen.</translation>
+<translation id="457386861538956877">Meer...</translation>
 <translation id="461440297010471931">Zoeken met Google</translation>
 <translation id="4620246317052452550">Pagina's die je hebt gelezen</translation>
 <translation id="4636930964841734540">Info</translation>
@@ -309,6 +309,7 @@ Je gegevens zijn op <ph name="TIME" /> versleuteld met je wachtwoordzin voor syn
 <translation id="6785453220513215166">Crashrapport verzenden...</translation>
 <translation id="679325081238418596">Je bladwijzers, geschiedenis, wachtwoorden en andere instellingen ophalen op al je apparaten</translation>
 <translation id="6797885426782475225">Gesproken zoekopdracht</translation>
+<translation id="6807889908376551050">Alles weergeven...</translation>
 <translation id="681368974849482173">Item gemaakt</translation>
 <translation id="6896758677409633944">Kopieer</translation>
 <translation id="6903907808598579934">Synchronisatie inschakelen</translation>
@@ -319,7 +320,6 @@ Je gegevens zijn op <ph name="TIME" /> versleuteld met je wachtwoordzin voor syn
 <translation id="7031882061095297553">Synchroniseren met</translation>
 <translation id="7062545763355031412">Accepteren en account wijzigen</translation>
 <translation id="7108338896283013870">Verbergen</translation>
-<translation id="7131892264600713844">Geschiedenis van dit apparaat wordt weergegeven. <ph name="BEGIN_LINK" />Meer informatie.<ph name="END_LINK" /></translation>
 <translation id="7133798577887235672">Volledige naam</translation>
 <translation id="7136892417564438900">Camera is niet beschikbaar</translation>
 <translation id="7159472599653637159">Mobiele site opvragen</translation>
@@ -356,7 +356,6 @@ Je gegevens zijn op <ph name="TIME" /> versleuteld met je wachtwoordzin voor syn
 <translation id="7769602470925380267">Accepteren en uitloggen</translation>
 <translation id="7772032839648071052">Bevestig de wachtwoordzin</translation>
 <translation id="780301667611848630">Nee, bedankt</translation>
-<translation id="7851858861565204677">Andere apparaten</translation>
 <translation id="7859704718976024901">Browsegeschiedenis</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7947953824732555851">Accepteren en inloggen</translation>
@@ -382,6 +381,7 @@ Je gegevens zijn op <ph name="TIME" /> versleuteld met je wachtwoordzin voor syn
 <translation id="8458397775385147834">1 item verwijderd</translation>
 <translation id="8487700953926739672">Offline beschikbaar</translation>
 <translation id="8503813439785031346">Gebruikersnaam</translation>
+<translation id="850600235656508448">Openen in incognitomodus</translation>
 <translation id="8517375800490286174">Open-sourcelicenties</translation>
 <translation id="8524799873541103884"><ph name="INCOGNITO" />-tabbladen <ph name="FIRST_VISIBLE_TAB" /> tot <ph name="LAST_VISIBLE_TAB" /> van <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8532105204136943229">Vervaljaar</translation>
@@ -400,6 +400,7 @@ Je gegevens zijn op <ph name="TIME" /> versleuteld met je wachtwoordzin voor syn
 <translation id="8775144690796719618">Ongeldige URL</translation>
 <translation id="8820817407110198400">Bladwijzers</translation>
 <translation id="8840513115188359703">Je wordt niet uitgelogd van je Google-account.</translation>
+<translation id="8870413625673593573">Recent gesloten</translation>
 <translation id="8881801611828450202">Zoeken op <ph name="SEARCH_ENGINE" /> naar deze afbeelding</translation>
 <translation id="8904976895050290827">Chrome-synchronisatie</translation>
 <translation id="895541991026785598">Een probleem melden</translation>

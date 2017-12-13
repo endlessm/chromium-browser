@@ -32,7 +32,7 @@
       "python",
       "-u",
       "RECIPE_MODULE[depot_tools::bot_update]/resources/bot_update.py",
-      "--spec",
+      "--spec-path",
       "cache_dir = '[CUSTOM_/_B_CACHE]'\nsolutions = [{'deps_file': '.DEPS.git', 'managed': False, 'name': 'skia', 'url': 'https://skia.googlesource.com/skia.git'}]",
       "--patch_root",
       "skia",
@@ -48,10 +48,10 @@
       "skia@abc123"
     ],
     "cwd": "[CUSTOM_/_B_WORK]",
-    "env": {
-      "GIT_HTTP_LOW_SPEED_LIMIT": "1000",
-      "GIT_HTTP_LOW_SPEED_TIME": "300",
-      "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]"
+    "env_prefixes": {
+      "PATH": [
+        "RECIPE_PACKAGE_REPO[depot_tools]"
+      ]
     },
     "infra_step": true,
     "name": "bot_update",
@@ -200,7 +200,8 @@
       "retry",
       "fetch",
       "origin",
-      "master"
+      "master",
+      "--progress"
     ],
     "cwd": "[START_DIR]/swarming.client",
     "env": {
@@ -844,7 +845,7 @@
       "14400",
       "--dimension",
       "cpu",
-      "x86-64",
+      "x86-64-E3-1230_v5",
       "--dimension",
       "gpu",
       "10de:104a",
@@ -853,7 +854,7 @@
       "Ubuntu-14.04",
       "--dimension",
       "pool",
-      "Chrome",
+      "Chrome-GPU",
       "--tag",
       "allow_milo:1",
       "--tag",
@@ -915,7 +916,7 @@
       "14400",
       "--dimension",
       "cpu",
-      "x86-64",
+      "x86-64-E3-1230_v5",
       "--dimension",
       "gpu",
       "10de:104a",
@@ -924,7 +925,7 @@
       "Ubuntu-14.04",
       "--dimension",
       "pool",
-      "Chrome",
+      "Chrome-GPU",
       "--tag",
       "allow_milo:1",
       "--tag",
@@ -986,7 +987,7 @@
       "14400",
       "--dimension",
       "cpu",
-      "x86-64",
+      "x86-64-E3-1230_v5",
       "--dimension",
       "gpu",
       "10de:104a",
@@ -995,7 +996,7 @@
       "Ubuntu-14.04",
       "--dimension",
       "pool",
-      "Chrome",
+      "Chrome-GPU",
       "--tag",
       "allow_milo:1",
       "--tag",
@@ -1057,7 +1058,7 @@
       "14400",
       "--dimension",
       "cpu",
-      "x86-64",
+      "x86-64-E3-1230_v5",
       "--dimension",
       "gpu",
       "10de:104a",
@@ -1066,7 +1067,7 @@
       "Ubuntu-14.04",
       "--dimension",
       "pool",
-      "Chrome",
+      "Chrome-GPU",
       "--tag",
       "allow_milo:1",
       "--tag",
@@ -1128,7 +1129,7 @@
       "14400",
       "--dimension",
       "cpu",
-      "x86-64",
+      "x86-64-E3-1230_v5",
       "--dimension",
       "gpu",
       "10de:104a",
@@ -1137,7 +1138,7 @@
       "Ubuntu-14.04",
       "--dimension",
       "pool",
-      "Chrome",
+      "Chrome-GPU",
       "--tag",
       "allow_milo:1",
       "--tag",
@@ -1272,12 +1273,7 @@
   },
   {
     "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[depot_tools::gsutil]/resources/gsutil_smart_retry.py",
-      "--",
-      "RECIPE_PACKAGE_REPO[depot_tools]/gsutil.py",
-      "----",
+      "gsutil",
       "cp",
       "-R",
       "[START_DIR]/swarming_temp_dir/outputs/ct-nanobench-1/0/file 1",
@@ -1288,19 +1284,11 @@
       "BOTO_CONFIG": null
     },
     "infra_step": true,
-    "name": "gsutil upload json output",
-    "~followup_annotations": [
-      "@@@STEP_LINK@gsutil.upload@https://storage.cloud.google.com/skia-perf/ct/10k/2012/05/14/12/@@@"
-    ]
+    "name": "upload json output"
   },
   {
     "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[depot_tools::gsutil]/resources/gsutil_smart_retry.py",
-      "--",
-      "RECIPE_PACKAGE_REPO[depot_tools]/gsutil.py",
-      "----",
+      "gsutil",
       "cp",
       "-R",
       "[START_DIR]/swarming_temp_dir/outputs/ct-nanobench-1/0/file 2",
@@ -1311,10 +1299,7 @@
       "BOTO_CONFIG": null
     },
     "infra_step": true,
-    "name": "gsutil upload json output (2)",
-    "~followup_annotations": [
-      "@@@STEP_LINK@gsutil.upload@https://storage.cloud.google.com/skia-perf/ct/10k/2012/05/14/12/@@@"
-    ]
+    "name": "upload json output (2)"
   },
   {
     "cmd": [
@@ -1414,12 +1399,7 @@
   },
   {
     "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[depot_tools::gsutil]/resources/gsutil_smart_retry.py",
-      "--",
-      "RECIPE_PACKAGE_REPO[depot_tools]/gsutil.py",
-      "----",
+      "gsutil",
       "cp",
       "-R",
       "[START_DIR]/swarming_temp_dir/outputs/ct-nanobench-2/0/file 1",
@@ -1430,19 +1410,11 @@
       "BOTO_CONFIG": null
     },
     "infra_step": true,
-    "name": "gsutil upload json output (3)",
-    "~followup_annotations": [
-      "@@@STEP_LINK@gsutil.upload@https://storage.cloud.google.com/skia-perf/ct/10k/2012/05/14/12/@@@"
-    ]
+    "name": "upload json output (3)"
   },
   {
     "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[depot_tools::gsutil]/resources/gsutil_smart_retry.py",
-      "--",
-      "RECIPE_PACKAGE_REPO[depot_tools]/gsutil.py",
-      "----",
+      "gsutil",
       "cp",
       "-R",
       "[START_DIR]/swarming_temp_dir/outputs/ct-nanobench-2/0/file 2",
@@ -1453,10 +1425,7 @@
       "BOTO_CONFIG": null
     },
     "infra_step": true,
-    "name": "gsutil upload json output (4)",
-    "~followup_annotations": [
-      "@@@STEP_LINK@gsutil.upload@https://storage.cloud.google.com/skia-perf/ct/10k/2012/05/14/12/@@@"
-    ]
+    "name": "upload json output (4)"
   },
   {
     "cmd": [
@@ -1556,12 +1525,7 @@
   },
   {
     "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[depot_tools::gsutil]/resources/gsutil_smart_retry.py",
-      "--",
-      "RECIPE_PACKAGE_REPO[depot_tools]/gsutil.py",
-      "----",
+      "gsutil",
       "cp",
       "-R",
       "[START_DIR]/swarming_temp_dir/outputs/ct-nanobench-3/0/file 1",
@@ -1572,19 +1536,11 @@
       "BOTO_CONFIG": null
     },
     "infra_step": true,
-    "name": "gsutil upload json output (5)",
-    "~followup_annotations": [
-      "@@@STEP_LINK@gsutil.upload@https://storage.cloud.google.com/skia-perf/ct/10k/2012/05/14/12/@@@"
-    ]
+    "name": "upload json output (5)"
   },
   {
     "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[depot_tools::gsutil]/resources/gsutil_smart_retry.py",
-      "--",
-      "RECIPE_PACKAGE_REPO[depot_tools]/gsutil.py",
-      "----",
+      "gsutil",
       "cp",
       "-R",
       "[START_DIR]/swarming_temp_dir/outputs/ct-nanobench-3/0/file 2",
@@ -1595,10 +1551,7 @@
       "BOTO_CONFIG": null
     },
     "infra_step": true,
-    "name": "gsutil upload json output (6)",
-    "~followup_annotations": [
-      "@@@STEP_LINK@gsutil.upload@https://storage.cloud.google.com/skia-perf/ct/10k/2012/05/14/12/@@@"
-    ]
+    "name": "upload json output (6)"
   },
   {
     "cmd": [
@@ -1698,12 +1651,7 @@
   },
   {
     "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[depot_tools::gsutil]/resources/gsutil_smart_retry.py",
-      "--",
-      "RECIPE_PACKAGE_REPO[depot_tools]/gsutil.py",
-      "----",
+      "gsutil",
       "cp",
       "-R",
       "[START_DIR]/swarming_temp_dir/outputs/ct-nanobench-4/0/file 1",
@@ -1714,19 +1662,11 @@
       "BOTO_CONFIG": null
     },
     "infra_step": true,
-    "name": "gsutil upload json output (7)",
-    "~followup_annotations": [
-      "@@@STEP_LINK@gsutil.upload@https://storage.cloud.google.com/skia-perf/ct/10k/2012/05/14/12/@@@"
-    ]
+    "name": "upload json output (7)"
   },
   {
     "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[depot_tools::gsutil]/resources/gsutil_smart_retry.py",
-      "--",
-      "RECIPE_PACKAGE_REPO[depot_tools]/gsutil.py",
-      "----",
+      "gsutil",
       "cp",
       "-R",
       "[START_DIR]/swarming_temp_dir/outputs/ct-nanobench-4/0/file 2",
@@ -1737,10 +1677,7 @@
       "BOTO_CONFIG": null
     },
     "infra_step": true,
-    "name": "gsutil upload json output (8)",
-    "~followup_annotations": [
-      "@@@STEP_LINK@gsutil.upload@https://storage.cloud.google.com/skia-perf/ct/10k/2012/05/14/12/@@@"
-    ]
+    "name": "upload json output (8)"
   },
   {
     "cmd": [
@@ -1840,12 +1777,7 @@
   },
   {
     "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[depot_tools::gsutil]/resources/gsutil_smart_retry.py",
-      "--",
-      "RECIPE_PACKAGE_REPO[depot_tools]/gsutil.py",
-      "----",
+      "gsutil",
       "cp",
       "-R",
       "[START_DIR]/swarming_temp_dir/outputs/ct-nanobench-5/0/file 1",
@@ -1856,19 +1788,11 @@
       "BOTO_CONFIG": null
     },
     "infra_step": true,
-    "name": "gsutil upload json output (9)",
-    "~followup_annotations": [
-      "@@@STEP_LINK@gsutil.upload@https://storage.cloud.google.com/skia-perf/ct/10k/2012/05/14/12/@@@"
-    ]
+    "name": "upload json output (9)"
   },
   {
     "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[depot_tools::gsutil]/resources/gsutil_smart_retry.py",
-      "--",
-      "RECIPE_PACKAGE_REPO[depot_tools]/gsutil.py",
-      "----",
+      "gsutil",
       "cp",
       "-R",
       "[START_DIR]/swarming_temp_dir/outputs/ct-nanobench-5/0/file 2",
@@ -1879,10 +1803,7 @@
       "BOTO_CONFIG": null
     },
     "infra_step": true,
-    "name": "gsutil upload json output (10)",
-    "~followup_annotations": [
-      "@@@STEP_LINK@gsutil.upload@https://storage.cloud.google.com/skia-perf/ct/10k/2012/05/14/12/@@@"
-    ]
+    "name": "upload json output (10)"
   },
   {
     "name": "$result",

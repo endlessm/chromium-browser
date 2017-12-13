@@ -89,32 +89,33 @@ views::BubbleDialogDelegateView* g_page_info_bubble = nullptr;
 // General constants -----------------------------------------------------------
 
 // Bubble width constraints.
-const int kMinBubbleWidth = 320;
-const int kMaxBubbleWidth = 1000;
+constexpr int kMinBubbleWidth = 320;
+constexpr int kMaxBubbleWidth = 1000;
 
-// Security Section (BubbleHeaderView)
-// ------------------------------------------
+// Space between sections in the Page Info bubble.
+constexpr int kPageInfoVerticalSpacing = 10;
 
-// Margin and padding values for the |BubbleHeaderView|.
-const int kHeaderMarginBottom = 10;
-const int kHeaderPaddingBottom = 13;
+// Security Section (BubbleHeaderView) -----------------------------------------
 
-// Spacing between labels in the header.
-const int kHeaderLabelSpacing = 4;
+// Spacing underneath the title in the header.
+constexpr int kHeaderTitleBottomPadding = 4;
+
+// Padding for the |BubbleHeaderView|.
+constexpr int kHeaderPaddingBottom = 13;
 
 // Site Settings Section -------------------------------------------------------
 
-// Spacing above and below the cookies and certificate views.
-const int kSubViewsVerticalPadding = 6;
+// Spacing above/below the cookies and certificate views.
+constexpr int kSubViewsVerticalPadding = 3;
 
 // Spacing between a permission image and the text.
-const int kPermissionImageSpacing = 6;
+constexpr int kPermissionImageSpacing = 6;
 
-// Spacing between rows in the site settings section
-const int kPermissionsVerticalSpacing = 12;
+// Minimum spacing between the label and the menu.
+constexpr int kPermissionMenuSpacing = 16;
 
-// Spacing between the label and the menu.
-const int kPermissionMenuSpacing = 16;
+// Spacing between permission rows, plus above the site settings link.
+constexpr int kPermissionsVerticalSpacing = 12;
 
 // The default, ui::kTitleFontSizeDelta, is too large for the page info
 // bubble (e.g. +3). Use +1 to obtain a smaller font.
@@ -137,8 +138,7 @@ views::View* CreateInspectLinkSection(const gfx::ImageSkia& image_icon,
                                       views::Link* link) {
   views::View* new_view = new views::View();
 
-  views::GridLayout* layout = new views::GridLayout(new_view);
-  new_view->SetLayoutManager(layout);
+  views::GridLayout* layout = views::GridLayout::CreateAndInstall(new_view);
 
   const int column = 0;
   views::ColumnSet* column_set = layout->AddColumnSet(column);
@@ -149,9 +149,7 @@ views::View* CreateInspectLinkSection(const gfx::ImageSkia& image_icon,
   column_set->AddColumn(views::GridLayout::LEADING, views::GridLayout::FILL, 0,
                         views::GridLayout::USE_PREF, 0, 0);
 
-  layout->AddPaddingRow(0, kSubViewsVerticalPadding);
-
-  layout->StartRow(1, column);
+  layout->StartRowWithPadding(1, column, 0, kSubViewsVerticalPadding);
 
   views::ImageView* icon = new NonAccessibleImageView();
   icon->SetImage(image_icon);
@@ -168,7 +166,23 @@ views::View* CreateInspectLinkSection(const gfx::ImageSkia& image_icon,
   layout->SkipColumns(1);
 
   layout->AddView(link);
+  layout->AddPaddingRow(0, kSubViewsVerticalPadding);
   return new_view;
+}
+
+views::View* CreateSiteSettingsLink(const int side_margin,
+                                    views::LinkListener* listener) {
+  views::Link* site_settings_link = new views::Link(
+      l10n_util::GetStringUTF16(IDS_PAGE_INFO_SITE_SETTINGS_LINK));
+  site_settings_link->set_id(
+      PageInfoBubbleView::VIEW_ID_PAGE_INFO_LINK_SITE_SETTINGS);
+  site_settings_link->set_listener(listener);
+  site_settings_link->SetUnderline(false);
+  views::View* link_section = new views::View();
+  link_section->SetLayoutManager(new views::BoxLayout(
+      views::BoxLayout::kHorizontal, gfx::Insets(0, side_margin)));
+  link_section->AddChildView(site_settings_link);
+  return link_section;
 }
 
 }  // namespace
@@ -260,14 +274,13 @@ BubbleHeaderView::BubbleHeaderView(
       password_reuse_button_container_(nullptr),
       change_password_button_(nullptr),
       whitelist_password_reuse_button_(nullptr) {
-  views::GridLayout* layout = new views::GridLayout(this);
-  SetLayoutManager(layout);
+  views::GridLayout* layout = views::GridLayout::CreateAndInstall(this);
 
   const int label_column_status = 1;
   AddColumnWithSideMargin(layout, side_margin, label_column_status);
-  layout->AddPaddingRow(0, kHeaderLabelSpacing);
 
-  layout->StartRow(0, label_column_status);
+  layout->StartRowWithPadding(0, label_column_status, 0,
+                              kHeaderTitleBottomPadding);
   security_details_label_ =
       new views::StyledLabel(base::string16(), styled_label_listener);
   security_details_label_->set_id(
@@ -284,12 +297,13 @@ BubbleHeaderView::BubbleHeaderView(
 
   layout->StartRow(0, label_column_status);
   password_reuse_button_container_ = new views::View();
-  password_reuse_button_container_->SetLayoutManager(
-      new views::BoxLayout(views::BoxLayout::kHorizontal, gfx::Insets(), 8));
   layout->AddView(password_reuse_button_container_, 1, 1,
                   views::GridLayout::FILL, views::GridLayout::LEADING);
 
-  layout->AddPaddingRow(1, kHeaderPaddingBottom);
+  // The spacing underneath the BubbleHeaderView should equal to
+  // |kHeaderPaddingBottom|, but subtract |kPageInfoVerticalSpacing| here since
+  // that has already been added.
+  layout->AddPaddingRow(1, kHeaderPaddingBottom - kPageInfoVerticalSpacing);
 }
 
 BubbleHeaderView::~BubbleHeaderView() {}
@@ -308,9 +322,6 @@ void BubbleHeaderView::SetDetails(const base::string16& details_text) {
 
   views::StyledLabel::RangeStyleInfo link_style =
       views::StyledLabel::RangeStyleInfo::CreateForLink();
-  if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
-    link_style.font_style |= gfx::Font::FontStyle::UNDERLINE;
-  }
   link_style.disable_line_wrapping = false;
 
   security_details_label_->AddStyleRange(details_range, link_style);
@@ -335,9 +346,6 @@ void BubbleHeaderView::AddResetDecisionsLabel() {
 
   views::StyledLabel::RangeStyleInfo link_style =
       views::StyledLabel::RangeStyleInfo::CreateForLink();
-  if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
-    link_style.font_style |= gfx::Font::FontStyle::UNDERLINE;
-  }
   link_style.disable_line_wrapping = false;
 
   reset_cert_decisions_label_->AddStyleRange(link_range, link_style);
@@ -364,9 +372,34 @@ void BubbleHeaderView::AddPasswordReuseButtons() {
                                 IDS_PAGE_INFO_WHITELIST_PASSWORD_REUSE_BUTTON));
   whitelist_password_reuse_button_->set_id(
       PageInfoBubbleView::VIEW_ID_PAGE_INFO_BUTTON_WHITELIST_PASSWORD_REUSE);
+
+  int kSpacingBetweenButtons = 8;
+
+  // If these two buttons cannot fit into a single line, stack them vertically.
+  bool can_fit_in_one_line =
+      (password_reuse_button_container_->width() - kSpacingBetweenButtons) >=
+      (change_password_button_->CalculatePreferredSize().width() +
+       whitelist_password_reuse_button_->CalculatePreferredSize().width());
+  views::BoxLayout* layout =
+      new views::BoxLayout(can_fit_in_one_line ? views::BoxLayout::kHorizontal
+                                               : views::BoxLayout::kVertical,
+                           gfx::Insets(), kSpacingBetweenButtons);
+  // Make buttons left-aligned. For RTL languages, buttons will automatically
+  // become right-aligned.
+  layout->set_main_axis_alignment(views::BoxLayout::MAIN_AXIS_ALIGNMENT_START);
+  password_reuse_button_container_->SetLayoutManager(layout);
+
+#if defined(OS_WIN) || defined(OS_CHROMEOS)
   password_reuse_button_container_->AddChildView(change_password_button_);
   password_reuse_button_container_->AddChildView(
       whitelist_password_reuse_button_);
+#else
+  password_reuse_button_container_->AddChildView(
+      whitelist_password_reuse_button_);
+  password_reuse_button_container_->AddChildView(change_password_button_);
+#endif
+
+  // Add padding at the top.
   password_reuse_button_container_->SetBorder(
       views::CreateEmptyBorder(8, 0, 0, 0));
 
@@ -490,7 +523,6 @@ PageInfoBubbleView::PageInfoBubbleView(
       BubbleDialogDelegateView(anchor_view, views::BubbleBorder::TOP_LEFT),
       profile_(profile),
       header_(nullptr),
-      separator_(nullptr),
       site_settings_view_(nullptr),
       cookie_dialog_link_(nullptr),
       permissions_view_(nullptr),
@@ -515,38 +547,27 @@ PageInfoBubbleView::PageInfoBubbleView(
   // below the dialog title.
   set_margins(gfx::Insets(0, 0, margins().bottom(), 0));
 
-  views::GridLayout* layout = new views::GridLayout(this);
+  views::BoxLayout* layout = new views::BoxLayout(
+      views::BoxLayout::kVertical, gfx::Insets(), kPageInfoVerticalSpacing);
   SetLayoutManager(layout);
 
-  // Use a single ColumnSet here. Otherwise the preferred width doesn't properly
-  // propagate up to the dialog width.
-  const int content_column = 0;
-  views::ColumnSet* column_set = layout->AddColumnSet(content_column);
-  column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1,
-                        views::GridLayout::USE_PREF, 0, 0);
-
   header_ = new BubbleHeaderView(this, this, side_margin);
-  layout->StartRow(1, content_column);
-  layout->AddView(header_);
+  AddChildView(header_);
 
-  layout->StartRow(0, content_column);
-  separator_ = new views::Separator();
-  layout->AddView(separator_);
-
-  layout->AddPaddingRow(1, kHeaderMarginBottom);
-  layout->StartRow(1, content_column);
+  AddChildView(new views::Separator());
 
   site_settings_view_ = CreateSiteSettingsView(side_margin);
-  layout->AddView(site_settings_view_);
+  AddChildView(site_settings_view_);
+
+  AddChildView(CreateSiteSettingsLink(side_margin, this));
 
   if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
     // In non-material, titles are inset from the dialog margin. Ensure the
     // horizontal insets match.
-    set_title_margins(
-        gfx::Insets(ChromeLayoutProvider::Get()
-                        ->GetInsetsMetric(views::INSETS_DIALOG_CONTENTS)
-                        .top(),
-                    side_margin, 0, side_margin));
+    set_title_margins(gfx::Insets(ChromeLayoutProvider::Get()
+                                      ->GetInsetsMetric(views::INSETS_DIALOG)
+                                      .top(),
+                                  side_margin, 0, side_margin));
   }
   views::BubbleDialogDelegateView::CreateBubble(this);
 
@@ -648,18 +669,7 @@ gfx::Size PageInfoBubbleView::CalculatePreferredSize() const {
     return views::View::CalculatePreferredSize();
   }
 
-  int height = 0;
-  if (header_) {
-    height += header_->GetPreferredSize().height() + kHeaderMarginBottom;
-  }
-  if (separator_) {
-    height += separator_->GetPreferredSize().height();
-  }
-
-  if (site_settings_view_) {
-    height += site_settings_view_->GetPreferredSize().height();
-  }
-
+  int height = views::View::CalculatePreferredSize().height();
   int width = kMinBubbleWidth;
   if (site_settings_view_) {
     width = std::max(width, site_settings_view_->GetPreferredSize().width());
@@ -669,8 +679,33 @@ gfx::Size PageInfoBubbleView::CalculatePreferredSize() const {
 }
 
 void PageInfoBubbleView::SetCookieInfo(const CookieInfoList& cookie_info_list) {
-  // |cookie_info_list| should only ever have 2 items: first- and third-party
-  // cookies.
+  // This method gets called each time site data is updated, so if the cookie
+  // link already exists, replace the text instead of creating a new one.
+  if (cookie_dialog_link_ == nullptr) {
+    // Create the link for the Cookies section.
+    cookie_dialog_link_ = new views::Link(
+        l10n_util::GetPluralStringFUTF16(IDS_PAGE_INFO_NUM_COOKIES, 0));
+    cookie_dialog_link_->set_id(
+        PageInfoBubbleView::VIEW_ID_PAGE_INFO_LINK_COOKIE_DIALOG);
+    cookie_dialog_link_->set_listener(this);
+    cookie_dialog_link_->SetUnderline(false);
+
+    // Get the icon.
+    PageInfoUI::PermissionInfo info;
+    info.type = CONTENT_SETTINGS_TYPE_COOKIES;
+    info.setting = CONTENT_SETTING_ALLOW;
+    info.is_incognito =
+        Profile::FromBrowserContext(web_contents()->GetBrowserContext())
+            ->IsOffTheRecord();
+    const gfx::ImageSkia icon =
+        PageInfoUI::GetPermissionIcon(info).AsImageSkia();
+
+    site_settings_view_->AddChildView(CreateInspectLinkSection(
+        icon, IDS_PAGE_INFO_COOKIES, cookie_dialog_link_));
+  }
+
+  // Calculate the number of cookies used by this site. |cookie_info_list|
+  // should only ever have 2 items: first- and third-party cookies.
   DCHECK_EQ(cookie_info_list.size(), 2u);
   int total_allowed = 0;
   for (const auto& i : cookie_info_list) {
@@ -678,8 +713,8 @@ void PageInfoBubbleView::SetCookieInfo(const CookieInfoList& cookie_info_list) {
   }
   base::string16 label_text = l10n_util::GetPluralStringFUTF16(
       IDS_PAGE_INFO_NUM_COOKIES, total_allowed);
-
   cookie_dialog_link_->SetText(label_text);
+
   Layout();
   SizeToContents();
 }
@@ -692,13 +727,12 @@ void PageInfoBubbleView::SetPermissionInfo(
   // will have already updated its state, so it's already reflected in the UI.
   // In addition, if a permission is set to the default setting, PageInfo
   // removes it from |permission_info_list|, but the button should remain.
-  if (permissions_view_) {
+  if (permissions_view_)
     return;
-  }
 
   permissions_view_ = new views::View();
-  views::GridLayout* layout = new views::GridLayout(permissions_view_);
-  permissions_view_->SetLayoutManager(layout);
+  views::GridLayout* layout =
+      views::GridLayout::CreateAndInstall(permissions_view_);
 
   site_settings_view_->AddChildView(permissions_view_);
 
@@ -743,19 +777,6 @@ void PageInfoBubbleView::SetPermissionInfo(
 
   layout->Layout(permissions_view_);
 
-  // Add site settings link.
-  views::Link* site_settings_link = new views::Link(
-      l10n_util::GetStringUTF16(IDS_PAGE_INFO_SITE_SETTINGS_LINK));
-  site_settings_link->set_id(
-      PageInfoBubbleView::VIEW_ID_PAGE_INFO_LINK_SITE_SETTINGS);
-  site_settings_link->set_listener(this);
-  views::View* link_section = new views::View();
-  const int kLinkMarginTop = 4;
-  link_section->SetLayoutManager(new views::BoxLayout(
-      views::BoxLayout::kHorizontal, gfx::Insets(kLinkMarginTop, 0)));
-  link_section->AddChildView(site_settings_link);
-  site_settings_view_->AddChildView(link_section);
-
   SizeToContents();
 }
 
@@ -774,33 +795,34 @@ void PageInfoBubbleView::SetIdentityInfo(const IdentityInfo& identity_info) {
       header_->AddResetDecisionsLabel();
     }
 
-    if (PageInfoUI::ShouldShowCertificateLink()) {
-      // The text of link to the Certificate Viewer varies depending on the
-      // validity of the Certificate.
-      const bool valid_identity = (identity_info.identity_status !=
-                                   PageInfo::SITE_IDENTITY_STATUS_ERROR);
-      const base::string16 link_title = l10n_util::GetStringUTF16(
-          valid_identity ? IDS_PAGE_INFO_CERTIFICATE_VALID_LINK
-                         : IDS_PAGE_INFO_CERTIFICATE_INVALID_LINK);
+    // Show information about the page's certificate.
+    // The text of link to the Certificate Viewer varies depending on the
+    // validity of the Certificate.
+    const bool valid_identity =
+        (identity_info.identity_status != PageInfo::SITE_IDENTITY_STATUS_ERROR);
+    const base::string16 link_title = l10n_util::GetStringUTF16(
+        valid_identity ? IDS_PAGE_INFO_CERTIFICATE_VALID_LINK
+                       : IDS_PAGE_INFO_CERTIFICATE_INVALID_LINK);
 
-      // Create the link to add to the Certificate Section.
-      views::Link* certificate_viewer_link = new views::Link(link_title);
-      certificate_viewer_link->set_id(
-          PageInfoBubbleView::VIEW_ID_PAGE_INFO_LINK_CERTIFICATE_VIEWER);
-      certificate_viewer_link->set_listener(this);
-      if (valid_identity) {
-        certificate_viewer_link->SetTooltipText(l10n_util::GetStringFUTF16(
-            IDS_PAGE_INFO_CERTIFICATE_VALID_LINK_TOOLTIP,
-            base::UTF8ToUTF16(certificate_->issuer().GetDisplayName())));
-      }
-
-      // Add the Certificate Section.
-      site_settings_view_->AddChildViewAt(
-          CreateInspectLinkSection(PageInfoUI::GetCertificateIcon(),
-                                   IDS_PAGE_INFO_CERTIFICATE,
-                                   certificate_viewer_link),
-          0);
+    // Create the link to add to the Certificate Section.
+    views::Link* certificate_viewer_link = new views::Link(link_title);
+    certificate_viewer_link->set_id(
+        PageInfoBubbleView::VIEW_ID_PAGE_INFO_LINK_CERTIFICATE_VIEWER);
+    certificate_viewer_link->set_listener(this);
+    certificate_viewer_link->SetUnderline(false);
+    if (valid_identity) {
+      certificate_viewer_link->SetTooltipText(l10n_util::GetStringFUTF16(
+          IDS_PAGE_INFO_CERTIFICATE_VALID_LINK_TOOLTIP,
+          base::UTF8ToUTF16(certificate_->issuer().GetDisplayName())));
+    } else {
+      certificate_viewer_link->SetTooltipText(l10n_util::GetStringUTF16(
+          IDS_PAGE_INFO_CERTIFICATE_INVALID_LINK_TOOLTIP));
     }
+
+    // Add the Certificate Section.
+    site_settings_view_->AddChildView(CreateInspectLinkSection(
+        PageInfoUI::GetCertificateIcon(), IDS_PAGE_INFO_CERTIFICATE,
+        certificate_viewer_link));
   }
 
   if (identity_info.show_change_password_buttons) {
@@ -820,25 +842,6 @@ views::View* PageInfoBubbleView::CreateSiteSettingsView(int side_margin) {
   site_settings_view->SetLayoutManager(box_layout);
   box_layout->set_cross_axis_alignment(
       views::BoxLayout::CROSS_AXIS_ALIGNMENT_STRETCH);
-
-  // Create the link and icon for the Certificate section.
-  cookie_dialog_link_ = new views::Link(
-      l10n_util::GetPluralStringFUTF16(IDS_PAGE_INFO_NUM_COOKIES, 0));
-  cookie_dialog_link_->set_id(
-      PageInfoBubbleView::VIEW_ID_PAGE_INFO_LINK_COOKIE_DIALOG);
-  cookie_dialog_link_->set_listener(this);
-
-  PageInfoUI::PermissionInfo info;
-  info.type = CONTENT_SETTINGS_TYPE_COOKIES;
-  info.setting = CONTENT_SETTING_ALLOW;
-  info.is_incognito =
-      Profile::FromBrowserContext(web_contents()->GetBrowserContext())
-          ->IsOffTheRecord();
-
-  const gfx::ImageSkia icon = PageInfoUI::GetPermissionIcon(info).AsImageSkia();
-  // Add the Cookies section.
-  site_settings_view->AddChildView(CreateInspectLinkSection(
-      icon, IDS_PAGE_INFO_COOKIES, cookie_dialog_link_));
 
   return site_settings_view;
 }

@@ -85,7 +85,7 @@ const int kDefaultCheckCloseTimeoutMs = 2000;
 
 // The minimum amount of data that we allow in the ALSA buffer before starting
 // to skip inputs with no available data.
-const int kMinBufferedDataMs = 8;
+const int kMinBufferedDataMs = 20;
 
 // A list of supported sample rates.
 // TODO(jyw): move this up into chromecast/public for 1) documentation and
@@ -320,7 +320,7 @@ void StreamMixerAlsa::CreatePostProcessors(
   mix_filter_ = filter_groups_.back().get();
 
   filter_groups_.push_back(base::MakeUnique<FilterGroup>(
-      num_output_channels_, false /* mono_mixer */, "linearize",
+      kNumInputChannels, false /* mono_mixer */, "linearize",
       pipeline_parser->GetLinearizePipeline(),
       std::unordered_set<std::string>() /* device_ids */,
       std::vector<FilterGroup*>({mix_filter_})));
@@ -566,6 +566,7 @@ void StreamMixerAlsa::FinishFinalize() {
 
 void StreamMixerAlsa::Start() {
   DCHECK(mixer_task_runner_->BelongsToCurrentThread());
+  output_samples_per_second_ = requested_output_samples_per_second_;
   if (!pcm_) {
     RETURN_REPORT_ERROR(PcmOpen, &pcm_, alsa_device_name_.c_str(),
                         SND_PCM_STREAM_PLAYBACK, 0);
@@ -937,6 +938,19 @@ void StreamMixerAlsa::WriteMixedPcm(int frames) {
                              linearize_filter_->GetRenderingDelayMicroseconds();
   }
 
+  // Downmix reference signal to mono to reduce CPU load.
+  int mix_channel_count = mix_filter_->GetOutputChannelCount();
+
+  if (num_output_channels_ == 1 && mix_channel_count != num_output_channels_) {
+    for (int i = 0; i < frames; ++i) {
+      float sum = 0;
+      for (int c = 0; c < mix_channel_count; ++c) {
+        sum += mix_filter_->interleaved()[i * mix_channel_count + c];
+      }
+      mix_filter_->interleaved()[i] = sum / mix_channel_count;
+    }
+  }
+
   // Hard limit to [1.0, -1.0]
   for (int i = 0; i < frames * num_output_channels_; ++i) {
     mix_filter_->interleaved()[i] =
@@ -949,6 +963,16 @@ void StreamMixerAlsa::WriteMixedPcm(int frames) {
         num_output_channels_,
         reinterpret_cast<uint8_t*>(mix_filter_->interleaved()),
         InterleavedSize(frames));
+  }
+
+  // Drop extra channels from linearize filter if necessary.
+  int linearize_channel_count = linearize_filter_->GetOutputChannelCount();
+  if (num_output_channels_ == 1 &&
+      linearize_channel_count != num_output_channels_) {
+    for (int i = 0; i < frames; ++i) {
+      linearize_filter_->interleaved()[i] =
+          linearize_filter_->interleaved()[i * linearize_channel_count];
+    }
   }
 
   uint8_t* data;
@@ -1099,6 +1123,17 @@ void StreamMixerAlsa::SetPostProcessorConfig(const std::string& name,
   for (auto&& filter_group : filter_groups_) {
     filter_group->SetPostProcessorConfig(name, config);
   }
+}
+
+void StreamMixerAlsa::UpdatePlayoutChannel(int playout_channel) {
+  RUN_ON_MIXER_THREAD(&StreamMixerAlsa::UpdatePlayoutChannel, playout_channel);
+  LOG(INFO) << "Update playout channel: " << playout_channel;
+  DCHECK(mix_filter_);
+  DCHECK(linearize_filter_);
+
+  mix_filter_->SetMixToMono(num_output_channels_ == 1 &&
+                            playout_channel == kChannelAll);
+  linearize_filter_->UpdatePlayoutChannel(playout_channel);
 }
 
 void StreamMixerAlsa::SetFilterFrameAlignmentForTest(

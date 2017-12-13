@@ -10,7 +10,6 @@
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
@@ -30,9 +29,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service_builder.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/arc/arc_prefs.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_session_runner.h"
 #include "components/arc/arc_util.h"
@@ -130,7 +129,7 @@ class ArcSessionManagerTest : public InProcessBrowserTest {
     ArcAuthNotification::DisableForTesting();
     ArcSessionManager::EnableCheckAndroidManagementForTesting();
     ArcSessionManager::Get()->SetArcSessionRunnerForTesting(
-        base::MakeUnique<ArcSessionRunner>(base::Bind(FakeArcSession::Create)));
+        std::make_unique<ArcSessionRunner>(base::Bind(FakeArcSession::Create)));
 
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 

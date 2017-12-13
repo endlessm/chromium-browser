@@ -7,7 +7,7 @@
 #include <sys/socket.h>
 #include <vector>
 
-#include "ash/ash_switches.h"
+#include "ash/public/cpp/ash_switches.h"
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/macros.h"
@@ -50,7 +50,6 @@
 #include "ui/compositor/compositor_switches.h"
 #include "ui/display/display_switches.h"
 #include "ui/events/event_switches.h"
-#include "ui/gfx/color_space_switches.h"
 #include "ui/gl/gl_switches.h"
 #include "ui/ozone/public/ozone_switches.h"
 #include "ui/wm/core/wm_core_switches.h"
@@ -99,7 +98,6 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableRGBA4444Textures,
     ::switches::kDisableSeccompFilterSandbox,
     ::switches::kDisableSetuidSandbox,
-    ::switches::kDisableSlimmingPaintInvalidation,
     ::switches::kDisableThreadedScrolling,
     ::switches::kDisableTouchDragDrop,
     ::switches::kDisableZeroCopy,
@@ -120,8 +118,8 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kEnablePinch,
     ::switches::kEnablePreferCompositingToLCDText,
     ::switches::kEnableRGBA4444Textures,
+    ::switches::kEnableSlimmingPaintV175,
     ::switches::kEnableSlimmingPaintV2,
-    ::switches::kEnableSlimmingPaintInvalidation,
     ::switches::kEnableTouchDragDrop,
     ::switches::kEnableUnifiedDesktop,
     ::switches::kEnableUseZoomForDSF,
@@ -182,6 +180,7 @@ void DeriveCommandLine(const GURL& start_url,
     ash::switches::kAshTouchHud,
     ash::switches::kAuraLegacyPowerButton,
     ash::switches::kForceClamshellPowerButton,
+    ash::switches::kShowMdLogin,
     chromeos::switches::kDefaultWallpaperLarge,
     chromeos::switches::kDefaultWallpaperSmall,
     chromeos::switches::kGuestWallpaperLarge,
@@ -217,21 +216,18 @@ void DeriveCommandLine(const GURL& start_url,
     chromeos::switches::kHasChromeOSKeyboard,
     chromeos::switches::kLoginProfile,
     chromeos::switches::kNaturalScrollDefault,
-    chromeos::switches::kShowMdLogin,
     chromeos::switches::kShowNonMdLogin,
     chromeos::switches::kSystemInDevMode,
     policy::switches::kDeviceManagementUrl,
     wm::switches::kWindowAnimationsDisabled,
   };
-  command_line->CopySwitchesFrom(base_command_line,
-                                 kForwardSwitches,
+  command_line->CopySwitchesFrom(base_command_line, kForwardSwitches,
                                  arraysize(kForwardSwitches));
 
   if (start_url.is_valid())
     command_line->AppendArg(start_url.spec());
 
-  for (base::DictionaryValue::Iterator it(new_switches);
-       !it.IsAtEnd();
+  for (base::DictionaryValue::Iterator it(new_switches); !it.IsAtEnd();
        it.Advance()) {
     std::string value;
     CHECK(it.value().GetAsString(&value));
@@ -263,7 +259,7 @@ class ChromeRestartRequest
   void RestartJob();
 
   // Called when RestartJob D-Bus method call is complete.
-  void OnRestartJob(base::ScopedFD local_auth_fd, DBusMethodCallStatus status);
+  void OnRestartJob(base::ScopedFD local_auth_fd, bool result);
 
   const std::vector<std::string> argv_;
   base::OneShotTimer timer_;
@@ -288,9 +284,8 @@ void ChromeRestartRequest::Start() {
   // just kills us so settings may be lost. See http://crosbug.com/13102
   g_browser_process->FlushLocalStateAndReply(
       base::BindOnce(&ChromeRestartRequest::RestartJob, AsWeakPtr()));
-  timer_.Start(
-      FROM_HERE, base::TimeDelta::FromSeconds(3), this,
-      &ChromeRestartRequest::RestartJob);
+  timer_.Start(FROM_HERE, base::TimeDelta::FromSeconds(3), this,
+               &ChromeRestartRequest::RestartJob);
 }
 
 void ChromeRestartRequest::RestartJob() {
@@ -321,7 +316,7 @@ void ChromeRestartRequest::RestartJob() {
 }
 
 void ChromeRestartRequest::OnRestartJob(base::ScopedFD local_auth_fd,
-                                        DBusMethodCallStatus status) {
+                                        bool result) {
   // Now that the call is complete, local_auth_fd can be closed and discarded,
   // which will happen automatically when it goes out of scope.
   VLOG(1) << "OnRestartJob";

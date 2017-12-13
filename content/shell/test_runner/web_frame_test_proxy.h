@@ -8,8 +8,10 @@
 #include <memory>
 #include <utility>
 
+#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "content/public/common/content_switches.h"
 #include "content/shell/test_runner/test_runner_export.h"
 #include "content/shell/test_runner/web_frame_test_client.h"
 #include "third_party/WebKit/public/platform/WebEffectiveConnectionType.h"
@@ -153,14 +155,6 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
     test_client()->DidFinishLoad();
   }
 
-  void DidNavigateWithinPage(const blink::WebHistoryItem& history_item,
-                             blink::WebHistoryCommitType commit_type,
-                             bool content_initiated) override {
-    Base::DidNavigateWithinPage(history_item, commit_type, content_initiated);
-    test_client()->DidNavigateWithinPage(history_item, commit_type,
-                                         content_initiated);
-  }
-
   void DidStopLoading() override {
     Base::DidStopLoading();
     test_client()->DidStopLoading();
@@ -247,18 +241,11 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
     return Base::DecidePolicyForNavigation(info);
   }
 
-  void DidStartLoading(bool to_different_document) override {
-    Base::DidStartLoading(to_different_document);
-    test_client()->DidStartLoading(to_different_document);
-  }
-
-  void WillStartUsingPeerConnectionHandler(
-      blink::WebRTCPeerConnectionHandler* handler) override {
-    // RenderFrameImpl::willStartUsingPeerConnectionHandler can not be mocked.
-    // See http://crbug/363285.
-  }
-
   blink::WebUserMediaClient* UserMediaClient() override {
+    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kUseFakeUIForMediaStream)) {
+      return Base::UserMediaClient();
+    }
     return test_client()->UserMediaClient();
   }
 

@@ -4,6 +4,8 @@
 
 #include "chromeos/dbus/fake_power_manager_client.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
@@ -75,11 +77,15 @@ void FakePowerManagerClient::RequestStatusUpdate() {
 
 void FakePowerManagerClient::RequestSuspend() {}
 
-void FakePowerManagerClient::RequestRestart() {
+void FakePowerManagerClient::RequestRestart(
+    power_manager::RequestRestartReason reason,
+    const std::string& description) {
   ++num_request_restart_calls_;
 }
 
-void FakePowerManagerClient::RequestShutdown() {
+void FakePowerManagerClient::RequestShutdown(
+    power_manager::RequestShutdownReason reason,
+    const std::string& description) {
   ++num_request_shutdown_calls_;
 }
 
@@ -215,7 +221,7 @@ void FakePowerManagerClient::NotifyObservers() {
 }
 
 void FakePowerManagerClient::HandleSuspendReadiness() {
-  CHECK(num_pending_suspend_readiness_callbacks_ > 0);
+  CHECK_GT(num_pending_suspend_readiness_callbacks_, 0);
 
   --num_pending_suspend_readiness_callbacks_;
 }

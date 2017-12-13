@@ -99,7 +99,8 @@ public class PeerConnection {
     // List of URIs associated with this server. Valid formats are described
     // in RFC7064 and RFC7065, and more may be added in the future. The "host"
     // part of the URI may contain either an IP address or a hostname.
-    public final String uri;
+    @Deprecated public final String uri;
+    public final List<String> urls;
     public final String username;
     public final String password;
     public final TlsCertPolicy tlsCertPolicy;
@@ -113,53 +114,90 @@ public class PeerConnection {
     // List of protocols to be used in the TLS ALPN extension.
     public final List<String> tlsAlpnProtocols;
 
+    // List of elliptic curves to be used in the TLS elliptic curves extension.
+    // Only curve names supported by OpenSSL should be used (eg. "P-256","X25519").
+    public final List<String> tlsEllipticCurves;
+
     /** Convenience constructor for STUN servers. */
+    @Deprecated
     public IceServer(String uri) {
       this(uri, "", "");
     }
 
+    @Deprecated
     public IceServer(String uri, String username, String password) {
       this(uri, username, password, TlsCertPolicy.TLS_CERT_POLICY_SECURE);
     }
 
+    @Deprecated
     public IceServer(String uri, String username, String password, TlsCertPolicy tlsCertPolicy) {
       this(uri, username, password, tlsCertPolicy, "");
     }
 
+    @Deprecated
     public IceServer(String uri, String username, String password, TlsCertPolicy tlsCertPolicy,
         String hostname) {
-      this(uri, username, password, tlsCertPolicy, hostname, null);
+      this(uri, Collections.singletonList(uri), username, password, tlsCertPolicy, hostname, null,
+          null);
     }
 
-    private IceServer(String uri, String username, String password, TlsCertPolicy tlsCertPolicy,
-        String hostname, List<String> tlsAlpnProtocols) {
+    private IceServer(String uri, List<String> urls, String username, String password,
+        TlsCertPolicy tlsCertPolicy, String hostname, List<String> tlsAlpnProtocols,
+        List<String> tlsEllipticCurves) {
+      if (uri == null || urls == null || urls.isEmpty()) {
+        throw new IllegalArgumentException("uri == null || urls == null || urls.isEmpty()");
+      }
+      for (String it : urls) {
+        if (it == null) {
+          throw new IllegalArgumentException("urls element is null: " + urls);
+        }
+      }
+      if (username == null) {
+        throw new IllegalArgumentException("username == null");
+      }
+      if (password == null) {
+        throw new IllegalArgumentException("password == null");
+      }
+      if (hostname == null) {
+        throw new IllegalArgumentException("hostname == null");
+      }
       this.uri = uri;
+      this.urls = urls;
       this.username = username;
       this.password = password;
       this.tlsCertPolicy = tlsCertPolicy;
       this.hostname = hostname;
       this.tlsAlpnProtocols = tlsAlpnProtocols;
+      this.tlsEllipticCurves = tlsEllipticCurves;
     }
 
     public String toString() {
-      return uri + " [" + username + ":" + password + "] [" + tlsCertPolicy + "] [" + hostname
-          + "] [" + tlsAlpnProtocols + "]";
+      return urls + " [" + username + ":" + password + "] [" + tlsCertPolicy + "] [" + hostname
+          + "] [" + tlsAlpnProtocols + "] [" + tlsEllipticCurves + "]";
     }
 
     public static Builder builder(String uri) {
-      return new Builder(uri);
+      return new Builder(Collections.singletonList(uri));
+    }
+
+    public static Builder builder(List<String> urls) {
+      return new Builder(urls);
     }
 
     public static class Builder {
-      private String uri;
+      private final List<String> urls;
       private String username = "";
       private String password = "";
       private TlsCertPolicy tlsCertPolicy = TlsCertPolicy.TLS_CERT_POLICY_SECURE;
       private String hostname = "";
       private List<String> tlsAlpnProtocols;
+      private List<String> tlsEllipticCurves;
 
-      private Builder(String uri) {
-        this.uri = uri;
+      private Builder(List<String> urls) {
+        if (urls == null || urls.isEmpty()) {
+          throw new IllegalArgumentException("urls == null || urls.isEmpty(): " + urls);
+        }
+        this.urls = urls;
       }
 
       public Builder setUsername(String username) {
@@ -187,8 +225,14 @@ public class PeerConnection {
         return this;
       }
 
+      public Builder setTlsEllipticCurves(List<String> tlsEllipticCurves) {
+        this.tlsEllipticCurves = tlsEllipticCurves;
+        return this;
+      }
+
       public IceServer createIceServer() {
-        return new IceServer(uri, username, password, tlsCertPolicy, hostname, tlsAlpnProtocols);
+        return new IceServer(urls.get(0), urls, username, password, tlsCertPolicy, hostname,
+            tlsAlpnProtocols, tlsEllipticCurves);
       }
     }
   }
@@ -259,6 +303,9 @@ public class PeerConnection {
     // Can be set to Integer.MAX_VALUE to effectively disable the limit.
     public int maxIPv6Networks;
     public IntervalRange iceRegatherIntervalRange;
+
+    // This is an optional wrapper for the C++ webrtc::TurnCustomizer.
+    public TurnCustomizer turnCustomizer;
 
     // TODO(deadbeef): Instead of duplicating the defaults here, we should do
     // something to pick up the defaults from C++. The Objective-C equivalent
@@ -445,6 +492,22 @@ public class PeerConnection {
 
   public native void close();
 
+  /**
+   * Free native resources associated with this PeerConnection instance.
+   * <p>
+   * This method removes a reference count from the C++ PeerConnection object,
+   * which should result in it being destroyed. It also calls equivalent
+   * "dispose" methods on the Java objects attached to this PeerConnection
+   * (streams, senders, receivers), such that their associated C++ objects
+   * will also be destroyed.
+   * <p>
+   * Note that this method cannot be safely called from an observer callback
+   * (PeerConnection.Observer, DataChannel.Observer, etc.). If you want to, for
+   * example, destroy the PeerConnection after an "ICE failed" callback, you
+   * must do this asynchronously (in other words, unwind the stack first). See
+   * <a href="https://bugs.chromium.org/p/webrtc/issues/detail?id=3721">bug
+   * 3721</a> for more details.
+   */
   public void dispose() {
     close();
     for (MediaStream stream : localStreams) {

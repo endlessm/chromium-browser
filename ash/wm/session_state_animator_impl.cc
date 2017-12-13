@@ -4,6 +4,7 @@
 
 #include "ash/wm/session_state_animator_impl.h"
 
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -11,7 +12,6 @@
 #include "ash/shell.h"
 #include "ash/wm/wm_window_animations.h"
 #include "base/barrier_closure.h"
-#include "base/memory/ptr_util.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/compositor/layer_animation_observer.h"
@@ -44,8 +44,8 @@ gfx::Transform GetSlowCloseTransform() {
   gfx::Size root_size = Shell::GetPrimaryRootWindow()->bounds().size();
   gfx::Transform transform;
   transform.Translate(
-      floor(0.5 * (1.0 - kSlowCloseSizeRatio) * root_size.width() + 0.5),
-      floor(0.5 * (1.0 - kSlowCloseSizeRatio) * root_size.height() + 0.5));
+      std::round(0.5 * (1.0 - kSlowCloseSizeRatio) * root_size.width()),
+      std::round(0.5 * (1.0 - kSlowCloseSizeRatio) * root_size.height()));
   transform.Scale(kSlowCloseSizeRatio, kSlowCloseSizeRatio);
   return transform;
 }
@@ -56,8 +56,8 @@ gfx::Transform GetFastCloseTransform() {
   gfx::Size root_size = Shell::GetPrimaryRootWindow()->bounds().size();
   gfx::Transform transform;
 
-  transform.Translate(floor(0.5 * root_size.width() + 0.5),
-                      floor(0.5 * root_size.height() + 0.5));
+  transform.Translate(std::round(0.5 * root_size.width()),
+                      std::round(0.5 * root_size.height()));
   transform.Scale(kMinimumScale, kMinimumScale);
   return transform;
 }
@@ -258,9 +258,9 @@ void StartGrayscaleBrightnessAnimationForWindow(
   ui::LayerAnimator* animator = window->layer()->GetAnimator();
 
   std::unique_ptr<ui::LayerAnimationSequence> brightness_sequence =
-      base::MakeUnique<ui::LayerAnimationSequence>();
+      std::make_unique<ui::LayerAnimationSequence>();
   std::unique_ptr<ui::LayerAnimationSequence> grayscale_sequence =
-      base::MakeUnique<ui::LayerAnimationSequence>();
+      std::make_unique<ui::LayerAnimationSequence>();
 
   std::unique_ptr<ui::LayerAnimationElement> brightness_element =
       ui::LayerAnimationElement::CreateBrightnessElement(target, duration);

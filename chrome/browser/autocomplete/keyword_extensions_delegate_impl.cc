@@ -47,6 +47,14 @@ KeywordExtensionsDelegateImpl::KeywordExtensionsDelegateImpl(
 KeywordExtensionsDelegateImpl::~KeywordExtensionsDelegateImpl() {
 }
 
+void KeywordExtensionsDelegateImpl::DeleteSuggestion(
+    const TemplateURL* template_url,
+    const base::string16& suggestion_text) {
+  extensions::ExtensionOmniboxEventRouter::OnDeleteSuggestion(
+      profile_, template_url->GetExtensionId(),
+      base::UTF16ToUTF8(suggestion_text));
+}
+
 void  KeywordExtensionsDelegateImpl::IncrementInputId() {
   current_input_id_ = ++global_input_uid_;
 }
@@ -143,8 +151,8 @@ void KeywordExtensionsDelegateImpl::Observe(
       // session.
       base::string16 keyword, remaining_input;
       if (matches()->empty() || current_keyword_extension_id_.empty() ||
-          !KeywordProvider::ExtractKeywordFromInput(
-              input, &keyword, &remaining_input))
+          !KeywordProvider::ExtractKeywordFromInput(input, model, &keyword,
+                                                    &remaining_input))
         return;
 
       const TemplateURL* template_url(
@@ -166,7 +174,7 @@ void KeywordExtensionsDelegateImpl::Observe(
       // direct calls from the development console, outside the normal flow of
       // user input.
       base::string16 keyword, remaining_input;
-      if (!KeywordProvider::ExtractKeywordFromInput(input, &keyword,
+      if (!KeywordProvider::ExtractKeywordFromInput(input, model, &keyword,
                                                     &remaining_input))
         return;
       const TemplateURL* template_url =
@@ -189,11 +197,11 @@ void KeywordExtensionsDelegateImpl::Observe(
         // Because these matches are async, we should never let them become the
         // default match, lest we introduce race conditions in the omnibox user
         // interaction.
-        extension_suggest_matches_.push_back(
-            provider_->CreateAutocompleteMatch(
-                template_url, keyword.length(), input, keyword.length(),
-                base::UTF8ToUTF16(suggestion.content), false,
-                first_relevance - (i + 1)));
+        extension_suggest_matches_.push_back(provider_->CreateAutocompleteMatch(
+            template_url, keyword.length(), input, keyword.length(),
+            base::UTF8ToUTF16(suggestion.content), false,
+            first_relevance - (i + 1),
+            suggestion.deletable && *suggestion.deletable));
 
         AutocompleteMatch* match = &extension_suggest_matches_.back();
         match->contents.assign(base::UTF8ToUTF16(suggestion.description));

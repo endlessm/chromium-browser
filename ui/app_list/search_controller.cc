@@ -23,7 +23,9 @@
 namespace {
 
 // Maximum time (in milliseconds) to wait to the search providers to finish.
-constexpr int kStopTimeMS = 1500;
+// The value is increased from 1500 ms. See crbug.com/765339.
+constexpr int kStopTimeMS = 60000;
+
 }
 
 namespace app_list {
@@ -72,14 +74,15 @@ void SearchController::OpenResult(SearchResult* result, int event_flags) {
   if (!result)
     return;
 
-  // Count AppList.Search here because it is composed of search + action.
-  base::RecordAction(base::UserMetricsAction("AppList_Search"));
-
   UMA_HISTOGRAM_ENUMERATION(kSearchResultOpenDisplayTypeHistogram,
                             result->display_type(),
                             SearchResult::DISPLAY_TYPE_LAST);
 
+  // Record the search metric if the SearchResult is not a suggested app.
   if (result->display_type() != SearchResult::DISPLAY_RECOMMENDATION) {
+    // Count AppList.Search here because it is composed of search + action.
+    base::RecordAction(base::UserMetricsAction("AppList_Search"));
+
     UMA_HISTOGRAM_COUNTS_100(kSearchQueryLength, search_box_->text().size());
 
     if (result->distance_from_origin() >= 0) {

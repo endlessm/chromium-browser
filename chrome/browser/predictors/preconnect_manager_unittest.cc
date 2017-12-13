@@ -74,7 +74,7 @@ class PreconnectManagerTest : public testing::Test {
 PreconnectManagerTest::PreconnectManagerTest()
     : mock_delegate_(
           base::MakeUnique<StrictMock<MockPreconnectManagerDelegate>>()),
-      context_getter_(new net::TestURLRequestContextGetter(
+      context_getter_(base::MakeRefCounted<net::TestURLRequestContextGetter>(
           base::ThreadTaskRunnerHandle::Get())),
       preconnect_manager_(base::MakeUnique<StrictMock<MockPreconnectManager>>(
           mock_delegate_->AsWeakPtr(),
@@ -200,25 +200,74 @@ TEST_F(PreconnectManagerTest, TestTwoConcurrentMainFrameUrls) {
   base::RunLoop().RunUntilIdle();
 }
 
-TEST_F(PreconnectManagerTest, TestStartPreresolveOneHost) {
-  GURL url_to_preresolve("http://cdn.google.com");
+// Checks that the PreconnectManager handles no more than one URL per host
+// simultaneously.
+TEST_F(PreconnectManagerTest, TestTwoConcurrentSameHostMainFrameUrls) {
+  GURL main_frame_url1("http://google.com/search?query=cats");
+  GURL url_to_preconnect1("http://cats.google.com");
+  net::CompletionCallback callback1;
+  GURL main_frame_url2("http://google.com/search?query=dogs");
+  GURL url_to_preconnect2("http://dogs.google.com");
 
-  EXPECT_CALL(*preconnect_manager_, PreresolveUrl(url_to_preresolve, _))
+  EXPECT_CALL(*preconnect_manager_, PreresolveUrl(url_to_preconnect1, _))
+      .WillOnce(DoAll(SaveArg<1>(&callback1), Return(net::ERR_IO_PENDING)));
+  preconnect_manager_->Start(main_frame_url1, {url_to_preconnect1},
+                             std::vector<GURL>());
+  // This suggestion should be dropped because the PreconnectManager already has
+  // a job for the "google.com" host.
+  preconnect_manager_->Start(main_frame_url2, {url_to_preconnect2},
+                             std::vector<GURL>());
+
+  EXPECT_CALL(*preconnect_manager_,
+              PreconnectUrl(url_to_preconnect1, main_frame_url1, true));
+  EXPECT_CALL(*mock_delegate_, PreconnectFinishedProxy(main_frame_url1));
+  callback1.Run(net::OK);
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(PreconnectManagerTest, TestStartPreresolveHost) {
+  GURL url("http://cdn.google.com/script.js");
+  GURL origin("http://cdn.google.com");
+
+  EXPECT_CALL(*preconnect_manager_, PreresolveUrl(origin, _))
       .WillOnce(Return(net::OK));
-  preconnect_manager_->StartPreresolveHosts({url_to_preresolve.host()});
+  preconnect_manager_->StartPreresolveHost(url);
   // PreconnectFinished shouldn't be called.
+  base::RunLoop().RunUntilIdle();
+
+  // Non http url shouldn't be preresovled.
+  GURL non_http_url("file:///tmp/index.html");
+  preconnect_manager_->StartPreresolveHost(non_http_url);
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(PreconnectManagerTest, TestStartPreresolveHosts) {
+  GURL cdn("http://cdn.google.com");
+  GURL fonts("http://fonts.google.com");
+
+  EXPECT_CALL(*preconnect_manager_, PreresolveUrl(cdn, _))
+      .WillOnce(Return(net::OK));
+  EXPECT_CALL(*preconnect_manager_, PreresolveUrl(fonts, _))
+      .WillOnce(Return(net::OK));
+  preconnect_manager_->StartPreresolveHosts({cdn.host(), fonts.host()});
   base::RunLoop().RunUntilIdle();
 }
 
 TEST_F(PreconnectManagerTest, TestStartPreconnectUrl) {
-  GURL url_to_preconnect("http://cdn.google.com");
+  GURL url("http://cdn.google.com/script.js");
+  GURL origin("http://cdn.google.com");
   bool allow_credentials = false;
 
-  EXPECT_CALL(*preconnect_manager_, PreresolveUrl(url_to_preconnect, _))
+  EXPECT_CALL(*preconnect_manager_, PreresolveUrl(origin, _))
       .WillOnce(Return(net::OK));
   EXPECT_CALL(*preconnect_manager_,
-              PreconnectUrl(url_to_preconnect, GURL(), allow_credentials));
-  preconnect_manager_->StartPreconnectUrl(url_to_preconnect, allow_credentials);
+              PreconnectUrl(origin, GURL(), allow_credentials));
+  preconnect_manager_->StartPreconnectUrl(url, allow_credentials);
+  base::RunLoop().RunUntilIdle();
+
+  // Non http url shouldn't be preconnected.
+  GURL non_http_url("file:///tmp/index.html");
+  preconnect_manager_->StartPreconnectUrl(non_http_url, allow_credentials);
   base::RunLoop().RunUntilIdle();
 }
 
@@ -244,7 +293,7 @@ TEST_F(PreconnectManagerTest, TestDetachedRequestHasHigherPriority) {
 
   // This url should come to the front of the queue.
   GURL detached_preresolve("http://ads.google.com");
-  preconnect_manager_->StartPreresolveHosts({detached_preresolve.host()});
+  preconnect_manager_->StartPreresolveHost(detached_preresolve);
   Mock::VerifyAndClearExpectations(preconnect_manager_.get());
 
   net::CompletionCallback detached_callback;

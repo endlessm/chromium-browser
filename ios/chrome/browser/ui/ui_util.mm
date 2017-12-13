@@ -6,8 +6,11 @@
 
 #import <UIKit/UIKit.h>
 
+#include "base/feature_list.h"
 #include "base/logging.h"
+#import "ios/chrome/browser/ui/toolbar/toolbar_controller_base_feature.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
+#include "ui/base/device_form_factor.h"
 #include "ui/gfx/ios/uikit_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -15,8 +18,7 @@
 #endif
 
 bool IsIPadIdiom() {
-  UIUserInterfaceIdiom idiom = [[UIDevice currentDevice] userInterfaceIdiom];
-  return idiom == UIUserInterfaceIdiomPad;
+  return ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET;
 }
 
 const CGFloat kPortraitWidth[INTERFACE_IDIOM_COUNT] = {
@@ -63,10 +65,15 @@ CGFloat StatusBarHeight() {
   // replaced with topLayoutGuide.
 
   if (IsIPhoneX()) {
-    // Return the height of the portrait status bar even in landscape because
-    // the Toolbar does not properly layout itself if the status bar height
-    // changes.
-    return 44;
+    if (base::FeatureList::IsEnabled(kSafeAreaCompatibleToolbar)) {
+      CGRect statusBarFrame = [UIApplication sharedApplication].statusBarFrame;
+      return CGRectGetHeight(statusBarFrame);
+    } else {
+      // Return the height of the portrait status bar even in landscape because
+      // the Toolbar does not properly layout itself if the status bar height
+      // changes.
+      return 44;
+    }
   }
 
   // Checking [UIApplication sharedApplication].statusBarFrame will return the

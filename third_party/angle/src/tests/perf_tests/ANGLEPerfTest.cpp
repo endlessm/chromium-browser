@@ -8,12 +8,26 @@
 //
 
 #include "ANGLEPerfTest.h"
-
 #include "third_party/perf/perf_test.h"
 
 #include <cassert>
 #include <cmath>
 #include <iostream>
+
+namespace
+{
+void EmptyPlatformMethod(angle::PlatformMethods *, const char *)
+{
+}
+
+void OverrideWorkaroundsD3D(angle::PlatformMethods *platform, angle::WorkaroundsD3D *workaroundsD3D)
+{
+    auto *angleRenderTest = static_cast<ANGLERenderTest *>(platform->context);
+    angleRenderTest->overrideWorkaroundsD3D(workaroundsD3D);
+}
+}  // namespace
+
+bool g_OnlyOneRunFrame = false;
 
 ANGLEPerfTest::ANGLEPerfTest(const std::string &name, const std::string &suffix)
     : mName(name),
@@ -46,7 +60,7 @@ void ANGLEPerfTest::run()
         {
             ++mNumStepsPerformed;
         }
-        if (mTimer->getElapsedTime() > mRunTimeSeconds)
+        if (mTimer->getElapsedTime() > mRunTimeSeconds || g_OnlyOneRunFrame)
         {
             mRunning = false;
         }
@@ -139,6 +153,13 @@ void ANGLERenderTest::SetUp()
     mEGLWindow = new EGLWindow(mTestParams.majorVersion, mTestParams.minorVersion,
                                mTestParams.eglParameters);
     mEGLWindow->setSwapInterval(0);
+
+    mPlatformMethods.overrideWorkaroundsD3D = OverrideWorkaroundsD3D;
+    mPlatformMethods.logError               = EmptyPlatformMethod;
+    mPlatformMethods.logWarning             = EmptyPlatformMethod;
+    mPlatformMethods.logInfo                = EmptyPlatformMethod;
+    mPlatformMethods.context                = this;
+    mEGLWindow->setPlatformMethods(&mPlatformMethods);
 
     if (!mOSWindow->initialize(mName, mTestParams.windowWidth, mTestParams.windowHeight))
     {

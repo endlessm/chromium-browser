@@ -6,11 +6,12 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <set>
 #include <utility>
 #include <vector>
 
-#include "ash/ash_switches.h"
+#include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/screen_util.h"
@@ -23,7 +24,6 @@
 #include "ash/wm/window_state.h"
 #include "base/command_line.h"
 #include "base/i18n/string_search.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/pathops/SkPathOps.h"
@@ -239,7 +239,7 @@ views::Widget* CreateBackgroundWidget(aura::Window* root_window,
   } else {
     views::View* content_view =
         new RoundedRectView(border_radius, SK_ColorTRANSPARENT);
-    content_view->SetBackground(base::MakeUnique<BackgroundWith1PxBorder>(
+    content_view->SetBackground(std::make_unique<BackgroundWith1PxBorder>(
         background_color, border_color, border_thickness, border_radius));
     widget->SetContentsView(content_view);
   }
@@ -249,8 +249,8 @@ views::Widget* CreateBackgroundWidget(aura::Window* root_window,
   return widget;
 }
 
-bool IsMinimizedStateType(wm::WindowStateType type) {
-  return type == wm::WINDOW_STATE_TYPE_MINIMIZED;
+bool IsMinimizedStateType(mojom::WindowStateType type) {
+  return type == mojom::WindowStateType::MINIMIZED;
 }
 
 }  // namespace
@@ -277,7 +277,7 @@ WindowGrid::WindowGrid(aura::Window* root_window,
     window_observer_.Add(window);
     window_state_observer_.Add(wm::GetWindowState(window));
     window_list_.push_back(
-        base::MakeUnique<WindowSelectorItem>(window, window_selector_, this));
+        std::make_unique<WindowSelectorItem>(window, window_selector_, this));
   }
 }
 
@@ -633,13 +633,13 @@ void WindowGrid::OnWindowBoundsChanged(aura::Window* window,
 }
 
 void WindowGrid::OnPostWindowStateTypeChange(wm::WindowState* window_state,
-                                             wm::WindowStateType old_type) {
+                                             mojom::WindowStateType old_type) {
   // During preparation, window state can change, e.g. updating shelf
   // visibility may show the temporarily hidden (minimized) panels.
   if (!prepared_for_overview_)
     return;
 
-  wm::WindowStateType new_type = window_state->GetStateType();
+  mojom::WindowStateType new_type = window_state->GetStateType();
   if (IsMinimizedStateType(old_type) == IsMinimizedStateType(new_type))
     return;
 

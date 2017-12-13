@@ -21,6 +21,8 @@ class FindIsolate(quest.Quest):
     self._builder_name = _BuilderNameForConfiguration(configuration)
     self._target = target
 
+    self._previous_builds = {}
+
   def __eq__(self, other):
     return (isinstance(other, type(self)) and
             self._builder_name == other._builder_name)
@@ -29,16 +31,20 @@ class FindIsolate(quest.Quest):
     return 'Build'
 
   def Start(self, change):
-    return _FindIsolateExecution(self._builder_name, self._target, change)
+    return _FindIsolateExecution(self._builder_name, self._target, change,
+                                 self._previous_builds)
 
 
 class _FindIsolateExecution(execution.Execution):
 
-  def __init__(self, builder_name, target, change):
+  def __init__(self, builder_name, target, change, previous_builds):
     super(_FindIsolateExecution, self).__init__()
     self._builder_name = builder_name
     self._target = target
     self._change = change
+    # previous_builds is shared among all Executions of the same Quest.
+    self._previous_builds = previous_builds
+
     self._build = None
 
   def _AsDict(self):
@@ -47,39 +53,64 @@ class _FindIsolateExecution(execution.Execution):
     }
 
   def _Poll(self):
-    # Look for the .isolate in our cache.
+    if self._CheckCompleted():
+      return
+
+    if self._build:
+      self._CheckBuildStatus()
+      return
+
+    self._RequestBuild()
+
+  def _CheckCompleted(self):
+    """Checks the isolate cache to see if a build is already available.
+
+    Returns:
+      True iff the isolate was found, meaning the execution is completed.
+    """
     try:
       isolate_hash = isolate.Get(self._builder_name, self._change, self._target)
     except KeyError:
-      isolate_hash = None
+      return False
+    self._Complete(result_arguments={'isolate_hash': isolate_hash})
+    return True
 
-    if isolate_hash:
-      self._Complete(
-          result_arguments={'isolate_hash': isolate_hash})
+  def _CheckBuildStatus(self):
+    """Checks on the status of a previously requested build.
+
+    Raises:
+      BuildError: The build failed, was canceled, or didn't produce an isolate.
+    """
+    status = buildbucket_service.GetJobStatus(self._build)
+
+    if status['build']['status'] != 'COMPLETED':
       return
 
-    # Check the status of a previously requested build.
-    if self._build:
-      status = buildbucket_service.GetJobStatus(self._build)
-
-      if status['build']['status'] != 'COMPLETED':
+    if status['build']['result'] == 'FAILURE':
+      raise BuildError('Build failed: ' + status['build']['failure_reason'])
+    elif status['build']['result'] == 'CANCELED':
+      raise BuildError('Build was canceled: ' +
+                       status['build']['cancelation_reason'])
+    else:
+      if self._CheckCompleted():
         return
+      raise BuildError('Buildbucket says the build completed successfully, '
+                       "but Pinpoint can't find the isolate hash.")
 
-      if status['build']['result'] == 'FAILURE':
-        raise BuildError('Build failed: ' + status['build']['failure_reason'])
-      elif status['build']['result'] == 'CANCELED':
-        raise BuildError('Build was canceled: ' +
-                         status['build']['cancelation_reason'])
-      else:
-        # It's possible for there to be a race condition if the builder uploads
-        # the isolate and completes the build between the above isolate lookup
-        # and buildbucket lookup, but right now, it takes builds a few minutes
-        # to package the build, so that doesn't happen.
-        raise BuildError('Buildbucket says the build completed successfully, '
-                         "but Pinpoint can't find the isolate hash.")
+  def _RequestBuild(self):
+    """Requests a build.
 
-    # Request a build!
-    self._build = _RequestBuild(self._builder_name, self._change)['build']['id']
+    If a previous Execution already requested a build for this Change, returns
+    that build instead of requesting a new one.
+    """
+    if self._change in self._previous_builds:
+      # If another Execution already requested a build, reuse that one.
+      self._build = self._previous_builds[self._change]
+    else:
+      # Request a build!
+      buildbucket_info = _RequestBuild(self._builder_name, self._change)
+      self._build = buildbucket_info['build']['id']
+      self._previous_builds[self._change] = self._build
 
 
 def _BuilderNameForConfiguration(configuration):
@@ -124,14 +155,7 @@ def _RequestBuild(builder_name, change):
   }
 
   if change.patch:
-    # TODO: Support Gerrit.
-    # https://github.com/catapult-project/catapult/issues/3599
-    parameters['properties'].update({
-        'patch_storage': 'rietveld',
-        'rietveld': change.patch.server,
-        'issue': change.patch.issue,
-        'patchset': change.patch.patchset,
-    })
+    parameters['properties'].update(change.patch.BuildParameters())
 
   # TODO: Look up Buildbucket bucket from builder_name.
   return buildbucket_service.Put(BUCKET, parameters)

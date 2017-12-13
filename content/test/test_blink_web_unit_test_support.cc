@@ -63,14 +63,14 @@ class DummyTaskRunner : public base::SingleThreadTaskRunner {
  public:
   DummyTaskRunner() : thread_id_(base::PlatformThread::CurrentId()) {}
 
-  bool PostDelayedTask(const tracked_objects::Location& from_here,
+  bool PostDelayedTask(const base::Location& from_here,
                        base::OnceClosure task,
                        base::TimeDelta delay) override {
     // Drop the delayed task.
     return false;
   }
 
-  bool PostNonNestableDelayedTask(const tracked_objects::Location& from_here,
+  bool PostNonNestableDelayedTask(const base::Location& from_here,
                                   base::OnceClosure task,
                                   base::TimeDelta delay) override {
     // Drop the delayed task.
@@ -116,7 +116,7 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport() {
     // of message loops, and their types are not known upfront. Some tests also
     // create their own thread bundles or message loops, and doing the same in
     // TestBlinkWebUnitTestSupport would introduce a conflict.
-    dummy_task_runner = make_scoped_refptr(new DummyTaskRunner());
+    dummy_task_runner = base::MakeRefCounted<DummyTaskRunner>();
     dummy_task_runner_handle.reset(
         new base::ThreadTaskRunnerHandle(dummy_task_runner));
   }
@@ -191,7 +191,7 @@ blink::WebIDBFactory* TestBlinkWebUnitTestSupport::IdbFactory() {
 std::unique_ptr<blink::WebURLLoader>
 TestBlinkWebUnitTestSupport::CreateURLLoader(
     const blink::WebURLRequest& request,
-    base::SingleThreadTaskRunner* task_runner) {
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   // This loader should be used only for process-local resources such as
   // data URLs.
   auto default_loader =

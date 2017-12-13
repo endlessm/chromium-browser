@@ -43,6 +43,11 @@ class Attempt(object):
         len(self._quests) == len(self._executions))
 
   @property
+  def exception(self):
+    assert self.completed
+    return self._last_execution.exception
+
+  @property
   def result_values(self):
     assert self.completed
     return dict((quest, execution.result_values)
@@ -73,9 +78,8 @@ class Attempt(object):
       return
 
     next_quest = self._quests[len(self._executions)]
+    arguments = {'change': self._change}
     if self._executions:
-      arguments = self._last_execution.result_arguments
-    else:
-      arguments = {'change': self._change}
+      arguments.update(self._last_execution.result_arguments)
 
     self._executions.append(next_quest.Start(**arguments))

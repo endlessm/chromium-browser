@@ -23,9 +23,9 @@
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/common/safebrowsing_messages.h"
+#include "components/safe_browsing/db/database_manager.h"
+#include "components/safe_browsing/db/whitelist_checker_client.h"
 #include "components/safe_browsing/proto/csd.pb.h"
-#include "components/safe_browsing_db/database_manager.h"
-#include "components/safe_browsing_db/whitelist_checker_client.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -398,7 +398,7 @@ void ClientSideDetectionHost::DidFinishNavigation(
   // report request we have to cancel it to make sure we don't display
   // an interstitial for the wrong page.  Note that this won't cancel
   // the server ping back but only cancel the showing of the
-  // interstial.
+  // interstitial.
   weak_factory_.InvalidateWeakPtrs();
 
   if (!csd_service_) {
@@ -591,10 +591,10 @@ void ClientSideDetectionHost::MaybeShowPhishingWarning(GURL phishing_url,
           safe_browsing::ThreatSource::CLIENT_SIDE_DETECTION;
       resource.web_contents_getter = safe_browsing::SafeBrowsingUIManager::
           UnsafeResource::GetWebContentsGetter(
-              web_contents()->GetRenderProcessHost()->GetID(),
+              web_contents()->GetMainFrame()->GetProcess()->GetID(),
               web_contents()->GetMainFrame()->GetRoutingID());
       if (!ui_manager_->IsWhitelisted(resource)) {
-        // We need to stop any pending navigations, otherwise the interstital
+        // We need to stop any pending navigations, otherwise the interstitial
         // might not get created properly.
         web_contents()->GetController().DiscardNonCommittedEntries();
       }
@@ -627,11 +627,11 @@ void ClientSideDetectionHost::MaybeShowMalwareWarning(GURL original_url,
           safe_browsing::ThreatSource::CLIENT_SIDE_DETECTION;
       resource.web_contents_getter = safe_browsing::SafeBrowsingUIManager::
           UnsafeResource::GetWebContentsGetter(
-              web_contents()->GetRenderProcessHost()->GetID(),
+              web_contents()->GetMainFrame()->GetProcess()->GetID(),
               web_contents()->GetMainFrame()->GetRoutingID());
 
       if (!ui_manager_->IsWhitelisted(resource)) {
-        // We need to stop any pending navigations, otherwise the interstital
+        // We need to stop any pending navigations, otherwise the interstitial
         // might not get created properly.
         web_contents()->GetController().DiscardNonCommittedEntries();
       }

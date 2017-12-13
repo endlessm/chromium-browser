@@ -10,11 +10,8 @@
 #include "base/metrics/user_metrics.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/strings/grit/components_strings.h"
-#import "ios/chrome/browser/ui/commands/UIKit+ChromeExecuteCommand.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
-#import "ios/chrome/browser/ui/commands/generic_chrome_command.h"
-#include "ios/chrome/browser/ui/commands/ios_command_ids.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/commands/start_voice_search_command.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_utils.h"
@@ -26,7 +23,7 @@
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_view.h"
 #import "ios/chrome/browser/ui/ntp/whats_new_header_view.h"
 #import "ios/chrome/browser/ui/overscroll_actions/overscroll_actions_controller.h"
-#import "ios/chrome/browser/ui/toolbar/web_toolbar_controller.h"
+#import "ios/chrome/browser/ui/toolbar/omnibox_focuser.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/url_loader.h"
@@ -495,9 +492,9 @@ const CGFloat kShiftTilesDownAnimationDuration = 0.2;
                                height:_searchFieldHeightConstraint
                             topMargin:_searchFieldTopMarginConstraint
                    subviewConstraints:constraints
-                        logoIsShowing:self.logoIsShowing
                             forOffset:[_mostVisitedView contentOffset].y
-                                width:0];
+                          screenWidth:_mostVisitedView.bounds.size.width
+                       safeAreaInsets:SafeAreaInsetsForView(self.view)];
 }
 
 - (void)addOverscrollActions {
@@ -689,8 +686,10 @@ const CGFloat kShiftTilesDownAnimationDuration = 0.2;
            forWidth:width];
   [_doodleTopMarginConstraint
       setConstant:content_suggestions::doodleTopMargin(YES)];
+  UIEdgeInsets safeAreaInsets = SafeAreaInsetsForView(self.view);
+  CGFloat contentWidth = width - safeAreaInsets.left - safeAreaInsets.right;
   [_searchFieldWidthConstraint
-      setConstant:content_suggestions::searchFieldWidth(width)];
+      setConstant:content_suggestions::searchFieldWidth(contentWidth)];
   [_searchFieldTopMarginConstraint
       setConstant:content_suggestions::searchFieldTopMargin()];
 }

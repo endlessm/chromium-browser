@@ -13,8 +13,9 @@
 #import "ios/chrome/browser/ui/history_popup/requirements/tab_history_constants.h"
 #import "ios/chrome/browser/ui/overscroll_actions/overscroll_actions_gesture_recognizer.h"
 #import "ios/chrome/browser/ui/overscroll_actions/overscroll_actions_view.h"
+#import "ios/chrome/browser/ui/page_info/page_info_legacy_coordinator.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
-#import "ios/chrome/browser/ui/toolbar/toolbar_controller.h"
+#import "ios/chrome/browser/ui/toolbar/toolbar_controller_constants.h"
 #include "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/voice/voice_search_notification_names.h"
 #import "ios/web/public/web_state/ui/crw_web_view_proxy.h"
@@ -183,8 +184,7 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
 // call. The cached value is reset when the webview proxy is set.
 @property(nonatomic, readonly) CGFloat initialHeaderInset;
 // Initial height of the header view.
-// This property is set from the delegate headerHeight and cached on first
-// call. The cached value is reset when the webview proxy is set.
+// This property is set everytime the user starts pulling.
 @property(nonatomic, readonly) CGFloat initialHeaderHeight;
 // Redefined to be read-write.
 @property(nonatomic, assign, readwrite) OverscrollState overscrollState;
@@ -347,6 +347,7 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
       // Set the contentInset to remove the bounce that would fight with drag.
       [self setScrollViewContentInset:insets];
       [self scrollView].scrollIndicatorInsets = insets;
+      _initialHeaderHeight = [[self delegate] overscrollHeaderHeight];
       self.overscrollState = OverscrollState::STARTED_PULLING;
     }
     [self updateWithVerticalOffset:-contentOffsetFromExpandedHeader];
@@ -510,7 +511,6 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
              controller:(CRWWebController*)webController {
   DCHECK([webViewProxy scrollViewProxy]);
   _initialHeaderInset = 0;
-  _initialHeaderHeight = 0;
   _webViewProxy = webViewProxy;
   [_webViewScrollViewProxy removeObserver:self];
   _webViewScrollViewProxy = [webViewProxy scrollViewProxy];
@@ -816,13 +816,6 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
         [[self delegate] overscrollActionsControllerHeaderInset:self];
   }
   return _initialHeaderInset;
-}
-
-- (CGFloat)initialHeaderHeight {
-  if (_initialHeaderHeight == 0) {
-    _initialHeaderHeight = [[self delegate] overscrollHeaderHeight];
-  }
-  return _initialHeaderHeight;
 }
 
 #pragma mark - Bounce dynamic

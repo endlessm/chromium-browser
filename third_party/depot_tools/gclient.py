@@ -181,6 +181,10 @@ class Hook(object):
   def name(self):
     return self._name
 
+  @property
+  def condition(self):
+    return self._condition
+
   def matches(self, file_list):
     """Returns true if the pattern matches any of files in the list."""
     if not self._pattern:
@@ -544,7 +548,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     raise gclient_utils.Error('Unknown url type')
 
   @staticmethod
-  def MergeWithOsDeps(deps, deps_os, target_os_list):
+  def MergeWithOsDeps(deps, deps_os, target_os_list, process_all_deps):
     """Returns a new "deps" structure that is the deps sent in updated
     with information from deps_os (the deps_os section of the DEPS
     file) that matches the list of target os."""
@@ -561,7 +565,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
         if isinstance(value, basestring):
           value = {'url': value}
         assert isinstance(value, collections.Mapping), (key, value)
-        value['should_process'] = dep_os in target_os_list
+        value['should_process'] = dep_os in target_os_list or process_all_deps
 
         # Handle collisions/overrides.
         if key in new_deps and new_deps[key] != value:
@@ -642,7 +646,8 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
       if condition:
         condition_value = gclient_eval.EvaluateCondition(
             condition, self.get_vars())
-        should_process = should_process and condition_value
+        if not self._get_option('process_all_deps', False):
+          should_process = should_process and condition_value
       deps_to_add.append(Dependency(
           self, name, raw_url, url, None, None, self.custom_vars, None,
           deps_file, should_process, use_relative_paths, condition,
@@ -770,7 +775,8 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
       if target_os_list and not self._get_option(
           'do_not_merge_os_specific_entries', False):
         deps = self.MergeWithOsDeps(
-            deps, local_scope['deps_os'], target_os_list)
+            deps, local_scope['deps_os'], target_os_list,
+            self._get_option('process_all_deps', False))
 
     deps_to_add = self._deps_to_objects(
         self._postprocess_deps(deps, rel_prefix), use_relative_paths)
@@ -887,8 +893,6 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
 
     # Always parse the DEPS file.
     self.ParseDepsFile()
-    if self._gn_args_file and command == 'update':
-      self.WriteGNArgsFile()
     self._run_is_done(file_list or [], parsed_url)
     if command in ('update', 'revert') and not options.noprehooks:
       self.RunPreDepsHooks()
@@ -955,10 +959,17 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
         else:
           print('Skipped missing %s' % cwd, file=sys.stderr)
 
+  def HasGNArgsFile(self):
+    return self._gn_args_file is not None
+
   def WriteGNArgsFile(self):
     lines = ['# Generated from %r' % self.deps_file]
+    variables = self.get_vars()
     for arg in self._gn_args:
-      lines.append('%s = %s' % (arg, ToGNString(self.get_vars()[arg])))
+      value = variables[arg]
+      if isinstance(value, basestring):
+        value = gclient_eval.EvaluateCondition(value, variables)
+      lines.append('%s = %s' % (arg, ToGNString(value)))
     with open(os.path.join(self.root.root_dir, self._gn_args_file), 'w') as f:
       f.write('\n'.join(lines))
 
@@ -995,6 +1006,12 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
     for s in self.dependencies:
       result.extend(s.GetHooks(options))
     return result
+
+  def WriteGNArgsFilesRecursively(self, dependencies):
+    for dep in dependencies:
+      if dep.HasGNArgsFile():
+        dep.WriteGNArgsFile()
+      self.WriteGNArgsFilesRecursively(dep.dependencies)
 
   def RunHooksRecursively(self, options):
     assert self.hooks_ran == False
@@ -1148,9 +1165,33 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
   def get_vars(self):
     """Returns a dictionary of effective variable values
     (DEPS file contents with applied custom_vars overrides)."""
-    result = dict(self._vars)
+    # Provide some built-in variables.
+    result = {
+        'checkout_android': 'android' in self.target_os,
+        'checkout_fuchsia': 'fuchsia' in self.target_os,
+        'checkout_ios': 'ios' in self.target_os,
+        'checkout_linux': 'unix' in self.target_os,
+        'checkout_mac': 'mac' in self.target_os,
+        'checkout_win': 'win' in self.target_os,
+        'host_os': _detect_host_os(),
+    }
+    # Variables defined in DEPS file override built-in ones.
+    result.update(self._vars)
     result.update(self.custom_vars or {})
     return result
+
+
+_PLATFORM_MAPPING = {
+  'cygwin': 'win',
+  'darwin': 'mac',
+  'linux2': 'linux',
+  'win32': 'win',
+  'aix6': 'aix',
+}
+
+
+def _detect_host_os():
+  return _PLATFORM_MAPPING[sys.platform]
 
 
 class GClient(Dependency):
@@ -1158,6 +1199,7 @@ class GClient(Dependency):
   solution or DEPS entry."""
 
   DEPS_OS_CHOICES = {
+    "aix6": "unix",
     "win32": "win",
     "win": "win",
     "cygwin": "win",
@@ -1168,6 +1210,7 @@ class GClient(Dependency):
     "linux2": "unix",
     "linux3": "unix",
     "android": "android",
+    "ios": "ios",
   }
 
   DEFAULT_CLIENT_FILE_TEXT = ("""\
@@ -1178,6 +1221,7 @@ solutions = [
     "managed"     : %(managed)s,
     "custom_deps" : {
     },
+    "custom_vars": %(custom_vars)r,
   },
 ]
 cache_dir = %(cache_dir)r
@@ -1320,6 +1364,8 @@ it or fix the checkout.
             options.config_filename, os.getcwd()))
       path = gclient_utils.FindGclientRoot(os.getcwd(), options.config_filename)
       if not path:
+        if options.verbose:
+          print('Couldn\'t find configuration file.')
         return None
       client = GClient(path, options)
       client.SetConfig(gclient_utils.FileRead(
@@ -1339,13 +1385,14 @@ it or fix the checkout.
     return client
 
   def SetDefaultConfig(self, solution_name, deps_file, solution_url,
-                       managed=True, cache_dir=None):
+                       managed=True, cache_dir=None, custom_vars=None):
     self.SetConfig(self.DEFAULT_CLIENT_FILE_TEXT % {
       'solution_name': solution_name,
       'solution_url': solution_url,
       'deps_file': deps_file,
       'managed': managed,
       'cache_dir': cache_dir,
+      'custom_vars': custom_vars or {},
     })
 
   def _SaveEntries(self):
@@ -1438,8 +1485,11 @@ it or fix the checkout.
       print('Please fix your script, having invalid --revision flags will soon '
             'considered an error.', file=sys.stderr)
 
-    # Once all the dependencies have been processed, it's now safe to run the
-    # hooks.
+    # Once all the dependencies have been processed, it's now safe to write
+    # out any gn_args_files and run the hooks.
+    if command == 'update':
+      self.WriteGNArgsFilesRecursively(self.dependencies)
+
     if not self._options.nohooks:
       self.RunHooksRecursively(self._options)
 
@@ -1703,6 +1753,7 @@ class Flattener(object):
     self._client = client
 
     self._deps_string = None
+    self._deps_files = set()
 
     self._allowed_hosts = set()
     self._deps = {}
@@ -1719,6 +1770,35 @@ class Flattener(object):
     assert self._deps_string is not None
     return self._deps_string
 
+  @property
+  def deps_files(self):
+    return self._deps_files
+
+  def _pin_dep(self, dep):
+    """Pins a dependency to specific full revision sha.
+
+    Arguments:
+      dep (Dependency): dependency to process
+    """
+    if dep.parsed_url is None:
+      return
+
+    # Make sure the revision is always fully specified (a hash),
+    # as opposed to refs or tags which might change. Similarly,
+    # shortened shas might become ambiguous; make sure to always
+    # use full one for pinning.
+    url, revision = gclient_utils.SplitUrlRevision(dep.parsed_url)
+    if revision and gclient_utils.IsFullGitSha(revision):
+      return
+
+    scm = gclient_scm.CreateSCM(
+        dep.parsed_url, self._client.root_dir, dep.name, dep.outbuf)
+    revinfo = scm.revinfo(self._client._options, [], None)
+
+    dep._parsed_url = dep._url = '%s@%s' % (url, revinfo)
+    raw_url, _ = gclient_utils.SplitUrlRevision(dep._raw_url)
+    dep._raw_url = '%s@%s' % (raw_url, revinfo)
+
   def _flatten(self, pin_all_deps=False):
     """Runs the flattener. Saves resulting DEPS string.
 
@@ -1732,21 +1812,33 @@ class Flattener(object):
 
     if pin_all_deps:
       for dep in self._deps.itervalues():
-        if dep.parsed_url is None:
-          continue
+        self._pin_dep(dep)
 
-        scm = gclient_scm.CreateSCM(
-            dep.parsed_url, self._client.root_dir, dep.name, dep.outbuf)
-        revinfo = scm.revinfo(self._client._options, [], None)
+      for os_deps in self._deps_os.itervalues():
+        for dep in os_deps.itervalues():
+          self._pin_dep(dep)
 
-        # Make sure the revision is always fully specified (a hash),
-        # as opposed to refs or tags which might change.
-        url, revision = gclient_utils.SplitUrlRevision(dep.parsed_url)
-        if revision and gclient_utils.IsGitSha(revision):
-          continue
-        dep._parsed_url = dep._url = '%s@%s' % (url, revinfo)
-        raw_url, _ = gclient_utils.SplitUrlRevision(dep._raw_url)
-        dep._raw_url = '%s@%s' % (raw_url, revinfo)
+    def add_deps_file(dep):
+      # Only include DEPS files referenced by recursedeps.
+      if not (dep.parent is None or
+              (dep.name in (dep.parent.recursedeps or {}))):
+        return
+      deps_file = dep.deps_file
+      deps_path = os.path.join(self._client.root_dir, dep.name, deps_file)
+      if not os.path.exists(deps_path):
+        # gclient has a fallback that if deps_file doesn't exist, it'll try
+        # DEPS. Do the same here.
+        deps_file = 'DEPS'
+        deps_path = os.path.join(self._client.root_dir, dep.name, deps_file)
+        if not os.path.exists(deps_path):
+          return
+      assert dep.parsed_url
+      self._deps_files.add((dep.parsed_url, deps_file))
+    for dep in self._deps.itervalues():
+      add_deps_file(dep)
+    for os_deps in self._deps_os.itervalues():
+      for dep in os_deps.itervalues():
+        add_deps_file(dep)
 
     self._deps_string = '\n'.join(
         _GNSettingsToLines(
@@ -1759,6 +1851,8 @@ class Flattener(object):
         _HooksToLines('pre_deps_hooks', self._pre_deps_hooks) +
         _HooksOsToLines(self._hooks_os) +
         _VarsToLines(self._vars) +
+        ['# %s, %s' % (url, deps_file)
+         for url, deps_file in sorted(self._deps_files)] +
         [''])  # Ensure newline at end of file.
 
   def _add_dep(self, dep):
@@ -1772,50 +1866,90 @@ class Flattener(object):
     if dep.url:
       self._deps[dep.name] = dep
 
-  def _flatten_dep(self, dep):
+  def _add_os_dep(self, os_dep, dep_os):
+    """Helper to add an OS-specific dependency to flattened DEPS.
+
+    Arguments:
+      os_dep (Dependency): dependency to add
+      dep_os (str): name of the OS
+    """
+    assert (
+        os_dep.name not in self._deps_os.get(dep_os, {}) or
+        self._deps_os.get(dep_os, {}).get(os_dep.name) == os_dep), (
+            os_dep.name, self._deps_os.get(dep_os, {}).get(os_dep.name))
+    if os_dep.url:
+      # OS-specific deps need to have their full URL resolved manually.
+      assert not os_dep.parsed_url, (os_dep, os_dep.parsed_url)
+      os_dep._parsed_url = os_dep.LateOverride(os_dep.url)
+
+      self._deps_os.setdefault(dep_os, {})[os_dep.name] = os_dep
+
+  def _flatten_dep(self, dep, dep_os=None):
     """Visits a dependency in order to flatten it (see CMDflatten).
 
     Arguments:
       dep (Dependency): dependency to process
+      dep_os (str or None): name of the OS |dep| is specific to
     """
+    logging.debug('_flatten_dep(%s, %s)', dep.name, dep_os)
+
+    if not dep.deps_parsed:
+      dep.ParseDepsFile()
+
     self._allowed_hosts.update(dep.allowed_hosts)
 
-    for key, value in dep.get_vars().iteritems():
+    # Only include vars listed in the DEPS files, not possible local overrides.
+    for key, value in dep._vars.iteritems():
       # Make sure there are no conflicting variables. It is fine however
       # to use same variable name, as long as the value is consistent.
       assert key not in self._vars or self._vars[key][1] == value
       self._vars[key] = (dep, value)
 
-    self._hooks.extend([(dep, hook) for hook in dep.deps_hooks])
     self._pre_deps_hooks.extend([(dep, hook) for hook in dep.pre_deps_hooks])
 
+    if dep_os:
+      if dep.deps_hooks:
+        self._hooks_os.setdefault(dep_os, []).extend(
+            [(dep, hook) for hook in dep.deps_hooks])
+    else:
+      self._hooks.extend([(dep, hook) for hook in dep.deps_hooks])
+
     for sub_dep in dep.dependencies:
-      self._add_dep(sub_dep)
+      if dep_os:
+        self._add_os_dep(sub_dep, dep_os)
+      else:
+        self._add_dep(sub_dep)
 
     for hook_os, os_hooks in dep.os_deps_hooks.iteritems():
       self._hooks_os.setdefault(hook_os, []).extend(
           [(dep, hook) for hook in os_hooks])
 
-    for dep_os, os_deps in dep.os_dependencies.iteritems():
+    for sub_dep_os, os_deps in dep.os_dependencies.iteritems():
       for os_dep in os_deps:
-        self._deps_os.setdefault(dep_os, {})[os_dep.name] = os_dep
+        self._add_os_dep(os_dep, sub_dep_os)
 
-    # Process recursedeps.
-    deps_by_name = dict((d.name, d) for d in dep.dependencies)
-    # Allow recursedeps entries that refer to deps_os entries.
-    # In case there are multiple entries with the same name,
-    # we have to pick something - e.g. the first one.
-    for os_deps in dep.os_dependencies.itervalues():
+    # Process recursedeps. |deps_by_name| is a map where keys are dependency
+    # names, and values are maps of OS names to |Dependency| instances.
+    # |None| in place of OS name means the dependency is not OS-specific.
+    deps_by_name = dict((d.name, {None: d}) for d in dep.dependencies)
+    for sub_dep_os, os_deps in dep.os_dependencies.iteritems():
       for os_dep in os_deps:
-        if os_dep.name not in deps_by_name:
-          deps_by_name[os_dep.name] = os_dep
+        assert sub_dep_os not in deps_by_name.get(os_dep.name, {}), (
+            os_dep.name, sub_dep_os)
+        deps_by_name.setdefault(os_dep.name, {})[sub_dep_os] = os_dep
     for recurse_dep_name in (dep.recursedeps or []):
-      self._flatten_dep(deps_by_name[recurse_dep_name])
+      dep_info = deps_by_name[recurse_dep_name]
+      for sub_dep_os, os_dep in dep_info.iteritems():
+        self._flatten_dep(os_dep, dep_os=(sub_dep_os or dep_os))
 
 
 def CMDflatten(parser, args):
   """Flattens the solutions into a single DEPS file."""
   parser.add_option('--output-deps', help='Path to the output DEPS file')
+  parser.add_option(
+      '--output-deps-files',
+      help=('Path to the output metadata about DEPS files referenced by '
+            'recursedeps.'))
   parser.add_option(
       '--pin-all-deps', action='store_true',
       help=('Pin all deps, even if not pinned in DEPS. CAVEAT: only does so '
@@ -1824,6 +1958,7 @@ def CMDflatten(parser, args):
 
   options.do_not_merge_os_specific_entries = True
   options.nohooks = True
+  options.process_all_deps = True
   client = GClient.LoadCurrentConfig(options)
 
   # Only print progress if we're writing to a file. Otherwise, progress updates
@@ -1839,6 +1974,12 @@ def CMDflatten(parser, args):
       f.write(flattener.deps_string)
   else:
     print(flattener.deps_string)
+
+  deps_files = [{'url': d[0], 'deps_file': d[1]}
+                for d in sorted(flattener.deps_files)]
+  if options.output_deps_files:
+    with open(options.output_deps_files, 'w') as f:
+      json.dump(deps_files, f)
 
   return 0
 
@@ -1870,7 +2011,7 @@ def _DepsToLines(deps):
     return []
   s = ['deps = {']
   for name, dep in sorted(deps.iteritems()):
-    condition_part = (['    "condition": "%s",' % dep.condition]
+    condition_part = (['    "condition": %r,' % dep.condition]
                       if dep.condition else [])
     s.extend([
         '  # %s' % dep.hierarchy(include_url=False),
@@ -1892,7 +2033,7 @@ def _DepsOsToLines(deps_os):
   for dep_os, os_deps in sorted(deps_os.iteritems()):
     s.append('  "%s": {' % dep_os)
     for name, dep in sorted(os_deps.iteritems()):
-      condition_part = (['      "condition": "%s",' % dep.condition]
+      condition_part = (['      "condition": %r,' % dep.condition]
                         if dep.condition else [])
       s.extend([
           '    # %s' % dep.hierarchy(include_url=False),
@@ -1921,6 +2062,8 @@ def _HooksToLines(name, hooks):
       s.append('    "name": "%s",' % hook.name)
     if hook.pattern is not None:
       s.append('    "pattern": "%s",' % hook.pattern)
+    if hook.condition is not None:
+      s.append('    "condition": %r,' % hook.condition)
     s.extend(
         # Hooks run in the parent directory of their dep.
         ['    "cwd": "%s",' % os.path.normpath(os.path.dirname(dep.name))] +
@@ -1948,6 +2091,8 @@ def _HooksOsToLines(hooks_os):
         s.append('      "name": "%s",' % hook.name)
       if hook.pattern is not None:
         s.append('      "pattern": "%s",' % hook.pattern)
+      if hook.condition is not None:
+        s.append('    "condition": %r,' % hook.condition)
       s.extend(
           # Hooks run in the parent directory of their dep.
           ['      "cwd": "%s",' % os.path.normpath(os.path.dirname(dep.name))] +
@@ -2043,6 +2188,9 @@ def CMDconfig(parser, args):
                          'to have the main solution untouched by gclient '
                          '(gclient will check out unmanaged dependencies but '
                          'will never sync them)')
+  parser.add_option('--custom-var', action='append', dest='custom_vars',
+                    default=[],
+                    help='overrides variables; key=value syntax')
   parser.set_defaults(config_filename=None)
   (options, args) = parser.parse_args(args)
   if options.output_config_file:
@@ -2050,6 +2198,13 @@ def CMDconfig(parser, args):
   if ((options.spec and args) or len(args) > 2 or
       (not options.spec and not args)):
     parser.error('Inconsistent arguments. Use either --spec or one or 2 args')
+
+  custom_vars = {}
+  for arg in options.custom_vars:
+    kv = arg.split('=', 1)
+    if len(kv) != 2:
+      parser.error('Invalid --custom-var argument: %r' % arg)
+    custom_vars[kv[0]] = gclient_eval.EvaluateCondition(kv[1], {})
 
   client = GClient('.', options)
   if options.spec:
@@ -2072,7 +2227,8 @@ def CMDconfig(parser, args):
     deps_file = options.deps_file
     client.SetDefaultConfig(name, deps_file, base_url,
                             managed=not options.unmanaged,
-                            cache_dir=options.cache_dir)
+                            cache_dir=options.cache_dir,
+                            custom_vars=custom_vars)
   client.SaveConfig()
   return 0
 
@@ -2193,6 +2349,9 @@ def CMDsync(parser, args):
   parser.add_option('--do-not-merge-os-specific-entries', action='store_true',
                     help='INTERNAL ONLY - disables merging of deps_os and '
                          'hooks_os to dependencies and hooks')
+  parser.add_option('--process-all-deps', action='store_true',
+                    help='Check out all deps, even for different OS-es, '
+                         'or with conditions evaluating to false')
   parser.add_option('--upstream', action='store_true',
                     help='Make repo state match upstream branch.')
   parser.add_option('--output-json',

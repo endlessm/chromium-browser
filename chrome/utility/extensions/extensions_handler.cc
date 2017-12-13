@@ -6,11 +6,8 @@
 
 #include <utility>
 
-#include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/path_service.h"
 #include "chrome/common/extensions/chrome_extensions_client.h"
-#include "chrome/common/extensions/chrome_utility_extensions_messages.h"
 #include "chrome/common/extensions/media_parser.mojom.h"
 #include "chrome/common/extensions/removable_storage_writer.mojom.h"
 #include "chrome/common/media_galleries/metadata_types.h"
@@ -20,7 +17,6 @@
 #include "content/public/utility/utility_thread.h"
 #include "media/base/media.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
-#include "ui/base/ui_base_switches.h"
 
 #if !defined(MEDIA_DISABLE_FFMPEG)
 #include "media/filters/media_file_checker.h"
@@ -28,16 +24,8 @@
 
 #if defined(OS_WIN)
 #include "chrome/common/extensions/wifi_credentials_getter.mojom.h"
-#include "chrome/utility/media_galleries/itunes_pref_parser_win.h"
 #include "components/wifi/wifi_service.h"
 #endif  // defined(OS_WIN)
-
-#if defined(OS_WIN) || defined(OS_MACOSX)
-#include "chrome/utility/media_galleries/iapps_xml_utils.h"
-#include "chrome/utility/media_galleries/itunes_library_parser.h"
-#include "chrome/utility/media_galleries/picasa_album_table_reader.h"
-#include "chrome/utility/media_galleries/picasa_albums_indexer.h"
-#endif  // defined(OS_WIN) || defined(OS_MACOSX)
 
 namespace {
 
@@ -165,21 +153,19 @@ class WiFiCredentialsGetterImpl
 
 namespace extensions {
 
-ExtensionsHandler::ExtensionsHandler() {
+// static
+void InitExtensionsClient() {
   ExtensionsClient::Set(ChromeExtensionsClient::GetInstance());
 }
 
-ExtensionsHandler::~ExtensionsHandler() = default;
-
 // static
-void ExtensionsHandler::PreSandboxStartup() {
+void PreSandboxStartup() {
   media::InitializeMediaLibrary();  // Used for media file validation.
 }
 
 // static
-void ExtensionsHandler::ExposeInterfacesToBrowser(
-    service_manager::BinderRegistry* registry,
-    bool running_elevated) {
+void ExposeInterfacesToBrowser(service_manager::BinderRegistry* registry,
+                               bool running_elevated) {
   // If our process runs with elevated privileges, only add elevated Mojo
   // interfaces to the interface registry.
   if (running_elevated) {
@@ -199,88 +185,5 @@ void ExtensionsHandler::ExposeInterfacesToBrowser(
                          base::ThreadTaskRunnerHandle::Get());
 #endif
 }
-
-bool ExtensionsHandler::OnMessageReceived(const IPC::Message& message) {
-  bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(ExtensionsHandler, message)
-#if defined(OS_WIN)
-    IPC_MESSAGE_HANDLER(ChromeUtilityMsg_ParseITunesPrefXml,
-                        OnParseITunesPrefXml)
-#endif  // defined(OS_WIN)
-
-#if defined(OS_WIN) || defined(OS_MACOSX)
-    IPC_MESSAGE_HANDLER(ChromeUtilityMsg_ParseITunesLibraryXmlFile,
-                        OnParseITunesLibraryXmlFile)
-    IPC_MESSAGE_HANDLER(ChromeUtilityMsg_ParsePicasaPMPDatabase,
-                        OnParsePicasaPMPDatabase)
-    IPC_MESSAGE_HANDLER(ChromeUtilityMsg_IndexPicasaAlbumsContents,
-                        OnIndexPicasaAlbumsContents)
-#endif  // defined(OS_WIN) || defined(OS_MACOSX)
-
-    IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
-
-  return handled;
-}
-
-#if defined(OS_WIN)
-void ExtensionsHandler::OnParseITunesPrefXml(
-    const std::string& itunes_xml_data) {
-  base::FilePath library_path(
-      itunes::FindLibraryLocationInPrefXml(itunes_xml_data));
-  content::UtilityThread::Get()->Send(
-      new ChromeUtilityHostMsg_GotITunesDirectory(library_path));
-  content::UtilityThread::Get()->ReleaseProcess();
-}
-#endif  // defined(OS_WIN)
-
-#if defined(OS_WIN) || defined(OS_MACOSX)
-void ExtensionsHandler::OnParseITunesLibraryXmlFile(
-    const IPC::PlatformFileForTransit& itunes_library_file) {
-  itunes::ITunesLibraryParser parser;
-  base::File file = IPC::PlatformFileForTransitToFile(itunes_library_file);
-  bool result = parser.Parse(iapps::ReadFileAsString(std::move(file)));
-  content::UtilityThread::Get()->Send(
-      new ChromeUtilityHostMsg_GotITunesLibrary(result, parser.library()));
-  content::UtilityThread::Get()->ReleaseProcess();
-}
-
-void ExtensionsHandler::OnParsePicasaPMPDatabase(
-    const picasa::AlbumTableFilesForTransit& album_table_files) {
-  picasa::AlbumTableFiles files;
-  files.indicator_file =
-      IPC::PlatformFileForTransitToFile(album_table_files.indicator_file);
-  files.category_file =
-      IPC::PlatformFileForTransitToFile(album_table_files.category_file);
-  files.date_file =
-      IPC::PlatformFileForTransitToFile(album_table_files.date_file);
-  files.filename_file =
-      IPC::PlatformFileForTransitToFile(album_table_files.filename_file);
-  files.name_file =
-      IPC::PlatformFileForTransitToFile(album_table_files.name_file);
-  files.token_file =
-      IPC::PlatformFileForTransitToFile(album_table_files.token_file);
-  files.uid_file =
-      IPC::PlatformFileForTransitToFile(album_table_files.uid_file);
-
-  picasa::PicasaAlbumTableReader reader(std::move(files));
-  bool parse_success = reader.Init();
-  content::UtilityThread::Get()->Send(
-      new ChromeUtilityHostMsg_ParsePicasaPMPDatabase_Finished(
-          parse_success, reader.albums(), reader.folders()));
-  content::UtilityThread::Get()->ReleaseProcess();
-}
-
-void ExtensionsHandler::OnIndexPicasaAlbumsContents(
-    const picasa::AlbumUIDSet& album_uids,
-    const std::vector<picasa::FolderINIContents>& folders_inis) {
-  picasa::PicasaAlbumsIndexer indexer(album_uids);
-  indexer.ParseFolderINI(folders_inis);
-  content::UtilityThread::Get()->Send(
-      new ChromeUtilityHostMsg_IndexPicasaAlbumsContents_Finished(
-          indexer.albums_images()));
-  content::UtilityThread::Get()->ReleaseProcess();
-}
-#endif  // defined(OS_WIN) || defined(OS_MACOSX)
 
 }  // namespace extensions

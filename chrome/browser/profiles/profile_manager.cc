@@ -269,17 +269,15 @@ void ProfileCleanedUp(const base::Value* profile_path_value) {
 }
 
 #if defined(OS_CHROMEOS)
-void CheckCryptohomeIsMounted(chromeos::DBusMethodCallStatus call_status,
-                              bool is_mounted) {
-  if (call_status != chromeos::DBUS_METHOD_CALL_SUCCESS) {
+void CheckCryptohomeIsMounted(base::Optional<bool> result) {
+  if (!result.has_value()) {
     LOG(ERROR) << "IsMounted call failed.";
     return;
   }
-  if (!is_mounted)
-    LOG(ERROR) << "Cryptohome is not mounted.";
-}
 
-#endif
+  LOG_IF(ERROR, !result.value()) << "Cryptohome is not mounted.";
+}
+#endif  // OS_CHROMEOS
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 
@@ -339,7 +337,7 @@ bool IsProfileEphemeral(ProfileAttributesStorage* storage,
 
 #if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
 void SignOut(SigninManager* signin_manager) {
-  signin_manager->SignOut(
+  signin_manager->SignOutAndRemoveAllAccounts(
       signin_metrics::AUTHENTICATION_FAILED_WITH_FORCE_SIGNIN,
       signin_metrics::SignoutDelete::IGNORE_METRIC);
 }
@@ -1015,14 +1013,12 @@ void ProfileManager::InitProfileUserPrefs(Profile* profile) {
                                    supervised_user_id);
   }
 #if !defined(OS_ANDROID)
-  if (StartupBrowserCreator::UseConsolidatedFlow()) {
-    // TODO(pmonette): Fix IsNewProfile() to handle the case where the profile
-    // is new even if the "Preferences" file already existed (For example: The
-    // master_preferences file is dumped into the default profile on first run,
-    // before profile creation).
-    if (profile->IsNewProfile() || first_run::IsChromeFirstRun())
-      profile->GetPrefs()->SetBoolean(prefs::kHasSeenWelcomePage, false);
-  }
+  // TODO(pmonette): Fix IsNewProfile() to handle the case where the profile is
+  // new even if the "Preferences" file already existed. (For example: The
+  // master_preferences file is dumped into the default profile on first run,
+  // before profile creation.)
+  if (profile->IsNewProfile() || first_run::IsChromeFirstRun())
+    profile->GetPrefs()->SetBoolean(prefs::kHasSeenWelcomePage, false);
 #endif
 }
 
@@ -1056,7 +1052,7 @@ void ProfileManager::Observe(
       // our profile directory is the one that's mounted, and that it's mounted
       // as the current user.
       chromeos::DBusThreadManager::Get()->GetCryptohomeClient()->IsMounted(
-          base::Bind(&CheckCryptohomeIsMounted));
+          base::BindOnce(&CheckCryptohomeIsMounted));
 
       // Confirm that we hadn't loaded the new profile previously.
       base::FilePath default_profile_dir = user_data_dir_.Append(
@@ -1588,12 +1584,16 @@ void ProfileManager::AddProfileToStorage(Profile* profile) {
     bool has_entry = storage.GetProfileAttributesWithPath(profile->GetPath(),
                                                           &entry);
     if (has_entry) {
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+      bool was_authenticated_status = entry->IsAuthenticated();
+#endif
       // The ProfileAttributesStorage's info must match the Signin Manager.
       entry->SetAuthInfo(account_info.gaia, username);
 #if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
       // Sign out if force-sign-in policy is enabled and profile is not signed
       // in.
-      if (signin_util::IsForceSigninEnabled() && !entry->IsAuthenticated()) {
+      if (signin_util::IsForceSigninEnabled() && was_authenticated_status &&
+          !entry->IsAuthenticated()) {
         BrowserThread::PostTask(
             BrowserThread::UI, FROM_HERE,
             base::BindOnce(&SignOut,

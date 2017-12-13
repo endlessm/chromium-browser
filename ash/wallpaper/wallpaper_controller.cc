@@ -4,13 +4,14 @@
 
 #include "ash/wallpaper/wallpaper_controller.h"
 
+#include <memory>
 #include <string>
 #include <utility>
 
-#include "ash/ash_switches.h"
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/login/ui/login_constants.h"
 #include "ash/public/cpp/ash_pref_names.h"
+#include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
@@ -63,7 +64,7 @@ void CacheProminentColors(const std::vector<SkColor>& colors,
   }
   DictionaryPrefUpdate wallpaper_colors_update(
       Shell::Get()->GetLocalStatePrefService(), prefs::kWallpaperColors);
-  auto wallpaper_colors = base::MakeUnique<base::ListValue>();
+  auto wallpaper_colors = std::make_unique<base::ListValue>();
   for (SkColor color : colors)
     wallpaper_colors->AppendDouble(static_cast<double>(color));
   wallpaper_colors_update->SetWithoutPathExpansion(current_location,
@@ -222,7 +223,7 @@ SkColor WallpaperController::GetProminentColor(
 
 wallpaper::WallpaperLayout WallpaperController::GetWallpaperLayout() const {
   if (current_wallpaper_)
-    return current_wallpaper_->layout();
+    return current_wallpaper_->wallpaper_info().layout;
   return wallpaper::WALLPAPER_LAYOUT_CENTER_CROPPED;
 }
 
@@ -246,7 +247,7 @@ void WallpaperController::SetWallpaperImage(
     color_calculator_.reset();
   }
   current_wallpaper_.reset(new wallpaper::WallpaperResizer(
-      image, GetMaxDisplaySizeInNative(), layout, sequenced_task_runner_));
+      image, GetMaxDisplaySizeInNative(), info, sequenced_task_runner_));
   current_wallpaper_->AddObserver(this);
   current_wallpaper_->StartResize();
 
@@ -360,7 +361,7 @@ bool WallpaperController::WallpaperIsAlreadyLoaded(
     return false;
 
   // Compare layouts only if necessary.
-  if (compare_layouts && layout != current_wallpaper_->layout())
+  if (compare_layouts && layout != current_wallpaper_->wallpaper_info().layout)
     return false;
 
   return wallpaper::WallpaperResizer::GetImageId(image) ==
@@ -372,6 +373,15 @@ void WallpaperController::OpenSetWallpaperPage() {
       Shell::Get()->wallpaper_delegate()->CanOpenSetWallpaperPage()) {
     wallpaper_picker_->Open();
   }
+}
+
+bool WallpaperController::ShouldApplyDimming() const {
+  return Shell::Get()->session_controller()->IsUserSessionBlocked();
+}
+
+bool WallpaperController::ShouldApplyBlur() const {
+  return Shell::Get()->session_controller()->IsUserSessionBlocked() &&
+         !IsDevicePolicyWallpaper();
 }
 
 void WallpaperController::AddObserver(
@@ -427,8 +437,21 @@ void WallpaperController::InstallDesktopController(aura::Window* root_window) {
       return;
   }
 
-  if (Shell::Get()->session_controller()->IsUserSessionBlocked())
+  bool is_wallpaper_blurred;
+  if (ShouldApplyBlur()) {
     component->SetWallpaperBlur(login_constants::kBlurSigma);
+    is_wallpaper_blurred = true;
+  } else {
+    is_wallpaper_blurred = false;
+  }
+
+  if (is_wallpaper_blurred_ != is_wallpaper_blurred) {
+    is_wallpaper_blurred_ = is_wallpaper_blurred;
+    // TODO(crbug.com/776464): Replace the observer with mojo calls so that it
+    // works under mash and it's easier to add tests.
+    for (auto& observer : observers_)
+      observer.OnWallpaperBlurChanged();
+  }
 
   RootWindowController* controller =
       RootWindowController::ForWindow(root_window);
@@ -519,7 +542,7 @@ void WallpaperController::CalculateWallpaperColors() {
     return;
   }
 
-  color_calculator_ = base::MakeUnique<wallpaper::WallpaperColorCalculator>(
+  color_calculator_ = std::make_unique<wallpaper::WallpaperColorCalculator>(
       GetWallpaper(), color_profiles_, sequenced_task_runner_);
   color_calculator_->AddObserver(this);
   if (!color_calculator_->StartCalculation()) {
@@ -553,6 +576,13 @@ bool WallpaperController::MoveToUnlockedContainer() {
 
   locked_ = false;
   return ReparentWallpaper(GetWallpaperContainerId(false));
+}
+
+bool WallpaperController::IsDevicePolicyWallpaper() const {
+  if (current_wallpaper_)
+    return current_wallpaper_->wallpaper_info().type ==
+           wallpaper::WallpaperType::DEVICE;
+  return false;
 }
 
 void WallpaperController::GetInternalDisplayCompositorLock() {

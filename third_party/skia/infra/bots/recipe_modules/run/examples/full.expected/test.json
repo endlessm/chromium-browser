@@ -7,7 +7,7 @@
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
     "name": "fail",
     "~followup_annotations": [
@@ -23,7 +23,7 @@
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
     "name": "fail again",
     "~followup_annotations": [
@@ -40,7 +40,7 @@
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
     "name": "do a thing"
   },
@@ -53,7 +53,7 @@
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
     "name": "run 0"
   },
@@ -106,7 +106,7 @@
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "mydir:<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
     "name": "env"
   },
@@ -156,7 +156,7 @@
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
     "name": "retry fail",
     "~followup_annotations": [
@@ -166,13 +166,26 @@
   },
   {
     "cmd": [
+      "echo",
+      "between_attempt"
+    ],
+    "env": {
+      "BUILDTYPE": "Release_x64",
+      "CHROME_HEADLESS": "1",
+      "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
+    },
+    "name": "between_attempts #1"
+  },
+  {
+    "cmd": [
       "false"
     ],
     "env": {
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
     "name": "retry fail (attempt 2)",
     "~followup_annotations": [
@@ -182,13 +195,26 @@
   },
   {
     "cmd": [
+      "echo",
+      "between_attempt"
+    ],
+    "env": {
+      "BUILDTYPE": "Release_x64",
+      "CHROME_HEADLESS": "1",
+      "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
+    },
+    "name": "between_attempts #2"
+  },
+  {
+    "cmd": [
       "false"
     ],
     "env": {
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
     "name": "retry fail (attempt 3)",
     "~followup_annotations": [
@@ -198,19 +224,16 @@
   },
   {
     "cmd": [
-      "false"
+      "echo",
+      "between_attempt"
     ],
     "env": {
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
-    "name": "retry fail (attempt 4)",
-    "~followup_annotations": [
-      "step returned non-zero exit code: 1",
-      "@@@STEP_FAILURE@@@"
-    ]
+    "name": "between_attempts #3"
   },
   {
     "cmd": [
@@ -220,7 +243,36 @@
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
+    },
+    "name": "retry fail (attempt 4)",
+    "~followup_annotations": [
+      "step returned non-zero exit code: 1",
+      "@@@STEP_FAILURE@@@"
+    ]
+  },
+  {
+    "cmd": [
+      "echo",
+      "between_attempt"
+    ],
+    "env": {
+      "BUILDTYPE": "Release_x64",
+      "CHROME_HEADLESS": "1",
+      "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
+    },
+    "name": "between_attempts #4"
+  },
+  {
+    "cmd": [
+      "false"
+    ],
+    "env": {
+      "BUILDTYPE": "Release_x64",
+      "CHROME_HEADLESS": "1",
+      "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
     "name": "retry fail (attempt 5)",
     "~followup_annotations": [
@@ -236,7 +288,7 @@
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
     "name": "retry success",
     "~followup_annotations": [
@@ -246,19 +298,16 @@
   },
   {
     "cmd": [
-      "false"
+      "echo",
+      "between_attempt"
     ],
     "env": {
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
-    "name": "retry success (attempt 2)",
-    "~followup_annotations": [
-      "step returned non-zero exit code: 1",
-      "@@@STEP_FAILURE@@@"
-    ]
+    "name": "between_attempts #1 (2)"
   },
   {
     "cmd": [
@@ -268,13 +317,42 @@
       "BUILDTYPE": "Release_x64",
       "CHROME_HEADLESS": "1",
       "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
-      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-MSVC-x86_64-Release-Vulkan"
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
+    },
+    "name": "retry success (attempt 2)",
+    "~followup_annotations": [
+      "step returned non-zero exit code: 1",
+      "@@@STEP_FAILURE@@@"
+    ]
+  },
+  {
+    "cmd": [
+      "echo",
+      "between_attempt"
+    ],
+    "env": {
+      "BUILDTYPE": "Release_x64",
+      "CHROME_HEADLESS": "1",
+      "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
+    },
+    "name": "between_attempts #2 (2)"
+  },
+  {
+    "cmd": [
+      "false"
+    ],
+    "env": {
+      "BUILDTYPE": "Release_x64",
+      "CHROME_HEADLESS": "1",
+      "PATH": "<PATH>:RECIPE_PACKAGE_REPO[depot_tools]",
+      "SKIA_OUT": "[CUSTOM_C:\\_B_WORK]/skia/out/Build-Win-Clang-x86_64-Release-Vulkan"
     },
     "name": "retry success (attempt 3)"
   },
   {
     "name": "$result",
-    "reason": "Failed build steps: fail, fail again, retry fail, retry fail (attempt 2), retry fail (attempt 3), retry fail (attempt 4), retry fail (attempt 5), retry success, retry success (attempt 2)",
+    "reason": "Failed build steps: fail, fail again, retry fail, retry fail (attempt 2), retry fail (attempt 3), retry fail (attempt 4), retry fail (attempt 5)",
     "recipe_result": null,
     "status_code": 1
   }

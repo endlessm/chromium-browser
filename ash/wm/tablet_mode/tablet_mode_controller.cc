@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "ash/ash_switches.h"
+#include "ash/public/cpp/ash_switches.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
 #include "ash/wm/tablet_mode/scoped_disable_internal_mouse_and_keyboard.h"
@@ -107,7 +107,7 @@ TabletModeController::UiMode GetTabletMode() {
 
 std::unique_ptr<ScopedDisableInternalMouseAndKeyboard>
 CreateScopedDisableInternalMouseAndKeyboard() {
-  return base::MakeUnique<ScopedDisableInternalMouseAndKeyboardOzone>();
+  return std::make_unique<ScopedDisableInternalMouseAndKeyboardOzone>();
 }
 
 }  // namespace
@@ -173,10 +173,8 @@ void TabletModeController::EnableTabletModeWindowManager(bool should_enable) {
     for (auto& observer : tablet_mode_observers_)
       observer.OnTabletModeStarted();
 
-    observers_.ForAllPtrs([](mojom::TabletModeObserver* observer) {
-      observer->OnTabletModeToggled(true);
-    });
-
+    if (client_)  // Null at startup and in tests.
+      client_->OnTabletModeToggled(true);
   } else {
     tablet_mode_window_manager_->SetIgnoreWmEventsForExit();
     for (auto& observer : tablet_mode_observers_)
@@ -187,9 +185,8 @@ void TabletModeController::EnableTabletModeWindowManager(bool should_enable) {
     for (auto& observer : tablet_mode_observers_)
       observer.OnTabletModeEnded();
 
-    observers_.ForAllPtrs([](mojom::TabletModeObserver* observer) {
-      observer->OnTabletModeToggled(false);
-    });
+    if (client_)  // Null at startup and in tests.
+      client_->OnTabletModeToggled(false);
   }
 }
 
@@ -203,7 +200,7 @@ void TabletModeController::AddWindow(aura::Window* window) {
 }
 
 void TabletModeController::BindRequest(
-    mojom::TabletModeManagerRequest request) {
+    mojom::TabletModeControllerRequest request) {
   bindings_.AddBinding(this, std::move(request));
 }
 
@@ -390,6 +387,10 @@ void TabletModeController::LeaveTabletMode() {
   EnableTabletModeWindowManager(false);
 }
 
+void TabletModeController::FlushForTesting() {
+  bindings_.FlushForTesting();
+}
+
 void TabletModeController::OnShellInitialized() {
   force_ui_mode_ = GetTabletMode();
   if (force_ui_mode_ == UiMode::TABLETMODE)
@@ -439,9 +440,9 @@ TabletModeController::CurrentTabletModeIntervalType() {
   return TABLET_MODE_INTERVAL_INACTIVE;
 }
 
-void TabletModeController::AddObserver(mojom::TabletModeObserverPtr observer) {
-  observer->OnTabletModeToggled(IsTabletModeWindowManagerEnabled());
-  observers_.AddPtr(std::move(observer));
+void TabletModeController::SetClient(mojom::TabletModeClientPtr client) {
+  client_ = std::move(client);
+  client_->OnTabletModeToggled(IsTabletModeWindowManagerEnabled());
 }
 
 bool TabletModeController::AllowEnterExitTabletMode() const {

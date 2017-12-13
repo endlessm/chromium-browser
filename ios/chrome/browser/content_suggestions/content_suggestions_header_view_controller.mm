@@ -8,20 +8,21 @@
 #include "base/mac/foundation_util.h"
 #include "base/metrics/user_metrics.h"
 #include "components/strings/grit/components_strings.h"
-#import "ios/chrome/browser/ui/commands/UIKit+ChromeExecuteCommand.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
-#import "ios/chrome/browser/ui/commands/generic_chrome_command.h"
-#include "ios/chrome/browser/ui/commands/ios_command_ids.h"
 #include "ios/chrome/browser/ui/commands/start_voice_search_command.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_synchronizing.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_utils.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_commands.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_header_view_controller_delegate.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
+#import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_view.h"
-#import "ios/chrome/browser/ui/toolbar/web_toolbar_controller.h"
+//#import "ios/chrome/browser/ui/toolbar/web_toolbar_controller.h"
+#import "ios/chrome/browser/ui/toolbar/omnibox_focuser.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/url_loader.h"
+#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -39,8 +40,7 @@ const CGFloat kHintLabelSidePadding = 12;
 @interface ContentSuggestionsHeaderViewController ()
 
 // |YES| when notifications indicate the omnibox is focused.
-@property(nonatomic, assign, getter=isOmniboxFocused, readwrite)
-    BOOL omniboxFocused;
+@property(nonatomic, assign, getter=isOmniboxFocused) BOOL omniboxFocused;
 
 // |YES| if this consumer is has voice search enabled.
 @property(nonatomic, assign) BOOL voiceSearchIsEnabled;
@@ -129,7 +129,9 @@ const CGFloat kHintLabelSidePadding = 12;
 
 #pragma mark - ContentSuggestionsHeaderControlling
 
-- (void)updateFakeOmniboxForOffset:(CGFloat)offset width:(CGFloat)width {
+- (void)updateFakeOmniboxForOffset:(CGFloat)offset
+                       screenWidth:(CGFloat)screenWidth
+                    safeAreaInsets:(UIEdgeInsets)safeAreaInsets {
   NSArray* constraints =
       @[ self.hintLabelLeadingConstraint, self.voiceTapTrailingConstraint ];
 
@@ -137,9 +139,9 @@ const CGFloat kHintLabelSidePadding = 12;
                                    height:self.fakeOmniboxHeightConstraint
                                 topMargin:self.fakeOmniboxTopMarginConstraint
                        subviewConstraints:constraints
-                            logoIsShowing:self.logoIsShowing
                                 forOffset:offset
-                                    width:width];
+                              screenWidth:screenWidth
+                           safeAreaInsets:safeAreaInsets];
 }
 
 - (void)updateFakeOmniboxForWidth:(CGFloat)width {
@@ -157,6 +159,22 @@ const CGFloat kHintLabelSidePadding = 12;
 
 - (void)layoutHeader {
   [self.headerView layoutIfNeeded];
+}
+
+- (CGFloat)pinnedOffsetY {
+  CGFloat headerHeight = content_suggestions::heightForLogoHeader(
+      self.logoIsShowing, self.promoCanShow, YES);
+  CGFloat offsetY =
+      headerHeight - ntp_header::kScrolledToTopOmniboxBottomMargin;
+  if (!IsIPadIdiom())
+    offsetY -= ntp_header::kToolbarHeight;
+
+  return offsetY;
+}
+
+- (CGFloat)headerHeight {
+  return content_suggestions::heightForLogoHeader(self.logoIsShowing,
+                                                  self.promoCanShow, YES);
 }
 
 #pragma mark - ContentSuggestionsHeaderProvider
@@ -209,12 +227,7 @@ const CGFloat kHintLabelSidePadding = 12;
                                 forState:UIControlStateNormal];
   }
   [self.fakeOmnibox setAdjustsImageWhenHighlighted:NO];
-  [self.fakeOmnibox addTarget:self
-                       action:@selector(fakeOmniboxTapped:)
-             forControlEvents:UIControlEventTouchUpInside];
 
-  [self.fakeOmnibox
-      setAccessibilityLabel:l10n_util::GetNSString(IDS_OMNIBOX_EMPTY_HINT)];
   // Set isAccessibilityElement to NO so that Voice Search button is accessible.
   [self.fakeOmnibox setIsAccessibilityElement:NO];
   self.fakeOmnibox.accessibilityIdentifier =
@@ -229,6 +242,22 @@ const CGFloat kHintLabelSidePadding = 12;
       constraintEqualToAnchor:[self.fakeOmnibox leadingAnchor]
                      constant:kHintLabelSidePadding];
   [_hintLabelLeadingConstraint setActive:YES];
+
+  // Set a button the same size as the fake omnibox as the accessibility
+  // element. If the hint is the only accessible element, when the fake omnibox
+  // is taking the full width, there are few points that are not accessible and
+  // allow to select the content below it.
+  searchHintLabel.isAccessibilityElement = NO;
+  UIButton* accessibilityButton = [[UIButton alloc] init];
+  [accessibilityButton addTarget:self
+                          action:@selector(fakeOmniboxTapped:)
+                forControlEvents:UIControlEventTouchUpInside];
+  accessibilityButton.isAccessibilityElement = YES;
+  accessibilityButton.accessibilityLabel =
+      l10n_util::GetNSString(IDS_OMNIBOX_EMPTY_HINT);
+  [self.fakeOmnibox addSubview:accessibilityButton];
+  accessibilityButton.translatesAutoresizingMaskIntoConstraints = NO;
+  AddSameConstraints(self.fakeOmnibox, accessibilityButton);
 
   // Add a voice search button.
   UIButton* voiceTapTarget = [[UIButton alloc] init];
@@ -256,6 +285,8 @@ const CGFloat kHintLabelSidePadding = 12;
 }
 
 - (void)loadVoiceSearch:(id)sender {
+  [self.commandHandler dismissModals];
+
   DCHECK(self.voiceSearchIsEnabled);
   base::RecordAction(UserMetricsAction("MobileNTPMostVisitedVoiceSearch"));
   UIView* view = base::mac::ObjCCastStrict<UIView>(sender);

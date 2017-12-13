@@ -528,7 +528,7 @@ TEST_F(BackFwdMenuModelTest, FaviconLoadTest) {
       ->AddPage(url1, base::Time::Now(), history::SOURCE_BROWSED);
   FaviconServiceFactory::GetForProfile(profile(),
                                        ServiceAccessType::EXPLICIT_ACCESS)
-      ->SetFavicons(url1, url1_favicon, favicon_base::FAVICON,
+      ->SetFavicons({url1}, url1_favicon, favicon_base::FAVICON,
                     gfx::Image::CreateFrom1xBitmap(new_icon_bitmap));
 
   // Will return the current icon (default) but start an anync call
@@ -552,13 +552,13 @@ TEST_F(BackFwdMenuModelTest, FaviconLoadTest) {
   SkBitmap valid_icon_bitmap = *valid_icon.ToSkBitmap();
 
   // Verify we did not get the default favicon.
-  EXPECT_NE(0, memcmp(default_icon_bitmap.getPixels(),
-                      valid_icon_bitmap.getPixels(),
-                      default_icon_bitmap.getSize()));
+  EXPECT_NE(
+      0, memcmp(default_icon_bitmap.getPixels(), valid_icon_bitmap.getPixels(),
+                default_icon_bitmap.computeByteSize()));
   // Verify we did get the expected favicon.
-  EXPECT_EQ(0, memcmp(new_icon_bitmap.getPixels(),
-                      valid_icon_bitmap.getPixels(),
-                      new_icon_bitmap.getSize()));
+  EXPECT_EQ(0,
+            memcmp(new_icon_bitmap.getPixels(), valid_icon_bitmap.getPixels(),
+                   new_icon_bitmap.computeByteSize()));
 
   // Make sure the browser deconstructor doesn't have problems.
   browser->tab_strip_model()->CloseAllTabs();

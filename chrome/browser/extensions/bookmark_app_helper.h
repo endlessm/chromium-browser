@@ -107,6 +107,7 @@ class BookmarkAppHelper : public content::NotificationObserver {
 
   // Begins the asynchronous bookmark app creation from an app banner.
   void CreateFromAppBanner(const CreateBookmarkAppCallback& callback,
+                           const GURL& manifest_url,
                            const content::Manifest& manifest);
 
  protected:
@@ -169,15 +170,6 @@ class BookmarkAppHelper : public content::NotificationObserver {
 // be downloaded from the icon URLs provided in |web_app_info|.
 void CreateOrUpdateBookmarkApp(ExtensionService* service,
                                WebApplicationInfo* web_app_info);
-
-// Retrieves the WebApplicationInfo that represents a given bookmark app.
-// |callback| will be called with a WebApplicationInfo which is populated with
-// the extension's details and icons on success and an unpopulated
-// WebApplicationInfo on failure.
-void GetWebApplicationInfoFromApp(
-    content::BrowserContext* browser_context,
-    const extensions::Extension* extension,
-    const base::Callback<void(const WebApplicationInfo&)> callback);
 
 // Returns whether the given |url| is a valid bookmark app url.
 bool IsValidBookmarkAppUrl(const GURL& url);

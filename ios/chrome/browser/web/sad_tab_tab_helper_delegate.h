@@ -13,7 +13,7 @@ class SadTabTabHelper;
 @protocol SadTabTabHelperDelegate<NSObject>
 
 // Asks the delegate to present a SadTabView.
-- (void)sadTabHelper:(SadTabTabHelper*)tabHelper
+- (void)sadTabTabHelper:(SadTabTabHelper*)tabHelper
     presentSadTabForRepeatedFailure:(BOOL)repeatedFailure;
 
 @end

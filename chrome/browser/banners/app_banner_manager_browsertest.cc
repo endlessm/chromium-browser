@@ -86,8 +86,8 @@ class AppBannerManagerTest : public AppBannerManager {
   // showing banner), UpdateState(State::PENDING_ENGAGEMENT) (waiting for
   // sufficient engagement), or ShowBannerUi(). Override these methods to
   // capture test status.
-  void Stop() override {
-    AppBannerManager::Stop();
+  void Stop(InstallableStatusCode code) override {
+    AppBannerManager::Stop(code);
     ASSERT_FALSE(will_show_.get());
     will_show_.reset(new bool(false));
     base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, quit_closure_);

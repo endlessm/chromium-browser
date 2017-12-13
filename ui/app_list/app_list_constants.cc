@@ -120,6 +120,12 @@ const int kTileIconSize = 48;
 
 const SkColor kIconColor = gfx::kChromeIconGrey;
 
+// The drag and drop app icon should get scaled by this factor.
+const float kDragDropAppIconScale = 1.2f;
+
+// The drag and drop icon scaling up or down animation transition duration.
+const int kDragDropAppIconScaleTransitionInMs = 20;
+
 // The number of apps shown in the start page app grid.
 const size_t kNumStartPageTiles = 9;
 const size_t kNumStartPageTilesFullscreen = 5;
@@ -171,7 +177,9 @@ const int kPeekingAppListHeight = 320;
 const int kShelfSize = 48;
 
 // Max items allowed in a folder.
-size_t kMaxFolderItems = 16;
+const size_t kMaxFolderItems = 16;
+// Max items allowed in a folder for fullscreen app list folder v1.
+const size_t kMaxFolderItemsFullscreen = 20;
 
 // Number of the top items in a folder, which are shown inside the folder icon
 // and animated when opening and closing a folder.
@@ -191,6 +199,9 @@ const char kAppListAppLaunched[] = "Apps.AppListAppLaunched";
 // fullscreen launcher is enabled.
 const char kAppListAppLaunchedFullscreen[] =
     "Apps.AppListAppLaunchedFullscreen";
+
+// The UMA histogram that logs the creation time of the AppListView.
+const char kAppListCreationTimeHistogram[] = "Apps.AppListCreationTime";
 
 // The UMA histogram that logs usage of state transitions in the new
 // app list UI.
@@ -215,6 +226,13 @@ const char kAppListToggleMethodHistogram[] = "Apps.AppListShowSource";
 
 // The UMA histogram that logs which page gets opened by the user.
 const char kPageOpenedHistogram[] = "Apps.AppListPageOpened";
+
+// The UMA histogram that logs how many apps users have in folders.
+const char kNumberOfAppsInFoldersHistogram[] =
+    "Apps.AppsInFolders.FullscreenAppListEnabled";
+
+// The UMA histogram that logs how many folders users have.
+const char kNumberOfFoldersHistogram[] = "Apps.NumberOfFolders";
 
 // The UMA histogram that logs the type of search result opened.
 const char kSearchResultOpenDisplayTypeHistogram[] =

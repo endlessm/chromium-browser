@@ -4,6 +4,8 @@
 
 #include "chromeos/dbus/fake_auth_policy_client.h"
 
+#include <vector>
+
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -231,8 +233,8 @@ void FakeAuthPolicyClient::ConnectToSignal(
     const std::string& signal_name,
     dbus::ObjectProxy::SignalCallback signal_callback,
     dbus::ObjectProxy::OnConnectedCallback on_connected_callback) {
-  on_connected_callback.Run(authpolicy::kAuthPolicyInterface, signal_name,
-                            true /* success */);
+  std::move(on_connected_callback)
+      .Run(authpolicy::kAuthPolicyInterface, signal_name, true /* success */);
   PostDelayedClosure(
       base::BindOnce(RunSignalCallback, authpolicy::kAuthPolicyInterface,
                      signal_name, signal_callback),

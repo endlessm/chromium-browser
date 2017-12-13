@@ -14,8 +14,10 @@
 #include "chrome/browser/installable/installable_manager.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "third_party/WebKit/public/platform/WebDisplayMode.h"
 #include "third_party/WebKit/public/platform/modules/app_banner/app_banner.mojom.h"
 
+class InstallableManager;
 class SkBitmap;
 struct WebApplicationInfo;
 
@@ -51,38 +53,40 @@ class AppBannerManager : public content::WebContentsObserver,
                          public SiteEngagementObserver {
  public:
   enum class State {
-    // The banner pipeline has not yet been triggered for this page load.
+    // The pipeline has not yet been triggered for this page load.
     INACTIVE,
 
-    // The banner pipeline is currently running for this page load.
+    // The pipeline is running for this page load.
     ACTIVE,
 
-    // The banner pipeline is currently waiting for the page manifest to be
-    // fetched.
+    // The pipeline is waiting for the web app manifest to be fetched.
     FETCHING_MANIFEST,
 
-    // The banner pipeline is currently waiting for the installability criteria
-    // to be checked. In this state the pipeline could be paused while waiting
-    // for the site to register a service worker.
+    // The pipeline is waiting for native app data to be fetched.
+    FETCHING_NATIVE_DATA,
+
+    // The pipeline is waiting for the installability criteria to be checked.
+    // In this state, the pipeline could be paused while waiting for a service
+    // worker to be registered..
     PENDING_INSTALLABLE_CHECK,
 
-    // The banner pipeline has finished running, but is waiting for sufficient
+    // The pipeline has finished running, but is waiting for sufficient
     // engagement to trigger the banner.
     PENDING_ENGAGEMENT,
 
-    // The banner has sent the beforeinstallprompt event and is waiting for the
-    // response to the event.
+    // The beforeinstallprompt event has been sent and the pipeline is waiting
+    // for the response.
     SENDING_EVENT,
 
-    // The banner has sent the beforeinstallprompt, and the web page called
-    // prompt on the event while the event was being handled.
+    // The beforeinstallprompt event was sent, and the web page called prompt()
+    // on the event while the event was being handled.
     SENDING_EVENT_GOT_EARLY_PROMPT,
 
-    // The banner pipeline has finished running, but is waiting for the web page
-    // to call prompt on the event.
+    // The pipeline has finished running, but is waiting for the web page to
+    // call prompt() on the event.
     PENDING_PROMPT,
 
-    // The banner pipeline has finished running for this page load and no more
+    // The pipeline has finished running for this page load and no more
     // processing is to be done.
     COMPLETE,
   };
@@ -100,10 +104,11 @@ class AppBannerManager : public content::WebContentsObserver,
   // pipeline will be reported to the devtools console.
   virtual void RequestAppBanner(const GURL& validated_url, bool is_debug_mode);
 
-  // Informs the page that it has been installed via an app banner.
-  // This is redundant for the beforeinstallprompt event's promise being
-  // resolved, but is required by the install event spec.
-  void OnInstall();
+  // Informs the page that it has been installed with appinstalled event and
+  // performs logging related to the app installation. Appinstalled event is
+  // redundant for the beforeinstallprompt event's promise being resolved, but
+  // is required by the install event spec.
+  void OnInstall(bool is_native, blink::WebDisplayMode display);
 
   // Sends a message to the renderer that the user accepted the banner.
   void SendBannerAccepted();
@@ -148,9 +153,9 @@ class AppBannerManager : public content::WebContentsObserver,
   // |code|. Returns the empty string if |code| requires no parameter.
   std::string GetStatusParam(InstallableStatusCode code);
 
-  // Returns the ideal and minimum primary icon size requirements.
-  virtual int GetIdealPrimaryIconSizeInPx();
-  virtual int GetMinimumPrimaryIconSizeInPx();
+  // Returns true if |has_sufficient_engagement_| is true or IsDebugMode()
+  // returns true.
+  bool HasSufficientEngagement() const;
 
   // Returns true if |triggered_by_devtools_| is true or the
   // kBypassAppBannerEngagementChecks flag is set.
@@ -192,10 +197,13 @@ class AppBannerManager : public content::WebContentsObserver,
   // Resets all fetched data for the current page.
   virtual void ResetCurrentPageData();
 
+  // Stops the banner pipeline early.
+  void Terminate();
+
   // Stops the banner pipeline, preventing any outstanding callbacks from
   // running and resetting the manager state. This method is virtual to allow
   // tests to intercept it and verify correct behaviour.
-  virtual void Stop();
+  virtual void Stop(InstallableStatusCode code);
 
   // Sends a message to the renderer that the page has met the requirements to
   // show a banner. The page can respond to cancel the banner (and possibly
@@ -280,6 +288,9 @@ class AppBannerManager : public content::WebContentsObserver,
   // Called when Blink has prevented a banner from being shown, and is now
   // requesting that it be shown later.
   void DisplayAppBanner(bool user_gesture) override;
+
+  // Returns a status code based on the current state, to log when terminating.
+  InstallableStatusCode TerminationCode() const;
 
   // Fetches the data required to display a banner for the current page.
   InstallableManager* manager_;

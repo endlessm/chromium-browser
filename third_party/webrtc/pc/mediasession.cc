@@ -8,7 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/pc/mediasession.h"
+#include "pc/mediasession.h"
 
 #include <algorithm>  // For std::find_if, std::sort.
 #include <functional>
@@ -18,19 +18,19 @@
 #include <unordered_map>
 #include <utility>
 
-#include "webrtc/common_types.h"
-#include "webrtc/media/base/cryptoparams.h"
-#include "webrtc/media/base/h264_profile_level_id.h"
-#include "webrtc/media/base/mediaconstants.h"
-#include "webrtc/p2p/base/p2pconstants.h"
-#include "webrtc/pc/channelmanager.h"
-#include "webrtc/pc/srtpfilter.h"
-#include "webrtc/rtc_base/base64.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/helpers.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/optional.h"
-#include "webrtc/rtc_base/stringutils.h"
+#include "api/optional.h"
+#include "common_types.h"  // NOLINT(build/include)
+#include "media/base/cryptoparams.h"
+#include "media/base/h264_profile_level_id.h"
+#include "media/base/mediaconstants.h"
+#include "p2p/base/p2pconstants.h"
+#include "pc/channelmanager.h"
+#include "pc/srtpfilter.h"
+#include "rtc_base/base64.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/helpers.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/stringutils.h"
 
 namespace {
 const char kInline[] = "inline:";
@@ -498,7 +498,9 @@ static bool AddStreamParams(
         }
       }
       stream_param.cname = rtcp_cname;
-      stream_param.sync_label = sender.stream_id;
+      // TODO(steveanton): Support any number of stream ids.
+      RTC_CHECK(sender.stream_ids.size() == 1U);
+      stream_param.sync_label = sender.stream_ids[0];
       content_description->AddStream(stream_param);
 
       // Store the new StreamParams in current_streams.
@@ -508,7 +510,9 @@ static bool AddStreamParams(
       // Use existing generated SSRCs/groups, but update the sync_label if
       // necessary. This may be needed if a MediaStreamTrack was moved from one
       // MediaStream to another.
-      param->sync_label = sender.stream_id;
+      // TODO(steveanton): Support any number of stream ids.
+      RTC_CHECK(sender.stream_ids.size() == 1U);
+      param->sync_label = sender.stream_ids[0];
       content_description->AddStream(*param);
     }
   }
@@ -829,6 +833,12 @@ static bool FindMatchingCodec(const std::vector<C>& codecs1,
                               const std::vector<C>& codecs2,
                               const C& codec_to_match,
                               C* found_codec) {
+  // |codec_to_match| should be a member of |codecs1|, in order to look up RTX
+  // codecs' associated codecs correctly. If not, that's a programming error.
+  RTC_DCHECK(std::find_if(codecs1.begin(), codecs1.end(),
+                          [&codec_to_match](const C& codec) {
+                            return &codec == &codec_to_match;
+                          }) != codecs1.end());
   for (const C& potential_match : codecs2) {
     if (potential_match.Matches(codec_to_match)) {
       if (IsRtxCodec(codec_to_match)) {
@@ -1250,29 +1260,36 @@ std::string MediaContentDirectionToString(MediaContentDirection direction) {
   return dir_str;
 }
 
-void MediaDescriptionOptions::AddAudioSender(const std::string& track_id,
-                                             const std::string& stream_id) {
+void MediaDescriptionOptions::AddAudioSender(
+    const std::string& track_id,
+    const std::vector<std::string>& stream_ids) {
   RTC_DCHECK(type == MEDIA_TYPE_AUDIO);
-  AddSenderInternal(track_id, stream_id, 1);
+  AddSenderInternal(track_id, stream_ids, 1);
 }
 
-void MediaDescriptionOptions::AddVideoSender(const std::string& track_id,
-                                             const std::string& stream_id,
-                                             int num_sim_layers) {
+void MediaDescriptionOptions::AddVideoSender(
+    const std::string& track_id,
+    const std::vector<std::string>& stream_ids,
+    int num_sim_layers) {
   RTC_DCHECK(type == MEDIA_TYPE_VIDEO);
-  AddSenderInternal(track_id, stream_id, num_sim_layers);
+  AddSenderInternal(track_id, stream_ids, num_sim_layers);
 }
 
 void MediaDescriptionOptions::AddRtpDataChannel(const std::string& track_id,
                                                 const std::string& stream_id) {
   RTC_DCHECK(type == MEDIA_TYPE_DATA);
-  AddSenderInternal(track_id, stream_id, 1);
+  // TODO(steveanton): Is it the case that RtpDataChannel will never have more
+  // than one stream?
+  AddSenderInternal(track_id, {stream_id}, 1);
 }
 
-void MediaDescriptionOptions::AddSenderInternal(const std::string& track_id,
-                                                const std::string& stream_id,
-                                                int num_sim_layers) {
-  sender_options.push_back(SenderOptions{track_id, stream_id, num_sim_layers});
+void MediaDescriptionOptions::AddSenderInternal(
+    const std::string& track_id,
+    const std::vector<std::string>& stream_ids,
+    int num_sim_layers) {
+  // TODO(steveanton): Support any number of stream ids.
+  RTC_CHECK(stream_ids.size() == 1U);
+  sender_options.push_back(SenderOptions{track_id, stream_ids, num_sim_layers});
 }
 
 bool MediaSessionOptions::HasMediaDescription(MediaType type) const {
@@ -1843,13 +1860,13 @@ bool MediaSessionDescriptionFactory::AddAudioContentForOffer(
   AudioCodecs filtered_codecs;
   // Add the codecs from current content if exists.
   if (current_content) {
-    RTC_DCHECK(IsMediaContentOfType(current_content, MEDIA_TYPE_AUDIO));
+    RTC_CHECK(IsMediaContentOfType(current_content, MEDIA_TYPE_AUDIO));
     const AudioContentDescription* acd =
         static_cast<const AudioContentDescription*>(
             current_content->description);
     for (const AudioCodec& codec : acd->codecs()) {
-      if (FindMatchingCodec<AudioCodec>(supported_audio_codecs, audio_codecs,
-                                        codec, nullptr)) {
+      if (FindMatchingCodec<AudioCodec>(acd->codecs(), audio_codecs, codec,
+                                        nullptr)) {
         filtered_codecs.push_back(codec);
       }
     }
@@ -1921,12 +1938,12 @@ bool MediaSessionDescriptionFactory::AddVideoContentForOffer(
   VideoCodecs filtered_codecs;
   // Add the codecs from current content if exists.
   if (current_content) {
-    RTC_DCHECK(IsMediaContentOfType(current_content, MEDIA_TYPE_VIDEO));
+    RTC_CHECK(IsMediaContentOfType(current_content, MEDIA_TYPE_VIDEO));
     const VideoContentDescription* vcd =
         static_cast<const VideoContentDescription*>(
             current_content->description);
     for (const VideoCodec& codec : vcd->codecs()) {
-      if (FindMatchingCodec<VideoCodec>(video_codecs_, video_codecs, codec,
+      if (FindMatchingCodec<VideoCodec>(vcd->codecs(), video_codecs, codec,
                                         nullptr)) {
         filtered_codecs.push_back(codec);
       }
@@ -1985,6 +2002,7 @@ bool MediaSessionDescriptionFactory::AddDataContentForOffer(
   // If the DataChannel type is not specified, use the DataChannel type in
   // the current description.
   if (session_options.data_channel_type == DCT_NONE && current_content) {
+    RTC_CHECK(IsMediaContentOfType(current_content, MEDIA_TYPE_DATA));
     is_sctp = (static_cast<const DataContentDescription*>(
                    current_content->description)
                    ->protocol() == kMediaProtocolSctp);
@@ -2060,6 +2078,7 @@ bool MediaSessionDescriptionFactory::AddAudioContentForAnswer(
     const AudioCodecs& audio_codecs,
     StreamParamsVec* current_streams,
     SessionDescription* answer) const {
+  RTC_CHECK(IsMediaContentOfType(offer_content, MEDIA_TYPE_AUDIO));
   const AudioContentDescription* offer_audio_description =
       static_cast<const AudioContentDescription*>(offer_content->description);
 
@@ -2084,13 +2103,13 @@ bool MediaSessionDescriptionFactory::AddAudioContentForAnswer(
   AudioCodecs filtered_codecs;
   // Add the codecs from current content if exists.
   if (current_content) {
-    RTC_DCHECK(IsMediaContentOfType(current_content, MEDIA_TYPE_AUDIO));
+    RTC_CHECK(IsMediaContentOfType(current_content, MEDIA_TYPE_AUDIO));
     const AudioContentDescription* acd =
         static_cast<const AudioContentDescription*>(
             current_content->description);
     for (const AudioCodec& codec : acd->codecs()) {
-      if (FindMatchingCodec<AudioCodec>(supported_audio_codecs, audio_codecs,
-                                        codec, nullptr)) {
+      if (FindMatchingCodec<AudioCodec>(acd->codecs(), audio_codecs, codec,
+                                        nullptr)) {
         filtered_codecs.push_back(codec);
       }
     }
@@ -2153,6 +2172,7 @@ bool MediaSessionDescriptionFactory::AddVideoContentForAnswer(
     const VideoCodecs& video_codecs,
     StreamParamsVec* current_streams,
     SessionDescription* answer) const {
+  RTC_CHECK(IsMediaContentOfType(offer_content, MEDIA_TYPE_VIDEO));
   const VideoContentDescription* offer_video_description =
       static_cast<const VideoContentDescription*>(offer_content->description);
 
@@ -2167,12 +2187,12 @@ bool MediaSessionDescriptionFactory::AddVideoContentForAnswer(
   VideoCodecs filtered_codecs;
   // Add the codecs from current content if exists.
   if (current_content) {
-    RTC_DCHECK(IsMediaContentOfType(current_content, MEDIA_TYPE_VIDEO));
+    RTC_CHECK(IsMediaContentOfType(current_content, MEDIA_TYPE_VIDEO));
     const VideoContentDescription* vcd =
         static_cast<const VideoContentDescription*>(
             current_content->description);
     for (const VideoCodec& codec : vcd->codecs()) {
-      if (FindMatchingCodec<VideoCodec>(video_codecs_, video_codecs, codec,
+      if (FindMatchingCodec<VideoCodec>(vcd->codecs(), video_codecs, codec,
                                         nullptr)) {
         filtered_codecs.push_back(codec);
       }
@@ -2253,19 +2273,18 @@ bool MediaSessionDescriptionFactory::AddDataContentForAnswer(
       data_transport->secure() ? cricket::SEC_DISABLED : secure();
   bool bundle_enabled = offer_description->HasGroup(GROUP_TYPE_BUNDLE) &&
                         session_options.bundle_enabled;
+  RTC_CHECK(IsMediaContentOfType(offer_content, MEDIA_TYPE_DATA));
+  const DataContentDescription* offer_data_description =
+      static_cast<const DataContentDescription*>(offer_content->description);
   if (!CreateMediaContentAnswer(
-          static_cast<const DataContentDescription*>(
-              offer_content->description),
-          media_description_options, session_options, data_codecs, sdes_policy,
-          GetCryptos(current_content), RtpHeaderExtensions(),
-          enable_encrypted_rtp_header_extensions_, current_streams,
-          bundle_enabled, data_answer.get())) {
+          offer_data_description, media_description_options, session_options,
+          data_codecs, sdes_policy, GetCryptos(current_content),
+          RtpHeaderExtensions(), enable_encrypted_rtp_header_extensions_,
+          current_streams, bundle_enabled, data_answer.get())) {
     return false;  // Fails the session setup.
   }
 
   // Respond with sctpmap if the offer uses sctpmap.
-  const DataContentDescription* offer_data_description =
-      static_cast<const DataContentDescription*>(offer_content->description);
   bool offer_uses_sctpmap = offer_data_description->use_sctpmap();
   data_answer->set_use_sctpmap(offer_uses_sctpmap);
 

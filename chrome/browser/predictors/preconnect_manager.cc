@@ -70,20 +70,23 @@ void PreconnectManager::Start(const GURL& url,
                               const std::vector<GURL>& preconnect_origins,
                               const std::vector<GURL>& preresolve_hosts) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  if (preresolve_info_.find(url) != preresolve_info_.end())
+  const std::string host = url.host();
+  if (preresolve_info_.find(host) != preresolve_info_.end())
     return;
 
   auto iterator_and_whether_inserted = preresolve_info_.emplace(
-      url, base::MakeUnique<PreresolveInfo>(
-               url, preconnect_origins.size() + preresolve_hosts.size()));
+      host, base::MakeUnique<PreresolveInfo>(
+                url, preconnect_origins.size() + preresolve_hosts.size()));
   PreresolveInfo* info = iterator_and_whether_inserted.first->second.get();
 
   for (const GURL& origin : preconnect_origins) {
+    DCHECK(origin.GetOrigin() == origin);
     queued_jobs_.emplace_back(origin, true /* need_preconnect */,
                               kAllowCredentialsOnPreconnectByDefault, info);
   }
 
   for (const GURL& host : preresolve_hosts) {
+    DCHECK(host.GetOrigin() == host);
     queued_jobs_.emplace_back(host, false /* need_preconnect */,
                               kAllowCredentialsOnPreconnectByDefault, info);
   }
@@ -91,10 +94,18 @@ void PreconnectManager::Start(const GURL& url,
   TryToLaunchPreresolveJobs();
 }
 
-// It is called from an IPC message originating in the renderer. Thus these
-// requests have a higher priority than requests originated in the predictor.
+void PreconnectManager::StartPreresolveHost(const GURL& url) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  if (!url.SchemeIsHTTPOrHTTPS())
+    return;
+  queued_jobs_.emplace_front(url.GetOrigin(), false /* need_preconnect */,
+                             kAllowCredentialsOnPreconnectByDefault, nullptr);
+
+  TryToLaunchPreresolveJobs();
+}
+
 void PreconnectManager::StartPreresolveHosts(
-    const std::vector<std::string> hostnames) {
+    const std::vector<std::string>& hostnames) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   // Push jobs in front of the queue due to higher priority.
   for (auto it = hostnames.rbegin(); it != hostnames.rend(); ++it) {
@@ -106,20 +117,20 @@ void PreconnectManager::StartPreresolveHosts(
   TryToLaunchPreresolveJobs();
 }
 
-// It is called from an IPC message originating in the renderer. Thus these
-// requests have a higher priority than requests originated in the predictor.
 void PreconnectManager::StartPreconnectUrl(const GURL& url,
                                            bool allow_credentials) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  queued_jobs_.emplace_front(url, true /* need_preconnect */, allow_credentials,
-                             nullptr);
+  if (!url.SchemeIsHTTPOrHTTPS())
+    return;
+  queued_jobs_.emplace_front(url.GetOrigin(), true /* need_preconnect */,
+                             allow_credentials, nullptr);
 
   TryToLaunchPreresolveJobs();
 }
 
 void PreconnectManager::Stop(const GURL& url) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  auto it = preresolve_info_.find(url);
+  auto it = preresolve_info_.find(url.host());
   if (it == preresolve_info_.end()) {
     return;
   }
@@ -130,6 +141,8 @@ void PreconnectManager::Stop(const GURL& url) {
 void PreconnectManager::PreconnectUrl(const GURL& url,
                                       const GURL& site_for_cookies,
                                       bool allow_credentials) const {
+  DCHECK(url.GetOrigin() == url);
+  DCHECK(url.SchemeIsHTTPOrHTTPS());
   content::PreconnectUrl(context_getter_.get(), url, site_for_cookies, 1,
                          allow_credentials,
                          net::HttpRequestInfo::PRECONNECT_MOTIVATED);
@@ -138,6 +151,8 @@ void PreconnectManager::PreconnectUrl(const GURL& url,
 int PreconnectManager::PreresolveUrl(
     const GURL& url,
     const net::CompletionCallback& callback) const {
+  DCHECK(url.GetOrigin() == url);
+  DCHECK(url.SchemeIsHTTPOrHTTPS());
   return content::PreresolveUrl(context_getter_.get(), url, callback);
 }
 
@@ -203,7 +218,7 @@ void PreconnectManager::FinishPreresolve(const PreresolveJob& job,
 void PreconnectManager::AllPreresolvesForUrlFinished(PreresolveInfo* info) {
   DCHECK(info);
   DCHECK(info->is_done());
-  auto it = preresolve_info_.find(info->url);
+  auto it = preresolve_info_.find(info->url.host());
   DCHECK(it != preresolve_info_.end());
   DCHECK(info == it->second.get());
   content::BrowserThread::PostTask(

@@ -51,8 +51,8 @@
 #include "url/url_constants.h"
 
 #if BUILDFLAG(ENABLE_BACKGROUND)
-#include "chrome/browser/lifetime/keep_alive_types.h"
-#include "chrome/browser/lifetime/scoped_keep_alive.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
+#include "components/keep_alive_registry/scoped_keep_alive.h"
 #endif
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -127,8 +127,8 @@ void PlatformNotificationServiceImpl::OnPersistentNotificationClick(
     BrowserContext* browser_context,
     const std::string& notification_id,
     const GURL& origin,
-    int action_index,
-    const base::NullableString16& reply) {
+    const base::Optional<int>& action_index,
+    const base::Optional<base::string16>& reply) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   blink::mojom::PermissionStatus permission_status =
       CheckPermissionOnUIThread(browser_context, origin,
@@ -142,12 +142,12 @@ void PlatformNotificationServiceImpl::OnPersistentNotificationClick(
     return;
   }
 
-  if (action_index == -1) {
-    base::RecordAction(
-        base::UserMetricsAction("Notifications.Persistent.Clicked"));
-  } else {
+  if (action_index.has_value()) {
     base::RecordAction(base::UserMetricsAction(
         "Notifications.Persistent.ClickedActionButton"));
+  } else {
+    base::RecordAction(
+        base::UserMetricsAction("Notifications.Persistent.Clicked"));
   }
 
 #if BUILDFLAG(ENABLE_BACKGROUND)
@@ -325,12 +325,11 @@ void PlatformNotificationServiceImpl::DisplayNotification(
   DCHECK_EQ(0u, notification_data.actions.size());
   DCHECK_EQ(0u, notification_resources.action_icons.size());
 
-  NotificationDelegate* notification_delegate = new WebNotificationDelegate(
-      NotificationCommon::NON_PERSISTENT, profile, notification_id, origin);
-
   Notification notification = CreateNotificationFromData(
-      profile, GURL() /* service_worker_scope */, origin, notification_data,
-      notification_resources, notification_delegate);
+      profile, origin, notification_id, notification_data,
+      notification_resources,
+      new WebNotificationDelegate(NotificationCommon::NON_PERSISTENT, profile,
+                                  notification_id, origin));
 
   NotificationDisplayServiceFactory::GetForProfile(profile)->Display(
       NotificationCommon::NON_PERSISTENT, notification_id, notification);
@@ -364,15 +363,17 @@ void PlatformNotificationServiceImpl::DisplayPersistentNotification(
   Profile* profile = Profile::FromBrowserContext(browser_context);
   DCHECK(profile);
 
-  NotificationDelegate* delegate = new WebNotificationDelegate(
-      NotificationCommon::PERSISTENT, profile, notification_id, origin);
-
   Notification notification = CreateNotificationFromData(
-      profile, service_worker_scope, origin, notification_data,
-      notification_resources, delegate);
+      profile, origin, notification_id, notification_data,
+      notification_resources,
+      new WebNotificationDelegate(NotificationCommon::PERSISTENT, profile,
+                                  notification_id, origin));
+  auto metadata = std::make_unique<PersistentNotificationMetadata>();
+  metadata->service_worker_scope = service_worker_scope;
 
   NotificationDisplayServiceFactory::GetForProfile(profile)->Display(
-      NotificationCommon::PERSISTENT, notification_id, notification);
+      NotificationCommon::PERSISTENT, notification_id, notification,
+      std::move(metadata));
   base::RecordAction(base::UserMetricsAction("Notifications.Persistent.Shown"));
 }
 
@@ -398,7 +399,7 @@ void PlatformNotificationServiceImpl::GetDisplayedNotifications(
   Profile* profile = Profile::FromBrowserContext(browser_context);
   // Tests will not have a message center.
   if (!profile || profile->AsTestingProfile()) {
-    auto displayed_notifications = base::MakeUnique<std::set<std::string>>();
+    auto displayed_notifications = std::make_unique<std::set<std::string>>();
     callback.Run(std::move(displayed_notifications),
                  false /* supports_synchronization */);
     return;
@@ -431,24 +432,25 @@ void PlatformNotificationServiceImpl::OnCloseEventDispatchComplete(
 
 Notification PlatformNotificationServiceImpl::CreateNotificationFromData(
     Profile* profile,
-    const GURL& service_worker_scope,
     const GURL& origin,
+    const std::string& notification_id,
     const content::PlatformNotificationData& notification_data,
     const content::NotificationResources& notification_resources,
-    NotificationDelegate* delegate) const {
+    scoped_refptr<message_center::NotificationDelegate> delegate) const {
   DCHECK_EQ(notification_data.actions.size(),
             notification_resources.action_icons.size());
 
   // TODO(peter): Handle different screen densities instead of always using the
   // 1x bitmap - crbug.com/585815.
+  // TODO(estade): The RichNotificationData should set |clickable| if there's a
+  // click handler.
   Notification notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, notification_data.title,
-      notification_data.body,
+      message_center::NOTIFICATION_TYPE_SIMPLE, notification_id,
+      notification_data.title, notification_data.body,
       gfx::Image::CreateFrom1xBitmap(notification_resources.notification_icon),
       NotifierId(origin), base::UTF8ToUTF16(origin.host()), origin,
       notification_data.tag, message_center::RichNotificationData(), delegate);
 
-  notification.set_service_worker_scope(service_worker_scope);
   notification.set_context_message(
       DisplayNameForContextMessage(profile, origin));
   notification.set_vibration_pattern(notification_data.vibration_pattern);
@@ -465,7 +467,7 @@ Notification PlatformNotificationServiceImpl::CreateNotificationFromData(
         BrowserThread::IO, FROM_HERE,
         base::BindOnce(
             &ReportNotificationImageOnIOThread,
-            make_scoped_refptr(g_browser_process->safe_browsing_service()),
+            base::WrapRefCounted(g_browser_process->safe_browsing_service()),
             profile, origin, notification_resources.image));
   }
 

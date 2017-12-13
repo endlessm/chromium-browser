@@ -5,6 +5,8 @@
 package org.chromium.chrome.browser.ntp.cards;
 
 import android.support.annotation.CallSuper;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.text.TextUtils;
 
 import org.chromium.base.Callback;
@@ -47,9 +49,8 @@ public class SuggestionsSection extends InnerNode {
     // Children
     private final SectionHeader mHeader;
     private final SuggestionsList mSuggestionsList;
-    private final StatusItem mStatus;
+    private final @Nullable StatusItem mStatus;
     private final ActionItem mMoreButton;
-    private final ProgressItem mProgressIndicator;
 
     /**
      * Keeps track of how many suggestions have been seen by the user so that we replace only
@@ -97,24 +98,21 @@ public class SuggestionsSection extends InnerNode {
 
         mHeader = new SectionHeader(info.getTitle());
         mSuggestionsList = new SuggestionsList(mSuggestionsSource, ranker, info);
-        boolean useModern = FeatureUtilities.isChromeHomeModernEnabled();
-        if (useModern) {
+        mMoreButton = new ActionItem(this, ranker);
+
+        boolean isChromeHomeEnabled = FeatureUtilities.isChromeHomeEnabled();
+        if (isChromeHomeEnabled) {
             mStatus = null;
+            addChildren(mHeader, mSuggestionsList, mMoreButton);
         } else {
             mStatus = StatusItem.createNoSuggestionsItem(info);
-        }
-        mMoreButton = new ActionItem(this, ranker);
-        mProgressIndicator = new ProgressItem();
-        if (useModern) {
-            addChildren(mHeader, mSuggestionsList, mMoreButton, mProgressIndicator);
-        } else {
-            addChildren(mHeader, mSuggestionsList, mStatus, mMoreButton, mProgressIndicator);
+            addChildren(mHeader, mSuggestionsList, mStatus, mMoreButton);
         }
 
         mOfflineModelObserver = new OfflineModelObserver(offlinePageBridge);
         uiDelegate.addDestructionObserver(mOfflineModelObserver);
 
-        if (!useModern) {
+        if (!isChromeHomeEnabled) {
             mStatus.setVisible(!hasSuggestions());
         }
     }
@@ -190,6 +188,7 @@ public class SuggestionsSection extends InnerNode {
             return suggestion;
         }
 
+        @NonNull
         @Override
         public Iterator<SnippetArticle> iterator() {
             return mSuggestions.iterator();
@@ -235,8 +234,7 @@ public class SuggestionsSection extends InnerNode {
             article.setIsPrefetched(isPrefetched);
 
             if ((oldId == null) == (newId == null)) return;
-            notifyItemChanged(
-                    index, SnippetArticleViewHolder.REFRESH_OFFLINE_BADGE_VISIBILITY_CALLBACK);
+            notifyItemChanged(index, SnippetArticleViewHolder::refreshOfflineBadgeVisibility);
         }
     }
 
@@ -251,14 +249,14 @@ public class SuggestionsSection extends InnerNode {
         int newSuggestionsCount = getSuggestionsCount();
         if ((newSuggestionsCount == 0) == (oldSuggestionsCount == 0)) return;
 
-        if (!FeatureUtilities.isChromeHomeModernEnabled()) {
-            mStatus.setVisible(newSuggestionsCount == 0);
+        if (!FeatureUtilities.isChromeHomeEnabled()) {
+            mStatus.setVisible(!hasSuggestions());
         }
 
         // When the ActionItem stops being dismissable, it is possible that it was being
         // interacted with. We need to reset the view's related property changes.
         if (mMoreButton.isVisible()) {
-            mMoreButton.notifyItemChanged(0, NewTabPageRecyclerView.RESET_FOR_DISMISS_CALLBACK);
+            mMoreButton.notifyItemChanged(0, NewTabPageRecyclerView::resetForDismissCallback);
         }
     }
 
@@ -310,11 +308,11 @@ public class SuggestionsSection extends InnerNode {
         assert aboveNeighbour < belowNeighbour;
 
         if (aboveNeighbour >= 0) {
-            notifyItemChanged(aboveNeighbour, NewTabPageViewHolder.UPDATE_LAYOUT_PARAMS_CALLBACK);
+            notifyItemChanged(aboveNeighbour, NewTabPageViewHolder::updateLayoutParams);
         }
 
         if (belowNeighbour < getItemCount()) {
-            notifyItemChanged(belowNeighbour, NewTabPageViewHolder.UPDATE_LAYOUT_PARAMS_CALLBACK);
+            notifyItemChanged(belowNeighbour, NewTabPageViewHolder::updateLayoutParams);
         }
     }
 
@@ -359,7 +357,7 @@ public class SuggestionsSection extends InnerNode {
         }
     }
 
-    public boolean hasSuggestions() {
+    private boolean hasSuggestions() {
         return mSuggestionsList.getItemCount() != 0;
     }
 
@@ -367,16 +365,21 @@ public class SuggestionsSection extends InnerNode {
         return mSuggestionsList.getItemCount();
     }
 
-    public int getPrefetchedSuggestionsCount() {
-        int count = 0;
-        for (SnippetArticle suggestion : mSuggestionsList) {
-            if (suggestion.isPrefetched()) ++count;
-        }
-        return count;
-    }
-
     public boolean isDataStale() {
         return mIsDataStale;
+    }
+
+    /** Whether the section is waiting for content to be loaded. */
+    public boolean isLoading() {
+        return mMoreButton.getState() == ActionItem.State.LOADING;
+    }
+
+    /**
+     * @return Whether the section is showing content cards. The placeholder is included in this
+     * check, as it's standing for content, but the status card is not.
+     */
+    public boolean hasCards() {
+        return hasSuggestions();
     }
 
     /**
@@ -389,7 +392,7 @@ public class SuggestionsSection extends InnerNode {
         return value;
     }
 
-    public String[] getDisplayedSuggestionIds() {
+    private String[] getDisplayedSuggestionIds() {
         String[] suggestionIds = new String[mSuggestionsList.getItemCount()];
         for (int i = 0; i < mSuggestionsList.getItemCount(); ++i) {
             suggestionIds[i] = mSuggestionsList.getSuggestionAt(i).mIdWithinCategory;
@@ -431,7 +434,8 @@ public class SuggestionsSection extends InnerNode {
                     "updateSuggestions: Category %d is stale, will keep already seen suggestions.",
                     getCategory());
         }
-        appendSuggestions(suggestions, /*keepSectionSize=*/true);
+        appendSuggestions(suggestions, /* keepSectionSize = */ true,
+                /* reportPrefetchedSuggestionsCount = */ false);
     }
 
     /**
@@ -439,9 +443,12 @@ public class SuggestionsSection extends InnerNode {
      *
      * @param suggestions The suggestions to be added at the end of the current list.
      * @param keepSectionSize Whether the section size should stay the same -- will be enforced by
-     *                        replacing not-yet-seen suggestions with the new suggestions.
+     *         replacing not-yet-seen suggestions with the new suggestions.
+     * @param reportPrefetchedSuggestionsCount Whether to report the number of prefetched article
+     *         suggestions.
      */
-    public void appendSuggestions(List<SnippetArticle> suggestions, boolean keepSectionSize) {
+    public void appendSuggestions(List<SnippetArticle> suggestions, boolean keepSectionSize,
+            boolean reportPrefetchedSuggestionsCount) {
         if (keepSectionSize) {
             Log.d(TAG, "updateSuggestions: keeping the first %d suggestion",
                     mNumberOfSuggestionsSeen);
@@ -450,11 +457,8 @@ public class SuggestionsSection extends InnerNode {
         }
         mSuggestionsList.addAll(suggestions);
 
-        for (SnippetArticle article : suggestions) {
-            if (!article.requiresExactOfflinePage()) {
-                mOfflineModelObserver.updateOfflinableSuggestionAvailability(article);
-            }
-        }
+        mOfflineModelObserver.updateAllSuggestionsOfflineAvailability(
+                reportPrefetchedSuggestionsCount);
 
         if (!keepSectionSize) {
             NewTabPageUma.recordUIUpdateResult(NewTabPageUma.UI_UPDATE_SUCCESS_APPENDED);
@@ -508,36 +512,37 @@ public class SuggestionsSection extends InnerNode {
 
         return true;
     }
-    /** Fetches additional suggestions only for this section. */
-    public void fetchSuggestions() {
-        // We want to disable the action item while we are fetching suggestions in order to
-        // avoid fetching the same suggestions twice. See crbug.com/739648.
-        mMoreButton.setEnabled(false);
-        mMoreButton.setVisible(false);
-        mSuggestionsSource.fetchSuggestions(mCategoryInfo.getCategory(),
-                getDisplayedSuggestionIds(), new Callback<List<SnippetArticle>>() {
-                    @Override
-                    public void onResult(List<SnippetArticle> additionalSuggestions) {
-                        if (!isAttached()) return; // The section has been dismissed.
-
-                        mProgressIndicator.setVisible(false);
-
-                        appendSuggestions(additionalSuggestions, /* keepSectionSize = */ false);
-
-                        mMoreButton.setEnabled(true);
-                        mMoreButton.setVisible(true);
-                    }
-                });
-
-        mProgressIndicator.setVisible(true);
-    }
 
     /**
-     * Programmatically click the more button. This differs from directly calling
-     * {@link #fetchSuggestions()} in that it disables the button.
+     * Fetches additional suggestions only for this section.
+     * @param onFailure A {@link Runnable} that will be run if the fetch fails.
      */
-    public void clickMoreButton(SuggestionsUiDelegate delegate) {
-        mMoreButton.performAction(delegate);
+    public void fetchSuggestions(@Nullable final Runnable onFailure) {
+        assert !isLoading();
+
+        if (getSuggestionsCount() == 0 && getCategoryInfo().isRemote()) {
+            // Trigger a full refresh of the section to ensure we persist content locally.
+            // If a fetch can be made, the status will be synchronously updated from the backend.
+            mSuggestionsSource.fetchRemoteSuggestions();
+            return;
+        }
+
+        mMoreButton.updateState(ActionItem.State.LOADING);
+        mSuggestionsSource.fetchSuggestions(mCategoryInfo.getCategory(),
+                getDisplayedSuggestionIds(),
+                suggestions -> {  /* successCallback */
+                    if (!isAttached()) return; // The section has been dismissed.
+
+                    mMoreButton.updateState(ActionItem.State.BUTTON);
+                    appendSuggestions(suggestions, /* keepSectionSize = */ false,
+                            /* reportPrefetchedSuggestionsCount = */ false);
+                },
+                () -> {  /* failureRunnable */
+                    if (!isAttached()) return; // The section has been dismissed.
+
+                    mMoreButton.updateState(ActionItem.State.BUTTON);
+                    if (onFailure != null) onFailure.run();
+                });
     }
 
     /** Sets the status for the section. Some statuses can cause the suggestions to be cleared. */
@@ -547,7 +552,8 @@ public class SuggestionsSection extends InnerNode {
             Log.d(TAG, "setStatus: unavailable status, cleared suggestions.");
         }
 
-        mProgressIndicator.setVisible(SnippetsBridge.isCategoryLoading(status));
+        boolean isLoading = SnippetsBridge.isCategoryLoading(status);
+        mMoreButton.updateState(isLoading ? ActionItem.State.LOADING : ActionItem.State.BUTTON);
     }
 
     /** Clears the suggestions and related data, resetting the state of the section. */
@@ -583,7 +589,7 @@ public class SuggestionsSection extends InnerNode {
      * (as opposed to individual items in it).
      */
     private Set<Integer> getSectionDismissalRange() {
-        if (hasSuggestions() || FeatureUtilities.isChromeHomeModernEnabled()) {
+        if (hasSuggestions() || FeatureUtilities.isChromeHomeEnabled()) {
             return Collections.emptySet();
         }
 
@@ -600,10 +606,6 @@ public class SuggestionsSection extends InnerNode {
 
     public String getHeaderText() {
         return mHeader.getHeaderText();
-    }
-
-    ProgressItem getProgressItemForTesting() {
-        return mProgressIndicator;
     }
 
     ActionItem getActionItemForTesting() {

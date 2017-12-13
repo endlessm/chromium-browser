@@ -6,7 +6,7 @@
  */
 
 #include "SkCanvas.h"
-#include "SkColorPriv.h"
+#include "SkColorData.h"
 #include "SkMathPriv.h"
 #include "SkSurface.h"
 #include "Test.h"
@@ -394,7 +394,7 @@ DEF_TEST(WritePixels, reporter) {
     const SkImageInfo info = SkImageInfo::MakeN32Premul(DEV_W, DEV_H);
     for (auto& tightRowBytes : { true, false }) {
         const size_t rowBytes = tightRowBytes ? info.minRowBytes() : 4 * DEV_W + 100;
-        const size_t size = info.getSafeSize(rowBytes);
+        const size_t size = info.computeByteSize(rowBytes);
         void* pixels = sk_malloc_throw(size);
         // if rowBytes isn't tight then set the padding to a known value
         if (!tightRowBytes) {

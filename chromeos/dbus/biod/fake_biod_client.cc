@@ -5,6 +5,7 @@
 #include "chromeos/dbus/biod/fake_biod_client.h"
 
 #include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
@@ -157,7 +158,7 @@ void FakeBiodClient::DestroyAllRecords(VoidDBusMethodCallback callback) {
   records_.clear();
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), DBUS_METHOD_CALL_SUCCESS));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 void FakeBiodClient::StartAuthSession(const ObjectPathCallback& callback) {
@@ -186,7 +187,7 @@ void FakeBiodClient::CancelEnrollSession(VoidDBusMethodCallback callback) {
   current_session_ = FingerprintSession::NONE;
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), DBUS_METHOD_CALL_SUCCESS));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 void FakeBiodClient::EndAuthSession(VoidDBusMethodCallback callback) {
@@ -194,7 +195,7 @@ void FakeBiodClient::EndAuthSession(VoidDBusMethodCallback callback) {
 
   current_session_ = FingerprintSession::NONE;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), DBUS_METHOD_CALL_SUCCESS));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 void FakeBiodClient::SetRecordLabel(const dbus::ObjectPath& record_path,
@@ -204,7 +205,7 @@ void FakeBiodClient::SetRecordLabel(const dbus::ObjectPath& record_path,
     records_[record_path]->label = label;
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), DBUS_METHOD_CALL_SUCCESS));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 void FakeBiodClient::RemoveRecord(const dbus::ObjectPath& record_path,
@@ -212,7 +213,7 @@ void FakeBiodClient::RemoveRecord(const dbus::ObjectPath& record_path,
   records_.erase(record_path);
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(callback), DBUS_METHOD_CALL_SUCCESS));
+      FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
 void FakeBiodClient::RequestRecordLabel(const dbus::ObjectPath& record_path,

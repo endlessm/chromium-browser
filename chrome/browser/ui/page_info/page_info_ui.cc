@@ -378,7 +378,7 @@ const gfx::Image& PageInfoUI::GetPermissionIcon(const PermissionInfo& info) {
   ContentSetting setting = info.setting;
   if (setting == CONTENT_SETTING_DEFAULT)
     setting = info.default_setting;
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
   return rb.GetNativeImageNamed(GetPermissionIconID(info.type, setting));
 }
 
@@ -394,7 +394,7 @@ base::string16 PageInfoUI::ChosenObjectToUIString(
 const gfx::Image& PageInfoUI::GetChosenObjectIcon(
     const ChosenObjectInfo& object,
     bool deleted) {
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
   return rb.GetNativeImageNamed(deleted ? object.ui_info.blocked_icon_id
                                         : object.ui_info.allowed_icon_id);
 }
@@ -463,12 +463,6 @@ const gfx::ImageSkia PageInfoUI::GetCertificateIcon() {
   return gfx::CreateVectorIcon(kCertificateIcon, 16, gfx::kChromeIconGrey);
 }
 #endif
-
-// static
-bool PageInfoUI::ShouldShowCertificateLink() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kShowCertLink);
-}
 
 // static
 bool PageInfoUI::ContentSettingsTypeInPageInfo(ContentSettingsType type) {

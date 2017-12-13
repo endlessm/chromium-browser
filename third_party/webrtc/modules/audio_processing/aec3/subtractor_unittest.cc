@@ -8,16 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_processing/aec3/subtractor.h"
+#include "modules/audio_processing/aec3/subtractor.h"
 
 #include <algorithm>
 #include <numeric>
 #include <string>
 
-#include "webrtc/modules/audio_processing/aec3/aec_state.h"
-#include "webrtc/modules/audio_processing/test/echo_canceller_test_tools.h"
-#include "webrtc/rtc_base/random.h"
-#include "webrtc/test/gtest.h"
+#include "modules/audio_processing/aec3/aec_state.h"
+#include "modules/audio_processing/test/echo_canceller_test_tools.h"
+#include "rtc_base/random.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 namespace {
@@ -69,6 +69,7 @@ float RunSubtractorTest(int num_blocks_to_process,
     aec_state.HandleEchoPathChange(EchoPathVariability(false, false));
     aec_state.Update(subtractor.FilterFrequencyResponse(),
                      subtractor.FilterImpulseResponse(),
+                     subtractor.ConvergedFilter(),
                      rtc::Optional<size_t>(delay_samples / kBlockSize),
                      render_buffer, E2_main, Y2, x[0], output.s_main, false);
   }

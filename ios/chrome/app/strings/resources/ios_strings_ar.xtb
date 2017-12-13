@@ -7,7 +7,7 @@
 <translation id="1076421457278169141">تم مسح الرمز ضوئيًا</translation>
 <translation id="1084365883616172403">‏اكتمل النشر على Facebook.</translation>
 <translation id="1104948393051856124">القبول والمتابعة</translation>
-<translation id="1112015203684611006">أخفقت الطباعة.</translation>
+<translation id="1112015203684611006">تعذّرت الطباعة.</translation>
 <translation id="1125564390852150847">إنشاء علامة تبويب جديدة.</translation>
 <translation id="1145536944570833626">يمكنك حذف البيانات الحالية.</translation>
 <translation id="1165039591588034296">خطأ</translation>
@@ -20,7 +20,6 @@
 <translation id="1254117744268754948">اختيار مجلد</translation>
 <translation id="1265739287306757398">تعرَّف على الطريقة</translation>
 <translation id="1272079795634619415">إيقاف</translation>
-<translation id="129553762522093515">المغلقة حديثًا</translation>
 <translation id="1323735185997015385">حذف</translation>
 <translation id="132683371494960526">انقر نقرًا مزدوجًا لتغيير المجلد الرئيسي.</translation>
 <translation id="1340643665687018190">إغلاق القائمة</translation>
@@ -42,13 +41,12 @@
 <translation id="1646446875146297738">إن تمكين "عدم التتبع" يعني تضمين طلب في حركة بيانات التصفح. ويعتمد أي تأثير يحدث على ما إذا كان موقع الويب سيستجيب للطلب، وكيفية تفسيره للطلب.
 
 على سبيل المثال، قد تستجيب بعض مواقع الويب لهذا الطلب عبر عرض إعلانات لا تستند إلى مواقع ويب أخرى زرتها. ولكن ستظل العديد من مواقع الويب تجمع بيانات تصفحك وتستخدمها - على سبيل المثال، لتحسين الأمان وتقديم محتوى وخدمات وإعلانات واقتراحات على مواقع الويب ولإعداد تقارير الإحصاءات. <ph name="BEGIN_LINK" />مزيد من المعلومات<ph name="END_LINK" /></translation>
-<translation id="1657011748321897393">أخفقت المشاركة بسبب عدم اتصالك بالشبكة.</translation>
+<translation id="1657011748321897393">تعذّرت المشاركة بسبب عدم اتصالك بالشبكة.</translation>
 <translation id="165877110639533037">لا توجد علامات تبويب مفتوحة</translation>
 <translation id="1687475363370981210">وضع العلامة كمقروءة على الكل</translation>
 <translation id="1690731385917361335">لا توجد عناصر</translation>
 <translation id="1700629756560807968">تم تحديد <ph name="NUMBER_OF_SELECTED_BOOKMARKS" /></translation>
 <translation id="1740468249224277719">انقر نقرًا مزدوجًا للتثبيت.</translation>
-<translation id="1749561566933687563">مزامنة الإشارات المرجعية</translation>
 <translation id="1752547299766512813">حفظ كلمات المرور</translation>
 <translation id="1753905327828125965">الأكثر زيارة</translation>
 <translation id="1809939268435598390">حذف مجلد</translation>
@@ -80,6 +78,7 @@
 <translation id="2381405137052800939">الأساسيات</translation>
 <translation id="2386793615875593361">تم تحديد عنصر واحد</translation>
 <translation id="2435457462613246316">عرض كلمة المرور</translation>
+<translation id="2529021024822217800">فتح الكل</translation>
 <translation id="2572712655377361602">حظرت سياسة الجهاز الدخول إلى صورك</translation>
 <translation id="2584132361465095047">إضافة حساب...</translation>
 <translation id="2593774076813182497">لا يمكن طباعة هذه الصفحة.</translation>
@@ -129,7 +128,6 @@
 <translation id="3324193307694657476">العنوان 2</translation>
 <translation id="3329904751041170572">تعذر الاتصال بالخادم.</translation>
 <translation id="3335947283844343239">إعادة فتح علامة التبويب المغلقة</translation>
-<translation id="3387752218061326363">عرض السجلّ من الأجهزة التي تم تسجيل الدخول إليها. <ph name="BEGIN_LINK" />مزيد من المعلومات<ph name="END_LINK" />.</translation>
 <translation id="3393920035788932672">النوافذ المنبثقة المسموح بها</translation>
 <translation id="3414292259312108062">‏سيخزن Chrome ذلك في <ph name="BEGIN_LINK" />كلمات مرور Chrome المحفوظة<ph name="END_LINK" /> ويكتبها تلقائيًا بالنيابة عنك حتى لا تضطر لحفظها بنفسك.</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> دقيقة</translation>
@@ -181,6 +179,7 @@
 <translation id="4342284590510997375">جديدة</translation>
 <translation id="434816576838749873">اختيار تطبيق البريد الإلكتروني</translation>
 <translation id="4359125752503270327">ستفتح هذه الصفحة في تطبيق آخر.</translation>
+<translation id="4370827530403103842">المزامنة لا تعمل. انقر للإصلاح.</translation>
 <translation id="4375040482473363939">البحث عن رمز الاستجابة السريعة</translation>
 <translation id="4378154925671717803">الهاتف</translation>
 <translation id="441868831736628555">إشعار الخصوصية</translation>
@@ -188,6 +187,7 @@
 <translation id="4508750114462689118">إغلاق عرض ترويجي لتسجيل الدخول</translation>
 <translation id="4526249700380860531">‏عرض كلمات المرور المحفوظة وإدارتها في <ph name="BEGIN_LINK" />passwords.google.com<ph name="END_LINK" /></translation>
 <translation id="4536418791685807335">حاول تسجيل الدخول مرة أخرى.</translation>
+<translation id="457386861538956877">المزيد...</translation>
 <translation id="461440297010471931">‏البحث من خلال Google</translation>
 <translation id="4620246317052452550">الصفحات التي قرأتها</translation>
 <translation id="4636930964841734540">معلومات</translation>
@@ -309,6 +309,7 @@
 <translation id="6785453220513215166">جارٍ إرسال تقرير بالأعطال…</translation>
 <translation id="679325081238418596">يمكنك الحصول على الإشارات المرجعية والسِجل وكلمات المرور والإعدادات الأخرى على جميع أجهزتك</translation>
 <translation id="6797885426782475225">البحث الصوتي</translation>
+<translation id="6807889908376551050">إظهار الكل...</translation>
 <translation id="681368974849482173">تم إنشاء العنصر</translation>
 <translation id="6896758677409633944">نسخ</translation>
 <translation id="6903907808598579934">تشغيل المزامنة</translation>
@@ -319,7 +320,6 @@
 <translation id="7031882061095297553">مزامنة لـ</translation>
 <translation id="7062545763355031412">قبول الحسابات وتبديلها</translation>
 <translation id="7108338896283013870">إخفاء</translation>
-<translation id="7131892264600713844">عرض السجل من هذا الجهاز. <ph name="BEGIN_LINK" />مزيد من المعلومات.<ph name="END_LINK" /></translation>
 <translation id="7133798577887235672">الاسم بالكامل</translation>
 <translation id="7136892417564438900">الكاميرا غير متاحة</translation>
 <translation id="7159472599653637159">طلب موقع ويب متوافق مع الجوّال</translation>
@@ -356,7 +356,6 @@
 <translation id="7769602470925380267">قبول وتسجيل الخروج</translation>
 <translation id="7772032839648071052">تأكيد عبارة المرور</translation>
 <translation id="780301667611848630">لا، شكرًا</translation>
-<translation id="7851858861565204677">أجهزة أخرى</translation>
 <translation id="7859704718976024901">سجل التصفح</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7947953824732555851">قبول وتسجيل الدخول</translation>
@@ -378,10 +377,11 @@
 <translation id="8381750437846184350">‏التحكم في الطريقة التي تتبعها Google عند استخدام سجل التصفح لتخصيص البحث، والإعلانات، وخدمات Google الأخرى</translation>
 <translation id="842017693807136194">تم تسجيل الدخول باستخدام</translation>
 <translation id="8428045167754449968">المدينة/البلدة</translation>
-<translation id="8428213095426709021">إعدادات</translation>
+<translation id="8428213095426709021">الإعدادات</translation>
 <translation id="8458397775385147834">تم حذف عنصر واحد</translation>
 <translation id="8487700953926739672">التوفر في وضع عدم الاتصال</translation>
 <translation id="8503813439785031346">اسم المستخدم</translation>
+<translation id="850600235656508448">فتح في وضع التصفح المتخفي</translation>
 <translation id="8517375800490286174">تراخيص البرامج مفتوحة المصدر</translation>
 <translation id="8524799873541103884">علامات تبويب <ph name="INCOGNITO" /><ph name="FIRST_VISIBLE_TAB" /> عبر <ph name="LAST_VISIBLE_TAB" /> من <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8532105204136943229">عام انتهاء الصلاحية</translation>
@@ -400,6 +400,7 @@
 <translation id="8775144690796719618">‏عنوان URL غير صالح</translation>
 <translation id="8820817407110198400">إشارات</translation>
 <translation id="8840513115188359703">‏لن يتم تسجيل خروجك من حساب Google.</translation>
+<translation id="8870413625673593573">العناصر المغلقة مؤخرًا</translation>
 <translation id="8881801611828450202">البحث في <ph name="SEARCH_ENGINE" /> عن هذه الصورة</translation>
 <translation id="8904976895050290827">‏مزامنة Chrome</translation>
 <translation id="895541991026785598">الإبلاغ عن مشكلة</translation>

@@ -41,7 +41,6 @@
 #include "ui/gl/gl_image_ref_counted_memory.h"
 #include "ui/gl/gl_share_group.h"
 #include "ui/gl/gl_surface.h"
-#include "ui/gl/gl_utils.h"
 #include "ui/gl/init/gl_factory.h"
 
 #if defined(OS_MACOSX)
@@ -57,7 +56,7 @@ void InitializeGpuPreferencesForTestingFromCommandLine(
     GpuPreferences* preferences) {
   // Only initialize specific GpuPreferences members used for testing.
   preferences->use_passthrough_cmd_decoder =
-      gl::UsePassthroughCommandDecoder(&command_line);
+      gles2::UsePassthroughCommandDecoder(&command_line);
 }
 
 class GpuMemoryBufferImpl : public gfx::GpuMemoryBuffer {
@@ -337,14 +336,15 @@ void GLManager::InitializeWithWorkaroundsImpl(
       options.context_lost_allowed));
 
   decoder_.reset(::gpu::gles2::GLES2Decoder::Create(
-      command_buffer_.get(), command_buffer_->service(), context_group));
+      command_buffer_.get(), command_buffer_->service(), &outputter_,
+      context_group));
   if (options.force_shader_name_hashing) {
     decoder_->SetForceShaderNameHashingForTest(true);
   }
 
   command_buffer_->set_handler(decoder_.get());
 
-  surface_ = gl::init::CreateOffscreenGLSurface(options.size);
+  surface_ = gl::init::CreateOffscreenGLSurface(gfx::Size());
   ASSERT_TRUE(surface_.get() != NULL) << "could not create offscreen surface";
 
   if (base_context_) {
@@ -373,6 +373,9 @@ void GLManager::InitializeWithWorkaroundsImpl(
                             ::gpu::gles2::DisallowedFeatures(), attribs)) {
     return;
   }
+  // Client side Capabilities queries return reference, service side return
+  // value. Here two sides are joined together.
+  capabilities_ = decoder_->GetCapabilities();
 
   // Create the GLES2 helper, which writes the command buffer protocol.
   gles2_helper_.reset(new gles2::GLES2CmdHelper(command_buffer_.get()));
@@ -463,8 +466,8 @@ void GLManager::SetGpuControlClient(GpuControlClient*) {
   // The client is not currently called, so don't store it.
 }
 
-Capabilities GLManager::GetCapabilities() {
-  return decoder_->GetCapabilities();
+const Capabilities& GLManager::GetCapabilities() const {
+  return capabilities_;
 }
 
 int32_t GLManager::CreateImage(ClientBuffer buffer,

@@ -66,15 +66,18 @@ class AppCrashException(Error):
         system_log = app.platform.GetSystemLog()
         if system_log:
           self._system_log = system_log
+      except Exception:  # pylint: disable=broad-except
+        logging.exception('Problem when trying to gather system log:')
+      try:
         self._is_valid_dump, trace_output = app.GetStackTrace()
         self._stack_trace = trace_output.splitlines()
         self._minidump_path = app.GetMostRecentMinidumpPath()
-      except Exception as err:  # pylint: disable=broad-except
-        logging.error('Problem when trying to gather stack trace: %s' % err)
+      except Exception:  # pylint: disable=broad-except
+        logging.exception('Problem when trying to gather stack trace:')
       try:
         self._app_stdout = app.GetStandardOutput().splitlines()
-      except Exception as err: # pylint: disable=broad-except
-        logging.error('Problem when trying to gather standard output: %s' % err)
+      except Exception: # pylint: disable=broad-except
+        logging.exception('Problem when trying to gather standard output:')
 
   @property
   def stack_trace(self):
@@ -130,6 +133,10 @@ class BrowserConnectionGoneException(BrowserGoneException):
 
   def __init__(self, app, msg='Browser exists but the connection is gone'):
     super(BrowserConnectionGoneException, self).__init__(app, msg)
+
+
+class TabMissingError(Error):
+  """Represents an error when an expected browser tab is not found."""
 
 
 class ProcessGoneException(Error):

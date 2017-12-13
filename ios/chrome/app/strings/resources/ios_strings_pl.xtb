@@ -20,7 +20,6 @@
 <translation id="1254117744268754948">Wybierz folder</translation>
 <translation id="1265739287306757398">Instrukcje</translation>
 <translation id="1272079795634619415">Zatrzymaj</translation>
-<translation id="129553762522093515">Ostatnio zamknięte</translation>
 <translation id="1323735185997015385">Usuń</translation>
 <translation id="132683371494960526">Kliknij dwukrotnie, by zmienić folder nadrzędny.</translation>
 <translation id="1340643665687018190">Zamknij menu</translation>
@@ -48,7 +47,6 @@ Na przykład niektóre strony mogą na nie zareagować, wyświetlając reklamy b
 <translation id="1690731385917361335">Brak elementów</translation>
 <translation id="1700629756560807968">Wybrane: <ph name="NUMBER_OF_SELECTED_BOOKMARKS" /></translation>
 <translation id="1740468249224277719">Kliknij dwukrotnie, by zainstalować.</translation>
-<translation id="1749561566933687563">Synchronizuj swoje zakładki</translation>
 <translation id="1752547299766512813">Zapisuj hasła</translation>
 <translation id="1753905327828125965">Najczęstsze</translation>
 <translation id="1809939268435598390">Usuń folder</translation>
@@ -80,6 +78,7 @@ Na przykład niektóre strony mogą na nie zareagować, wyświetlając reklamy b
 <translation id="2381405137052800939">Podstawowe</translation>
 <translation id="2386793615875593361">Wybrano: 1</translation>
 <translation id="2435457462613246316">Pokaż hasło</translation>
+<translation id="2529021024822217800">Otwórz wszystkie</translation>
 <translation id="2572712655377361602">Zasady dotyczące urządzeń zablokowały dostęp do Twoich zdjęć</translation>
 <translation id="2584132361465095047">Dodaj konto…</translation>
 <translation id="2593774076813182497">Tej strony nie można wydrukować.</translation>
@@ -129,7 +128,6 @@ Na przykład niektóre strony mogą na nie zareagować, wyświetlając reklamy b
 <translation id="3324193307694657476">Adres 2</translation>
 <translation id="3329904751041170572">Nie można połączyć się z serwerem.</translation>
 <translation id="3335947283844343239">Otwórz ponownie zamkniętą kartę</translation>
-<translation id="3387752218061326363">Wyświetlam historię z zalogowanych urządzeń. <ph name="BEGIN_LINK" />Więcej informacji<ph name="END_LINK" /></translation>
 <translation id="3393920035788932672">Pop-upy akceptowane</translation>
 <translation id="3414292259312108062">Chrome umieści to hasło w <ph name="BEGIN_LINK" />zapisanych hasłach Google<ph name="END_LINK" /> i będzie je automatycznie wstawiać, więc nie musisz go zapamiętywać.</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> min</translation>
@@ -181,6 +179,7 @@ Aby dostosować wyszukiwane hasło, naciśnij je i przytrzymaj, by je zaznaczyć
 <translation id="4342284590510997375">Nowe</translation>
 <translation id="434816576838749873">Wybierz aplikację do poczty</translation>
 <translation id="4359125752503270327">Strona zostanie otwarta w innej aplikacji.</translation>
+<translation id="4370827530403103842">Synchronizacja nie działa. Kliknij, by ją naprawić.</translation>
 <translation id="4375040482473363939">Wyszukiwanie z użyciem kodu QR</translation>
 <translation id="4378154925671717803">Telefon</translation>
 <translation id="441868831736628555">Informacje na temat ochrony prywatności</translation>
@@ -188,6 +187,7 @@ Aby dostosować wyszukiwane hasło, naciśnij je i przytrzymaj, by je zaznaczyć
 <translation id="4508750114462689118">Zamknij okno zachęcające do logowania</translation>
 <translation id="4526249700380860531">Wyświetlaj zapisane hasła i zarządzaj nimi na <ph name="BEGIN_LINK" />passwords.google.com<ph name="END_LINK" /></translation>
 <translation id="4536418791685807335">Spróbuj zalogować się jeszcze raz.</translation>
+<translation id="457386861538956877">Więcej</translation>
 <translation id="461440297010471931">Wyszukiwanie z Google</translation>
 <translation id="4620246317052452550">Przeczytane strony</translation>
 <translation id="4636930964841734540">Informacje</translation>
@@ -309,6 +309,7 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="6785453220513215166">Wysyłam raport o awarii...</translation>
 <translation id="679325081238418596">Korzystaj z zakładek, historii, haseł i innych ustawień na wszystkich swoich urządzeniach</translation>
 <translation id="6797885426782475225">Wyszukiwanie głosowe</translation>
+<translation id="6807889908376551050">Pokaż wszystkie...</translation>
 <translation id="681368974849482173">Utworzono element</translation>
 <translation id="6896758677409633944">Kopiuj</translation>
 <translation id="6903907808598579934">Włącz synchronizację</translation>
@@ -319,7 +320,6 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="7031882061095297553">Synchronizuj z</translation>
 <translation id="7062545763355031412">Zaakceptuj i przełącz konta</translation>
 <translation id="7108338896283013870">Ukryj</translation>
-<translation id="7131892264600713844">Wyświetlam historię z tego urządzenia. <ph name="BEGIN_LINK" />Więcej informacji<ph name="END_LINK" /></translation>
 <translation id="7133798577887235672">Imię i nazwisko</translation>
 <translation id="7136892417564438900">Aparat jest niedostępny</translation>
 <translation id="7159472599653637159">Żądaj strony mobilnej</translation>
@@ -356,12 +356,11 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="7769602470925380267">Zaakceptuj i wyloguj się</translation>
 <translation id="7772032839648071052">Potwierdź hasło</translation>
 <translation id="780301667611848630">Nie, dziękuję</translation>
-<translation id="7851858861565204677">Inne urządzenia</translation>
 <translation id="7859704718976024901">Historia przeglądania</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7947953824732555851">Zaakceptuj i zaloguj się</translation>
 <translation id="7961015016161918242">Nigdy</translation>
-<translation id="7971521879845308059">Blokuj pop-upy</translation>
+<translation id="7971521879845308059">Blokuj wyskakujące okienka</translation>
 <translation id="7982789257301363584">Sieć</translation>
 <translation id="8019783059653722575">Umożliwia zapisywanie i przesyłanie zdjęć.</translation>
 <translation id="8023878949384262191">Rozwija sekcję.</translation>
@@ -382,6 +381,7 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="8458397775385147834">Usunąłeś 1 element</translation>
 <translation id="8487700953926739672">Dostępny offline</translation>
 <translation id="8503813439785031346">Nazwa użytkownika</translation>
+<translation id="850600235656508448">Otwórz w trybie incognito</translation>
 <translation id="8517375800490286174">Licencje typu open source</translation>
 <translation id="8524799873541103884">Karty <ph name="INCOGNITO" /> od <ph name="FIRST_VISIBLE_TAB" /> do <ph name="LAST_VISIBLE_TAB" /> z <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8532105204136943229">Rok utraty ważności</translation>
@@ -400,6 +400,7 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="8775144690796719618">Nieprawidłowy URL</translation>
 <translation id="8820817407110198400">Zakładki</translation>
 <translation id="8840513115188359703">Nie spowoduje to wylogowania z konta Google.</translation>
+<translation id="8870413625673593573">Ostatnio zamknięte</translation>
 <translation id="8881801611828450202">Szukaj tego obrazu w: <ph name="SEARCH_ENGINE" /></translation>
 <translation id="8904976895050290827">Synchronizacja Chrome</translation>
 <translation id="895541991026785598">Zgłaszanie problemu</translation>

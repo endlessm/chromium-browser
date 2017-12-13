@@ -21,7 +21,6 @@
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/time/time.h"
@@ -550,7 +549,8 @@ class VoiceInteractionIconBackground : public ui::Layer,
 
   void OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) override {}
 
-  void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
+  void OnDeviceScaleFactorChanged(float old_device_scale_factor,
+                                  float new_device_scale_factor) override {}
 
   // ui::Layers for all of the painted shape layers that compose the morphing
   // shape.

@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.vr_shell;
 
 import static org.chromium.chrome.browser.vr_shell.VrTestFramework.PAGE_LOAD_TIMEOUT_S;
+import static org.chromium.chrome.browser.vr_shell.VrTestFramework.POLL_CHECK_INTERVAL_SHORT_MS;
 import static org.chromium.chrome.browser.vr_shell.VrTestFramework.POLL_TIMEOUT_LONG_MS;
 import static org.chromium.chrome.browser.vr_shell.VrTestFramework.POLL_TIMEOUT_SHORT_MS;
 import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_DEVICE_DAYDREAM;
@@ -31,6 +32,9 @@ import org.chromium.chrome.browser.vr_shell.util.VrShellDelegateUtils;
 import org.chromium.chrome.browser.vr_shell.util.VrTransitionUtils;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.content.browser.test.util.Criteria;
+import org.chromium.content.browser.test.util.CriteriaHelper;
+import org.chromium.content.browser.test.util.DOMUtils;
 
 import java.util.concurrent.TimeoutException;
 
@@ -133,6 +137,37 @@ public class VrShellTransitionTest {
     }
 
     /**
+     * Tests that we exit fullscreen mode after exiting VR from cinema mode.
+     */
+    @Test
+    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM)
+    @MediumTest
+    public void testExitFullscreenAfterExitingVrFromCinemaMode()
+            throws InterruptedException, TimeoutException {
+        VrTransitionUtils.forceEnterVr();
+        VrTransitionUtils.waitForVrEntry(POLL_TIMEOUT_LONG_MS);
+        mVrTestFramework.loadUrlAndAwaitInitialization(
+                VrTestFramework.getHtmlTestFile("test_navigation_2d_page"), PAGE_LOAD_TIMEOUT_S);
+        DOMUtils.clickNode(mVrTestFramework.getFirstTabCvc(), "fullscreen");
+        VrTestFramework.waitOnJavaScriptStep(mVrTestFramework.getFirstTabWebContents());
+
+        Assert.assertTrue(DOMUtils.isFullscreen(mVrTestFramework.getFirstTabWebContents()));
+        VrTransitionUtils.forceExitVr();
+        // The fullscreen exit from exiting VR isn't necessarily instantaneous, so give it
+        // a bit of time.
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                try {
+                    return !DOMUtils.isFullscreen(mVrTestFramework.getFirstTabWebContents());
+                } catch (InterruptedException | TimeoutException e) {
+                    return false;
+                }
+            }
+        }, POLL_TIMEOUT_SHORT_MS, POLL_CHECK_INTERVAL_SHORT_MS);
+    }
+
+    /**
      * Tests that the reported display dimensions are correct when exiting
      * from WebVR presentation to the VR browser.
      */
@@ -154,15 +189,15 @@ public class VrShellTransitionTest {
         // Validate our size is what we expect while in VR.
         String javascript = "Math.abs(screen.width - " + expectedWidth + ") <= 1 && "
                 + "Math.abs(screen.height - " + expectedHeight + ") <= 1";
-        Assert.assertTrue(mVrTestFramework.pollJavaScriptBoolean(
+        Assert.assertTrue(VrTestFramework.pollJavaScriptBoolean(
                 javascript, POLL_TIMEOUT_LONG_MS, mVrTestFramework.getFirstTabWebContents()));
 
         // Exit presentation through JavaScript.
-        mVrTestFramework.runJavaScriptOrFail("vrDisplay.exitPresent();", POLL_TIMEOUT_SHORT_MS,
+        VrTestFramework.runJavaScriptOrFail("vrDisplay.exitPresent();", POLL_TIMEOUT_SHORT_MS,
                 mVrTestFramework.getFirstTabWebContents());
 
         // We aren't comparing for equality because there is some rounding that occurs.
-        Assert.assertTrue(mVrTestFramework.pollJavaScriptBoolean(
+        Assert.assertTrue(VrTestFramework.pollJavaScriptBoolean(
                 javascript, POLL_TIMEOUT_LONG_MS, mVrTestFramework.getFirstTabWebContents()));
     }
 }

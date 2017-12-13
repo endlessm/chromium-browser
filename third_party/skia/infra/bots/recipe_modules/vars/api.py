@@ -37,15 +37,22 @@ class SkiaVarsApi(recipe_api.RecipeApi):
     self.gclient_env = {}
     self.is_compile_bot = self.builder_name.startswith('Build-')
 
+    self.persistent_checkout = False
     # Compile bots keep a persistent checkout.
-    self.persistent_checkout = (self.is_compile_bot or
-                                'RecreateSKPs' in self.builder_name or
-                                'UpdateMetaConfig' in self.builder_name or
-                                '-CT_' in self.builder_name or
-                                'Presubmit' in self.builder_name or
-                                'InfraTests' in self.builder_name or
-                                self.builder_name == "Housekeeper-PerCommit" or
-                                'CheckGeneratedFiles' in self.builder_name)
+    if self.is_compile_bot:
+      self.persistent_checkout = True
+    if 'Housekeeper' in self.builder_name:
+      self.persistent_checkout = True
+    if '-CT_' in self.builder_name:
+      self.persistent_checkout = True
+    # We need the source code for the Coverage's Upload step to be in the
+    # same absolute location as when we compiled it so we can map the
+    # coverage data to actual line numbers. We ensure this by making sure
+    # we have a checkout on the Coverage's Upload step and that the Upload
+    # step runs on the same bots that Compile.
+    if 'Coverage' in self.builder_name and 'Upload' in self.builder_name:
+      self.persistent_checkout = True
+
     if self.persistent_checkout:
       if 'Win' in self.builder_name:
         self.checkout_root = self.make_path('C:\\', 'b', 'work')
@@ -142,6 +149,11 @@ class SkiaVarsApi(recipe_api.RecipeApi):
       self.android_data_dir = '/cache/skia/'
 
     self.chromeos_homedir = '/home/chronos/user/'
+
+    # Internal bot support.
+    self.internal_hardware_label = (
+        self.m.properties.get('internal_hardware_label'))
+    self.is_internal_bot = self.internal_hardware_label is not None
 
   @property
   def is_linux(self):

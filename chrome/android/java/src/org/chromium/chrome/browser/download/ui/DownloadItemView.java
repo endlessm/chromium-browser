@@ -21,6 +21,7 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.download.DownloadUtils;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.browser.widget.MaterialProgressBar;
+import org.chromium.chrome.browser.widget.ThumbnailProvider;
 import org.chromium.chrome.browser.widget.TintedImageButton;
 import org.chromium.chrome.browser.widget.selection.SelectableItemView;
 import org.chromium.components.offline_items_collection.OfflineItem.Progress;
@@ -34,6 +35,7 @@ import java.util.Locale;
 public class DownloadItemView extends SelectableItemView<DownloadHistoryItemWrapper>
         implements ThumbnailProvider.ThumbnailRequest {
     private final int mMargin;
+    private final int mMarginSubsection;
     private final int mIconBackgroundColor;
     private final int mIconBackgroundColorSelected;
     private final ColorStateList mIconForegroundColorList;
@@ -69,6 +71,8 @@ public class DownloadItemView extends SelectableItemView<DownloadHistoryItemWrap
     public DownloadItemView(Context context, AttributeSet attrs) {
         super(context, attrs);
         mMargin = context.getResources().getDimensionPixelSize(R.dimen.list_item_default_margin);
+        mMarginSubsection =
+                context.getResources().getDimensionPixelSize(R.dimen.list_item_subsection_margin);
         mIconBackgroundColor = DownloadUtils.getIconBackgroundColor(context);
         mIconBackgroundColorSelected =
                 ApiCompatibilityUtils.getColor(context.getResources(), R.color.google_grey_600);
@@ -77,9 +81,9 @@ public class DownloadItemView extends SelectableItemView<DownloadHistoryItemWrap
                 getResources().getDimensionPixelSize(R.dimen.list_item_start_icon_corner_radius);
         mCheckedIconForegroundColorList = DownloadUtils.getIconForegroundColorList(context);
 
-        mIconBackgroundResId = R.drawable.selectable_item_icon_modern_bg;
+        mIconBackgroundResId = R.drawable.list_item_icon_modern_bg;
 
-        if (FeatureUtilities.isChromeHomeModernEnabled()) {
+        if (FeatureUtilities.isChromeHomeEnabled()) {
             mIconForegroundColorList = ApiCompatibilityUtils.getColorStateList(
                     context.getResources(), R.color.dark_mode_tint);
         } else {
@@ -152,6 +156,10 @@ public class DownloadItemView extends SelectableItemView<DownloadHistoryItemWrap
     public void displayItem(BackendProvider provider, DownloadHistoryItemWrapper item) {
         mItem = item;
         setItem(item);
+
+        ApiCompatibilityUtils.setMarginStart(
+                (MarginLayoutParams) mLayoutContainer.getLayoutParams(),
+                item.isSuggested() ? mMarginSubsection : mMargin);
 
         // Cancel any previous thumbnail request for the previously displayed item.
         ThumbnailProvider thumbnailProvider = provider.getThumbnailProvider();
@@ -250,10 +258,10 @@ public class DownloadItemView extends SelectableItemView<DownloadHistoryItemWrap
     @Override
     protected void updateIconView() {
         if (isChecked()) {
-            if (FeatureUtilities.isChromeHomeModernEnabled()) {
+            if (FeatureUtilities.isChromeHomeEnabled()) {
                 mIconView.setBackgroundResource(mIconBackgroundResId);
                 mIconView.getBackground().setLevel(
-                        getResources().getInteger(R.integer.selectable_item_level_selected));
+                        getResources().getInteger(R.integer.list_item_level_selected));
             } else {
                 mIconView.setBackgroundColor(mIconBackgroundColorSelected);
             }
@@ -262,7 +270,7 @@ public class DownloadItemView extends SelectableItemView<DownloadHistoryItemWrap
         } else if (mThumbnailBitmap != null) {
             assert !mThumbnailBitmap.isRecycled();
             mIconView.setBackground(null);
-            if (FeatureUtilities.isChromeHomeModernEnabled()) {
+            if (FeatureUtilities.isChromeHomeEnabled()) {
                 RoundedBitmapDrawable roundedIcon = RoundedBitmapDrawableFactory.create(
                         getResources(),
                         Bitmap.createScaledBitmap(mThumbnailBitmap, mIconSize, mIconSize, false));
@@ -273,10 +281,10 @@ public class DownloadItemView extends SelectableItemView<DownloadHistoryItemWrap
             }
             mIconView.setTint(null);
         } else {
-            if (FeatureUtilities.isChromeHomeModernEnabled()) {
+            if (FeatureUtilities.isChromeHomeEnabled()) {
                 mIconView.setBackgroundResource(mIconBackgroundResId);
                 mIconView.getBackground().setLevel(
-                        getResources().getInteger(R.integer.selectable_item_level_default));
+                        getResources().getInteger(R.integer.list_item_level_default));
             } else {
                 mIconView.setBackgroundColor(mIconBackgroundColor);
             }

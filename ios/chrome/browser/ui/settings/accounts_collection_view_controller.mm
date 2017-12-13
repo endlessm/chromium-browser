@@ -39,7 +39,7 @@
 #import "ios/chrome/browser/ui/icons/chrome_icon.h"
 #import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 #import "ios/chrome/browser/ui/settings/sync_settings_collection_view_controller.h"
-#import "ios/chrome/browser/ui/sync/sync_util.h"
+#import "ios/chrome/browser/ui/settings/sync_utils/sync_util.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
@@ -144,6 +144,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
     _avatarCache = [[ResizedAvatarCache alloc] init];
     _identityServiceObserver.reset(
         new ChromeIdentityServiceObserverBridge(self));
+    // TODO(crbug.com/764578): -loadModel should not be called from
+    // initializer. A possible fix is to move this call to -viewDidLoad.
     [self loadModel];
   }
 
@@ -282,6 +284,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
   return item;
 }
 
+// Updates the sync item according to the sync status (in progress, sync error,
+// mdm error, sync disabled or sync enabled).
 - (void)updateSyncItem:(AccountControlItem*)syncItem {
   SyncSetupService* syncSetupService =
       SyncSetupServiceFactory::GetForBrowserState(_browserState);
@@ -294,22 +298,31 @@ typedef NS_ENUM(NSInteger, ItemType) {
   }
 
   ChromeIdentity* identity = [self authService]->GetAuthenticatedIdentity();
-  bool hasSyncError =
-      !IsTransientSyncError(syncSetupService->GetSyncServiceState());
-  bool hasMDMError = [self authService]->HasCachedMDMErrorForIdentity(identity);
-  if (hasSyncError || hasMDMError) {
-    syncItem.image = [UIImage imageNamed:@"settings_error"];
-    syncItem.detailText = GetSyncErrorDescriptionForBrowserState(_browserState);
+  if (!IsTransientSyncError(syncSetupService->GetSyncServiceState())) {
+    // Sync error.
     syncItem.shouldDisplayError = YES;
-  } else {
+    NSString* errorMessage =
+        GetSyncErrorDescriptionForBrowserState(_browserState);
+    DCHECK(errorMessage);
+    syncItem.detailText = errorMessage;
+  } else if ([self authService]->HasCachedMDMErrorForIdentity(identity)) {
+    // MDM error.
+    syncItem.shouldDisplayError = YES;
+    syncItem.detailText =
+        l10n_util::GetNSString(IDS_IOS_OPTIONS_ACCOUNTS_SYNC_ERROR);
+  } else if (!syncSetupService->IsSyncEnabled()) {
+    // Sync disabled.
+    syncItem.shouldDisplayError = NO;
     syncItem.image = [UIImage imageNamed:@"settings_sync"];
     syncItem.detailText =
-        syncSetupService->IsSyncEnabled()
-            ? l10n_util::GetNSStringF(
-                  IDS_IOS_SIGN_IN_TO_CHROME_SETTING_SYNCING,
-                  base::SysNSStringToUTF16([identity userEmail]))
-            : l10n_util::GetNSString(IDS_IOS_OPTIONS_ACCOUNTS_SYNC_IS_OFF);
+        l10n_util::GetNSString(IDS_IOS_OPTIONS_ACCOUNTS_SYNC_IS_OFF);
+  } else {
+    // Sync enabled.
     syncItem.shouldDisplayError = NO;
+    syncItem.image = [UIImage imageNamed:@"settings_sync"];
+    syncItem.detailText =
+        l10n_util::GetNSStringF(IDS_IOS_SIGN_IN_TO_CHROME_SETTING_SYNCING,
+                                base::SysNSStringToUTF16([identity userEmail]));
   }
 }
 
@@ -481,7 +494,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
   _signinInteractionController = [[SigninInteractionController alloc]
           initWithBrowserState:_browserState
       presentingViewController:self.navigationController
-         isPresentedOnSettings:YES
                    accessPoint:signin_metrics::AccessPoint::
                                    ACCESS_POINT_SETTINGS
                    promoAction:signin_metrics::PromoAction::
@@ -494,8 +506,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   __weak AccountsCollectionViewController* weakSelf = self;
   [_signinInteractionController addAccountWithCompletion:^(BOOL success) {
     [weakSelf handleDidAddAccount:success];
-  }
-                                          viewController:self];
+  }];
 }
 
 - (void)handleDidAddAccount:(BOOL)success {

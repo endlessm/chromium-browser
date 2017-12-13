@@ -4,6 +4,8 @@
 
 #include "chromeos/dbus/fake_cras_audio_client.h"
 
+#include <utility>
+
 namespace chromeos {
 
 FakeCrasAudioClient::FakeCrasAudioClient()
@@ -188,8 +190,8 @@ void FakeCrasAudioClient::AddActiveOutputNode(uint64_t node_id) {
 }
 
 void FakeCrasAudioClient::WaitForServiceToBeAvailable(
-    const WaitForServiceToBeAvailableCallback& callback) {
-  callback.Run(true);
+    WaitForServiceToBeAvailableCallback callback) {
+  std::move(callback).Run(true);
 }
 
 void FakeCrasAudioClient::RemoveActiveOutputNode(uint64_t node_id) {

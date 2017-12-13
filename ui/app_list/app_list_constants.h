@@ -92,6 +92,9 @@ APP_LIST_EXPORT extern const int kTileIconSize;
 
 APP_LIST_EXPORT extern const SkColor kIconColor;
 
+APP_LIST_EXPORT extern const float kDragDropAppIconScale;
+APP_LIST_EXPORT extern const int kDragDropAppIconScaleTransitionInMs;
+
 APP_LIST_EXPORT extern const size_t kNumStartPageTiles;
 APP_LIST_EXPORT extern const size_t kNumStartPageTilesFullscreen;
 APP_LIST_EXPORT extern const size_t kMaxSearchResults;
@@ -114,7 +117,8 @@ APP_LIST_EXPORT extern const int kSearchBoxPreferredHeight;
 APP_LIST_EXPORT extern const int kPeekingAppListHeight;
 APP_LIST_EXPORT extern const int kShelfSize;
 
-APP_LIST_EXPORT extern size_t kMaxFolderItems;
+APP_LIST_EXPORT extern const size_t kMaxFolderItems;
+APP_LIST_EXPORT extern const size_t kMaxFolderItemsFullscreen;
 APP_LIST_EXPORT extern const size_t kNumFolderTopItems;
 APP_LIST_EXPORT extern const size_t kMaxFolderNameChars;
 
@@ -186,12 +190,15 @@ enum AppListPageSwitcherSource {
 
 APP_LIST_EXPORT extern const char kAppListAppLaunched[];
 APP_LIST_EXPORT extern const char kAppListAppLaunchedFullscreen[];
+APP_LIST_EXPORT extern const char kAppListCreationTimeHistogram[];
 APP_LIST_EXPORT extern const char kAppListStateTransitionSourceHistogram[];
 APP_LIST_EXPORT extern const char kAppListPageSwitcherSourceHistogram[];
 APP_LIST_EXPORT extern const char kAppListFolderOpenedHistogram[];
 APP_LIST_EXPORT extern const char kAppListPeekingToFullscreenHistogram[];
 APP_LIST_EXPORT extern const char kAppListToggleMethodHistogram[];
 APP_LIST_EXPORT extern const char kPageOpenedHistogram[];
+APP_LIST_EXPORT extern const char kNumberOfAppsInFoldersHistogram[];
+APP_LIST_EXPORT extern const char kNumberOfFoldersHistogram[];
 
 APP_LIST_EXPORT extern const char kSearchResultOpenDisplayTypeHistogram[];
 APP_LIST_EXPORT extern const char kSearchQueryLength[];

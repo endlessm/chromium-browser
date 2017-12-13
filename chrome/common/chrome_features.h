@@ -40,6 +40,8 @@ extern const base::Feature kArcMemoryManagement;
 
 extern const base::Feature kAssetDownloadSuggestionsFeature;
 
+extern const base::Feature kAsyncDns;
+
 #if defined(OS_WIN) || defined(OS_MACOSX)
 extern const base::Feature kAutomaticTabDiscarding;
 #endif  // defined(OS_WIN) || defined(OS_MACOSX)
@@ -65,17 +67,11 @@ extern const base::Feature kTabStripKeyboardFocus;
 
 extern const base::Feature kCaptureThumbnailDependingOnTransitionType;
 
-extern const base::Feature kCaptureThumbnailOnLoadFinished;
-
 extern const base::Feature kCaptureThumbnailOnNavigatingAway;
 
 extern const base::Feature kCheckInstallabilityForBannerOnLoad;
 
 extern const base::Feature kClickToOpenPDFPlaceholder;
-
-#if defined(OS_ANDROID)
-extern const base::Feature kConsistentOmniboxGeolocation;
-#endif
 
 #if defined(OS_MACOSX)
 extern const base::Feature kContentFullscreen;
@@ -95,6 +91,10 @@ extern const base::Feature kDisplayPersistenceToggleInPermissionPrompts;
 
 #if !defined(OS_ANDROID)
 extern const base::Feature kDoodlesOnLocalNtp;
+#endif
+
+#if defined(OS_ANDROID)
+extern const base::Feature kDownloadsForeground;
 #endif
 
 extern const base::Feature kExpectCTReporting;
@@ -118,18 +118,19 @@ extern const base::Feature kImportantSitesInCbd;
 
 extern const base::Feature kImprovedRecoveryComponent;
 
-#if defined(GOOGLE_CHROME_BUILD) && defined(OS_LINUX) && !defined(OS_CHROMEOS)
-extern const base::Feature kLinuxObsoleteSystemIsEndOfTheLine;
-#endif
-
 extern const base::Feature kLsdPermissionPrompt;
 
 #if defined(OS_MACOSX)
 extern const base::Feature kMacRTL;
 extern const base::Feature kMacFullSizeContentView;
+extern const base::Feature kMacSystemShareMenu;
 #endif
 
 extern const base::Feature kMaterialDesignBookmarks;
+
+#if defined(OS_MACOSX)
+extern const base::Feature kMacMaterialDesignDownloadShelf;
+#endif
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 extern const base::Feature kMaterialDesignExtensions;
@@ -157,10 +158,6 @@ extern const base::Feature kMultidevice;
 extern const base::Feature kNativeNotifications;
 #endif
 
-#if BUILDFLAG(ENABLE_NATIVE_WINDOW_NAV_BUTTONS)
-extern const base::Feature kNativeWindowNavButtons;
-#endif
-
 extern const base::Feature kNetworkPrediction;
 
 extern const base::Feature kOfflinePageDownloadSuggestionsFeature;
@@ -175,6 +172,10 @@ extern const base::Feature kPermissionsBlacklist;
 
 #if defined(OS_WIN)
 extern const base::Feature kDisablePostScriptPrinting;
+#endif
+
+#if !defined(OS_ANDROID)
+extern const base::Feature kPolicyTool;
 #endif
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -216,6 +217,10 @@ extern const base::Feature kStaggeredBackgroundTabOpeningExperiment;
 
 extern const base::Feature kSupervisedUserCreation;
 
+#if defined(OS_CHROMEOS)
+extern const base::Feature kSysInternals;
+#endif
+
 #if defined(SYZYASAN)
 extern const base::Feature kSyzyasanDeferredFree;
 #endif
@@ -223,10 +228,6 @@ extern const base::Feature kSyzyasanDeferredFree;
 extern const base::Feature kTabsInCbd;
 
 extern const base::Feature kUseGoogleLocalNtp;
-
-extern const base::Feature kUseGroupedPermissionInfobars;
-
-extern const base::Feature kUsePermissionManagerForMediaRequests;
 
 #if !defined(OS_ANDROID)
 extern const base::Feature kVoiceSearchOnLocalNtp;
@@ -243,9 +244,13 @@ extern const base::Feature kQuickUnlockFingerprint;
 
 extern const base::Feature kEHVInputOnImeMenu;
 
+extern const base::Feature kBulkPrinters;
+
 extern const base::Feature kCrosCompUpdates;
 
 extern const base::Feature kCrOSComponent;
+
+extern const base::Feature kCrOSContainer;
 
 extern const base::Feature kInstantTethering;
 

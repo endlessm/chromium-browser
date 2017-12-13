@@ -11,6 +11,7 @@
 
 #include "EGLWindow.h"
 #include "OSWindow.h"
+#include "common/string_utils.h"
 #include "test_utils/angle_test_configs.h"
 #include "test_utils/gl_raii.h"
 
@@ -33,22 +34,18 @@ class ProgramBinaryTest : public ANGLETest
     {
         ANGLETest::SetUp();
 
-        const std::string vertexShaderSource = SHADER_SOURCE
-        (
-            attribute vec4 inputAttribute;
+        const std::string vertexShaderSource =
+            R"(attribute vec4 inputAttribute;
             void main()
             {
                 gl_Position = inputAttribute;
-            }
-        );
+            })";
 
-        const std::string fragmentShaderSource = SHADER_SOURCE
-        (
-            void main()
+        const std::string fragmentShaderSource =
+            R"(void main()
             {
                 gl_FragColor = vec4(1,0,0,1);
-            }
-        );
+            })";
 
         mProgram = CompileProgram(vertexShaderSource, fragmentShaderSource);
         if (mProgram == 0)
@@ -451,25 +448,23 @@ class ProgramBinaryTransformFeedbackTest : public ANGLETest
     {
         ANGLETest::SetUp();
 
-        const std::string vertexShaderSource = SHADER_SOURCE
-        (   #version 300 es\n
+        const std::string vertexShaderSource =
+            R"(#version 300 es
             in vec4 inputAttribute;
             out vec4 outputVarying;
             void main()
             {
                 outputVarying = inputAttribute;
-            }
-        );
+            })";
 
-        const std::string fragmentShaderSource = SHADER_SOURCE
-        (   #version 300 es\n
+        const std::string fragmentShaderSource =
+            R"(#version 300 es
             precision highp float;
             out vec4 outputColor;
             void main()
             {
                 outputColor = vec4(1,0,0,1);
-            }
-        );
+            })";
 
         std::vector<std::string> transformFeedbackVaryings;
         transformFeedbackVaryings.push_back("outputVarying");
@@ -632,50 +627,44 @@ class ProgramBinariesAcrossPlatforms : public testing::TestWithParam<PlatformsWi
 
     GLuint createES2ProgramFromSource()
     {
-        const std::string testVertexShaderSource = SHADER_SOURCE
-        (
-            attribute highp vec4 position;
+        const std::string testVertexShaderSource =
+            R"(attribute highp vec4 position;
 
             void main(void)
             {
                 gl_Position = position;
-            }
-        );
+            })";
 
-        const std::string testFragmentShaderSource = SHADER_SOURCE
-        (
-            void main(void)
+        const std::string testFragmentShaderSource =
+            R"(void main(void)
             {
                 gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-            }
-        );
+            })";
 
         return CompileProgram(testVertexShaderSource, testFragmentShaderSource);
     }
 
     GLuint createES3ProgramFromSource()
     {
-        const std::string testVertexShaderSource = SHADER_SOURCE
-        (   #version 300 es\n
+        const std::string testVertexShaderSource =
+            R"(#version 300 es
             precision highp float;
             in highp vec4 position;
 
             void main(void)
             {
                 gl_Position = position;
-            }
-        );
+            })";
 
-        const std::string testFragmentShaderSource = SHADER_SOURCE
-        (   #version 300 es \n
+        const std::string testFragmentShaderSource =
+            R"(#version 300 es
             precision highp float;
             out vec4 out_FragColor;
 
             void main(void)
             {
                 out_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-            }
-        );
+            })";
 
         return CompileProgram(testVertexShaderSource, testFragmentShaderSource);
     }
@@ -761,7 +750,7 @@ TEST_P(ProgramBinariesAcrossPlatforms, CreateAndReloadBinary)
         secondRenderer.eglParameters.deviceType == EGL_PLATFORM_ANGLE_DEVICE_TYPE_WARP_ANGLE)
     {
         std::string rendererString = std::string(reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
-        std::transform(rendererString.begin(), rendererString.end(), rendererString.begin(), ::tolower);
+        angle::ToLower(&rendererString);
 
         auto basicRenderPos = rendererString.find(std::string("microsoft basic render"));
         auto softwareAdapterPos = rendererString.find(std::string("software adapter"));

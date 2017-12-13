@@ -32,9 +32,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.Callback;
+import org.chromium.base.ContextUtils;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.DisableHistogramsRule;
@@ -48,9 +50,11 @@ import org.chromium.chrome.browser.suggestions.DestructionObserver;
 import org.chromium.chrome.browser.suggestions.SuggestionsEventReporter;
 import org.chromium.chrome.browser.suggestions.SuggestionsRanker;
 import org.chromium.chrome.browser.suggestions.SuggestionsUiDelegate;
+import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.CategoryInfoBuilder;
 import org.chromium.chrome.test.util.browser.suggestions.FakeSuggestionsSource;
+import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.testing.local.LocalRobolectricTestRunner;
 
 import java.util.HashMap;
@@ -61,10 +65,7 @@ import java.util.List;
  */
 @RunWith(LocalRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
-@Features({
-        @Features.Register(ChromeFeatureList.CHROME_HOME_MODERN_LAYOUT),
-        @Features.Register(ChromeFeatureList.CHROME_HOME)
-})
+@Features({ @Features.Register(ChromeFeatureList.CHROME_HOME) })
 public class SectionListTest {
     @Rule
     public DisableHistogramsRule mDisableHistogramsRule = new DisableHistogramsRule();
@@ -86,7 +87,16 @@ public class SectionListTest {
 
     @Before
     public void setUp() {
-        CardsVariationParameters.setTestVariationParams(new HashMap<String, String>());
+        ContextUtils.initApplicationContextForTests(RuntimeEnvironment.application);
+        FeatureUtilities.resetChromeHomeEnabledForTests();
+
+        // Ensure that NetworkChangeNotifier is initialized.
+        if (!NetworkChangeNotifier.isInitialized()) {
+            NetworkChangeNotifier.init();
+        }
+        NetworkChangeNotifier.forceConnectivityState(true);
+
+        CardsVariationParameters.setTestVariationParams(new HashMap<>());
         MockitoAnnotations.initMocks(this);
         mSuggestionSource = spy(new FakeSuggestionsSource());
 
@@ -177,10 +187,10 @@ public class SectionListTest {
         List<SnippetArticle> newSuggestions1 = createDummySuggestions(2, CATEGORY1, "new");
         List<SnippetArticle> newSuggestions2 = createDummySuggestions(2, CATEGORY2, "new");
 
-        sectionList.getSection(CATEGORY1).appendSuggestions(
-                newSuggestions1.subList(0, 1), /*keepSectionSize=*/false);
-        sectionList.getSection(CATEGORY2).appendSuggestions(
-                newSuggestions2, /*keepSectionSize=*/false);
+        sectionList.getSection(CATEGORY1).appendSuggestions(newSuggestions1.subList(0, 1),
+                /* keepSectionSize = */ false, /* reportPrefetchedSuggestionsCount = */ false);
+        sectionList.getSection(CATEGORY2).appendSuggestions(newSuggestions2,
+                /* keepSectionSize = */ false, /* reportPrefetchedSuggestionsCount = */ false);
 
         bindViewHolders(sectionList, 3, sectionList.getItemCount());
 
@@ -213,8 +223,8 @@ public class SectionListTest {
         assertThat(newSuggestions2.get(1).getPerSectionRank(), equalTo(5));
 
         // Add one more suggestions1
-        sectionList.getSection(CATEGORY1).appendSuggestions(
-                newSuggestions1.subList(1, 2), /*keepSectionSize=*/false);
+        sectionList.getSection(CATEGORY1).appendSuggestions(newSuggestions1.subList(1, 2),
+                /* keepSectionSize = */ false, /* reportPrefetchedSuggestionsCount = */ false);
         bindViewHolders(sectionList);
 
         // After the changes we should have:
@@ -443,7 +453,7 @@ public class SectionListTest {
         assertFalse(sectionList.categoriesChanged(mSuggestionSource.getCategories()));
         assertFalse(sectionList.categoriesChanged(new int[] {CATEGORY1}));
 
-        mSuggestionSource.setStatusForCategory(CATEGORY2, CategoryStatus.AVAILABLE_LOADING);
+        mSuggestionSource.setStatusForCategory(CATEGORY2, CategoryStatus.AVAILABLE);
 
         // After notifying of a change for the category, it stops being ignored.
         assertTrue(sectionList.categoriesChanged(mSuggestionSource.getCategories()));

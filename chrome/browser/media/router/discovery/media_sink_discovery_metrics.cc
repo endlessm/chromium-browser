@@ -47,16 +47,71 @@ void DialDeviceCountMetrics::RecordDeviceCounts(size_t available_device_count,
   UMA_HISTOGRAM_COUNTS_100(kHistogramDialKnownDeviceCount, known_device_count);
 }
 
+// static
 const char CastDeviceCountMetrics::kHistogramCastKnownDeviceCount[] =
     "MediaRouter.Cast.Discovery.KnownDevicesCount";
 const char CastDeviceCountMetrics::kHistogramCastConnectedDeviceCount[] =
     "MediaRouter.Cast.Discovery.ConnectedDevicesCount";
+const char CastDeviceCountMetrics::kHistogramCastCachedSinksAvailableCount[] =
+    "MediaRouter.Cast.Discovery.CachedSinksAvailableCount";
+const char CastDeviceCountMetrics::kHistogramCastDiscoverySinkSource[] =
+    "MediaRouter.Cast.Discovery.SinkSource";
 
 void CastDeviceCountMetrics::RecordDeviceCounts(size_t available_device_count,
                                                 size_t known_device_count) {
   UMA_HISTOGRAM_COUNTS_100(kHistogramCastConnectedDeviceCount,
                            available_device_count);
   UMA_HISTOGRAM_COUNTS_100(kHistogramCastKnownDeviceCount, known_device_count);
+}
+
+void CastDeviceCountMetrics::RecordCachedSinksAvailableCount(
+    size_t cached_sink_count) {
+  UMA_HISTOGRAM_COUNTS_100(kHistogramCastCachedSinksAvailableCount,
+                           cached_sink_count);
+}
+
+void CastDeviceCountMetrics::RecordCastSinkDiscoverySource(
+    SinkSource sink_source) {
+  DCHECK_LT(sink_source, kTotalCount);
+  UMA_HISTOGRAM_ENUMERATION(kHistogramCastDiscoverySinkSource, sink_source,
+                            kTotalCount);
+}
+
+// static
+const char CastAnalytics::kHistogramCastChannelConnectResult[] =
+    "MediaRouter.Cast.Channel.ConnectResult";
+const char CastAnalytics::kHistogramCastChannelError[] =
+    "MediaRouter.Cast.Channel.Error";
+const char CastAnalytics::kHistogramCastMdnsChannelOpenSuccess[] =
+    "MediaRouter.Cast.Mdns.Channel.Open_Success";
+const char CastAnalytics::kHistogramCastMdnsChannelOpenFailure[] =
+    "MediaRouter.Cast.Mdns.Channel.Open_Failure";
+
+// static
+void CastAnalytics::RecordCastChannelConnectResult(
+    MediaRouterChannelConnectResults result) {
+  DCHECK_LT(result, MediaRouterChannelConnectResults::TOTAL_COUNT);
+  UMA_HISTOGRAM_ENUMERATION(kHistogramCastChannelConnectResult, result,
+                            MediaRouterChannelConnectResults::TOTAL_COUNT);
+}
+
+// static
+void CastAnalytics::RecordDeviceChannelError(
+    MediaRouterChannelError channel_error) {
+  DCHECK_LT(channel_error, MediaRouterChannelError::TOTAL_COUNT);
+  UMA_HISTOGRAM_ENUMERATION(kHistogramCastChannelError, channel_error,
+                            MediaRouterChannelError::TOTAL_COUNT);
+}
+
+// static
+void CastAnalytics::RecordDeviceChannelOpenDuration(
+    bool success,
+    const base::TimeDelta& duration) {
+  if (success) {
+    UMA_HISTOGRAM_TIMES(kHistogramCastMdnsChannelOpenSuccess, duration);
+  } else {
+    UMA_HISTOGRAM_TIMES(kHistogramCastMdnsChannelOpenFailure, duration);
+  }
 }
 
 }  // namespace media_router

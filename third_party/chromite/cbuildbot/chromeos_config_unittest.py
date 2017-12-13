@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -266,7 +267,7 @@ class UnifiedBuildReleaseBuilders(
     reef_uni_release = self._site_config['reef-uni-release']
     self.assertIsNotNone(reef_uni_release)
     models = reef_uni_release['models']
-    self.assertIn(config_lib.ModelTestConfig('reef'), models)
+    self.assertIn(config_lib.ModelTestConfig('reef', []), models)
     self.assertIn(config_lib.ModelTestConfig('pyro', ['sanity']), models)
 
     master_release = self._site_config['master-release']
@@ -652,7 +653,6 @@ class CBuildBotTest(ChromeosConfigTestBase):
       paladin_boards.update(slave_config.boards)
 
     for pfq_master in (constants.PFQ_MASTER,
-                       constants.MNC_ANDROID_PFQ_MASTER,
                        constants.NYC_ANDROID_PFQ_MASTER):
       pfq_configs = self._getSlaveConfigsForMaster(pfq_master)
 
@@ -1069,29 +1069,29 @@ class CBuildBotTest(ChromeosConfigTestBase):
         assert False, ('%s in distinct_board_sets but not in all_boards' %
                        board)
 
-  def testBuildTimeouts(self):
+  def testCanaryBuildTimeouts(self):
     """Verify we get the expected timeout values."""
     msg = ("%s doesn't have expected timout: (%s != %s)")
     for build_name, config in self.site_config.iteritems():
-      if config.build_type == constants.PFQ_TYPE:
-        expected = 20 * 60
-      elif config.build_type == constants.CHROME_PFQ_TYPE:
-        expected = 6 * 60 *  60
-      elif config.build_type == constants.CANARY_TYPE:
-        if self.isReleaseBranch():
-          expected = 12 * 60 * 60
-        else:
-          expected = (7 * 60 + 50) * 60
-      elif config.build_type == constants.TOOLCHAIN_TYPE:
-        expected = (15 * 60 + 50) * 60
-      elif config.build_type == constants.CHROOT_BUILDER_TYPE:
-        expected = 18 * 60 * 60
+      if config.build_type != constants.CANARY_TYPE:
+        continue
+      if self.isReleaseBranch():
+        expected = 12 * 60 * 60
       else:
-        expected = (4 * 60 + 30) * 60
+        expected = (7 * 60 + 50) * 60
 
       self.assertEqual(
           config.build_timeout, expected,
           msg % (build_name, config.build_timeout, expected))
+
+  def testBuildTimeouts(self):
+    """Verify that timeout values are sane."""
+    for build_name, config in self.site_config.iteritems():
+      # Chrome infra has a hard limit of 24h.
+      self.assertLessEqual(
+          config.build_timeout, 24 * 60 * 60,
+          '%s timeout %s is greater than 24h'
+          % (build_name, config.build_timeout))
 
 class OverrideForTrybotTest(ChromeosConfigTestBase):
   """Test config override functionality."""

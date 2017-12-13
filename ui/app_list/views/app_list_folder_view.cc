@@ -56,12 +56,13 @@ AppListFolderView::AppListFolderView(AppsContainerView* container_view,
       model_(model),
       folder_item_(NULL),
       hide_for_reparent_(false),
-      is_fullscreen_app_list_enabled_(features::IsFullscreenAppListEnabled()) {
+      is_fullscreen_app_list_enabled_(features::IsFullscreenAppListEnabled()),
+      is_app_list_focus_enabled_(features::IsAppListFocusEnabled()) {
   AddChildView(folder_header_view_);
   view_model_->Add(folder_header_view_, kIndexFolderHeader);
 
-  items_grid_view_ = new AppsGridView(app_list_main_view_->contents_view());
-  items_grid_view_->set_folder_delegate(this);
+  items_grid_view_ =
+      new AppsGridView(app_list_main_view_->contents_view(), this);
   items_grid_view_->SetLayout(
       container_view->apps_grid_view()->cols(),
       container_view->apps_grid_view()->rows_per_page());
@@ -137,6 +138,11 @@ void AppListFolderView::Layout() {
 }
 
 bool AppListFolderView::OnKeyPressed(const ui::KeyEvent& event) {
+  if (is_app_list_focus_enabled_) {
+    // TODO(weidongg/766807) Remove this function when the flag is enabled by
+    // default.
+    return false;
+  }
   // Process TAB if focus should go to header; otherwise, AppsGridView will do
   // the right thing.
   if (event.key_code() == ui::VKEY_TAB) {

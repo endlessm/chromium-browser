@@ -72,6 +72,8 @@ class AppListFolderView : public views::View,
 
   AppsGridView* items_grid_view() { return items_grid_view_; }
 
+  FolderHeaderView* folder_header_view() { return folder_header_view_; }
+
  private:
   void CalculateIdealBounds();
 
@@ -121,6 +123,9 @@ class AppListFolderView : public views::View,
   base::string16 accessible_name_;
 
   const bool is_fullscreen_app_list_enabled_;
+
+  // Whether the app list focus is enabled.
+  const bool is_app_list_focus_enabled_;
 
   DISALLOW_COPY_AND_ASSIGN(AppListFolderView);
 };

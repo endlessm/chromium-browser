@@ -13,7 +13,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -44,7 +43,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -75,7 +73,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -106,7 +103,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -137,7 +133,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -168,7 +163,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -208,7 +202,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -239,7 +232,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -270,7 +262,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -301,7 +292,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -332,7 +322,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -363,7 +352,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -438,7 +426,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -469,7 +456,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -500,7 +486,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -531,7 +516,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -562,7 +546,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -593,7 +576,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84P",
               "device_type": "hammerhead"
             }
@@ -615,6 +597,9 @@
     ]
   },
   "Android N5X Swarm Builder": {
+    "additional_compile_targets": [
+      "monochrome_static_initializers"
+    ],
     "gtest_tests": [
       {
         "args": [
@@ -640,7 +625,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -679,7 +663,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -719,7 +702,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -759,7 +741,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -798,7 +779,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -828,7 +808,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -872,7 +851,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -915,7 +893,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -955,7 +932,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -995,7 +971,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1036,7 +1011,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1080,7 +1054,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1121,7 +1094,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1161,7 +1133,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1201,7 +1172,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1240,7 +1210,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1280,7 +1249,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1319,7 +1287,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1359,7 +1326,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1398,7 +1364,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1438,7 +1403,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1477,7 +1441,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1516,7 +1479,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1555,7 +1517,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1595,7 +1556,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1635,7 +1595,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1675,7 +1634,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1715,7 +1673,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1758,7 +1715,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1798,7 +1754,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1839,7 +1794,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1869,7 +1823,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1909,7 +1862,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1948,7 +1900,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -1987,7 +1938,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -2026,7 +1976,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -2065,7 +2014,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -2104,7 +2052,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -2136,7 +2083,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -2176,7 +2122,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -2216,7 +2161,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -2249,9 +2193,9 @@
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
-              "device_type": "bullhead"
+              "device_type": "bullhead",
+              "temp_band": "<30"
             }
           ],
           "hard_timeout": 1500,
@@ -2337,7 +2281,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2378,7 +2321,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2419,7 +2361,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2460,7 +2401,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2501,7 +2441,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2542,13 +2481,12 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
           ],
           "expiration": 10800,
-          "hard_timeout": 1800,
+          "hard_timeout": 2400,
           "output_links": [
             {
               "link": [
@@ -2584,7 +2522,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2625,7 +2562,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2666,7 +2602,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2708,7 +2643,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2750,7 +2684,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2792,7 +2725,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2833,7 +2765,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2874,7 +2805,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2915,7 +2845,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2956,7 +2885,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -2997,7 +2925,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3038,7 +2965,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3079,7 +3005,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3120,7 +3045,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3161,7 +3085,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3202,7 +3125,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3243,7 +3165,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3285,7 +3206,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3326,7 +3246,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3367,7 +3286,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3408,7 +3326,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3449,7 +3366,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3490,7 +3406,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3531,7 +3446,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3573,7 +3487,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3614,7 +3527,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3655,7 +3567,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "KTU84Z",
               "device_type": "flo"
             }
@@ -3701,7 +3612,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -3742,7 +3652,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -3783,7 +3692,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -3824,7 +3732,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -3865,7 +3772,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -3906,7 +3812,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -3947,7 +3852,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -3989,7 +3893,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4031,7 +3934,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4072,7 +3974,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4113,7 +4014,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4154,7 +4054,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4195,7 +4094,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4236,7 +4134,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4277,7 +4174,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4318,7 +4214,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4359,7 +4254,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4400,7 +4294,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4441,7 +4334,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4482,7 +4374,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4523,7 +4414,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4565,7 +4455,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4606,7 +4495,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4647,7 +4535,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4688,7 +4575,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4729,7 +4615,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4770,7 +4655,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4811,7 +4695,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4853,7 +4736,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4894,7 +4776,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4935,7 +4816,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -4982,13 +4862,12 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
           ],
           "expiration": 10800,
-          "hard_timeout": 960,
+          "hard_timeout": 1920,
           "output_links": [
             {
               "link": [
@@ -5023,7 +4902,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -5064,7 +4942,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -5106,7 +4983,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY48I",
               "device_type": "hammerhead"
             }
@@ -5152,7 +5028,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5193,7 +5068,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5234,7 +5108,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5275,7 +5148,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5316,7 +5188,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5357,7 +5228,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5399,7 +5269,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5440,7 +5309,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5481,7 +5349,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5523,7 +5390,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5565,7 +5431,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5607,7 +5472,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5648,7 +5512,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5689,7 +5552,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5730,7 +5592,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5771,7 +5632,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5812,7 +5672,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5853,7 +5712,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5894,7 +5752,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5935,7 +5792,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -5976,7 +5832,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6017,7 +5872,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6058,7 +5912,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6100,7 +5953,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6141,7 +5993,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6182,7 +6033,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6223,7 +6073,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6264,7 +6113,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6305,7 +6153,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6346,7 +6193,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6388,7 +6234,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6429,7 +6274,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6470,7 +6314,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "LMY49B",
               "device_type": "flo"
             }
@@ -6516,7 +6359,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -6559,7 +6401,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -6599,7 +6440,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -6639,7 +6479,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -6679,7 +6518,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -6719,7 +6557,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -6762,7 +6599,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -6807,7 +6643,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -6828,7 +6663,7 @@
       },
       {
         "args": [
-          "--enable-browser-side-navigation",
+          "--disable-browser-side-navigation",
           "--gs-results-bucket=chromium-result-details"
         ],
         "merge": {
@@ -6836,11 +6671,11 @@
             "--bucket",
             "chromium-result-details",
             "--test-name",
-            "browser_side_navigation_chrome_public_test_apk"
+            "renderer_side_navigation_chrome_public_test_apk"
           ],
           "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
         },
-        "name": "browser_side_navigation_chrome_public_test_apk",
+        "name": "renderer_side_navigation_chrome_public_test_apk",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "cipd_packages": [
@@ -6852,7 +6687,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -6896,7 +6730,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -6917,7 +6750,7 @@
       },
       {
         "args": [
-          "--enable-browser-side-navigation",
+          "--disable-browser-side-navigation",
           "--gs-results-bucket=chromium-result-details"
         ],
         "merge": {
@@ -6925,11 +6758,11 @@
             "--bucket",
             "chromium-result-details",
             "--test-name",
-            "browser_side_navigation_chrome_sync_shell_test_apk"
+            "renderer_side_navigation_chrome_sync_shell_test_apk"
           ],
           "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
         },
-        "name": "browser_side_navigation_chrome_sync_shell_test_apk",
+        "name": "renderer_side_navigation_chrome_sync_shell_test_apk",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "cipd_packages": [
@@ -6941,7 +6774,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -6981,7 +6813,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7002,18 +6833,18 @@
       },
       {
         "args": [
-          "--enable-browser-side-navigation"
+          "--disable-browser-side-navigation"
         ],
         "merge": {
           "args": [
             "--bucket",
             "chromium-result-details",
             "--test-name",
-            "browser_side_navigation_components_browsertests"
+            "renderer_side_navigation_components_browsertests"
           ],
           "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
         },
-        "name": "browser_side_navigation_components_browsertests",
+        "name": "renderer_side_navigation_components_browsertests",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "cipd_packages": [
@@ -7025,7 +6856,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7065,7 +6895,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7087,18 +6916,18 @@
       },
       {
         "args": [
-          "--enable-browser-side-navigation"
+          "--disable-browser-side-navigation"
         ],
         "merge": {
           "args": [
             "--bucket",
             "chromium-result-details",
             "--test-name",
-            "browser_side_navigation_components_unittests"
+            "renderer_side_navigation_components_unittests"
           ],
           "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
         },
-        "name": "browser_side_navigation_components_unittests",
+        "name": "renderer_side_navigation_components_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "cipd_packages": [
@@ -7110,7 +6939,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7151,7 +6979,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7173,18 +7000,18 @@
       },
       {
         "args": [
-          "--enable-browser-side-navigation"
+          "--disable-browser-side-navigation"
         ],
         "merge": {
           "args": [
             "--bucket",
             "chromium-result-details",
             "--test-name",
-            "browser_side_navigation_content_browsertests"
+            "renderer_side_navigation_content_browsertests"
           ],
           "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
         },
-        "name": "browser_side_navigation_content_browsertests",
+        "name": "renderer_side_navigation_content_browsertests",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "cipd_packages": [
@@ -7196,7 +7023,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7240,7 +7066,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7262,7 +7087,7 @@
       },
       {
         "args": [
-          "--enable-browser-side-navigation",
+          "--disable-browser-side-navigation",
           "--gs-results-bucket=chromium-result-details"
         ],
         "merge": {
@@ -7270,11 +7095,11 @@
             "--bucket",
             "chromium-result-details",
             "--test-name",
-            "browser_side_navigation_content_shell_test_apk"
+            "renderer_side_navigation_content_shell_test_apk"
           ],
           "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
         },
-        "name": "browser_side_navigation_content_shell_test_apk",
+        "name": "renderer_side_navigation_content_shell_test_apk",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "cipd_packages": [
@@ -7286,7 +7111,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7327,7 +7151,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7348,18 +7171,18 @@
       },
       {
         "args": [
-          "--enable-browser-side-navigation"
+          "--disable-browser-side-navigation"
         ],
         "merge": {
           "args": [
             "--bucket",
             "chromium-result-details",
             "--test-name",
-            "browser_side_navigation_content_unittests"
+            "renderer_side_navigation_content_unittests"
           ],
           "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
         },
-        "name": "browser_side_navigation_content_unittests",
+        "name": "renderer_side_navigation_content_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "cipd_packages": [
@@ -7371,7 +7194,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7411,7 +7233,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7451,7 +7272,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7491,7 +7311,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7531,7 +7350,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7571,7 +7389,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7611,7 +7428,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7651,7 +7467,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7691,7 +7506,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7731,7 +7545,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7771,7 +7584,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7811,7 +7623,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7852,7 +7663,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7892,7 +7702,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7932,7 +7741,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -7972,7 +7780,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -8012,7 +7819,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -8052,7 +7858,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -8092,7 +7897,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -8114,18 +7918,18 @@
       },
       {
         "args": [
-          "--enable-browser-side-navigation"
+          "--disable-browser-side-navigation"
         ],
         "merge": {
           "args": [
             "--bucket",
             "chromium-result-details",
             "--test-name",
-            "browser_side_navigation_unit_tests"
+            "renderer_side_navigation_unit_tests"
           ],
           "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
         },
-        "name": "browser_side_navigation_unit_tests",
+        "name": "renderer_side_navigation_unit_tests",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "cipd_packages": [
@@ -8137,7 +7941,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -8178,7 +7981,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -8218,7 +8020,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -8258,7 +8059,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -8280,18 +8080,18 @@
       },
       {
         "args": [
-          "--enable-browser-side-navigation"
+          "--disable-browser-side-navigation"
         ],
         "merge": {
           "args": [
             "--bucket",
             "chromium-result-details",
             "--test-name",
-            "browser_side_navigation_webview_instrumentation_test_apk"
+            "renderer_side_navigation_webview_instrumentation_test_apk"
           ],
           "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
         },
-        "name": "browser_side_navigation_webview_instrumentation_test_apk",
+        "name": "renderer_side_navigation_webview_instrumentation_test_apk",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "cipd_packages": [
@@ -8303,7 +8103,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MMB29Q",
               "device_type": "bullhead"
             }
@@ -8348,7 +8147,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8389,7 +8187,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8430,7 +8227,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8471,7 +8267,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8512,7 +8307,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8553,7 +8347,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8595,7 +8388,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8636,7 +8428,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8677,7 +8468,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8719,7 +8509,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8761,7 +8550,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8803,7 +8591,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8844,7 +8631,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8885,7 +8671,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8926,7 +8711,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -8967,7 +8751,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9008,7 +8791,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9049,7 +8831,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9090,7 +8871,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9131,7 +8911,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9172,7 +8951,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9213,7 +8991,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9254,7 +9031,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9296,7 +9072,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9337,7 +9112,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9378,7 +9152,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9419,7 +9192,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9460,7 +9232,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9501,7 +9272,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9542,7 +9312,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9584,7 +9353,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9625,7 +9393,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9666,7 +9433,6 @@
           ],
           "dimension_sets": [
             {
-              "android_devices": "1",
               "device_os": "MRA58Z",
               "device_type": "flo"
             }
@@ -9686,6 +9452,117 @@
           "shards": 6
         },
         "test": "webview_instrumentation_test_apk"
+      }
+    ]
+  },
+  "Nougat Phone Tester": {
+    "gtest_tests": [
+      {
+        "args": [
+          "--shared-prefs-file=//chrome/android/shared_preference_files/test/vr_cardboard_skipdon_setupcomplete.json",
+          "--replace-system-package=com.google.vr.vrcore,//third_party/gvr-android-sdk/test-apks/vr_services/vr_services_current.apk"
+        ],
+        "merge": {
+          "args": [
+            "--bucket",
+            "chromium-result-details",
+            "--test-name",
+            "chrome_public_test_vr_apk-pixelxl-cardboard-nougat"
+          ],
+          "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
+        },
+        "name": "chrome_public_test_vr_apk-pixelxl-cardboard-nougat",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "cipd_packages": [
+            {
+              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
+              "location": "bin",
+              "revision": "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
+            }
+          ],
+          "dimension_sets": [
+            {
+              "android_devices": "1",
+              "device_os": "NMF26U",
+              "device_type": "marlin"
+            }
+          ],
+          "hard_timeout": 960
+        },
+        "test": "chrome_public_test_vr_apk"
+      },
+      {
+        "args": [
+          "--shared-prefs-file=//chrome/android/shared_preference_files/test/vr_ddview_skipdon_setupcomplete.json",
+          "--replace-system-package=com.google.vr.vrcore,//third_party/gvr-android-sdk/test-apks/vr_services/vr_services_current.apk"
+        ],
+        "merge": {
+          "args": [
+            "--bucket",
+            "chromium-result-details",
+            "--test-name",
+            "chrome_public_test_vr_apk-pixelxl-ddview-nougat"
+          ],
+          "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
+        },
+        "name": "chrome_public_test_vr_apk-pixelxl-ddview-nougat",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "cipd_packages": [
+            {
+              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
+              "location": "bin",
+              "revision": "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
+            }
+          ],
+          "dimension_sets": [
+            {
+              "android_devices": "1",
+              "device_os": "NMF26U",
+              "device_type": "marlin"
+            }
+          ],
+          "hard_timeout": 960
+        },
+        "test": "chrome_public_test_vr_apk"
+      },
+      {
+        "args": [
+          "--shared-prefs-file=//chrome/android/shared_preference_files/test/vr_ddview_don_setupcomplete.json",
+          "--replace-system-package=com.google.vr.vrcore,//third_party/gvr-android-sdk/test-apks/vr_services/vr_services_current.apk",
+          "--annotation=Restriction=DON_Enabled",
+          "--don-enabled"
+        ],
+        "merge": {
+          "args": [
+            "--bucket",
+            "chromium-result-details",
+            "--test-name",
+            "chrome_public_test_vr_apk-pixelxl-ddview-nougat-donenabled"
+          ],
+          "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
+        },
+        "name": "chrome_public_test_vr_apk-pixelxl-ddview-nougat-donenabled",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "cipd_packages": [
+            {
+              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
+              "location": "bin",
+              "revision": "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
+            }
+          ],
+          "dimension_sets": [
+            {
+              "android_devices": "1",
+              "device_os": "NMF26U",
+              "device_type": "marlin"
+            }
+          ],
+          "hard_timeout": 960
+        },
+        "test": "chrome_public_test_vr_apk"
       }
     ]
   }

@@ -625,6 +625,14 @@ be describing additional metrics about the same event.
       means this was a SRC playback.
     </summary>
   </metric>
+  <metric name="IsTopFrame">
+    <summary>
+      Flag indicating whether the report comes from the top frame or some inner
+      frame. For privacy, metrics from inner frames are recorded with the top
+      frame's origin, so this flag helps separate top frame vs. embedded
+      playbacks.
+    </summary>
+  </metric>
   <metric name="LastPipelineStatus">
     <summary>
       media::PipelineStatus enum value. Always 0 if the playback succeeded; all
@@ -724,6 +732,12 @@ be describing additional metrics about the same event.
       Measure of memory consumed by GL command buffer.
     </summary>
   </metric>
+  <metric name="IsVisible">
+    <summary>
+      Indicates whether the tab is visible or not at the time of metric
+      collection.
+    </summary>
+  </metric>
   <metric name="Malloc">
     <summary>
       Measure of memory allocated by malloc.
@@ -757,9 +771,26 @@ be describing additional metrics about the same event.
       Size of process' working set.
     </summary>
   </metric>
+  <metric name="TimeSinceLastNavigation">
+    <summary>
+      The time in seconds since the Tab navigated. Only emitted for tabs that
+      are not sharing a process.
+    </summary>
+  </metric>
+  <metric name="TimeSinceLastVisibilityChange">
+    <summary>
+      The time in seconds since the Tab changed visibility. Only emitted for
+      tabs that are not sharing a process.
+    </summary>
+  </metric>
   <metric name="Total2.PrivateMemoryFootprint">
     <summary>
       Measure of total memory consumed by all processes.
+    </summary>
+  </metric>
+  <metric name="Uptime">
+    <summary>
+      Process uptime.
     </summary>
   </metric>
   <metric name="V8">
@@ -827,6 +858,13 @@ be describing additional metrics about the same event.
   <metric name="Navigation.PageTransition">
     <summary>
       The |ui::PageTransition| for the main frame navigation of this page load.
+    </summary>
+  </metric>
+  <metric name="Net.DownstreamKbpsEstimate.OnNavigationStart">
+    <owner>tbansal@chromium.org</owner>
+    <summary>
+      The downstream throughput (in kilobits per second) for this page load, at
+      the time the navigation for this page load was initiated.
     </summary>
   </metric>
   <metric name="Net.EffectiveConnectionType.OnNavigationStart">
@@ -1327,6 +1365,129 @@ be describing additional metrics about the same event.
     <summary>
       Duration in MS from when the tab is backgrounded to when the title is
       updated.
+    </summary>
+  </metric>
+</event>
+
+<event name="TabManager.Background.ForegroundedOrClosed">
+  <owner>chrisha@chromium.org</owner>
+  <owner>lpy@chromium.org</owner>
+  <summary>
+    Collects the duration in MS from when the tab is backgrounded to when it is
+    brought to foreground or closed.
+  </summary>
+  <metric name="IsForegrounded">
+    <summary>
+      Boolean value indicating whether or not it's triggered because the tab is
+      brought to foreground again.
+    </summary>
+  </metric>
+  <metric name="TimeFromBackgrounded">
+    <summary>
+      Duration in MS from when the tab is backgrounded to when it is brought to
+      foreground or closed.
+    </summary>
+  </metric>
+</event>
+
+<event
+    name="TabManager.BackgroundTabOpening.ForegroundTab.ExpectedTaskQueueingDurationInfo">
+  <owner>zhenw@chromium.org</owner>
+  <summary>
+    Collects the expected queueing duration of tasks and metadata for the
+    foreground tab in background tab opening session, which is the duration from
+    the time when the browser starts to open background tabs until the time when
+    browser has finished loading those tabs or paused loading due to memory
+    pressure. A new session starts when the browser resumes loading background
+    tabs when memory pressure returns to normal. The event is not recorded when
+    the session overlaps with session restore. This event is sampled when there
+    are 2 or more backgrounded loading or pending tabs. Therefore, aggregated
+    tab counts over multiple events are invalid.
+  </summary>
+  <metric name="BackgroundTabLoadingCount">
+    <summary>
+      Number of background tabs that are loading.
+    </summary>
+  </metric>
+  <metric name="BackgroundTabOpeningSessionId">
+    <summary>
+      The ID of this background tab opening session.
+    </summary>
+  </metric>
+  <metric name="BackgroundTabPendingCount">
+    <summary>
+      Number of background tabs that are pending.
+    </summary>
+  </metric>
+  <metric name="ExpectedTaskQueueingDuration">
+    <summary>
+      Duration in MS for expected task queueing duration. The metric reflects
+      the responsiveness of a tab. A lower value means the tab will respond to
+      inputs faster. This metric is equal to
+      RendererScheduler.ExpectedTaskQueueingDuration. It is emitted once for all
+      tasks in each 1000-ms window.
+    </summary>
+  </metric>
+  <metric name="SequenceId">
+    <summary>
+      The ID of this event's sequence in current background tab opening session.
+    </summary>
+  </metric>
+  <metric name="SystemTabCount">
+    <summary>
+      Number of all tabs of the system, which includes all browser windows.
+    </summary>
+  </metric>
+</event>
+
+<event name="TabManager.Experimental.BackgroundTabOpening.TabSwitchLoadStopped"
+    singular="True">
+  <owner>zhenw@chromium.org</owner>
+  <summary>
+    Collects data when a tab is switched to from another tab and then finishes
+    loading in the foreground in background tab opening session, which is the
+    duration from the time when the browser starts to open background tabs until
+    the time when browser has finished loading those tabs or paused loading due
+    to memory pressure. A new session starts when the browser resumes loading
+    background tabs when memory pressure returns to normal. The event is only
+    recorded when a tab is switched to from another tab within the same
+    tabstrip. As a result, the initial foreground tab is not included in this
+    event since it was not switched to from another tab. The event is not
+    recorded when the session overlaps with session restore.
+  </summary>
+  <metric name="BackgroundTabLoadingCount">
+    <summary>
+      Number of background tabs that are loading.
+    </summary>
+  </metric>
+  <metric name="BackgroundTabOpeningSessionId">
+    <summary>
+      The ID of this background tab opening session.
+    </summary>
+  </metric>
+  <metric name="BackgroundTabPendingCount">
+    <summary>
+      Number of background tabs that are pending.
+    </summary>
+  </metric>
+  <metric name="SequenceId">
+    <summary>
+      The ID of this event's sequence in current background tab opening session.
+    </summary>
+  </metric>
+  <metric name="SystemTabCount">
+    <summary>
+      Number of all tabs of the system, which includes all browser windows.
+    </summary>
+  </metric>
+  <metric name="TabSwitchLoadTime">
+    <summary>
+      Tab switch load time in MS. It is defined as the time between when the
+      user switches to a backround tab, and the time when that tab finishes
+      loading in the foreground. If the user switches away before the tab
+      finishes loading, a metric will not be recorded unless the user switches
+      back, in which case the tab switch load time is measured from that point
+      in time.
     </summary>
   </metric>
 </event>

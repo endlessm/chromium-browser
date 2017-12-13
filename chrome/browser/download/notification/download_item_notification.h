@@ -8,15 +8,12 @@
 #include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/download/download_commands.h"
-#include "chrome/browser/download/notification/download_notification.h"
 #include "chrome/browser/image_decoder.h"
 #include "chrome/browser/notifications/notification.h"
-#include "chrome/browser/notifications/notification_delegate.h"
 #include "chrome/browser/notifications/notification_test_util.h"
 #include "content/public/browser/download_item.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/message_center/message_center.h"
-#include "ui/message_center/message_center_observer.h"
+#include "ui/message_center/notification_delegate.h"
 #include "ui/native_theme/native_theme.h"
 
 class SkBitmap;
@@ -31,27 +28,26 @@ struct VectorIcon;
 
 class DownloadNotificationManagerForProfile;
 
-class DownloadItemNotification : public DownloadNotification,
-                                 public ImageDecoder::ImageRequest {
+class DownloadItemNotification : public ImageDecoder::ImageRequest {
  public:
   DownloadItemNotification(content::DownloadItem* item,
                            DownloadNotificationManagerForProfile* manager);
 
   ~DownloadItemNotification() override;
 
-  // Methods called from NotificationWatcher.
-  void OnDownloadUpdated(content::DownloadItem* item) override;
-  void OnDownloadRemoved(content::DownloadItem* item) override;
-  bool HasNotificationClickedListener() override;
-  void OnNotificationClose() override;
-  void OnNotificationClick() override;
-  void OnNotificationButtonClick(int button_index) override;
-  std::string GetNotificationId() const override;
+  void OnDownloadUpdated(content::DownloadItem* item);
+  void OnDownloadRemoved(content::DownloadItem* item);
 
   // Disables popup by setting low priority.
   void DisablePopup();
 
+  // Called back from the NotificationHandler.
+  void OnNotificationClose();
+  void OnNotificationClick();
+  void OnNotificationButtonClick(int button_index);
+
  private:
+  class DownloadItemNotificationDelegate;
   friend class test::DownloadItemNotificationTest;
 
   enum ImageDecodeStatus { NOT_STARTED, IN_PROGRESS, DONE, FAILED, NOT_IMAGE };
@@ -62,15 +58,15 @@ class DownloadItemNotification : public DownloadNotification,
     UPDATE_AND_POPUP
   };
 
-  void CloseNotificationByUser();
-  void CloseNotificationByNonUser();
+  std::string GetNotificationId() const;
+
+  void CloseNotification();
   void Update();
-  void UpdateNotificationData(NotificationUpdateType type);
+  void UpdateNotificationData(bool display, bool bump_priority);
   void UpdateNotificationIcon();
 
   // Set icon of the notification.
-  void SetNotificationIcon(int resource_id);
-  void SetNotificationVectorIcon(const gfx::VectorIcon& icon, SkColor color);
+  void SetNotificationIcon(const gfx::VectorIcon& icon, SkColor color);
 
   // Set preview image of the notification. Must be called on IO thread.
   void OnImageLoaded(const std::string& image_data);
@@ -127,12 +123,6 @@ class DownloadItemNotification : public DownloadNotification,
 
   // Status of the preview image decode.
   ImageDecodeStatus image_decode_status_ = NOT_STARTED;
-
-  // Pointer to the message center instance.
-  message_center::MessageCenter* message_center_;
-
-  void SetMessageCenterForTest(
-      message_center::MessageCenter* message_center);
 
   base::WeakPtrFactory<DownloadItemNotification> weak_factory_;
 

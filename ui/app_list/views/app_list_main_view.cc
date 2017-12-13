@@ -12,7 +12,6 @@
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_util.h"
 #include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_features.h"
@@ -27,7 +26,6 @@
 #include "ui/app_list/views/apps_container_view.h"
 #include "ui/app_list/views/apps_grid_view.h"
 #include "ui/app_list/views/contents_view.h"
-#include "ui/app_list/views/custom_launcher_page_view.h"
 #include "ui/app_list/views/search_box_view.h"
 #include "ui/app_list/views/search_result_page_view.h"
 #include "ui/app_list/views/start_page_view.h"
@@ -60,8 +58,7 @@ AppListMainView::~AppListMainView() {
   model_->RemoveObserver(this);
 }
 
-void AppListMainView::Init(gfx::NativeView parent,
-                           int initial_apps_page,
+void AppListMainView::Init(int initial_apps_page,
                            SearchBoxView* search_box_view) {
   search_box_view_ = search_box_view;
   AddContentsViews();
@@ -136,43 +133,11 @@ void AppListMainView::NotifySearchBoxVisibilityChanged() {
     parent()->SchedulePaint();
 }
 
-bool AppListMainView::ShouldShowCustomLauncherPage() const {
-  return contents_view_->custom_page_view() &&
-         model_->custom_launcher_page_enabled() &&
-         model_->search_engine_is_google();
-}
-
-void AppListMainView::UpdateCustomLauncherPageVisibility() {
-  views::View* custom_page = contents_view_->custom_page_view();
-  if (!custom_page)
-    return;
-
-  if (ShouldShowCustomLauncherPage()) {
-    // Make the custom page view visible again.
-    custom_page->SetVisible(true);
-  } else if (contents_view_->IsStateActive(
-                 AppListModel::STATE_CUSTOM_LAUNCHER_PAGE)) {
-    // Animate to the start page if currently on the custom page view. The view
-    // will hide on animation completion.
-    contents_view_->SetActiveState(AppListModel::STATE_START);
-  } else {
-    // Hide the view immediately otherwise.
-    custom_page->SetVisible(false);
-  }
-}
-
 const char* AppListMainView::GetClassName() const {
   return "AppListMainView";
 }
 
-void AppListMainView::OnCustomLauncherPageEnabledStateChanged(bool enabled) {
-  UpdateCustomLauncherPageVisibility();
-}
-
 void AppListMainView::OnSearchEngineIsGoogleChanged(bool is_google) {
-  if (contents_view_->custom_page_view())
-    UpdateCustomLauncherPageVisibility();
-
   if (contents_view_->start_page_view()) {
     contents_view_->start_page_view()->instant_container()->SetVisible(
         is_google);

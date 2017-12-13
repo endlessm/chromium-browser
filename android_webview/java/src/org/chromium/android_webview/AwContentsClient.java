@@ -4,7 +4,6 @@
 
 package org.chromium.android_webview;
 
-import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
@@ -19,12 +18,9 @@ import android.provider.Browser;
 import android.text.TextUtils;
 import android.view.KeyEvent;
 import android.view.View;
-import android.webkit.ConsoleMessage;
-import android.webkit.GeolocationPermissions;
-import android.webkit.ValueCallback;
-import android.webkit.WebChromeClient;
 
 import org.chromium.android_webview.permission.AwPermissionRequest;
+import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.content_public.common.ContentUrlConstants;
@@ -59,6 +55,14 @@ public abstract class AwContentsClient {
 
     public AwContentsClient() {
         this(Looper.myLooper());
+    }
+
+    /**
+     *
+     * See {@link android.webkit.WebChromeClient}. */
+    public interface CustomViewCallback {
+        /* See {@link android.webkit.WebChromeClient}. */
+        public void onCustomViewHidden();
     }
 
     // Alllow injection of the callback thread, for testing.
@@ -121,7 +125,7 @@ public abstract class AwContentsClient {
      */
     public abstract boolean hasWebViewClient();
 
-    public abstract void getVisitedHistory(ValueCallback<String[]> callback);
+    public abstract void getVisitedHistory(Callback<String[]> callback);
 
     public abstract void doUpdateVisitedHistory(String url, boolean isReload);
 
@@ -138,12 +142,12 @@ public abstract class AwContentsClient {
 
     public abstract void onUnhandledKeyEvent(KeyEvent event);
 
-    public abstract boolean onConsoleMessage(ConsoleMessage consoleMessage);
+    public abstract boolean onConsoleMessage(AwConsoleMessage consoleMessage);
 
     public abstract void onReceivedHttpAuthRequest(AwHttpAuthHandler handler,
             String host, String realm);
 
-    public abstract void onReceivedSslError(ValueCallback<Boolean> callback, SslError error);
+    public abstract void onReceivedSslError(Callback<Boolean> callback, SslError error);
 
     public abstract void onReceivedClientCertRequest(
             final AwContentsClientBridge.ClientCertificateRequestCallback callback,
@@ -232,10 +236,9 @@ public abstract class AwContentsClient {
     }
 
     /**
-     * Type adaptation class for FileChooserParams.
+     * Type adaptation class for {@link android.webkit.FileChooserParams}.
      */
-    @SuppressLint("NewApi")  // WebChromeClient.FileChooserParams requires API level 21.
-    public static class FileChooserParamsImpl extends WebChromeClient.FileChooserParams {
+    public static class FileChooserParamsImpl {
         private int mMode;
         private String mAcceptTypes;
         private String mTitle;
@@ -255,12 +258,10 @@ public abstract class AwContentsClient {
             return mAcceptTypes;
         }
 
-        @Override
         public int getMode() {
             return mMode;
         }
 
-        @Override
         public String[] getAcceptTypes() {
             if (mAcceptTypes == null) {
                 return new String[0];
@@ -268,22 +269,18 @@ public abstract class AwContentsClient {
             return mAcceptTypes.split(";");
         }
 
-        @Override
         public boolean isCaptureEnabled() {
             return mCapture;
         }
 
-        @Override
         public CharSequence getTitle() {
             return mTitle;
         }
 
-        @Override
         public String getFilenameHint() {
             return mDefaultFilename;
         }
 
-        @Override
         public Intent createIntent() {
             String mimeType = "*/*";
             if (mAcceptTypes != null && !mAcceptTypes.trim().isEmpty()) {
@@ -297,11 +294,11 @@ public abstract class AwContentsClient {
         }
     }
 
-    public abstract void showFileChooser(ValueCallback<String[]> uploadFilePathsCallback,
-            FileChooserParamsImpl fileChooserParams);
+    public abstract void showFileChooser(
+            Callback<String[]> uploadFilePathsCallback, FileChooserParamsImpl fileChooserParams);
 
-    public abstract void onGeolocationPermissionsShowPrompt(String origin,
-            GeolocationPermissions.Callback callback);
+    public abstract void onGeolocationPermissionsShowPrompt(
+            String origin, AwGeolocationPermissions.Callback callback);
 
     public abstract void onGeolocationPermissionsHidePrompt();
 
@@ -370,12 +367,12 @@ public abstract class AwContentsClient {
             AwWebResourceRequest request, AwWebResourceError error);
 
     protected abstract void onSafeBrowsingHit(AwWebResourceRequest request, int threatType,
-            ValueCallback<AwSafeBrowsingResponse> callback);
+            Callback<AwSafeBrowsingResponse> callback);
 
     public abstract void onReceivedHttpError(AwWebResourceRequest request,
             AwWebResourceResponse response);
 
-    public abstract void onShowCustomView(View view, WebChromeClient.CustomViewCallback callback);
+    public abstract void onShowCustomView(View view, CustomViewCallback callback);
 
     public abstract void onHideCustomView();
 

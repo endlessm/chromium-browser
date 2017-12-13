@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -592,7 +593,17 @@ class DepGraphGenerator(object):
       binpkg_phases = set(["setup", "preinst", "postinst"])
       needed_dep_types = set(["blocker", "buildtime", "buildtime_slot_op",
                               "runtime", "runtime_slot_op"])
-      ignored_dep_types = set(["ignored", "optional", "runtime_post", "soft"])
+      ignored_dep_types = set(["ignored", "runtime_post", "soft"])
+
+      # There's a bug in the Portage library where it always returns 'optional'
+      # and never 'buildtime' for the digraph while --usepkg is enabled; even
+      # when the package is being rebuilt. To work around this, we treat
+      # 'optional' as needed when we are using --usepkg. See crbug.com/756240 .
+      if "--usepkg" in self.emerge.opts:
+        needed_dep_types.add("optional")
+      else:
+        ignored_dep_types.add("optional")
+
       all_dep_types = ignored_dep_types | needed_dep_types
       for pkg in packages:
 

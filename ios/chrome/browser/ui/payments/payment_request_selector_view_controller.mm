@@ -65,7 +65,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
     // Set up leading (back) button.
     UIBarButtonItem* backButton =
         [ChromeIcon templateBarButtonItemWithImage:[ChromeIcon backIcon]
-                                            target:nil
+                                            target:self
                                             action:@selector(onBack)];
     backButton.accessibilityLabel = l10n_util::GetNSString(IDS_ACCNAME_BACK);
     self.navigationItem.leftBarButtonItem = backButton;
@@ -209,25 +209,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
       }
       break;
     }
-    case ItemTypeSelectableItem: {
-      if ([cell isKindOfClass:[PaymentsTextCell class]]) {
-        PaymentsTextCell* textCell =
-            base::mac::ObjCCastStrict<PaymentsTextCell>(cell);
-        textCell.textLabel.font = [MDCTypography body2Font];
-        textCell.textLabel.textColor = [[MDCPalette greyPalette] tint900];
-        textCell.detailTextLabel.font = [MDCTypography body1Font];
-        textCell.detailTextLabel.textColor = [[MDCPalette greyPalette] tint500];
-      }
-      break;
-    }
-    case ItemTypeAddItem:
-      if ([cell isKindOfClass:[PaymentsTextCell class]]) {
-        PaymentsTextCell* textCell =
-            base::mac::ObjCCastStrict<PaymentsTextCell>(cell);
-        textCell.textLabel.font = [MDCTypography body2Font];
-        textCell.textLabel.textColor = [[MDCPalette greyPalette] tint900];
-      }
-      break;
     default:
       break;
   }
@@ -328,6 +309,13 @@ typedef NS_ENUM(NSInteger, ItemType) {
   } else {
     return NO;
   }
+}
+
+#pragma mark - UIAccessibilityAction
+
+- (BOOL)accessibilityPerformEscape {
+  [self onBack];
+  return YES;
 }
 
 @end

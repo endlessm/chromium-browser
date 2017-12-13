@@ -33,6 +33,9 @@
       'v8_target_arch%': '<(target_arch)',
     },
 
+    # Allows the embedder to add a custom suffix to the version string.
+    'v8_embedder_string%': '',
+
     'v8_enable_disassembler%': 0,
 
     'v8_promise_internal_field_count%': 0,
@@ -83,9 +86,15 @@
 
     # Enable concurrent marking.
     'v8_enable_concurrent_marking%': 0,
+
+    # Controls the threshold for on-heap/off-heap Typed Arrays.
+    'v8_typed_array_max_size_in_heap%': 64,
   },
   'target_defaults': {
     'conditions': [
+      ['v8_embedder_string!=""', {
+        'defines': ['V8_EMBEDDER_STRING="<(v8_embedder_string)"',],
+      }],
       ['v8_enable_disassembler==1', {
         'defines': ['ENABLE_DISASSEMBLER',],
       }],
@@ -160,6 +169,7 @@
     },  # configurations
     'defines': [
       'V8_GYP_BUILD',
+      'V8_TYPED_ARRAY_MAX_SIZE_IN_HEAP=<(v8_typed_array_max_size_in_heap)',
     ],  # defines
   },  # target_defaults
 }

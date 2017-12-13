@@ -5,6 +5,7 @@
 #include "ash/utility/screenshot_controller.h"
 
 #include <cmath>
+#include <memory>
 
 #include "ash/display/mouse_cursor_event_filter.h"
 #include "ash/public/cpp/shell_window_ids.h"
@@ -12,7 +13,6 @@
 #include "ash/shell.h"
 #include "ash/shell_port.h"
 #include "ash/wm/window_util.h"
-#include "base/memory/ptr_util.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/window_targeter.h"
@@ -80,7 +80,7 @@ class ScreenshotController::ScreenshotLayer : public ui::LayerOwner,
  public:
   ScreenshotLayer(ui::Layer* parent, bool immediate_overlay)
       : draw_inactive_overlay_(immediate_overlay) {
-    SetLayer(base::MakeUnique<ui::Layer>(ui::LAYER_TEXTURED));
+    SetLayer(std::make_unique<ui::Layer>(ui::LAYER_TEXTURED));
     layer()->SetFillsBoundsOpaquely(false);
     layer()->SetBounds(parent->bounds());
     parent->Add(layer());
@@ -134,7 +134,8 @@ class ScreenshotController::ScreenshotLayer : public ui::LayerOwner,
 
   void OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) override {}
 
-  void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
+  void OnDeviceScaleFactorChanged(float old_device_scale_factor,
+                                  float new_device_scale_factor) override {}
 
   // Mouse cursor may move sub DIP, so paint pseudo cursor instead of
   // using platform cursor so that it's aliend with the region.
@@ -284,7 +285,7 @@ void ScreenshotController::StartWindowScreenshotSession(
 
   display::Screen::GetScreen()->AddObserver(this);
   for (aura::Window* root : Shell::GetAllRootWindows()) {
-    layers_[root] = base::MakeUnique<ScreenshotLayer>(
+    layers_[root] = std::make_unique<ScreenshotLayer>(
         Shell::GetContainer(root, kShellWindowId_OverlayContainer)->layer(),
         true);
   }
@@ -309,7 +310,7 @@ void ScreenshotController::StartPartialScreenshotSession(
   mode_ = PARTIAL;
   display::Screen::GetScreen()->AddObserver(this);
   for (aura::Window* root : Shell::GetAllRootWindows()) {
-    layers_[root] = base::MakeUnique<ScreenshotLayer>(
+    layers_[root] = std::make_unique<ScreenshotLayer>(
         Shell::GetContainer(root, kShellWindowId_OverlayContainer)->layer(),
         draw_overlay_immediately);
   }
@@ -341,13 +342,8 @@ void ScreenshotController::CancelScreenshotSession() {
   cursor_setter_.reset();
   EnableMouseWarp(true);
 
-  if (on_screenshot_session_done_) {
-    // Copy the closure to a temporary value so that if it calls
-    // CancelScreenshotSession we do not loop forever.
-    base::Closure on_done = on_screenshot_session_done_;
-    on_screenshot_session_done_.Reset();
-    on_done.Run();
-  }
+  if (on_screenshot_session_done_)
+    std::move(on_screenshot_session_done_).Run();
 }
 
 void ScreenshotController::MaybeStart(const ui::LocatedEvent& event) {

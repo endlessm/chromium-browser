@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -19,6 +20,7 @@ import traceback
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import repository
 from chromite.cbuildbot import topology
+from chromite.lib import auth
 from chromite.lib import buildbucket_lib
 from chromite.lib import builder_status_lib
 from chromite.lib import config_lib
@@ -312,7 +314,8 @@ class BuilderStage(object):
     if config_lib.UseBuildbucketScheduler(self._run.config):
       if buildbucket_lib.GetServiceAccount(constants.CHROMEOS_SERVICE_ACCOUNT):
         buildbucket_client = buildbucket_lib.BuildbucketClient(
-            service_account=constants.CHROMEOS_SERVICE_ACCOUNT)
+            auth.GetAccessToken, None,
+            service_account_json=constants.CHROMEOS_SERVICE_ACCOUNT)
 
       if buildbucket_client is None and self._run.InProduction():
         # If the build using Buildbucket is running on buildbot and
@@ -1034,6 +1037,22 @@ class ArchivingStageMixin(object):
         return True
     return False
 
+  def _FilterBuildFromMoblab(self, url, bot_id):
+    """Deteminine if this is a build that should not be copied to moblab.
+
+    Args:
+      url: The gs url of the target bucket.
+      bot_id: The name of the bot
+
+    Returns:
+      True is the build should not be copied to this moblab url
+    """
+    bot_filter_list = ['paladin', 'trybot', 'pfq']
+    if (url.find('moblab') and
+        any(bot_id.find(filter) != -1 for filter in bot_filter_list)):
+      return True
+    return False
+
   def _GetUploadUrls(self, filename, builder_run=None):
     """Returns a list of all urls for which to upload filename to.
 
@@ -1053,17 +1072,16 @@ class ArchivingStageMixin(object):
         board = builder_run.config['boards'][0]
     if (not self._IsInUploadBlacklist(filename) and
         (hasattr(self, '_current_board') or board)):
-      if self._run.config.pre_cq:
-        # Do not load artifacts.json for pre-cq configs. This is a
-        # workaround for crbug.com/440167.
-        return urls
-
       board = board or self._current_board
       custom_artifacts_file = portage_util.ReadOverlayFile(
           'scripts/artifacts.json', board=board)
       if custom_artifacts_file is not None:
         json_file = json.loads(custom_artifacts_file)
         for url in json_file.get('extra_upload_urls', []):
+          # Moblab users do not need the paladin, pfq or trybot
+          # builds, filter those bots from extra uploads.
+          if self._FilterBuildFromMoblab(url, bot_id):
+            continue
           urls.append('/'.join([url, bot_id, self.version]))
     return urls
 

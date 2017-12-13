@@ -4,7 +4,6 @@
 
 #include "ash/system/palette/test_palette_delegate.h"
 
-#include "ash/highlighter/highlighter_controller_test_api.h"
 #include "base/callback_helpers.h"
 
 namespace ash {
@@ -34,33 +33,6 @@ bool TestPaletteDelegate::ShouldAutoOpenPalette() {
 
 bool TestPaletteDelegate::ShouldShowPalette() {
   return should_show_palette_;
-}
-
-void TestPaletteDelegate::TakeScreenshot() {
-  ++take_screenshot_count_;
-}
-
-void TestPaletteDelegate::TakePartialScreenshot(const base::Closure& done) {
-  ++take_partial_screenshot_count_;
-  partial_screenshot_done_ = done;
-}
-
-void TestPaletteDelegate::CancelPartialScreenshot() {}
-
-void TestPaletteDelegate::ShowMetalayer(base::OnceClosure done,
-                                        bool via_button) {
-  ++show_metalayer_count_;
-  if (highlighter_test_api_) {
-    highlighter_test_api_->SetMetalayerDone(std::move(done));
-    highlighter_test_api_->SetViaButton(via_button);
-    highlighter_test_api_->SetEnabled(true);
-  }
-}
-
-void TestPaletteDelegate::HideMetalayer() {
-  ++hide_metalayer_count_;
-  if (highlighter_test_api_)
-    highlighter_test_api_->SetEnabled(false);
 }
 
 }  // namespace ash

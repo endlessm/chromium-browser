@@ -340,7 +340,7 @@ class ManagedGitWrapperTestCase(BaseGitWrapperTestCase):
     scm.status(options, self.args, file_list)
     self.assertEquals(file_list, [file_path])
     self.checkstdout(
-        ('\n________ running \'git diff --name-status '
+        ('________ running \'git diff --name-status '
          '069c602044c5388d2d15c3f875b057c852003458\' in \'%s\'\nM\ta\n') %
             join(self.root_dir, '.'))
 
@@ -360,7 +360,7 @@ class ManagedGitWrapperTestCase(BaseGitWrapperTestCase):
     expected_file_list = [join(self.base_path, x) for x in ['a', 'b']]
     self.assertEquals(sorted(file_list), expected_file_list)
     self.checkstdout(
-        ('\n________ running \'git diff --name-status '
+        ('________ running \'git diff --name-status '
          '069c602044c5388d2d15c3f875b057c852003458\' in \'%s\'\nM\ta\nM\tb\n') %
             join(self.root_dir, '.'))
 
@@ -792,8 +792,11 @@ class UnmanagedGitWrapperTestCase(BaseGitWrapperTestCase):
     self.assertEquals(file_list, expected_file_list)
     self.assertEquals(scm.revinfo(options, (), None),
                       '9a51244740b25fa2ded5252ca00a3178d3f665a9')
-    self.assertEquals(self.getCurrentBranch(), 'feature')
-    self.checkNotInStdout('Checked out feature to a detached HEAD')
+    # indicates detached HEAD
+    self.assertEquals(self.getCurrentBranch(), None)
+    self.checkInStdout(
+        'Checked out 9a51244740b25fa2ded5252ca00a3178d3f665a9 '
+        'to a detached HEAD')
 
     rmtree(origin_root_dir)
 

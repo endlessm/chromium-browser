@@ -7,10 +7,11 @@
 #include <limits>
 
 #include "base/logging.h"
+#include "base/numerics/ranges.h"
 #include "base/stl_util.h"
 #include "base/time/time.h"
-#include "cc/base/math_util.h"
 #include "chrome/browser/vr/elements/ui_element_transform_operations.h"
+#include "ui/gfx/geometry/angle_conversions.h"
 
 namespace vr {
 
@@ -50,7 +51,13 @@ UiElement::~UiElement() {
 }
 
 void UiElement::Render(UiElementRenderer* renderer,
-                       const gfx::Transform& view_proj_matrix) const {}
+                       const gfx::Transform& model_view_proj_matrix) const {
+  // Elements without an overridden implementation of Render should have their
+  // draw phase set to kPhaseNone and should, consequently, be filtered out when
+  // the UiRenderer collects elements to draw. Therefore, if we invoke this
+  // function, it is an error.
+  NOTREACHED();
+}
 
 void UiElement::Initialize() {}
 
@@ -77,7 +84,8 @@ void UiElement::OnScrollEnd(std::unique_ptr<blink::WebGestureEvent> gesture,
 
 void UiElement::PrepareToDraw() {}
 
-void UiElement::Animate(const base::TimeTicks& time) {
+void UiElement::OnBeginFrame(const base::TimeTicks& time,
+                             const gfx::Vector3dF& look_at) {
   animation_player_.Tick(time);
   last_frame_time_ = time;
 }
@@ -94,8 +102,18 @@ void UiElement::SetSize(float width, float height) {
 void UiElement::SetVisible(bool visible) {
   SetOpacity(visible ? opacity_when_visible_ : 0.0);
 }
+
+void UiElement::SetVisibleImmediately(bool visible) {
+  opacity_ = visible ? opacity_when_visible_ : 0.0;
+}
+
 bool UiElement::IsVisible() const {
-  return opacity_ > 0.0f && computed_opacity_ > 0.0f;
+  return opacity() > 0.0f && computed_opacity() > 0.0f;
+}
+
+gfx::SizeF UiElement::size() const {
+  DCHECK_LE(kUpdatedTexturesAndSizes, phase_);
+  return size_;
 }
 
 void UiElement::SetTransformOperations(
@@ -127,7 +145,7 @@ void UiElement::SetRotate(float x, float y, float z, float radians) {
   cc::TransformOperations operations = transform_operations_;
   cc::TransformOperation& op = operations.at(kRotateIndex);
   op.rotate.axis = {x, y, z};
-  op.rotate.angle = cc::MathUtil::Rad2Deg(radians);
+  op.rotate.angle = gfx::RadToDeg(radians);
   op.Bake();
   animation_player_.TransitionTransformOperationsTo(
       last_frame_time_, TRANSFORM, transform_operations_, operations);
@@ -147,6 +165,25 @@ void UiElement::SetOpacity(float opacity) {
                                       opacity);
 }
 
+gfx::SizeF UiElement::GetTargetSize() const {
+  return animation_player_.GetTargetSizeValue(TargetProperty::BOUNDS, size_);
+}
+
+cc::TransformOperations UiElement::GetTargetTransform() const {
+  return animation_player_.GetTargetTransformOperationsValue(
+      TargetProperty::TRANSFORM, transform_operations_);
+}
+
+float UiElement::GetTargetOpacity() const {
+  return animation_player_.GetTargetFloatValue(TargetProperty::OPACITY,
+                                               opacity_);
+}
+
+float UiElement::computed_opacity() const {
+  DCHECK_LE(kUpdatedComputedOpacity, phase_);
+  return computed_opacity_;
+}
+
 bool UiElement::HitTest(const gfx::PointF& point) const {
   return point.x() >= 0.0f && point.x() <= 1.0f && point.y() >= 0.0f &&
          point.y() <= 1.0f;
@@ -162,8 +199,18 @@ void UiElement::SetMode(ColorScheme::Mode mode) {
   OnSetMode();
 }
 
+const gfx::Transform& UiElement::world_space_transform() const {
+  DCHECK_LE(kUpdatedWorldSpaceTransform, phase_);
+  return world_space_transform_;
+}
+
 void UiElement::OnSetMode() {}
-void UiElement::OnUpdatedInheritedProperties() {}
+void UiElement::OnUpdatedWorldSpaceTransform() {}
+
+gfx::SizeF UiElement::stale_size() const {
+  DCHECK_LE(kUpdatedBindings, phase_);
+  return size_;
+}
 
 void UiElement::AddChild(std::unique_ptr<UiElement> child) {
   child->parent_ = this;
@@ -179,6 +226,15 @@ void UiElement::RemoveChild(UiElement* to_remove) {
                   return child.get() == to_remove;
                 });
   DCHECK_NE(old_size, children_.size());
+}
+
+void UiElement::AddBinding(std::unique_ptr<BindingBase> binding) {
+  bindings_.push_back(std::move(binding));
+}
+
+void UiElement::UpdateBindings() {
+  for (auto& binding : bindings_)
+    binding->Update();
 }
 
 gfx::Point3F UiElement::GetCenter() const {
@@ -224,7 +280,7 @@ bool UiElement::GetRayDistance(const gfx::Point3F& ray_origin,
 void UiElement::NotifyClientFloatAnimated(float opacity,
                                           int target_property_id,
                                           cc::Animation* animation) {
-  opacity_ = cc::MathUtil::ClampToRange(opacity, 0.0f, 1.0f);
+  opacity_ = base::ClampToRange(opacity, 0.0f, 1.0f);
 }
 
 void UiElement::NotifyClientTransformOperationsAnimated(
@@ -265,6 +321,7 @@ bool UiElement::IsAnimatingProperty(TargetProperty property) const {
 }
 
 void UiElement::LayOutChildren() {
+  DCHECK_LE(kUpdatedTexturesAndSizes, phase_);
   for (auto& child : children_) {
     // To anchor a child, use the parent's size to find its edge.
     float x_offset;
@@ -295,13 +352,22 @@ void UiElement::LayOutChildren() {
   }
 }
 
-void UiElement::AdjustRotationForHeadPose(const gfx::Vector3dF& look_at) {}
+void UiElement::UpdateComputedOpacityRecursive() {
+  set_computed_opacity(opacity_);
+  if (parent_) {
+    set_computed_opacity(computed_opacity_ * parent_->computed_opacity());
+  }
 
-void UiElement::UpdateInheritedProperties() {
+  set_update_phase(kUpdatedComputedOpacity);
+
+  for (auto& child : children_) {
+    child->UpdateComputedOpacityRecursive();
+  }
+}
+
+void UiElement::UpdateWorldSpaceTransformRecursive() {
   gfx::Transform transform;
   transform.Scale(size_.width(), size_.height());
-  set_computed_opacity(opacity_);
-  set_computed_viewport_aware(viewport_aware_);
 
   // Compute an inheritable transformation that can be applied to this element,
   // and it's children, if applicable.
@@ -309,20 +375,18 @@ void UiElement::UpdateInheritedProperties() {
 
   if (parent_) {
     inheritable.ConcatTransform(parent_->inheritable_transform());
-    set_computed_opacity(computed_opacity() * parent_->opacity());
-    if (parent_->viewport_aware())
-      set_computed_viewport_aware(true);
   }
 
   transform.ConcatTransform(inheritable);
   set_world_space_transform(transform);
   set_inheritable_transform(inheritable);
+  set_update_phase(kUpdatedWorldSpaceTransform);
 
   for (auto& child : children_) {
-    child->UpdateInheritedProperties();
+    child->UpdateWorldSpaceTransformRecursive();
   }
 
-  OnUpdatedInheritedProperties();
+  OnUpdatedWorldSpaceTransform();
 }
 
 gfx::Transform UiElement::LocalTransform() const {

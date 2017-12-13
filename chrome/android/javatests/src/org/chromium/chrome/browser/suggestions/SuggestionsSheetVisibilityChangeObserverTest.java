@@ -147,20 +147,16 @@ public class SuggestionsSheetVisibilityChangeObserverTest {
 
         // Type in the omnibox, the omnibox suggestion list should come hide the home sheet.
         Espresso.onView(ViewMatchers.withId(R.id.url_bar)).perform(ViewActions.typeText("g"));
-        // TODO(https://crbug.com/731128): Known issue, we don't have events associated to the
-        // overlay covering the home sheet content.
-        // observer.expectEvents(Hidden, StateChange);
+        mObserver.expectEvents(Hidden, StateChange);
         assertEquals(BottomSheet.SHEET_STATE_FULL, mActivityRule.getBottomSheet().getSheetState());
 
         // Back hides the omnibox suggestions.
         Espresso.pressBack();
         waitForWindowUpdates();
 
-        // TODO(https://crbug.com/731128): Same as previous events not being sent. But here it does
-        // not matter too much since the critical interaction is onSurfaceOpened not being called
-        // a second time.
-        // observer.expectEvents(Shown, StateChange);
+        mObserver.expectEvents(InitialReveal, StateChange);
         assertEquals(BottomSheet.SHEET_STATE_FULL, mActivityRule.getBottomSheet().getSheetState());
+        mEventReporter.surfaceOpenedHelper.waitForCallback();
         mEventReporter.surfaceOpenedHelper.verifyCallCount();
 
         // Back again closes the bottom sheet

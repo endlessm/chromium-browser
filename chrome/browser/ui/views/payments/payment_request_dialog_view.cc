@@ -76,6 +76,12 @@ PaymentRequestDialogView::PaymentRequestDialogView(
   AddChildView(view_stack_.get());
 
   SetupSpinnerOverlay();
+  // Show spinner when getting all payment instruments. The spinner will be
+  // hidden in OnGetAllPaymentInstrumentsFinished.
+  if (!request->state()->is_get_all_instruments_finished()) {
+    request->state()->AddObserver(this);
+    ShowProcessingSpinner();
+  }
 
   ShowInitialPaymentSheet();
 
@@ -164,6 +170,10 @@ void PaymentRequestDialogView::OnSpecUpdated() {
 
   if (observer_for_testing_)
     observer_for_testing_->OnSpecDoneUpdating();
+}
+
+void PaymentRequestDialogView::OnGetAllPaymentInstrumentsFinished() {
+  HideProcessingSpinner();
 }
 
 void PaymentRequestDialogView::Pay() {
@@ -344,8 +354,8 @@ void PaymentRequestDialogView::SetupSpinnerOverlay() {
   // would be under it.
   throbber_overlay_.SetBackground(views::CreateSolidBackground(SK_ColorWHITE));
 
-  std::unique_ptr<views::GridLayout> layout =
-      base::MakeUnique<views::GridLayout>(&throbber_overlay_);
+  views::GridLayout* layout =
+      views::GridLayout::CreateAndInstall(&throbber_overlay_);
   views::ColumnSet* throbber_columns = layout->AddColumnSet(0);
   throbber_columns->AddPaddingColumn(0.5, 0);
   throbber_columns->AddColumn(views::GridLayout::Alignment::CENTER,
@@ -367,7 +377,6 @@ void PaymentRequestDialogView::SetupSpinnerOverlay() {
   layout->AddView(new views::Label(
       l10n_util::GetStringUTF16(IDS_PAYMENTS_PROCESSING_MESSAGE)));
 
-  throbber_overlay_.SetLayoutManager(layout.release());
   AddChildView(&throbber_overlay_);
 }
 

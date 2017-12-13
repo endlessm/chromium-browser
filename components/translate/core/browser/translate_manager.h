@@ -18,9 +18,13 @@
 #include "components/translate/core/browser/language_state.h"
 #include "components/translate/core/common/translate_errors.h"
 
+namespace language {
+class LanguageModel;
+}  // namespace language
+
 namespace metrics {
 class TranslateEventProto;
-}
+}  // namespace metrics
 
 namespace translate {
 
@@ -44,11 +48,9 @@ struct TranslateErrorDetails;
 class TranslateManager {
  public:
   // |translate_client| is expected to outlive the TranslateManager.
-  // |accept_language_pref_name| is the path for the preference for the
-  // accept-languages.
   TranslateManager(TranslateClient* translate_client,
                    TranslateRanker* translate_ranker,
-                   const std::string& accept_language_pref_name);
+                   language::LanguageModel* language_model);
   virtual ~TranslateManager();
 
   // Returns a weak pointer to this instance.
@@ -65,14 +67,20 @@ class TranslateManager {
     return translate_event_.get();
   }
 
-  // Returns the language to translate to. The language returned is the
-  // first language found in the following list that is supported by the
-  // translation service:
+  // Returns the language to translate to.
+  //
+  // If provided a non-null |language_model|, returns the first language from
+  // the model that is supported by the translation service.
+  //
+  // Otherwise, returns the first language found in the following list that is
+  // supported by the translation service:
   //     High confidence and high probability reading language in ULP
   //     the UI language
   //     the accept-language list
+  //
   // If no language is found then an empty string is returned.
-  static std::string GetTargetLanguage(const TranslatePrefs* prefs);
+  static std::string GetTargetLanguage(const TranslatePrefs* prefs,
+                                       language::LanguageModel* language_model);
 
   // Returns the language to automatically translate to. |original_language| is
   // the webpage's original language.
@@ -170,9 +178,10 @@ class TranslateManager {
   // Preference name for the Accept-Languages HTTP header.
   std::string accept_languages_pref_name_;
 
-  TranslateClient* translate_client_;  // Weak.
-  TranslateDriver* translate_driver_;  // Weak.
-  TranslateRanker* translate_ranker_;  // Weak.
+  TranslateClient* translate_client_;        // Weak.
+  TranslateDriver* translate_driver_;        // Weak.
+  TranslateRanker* translate_ranker_;        // Weak.
+  language::LanguageModel* language_model_;  // Weak.
 
   LanguageState language_state_;
 

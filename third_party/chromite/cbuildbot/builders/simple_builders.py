@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2015 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -23,6 +24,7 @@ from chromite.cbuildbot.stages import report_stages
 from chromite.cbuildbot.stages import scheduler_stages
 from chromite.cbuildbot.stages import sync_stages
 from chromite.cbuildbot.stages import test_stages
+from chromite.cbuildbot.stages import vm_test_stages
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
@@ -143,8 +145,6 @@ class SimpleBuilder(generic_builders.Builder):
       stage_class = None
       if suite_config.async:
         stage_class = test_stages.ASyncHWTestStage
-      elif suite_config.suite == constants.HWTEST_AU_SUITE:
-        stage_class = test_stages.AUTestStage
       else:
         stage_class = test_stages.HWTestStage
 
@@ -234,15 +234,15 @@ class SimpleBuilder(generic_builders.Builder):
       # Run the VMTests multiple times to see if they fail.
       stage_list += [
           [generic_stages.RepeatStage, config.vm_test_runs,
-           test_stages.VMTestStage, board]]
+           vm_test_stages.VMTestStage, board]]
     else:
       # Give the VMTests one retry attempt in case failures are flaky.
       stage_list += [[generic_stages.RetryStage, 1,
-                      test_stages.VMTestStage, board]]
+                      vm_test_stages.VMTestStage, board]]
 
     if config.gce_tests:
       # Give the GCETests one retry attempt in case failures are flaky.
-      stage_list += [[generic_stages.RetryStage, 1, test_stages.GCETestStage,
+      stage_list += [[generic_stages.RetryStage, 1, vm_test_stages.GCETestStage,
                       board]]
 
     if config.afdo_generate:
@@ -369,7 +369,9 @@ class SimpleBuilder(generic_builders.Builder):
 
           if (builder_run.config.afdo_generate_min and
               builder_run.config.afdo_update_ebuild):
-            self._RunStage(afdo_stages.AFDOUpdateEbuildStage,
+            self._RunStage(afdo_stages.AFDOUpdateChromeEbuildStage,
+                           builder_run=builder_run)
+            self._RunStage(afdo_stages.AFDOUpdateKernelEbuildStage,
                            builder_run=builder_run)
 
         # Kick off our background stages.
@@ -499,15 +501,16 @@ class DistributedBuilder(SimpleBuilder):
     updateEbuild_successful = False
     try:
       # When (afdo_update_ebuild and not afdo_generate_min) is True,
-      # if completion_stage passed, need to run AFDOUpdateEbuildStage to
-      # prepare for pushing commits to masters;
+      # if completion_stage passed, need to run
+      # AFDOUpdateChromeEbuildStage to prepare for pushing commits to masters;
       # if it's a master_chrome_pfq build and compeletion_stage failed,
-      # need to run AFDOUpdateEbuildStage to prepare for pushing commits
+      # need to run AFDOUpdateChromeEbuildStage to prepare for pushing commits
       # to a staging branch.
       if ((completion_successful or is_master_chrome_pfq) and
           self._run.config.afdo_update_ebuild and
           not self._run.config.afdo_generate_min):
-        self._RunStage(afdo_stages.AFDOUpdateEbuildStage)
+        self._RunStage(afdo_stages.AFDOUpdateChromeEbuildStage)
+        self._RunStage(afdo_stages.AFDOUpdateKernelEbuildStage)
         updateEbuild_successful = True
     finally:
       if self._run.config.master:
@@ -524,7 +527,7 @@ class DistributedBuilder(SimpleBuilder):
                          'build_finished=%d', was_build_successful,
                          completion_successful, build_finished)
         # If this build is master chrome pfq, completion_stage failed,
-        # AFDOUpdateEbuildStage passed, and the necessary build stages
+        # AFDOUpdateChromeEbuildStage passed, and the necessary build stages
         # passed, it means publish is False and we need to stage the
         # push to another branch instead of master.
         stage_push = (is_master_chrome_pfq and

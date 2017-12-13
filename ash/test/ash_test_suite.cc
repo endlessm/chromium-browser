@@ -4,6 +4,7 @@
 
 #include "ash/test/ash_test_suite.h"
 
+#include <memory>
 #include <set>
 
 #include "ash/public/cpp/config.h"
@@ -34,7 +35,7 @@ class FrameSinkClient : public viz::TestLayerTreeFrameSinkClient {
       scoped_refptr<viz::ContextProvider> display_context_provider)
       : display_context_provider_(std::move(display_context_provider)) {}
 
-  std::unique_ptr<cc::OutputSurface> CreateDisplayOutputSurface(
+  std::unique_ptr<viz::OutputSurface> CreateDisplayOutputSurface(
       scoped_refptr<viz::ContextProvider> compositor_context_provider)
       override {
     return cc::FakeOutputSurface::Create3d(
@@ -44,10 +45,10 @@ class FrameSinkClient : public viz::TestLayerTreeFrameSinkClient {
   void DisplayReceivedLocalSurfaceId(
       const viz::LocalSurfaceId& local_surface_id) override {}
   void DisplayReceivedCompositorFrame(
-      const cc::CompositorFrame& frame) override {}
+      const viz::CompositorFrame& frame) override {}
   void DisplayWillDrawAndSwap(
       bool will_draw_and_swap,
-      const cc::RenderPassList& render_passes) override {}
+      const viz::RenderPassList& render_passes) override {}
   void DisplayDidDrawAndSwap() override {}
 
  private:
@@ -67,11 +68,11 @@ class AshTestContextFactory : public ui::FakeContextFactory {
     scoped_refptr<cc::TestContextProvider> context_provider =
         cc::TestContextProvider::Create();
     std::unique_ptr<FrameSinkClient> frame_sink_client =
-        base::MakeUnique<FrameSinkClient>(context_provider);
+        std::make_unique<FrameSinkClient>(context_provider);
     constexpr bool synchronous_composite = false;
     constexpr bool disable_display_vsync = false;
     const double refresh_rate = GetRefreshRate();
-    auto frame_sink = base::MakeUnique<viz::TestLayerTreeFrameSink>(
+    auto frame_sink = std::make_unique<viz::TestLayerTreeFrameSink>(
         context_provider, cc::TestContextProvider::CreateWorker(), nullptr,
         GetGpuMemoryBufferManager(), renderer_settings(),
         base::ThreadTaskRunnerHandle::Get().get(), synchronous_composite,
@@ -138,7 +139,7 @@ void AshTestSuite::Initialize() {
                                                      : aura::Env::Mode::LOCAL);
 
   if (is_mus || is_mash) {
-    context_factory_ = base::MakeUnique<AshTestContextFactory>();
+    context_factory_ = std::make_unique<AshTestContextFactory>();
     env_->set_context_factory(context_factory_.get());
     env_->set_context_factory_private(nullptr);
   }

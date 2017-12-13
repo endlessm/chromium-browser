@@ -713,7 +713,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
      * Displays correct screen container for given mode and APi version.
      */
     updateSigninFrameContainers_: function() {
-      let old_state = this.classList.contains('v2');
+      let oldState = this.classList.contains('v2');
       this.classList.toggle('v2', false);
       if ((this.screenMode_ == ScreenMode.DEFAULT ||
            this.screenMode_ == ScreenMode.OFFLINE) &&
@@ -724,7 +724,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
         return;
       // Switching between signin-frame-dialog and gaia-step-contents
       // updates screen size.
-      if (old_state != this.classList.contains('v2'))
+      if (oldState != this.classList.contains('v2'))
         Oobe.getInstance().updateScreenSize(this);
     },
 
@@ -1005,16 +1005,10 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
             'authenticateUser',
             [credentials.email, credentials.password, false]);
       } else if (credentials.authCode) {
-        if (credentials.hasOwnProperty('authCodeOnly') &&
-            credentials.authCodeOnly) {
-          chrome.send(
-              'completeAuthenticationAuthCodeOnly', [credentials.authCode]);
-        } else {
-          chrome.send('completeAuthentication', [
-            credentials.gaiaId, credentials.email, credentials.password,
-            credentials.authCode, credentials.usingSAML, credentials.gapsCookie
-          ]);
-        }
+        chrome.send('completeAuthentication', [
+          credentials.gaiaId, credentials.email, credentials.password,
+          credentials.authCode, credentials.usingSAML, credentials.gapsCookie
+        ]);
       } else {
         chrome.send('completeLogin', [
           credentials.gaiaId, credentials.email, credentials.password,

@@ -22,8 +22,9 @@
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/lifetime/keep_alive_state_observer.h"
 #include "chrome/common/features.h"
+#include "components/keep_alive_registry/keep_alive_state_observer.h"
+#include "components/nacl/common/features.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "extensions/features/features.h"
 #include "media/media_features.h"
@@ -145,8 +146,6 @@ class BrowserProcessImpl : public BrowserProcess,
   net_log::ChromeNetLog* net_log() override;
   component_updater::ComponentUpdateService* component_updater() override;
   CRLSetFetcher* crl_set_fetcher() override;
-  component_updater::PnaclComponentInstaller* pnacl_component_installer()
-      override;
   component_updater::SupervisedUserWhitelistInstaller*
   supervised_user_whitelist_installer() override;
   MediaFileSystemRegistry* media_file_system_registry() override;
@@ -315,11 +314,6 @@ class BrowserProcessImpl : public BrowserProcess,
   // but some users of component updater only install per-user.
   std::unique_ptr<component_updater::ComponentUpdateService> component_updater_;
   scoped_refptr<CRLSetFetcher> crl_set_fetcher_;
-
-#if !defined(DISABLE_NACL)
-  scoped_refptr<component_updater::PnaclComponentInstaller>
-      pnacl_component_installer_;
-#endif
 
   std::unique_ptr<component_updater::SupervisedUserWhitelistInstaller>
       supervised_user_whitelist_installer_;

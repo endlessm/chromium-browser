@@ -279,8 +279,6 @@ class SearchTermsDataSnapshot : public SearchTermsData {
   std::string GetApplicationLocale() const override;
   base::string16 GetRlzParameterValue(bool from_app_list) const override;
   std::string GetSearchClient() const override;
-  std::string InstantExtendedEnabledParam() const override;
-  std::string ForceInstantResultsParam(bool for_prerender) const override;
   std::string GoogleImageSearchSource() const override;
 
  private:
@@ -288,9 +286,6 @@ class SearchTermsDataSnapshot : public SearchTermsData {
   std::string application_locale_;
   base::string16 rlz_parameter_value_;
   std::string search_client_;
-  std::string instant_extended_enabled_param_;
-  std::string force_instant_results_param_;
-  std::string force_instant_results_param_for_prerender_;
   std::string google_image_search_source_;
 
   DISALLOW_COPY_AND_ASSIGN(SearchTermsDataSnapshot);
@@ -302,12 +297,6 @@ SearchTermsDataSnapshot::SearchTermsDataSnapshot(
       application_locale_(search_terms_data.GetApplicationLocale()),
       rlz_parameter_value_(search_terms_data.GetRlzParameterValue(false)),
       search_client_(search_terms_data.GetSearchClient()),
-      instant_extended_enabled_param_(
-          search_terms_data.InstantExtendedEnabledParam()),
-      force_instant_results_param_(
-          search_terms_data.ForceInstantResultsParam(false)),
-      force_instant_results_param_for_prerender_(
-          search_terms_data.ForceInstantResultsParam(true)),
       google_image_search_source_(search_terms_data.GoogleImageSearchSource()) {
 }
 
@@ -329,16 +318,6 @@ base::string16 SearchTermsDataSnapshot::GetRlzParameterValue(
 
 std::string SearchTermsDataSnapshot::GetSearchClient() const {
   return search_client_;
-}
-
-std::string SearchTermsDataSnapshot::InstantExtendedEnabledParam() const {
-  return instant_extended_enabled_param_;
-}
-
-std::string SearchTermsDataSnapshot::ForceInstantResultsParam(
-    bool for_prerender) const {
-  return for_prerender ? force_instant_results_param_ :
-      force_instant_results_param_for_prerender_;
 }
 
 std::string SearchTermsDataSnapshot::GoogleImageSearchSource() const {
@@ -724,30 +703,14 @@ void HistoryURLProvider::DoAutocomplete(history::HistoryBackend* backend,
         history::HistoryMatch match;
         match.url_info = *j;
         match.input_location = i->prefix.length();
-        match.match_in_scheme = !i->num_components;
-
-        size_t domain_length =
-            net::registry_controlled_domains::GetDomainAndRegistry(
-                row_url.host_piece(),
-                net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES)
-                .size();
-        const url::Parsed& parsed = row_url.parsed_for_possibly_invalid_spec();
-
-        size_t host_pos =
-            parsed.CountCharactersBefore(url::Parsed::HOST, false);
-        size_t path_pos = parsed.CountCharactersBefore(url::Parsed::PATH, true);
-        size_t domain_pos = path_pos - domain_length;
-
-        // For the match to be in the subdomain, the prefix cannot encompass
-        // the subdomain, and the whole prefixed input (prefix + input) should
-        // be in the host or later.
-        match.match_in_subdomain = match.input_location < domain_pos &&
-                                   prefixed_input.length() > host_pos;
-
-        match.match_after_host = prefixed_input.length() > path_pos;
-
         match.innermost_match =
             i->num_components >= best_prefix->num_components;
+
+        AutocompleteMatch::GetMatchComponents(
+            row_url, {{match.input_location, prefixed_input.length()}},
+            &match.match_in_scheme, &match.match_in_subdomain,
+            &match.match_after_host);
+
         params->matches.push_back(std::move(match));
       }
     }

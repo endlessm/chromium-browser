@@ -14,12 +14,12 @@
 
 namespace blink {
 
-class IntersectionObserverCallback;
+class V8IntersectionObserverCallback;
 
 class V8IntersectionObserverDelegate final
     : public IntersectionObserverDelegate {
  public:
-  CORE_EXPORT V8IntersectionObserverDelegate(IntersectionObserverCallback*,
+  CORE_EXPORT V8IntersectionObserverDelegate(V8IntersectionObserverCallback*,
                                              ScriptState*);
   ~V8IntersectionObserverDelegate() override;
 
@@ -30,11 +30,11 @@ class V8IntersectionObserverDelegate final
                IntersectionObserver&) override;
 
   ExecutionContext* GetExecutionContext() const override {
-    return ExecutionContext::From(script_state_.Get());
+    return ExecutionContext::From(script_state_.get());
   }
 
  private:
-  TraceWrapperMember<IntersectionObserverCallback> callback_;
+  TraceWrapperMember<V8IntersectionObserverCallback> callback_;
   // TODO(bashi): Use ContextClient rather than holding ScriptState.
   RefPtr<ScriptState> script_state_;
 };

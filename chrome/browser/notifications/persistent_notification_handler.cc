@@ -33,8 +33,8 @@ void PersistentNotificationHandler::OnClick(
     Profile* profile,
     const std::string& origin,
     const std::string& notification_id,
-    int action_index,
-    const base::NullableString16& reply) {
+    const base::Optional<int>& action_index,
+    const base::Optional<base::string16>& reply) {
   const GURL notification_origin(origin);
   DCHECK(notification_origin.is_valid());
 

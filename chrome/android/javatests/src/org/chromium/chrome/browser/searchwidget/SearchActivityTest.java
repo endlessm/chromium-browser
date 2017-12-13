@@ -35,7 +35,12 @@ import org.chromium.chrome.browser.locale.DefaultSearchEngineDialogHelperUtils;
 import org.chromium.chrome.browser.locale.DefaultSearchEnginePromoDialog;
 import org.chromium.chrome.browser.locale.DefaultSearchEnginePromoDialog.DefaultSearchEnginePromoDialogObserver;
 import org.chromium.chrome.browser.locale.LocaleManager;
+import org.chromium.chrome.browser.omnibox.MatchClassificationStyle;
+import org.chromium.chrome.browser.omnibox.OmniboxSuggestion;
+import org.chromium.chrome.browser.omnibox.OmniboxSuggestion.MatchClassification;
 import org.chromium.chrome.browser.omnibox.UrlBar;
+import org.chromium.chrome.browser.search_engines.TemplateUrlService;
+import org.chromium.chrome.browser.search_engines.TemplateUrlService.TemplateUrl;
 import org.chromium.chrome.browser.searchwidget.SearchActivity.SearchActivityDelegate;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -46,6 +51,8 @@ import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.KeyUtils;
 import org.chromium.content_public.common.ContentUrlConstants;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
@@ -95,6 +102,11 @@ public class SearchActivityTest {
                     @Override
                     public int getSearchEnginePromoShowType() {
                         return SEARCH_ENGINE_PROMO_SHOW_EXISTING;
+                    }
+
+                    @Override
+                    public List<TemplateUrl> getSearchEnginesForPromoDialog(int promoType) {
+                        return TemplateUrlService.getInstance().getSearchEngines();
                     }
                 });
                 super.showSearchEngineDialogIfNeeded(activity, onSearchEngineFinalized);
@@ -269,6 +281,44 @@ public class SearchActivityTest {
         mTestDelegate.onFinishDeferredInitializationCallback.waitForCallback(0);
         waitForChromeTabbedActivityToStart(
                 browserMonitor, ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL);
+    }
+
+    @Test
+    @SmallTest
+    public void testZeroSuggestBeforeNativeIsLoaded() throws Exception {
+        LocaleManager.setInstanceForTest(new LocaleManager() {
+            @Override
+            public boolean needToCheckForSearchEnginePromo() {
+                return false;
+            }
+        });
+
+        // Cache some mock results to show.
+        List<MatchClassification> classifications = new ArrayList<>();
+        classifications.add(new MatchClassification(0, MatchClassificationStyle.NONE));
+        OmniboxSuggestion mockSuggestion = new OmniboxSuggestion(0, true, 0, 0,
+                "https://google.com", classifications, "https://google.com", classifications, "",
+                "", "", "https://google.com", false, false);
+        OmniboxSuggestion mockSuggestion2 = new OmniboxSuggestion(0, true, 0, 0,
+                "https://android.com", classifications, "https://android.com", classifications, "",
+                "", "", "https://android.com", false, false);
+        List<OmniboxSuggestion> list = new ArrayList<>();
+        list.add(mockSuggestion);
+        list.add(mockSuggestion2);
+        OmniboxSuggestion.cacheOmniboxSuggestionListForZeroSuggest(list);
+
+        // Wait for the activity to load, but don't let it load the native library.
+        mTestDelegate.shouldDelayLoadingNative = true;
+        final SearchActivity searchActivity = startSearchActivity();
+
+        // Focus on the url bar with not text.
+
+        setUrlBarText(searchActivity, "");
+        // Omnibox suggestions should appear now.
+        final SearchActivityLocationBarLayout locationBar =
+                (SearchActivityLocationBarLayout) searchActivity.findViewById(
+                        R.id.search_location_bar);
+        OmniboxTestUtils.waitForOmniboxSuggestions(locationBar, OMNIBOX_SHOW_TIMEOUT_MS);
     }
 
     @Test

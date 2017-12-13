@@ -5,7 +5,9 @@
 #include "chrome/browser/safe_browsing/chrome_cleaner/reporter_runner_win.h"
 
 #include <initializer_list>
+#include <map>
 #include <set>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -26,8 +28,6 @@
 #include "base/time/time.h"
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/lifetime/keep_alive_types.h"
-#include "chrome/browser/lifetime/scoped_keep_alive.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/srt_client_info_win.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/srt_field_trial_win.h"
@@ -38,31 +38,46 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/chrome_cleaner/public/constants/constants.h"
 #include "components/component_updater/pref_names.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
+#include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
+#include "components/variations/variations_params_manager.h"
 
 namespace safe_browsing {
 
 namespace {
 
-// Parameter for this test:
-//  - bool in_browser_cleaner_ui: indicates if InBrowserCleanerUI feature
+constexpr char kSRTPromptGroup[] = "SRTGroup";
+
+// Parameters for this test:
+//  - bool in_browser_cleaner_ui_: indicates if InBrowserCleanerUI feature
 //    is enabled;
 //
 //    We expect that the reporter's logic should remain unchanged even when the
 //    InBrowserCleanerUI feature is enabled with one exception: the reporter is
 //    not run daily because with the new feature enabled there is no concept of
 //    a pending prompt. See the RunDaily and InBrowserUINoRunDaily tests.
+//  - const char* old_seed_: The old "Seed" Finch parameter saved in prefs.
+//  - const char* incoming_seed_: The new "Seed" Finch parameter.
 class ReporterRunnerTest : public InProcessBrowserTest,
                            public SwReporterTestingDelegate,
-                           public ::testing::WithParamInterface<bool> {
+                           public ::testing::WithParamInterface<
+                               testing::tuple<bool, const char*, const char*>> {
  public:
-  ReporterRunnerTest() = default;
+  ReporterRunnerTest() {
+    std::tie(in_browser_cleaner_ui_, old_seed_, incoming_seed_) = GetParam();
+  }
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    variations::testing::VariationParamsManager::AppendVariationParams(
+        kSRTPromptTrial, kSRTPromptGroup, {{"Seed", incoming_seed_}},
+        command_line);
+  }
 
   void SetUpInProcessBrowserTestFixture() override {
     SetSwReporterTestingDelegate(this);
 
-    in_browser_cleaner_ui_ = GetParam();
     if (in_browser_cleaner_ui_)
       scoped_feature_list_.InitAndEnableFeature(kInBrowserCleanerUIFeature);
     else
@@ -81,6 +96,9 @@ class ReporterRunnerTest : public InProcessBrowserTest,
         base::TimeDelta::FromDays(kDaysBetweenSuccessfulSwReporterRuns * 2));
 
     ClearLastTimeSentReport();
+
+    chrome::FindLastActive()->profile()->GetPrefs()->SetString(
+        prefs::kSwReporterPromptSeed, old_seed_);
   }
 
   void TearDownOnMainThread() override {
@@ -130,7 +148,7 @@ class ReporterRunnerTest : public InProcessBrowserTest,
         SwReporterInvocation::BEHAVIOUR_ALLOW_SEND_REPORTER_LOGS;
 
     SwReporterQueue invocations;
-    invocations.push(invocation);
+    invocations.push_back(invocation);
     RunSwReporters(invocations, base::Version("1.2.3"));
   }
 
@@ -272,7 +290,10 @@ class ReporterRunnerTest : public InProcessBrowserTest,
   // The task runner that was in use before installing |mock_time_task_runner_|.
   scoped_refptr<base::SingleThreadTaskRunner> saved_task_runner_;
 
+  // Test parameters.
   bool in_browser_cleaner_ui_;
+  std::string old_seed_;
+  std::string incoming_seed_;
 
   bool prompt_trigger_called_ = false;
   int reporter_launch_count_ = 0;
@@ -312,8 +333,10 @@ IN_PROC_BROWSER_TEST_P(ReporterRunnerTest, NothingFound) {
 }
 
 IN_PROC_BROWSER_TEST_P(ReporterRunnerTest, CleanupNeeded) {
+  bool expect_prompt = incoming_seed_.empty() || (incoming_seed_ != old_seed_);
+
   RunReporter(chrome_cleaner::kSwReporterCleanupNeeded);
-  ExpectReporterLaunches(0, 1, true);
+  ExpectReporterLaunches(0, 1, expect_prompt);
   ExpectToRunAgain(kDaysBetweenSuccessfulSwReporterRuns);
 }
 
@@ -495,8 +518,8 @@ IN_PROC_BROWSER_TEST_P(ReporterRunnerTest, MultipleLaunches) {
   const base::FilePath path3(L"path3");
 
   SwReporterQueue invocations;
-  invocations.push(SwReporterInvocation::FromFilePath(path1));
-  invocations.push(SwReporterInvocation::FromFilePath(path2));
+  invocations.push_back(SwReporterInvocation::FromFilePath(path1));
+  invocations.push_back(SwReporterInvocation::FromFilePath(path2));
 
   {
     SCOPED_TRACE("Launch 2 times");
@@ -521,7 +544,7 @@ IN_PROC_BROWSER_TEST_P(ReporterRunnerTest, MultipleLaunches) {
   // queue is running.
   {
     SCOPED_TRACE("Add third launch while running");
-    invocations.push(SwReporterInvocation::FromFilePath(path3));
+    invocations.push_back(SwReporterInvocation::FromFilePath(path3));
     first_launch_callback_ = base::BindOnce(
         &ReporterRunnerTest::RunReporterQueue, base::Unretained(this),
         chrome_cleaner::kSwReporterNothingFound, invocations);
@@ -617,7 +640,7 @@ IN_PROC_BROWSER_TEST_P(ReporterRunnerTest, ReporterLogging_MultipleLaunches) {
     auto invocation = SwReporterInvocation::FromFilePath(path);
     invocation.supported_behaviours =
         SwReporterInvocation::BEHAVIOUR_ALLOW_SEND_REPORTER_LOGS;
-    invocations.push(invocation);
+    invocations.push_back(invocation);
   }
   RunReporterQueue(chrome_cleaner::kSwReporterNothingFound, invocations);
 
@@ -642,9 +665,13 @@ IN_PROC_BROWSER_TEST_P(ReporterRunnerTest, ReporterLogging_MultipleLaunches) {
   ExpectToRunAgain(kDaysBetweenSuccessfulSwReporterRuns);
 }
 
-INSTANTIATE_TEST_CASE_P(WithInBrowserCleanerUIParam,
-                        ReporterRunnerTest,
-                        testing::Bool());
+INSTANTIATE_TEST_CASE_P(
+    WithInBrowserCleanerUIParam,
+    ReporterRunnerTest,
+    ::testing::Combine(
+        ::testing::Bool(),                          // in_browser_cleaner_ui_
+        ::testing::Values("", "Seed1"),             // old_seed_
+        ::testing::Values("", "Seed1", "Seed2")));  // incoming_seed
 
 // This provide tests which allows explicit invocation of the SRT Prompt
 // useful for checking dialog layout or any other interactive functionality

@@ -47,6 +47,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/theme_resources.h"
+#include "components/content_settings/core/browser/content_settings_registry.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
@@ -81,7 +82,7 @@
 #endif
 
 #if defined(SAFE_BROWSING_DB_LOCAL)
-#include "components/safe_browsing/password_protection/password_protection_service.h"
+#include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
 #endif
 
 using base::ASCIIToUTF16;
@@ -90,13 +91,6 @@ using base::UTF16ToUTF8;
 using content::BrowserThread;
 
 namespace {
-
-// Events for UMA. Do not reorder or change!
-enum SSLCertificateDecisionsDidRevoke {
-  USER_CERT_DECISIONS_NOT_REVOKED = 0,
-  USER_CERT_DECISIONS_REVOKED,
-  END_OF_SSL_CERTIFICATE_DECISIONS_DID_REVOKE_ENUM
-};
 
 // The list of content settings types to display on the Page Info UI. THE
 // ORDER OF THESE ITEMS IS IMPORTANT and comes from https://crbug.com/610358. To
@@ -120,18 +114,32 @@ ContentSettingsType kPermissionType[] = {
     CONTENT_SETTINGS_TYPE_MIDI_SYSEX,
 };
 
+// Checks whether this permission is currently the factory default, as set by
+// Chrome. Specifically, that the following three conditions are true:
+//   - The current active setting comes from the default or pref provider.
+//   - The setting is the factory default setting (as opposed to a global
+//     default setting set by the user).
+//   - The setting is a wildcard setting applying to all origins (which can only
+//     be set from the default provider).
+bool IsPermissionFactoryDefault(HostContentSettingsMap* content_settings,
+                                const PageInfoUI::PermissionInfo& info) {
+  const ContentSetting factory_default_setting =
+      content_settings::ContentSettingsRegistry::GetInstance()
+          ->Get(info.type)
+          ->GetInitialDefaultSetting();
+  return (info.source == content_settings::SETTING_SOURCE_USER &&
+          factory_default_setting == info.default_setting &&
+          info.setting == CONTENT_SETTING_DEFAULT);
+}
+
 // Determines whether to show permission |type| in the Page Info UI. Only
 // applies to permissions listed in |kPermissionType|.
-bool ShouldShowPermission(ContentSettingsType type,
+bool ShouldShowPermission(const PageInfoUI::PermissionInfo& info,
                           const GURL& site_url,
                           HostContentSettingsMap* content_settings) {
-#if !defined(OS_ANDROID)
-  // Autoplay is Android-only at the moment.
-  if (type == CONTENT_SETTINGS_TYPE_AUTOPLAY)
-    return false;
-#endif
-
-  if (type == CONTENT_SETTINGS_TYPE_ADS) {
+  // Note |CONTENT_SETTINGS_TYPE_ADS| will show up regardless of its default
+  // value when it has been activated on the current origin.
+  if (info.type == CONTENT_SETTINGS_TYPE_ADS) {
     if (!base::FeatureList::IsEnabled(
             subresource_filter::kSafeBrowsingSubresourceFilterExperimentalUI)) {
       return false;
@@ -144,7 +152,28 @@ bool ShouldShowPermission(ContentSettingsType type,
                nullptr) != nullptr;
   }
 
-  if (type == CONTENT_SETTINGS_TYPE_SOUND)
+#if defined(OS_ANDROID)
+  // Special geolocation DSE settings apply only on Android, so make sure it
+  // gets checked there regardless of default setting on Desktop.
+  if (info.type == CONTENT_SETTINGS_TYPE_GEOLOCATION)
+    return true;
+#endif
+
+  // All other content settings only show when they are non-factory-default.
+  if ((base::CommandLine::ForCurrentProcess()->HasSwitch(
+           switches::kEnableSiteSettings) ||
+       base::FeatureList::IsEnabled(features::kSiteDetails)) &&
+      IsPermissionFactoryDefault(content_settings, info)) {
+    return false;
+  }
+
+#if !defined(OS_ANDROID)
+  // Autoplay is Android-only at the moment.
+  if (info.type == CONTENT_SETTINGS_TYPE_AUTOPLAY)
+    return false;
+#endif
+
+  if (info.type == CONTENT_SETTINGS_TYPE_SOUND)
     return base::FeatureList::IsEnabled(features::kSoundContentSetting);
 
   return true;
@@ -292,36 +321,39 @@ PageInfo::PageInfo(PageInfoUI* ui,
       profile_(profile),
       security_level_(security_state::NONE),
 #if defined(SAFE_BROWSING_DB_LOCAL)
-      password_protection_service_(nullptr),
+      password_protection_service_(
+          safe_browsing::ChromePasswordProtectionService::
+              GetPasswordProtectionService(profile_)),
 #endif
       show_change_password_buttons_(false) {
-#if defined(SAFE_BROWSING_DB_LOCAL)
-  safe_browsing::SafeBrowsingService* sb_service =
-      g_browser_process->safe_browsing_service();
-  if (sb_service && sb_service->enabled_by_prefs()) {
-    password_protection_service_ =
-        sb_service->GetPasswordProtectionService(profile_);
-  }
-#endif
-
   Init(url, security_info);
 
   PresentSitePermissions();
-  PresentSiteData();
   PresentSiteIdentity();
+  PresentSiteData();
 
   // Every time the Page Info UI is opened a |PageInfo| object is
   // created. So this counts how ofter the Page Info UI is opened.
   RecordPageInfoAction(PAGE_INFO_OPENED);
 }
 
-PageInfo::~PageInfo() {}
+PageInfo::~PageInfo() {
+  // Check if Re-enable warnings button was visible, if so, log on UMA whether
+  // it was clicked or not.
+  SSLCertificateDecisionsDidRevoke user_decision =
+      did_revoke_user_ssl_decisions_ ? USER_CERT_DECISIONS_REVOKED
+                                     : USER_CERT_DECISIONS_NOT_REVOKED;
+  if (show_ssl_decision_revoke_button_) {
+    UMA_HISTOGRAM_ENUMERATION("interstitial.ssl.did_user_revoke_decisions2",
+                              user_decision,
+                              END_OF_SSL_CERTIFICATE_DECISIONS_DID_REVOKE_ENUM);
+  }
+}
 
 void PageInfo::RecordPageInfoAction(PageInfoAction action) {
   UMA_HISTOGRAM_ENUMERATION("WebsiteSettings.Action", action, PAGE_INFO_COUNT);
 
   std::string histogram_name;
-
   if (site_url_.SchemeIsCryptographic()) {
     if (security_level_ == security_state::SECURE ||
         security_level_ == security_state::EV_SECURE) {
@@ -403,7 +435,6 @@ void PageInfo::OnSiteChosenObjectDeleted(const ChooserUIInfo& ui_info,
   ChooserContextBase* context = ui_info.get_context(profile_);
   const GURL origin = site_url_.GetOrigin();
   context->RevokeObjectPermission(origin, origin, object);
-
   show_info_bar_ = true;
 
   // Refresh the UI to reflect the changed settings.
@@ -424,14 +455,6 @@ void PageInfo::OnUIClosing() {
     if (infobar_service)
       PageInfoInfoBarDelegate::Create(infobar_service);
   }
-
-  SSLCertificateDecisionsDidRevoke user_decision =
-      did_revoke_user_ssl_decisions_ ? USER_CERT_DECISIONS_REVOKED
-                                     : USER_CERT_DECISIONS_NOT_REVOKED;
-
-  UMA_HISTOGRAM_ENUMERATION("interstitial.ssl.did_user_revoke_decisions",
-                            user_decision,
-                            END_OF_SSL_CERTIFICATE_DECISIONS_DID_REVOKE_ENUM);
 #endif
 }
 
@@ -475,7 +498,7 @@ void PageInfo::OnChangePasswordButtonPressed(
     content::WebContents* web_contents) {
 #if defined(SAFE_BROWSING_DB_LOCAL)
   DCHECK(password_protection_service_);
-  password_protection_service_->OnWarningDone(
+  password_protection_service_->OnUserAction(
       web_contents, safe_browsing::PasswordProtectionService::PAGE_INFO,
       safe_browsing::PasswordProtectionService::CHANGE_PASSWORD);
 #endif
@@ -485,7 +508,7 @@ void PageInfo::OnWhitelistPasswordReuseButtonPressed(
     content::WebContents* web_contents) {
 #if defined(SAFE_BROWSING_DB_LOCAL)
   DCHECK(password_protection_service_);
-  password_protection_service_->OnWarningDone(
+  password_protection_service_->OnUserAction(
       web_contents, safe_browsing::PasswordProtectionService::PAGE_INFO,
       safe_browsing::PasswordProtectionService::MARK_AS_LEGITIMATE);
 #endif
@@ -752,16 +775,11 @@ void PageInfo::PresentSitePermissions() {
   for (size_t i = 0; i < arraysize(kPermissionType); ++i) {
     permission_info.type = kPermissionType[i];
 
-    if (!ShouldShowPermission(permission_info.type, site_url_,
-                              content_settings_)) {
-      continue;
-    }
-
     content_settings::SettingInfo info;
     std::unique_ptr<base::Value> value = content_settings_->GetWebsiteSetting(
         site_url_, site_url_, permission_info.type, std::string(), &info);
     DCHECK(value.get());
-    if (value->GetType() == base::Value::Type::INTEGER) {
+    if (value->type() == base::Value::Type::INTEGER) {
       permission_info.setting =
           content_settings::ValueToContentSetting(value.get());
     } else {
@@ -803,7 +821,8 @@ void PageInfo::PresentSitePermissions() {
         permission_info.setting = permission_result.content_setting;
     }
 
-    permission_info_list.push_back(permission_info);
+    if (ShouldShowPermission(permission_info, site_url_, content_settings_))
+      permission_info_list.push_back(permission_info);
   }
 
   for (const ChooserUIInfo& ui_info : kChooserUIInfo) {
@@ -865,8 +884,9 @@ void PageInfo::PresentSiteIdentity() {
   ui_->SetIdentityInfo(info);
 #if defined(SAFE_BROWSING_DB_LOCAL)
   if (password_protection_service_ && show_change_password_buttons_) {
-    password_protection_service_->OnWarningShown(
-        web_contents(), safe_browsing::PasswordProtectionService::PAGE_INFO);
+    password_protection_service_->RecordWarningAction(
+        safe_browsing::PasswordProtectionService::PAGE_INFO,
+        safe_browsing::PasswordProtectionService::SHOWN);
   }
 #endif
 }

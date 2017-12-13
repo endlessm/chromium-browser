@@ -61,7 +61,7 @@
 #endif
 
 #if defined(OS_WIN)
-#include "content/child/dwrite_font_proxy/dwrite_font_proxy_init_win.h"
+#include "content/child/dwrite_font_proxy/dwrite_font_proxy_init_impl_win.h"
 #include "content/test/dwrite_font_fake_sender_win.h"
 #endif
 
@@ -528,7 +528,8 @@ void RenderViewTest::Reload(const GURL& url) {
       FrameMsg_UILoadMetricsReportType::NO_REPORT, GURL(), GURL(),
       PREVIEWS_UNSPECIFIED, base::TimeTicks::Now(), "GET", nullptr,
       base::Optional<SourceLocation>(),
-      CSPDisposition::CHECK /* should_check_main_world_csp */);
+      CSPDisposition::CHECK /* should_check_main_world_csp */,
+      false /* started_from_context_menu */);
   RenderViewImpl* impl = static_cast<RenderViewImpl*>(view_);
   TestRenderFrame* frame =
       static_cast<TestRenderFrame*>(impl->GetMainRenderFrame());
@@ -668,7 +669,8 @@ void RenderViewTest::GoToOffset(int offset,
       base::TimeTicks(), FrameMsg_UILoadMetricsReportType::NO_REPORT, GURL(),
       GURL(), PREVIEWS_UNSPECIFIED, base::TimeTicks::Now(), "GET", nullptr,
       base::Optional<SourceLocation>(),
-      CSPDisposition::CHECK /* should_check_main_world_csp */);
+      CSPDisposition::CHECK /* should_check_main_world_csp */,
+      false /* started_from_context_menu */);
   RequestNavigationParams request_params;
   request_params.page_state = state;
   request_params.nav_entry_id = pending_offset + 1;

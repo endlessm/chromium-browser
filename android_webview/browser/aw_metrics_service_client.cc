@@ -13,10 +13,12 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/guid.h"
+#include "base/hash.h"
 #include "base/i18n/rtl.h"
 #include "base/lazy_instance.h"
 #include "base/path_service.h"
 #include "base/strings/string16.h"
+#include "base/task_scheduler/post_task.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "components/metrics/call_stack_profile_metrics_provider.h"
 #include "components/metrics/enabled_state_provider.h"
@@ -25,7 +27,6 @@
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
 #include "components/metrics/metrics_state_manager.h"
-#include "components/metrics/profiler/profiler_metrics_provider.h"
 #include "components/metrics/ui/screen_info_metrics_provider.h"
 #include "components/metrics/url_constants.h"
 #include "components/metrics/version_utils.h"
@@ -65,6 +66,20 @@ version_info::Channel GetChannelFromPackageName() {
   // We can't determine the channel for stand-alone WebView, since it has the
   // same package name across channels. It will always be "unknown".
   return version_info::ChannelFromPackageName(package_name.c_str());
+}
+
+// WebView Metrics are sampled based on GUID value.
+// TODO(paulmiller) Sample with Finch, once we have Finch.
+bool CheckInSample(const std::string& client_id) {
+  // client_id comes from base::GenerateGUID(), so its value is random/uniform,
+  // except for a few bit positions with fixed values, and some hyphens. Rather
+  // than separating the random payload from the fixed bits, just hash the whole
+  // thing, to produce a new random/~uniform value.
+  uint32_t hash = base::PersistentHash(client_id);
+
+  // Since hashing is ~uniform, the chance that the value falls in the bottom
+  // 10% of possible values is 10%.
+  return hash < UINT32_MAX / 10u;
 }
 
 }  // namespace
@@ -143,8 +158,8 @@ void AwMetricsServiceClient::Initialize(
           switches::kEnableWebViewVariations)) {
     InitializeWithClientId();
   } else {
-    content::BrowserThread::PostTaskAndReply(
-        content::BrowserThread::FILE, FROM_HERE,
+    base::PostTaskWithTraitsAndReply(
+        FROM_HERE, {base::MayBlock()},
         base::Bind(&AwMetricsServiceClient::LoadOrCreateClientId),
         base::Bind(&AwMetricsServiceClient::InitializeWithClientId,
                    base::Unretained(this)));
@@ -156,6 +171,8 @@ void AwMetricsServiceClient::InitializeWithClientId() {
   // synchronously or asynchronously depending on the kEnableWebViewFinch flag
   DCHECK_EQ(g_client_id.Get().length(), GUID_SIZE);
   pref_service_->SetString(metrics::prefs::kMetricsClientID, g_client_id.Get());
+
+  in_sample_ = CheckInSample(g_client_id.Get());
 
   metrics_state_manager_ = metrics::MetricsStateManager::Create(
       pref_service_, this, base::string16(), base::Bind(&StoreClientInfo),
@@ -178,10 +195,6 @@ void AwMetricsServiceClient::InitializeWithClientId() {
 
   metrics_service_->RegisterMetricsProvider(
       std::unique_ptr<metrics::MetricsProvider>(
-          new metrics::ProfilerMetricsProvider()));
-
-  metrics_service_->RegisterMetricsProvider(
-      std::unique_ptr<metrics::MetricsProvider>(
           new metrics::CallStackProfileMetricsProvider));
 
   metrics_service_->InitializeMetricsRecordingState();
@@ -192,22 +205,22 @@ void AwMetricsServiceClient::InitializeWithClientId() {
 
 bool AwMetricsServiceClient::IsConsentGiven() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  return is_enabled_;
+  return consent_;
 }
 
-void AwMetricsServiceClient::SetMetricsEnabled(bool enabled) {
+bool AwMetricsServiceClient::IsReportingEnabled() {
+  return consent_ && in_sample_ && CheckSDKVersionForMetrics();
+}
+
+void AwMetricsServiceClient::SetHaveMetricsConsent(bool consent) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  if (!CheckSDKVersionForMetrics())
-    return;
-
-  if (is_enabled_ != enabled) {
-    if (enabled) {
-      metrics_service_->Start();
-    } else {
-      metrics_service_->Stop();
-    }
-    is_enabled_ = enabled;
+  consent_ = consent;
+  // Receiving this call is the last step in determining whether metrics should
+  // be enabled; if so, start metrics. There's no need for a matching Stop()
+  // call, since SetHaveMetricsConsent(false) never happens, and WebView has no
+  // shutdown sequence.
+  if (IsReportingEnabled()) {
+    metrics_service_->Start();
   }
 }
 
@@ -266,18 +279,19 @@ base::TimeDelta AwMetricsServiceClient::GetStandardUploadInterval() {
 }
 
 AwMetricsServiceClient::AwMetricsServiceClient()
-    : is_enabled_(false),
-      pref_service_(nullptr),
+    : pref_service_(nullptr),
       request_context_(nullptr),
-      channel_(version_info::Channel::UNKNOWN) {}
+      channel_(version_info::Channel::UNKNOWN),
+      consent_(false),
+      in_sample_(false) {}
 
 AwMetricsServiceClient::~AwMetricsServiceClient() {}
 
 // static
-void SetMetricsEnabled(JNIEnv* env,
-                       const base::android::JavaParamRef<jclass>& jcaller,
-                       jboolean enabled) {
-  g_lazy_instance_.Pointer()->SetMetricsEnabled(enabled);
+void SetHaveMetricsConsent(JNIEnv* env,
+                           const base::android::JavaParamRef<jclass>& jcaller,
+                           jboolean consent) {
+  g_lazy_instance_.Pointer()->SetHaveMetricsConsent(consent);
 }
 
 }  // namespace android_webview

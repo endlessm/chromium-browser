@@ -20,7 +20,6 @@ import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.toolbar.ToolbarModel.ToolbarModelDelegate;
 import org.chromium.chrome.browser.util.ColorUtils;
-import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
 import org.chromium.components.dom_distiller.core.DomDistillerService;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
@@ -70,6 +69,7 @@ class ToolbarModelImpl extends ToolbarModel implements ToolbarDataProvider, Tool
         assert tab == null || tab.isIncognito() == isIncognito;
         mTab = tab;
         mIsIncognito = isIncognito;
+        updateUsingBrandColor();
     }
 
     @Override
@@ -159,6 +159,10 @@ class ToolbarModelImpl extends ToolbarModel implements ToolbarDataProvider, Tool
      */
     public void setPrimaryColor(int color) {
         mPrimaryColor = color;
+        updateUsingBrandColor();
+    }
+
+    private void updateUsingBrandColor() {
         Context context = ContextUtils.getApplicationContext();
         mIsUsingBrandColor = !isIncognito()
                 && mPrimaryColor
@@ -170,9 +174,8 @@ class ToolbarModelImpl extends ToolbarModel implements ToolbarDataProvider, Tool
     @Override
     public int getPrimaryColor() {
         if (mBottomSheet != null) {
-            boolean useModernDesign = FeatureUtilities.isChromeHomeModernEnabled();
             Resources res = ContextUtils.getApplicationContext().getResources();
-            return ColorUtils.getDefaultThemeColor(res, useModernDesign, isIncognito());
+            return ColorUtils.getDefaultThemeColor(res, true, isIncognito());
         }
         return mPrimaryColor;
     }

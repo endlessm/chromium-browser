@@ -401,13 +401,6 @@ void WebContentsAccessibilityAndroid::UpdateEnabledState(bool enabled) {
     // about to be destroyed).
     if (manager)
       manager->set_web_contents_accessibility(nullptr);
-    // Note that disabling part is not useful at this moment since the mode will
-    // be enabled again almost immediately for the renderer process that just
-    // got swapped in. This boolean enable/disable logic will be expanded
-    // to allow for more granular accessibility. See https://crbug.com/428494.
-    accessibility_state->ResetAccessibilityMode();
-    web_contents_->SetAccessibilityMode(
-        accessibility_state->accessibility_mode());
   }
 }
 
@@ -709,6 +702,7 @@ jboolean WebContentsAccessibilityAndroid::PopulateAccessibilityNodeInfo(
 
   Java_WebContentsAccessibility_setAccessibilityNodeInfoKitKatAttributes(
       env, obj, info, is_root, node->IsEditableText(),
+      base::android::ConvertUTF8ToJavaString(env, node->GetRoleString()),
       base::android::ConvertUTF16ToJavaString(env, node->GetRoleDescription()),
       base::android::ConvertUTF16ToJavaString(env, node->GetHint()),
       node->GetIntAttribute(ui::AX_ATTR_TEXT_SEL_START),
@@ -897,9 +891,11 @@ jboolean WebContentsAccessibilityAndroid::AdjustSlider(
     return false;
 
   // To behave similarly to an Android SeekBar, move by an increment of
-  // approximately 20%.
+  // approximately 5%.
   float original_value = value;
-  float delta = (max - min) / 5.0f;
+  float delta = (max - min) / 20.0f;
+  // Slider does not move if the delta value is less than 1.
+  delta = ((delta < 1) ? 1 : delta);
   value += (increment ? delta : -delta);
   value = std::max(std::min(value, max), min);
   if (value != original_value) {

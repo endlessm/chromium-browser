@@ -69,6 +69,9 @@ class FakePlatform(object):
   def GetSystemTotalPhysicalMemory(self):
     return 8 * (1024 ** 3)
 
+  def GetDeviceId(self):
+    return None
+
 class TestSharedState(story_module.SharedState):
 
   _platform = FakePlatform()
@@ -94,7 +97,7 @@ class TestSharedState(story_module.SharedState):
     return True
 
   def RunStory(self, results):
-    raise NotImplementedError
+    self._test.ValidateAndMeasurePage(self._current_story, None, results)
 
   def DidRunStory(self, results):
     pass
@@ -150,8 +153,7 @@ class DummyLocalStory(story_module.Story):
 class _DisableBenchmarkExpectations(
     story_module.expectations.StoryExpectations):
   def SetExpectations(self):
-    self.PermanentlyDisableBenchmark(
-        [story_module.expectations.ALL], 'crbug.com/123')
+    self.DisableBenchmark([story_module.expectations.ALL], 'crbug.com/123')
 
 class _DisableStoryExpectations(story_module.expectations.StoryExpectations):
   def SetExpectations(self):
@@ -252,7 +254,10 @@ class _Measurement(legacy_page_test.LegacyPageTest):
         improvement_direction=improvement_direction.UP))
 
   def ValidateAndMeasurePage(self, page, tab, results):
-    pass
+    self.i += 1
+    results.AddValue(scalar.ScalarValue(
+        page, 'metric', 'unit', self.i,
+        improvement_direction=improvement_direction.UP))
 
 
 class StoryRunnerTest(unittest.TestCase):
@@ -1266,8 +1271,6 @@ class StoryRunnerTest(unittest.TestCase):
     finally:
       shutil.rmtree(tmp_path)
 
-  # TODO(rnephew): Refactor this test when we no longer use
-  # expectations.PermanentlyDisableBenchmark() to disable benchmarks.
   def testRunBenchmarkDisabledBenchmark(self):
     fake_benchmark = FakeBenchmark()
     fake_benchmark.disabled = True
@@ -1282,9 +1285,7 @@ class StoryRunnerTest(unittest.TestCase):
     finally:
       shutil.rmtree(tmp_path)
 
-  # TODO(rnephew): Refactor this test when we no longer use
-  # expectations.PermanentlyDisableBenchmark() to disable benchmarks.
-  def testRunBenchmarkDisabledBenchmarkCannotOverriddenByCommandLine(self):
+  def testRunBenchmarkDisabledBenchmarkCanOverriddenByCommandLine(self):
     fake_benchmark = FakeBenchmark()
     fake_benchmark.disabled = True
     options = self._GenerateBaseBrowserFinderOptions()
@@ -1295,7 +1296,7 @@ class StoryRunnerTest(unittest.TestCase):
       story_runner.RunBenchmark(fake_benchmark, options)
       with open(os.path.join(temp_path, 'results-chart.json')) as f:
         data = json.load(f)
-      self.assertFalse(data['enabled'])
+      self.assertTrue(data['enabled'])
     finally:
       shutil.rmtree(temp_path)
 
@@ -1410,3 +1411,15 @@ class StoryRunnerTest(unittest.TestCase):
       self.assertEqual(rc, 0)
     finally:
       shutil.rmtree(tmp_path)
+
+  def testRunBenchmark_TooManyValues(self):
+    self.SuppressExceptionFormatting()
+    story_set = story_module.StorySet()
+    story_set.AddStory(DummyLocalStory(TestSharedPageState, name='story'))
+    story_runner.Run(
+        _Measurement(), story_set, self.options, self.results,
+        metadata=EmptyMetadataForTest(),
+        max_num_values=0)
+    self.assertEquals(1, len(self.results.failures))
+    self.assertEquals(0, GetNumberOfSuccessfulPageRuns(self.results))
+    self.assertIn('Too many values: 1 > 0', self.fake_stdout.getvalue())

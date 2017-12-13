@@ -140,6 +140,7 @@ void TestWindowTree::SetWindowBounds(
     const base::Optional<viz::LocalSurfaceId>& local_surface_id) {
   window_id_ = window_id;
   last_local_surface_id_ = local_surface_id;
+  last_set_window_bounds_ = bounds;
   OnChangeReceived(change_id, WindowTreeChangeType::BOUNDS);
 }
 
@@ -253,6 +254,14 @@ void TestWindowTree::Embed(uint32_t window_id,
                            ui::mojom::WindowTreeClientPtr client,
                            uint32_t flags,
                            const EmbedCallback& callback) {}
+
+void TestWindowTree::ScheduleEmbed(ui::mojom::WindowTreeClientPtr client,
+                                   const ScheduleEmbedCallback& callback) {}
+
+void TestWindowTree::EmbedUsingToken(uint32_t window_id,
+                                     const base::UnguessableToken& token,
+                                     uint32_t embed_flags,
+                                     const EmbedUsingTokenCallback& callback) {}
 
 void TestWindowTree::SetFocus(uint32_t change_id, uint32_t window_id) {
   OnChangeReceived(change_id, WindowTreeChangeType::FOCUS);

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2017 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -96,11 +97,14 @@ class ProcessPoolTaskManager(TaskManager):
     self._max_tasks = max_tasks
     self._pending_results = {}
 
+  def __len__(self):
+    return len(self._pending_results)
+
   def StartTick(self):
     pass
 
   def HasCapacity(self):
-    return len(self._pending_results) < self._max_tasks
+    return len(self) < self._max_tasks
 
   def StartTask(self, request_id, request_data):
     self._pending_results[request_id] = (

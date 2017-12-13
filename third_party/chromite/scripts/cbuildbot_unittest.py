@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2014 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -21,7 +22,7 @@ class IsDistributedBuilderTest(cros_test_lib.TestCase):
   def testIsDistributedBuilder(self):
     """Tests for _IsDistributedBuilder() under various configurations."""
     parser = cbuildbot._CreateParser()
-    argv = ['amd64-generic-paladin']
+    argv = ['--buildroot', '/foo', 'amd64-generic-paladin']
     options = cbuildbot.ParseCommandLine(parser, argv)
     options.buildbot = False
 

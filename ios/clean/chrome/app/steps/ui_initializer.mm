@@ -17,7 +17,8 @@
 - (instancetype)init {
   if ((self = [super init])) {
     self.providedFeature = step_features::kMainWindow;
-    self.requiredFeatures = @[ step_features::kForeground ];
+    self.requiredFeatures =
+        @[ step_features::kForeground, step_features::kScheduledTasks ];
   }
   return self;
 }

@@ -7,10 +7,12 @@
 #include <algorithm>
 
 #include "ash/animation/animation_change_type.h"
-#include "ash/ash_switches.h"
+#include "ash/public/cpp/ash_switches.h"
+#include "ash/session/session_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_background_animator_observer.h"
 #include "ash/shelf/shelf_constants.h"
+#include "ash/shell.h"
 #include "ash/wallpaper/wallpaper_controller.h"
 #include "base/command_line.h"
 #include "ui/gfx/animation/slide_animation.h"
@@ -174,6 +176,11 @@ void ShelfBackgroundAnimator::OnWallpaperColorsChanged() {
   AnimateBackground(target_background_type_, AnimationChangeType::ANIMATE);
 }
 
+void ShelfBackgroundAnimator::OnSessionStateChanged(
+    session_manager::SessionState state) {
+  AnimateBackground(target_background_type_, AnimationChangeType::ANIMATE);
+}
+
 void ShelfBackgroundAnimator::OnBackgroundTypeChanged(
     ShelfBackgroundType background_type,
     AnimationChangeType change_type) {
@@ -264,6 +271,16 @@ void ShelfBackgroundAnimator::GetTargetValues(
     ShelfBackgroundType background_type,
     AnimationValues* shelf_background_values,
     AnimationValues* item_background_values) const {
+  // Shelf has a transparent background except when session state is ACTIVE.
+  // Shell may not have instance in tests.
+  if (Shell::HasInstance() &&
+      Shell::Get()->session_controller()->GetSessionState() !=
+          session_manager::SessionState::ACTIVE) {
+    shelf_background_values->SetTargetValues(SK_AlphaTRANSPARENT);
+    item_background_values->SetTargetValues(SK_AlphaTRANSPARENT);
+    return;
+  }
+
   std::pair<int, int> target_color_alpha_values =
       GetTargetColorAlphaValues(background_type);
 

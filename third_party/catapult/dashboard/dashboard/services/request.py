@@ -4,9 +4,13 @@
 
 import httplib
 import json
+import socket
 import urllib
 
 from dashboard.common import utils
+
+
+_VULNERABILITY_PREFIX = ")]}'\n"
 
 
 def RequestJson(*args, **kwargs):
@@ -15,7 +19,10 @@ def RequestJson(*args, **kwargs):
   See the documentation for Request() for details
   about the arguments and exceptions.
   """
-  return json.loads(Request(*args, **kwargs))
+  content = Request(*args, **kwargs)
+  if content.startswith(_VULNERABILITY_PREFIX):
+    content = content[len(_VULNERABILITY_PREFIX):]
+  return json.loads(content)
 
 
 def Request(url, method='GET', body=None, **parameters):
@@ -50,7 +57,7 @@ def Request(url, method='GET', body=None, **parameters):
 
   try:
     return _RequestAndProcessHttpErrors(url, **kwargs)
-  except httplib.HTTPException:
+  except (httplib.HTTPException, socket.error):
     # Retry once.
     return _RequestAndProcessHttpErrors(url, **kwargs)
 

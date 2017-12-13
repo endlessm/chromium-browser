@@ -33,6 +33,7 @@
 #include "net/base/load_flags.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_status_code.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -64,6 +65,25 @@ enum CleanerDownloadStatusHistogramValue {
 
   CLEANER_DOWNLOAD_STATUS_MAX,
 };
+
+net::NetworkTrafficAnnotationTag kTrafficAnnotation =
+    net::DefineNetworkTrafficAnnotation("chrome_cleaner", R"(
+      semantics {
+        sender: "Chrome Cleaner"
+        description:
+          "Chrome Cleaner removes unwanted software that violates Google's "
+          "unwanted software policy."
+        trigger:
+          "Chrome reporter detected unwanted software that the Cleaner can "
+          "remove."
+        data: "No data is sent up, this is just a download."
+        destination: GOOGLE_OWNED_SERVICE
+      }
+      policy {
+        cookies_allowed: NO
+        setting: "This feature cannot be disabled in settings."
+        policy_exception_justification: "Not implemented."
+  })");
 
 void RecordCleanerDownloadStatusHistogram(
     CleanerDownloadStatusHistogramValue value) {
@@ -123,7 +143,8 @@ ChromeCleanerFetcher::ChromeCleanerFetcher(
       url_fetcher_(net::URLFetcher::Create(0,
                                            GetSRTDownloadURL(),
                                            net::URLFetcher::GET,
-                                           this)),
+                                           this,
+                                           kTrafficAnnotation)),
       blocking_task_runner_(base::CreateSequencedTaskRunnerWithTraits(
           {base::MayBlock(), base::TaskPriority::BACKGROUND,
            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})),
@@ -163,7 +184,9 @@ void ChromeCleanerFetcher::OnTemporaryDirectoryCreated(bool success) {
 
   data_use_measurement::DataUseUserData::AttachToFetcher(
       url_fetcher_.get(), data_use_measurement::DataUseUserData::SAFE_BROWSING);
-  url_fetcher_->SetLoadFlags(net::LOAD_DISABLE_CACHE);
+  url_fetcher_->SetLoadFlags(net::LOAD_DISABLE_CACHE |
+                             net::LOAD_DO_NOT_SEND_COOKIES |
+                             net::LOAD_DO_NOT_SAVE_COOKIES);
   url_fetcher_->SetMaxRetriesOn5xx(3);
   url_fetcher_->SaveResponseToFileAtPath(temp_file_, blocking_task_runner_);
   url_fetcher_->SetRequestContext(g_browser_process->system_request_context());
@@ -192,9 +215,21 @@ void ChromeCleanerFetcher::OnURLFetchComplete(const net::URLFetcher* source) {
   DCHECK(!source->GetStatus().is_io_pending());
   DCHECK(fetched_callback_);
 
+  constexpr char kDownloadStatusErrorCodeHistogramName[] =
+      "SoftwareReporter.Cleaner.DownloadStatusErrorCode";
+
+  if (!source->GetStatus().is_success()) {
+    UMA_HISTOGRAM_SPARSE_SLOWLY(kDownloadStatusErrorCodeHistogramName,
+                                source->GetStatus().error());
+    RecordDownloadStatusAndPostCallback(
+        CLEANER_DOWNLOAD_STATUS_OTHER_FAILURE,
+        ChromeCleanerFetchStatus::kOtherFailure);
+    return;
+  }
+
   const int response_code = source->GetResponseCode();
-  UMA_HISTOGRAM_SPARSE_SLOWLY(
-      "SoftwareReporter.Cleaner.DownloadHttpResponseCode", response_code);
+  UMA_HISTOGRAM_SPARSE_SLOWLY(kDownloadStatusErrorCodeHistogramName,
+                              response_code);
 
   if (response_code == net::HTTP_NOT_FOUND) {
     RecordDownloadStatusAndPostCallback(
@@ -203,7 +238,7 @@ void ChromeCleanerFetcher::OnURLFetchComplete(const net::URLFetcher* source) {
     return;
   }
 
-  if (!source->GetStatus().is_success() || response_code != net::HTTP_OK) {
+  if (response_code != net::HTTP_OK) {
     RecordDownloadStatusAndPostCallback(
         CLEANER_DOWNLOAD_STATUS_OTHER_FAILURE,
         ChromeCleanerFetchStatus::kOtherFailure);

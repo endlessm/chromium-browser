@@ -20,7 +20,6 @@
 #include "base/metrics/user_metrics.h"
 #include "base/optional.h"
 #include "base/process/process_info.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -50,6 +49,7 @@
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/download/download_core_service.h"
 #include "chrome/browser/download/download_core_service_factory.h"
+#include "chrome/browser/extensions/api/tab_capture/offscreen_tab.h"
 #include "chrome/browser/extensions/api/tabs/tabs_event_router.h"
 #include "chrome/browser/extensions/api/tabs/tabs_windows_api.h"
 #include "chrome/browser/extensions/browser_extension_window_controller.h"
@@ -61,9 +61,6 @@
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chrome/browser/lifetime/keep_alive_registry.h"
-#include "chrome/browser/lifetime/keep_alive_types.h"
-#include "chrome/browser/lifetime/scoped_keep_alive.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/pepper_broker_infobar_delegate.h"
@@ -129,8 +126,6 @@
 #include "chrome/browser/ui/javascript_dialogs/javascript_dialog_tab_helper.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/permission_bubble/chooser_bubble_delegate.h"
-#include "chrome/browser/ui/search/search_delegate.h"
-#include "chrome/browser/ui/search/search_model.h"
 #include "chrome/browser/ui/search/search_tab_helper.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/status_bubble.h"
@@ -164,6 +159,9 @@
 #include "components/bubble/bubble_controller.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/favicon/content/content_favicon_driver.h"
+#include "components/keep_alive_registry/keep_alive_registry.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
+#include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/prefs/pref_service.h"
 #include "components/search/search.h"
 #include "components/security_state/content/content_utils.h"
@@ -232,10 +230,6 @@
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #endif
 
-#if defined(USE_ASH)
-#include "ash/shell.h"  // nogncheck
-#endif
-
 using base::TimeDelta;
 using base::UserMetricsAction;
 using content::NativeWebKeyboardEvent;
@@ -284,19 +278,6 @@ const extensions::Extension* GetExtensionForOrigin(
   return nullptr;
 #endif
 }
-
-// Stores a pointer to the Browser in the WebContents.
-struct BrowserLink : public base::SupportsUserData::Data {
-  static const char kKey[];
-
-  explicit BrowserLink(Browser* browser) : browser(browser) {}
-  ~BrowserLink() override = default;
-
-  Browser* browser;
-};
-
-// static
-const char BrowserLink::kKey[] = "BrowserLink";
 
 }  // namespace
 
@@ -426,8 +407,6 @@ Browser::Browser(const CreateParams& params)
 
   toolbar_model_.reset(new ToolbarModelImpl(toolbar_model_delegate_.get(),
                                             content::kMaxURLDisplayChars));
-  search_model_.reset(new SearchModel());
-  search_delegate_.reset(new SearchDelegate(search_model_.get()));
 
   extension_registry_observer_.Add(
       extensions::ExtensionRegistry::Get(profile_));
@@ -553,9 +532,14 @@ Browser::~Browser() {
   // This cannot be fixed in ProfileDestroyer::DestroyProfileWhenAppropriate(),
   // because the ProfileManager needs to be able to destroy all profiles when
   // it is destroyed. See crbug.com/527035
+  //
+  // A profile used to render an offscreen tab should not be destroyed while
+  // that tab is still alive.  The offscreen tab is not associated with a
+  // browser (similar to the user manager window case). See crbug.com/664351
   if (profile_->IsOffTheRecord() &&
       !BrowserList::IsIncognitoSessionActiveForProfile(profile_) &&
-      !profile_->GetOriginalProfile()->IsSystemProfile()) {
+      !profile_->GetOriginalProfile()->IsSystemProfile() &&
+      !extensions::OffscreenTabsOwner::IsOffscreenProfile(profile_)) {
     if (profile_->IsGuestSession()) {
 // ChromeOS handles guest data independently.
 #if !defined(OS_CHROMEOS)
@@ -584,13 +568,6 @@ Browser::~Browser() {
   // away so they don't try and call back to us.
   if (select_file_dialog_.get())
     select_file_dialog_->ListenerDestroyed();
-}
-
-// static
-Browser* Browser::FromWebContents(content::WebContents* web_contents) {
-  const BrowserLink* link =
-      static_cast<BrowserLink*>(web_contents->GetUserData(&BrowserLink::kKey));
-  return link ? link->browser : nullptr;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -663,7 +640,9 @@ base::string16 Browser::GetWindowTitleFromWebContents(
     title = contents->GetTitle();
     FormatTitleForDisplay(&title);
   }
-  if (title.empty())
+
+  // If there is no title, leave it empty for apps.
+  if (title.empty() && !is_app())
     title = CoreTabHelper::GetDefaultTitle();
 
 #if defined(OS_MACOSX)
@@ -1044,15 +1023,11 @@ void Browser::TabDetachedAt(WebContents* contents, int index) {
 
 void Browser::TabDeactivated(WebContents* contents) {
   exclusive_access_manager_->OnTabDeactivated(contents);
-  search_delegate_->OnTabDeactivated(contents);
   SearchTabHelper::FromWebContents(contents)->OnTabDeactivated();
 
   // Save what the user's currently typing, so it can be restored when we
   // switch back to this tab.
   window_->GetLocationBar()->SaveStateToContents(contents);
-
-  if (instant_controller_)
-    instant_controller_->TabDeactivated(contents);
 }
 
 void Browser::ActiveTabChanged(WebContents* old_contents,
@@ -1102,9 +1077,6 @@ void Browser::ActiveTabChanged(WebContents* old_contents,
   // Propagate the profile to the location bar.
   UpdateToolbar((reason & CHANGE_REASON_REPLACED) == 0);
 
-  if (search::IsInstantExtendedAPIEnabled())
-    search_delegate_->OnTabActivated(new_contents);
-
   // Update reload/stop state.
   command_controller_->LoadingStateChanged(new_contents->IsLoading(), true);
 
@@ -1140,10 +1112,6 @@ void Browser::ActiveTabChanged(WebContents* old_contents,
                                        session_tab_helper->session_id(),
                                        base::TimeTicks::Now());
   }
-
-  // This needs to be called after notifying SearchDelegate.
-  if (instant_controller_)
-    instant_controller_->ActiveTabChanged();
 
   SearchTabHelper::FromWebContents(new_contents)->OnTabActivated();
 }
@@ -1496,8 +1464,8 @@ WebContents* Browser::OpenURLFromTab(WebContents* source,
   if (params.user_gesture)
     nav_params.window_action = chrome::NavigateParams::SHOW_WINDOW;
   nav_params.user_gesture = params.user_gesture;
-  bool is_popup =
-      PopupBlockerTabHelper::ConsiderForPopupBlocking(params.disposition);
+  bool is_popup = source && PopupBlockerTabHelper::ConsiderForPopupBlocking(
+                                params.disposition);
   if (is_popup && PopupBlockerTabHelper::MaybeBlockPopup(
                       source, base::Optional<GURL>(), nav_params, &params,
                       blink::mojom::WindowFeatures())) {
@@ -1507,27 +1475,17 @@ WebContents* Browser::OpenURLFromTab(WebContents* source,
   chrome::Navigate(&nav_params);
 
   if (is_popup && nav_params.target_contents)
-    PopupTracker::CreateForWebContents(nav_params.target_contents);
+    PopupTracker::CreateForWebContents(nav_params.target_contents, source);
 
   return nav_params.target_contents;
 }
 
 void Browser::NavigationStateChanged(WebContents* source,
                                      content::InvalidateTypes changed_flags) {
-  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/466285
-  // is fixed.
-  tracked_objects::ScopedTracker tracking_profile1(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "466285 Browser::NavigationStateChanged::ScheduleUIUpdate"));
   // Only update the UI when something visible has changed.
   if (changed_flags)
     ScheduleUIUpdate(source, changed_flags);
 
-  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/466285
-  // is fixed.
-  tracked_objects::ScopedTracker tracking_profile2(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "466285 Browser::NavigationStateChanged::TabStateChanged"));
   // We can synchronously update commands since they will only change once per
   // navigation, so we don't have to worry about flickering. We do, however,
   // need to update the command state early on load to always present usable
@@ -1561,10 +1519,10 @@ void Browser::AddNewContents(WebContents* source,
                              bool* was_blocked) {
   // At this point the |new_contents| is beyond the popup blocker, but we use
   // the same logic for determining if the popup tracker needs to be attached.
-  if (PopupBlockerTabHelper::ConsiderForPopupBlocking(disposition))
-    PopupTracker::CreateForWebContents(new_contents);
+  if (source && PopupBlockerTabHelper::ConsiderForPopupBlocking(disposition))
+    PopupTracker::CreateForWebContents(new_contents, source);
   chrome::AddWebContents(this, source, new_contents, disposition, initial_rect,
-                         user_gesture, was_blocked);
+                         user_gesture);
 }
 
 void Browser::ActivateContents(WebContents* contents) {
@@ -1611,7 +1569,6 @@ void Browser::UpdateTargetURL(WebContents* source, const GURL& url) {
 }
 
 void Browser::ContentsMouseEvent(WebContents* source,
-                                 const gfx::Point& location,
                                  bool motion,
                                  bool exited) {
   exclusive_access_manager_->OnUserInput();
@@ -1621,7 +1578,7 @@ void Browser::ContentsMouseEvent(WebContents* source,
     return;
 
   if (source == tab_strip_model_->GetActiveWebContents()) {
-    GetStatusBubble()->MouseMoved(location, exited);
+    GetStatusBubble()->MouseMoved(exited);
     if (exited)
       GetStatusBubble()->SetURL(GURL());
   }
@@ -2181,11 +2138,6 @@ void Browser::ScheduleUIUpdate(WebContents* source,
   int index = tab_strip_model_->GetIndexOfWebContents(source);
   DCHECK_NE(TabStripModel::kNoTab, index);
 
-  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/466285
-  // is fixed.
-  tracked_objects::ScopedTracker tracking_profile1(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "466285 Browser::ScheduleUIUpdate::Toolbar"));
   // Do some synchronous updates.
   if (changed_flags & content::INVALIDATE_TYPE_URL) {
     if (source == tab_strip_model_->GetActiveWebContents()) {
@@ -2202,11 +2154,6 @@ void Browser::ScheduleUIUpdate(WebContents* source,
     changed_flags &= ~content::INVALIDATE_TYPE_URL;
   }
 
-  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/466285
-  // is fixed.
-  tracked_objects::ScopedTracker tracking_profile2(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "466285 Browser::ScheduleUIUpdate::TabStripModel"));
   if (changed_flags & content::INVALIDATE_TYPE_LOAD) {
     // Update the loading state synchronously. This is so the throbber will
     // immediately start/stop, which gives a more snappy feel. We want to do
@@ -2266,12 +2213,6 @@ void Browser::ProcessPendingUIUpdates() {
 
   chrome_updater_factory_.InvalidateWeakPtrs();
 
-  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185
-  // is fixed.
-  tracked_objects::ScopedTracker tracking_profile1(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "467185 Browser::ProcessPendingUIUpdates1"));
-
   for (UpdateMap::const_iterator i = scheduled_updates_.begin();
        i != scheduled_updates_.end(); ++i) {
     // Do not dereference |contents|, it may be out-of-date!
@@ -2279,12 +2220,6 @@ void Browser::ProcessPendingUIUpdates() {
     unsigned flags = i->second;
 
     if (contents == tab_strip_model_->GetActiveWebContents()) {
-      // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185
-      // is fixed.
-      tracked_objects::ScopedTracker tracking_profile2(
-          FROM_HERE_WITH_EXPLICIT_FUNCTION(
-              "467185 Browser::ProcessPendingUIUpdates2"));
-
       // Updates that only matter when the tab is selected go here.
 
       // Updating the URL happens synchronously in ScheduleUIUpdate.
@@ -2302,11 +2237,6 @@ void Browser::ProcessPendingUIUpdates() {
     // Updates that don't depend upon the selected state go here.
     if (flags &
         (content::INVALIDATE_TYPE_TAB | content::INVALIDATE_TYPE_TITLE)) {
-      // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185
-      // is fixed.
-      tracked_objects::ScopedTracker tracking_profile3(
-          FROM_HERE_WITH_EXPLICIT_FUNCTION(
-              "467185 Browser::ProcessPendingUIUpdates3"));
       tab_strip_model_->UpdateWebContentsStateAt(
           tab_strip_model_->GetIndexOfWebContents(contents),
           TabStripModelObserver::ALL);
@@ -2314,14 +2244,8 @@ void Browser::ProcessPendingUIUpdates() {
 
     // Update the bookmark bar. It may happen that the tab is crashed, and if
     // so, the bookmark bar should be hidden.
-    if (flags & content::INVALIDATE_TYPE_TAB) {
-      // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185
-      // is fixed.
-      tracked_objects::ScopedTracker tracking_profile4(
-          FROM_HERE_WITH_EXPLICIT_FUNCTION(
-              "467185 Browser::ProcessPendingUIUpdates4"));
+    if (flags & content::INVALIDATE_TYPE_TAB)
       UpdateBookmarkBarState(BOOKMARK_BAR_STATE_CHANGE_TAB_STATE);
-    }
 
     // We don't need to process INVALIDATE_STATE, since that's not visible.
   }
@@ -2425,14 +2349,6 @@ void Browser::SetAsDelegate(WebContents* web_contents, bool set_delegate) {
     zoom::ZoomController::FromWebContents(web_contents)->RemoveObserver(this);
     content_translate_driver.RemoveObserver(this);
   }
-
-  // Update the back-link from the WebContents to Browser.
-  if (set_delegate) {
-    web_contents->SetUserData(BrowserLink::kKey,
-                              base::MakeUnique<BrowserLink>(this));
-  } else {
-    web_contents->RemoveUserData(BrowserLink::kKey);
-  }
 }
 
 void Browser::CloseFrame() {
@@ -2463,9 +2379,6 @@ void Browser::TabDetachedAtImpl(content::WebContents* contents,
   if (find_bar_controller_.get() && index == tab_strip_model_->active_index()) {
     find_bar_controller_->ChangeWebContents(NULL);
   }
-
-  // Stop observing search model changes for this tab.
-  search_delegate_->OnTabDetached(contents);
 
   for (size_t i = 0; i < interstitial_observers_.size(); i++) {
     if (interstitial_observers_[i]->web_contents() != contents)
@@ -2537,11 +2450,6 @@ bool Browser::SupportsWindowFeatureImpl(WindowFeature feature,
 }
 
 void Browser::UpdateBookmarkBarState(BookmarkBarStateChangeReason reason) {
-  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile1(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "467185 Browser::UpdateBookmarkBarState1"));
   BookmarkBar::State state;
   // The bookmark bar is always hidden for Guest Sessions and in fullscreen
   // mode, unless on the new tab page.
@@ -2552,11 +2460,6 @@ void Browser::UpdateBookmarkBarState(BookmarkBarStateChangeReason reason) {
       !ShouldHideUIForFullscreen()) {
     state = BookmarkBar::SHOW;
   } else {
-    // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185
-    // is fixed.
-    tracked_objects::ScopedTracker tracking_profile2(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "467185 Browser::UpdateBookmarkBarState2"));
     WebContents* web_contents = tab_strip_model_->GetActiveWebContents();
     BookmarkTabHelper* bookmark_tab_helper =
         web_contents ? BookmarkTabHelper::FromWebContents(web_contents) : NULL;
@@ -2580,12 +2483,6 @@ void Browser::UpdateBookmarkBarState(BookmarkBarStateChangeReason reason) {
     // end up querying state once they process the tab switch.
     return;
   }
-
-  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile3(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "467185 Browser::UpdateBookmarkBarState3"));
 
   bool should_animate = reason == BOOKMARK_BAR_STATE_CHANGE_PREF_CHANGE;
   window_->BookmarkBarStateChanged(should_animate ?

@@ -4,9 +4,12 @@
 
 #include "ash/system/palette/palette_tray.h"
 
-#include "ash/accessibility_delegate.h"
+#include <memory>
+
+#include "ash/accessibility/accessibility_delegate.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/config.h"
+#include "ash/public/cpp/stylus_utils.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/root_window_controller.h"
 #include "ash/shelf/shelf.h"
@@ -73,8 +76,7 @@ bool ShouldShowOnDisplay(PaletteTray* palette_tray) {
   const display::Display& display =
       display::Screen::GetScreen()->GetDisplayNearestWindow(
           palette_tray->GetWidget()->GetNativeWindow());
-  return display.IsInternal() ||
-         palette_utils::IsPaletteEnabledOnEveryDisplay();
+  return display.IsInternal() || stylus_utils::IsPaletteEnabledOnEveryDisplay();
 }
 
 class TitleView : public views::View, public views::ButtonListener {
@@ -179,13 +181,13 @@ PaletteTray::PaletteTray(Shelf* shelf)
   SetInkDropMode(InkDropMode::ON);
   SetLayoutManager(new views::FillLayout());
   icon_ = new views::ImageView();
+  icon_->SetTooltipText(l10n_util::GetStringUTF16(IDS_ASH_STYLUS_TOOLS_TITLE));
   UpdateTrayIcon();
 
   tray_container()->SetMargin(kTrayIconMainAxisInset, kTrayIconCrossAxisInset);
   tray_container()->AddChildView(icon_);
 
   Shell::Get()->AddShellObserver(this);
-  ui::InputDeviceManager::GetInstance()->AddObserver(this);
 }
 
 PaletteTray::~PaletteTray() {
@@ -230,12 +232,12 @@ void PaletteTray::OnLocalStatePrefServiceInitialized(
 
   // If a device has an internal stylus or the flag to force stylus is set, mark
   // the has seen stylus flag as true since we know the user has a stylus.
-  if (palette_utils::HasInternalStylus() ||
-      palette_utils::HasForcedStylusInput()) {
+  if (stylus_utils::HasInternalStylus() ||
+      stylus_utils::HasForcedStylusInput()) {
     local_state_pref_service_->SetBoolean(prefs::kHasSeenStylus, true);
   }
 
-  pref_change_registrar_ = base::MakeUnique<PrefChangeRegistrar>();
+  pref_change_registrar_ = std::make_unique<PrefChangeRegistrar>();
   pref_change_registrar_->Init(local_state_pref_service_);
   pref_change_registrar_->Add(
       prefs::kHasSeenStylus,
@@ -268,7 +270,7 @@ void PaletteTray::OnTouchscreenDeviceConfigurationChanged() {
 
 void PaletteTray::OnStylusStateChanged(ui::StylusState stylus_state) {
   // Device may have a stylus but it has been forcibly disabled.
-  if (!palette_utils::HasStylusInput())
+  if (!stylus_utils::HasStylusInput())
     return;
 
   PaletteDelegate* palette_delegate = Shell::Get()->palette_delegate();
@@ -297,9 +299,12 @@ void PaletteTray::OnStylusStateChanged(ui::StylusState stylus_state) {
 
 void PaletteTray::BubbleViewDestroyed() {
   palette_tool_manager_->NotifyViewsDestroyed();
-  // The tray button remains active if the current active tool is a mode.
-  SetIsActive(palette_tool_manager_->GetActiveTool(PaletteGroup::MODE) !=
-              PaletteToolId::NONE);
+  // Opening the palette via an accelerator will close any open widget and then
+  // open a new one. This method is called when the widget is closed, but due to
+  // async close the new bubble may have already been created. If this happens,
+  // |bubble_| will not be null.
+  SetIsActive(bubble_ || palette_tool_manager_->GetActiveTool(
+                             PaletteGroup::MODE) != PaletteToolId::NONE);
 }
 
 void PaletteTray::OnMouseEnteredView() {}
@@ -389,6 +394,10 @@ void PaletteTray::Initialize() {
   if (!delegate)
     return;
 
+  TrayBackgroundView::Initialize();
+
+  ui::InputDeviceManager::GetInstance()->AddObserver(this);
+
   // OnPaletteEnabledPrefChanged will get called with the initial pref value,
   // which will take care of showing the palette.
   palette_enabled_subscription_ = delegate->AddPaletteEnableListener(base::Bind(
@@ -405,15 +414,9 @@ bool PaletteTray::PerformAction(const ui::Event& event) {
     return true;
   }
 
-  // Deactivate the active tool if there is one.
-  PaletteToolId active_tool_id =
-      palette_tool_manager_->GetActiveTool(PaletteGroup::MODE);
-  if (active_tool_id != PaletteToolId::NONE) {
-    palette_tool_manager_->DeactivateTool(active_tool_id);
-    // TODO(sammiequon): Investigate whether we should removed |is_switched|
-    // from PaletteToolIdToPaletteModeCancelType.
-    RecordPaletteModeCancellation(PaletteToolIdToPaletteModeCancelType(
-        active_tool_id, false /*is_switched*/));
+  // Do not show the bubble if there was an action on the palette tray while
+  // there was an active tool.
+  if (DeactivateActiveTool()) {
     SetIsActive(false);
     return true;
   }
@@ -431,6 +434,10 @@ void PaletteTray::ShowBubble(bool show_by_click) {
     return;
 
   DCHECK(tray_container());
+
+  // There may still be an active tool if show bubble was called from an
+  // accelerator.
+  DeactivateActiveTool();
 
   views::TrayBubbleView::InitParams init_params;
   init_params.delegate = this;
@@ -473,7 +480,7 @@ void PaletteTray::ShowBubble(bool show_by_click) {
     bubble_view->AddChildView(view.view);
 
   // Show the bubble.
-  bubble_ = base::MakeUnique<ash::TrayBubbleWrapper>(this, bubble_view);
+  bubble_ = std::make_unique<TrayBubbleWrapper>(this, bubble_view);
   SetIsActive(true);
 }
 
@@ -513,14 +520,29 @@ void PaletteTray::OnHasSeenStylusPrefChanged() {
   if (has_seen_stylus_)
     watcher_.reset();
   else
-    watcher_ = base::MakeUnique<StylusWatcher>(local_state_pref_service_);
+    watcher_ = std::make_unique<StylusWatcher>(local_state_pref_service_);
 
   UpdateIconVisibility();
 }
 
+bool PaletteTray::DeactivateActiveTool() {
+  PaletteToolId active_tool_id =
+      palette_tool_manager_->GetActiveTool(PaletteGroup::MODE);
+  if (active_tool_id != PaletteToolId::NONE) {
+    palette_tool_manager_->DeactivateTool(active_tool_id);
+    // TODO(sammiequon): Investigate whether we should removed |is_switched|
+    // from PaletteToolIdToPaletteModeCancelType.
+    RecordPaletteModeCancellation(PaletteToolIdToPaletteModeCancelType(
+        active_tool_id, false /*is_switched*/));
+    return true;
+  }
+
+  return false;
+}
+
 void PaletteTray::UpdateIconVisibility() {
   SetVisible(has_seen_stylus_ && is_palette_enabled_ &&
-             palette_utils::HasStylusInput() && ShouldShowOnDisplay(this) &&
+             stylus_utils::HasStylusInput() && ShouldShowOnDisplay(this) &&
              palette_utils::IsInUserSession());
 }
 

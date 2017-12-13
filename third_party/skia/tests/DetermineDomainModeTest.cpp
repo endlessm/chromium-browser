@@ -8,7 +8,6 @@
 #include "Test.h"
 
 #if SK_SUPPORT_GPU
-#if 0
 
 #include "GrSurfaceProxy.h"
 #include "GrTextureProducer.h"
@@ -24,14 +23,13 @@ class GrTextureProducer_TestAccess {
 public:
     using DomainMode = GrTextureProducer::DomainMode;
 
-    static DomainMode DetermineDomainMode(
-                                const SkRect& constraintRect,
-                                GrTextureProducer::FilterConstraint filterConstraint,
-                                bool coordsLimitedToConstraintRect,
-                                GrTextureProxy* proxy,
-                                const SkIRect* textureContentArea,
-                                const GrSamplerParams::FilterMode* filterModeOrNullForBicubic,
-                                SkRect* domainRect) {
+    static DomainMode DetermineDomainMode(const SkRect& constraintRect,
+                                          GrTextureProducer::FilterConstraint filterConstraint,
+                                          bool coordsLimitedToConstraintRect,
+                                          GrTextureProxy* proxy,
+                                          const SkIRect* textureContentArea,
+                                          const GrSamplerState::Filter* filterModeOrNullForBicubic,
+                                          SkRect* domainRect) {
         return GrTextureProducer::DetermineDomainMode(constraintRect,
                                                       filterConstraint,
                                                       coordsLimitedToConstraintRect,
@@ -347,15 +345,14 @@ static void proxy_test(skiatest::Reporter* reporter, GrResourceProvider* resourc
     GrTextureProducer_TestAccess::DomainMode actualMode, expectedMode;
     SkRect actualDomainRect;
 
-    static const GrSamplerParams::FilterMode gModes[] = {
-        GrSamplerParams::kNone_FilterMode,
-        GrSamplerParams::kBilerp_FilterMode,
-        GrSamplerParams::kMipMap_FilterMode,
+    static const GrSamplerState::Filter gModes[] = {
+            GrSamplerState::Filter::kNearest,
+            GrSamplerState::Filter::kBilerp,
+            GrSamplerState::Filter::kMipMap,
     };
 
-    static const GrSamplerParams::FilterMode* gModePtrs[] = {
-        &gModes[0], &gModes[1], nullptr, &gModes[2]
-    };
+    static const GrSamplerState::Filter* gModePtrs[] = {&gModes[0], &gModes[1], nullptr,
+                                                        &gModes[2]};
 
     static const float gHalfFilterWidth[] = { 0.0f, 0.5f, 1.5f, 10000.0f };
 
@@ -445,5 +442,4 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DetermineDomainModeTest, reporter, ctxInfo) {
     proxy_test(reporter, context->resourceProvider());
 }
 
-#endif
 #endif

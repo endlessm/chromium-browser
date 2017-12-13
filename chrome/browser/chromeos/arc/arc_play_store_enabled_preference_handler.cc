@@ -15,8 +15,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
-#include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/arc/arc_prefs.h"
 #include "components/arc/arc_util.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "content/public/browser/browser_thread.h"
@@ -138,7 +138,7 @@ void ArcPlayStoreEnabledPreferenceHandler::OnIsSyncingChanged() {
     return;
   }
 
-  auth_notification_ = base::MakeUnique<ArcAuthNotification>(profile_);
+  auth_notification_ = std::make_unique<ArcAuthNotification>(profile_);
 }
 
 }  // namespace arc

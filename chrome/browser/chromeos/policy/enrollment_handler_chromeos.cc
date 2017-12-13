@@ -166,8 +166,11 @@ void EnrollmentHandlerChromeOS::HandleAvailableLicensesResult(
     bool success,
     const CloudPolicyClient::LicenseMap& license_map) {
   if (!success) {
-    ReportResult(
-        EnrollmentStatus::ForStatus(EnrollmentStatus::LICENSE_REQUEST_FAILED));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::Bind(&EnrollmentHandlerChromeOS::ReportResult,
+            weak_ptr_factory_.GetWeakPtr(),
+            EnrollmentStatus::ForStatus(
+                EnrollmentStatus::LICENSE_REQUEST_FAILED)));
     return;
   }
   if (available_licenses_callback_)
@@ -474,20 +477,18 @@ void EnrollmentHandlerChromeOS::SetFirmwareManagementParametersData() {
 
   install_attributes_->SetBlockDevmodeInTpm(
       GetBlockdevmodeFromPolicy(policy_.get()),
-      base::Bind(
+      base::BindOnce(
           &EnrollmentHandlerChromeOS::OnFirmwareManagementParametersDataSet,
           weak_ptr_factory_.GetWeakPtr()));
 }
 
 void EnrollmentHandlerChromeOS::OnFirmwareManagementParametersDataSet(
-    chromeos::DBusMethodCallStatus call_status,
-    bool result,
-    const cryptohome::BaseReply& reply) {
+    base::Optional<cryptohome::BaseReply> reply) {
   DCHECK_EQ(STEP_SET_FWMP_DATA, enrollment_step_);
-  if (!result) {
+  if (!reply.has_value()) {
     LOG(ERROR)
         << "Failed to update firmware management parameters in TPM, error: "
-        << reply.error();
+        << reply->error();
   }
 
   SetStep(STEP_LOCK_DEVICE);

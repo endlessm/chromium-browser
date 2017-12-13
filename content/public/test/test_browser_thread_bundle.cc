@@ -32,12 +32,6 @@ TestBrowserThreadBundle::TestBrowserThreadBundle(int options)
 TestBrowserThreadBundle::~TestBrowserThreadBundle() {
   CHECK(threads_created_);
 
-  // To avoid memory leaks, we must ensure that any tasks posted to the blocking
-  // pool via PostTaskAndReply are able to reply back to the originating thread.
-  // Thus we must flush the blocking pool while the browser threads still exist.
-  base::RunLoop().RunUntilIdle();
-  BrowserThreadImpl::FlushThreadPoolHelperForTesting();
-
   // To ensure a clean teardown, each thread's message loop must be flushed
   // just before the thread is destroyed. But stopping a fake thread does not
   // automatically flush the message loop, so we have to do it manually.
@@ -55,17 +49,12 @@ TestBrowserThreadBundle::~TestBrowserThreadBundle() {
   base::RunLoop().RunUntilIdle();
   db_thread_->Stop();
   base::RunLoop().RunUntilIdle();
-  // This is the point at which we normally shut down the thread pool. So flush
-  // it again in case any shutdown tasks have been posted to the pool from the
-  // threads above.
-  BrowserThreadImpl::FlushThreadPoolHelperForTesting();
-  base::RunLoop().RunUntilIdle();
   ui_thread_->Stop();
   base::RunLoop().RunUntilIdle();
 
   // Skip the following step when TaskScheduler isn't managed by this
   // TestBrowserThreadBundle, otherwise it can hang (e.g.
-  // RunAllBlockingPoolTasksUntilIdle() hangs when the TaskScheduler is managed
+  // RunAllTasksUntilIdle() hangs when the TaskScheduler is managed
   // by an external ScopedTaskEnvironment with ExecutionMode::QUEUED). This is
   // fine as (1) it's rare and (2) it mimics production where BrowserThreads are
   // shutdown before TaskScheduler.
@@ -77,7 +66,7 @@ TestBrowserThreadBundle::~TestBrowserThreadBundle() {
     // merely uncover more issues (e.g. if a bad tasks is posted but never
     // blocked upon it could make a test flaky whereas by flushing we guarantee
     // it will blow up).
-    RunAllBlockingPoolTasksUntilIdle();
+    RunAllTasksUntilIdle();
     CHECK(base::MessageLoop::current()->IsIdleForTesting());
   }
 

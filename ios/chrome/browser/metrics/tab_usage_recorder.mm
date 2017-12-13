@@ -4,6 +4,8 @@
 
 #include "ios/chrome/browser/metrics/tab_usage_recorder.h"
 
+#import <UIKit/UIKit.h>
+
 #include "base/metrics/histogram_macros.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/metrics/previous_session_info.h"
@@ -79,15 +81,12 @@ class TabUsageRecorder::WebStateObserver : public web::WebStateObserver {
 
  private:
   // web::WebStateObserver implementation.
-  void WasShown() override;
-  void WasHidden() override;
   void DidStartNavigation(web::NavigationContext* navigation_context) override;
   void PageLoaded(
       web::PageLoadCompletionStatus load_completion_status) override;
   void RenderProcessGone() override;
 
   TabUsageRecorder* tab_usage_recorder_;
-  bool web_state_visible_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(WebStateObserver);
 };
@@ -101,14 +100,6 @@ TabUsageRecorder::WebStateObserver::WebStateObserver(
 }
 
 TabUsageRecorder::WebStateObserver::~WebStateObserver() = default;
-
-void TabUsageRecorder::WebStateObserver::WasShown() {
-  web_state_visible_ = true;
-}
-
-void TabUsageRecorder::WebStateObserver::WasHidden() {
-  web_state_visible_ = false;
-}
 
 void TabUsageRecorder::WebStateObserver::DidStartNavigation(
     web::NavigationContext* navigation_context) {
@@ -127,7 +118,7 @@ void TabUsageRecorder::WebStateObserver::PageLoaded(
 
 void TabUsageRecorder::WebStateObserver::RenderProcessGone() {
   tab_usage_recorder_->RendererTerminated(
-      web_state(), web_state_visible_,
+      web_state(), web_state()->IsVisible(),
       [UIApplication sharedApplication].applicationState);
 }
 

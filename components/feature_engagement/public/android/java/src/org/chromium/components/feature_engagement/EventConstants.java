@@ -34,6 +34,11 @@ public final class EventConstants {
     public static final String BOTTOM_SHEET_EXPANDED = "bottom_sheet_expanded";
 
     /**
+     * The user clicked the Chrome Home menu header.
+     */
+    public static final String CHROME_HOME_MENU_HEADER_CLICKED = "chrome_home_menu_header_clicked";
+
+    /**
      * Screenshot is taken with Chrome in the foreground.
      */
     public static final String SCREENSHOT_TAKEN_CHROME_IN_FOREGROUND =
@@ -64,6 +69,28 @@ public final class EventConstants {
      * The download button for a media element was displayed.
      */
     public static final String MEDIA_DOWNLOAD_BUTTON_DISPLAYED = "media_download_button_displayed";
+
+    /**
+     * Contextual Search panel was opened.
+     */
+    public static final String CONTEXTUAL_SEARCH_PANEL_OPENED = "contextual_search_panel_opened";
+
+    /**
+     * Contextual Search showed an entity result for the searched query.
+     */
+    public static final String CONTEXTUAL_SEARCH_ENTITY_RESULT = "contextual_search_entity_result";
+
+    /**
+     * Contextual Search was triggered by a tap.
+     */
+    public static final String CONTEXTUAL_SEARCH_TRIGGERED_BY_TAP =
+            "contextual_search_triggered_by_tap";
+
+    /**
+     * Contextual Search was triggered by longpressing.
+     */
+    public static final String CONTEXTUAL_SEARCH_TRIGGERED_BY_LONGPRESS =
+            "contextual_search_triggered_by_longpress";
 
     /**
      * Do not instantiate.

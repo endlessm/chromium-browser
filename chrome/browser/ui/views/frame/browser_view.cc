@@ -17,7 +17,6 @@
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -45,6 +44,7 @@
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
+#include "chrome/browser/ui/autofill/save_card_bubble_view.h"
 #include "chrome/browser/ui/bookmarks/bookmark_bar_constants.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_command_controller.h"
@@ -53,6 +53,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window_state.h"
+#include "chrome/browser/ui/extensions/hosted_app_browser_controller.h"
 #include "chrome/browser/ui/sync/bubble_sync_promo_delegate.h"
 #include "chrome/browser/ui/tabs/tab_menu_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -60,6 +61,8 @@
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/accelerator_table.h"
 #include "chrome/browser/ui/views/accessibility/invert_bubble_view.h"
+#include "chrome/browser/ui/views/autofill/save_card_bubble_views.h"
+#include "chrome/browser/ui/views/autofill/save_card_icon_view.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bubble_view.h"
 #include "chrome/browser/ui/views/download/download_in_progress_dialog_view.h"
@@ -95,7 +98,6 @@
 #include "chrome/browser/ui/window_sizer/window_sizer.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/command.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
@@ -122,6 +124,7 @@
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/theme_provider.h"
 #include "ui/content_accelerators/accelerator_util.h"
@@ -678,19 +681,9 @@ namespace {
 }
 
 void BrowserView::UpdateTitleBar() {
-  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile1(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION("467185 BrowserView::UpdateTitleBar1"));
   frame_->UpdateWindowTitle();
-  if (ShouldShowWindowIcon() && !loading_animation_timer_.IsRunning()) {
-    // TODO(robliao): Remove ScopedTracker below once https://crbug.com/467185
-    // is fixed.
-    tracked_objects::ScopedTracker tracking_profile2(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "467185 BrowserView::UpdateTitleBar2"));
+  if (ShouldShowWindowIcon() && !loading_animation_timer_.IsRunning())
     frame_->UpdateWindowIcon();
-  }
 }
 
 void BrowserView::BookmarkBarStateChanged(
@@ -775,14 +768,6 @@ void BrowserView::OnActiveTabChanged(content::WebContents* old_contents,
 
   infobar_container_->ChangeInfoBarManager(
       InfoBarService::FromWebContents(new_contents));
-
-  if (old_contents && PermissionRequestManager::FromWebContents(old_contents))
-    PermissionRequestManager::FromWebContents(old_contents)->HideBubble();
-
-  if (new_contents && PermissionRequestManager::FromWebContents(new_contents)) {
-    PermissionRequestManager::FromWebContents(new_contents)
-        ->DisplayPendingRequests();
-  }
 
   UpdateUIForContents(new_contents);
   RevealTabStripIfNeeded();
@@ -883,10 +868,12 @@ void BrowserView::UpdateExclusiveAccessExitBubbleContent(
     ExclusiveAccessBubbleType bubble_type,
     ExclusiveAccessBubbleHideCallback bubble_first_hide_callback) {
   // Immersive mode has no exit bubble because it has a visible strip at the
-  // top that gives the user a hover target.
+  // top that gives the user a hover target. In a public session we show the
+  // bubble.
   // TODO(jamescook): Figure out what to do with mouse-lock.
   if (bubble_type == EXCLUSIVE_ACCESS_BUBBLE_TYPE_NONE ||
-      ShouldUseImmersiveFullscreenForUrl(url)) {
+      (ShouldUseImmersiveFullscreenForUrl(url) &&
+       !profiles::IsPublicSession())) {
     // |exclusive_access_bubble_.reset()| will trigger callback for current
     // bubble with |ExclusiveAccessBubbleHideReason::kInterrupted| if available.
     exclusive_access_bubble_.reset();
@@ -1188,9 +1175,25 @@ void BrowserView::ShowBookmarkBubble(const GURL& url, bool already_bookmarked) {
 autofill::SaveCardBubbleView* BrowserView::ShowSaveCreditCardBubble(
     content::WebContents* web_contents,
     autofill::SaveCardBubbleController* controller,
-    bool is_user_gesture) {
-  return toolbar_->ShowSaveCreditCardBubble(web_contents, controller,
-                                            is_user_gesture);
+    bool user_gesture) {
+  LocationBarView* location_bar = GetLocationBarView();
+  BubbleIconView* card_view = location_bar->save_credit_card_icon_view();
+
+  views::View* anchor_view = location_bar;
+  if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
+    if (card_view && card_view->visible())
+      anchor_view = card_view;
+    else
+      anchor_view = toolbar()->app_menu_button();
+  }
+
+  autofill::SaveCardBubbleViews* bubble = new autofill::SaveCardBubbleViews(
+      anchor_view, gfx::Point(), web_contents, controller);
+  if (card_view)
+    card_view->OnBubbleCreated(bubble);
+  bubble->Show(user_gesture ? autofill::SaveCardBubbleViews::USER_GESTURE
+                            : autofill::SaveCardBubbleViews::AUTOMATIC);
+  return bubble;
 }
 
 ShowTranslateBubbleResult BrowserView::ShowTranslateBubble(
@@ -1464,9 +1467,6 @@ void BrowserView::TabInsertedAt(TabStripModel* tab_strip_model,
 }
 
 void BrowserView::TabDetachedAt(WebContents* contents, int index) {
-  if (PermissionRequestManager::FromWebContents(contents))
-    PermissionRequestManager::FromWebContents(contents)->HideBubble();
-
   // We use index here rather than comparing |contents| because by this time
   // the model has already removed |contents| from its list, so
   // browser_->GetActiveWebContents() will return null or something else.
@@ -1482,9 +1482,6 @@ void BrowserView::TabDetachedAt(WebContents* contents, int index) {
 }
 
 void BrowserView::TabDeactivated(WebContents* contents) {
-  if (PermissionRequestManager::FromWebContents(contents))
-    PermissionRequestManager::FromWebContents(contents)->HideBubble();
-
   // We do not store the focus when closing the tab to work-around bug 4633.
   // Some reports seem to show that the focus manager and/or focused view can
   // be garbage at that point, it is not clear why.
@@ -1631,26 +1628,27 @@ views::View* BrowserView::GetInitiallyFocusedView() {
 
 bool BrowserView::ShouldShowWindowTitle() const {
 #if defined(OS_CHROMEOS)
+  // Hosted apps on ChromeOS should always show their window icon.
+  if (extensions::HostedAppBrowserController::IsForExperimentalHostedAppBrowser(
+          browser())) {
+    DCHECK(browser_->SupportsWindowFeature(Browser::FEATURE_TITLEBAR));
+    return true;
+  }
+
   // For Chrome OS only, trusted windows (apps and settings) do not show a
   // title, crbug.com/119411. Child windows (i.e. popups) do show a title.
-  if (browser_->is_trusted_source())
+  if (browser_->is_trusted_source()) {
     return false;
+  }
 #endif  // OS_CHROMEOS
 
   return browser_->SupportsWindowFeature(Browser::FEATURE_TITLEBAR);
 }
 
 gfx::ImageSkia BrowserView::GetWindowAppIcon() {
-  if (browser_->is_app()) {
-    WebContents* contents = browser_->tab_strip_model()->GetActiveWebContents();
-    extensions::TabHelper* extensions_tab_helper =
-        contents ? extensions::TabHelper::FromWebContents(contents) : nullptr;
-    if (extensions_tab_helper && extensions_tab_helper->GetExtensionAppIcon())
-      return gfx::ImageSkia::CreateFrom1xBitmap(
-          *extensions_tab_helper->GetExtensionAppIcon());
-  }
-
-  return GetWindowIcon();
+  extensions::HostedAppBrowserController* app_controller =
+      browser()->hosted_app_controller();
+  return app_controller ? app_controller->GetWindowAppIcon() : GetWindowIcon();
 }
 
 gfx::ImageSkia BrowserView::GetWindowIcon() {
@@ -1658,20 +1656,21 @@ gfx::ImageSkia BrowserView::GetWindowIcon() {
   if (browser_->is_devtools())
     return gfx::ImageSkia();
 
+  // Hosted apps always show their app icon.
+  extensions::HostedAppBrowserController* app_controller =
+      browser()->hosted_app_controller();
+  if (app_controller)
+    return app_controller->GetWindowIcon();
+
   if (browser_->is_app() || browser_->is_type_popup())
     return browser_->GetCurrentPageIcon().AsImageSkia();
+
   return gfx::ImageSkia();
 }
 
 bool BrowserView::ShouldShowWindowIcon() const {
-#if defined(OS_CHROMEOS)
-  // For Chrome OS only, trusted windows (apps and settings) do not show an
-  // icon, crbug.com/119411. Child windows (i.e. popups) do show an icon.
-  if (browser_->is_trusted_source())
-    return false;
-#endif  // OS_CHROMEOS
-
-  return browser_->SupportsWindowFeature(Browser::FEATURE_TITLEBAR);
+  // Currently the icon and title are always shown together.
+  return ShouldShowWindowTitle();
 }
 
 bool BrowserView::ExecuteWindowsCommand(int command_id) {
@@ -2684,7 +2683,7 @@ gfx::Rect BrowserView::GetClientAreaBoundsInScreen() const {
   return GetWidget()->GetClientAreaBoundsInScreen();
 }
 
-bool BrowserView::IsImmersiveModeEnabled() {
+bool BrowserView::IsImmersiveModeEnabled() const {
   return immersive_mode_controller()->IsEnabled();
 }
 
@@ -2695,6 +2694,10 @@ gfx::Rect BrowserView::GetTopContainerBoundsInScreen() {
 void BrowserView::DestroyAnyExclusiveAccessBubble() {
   exclusive_access_bubble_.reset();
   new_back_shortcut_bubble_.reset();
+}
+
+bool BrowserView::CanTriggerOnMouse() const {
+  return !IsImmersiveModeEnabled();
 }
 
 extensions::ActiveTabPermissionGranter*

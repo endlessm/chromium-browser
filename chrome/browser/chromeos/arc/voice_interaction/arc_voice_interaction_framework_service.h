@@ -32,6 +32,7 @@ class Rect;
 namespace arc {
 
 class ArcBridgeService;
+class HighlighterControllerClient;
 
 // This provides voice interaction context (currently screenshots)
 // to ARC to be used by VoiceInteractionSession. This class lives on the UI
@@ -61,9 +62,7 @@ class ArcVoiceInteractionFrameworkService
   void OnInstanceClosed() override;
 
   // mojom::VoiceInteractionFrameworkHost overrides.
-  void CaptureFocusedWindow(
-      const CaptureFocusedWindowCallback& callback) override;
-  void CaptureFullscreen(const CaptureFullscreenCallback& callback) override;
+  void CaptureFullscreen(CaptureFullscreenCallback callback) override;
   // TODO(kaznacheev) remove usages of this obsolete method from the container.
   void OnMetalayerClosed() override;
   void SetMetalayerEnabled(bool enabled) override;
@@ -124,6 +123,10 @@ class ArcVoiceInteractionFrameworkService
   // Starts voice interaction OOBE flow.
   void StartVoiceInteractionOobe();
 
+  HighlighterControllerClient* GetHighlighterClientForTesting() const {
+    return highlighter_client_.get();
+  }
+
   // For supporting ArcServiceManager::GetService<T>().
   static const char kArcServiceName[];
 
@@ -166,6 +169,8 @@ class ArcVoiceInteractionFrameworkService
   // quota is 0, but we still get requests from the container side, we assume
   // something malicious is going on.
   int32_t context_request_remaining_count_ = 0;
+
+  std::unique_ptr<HighlighterControllerClient> highlighter_client_;
 
   base::WeakPtrFactory<ArcVoiceInteractionFrameworkService> weak_ptr_factory_;
 

@@ -6,20 +6,18 @@
 
 #include <stdlib.h>
 
-#include <deque>
 #include <utility>
 
 #include "ash/shell.h"
 #include "ash/wallpaper/wallpaper_controller.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "base/task_scheduler/post_task.h"
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
-#include "chrome/browser/image_decoder.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "components/signin/core/account_id/account_id.h"
+#include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/wallpaper/wallpaper_files_id.h"
 #include "components/wallpaper/wallpaper_info.h"
@@ -47,7 +45,9 @@ struct PrimaryAccount {
 
 PrimaryAccount GetPrimaryAccount() {
   UserManager* const user_manager = UserManager::Get();
-  const AccountId& account_id = user_manager->GetPrimaryUser()->GetAccountId();
+  const user_manager::User* const primary_user = user_manager->GetPrimaryUser();
+  DCHECK(primary_user);
+  const AccountId& account_id = primary_user->GetAccountId();
   return {account_id,
           account_id == user_manager->GetActiveUser()->GetAccountId()};
 }
@@ -81,6 +81,16 @@ class ArcWallpaperServiceFactory
   friend base::DefaultSingletonTraits<ArcWallpaperServiceFactory>;
   ArcWallpaperServiceFactory() = default;
   ~ArcWallpaperServiceFactory() override = default;
+};
+
+class DecodeRequestSenderImpl
+    : public ArcWallpaperService::DecodeRequestSender {
+ public:
+  void SendDecodeRequest(ImageDecoder::ImageRequest* request,
+                         const std::vector<uint8_t>& data) override {
+    ImageDecoder::StartWithOptions(request, data, ImageDecoder::DEFAULT_CODEC,
+                                   true, gfx::Size());
+  }
 };
 
 }  // namespace
@@ -154,6 +164,13 @@ class ArcWallpaperService::DecodeRequest : public ImageDecoder::ImageRequest {
   DISALLOW_COPY_AND_ASSIGN(DecodeRequest);
 };
 
+ArcWallpaperService::DecodeRequestSender::~DecodeRequestSender() = default;
+
+void ArcWallpaperService::SetDecodeRequestSenderForTesting(
+    std::unique_ptr<DecodeRequestSender> sender) {
+  decode_request_sender_ = std::move(sender);
+}
+
 // static
 ArcWallpaperService* ArcWallpaperService::GetForBrowserContext(
     content::BrowserContext* context) {
@@ -162,7 +179,9 @@ ArcWallpaperService* ArcWallpaperService::GetForBrowserContext(
 
 ArcWallpaperService::ArcWallpaperService(content::BrowserContext* context,
                                          ArcBridgeService* bridge_service)
-    : arc_bridge_service_(bridge_service), binding_(this) {
+    : arc_bridge_service_(bridge_service),
+      binding_(this),
+      decode_request_sender_(std::make_unique<DecodeRequestSenderImpl>()) {
   arc_bridge_service_->wallpaper()->AddObserver(this);
 }
 
@@ -184,8 +203,9 @@ void ArcWallpaperService::OnInstanceReady() {
   binding_.Bind(mojo::MakeRequest(&host_proxy));
   wallpaper_instance->Init(std::move(host_proxy));
   ash::WallpaperController* wc = GetWallpaperController();
-  DCHECK(wc);
-  wc->AddObserver(this);
+  // TODO(mash): Support this functionality without ash::Shell access in Chrome.
+  if (wc)
+    wc->AddObserver(this);
 }
 
 void ArcWallpaperService::OnInstanceClosed() {
@@ -202,10 +222,9 @@ void ArcWallpaperService::SetWallpaper(const std::vector<uint8_t>& data,
     wallpaper_id = -1;
   // Previous request will be cancelled at destructor of
   // ImageDecoder::ImageRequest.
-  decode_request_ = base::MakeUnique<DecodeRequest>(this, wallpaper_id);
-  ImageDecoder::StartWithOptions(decode_request_.get(), data,
-                                 ImageDecoder::DEFAULT_CODEC, true,
-                                 gfx::Size());
+  decode_request_ = std::make_unique<DecodeRequest>(this, wallpaper_id);
+  DCHECK(decode_request_sender_);
+  decode_request_sender_->SendDecodeRequest(decode_request_.get(), data);
 }
 
 void ArcWallpaperService::SetDefaultWallpaper() {
@@ -218,13 +237,14 @@ void ArcWallpaperService::SetDefaultWallpaper() {
                                                          account.is_active);
 }
 
-void ArcWallpaperService::GetWallpaper(const GetWallpaperCallback& callback) {
+void ArcWallpaperService::GetWallpaper(GetWallpaperCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  ash::WallpaperController* wc = ash::Shell::Get()->wallpaper_controller();
+  ash::WallpaperController* const wc = GetWallpaperController();
+  DCHECK(wc);
   gfx::ImageSkia wallpaper = wc->GetWallpaper();
   base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
-      base::Bind(&EncodeImagePng, wallpaper), callback);
+      base::BindOnce(&EncodeImagePng, wallpaper), std::move(callback));
 }
 
 void ArcWallpaperService::OnWallpaperDataChanged() {
@@ -233,8 +253,8 @@ void ArcWallpaperService::OnWallpaperDataChanged() {
   // OnWallpaperDataChanged is invoked from WallpaperController so
   // we should be able to get the pointer.
   ash::WallpaperController* const wallpaper_controller =
-      ash::Shell::Get()->wallpaper_controller();
-  CHECK(wallpaper_controller);
+      GetWallpaperController();
+  DCHECK(wallpaper_controller);
   const uint32_t current_image_id =
       wallpaper_controller->GetWallpaperOriginalImageId();
 

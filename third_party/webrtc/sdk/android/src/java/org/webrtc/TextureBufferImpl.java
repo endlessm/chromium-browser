@@ -67,6 +67,9 @@ class TextureBufferImpl implements VideoFrame.TextureBuffer {
 
   @Override
   public VideoFrame.I420Buffer toI420() {
+    if (type == Type.RGB) {
+      throw new RuntimeException("toI420 for RGB frames not implemented yet");
+    }
     // SurfaceTextureHelper requires a stride that is divisible by 8.  Round width up.
     // See SurfaceTextureHelper for details on the size and format.
     int stride = ((width + 7) / 8) * 8;
@@ -98,7 +101,7 @@ class TextureBufferImpl implements VideoFrame.TextureBuffer {
     ByteBuffer dataV = buffer.slice();
 
     // SurfaceTextureHelper uses the same stride for Y, U, and V data.
-    return new I420BufferImpl(width, height, dataY, stride, dataU, stride, dataV, stride, null);
+    return JavaI420Buffer.wrap(width, height, dataY, stride, dataU, stride, dataV, stride, null);
   }
 
   @Override

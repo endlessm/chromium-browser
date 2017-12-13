@@ -18,23 +18,6 @@
 class Browser;
 class Profile;
 
-// NotificationDelegate which does nothing, useful for testing when
-// the notification events are not important.
-class MockNotificationDelegate : public NotificationDelegate {
- public:
-  explicit MockNotificationDelegate(const std::string& id);
-
-  // NotificationDelegate interface.
-  std::string id() const override;
-
- private:
-  ~MockNotificationDelegate() override;
-
-  std::string id_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockNotificationDelegate);
-};
-
 class StubNotificationUIManager : public NotificationUIManager {
  public:
   StubNotificationUIManager();
@@ -63,9 +46,6 @@ class StubNotificationUIManager : public NotificationUIManager {
                                ProfileID profile_id) const override;
   bool CancelById(const std::string& delegate_id,
                   ProfileID profile_id) override;
-  std::set<std::string> GetAllIdsByProfileAndSourceOrigin(
-      ProfileID profile_id,
-      const GURL& source) override;
   std::set<std::string> GetAllIdsByProfile(ProfileID profile_id) override;
   bool CancelAllBySourceOrigin(const GURL& source_origin) override;
   bool CancelAllByProfile(ProfileID profile_id) override;

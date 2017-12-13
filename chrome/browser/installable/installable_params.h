@@ -6,24 +6,15 @@
 #define CHROME_BROWSER_INSTALLABLE_INSTALLABLE_PARAMS_H_
 
 // This struct specifies the work to be done by the InstallableManager.
-// Data is cached and fetched in the order specified in this struct. A web app
-// manifest will always be fetched first.
+// Data is cached and fetched in the order specified in this struct.
+// If the eligibility check fails, processing halts immediately. Otherwise, a
+// web app manifest is fetched before the remaining items.
 struct InstallableParams {
-  // The ideal primary icon size to fetch. Used only if
-  // |fetch_valid_primary_icon| is true.
-  int ideal_primary_icon_size_in_px = -1;
-
-  // The minimum primary icon size to fetch. Used only if
-  // |fetch_valid_primary_icon| is true.
-  int minimum_primary_icon_size_in_px = -1;
-
-  // The ideal badge icon size to fetch. Used only if
-  // |fetch_valid_badge_icon| is true.
-  int ideal_badge_icon_size_in_px = -1;
-
-  // The minimum badge icon size to fetch. Used only if
-  // |fetch_valid_badge_icon| is true.
-  int minimum_badge_icon_size_in_px = -1;
+  // Check whether the current WebContents is eligible to be installed, i.e it:
+  //  - is served over HTTPS
+  //  - is a top-level frame
+  //  - is not in an incognito profile.
+  bool check_eligibility = false;
 
   // Check whether there is a fetchable, non-empty icon in the manifest
   // conforming to the primary icon size parameters.

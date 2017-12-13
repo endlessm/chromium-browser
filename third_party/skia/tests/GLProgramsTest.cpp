@@ -78,7 +78,7 @@ public:
     std::unique_ptr<GrFragmentProcessor> clone() const override { return Make(); }
 
 private:
-    BigKeyProcessor() : INHERITED(kNone_OptimizationFlags) { this->initClassID<BigKeyProcessor>(); }
+    BigKeyProcessor() : INHERITED(kBigKeyProcessor_ClassID, kNone_OptimizationFlags) { }
     virtual void onGetGLSLProcessorKey(const GrShaderCaps& caps,
                                        GrProcessorKeyBuilder* b) const override {
         GLBigKeyProcessor::GenKey(*this, caps, b);
@@ -126,8 +126,7 @@ private:
     };
 
     BlockInputFragmentProcessor(std::unique_ptr<GrFragmentProcessor> child)
-            : INHERITED(kNone_OptimizationFlags) {
-        this->initClassID<BlockInputFragmentProcessor>();
+            : INHERITED(kBlockInputFragmentProcessor_ClassID, kNone_OptimizationFlags) {
         this->registerChildProcessor(std::move(child));
     }
 
@@ -160,6 +159,7 @@ static sk_sp<GrRenderTargetContext> random_render_target_context(GrContext* cont
                                                                            kRGBA_8888_GrPixelConfig,
                                                                            nullptr,
                                                                            sampleCnt,
+                                                                           false,
                                                                            origin));
     return renderTargetContext;
 }
@@ -391,12 +391,6 @@ static void test_glprograms(skiatest::Reporter* reporter, const sk_gpu_test::Con
     }
     int maxLevels = get_glprograms_max_levels(ctxInfo);
     if (maxLevels == 0) {
-        return;
-    }
-
-    // Disable this test on ANGLE D3D9 configurations. We keep hitting a D3D compiler bug.
-    // See skbug.com/6842 and anglebug.com/2098
-    if (sk_gpu_test::GrContextFactory::kANGLE_D3D9_ES2_ContextType == ctxInfo.type()) {
         return;
     }
 

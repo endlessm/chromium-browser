@@ -203,11 +203,18 @@ DesktopAutomationHandler.prototype = {
    * @param {!AutomationEvent} evt
    */
   onHover: function(evt) {
+    var target = evt.target;
+    if (!AutomationPredicate.object(target)) {
+      target = AutomationUtil.findNodePre(
+                   target, Dir.FORWARD, AutomationPredicate.object) ||
+          target;
+    }
     if (ChromeVoxState.instance.currentRange &&
-        evt.target == ChromeVoxState.instance.currentRange.start.node)
+        target == ChromeVoxState.instance.currentRange.start.node)
       return;
     Output.forceModeForNextSpeechUtterance(cvox.QueueMode.FLUSH);
-    this.onEventDefault(evt);
+    this.onEventDefault(
+        new CustomAutomationEvent(evt.type, target, evt.eventFrom));
   },
 
   /**
@@ -291,8 +298,8 @@ DesktopAutomationHandler.prototype = {
 
     var node = evt.target;
 
-    // Discard focus events on embeddedObject.
-    if (node.role == RoleType.EMBEDDED_OBJECT)
+    // Discard focus events on embeddedObject and webView.
+    if (node.role == RoleType.EMBEDDED_OBJECT || node.role == RoleType.WEB_VIEW)
       return;
 
     this.createTextEditHandlerIfNeeded_(evt.target);

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -346,6 +347,19 @@ class PushImageTests(gs_unittest.AbstractGSContextTest):
     with mock.patch.object(gs.GSContext, 'Exists', return_value=True):
       urls = pushimage.PushImage('/src', 'test.board', 'R34-5126.0.0',
                                  force_keysets=('key1', 'key2', 'key3'))
+    self.assertEqual(urls, EXPECTED)
+
+  def testForceChannel(self):
+    """Verify behavior when user has specified custom channel"""
+    EXPECTED = {
+        'meep': [
+            ('gs://chromeos-releases/meep-channel/test.board/5126.0.0/'
+             'ChromeOS-recovery-R34-5126.0.0-test.board.instructions'),
+        ],
+    }
+    with mock.patch.object(gs.GSContext, 'Exists', return_value=True):
+      urls = pushimage.PushImage('/src', 'test.board', 'R34-5126.0.0',
+                                 force_channels=('meep',))
     self.assertEqual(urls, EXPECTED)
 
   def testMultipleAltInsns(self):

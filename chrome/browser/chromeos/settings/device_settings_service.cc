@@ -15,6 +15,8 @@
 #include "base/time/time.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
+#include "chrome/browser/chromeos/policy/off_hours/device_off_hours_controller.h"
+#include "chrome/browser/chromeos/policy/off_hours/off_hours_policy_applier.h"
 #include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/settings/session_manager_operation.h"
 #include "components/ownership/owner_key_util.h"
@@ -22,6 +24,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
+
 #include "crypto/rsa_private_key.h"
 
 namespace em = enterprise_management;
@@ -65,7 +68,10 @@ DeviceSettingsService* DeviceSettingsService::Get() {
   return g_device_settings_service;
 }
 
-DeviceSettingsService::DeviceSettingsService() {}
+DeviceSettingsService::DeviceSettingsService() {
+  device_off_hours_controller_ =
+      base::MakeUnique<policy::off_hours::DeviceOffHoursController>();
+}
 
 DeviceSettingsService::~DeviceSettingsService() {
   DCHECK(pending_operations_.empty());
@@ -109,6 +115,11 @@ void DeviceSettingsService::SetDeviceMode(policy::DeviceMode device_mode) {
 
 scoped_refptr<PublicKey> DeviceSettingsService::GetPublicKey() {
   return public_key_;
+}
+
+void DeviceSettingsService::SetDeviceOffHoursControllerForTesting(
+    std::unique_ptr<policy::off_hours::DeviceOffHoursController> controller) {
+  device_off_hours_controller_ = std::move(controller);
 }
 
 void DeviceSettingsService::Load() {
@@ -289,6 +300,18 @@ void DeviceSettingsService::HandleCompletedOperation(
   if (status == STORE_SUCCESS) {
     policy_data_ = std::move(operation->policy_data());
     device_settings_ = std::move(operation->device_settings());
+    // Update "OffHours" policy state and apply "OffHours" policy to current
+    // proto only during "OffHours" mode. When "OffHours" mode begins and ends
+    // DeviceOffHoursController requests DeviceSettingsService to asynchronously
+    // reload device policies. (See |DeviceOffHoursController| class
+    // description)
+    device_off_hours_controller_->UpdateOffHoursPolicy(*device_settings_);
+    if (device_off_hours_controller_->is_off_hours_mode()) {
+      std::unique_ptr<em::ChromeDeviceSettingsProto> off_device_settings =
+          policy::off_hours::ApplyOffHoursPolicyToProto(*device_settings_);
+      if (off_device_settings)
+        device_settings_.swap(off_device_settings);
+    }
   } else if (status != STORE_KEY_UNAVAILABLE) {
     LOG(ERROR) << "Session manager operation failed: " << status;
   }

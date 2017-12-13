@@ -1,9 +1,12 @@
-/* crypt.h -- base code for traditional PKWARE encryption
-   Version 1.01e, February 12th, 2005
+/* crypt.c -- base code for traditional PKWARE encryption
+   Version 1.2.0, September 16th, 2017
 
+   Copyright (C) 2012-2017 Nathan Moinvaziri
+     https://github.com/nmoinvaz/minizip
    Copyright (C) 1998-2005 Gilles Vollant
-   Modifications for Info-ZIP crypting
-     Copyright (C) 2003 Terry Thorsen
+     Modifications for Info-ZIP crypting
+     http://www.winimage.com/zLibDll/minizip.html
+   Copyright (C) 2003 Terry Thorsen
 
    This code is a modified version of crypting code in Info-ZIP distribution
 
@@ -129,8 +132,8 @@ int cryptrand(unsigned char *buf, unsigned int len)
     return rlen;
 }
 
-int crypthead(const char *passwd, uint8_t *buf, int buf_size,
-              uint32_t *pkeys, const z_crc_t *pcrc_32_tab, uint32_t crc_for_crypting)
+int crypthead(const char *passwd, uint8_t *buf, int buf_size, uint32_t *pkeys,
+              const z_crc_t *pcrc_32_tab, uint8_t verify1, uint8_t verify2)
 {
     uint8_t n = 0;                      /* index in random header */
     uint8_t header[RAND_HEAD_LEN-2];    /* random header */
@@ -150,8 +153,8 @@ int crypthead(const char *passwd, uint8_t *buf, int buf_size,
     for (n = 0; n < RAND_HEAD_LEN-2; n++)
         buf[n] = (uint8_t)zencode(pkeys, pcrc_32_tab, header[n], t);
 
-    buf[n++] = (uint8_t)zencode(pkeys, pcrc_32_tab, (uint8_t)((crc_for_crypting >> 16) & 0xff), t);
-    buf[n++] = (uint8_t)zencode(pkeys, pcrc_32_tab, (uint8_t)((crc_for_crypting >> 24) & 0xff), t);
+    buf[n++] = (uint8_t)zencode(pkeys, pcrc_32_tab, verify1, t);
+    buf[n++] = (uint8_t)zencode(pkeys, pcrc_32_tab, verify2, t);
     return n;
 }
 

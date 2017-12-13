@@ -9,13 +9,6 @@
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "content/public/test/test_utils.h"
 
-MockNotificationDelegate::MockNotificationDelegate(const std::string& id)
-    : id_(id) {}
-
-MockNotificationDelegate::~MockNotificationDelegate() {}
-
-std::string MockNotificationDelegate::id() const { return id_; }
-
 // -----------------------------------------------------------------------------
 
 StubNotificationUIManager::StubNotificationUIManager() {}
@@ -42,7 +35,7 @@ bool StubNotificationUIManager::SilentDismissById(
     ProfileID profile_id) {
   auto iter = notifications_.begin();
   for (; iter != notifications_.end(); ++iter) {
-    if (iter->first.delegate_id() != delegate_id || iter->second != profile_id)
+    if (iter->first.id() != delegate_id || iter->second != profile_id)
       continue;
     notifications_.erase(iter);
     return true;
@@ -93,7 +86,7 @@ const Notification* StubNotificationUIManager::FindById(
     ProfileID profile_id) const {
   auto iter = notifications_.begin();
   for (; iter != notifications_.end(); ++iter) {
-    if (iter->first.delegate_id() != delegate_id || iter->second != profile_id)
+    if (iter->first.id() != delegate_id || iter->second != profile_id)
       continue;
 
     return &iter->first;
@@ -106,8 +99,7 @@ bool StubNotificationUIManager::CancelById(const std::string& delegate_id,
                                            ProfileID profile_id) {
   auto iter = notifications_.begin();
   for (; iter != notifications_.end(); ++iter) {
-    if (iter->first.delegate_id() != delegate_id ||
-        iter->second != profile_id)
+    if (iter->first.id() != delegate_id || iter->second != profile_id)
       continue;
 
     iter->first.delegate()->Close(false /* by_user */);
@@ -118,24 +110,12 @@ bool StubNotificationUIManager::CancelById(const std::string& delegate_id,
   return false;
 }
 
-std::set<std::string>
-StubNotificationUIManager::GetAllIdsByProfileAndSourceOrigin(
-    ProfileID profile_id,
-    const GURL& source) {
-  std::set<std::string> delegate_ids;
-  for (const auto& pair : notifications_) {
-    if (pair.second == profile_id && pair.first.origin_url() == source)
-      delegate_ids.insert(pair.first.delegate_id());
-  }
-  return delegate_ids;
-}
-
 std::set<std::string> StubNotificationUIManager::GetAllIdsByProfile(
     ProfileID profile_id) {
   std::set<std::string> delegate_ids;
   for (const auto& pair : notifications_) {
     if (pair.second == profile_id)
-      delegate_ids.insert(pair.first.delegate_id());
+      delegate_ids.insert(pair.first.id());
   }
   return delegate_ids;
 }

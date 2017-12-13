@@ -39,9 +39,9 @@
 #include "ui/views/widget/widget.h"
 #include "url/gurl.h"
 
-#if defined(USE_ASH)
-#include "ash/shell.h"            // nogncheck
-#include "ash/wm/window_state.h"  // nogncheck
+#if defined(OS_CHROMEOS)
+#include "ash/shell.h"
+#include "ash/wm/window_state.h"
 #endif
 
 #if defined(USE_AURA)
@@ -799,8 +799,13 @@ void StatusBubbleViews::Hide() {
     view_->Hide();
 }
 
-void StatusBubbleViews::MouseMoved(const gfx::Point& location,
-                                   bool left_content) {
+void StatusBubbleViews::MouseMoved(bool left_content) {
+  MouseMovedAt(display::Screen::GetScreen()->GetCursorScreenPoint(),
+               left_content);
+}
+
+void StatusBubbleViews::MouseMovedAt(const gfx::Point& location,
+                                     bool left_content) {
   contains_mouse_ = !left_content;
   if (left_content) {
     RepositionPopup();

@@ -173,6 +173,10 @@ class V8RuntimeStatsDesktopBrowsingBenchmark(
   PLATFORM = 'desktop'
   SUPPORTED_PLATFORMS = [story.expectations.ALL_DESKTOP]
 
+  def SetExtraBrowserOptions(self, options):
+    options.AppendExtraBrowserArgs(
+      '--enable-blink-features=BlinkRuntimeCallStats')
+
   @classmethod
   def Name(cls):
     return 'v8.runtimestats.browsing_desktop'
@@ -183,6 +187,43 @@ class V8RuntimeStatsMobileBrowsingBenchmark(
     _V8RuntimeStatsBrowsingBenchmark):
   PLATFORM = 'mobile'
   SUPPORTED_PLATFORMS = [story.expectations.ALL_MOBILE]
+
+  def SetExtraBrowserOptions(self, options):
+    options.AppendExtraBrowserArgs(
+      '--enable-blink-features=BlinkRuntimeCallStats')
+
+  def GetExpectations(self):
+    class StoryExpectations(story.expectations.StoryExpectations):
+      def SetExpectations(self):
+        self.DisableStory(
+            'browse:shopping:avito',
+            [story.expectations.ANDROID_ONE],
+            'crbug.com/767970')
+        self.DisableStory(
+            'browse:news:cnn',
+            [story.expectations.ANDROID_ONE],
+            'crbug.com/767970')
+        self.DisableStory(
+            'browse:tech:discourse_infinite_scroll',
+            [story.expectations.ANDROID_ONE],
+            'crbug.com/767970')
+        self.DisableStory(
+            'browse:shopping:lazada',
+            [story.expectations.ANDROID_ONE],
+            'crbug.com/768472')
+        self.DisableStory(
+            'browse:shopping:flipkart',
+            [story.expectations.ALL_MOBILE],
+            'crbug.com/767970')
+        self.DisableStory(
+            'browse:news:cnn',
+            [story.expectations.ALL_MOBILE],
+            'crbug.com/767970')
+        self.DisableStory(
+            'browse:chrome:newtab',
+            [story.expectations.ANDROID_WEBVIEW],
+            'crbug.com/773077')
+    return StoryExpectations()
 
   @classmethod
   def Name(cls):

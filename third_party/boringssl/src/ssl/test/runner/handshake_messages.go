@@ -175,6 +175,7 @@ type clientHelloMsg struct {
 	pskBinderFirst          bool
 	omitExtensions          bool
 	emptyExtensions         bool
+	pad                     int
 }
 
 func (m *clientHelloMsg) equal(i interface{}) bool {
@@ -222,7 +223,8 @@ func (m *clientHelloMsg) equal(i interface{}) bool {
 		m.hasGREASEExtension == m1.hasGREASEExtension &&
 		m.pskBinderFirst == m1.pskBinderFirst &&
 		m.omitExtensions == m1.omitExtensions &&
-		m.emptyExtensions == m1.emptyExtensions
+		m.emptyExtensions == m1.emptyExtensions &&
+		m.pad == m1.pad
 }
 
 func (m *clientHelloMsg) marshal() []byte {
@@ -454,6 +456,16 @@ func (m *clientHelloMsg) marshal() []byte {
 		}
 	}
 
+	if m.pad != 0 && hello.len()%m.pad != 0 {
+		extensions.addU16(extensionPadding)
+		padding := extensions.addU16LengthPrefixed()
+		// Note hello.len() has changed at this point from the length
+		// prefix.
+		if l := hello.len() % m.pad; l != 0 {
+			padding.addBytes(make([]byte, m.pad-l))
+		}
+	}
+
 	if m.omitExtensions || m.emptyExtensions {
 		// Silently erase any extensions which were sent.
 		hello.discardChild()
@@ -463,6 +475,10 @@ func (m *clientHelloMsg) marshal() []byte {
 	}
 
 	m.raw = handshakeMsg.finish()
+	// Sanity-check padding.
+	if m.pad != 0 && (len(m.raw)-4)%m.pad != 0 {
+		panic(fmt.Sprintf("%d is not a multiple of %d", len(m.raw)-4, m.pad))
+	}
 	return m.raw
 }
 
@@ -865,19 +881,19 @@ func (m *serverHelloMsg) marshal() []byte {
 	}
 	if m.versOverride != 0 {
 		hello.addU16(m.versOverride)
-	} else if m.vers == tls13ExperimentVersion {
+	} else if isResumptionExperiment(m.vers) {
 		hello.addU16(VersionTLS12)
 	} else {
 		hello.addU16(m.vers)
 	}
 
 	hello.addBytes(m.random)
-	if vers < VersionTLS13 || m.vers == tls13ExperimentVersion {
+	if vers < VersionTLS13 || isResumptionExperiment(m.vers) {
 		sessionId := hello.addU8LengthPrefixed()
 		sessionId.addBytes(m.sessionId)
 	}
 	hello.addU16(m.cipherSuite)
-	if vers < VersionTLS13 || m.vers == tls13ExperimentVersion {
+	if vers < VersionTLS13 || isResumptionExperiment(m.vers) {
 		hello.addU8(m.compressionMethod)
 	}
 
@@ -896,7 +912,7 @@ func (m *serverHelloMsg) marshal() []byte {
 			extensions.addU16(2) // Length
 			extensions.addU16(m.pskIdentity)
 		}
-		if m.vers == tls13ExperimentVersion || m.supportedVersOverride != 0 {
+		if isResumptionExperiment(m.vers) || m.supportedVersOverride != 0 {
 			extensions.addU16(extensionSupportedVersions)
 			extensions.addU16(2) // Length
 			if m.supportedVersOverride != 0 {
@@ -950,7 +966,7 @@ func (m *serverHelloMsg) unmarshal(data []byte) bool {
 	}
 	m.random = data[6:38]
 	data = data[38:]
-	if vers < VersionTLS13 || m.vers == tls13ExperimentVersion {
+	if vers < VersionTLS13 || isResumptionExperiment(m.vers) {
 		sessionIdLen := int(data[0])
 		if sessionIdLen > 32 || len(data) < 1+sessionIdLen {
 			return false
@@ -963,7 +979,7 @@ func (m *serverHelloMsg) unmarshal(data []byte) bool {
 	}
 	m.cipherSuite = uint16(data[0])<<8 | uint16(data[1])
 	data = data[2:]
-	if vers < VersionTLS13 || m.vers == tls13ExperimentVersion {
+	if vers < VersionTLS13 || isResumptionExperiment(m.vers) {
 		if len(data) < 1 {
 			return false
 		}
@@ -974,6 +990,7 @@ func (m *serverHelloMsg) unmarshal(data []byte) bool {
 	if len(data) == 0 && m.vers < VersionTLS13 {
 		// Extension data is optional before TLS 1.3.
 		m.extensions = serverExtensions{}
+		m.omitExtensions = true
 		return true
 	}
 	if len(data) < 2 {
@@ -1051,7 +1068,7 @@ func (m *serverHelloMsg) unmarshal(data []byte) bool {
 				m.pskIdentity = uint16(d[0])<<8 | uint16(d[1])
 				m.hasPSKIdentity = true
 			case extensionSupportedVersions:
-				if m.vers != tls13ExperimentVersion {
+				if !isResumptionExperiment(m.vers) {
 					return false
 				}
 			default:
@@ -1132,6 +1149,7 @@ type serverExtensions struct {
 	keyShare                keyShareEntry
 	supportedVersion        uint16
 	supportedPoints         []uint8
+	supportedCurves         []CurveID
 	serverNameAck           bool
 }
 
@@ -1238,6 +1256,15 @@ func (m *serverExtensions) marshal(extensions *byteBuilder) {
 		supportedPointsList := extensions.addU16LengthPrefixed()
 		supportedPoints := supportedPointsList.addU8LengthPrefixed()
 		supportedPoints.addBytes(m.supportedPoints)
+	}
+	if len(m.supportedCurves) > 0 {
+		// https://tools.ietf.org/html/draft-ietf-tls-tls13-18#section-4.2.4
+		extensions.addU16(extensionSupportedCurves)
+		supportedCurvesList := extensions.addU16LengthPrefixed()
+		supportedCurves := supportedCurvesList.addU16LengthPrefixed()
+		for _, curve := range m.supportedCurves {
+			supportedCurves.addU16(uint16(curve))
+		}
 	}
 	if m.hasEarlyData {
 		extensions.addU16(extensionEarlyData)

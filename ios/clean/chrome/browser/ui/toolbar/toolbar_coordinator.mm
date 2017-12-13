@@ -4,6 +4,7 @@
 
 #import "ios/clean/chrome/browser/ui/toolbar/toolbar_coordinator.h"
 
+#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/ui/broadcaster/chrome_broadcaster.h"
 #import "ios/chrome/browser/ui/browser_list/browser.h"
@@ -15,7 +16,12 @@
 #import "ios/clean/chrome/browser/ui/commands/tools_menu_commands.h"
 #import "ios/clean/chrome/browser/ui/history_popup/history_popup_coordinator.h"
 #import "ios/clean/chrome/browser/ui/omnibox/location_bar_coordinator.h"
+#import "ios/clean/chrome/browser/ui/overlays/overlay_service.h"
+#import "ios/clean/chrome/browser/ui/overlays/overlay_service_factory.h"
+#import "ios/clean/chrome/browser/ui/toolbar/toolbar_button_factory.h"
+#import "ios/clean/chrome/browser/ui/toolbar/toolbar_configuration.h"
 #import "ios/clean/chrome/browser/ui/toolbar/toolbar_mediator.h"
+#import "ios/clean/chrome/browser/ui/toolbar/toolbar_style.h"
 #import "ios/clean/chrome/browser/ui/toolbar/toolbar_view_controller.h"
 #import "ios/clean/chrome/browser/ui/tools/tools_coordinator.h"
 #import "ios/web/public/navigation_manager.h"
@@ -45,6 +51,7 @@
 @synthesize viewController = _viewController;
 @synthesize webState = _webState;
 @synthesize mediator = _mediator;
+@synthesize usesTabStrip = _usesTabStrip;
 
 - (instancetype)init {
   if ((self = [super init])) {
@@ -58,42 +65,59 @@
   self.mediator.webState = self.webState;
 }
 
+- (void)setUsesTabStrip:(BOOL)usesTabStrip {
+  DCHECK(!self.started);
+  _usesTabStrip = usesTabStrip;
+}
+
+#pragma mark - BrowserCoordinator
+
 - (void)start {
   if (self.started)
     return;
 
-  self.viewController = [[ToolbarViewController alloc]
-      initWithDispatcher:static_cast<id>(self.browser->dispatcher())];
+  ToolbarStyle style =
+      self.browser->browser_state()->IsOffTheRecord() ? INCOGNITO : NORMAL;
+  ToolbarButtonFactory* factory =
+      [[ToolbarButtonFactory alloc] initWithStyle:style];
 
-  CommandDispatcher* dispatcher = self.browser->dispatcher();
-  [dispatcher startDispatchingToTarget:self
-                           forSelector:@selector(showToolsMenu)];
-  [dispatcher startDispatchingToTarget:self
-                           forSelector:@selector(closeToolsMenu)];
-  [dispatcher startDispatchingToTarget:self
-                           forProtocol:@protocol(TabHistoryPopupCommands)];
+  self.viewController =
+      [[ToolbarViewController alloc] initWithDispatcher:self.callableDispatcher
+                                          buttonFactory:factory];
+  self.viewController.usesTabStrip = self.usesTabStrip;
+
+  [self.dispatcher startDispatchingToTarget:self
+                                forSelector:@selector(showToolsMenu)];
+  [self.dispatcher startDispatchingToTarget:self
+                                forSelector:@selector(closeToolsMenu)];
+  [self.dispatcher startDispatchingToTarget:self
+                                forProtocol:@protocol(TabHistoryPopupCommands)];
 
   self.mediator.consumer = self.viewController;
   self.mediator.webStateList = &self.browser->web_state_list();
 
-  [self.browser->broadcaster()
-      addObserver:self.mediator
-      forSelector:@selector(broadcastTabStripVisible:)];
+  if (self.usesTabStrip) {
+    [self.browser->broadcaster()
+        addObserver:self.mediator
+        forSelector:@selector(broadcastTabStripVisible:)];
+  }
   LocationBarCoordinator* locationBarCoordinator =
       [[LocationBarCoordinator alloc] init];
   self.locationBarCoordinator = locationBarCoordinator;
   [self addChildCoordinator:locationBarCoordinator];
   [locationBarCoordinator start];
-
   [super start];
 }
 
 - (void)stop {
   [super stop];
-  [self.browser->broadcaster()
-      removeObserver:self.mediator
-         forSelector:@selector(broadcastTabStripVisible:)];
-  [self.browser->dispatcher() stopDispatchingToTarget:self];
+  if (self.usesTabStrip) {
+    [self.browser->broadcaster()
+        removeObserver:self.mediator
+           forSelector:@selector(broadcastTabStripVisible:)];
+  }
+  [self.mediator disconnect];
+  [self.dispatcher stopDispatchingToTarget:self];
 }
 
 - (void)childCoordinatorDidStart:(BrowserCoordinator*)childCoordinator {
@@ -119,23 +143,25 @@
 
 - (void)showToolsMenu {
   ToolsCoordinator* toolsCoordinator = [[ToolsCoordinator alloc] init];
-  [self addChildCoordinator:toolsCoordinator];
   ToolsMenuConfiguration* menuConfiguration =
       [[ToolsMenuConfiguration alloc] initWithDisplayView:nil];
   menuConfiguration.inTabSwitcher = NO;
   menuConfiguration.noOpenedTabs = NO;
+  menuConfiguration.inIncognito =
+      self.browser->browser_state()->IsOffTheRecord();
   menuConfiguration.inNewTabPage =
       (self.webState->GetLastCommittedURL() == GURL(kChromeUINewTabURL));
-
   toolsCoordinator.toolsMenuConfiguration = menuConfiguration;
   toolsCoordinator.webState = self.webState;
-  [toolsCoordinator start];
+  OverlayServiceFactory::GetInstance()
+      ->GetForBrowserState(self.browser->browser_state())
+      ->ShowOverlayForBrowser(toolsCoordinator, self, self.browser);
   self.toolsMenuCoordinator = toolsCoordinator;
 }
 
 - (void)closeToolsMenu {
   [self.toolsMenuCoordinator stop];
-  [self removeChildCoordinator:self.toolsMenuCoordinator];
+  // |toolsMenuCoordinator| is weak, so it is presumed nil after being stopped.
 }
 
 #pragma mark - HistoryPopupCommands Implementation
@@ -147,13 +173,13 @@
     historyPopupCoordinator.positionProvider = self.viewController;
     historyPopupCoordinator.presentationProvider = self.viewController;
     historyPopupCoordinator.tabHistoryUIUpdater = self.viewController;
-    historyPopupCoordinator.webState = self.webState;
-    historyPopupCoordinator.presentingButton = ToolbarButtonTypeBack;
-    historyPopupCoordinator.navigationItems =
-        self.webState->GetNavigationManager()->GetBackwardItems();
     self.historyPopupCoordinator = historyPopupCoordinator;
     [self addChildCoordinator:self.historyPopupCoordinator];
   }
+  self.historyPopupCoordinator.webState = self.webState;
+  self.historyPopupCoordinator.presentingButton = ToolbarButtonTypeBack;
+  self.historyPopupCoordinator.navigationItems =
+      self.webState->GetNavigationManager()->GetBackwardItems();
   [self.historyPopupCoordinator start];
 }
 
@@ -164,13 +190,13 @@
     historyPopupCoordinator.positionProvider = self.viewController;
     historyPopupCoordinator.presentationProvider = self.viewController;
     historyPopupCoordinator.tabHistoryUIUpdater = self.viewController;
-    historyPopupCoordinator.webState = self.webState;
-    historyPopupCoordinator.presentingButton = ToolbarButtonTypeForward;
-    historyPopupCoordinator.navigationItems =
-        self.webState->GetNavigationManager()->GetForwardItems();
     self.historyPopupCoordinator = historyPopupCoordinator;
     [self addChildCoordinator:self.historyPopupCoordinator];
   }
+  self.historyPopupCoordinator.webState = self.webState;
+  self.historyPopupCoordinator.presentingButton = ToolbarButtonTypeForward;
+  self.historyPopupCoordinator.navigationItems =
+      self.webState->GetNavigationManager()->GetForwardItems();
   [self.historyPopupCoordinator start];
 }
 

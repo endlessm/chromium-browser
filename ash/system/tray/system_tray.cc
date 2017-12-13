@@ -6,10 +6,12 @@
 
 #include <algorithm>
 #include <map>
+#include <memory>
 #include <vector>
 
 #include "ash/login_status.h"
 #include "ash/metrics/user_metrics_recorder.h"
+#include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
@@ -36,6 +38,7 @@
 #include "ash/system/rotation/tray_rotation_lock.h"
 #include "ash/system/screen_security/screen_capture_tray_item.h"
 #include "ash/system/screen_security/screen_share_tray_item.h"
+#include "ash/system/screen_security/screen_tray_item.h"
 #include "ash/system/session/tray_session_length_limit.h"
 #include "ash/system/supervised/tray_supervised_user.h"
 #include "ash/system/tiles/tray_tiles.h"
@@ -66,12 +69,15 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/message_center/message_center.h"
-#include "ui/message_center/message_center_style.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/controls/message_box_view.h"
+#include "ui/views/layout/fill_layout.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
+#include "ui/views/window/dialog_delegate.h"
 #include "ui/wm/core/window_util.h"
 #include "ui/wm/public/activation_change_observer.h"
 #include "ui/wm/public/activation_client.h"
@@ -81,6 +87,49 @@ using views::TrayBubbleView;
 namespace ash {
 
 namespace {
+
+// Dialog that confirms the user wants to stop screen share/cast. Calls a
+// callback with the result.
+class CancelCastingDialog : public views::DialogDelegateView {
+ public:
+  explicit CancelCastingDialog(base::OnceCallback<void(bool)> callback)
+      : callback_(std::move(callback)) {
+    AddChildView(new views::MessageBoxView(views::MessageBoxView::InitParams(
+        l10n_util::GetStringUTF16(IDS_DESKTOP_CASTING_ACTIVE_MESSAGE))));
+    SetLayoutManager(new views::FillLayout());
+  }
+  ~CancelCastingDialog() override = default;
+
+  base::string16 GetWindowTitle() const override {
+    return l10n_util::GetStringUTF16(IDS_DESKTOP_CASTING_ACTIVE_TITLE);
+  }
+
+  int GetDialogButtons() const override {
+    return ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL;
+  }
+
+  bool Cancel() override {
+    std::move(callback_).Run(false);
+    return true;
+  }
+
+  bool Accept() override {
+    // Stop screen sharing and capturing.
+    SystemTray* system_tray = Shell::Get()->GetPrimarySystemTray();
+    if (system_tray->GetScreenShareItem()->is_started())
+      system_tray->GetScreenShareItem()->Stop();
+    if (system_tray->GetScreenCaptureItem()->is_started())
+      system_tray->GetScreenCaptureItem()->Stop();
+
+    std::move(callback_).Run(true);
+    return true;
+  }
+
+ private:
+  base::OnceCallback<void(bool)> callback_;
+
+  DISALLOW_COPY_AND_ASSIGN(CancelCastingDialog);
+};
 
 // A tray item that just reserves space in the tray.
 class PaddingTrayItem : public SystemTrayItem {
@@ -228,11 +277,11 @@ void SystemTray::Shutdown() {
 }
 
 void SystemTray::CreateItems() {
-  AddTrayItem(base::MakeUnique<TrayUser>(this));
+  AddTrayItem(std::make_unique<TrayUser>(this));
 
   // Crucially, this trailing padding has to be inside the user item(s).
   // Otherwise it could be a main axis margin on the tray's box layout.
-  AddTrayItem(base::MakeUnique<PaddingTrayItem>());
+  AddTrayItem(std::make_unique<PaddingTrayItem>());
 
   tray_session_length_limit_ = new TraySessionLengthLimit(this);
   AddTrayItem(base::WrapUnique(tray_session_length_limit_));
@@ -240,40 +289,40 @@ void SystemTray::CreateItems() {
   AddTrayItem(base::WrapUnique(tray_enterprise_));
   tray_supervised_user_ = new TraySupervisedUser(this);
   AddTrayItem(base::WrapUnique(tray_supervised_user_));
-  AddTrayItem(base::MakeUnique<TrayIME>(this));
+  AddTrayItem(std::make_unique<TrayIME>(this));
   tray_accessibility_ = new TrayAccessibility(this);
   AddTrayItem(base::WrapUnique(tray_accessibility_));
   tray_tracing_ = new TrayTracing(this);
   AddTrayItem(base::WrapUnique(tray_tracing_));
   AddTrayItem(
-      base::MakeUnique<TrayPower>(this, message_center::MessageCenter::Get()));
+      std::make_unique<TrayPower>(this, message_center::MessageCenter::Get()));
   tray_network_ = new TrayNetwork(this);
   AddTrayItem(base::WrapUnique(tray_network_));
-  AddTrayItem(base::MakeUnique<TrayVPN>(this));
-  AddTrayItem(base::MakeUnique<TrayBluetooth>(this));
+  AddTrayItem(std::make_unique<TrayVPN>(this));
+  AddTrayItem(std::make_unique<TrayBluetooth>(this));
   tray_cast_ = new TrayCast(this);
   AddTrayItem(base::WrapUnique(tray_cast_));
   screen_capture_tray_item_ = new ScreenCaptureTrayItem(this);
   AddTrayItem(base::WrapUnique(screen_capture_tray_item_));
   screen_share_tray_item_ = new ScreenShareTrayItem(this);
   AddTrayItem(base::WrapUnique(screen_share_tray_item_));
-  AddTrayItem(base::MakeUnique<MultiProfileMediaTrayItem>(this));
+  AddTrayItem(std::make_unique<MultiProfileMediaTrayItem>(this));
   tray_audio_ = new TrayAudio(this);
   AddTrayItem(base::WrapUnique(tray_audio_));
   tray_scale_ = new TrayScale(this);
   AddTrayItem(base::WrapUnique(tray_scale_));
-  AddTrayItem(base::MakeUnique<TrayBrightness>(this));
-  AddTrayItem(base::MakeUnique<TrayKeyboardBrightness>(this));
+  AddTrayItem(std::make_unique<TrayBrightness>(this));
+  AddTrayItem(std::make_unique<TrayKeyboardBrightness>(this));
   tray_caps_lock_ = new TrayCapsLock(this);
   AddTrayItem(base::WrapUnique(tray_caps_lock_));
-  if (NightLightController::IsFeatureEnabled()) {
+  if (switches::IsNightLightEnabled()) {
     tray_night_light_ = new TrayNightLight(this);
     AddTrayItem(base::WrapUnique(tray_night_light_));
   }
   // TODO(jamescook): Remove this when mash has support for display management
   // and we have a DisplayManager equivalent. See http://crbug.com/548429
   if (Shell::GetAshConfig() != Config::MASH)
-    AddTrayItem(base::MakeUnique<TrayRotationLock>(this));
+    AddTrayItem(std::make_unique<TrayRotationLock>(this));
   tray_update_ = new TrayUpdate(this);
   AddTrayItem(base::WrapUnique(tray_update_));
   tray_tiles_ = new TrayTiles(this);
@@ -281,7 +330,7 @@ void SystemTray::CreateItems() {
   tray_system_info_ = new TraySystemInfo(this);
   AddTrayItem(base::WrapUnique(tray_system_info_));
   // Leading padding.
-  AddTrayItem(base::MakeUnique<PaddingTrayItem>());
+  AddTrayItem(std::make_unique<PaddingTrayItem>());
 }
 
 void SystemTray::AddTrayItem(std::unique_ptr<SystemTrayItem> item) {
@@ -310,25 +359,23 @@ void SystemTray::ShowDefaultView(BubbleCreationType creation_type,
   if (creation_type != BUBBLE_USE_EXISTING)
     Shell::Get()->metrics()->RecordUserMetricsAction(
         UMA_STATUS_AREA_MENU_OPENED);
-  ShowItems(GetTrayItems(), false, true, creation_type, false, show_by_click);
+  ShowItems(GetTrayItems(), false, creation_type, false, show_by_click);
 }
 
 void SystemTray::ShowPersistentDefaultView() {
-  ShowItems(GetTrayItems(), false, false, BUBBLE_CREATE_NEW, true, false);
+  ShowItems(GetTrayItems(), false, BUBBLE_CREATE_NEW, true, false);
 }
 
 void SystemTray::ShowDetailedView(SystemTrayItem* item,
                                   int close_delay,
-                                  bool activate,
                                   BubbleCreationType creation_type) {
   std::vector<SystemTrayItem*> items;
   // The detailed view with timeout means a UI to show the current system state,
   // like the audio level or brightness. Such UI should behave as persistent and
   // keep its own logic for the appearance.
-  bool persistent =
-      (!activate && close_delay > 0 && creation_type == BUBBLE_CREATE_NEW);
+  bool persistent = (close_delay > 0 && creation_type == BUBBLE_CREATE_NEW);
   items.push_back(item);
-  ShowItems(items, true, activate, creation_type, persistent, false);
+  ShowItems(items, true, creation_type, persistent, false);
   if (system_bubble_)
     system_bubble_->bubble()->StartAutoCloseTimer(close_delay);
 }
@@ -397,6 +444,22 @@ TrayAudio* SystemTray::GetTrayAudio() const {
   return tray_audio_;
 }
 
+void SystemTray::CanSwitchAwayFromActiveUser(
+    base::OnceCallback<void(bool)> callback) {
+  // If neither screen sharing nor capturing is going on we can immediately
+  // switch users.
+  if (!GetScreenShareItem()->is_started() &&
+      !GetScreenCaptureItem()->is_started()) {
+    std::move(callback).Run(true);
+    return;
+  }
+
+  views::DialogDelegate::CreateDialogWidget(
+      new CancelCastingDialog(std::move(callback)),
+      Shell::GetPrimaryRootWindow(), nullptr)
+      ->Show();
+}
+
 // Private methods.
 
 bool SystemTray::HasSystemBubbleType(SystemTrayBubble::BubbleType type) {
@@ -418,12 +481,11 @@ base::string16 SystemTray::GetAccessibleNameForTray() {
 
 void SystemTray::ShowItems(const std::vector<SystemTrayItem*>& items,
                            bool detailed,
-                           bool can_activate,
                            BubbleCreationType creation_type,
                            bool persistent,
                            bool show_by_click) {
-  // No system tray bubbles in kiosk mode.
-  if (Shell::Get()->session_controller()->IsKioskSession())
+  // No system tray bubbles in kiosk app mode.
+  if (Shell::Get()->session_controller()->IsRunningInAppMode())
     return;
 
   // Destroy any existing bubble and create a new one.

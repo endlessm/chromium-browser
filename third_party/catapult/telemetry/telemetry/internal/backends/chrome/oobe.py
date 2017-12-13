@@ -16,9 +16,9 @@ class Oobe(web_contents.WebContents):
     super(Oobe, self).__init__(inspector_backend)
 
   def _GaiaIFrameContext(self):
-    max_context_id = self.EnableAllContexts()
-    logging.debug('%d contexts in Gaia page', max_context_id)
-    for gaia_iframe_context in range(max_context_id + 1):
+    all_context_ids = self.EnableAllContexts().copy()
+    logging.debug('Gaia page contexts: %r', all_context_ids)
+    for gaia_iframe_context in all_context_ids:
       try:
         if self.EvaluateJavaScript(
             "document.readyState == 'complete' && "
@@ -50,6 +50,20 @@ class Oobe(web_contents.WebContents):
     #   Executes: 'doLogin("username", "pass", true)'
     self.ExecuteJavaScript('{{ @f }}({{ *args }})', f=api, args=args)
 
+  def _WaitForEnterpriseWebview(self, username):
+    """Waits for enterprise webview to be visible. We look for a span with the
+    title set to the domain, for example <span title="managedchrome.com">."""
+    _, domain = username.split('@')
+    def _EnterpriseWebviewVisible():
+      try:
+        webview = self._GaiaWebviewContext()
+        return webview and webview.EvaluateJavaScript(
+            "document.querySelectorAll('span[title= {{ domain }}]').length;",
+            domain=domain)
+      except exceptions.DevtoolsTargetCrashException:
+        return False
+    py_utils.WaitFor(_EnterpriseWebviewVisible, 60)
+
   def NavigateGuestLogin(self):
     """Logs in as guest."""
     self._ExecuteOobeApi('Oobe.guestLoginForTesting')
@@ -59,6 +73,8 @@ class Oobe(web_contents.WebContents):
     """Fake user login."""
     self._ExecuteOobeApi('Oobe.loginForTesting', username, password, gaia_id,
                          enterprise_enroll)
+    if enterprise_enroll:
+      self._WaitForEnterpriseWebview(username)
 
   def NavigateGaiaLogin(self, username, password,
                         enterprise_enroll=False,
@@ -114,13 +130,12 @@ class Oobe(web_contents.WebContents):
   def _NavigateWebViewEntry(self, field, value, next_field):
     self._WaitForField(field)
     self._WaitForField(next_field)
-    gaia_webview_context = self._GaiaWebviewContext()
     # This code supports both ChromeOS Gaia v1 and v2.
     # In v2 'password' id is assigned to <DIV> element encapsulating
     # unnamed <INPUT>. So this code will select the first <INPUT> element
     # below the given field id in the DOM tree if field id is not attached
     # to <INPUT>.
-    gaia_webview_context.EvaluateJavaScript(
+    self._GaiaWebviewContext().ExecuteJavaScript(
         """
         var field = document.getElementById({{ field }});
         if (field.tagName != 'INPUT')

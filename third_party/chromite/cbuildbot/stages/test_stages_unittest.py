@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -12,148 +13,19 @@ import os
 
 from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import swarming_lib
-from chromite.cbuildbot import topology
-from chromite.cbuildbot.stages import artifact_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import test_stages
 from chromite.lib.const import waterfall
-from chromite.lib import cgroups
-from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib_unittest
-from chromite.lib import cros_test_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
 from chromite.lib import fake_cidb
-from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import timeout_util
 
 
 # pylint: disable=too-many-ancestors
-
-class GCETestStageTest(generic_stages_unittest.AbstractStageTestCase,
-                       cbuildbot_unittest.SimpleBuilderTestCase):
-  """Tests for the GCETest stage."""
-
-  BOT_ID = 'amd64-generic-full'
-  RELEASE_TAG = ''
-
-  def setUp(self):
-    for cmd in ('RunTestSuite', 'CreateTestRoot', 'GenerateStackTraces',
-                'ArchiveFile', 'ArchiveTestResults', 'ArchiveVMFiles',
-                'UploadArchivedFile', 'RunDevModeTest', 'RunCrosVMTest',
-                'ListFailedTests', 'GetTestResultsDir',
-                'BuildAndArchiveTestResultsTarball'):
-      self.PatchObject(commands, cmd, autospec=True)
-    self.PatchObject(test_stages.VMTestStage, '_NoTestResults',
-                     autospec=True, return_value=False)
-    self.PatchObject(osutils, 'RmDir', autospec=True)
-    self.PatchObject(cgroups, 'SimpleContainChildren', autospec=True)
-    self._Prepare()
-
-    # Simulate breakpad symbols being ready.
-    board_runattrs = self._run.GetBoardRunAttrs(self._current_board)
-    board_runattrs.SetParallel('breakpad_symbols_generated', True)
-
-  def ConstructStage(self):
-    # pylint: disable=W0212
-    self._run.GetArchive().SetupArchivePath()
-    stage = test_stages.GCETestStage(self._run, self._current_board)
-    image_dir = stage.GetImageDirSymlink()
-    osutils.Touch(os.path.join(image_dir, constants.TEST_KEY_PRIVATE),
-                  makedirs=True)
-    return stage
-
-  def testGceTests(self):
-    """Verifies that GCE_SMOKE_TEST_TYPE tests are run on GCE."""
-    self._run.config['gce_tests'] = [
-        config_lib.GCETestConfig(constants.GCE_SMOKE_TEST_TYPE)
-    ]
-    gce_tarball = constants.TEST_IMAGE_GCE_TAR
-
-    # pylint: disable=unused-argument
-    def _MockRunTestSuite(buildroot, board, image_path, results_dir, test_type,
-                          *args, **kwargs):
-      self.assertEndsWith(image_path, gce_tarball)
-      self.assertEqual(test_type, constants.GCE_SMOKE_TEST_TYPE)
-    # pylint: enable=unused-argument
-
-    commands.RunTestSuite.side_effect = _MockRunTestSuite
-
-    self.RunStage()
-
-    self.assertTrue(commands.RunTestSuite.called and
-                    commands.RunTestSuite.call_count == 1)
-
-
-class VMTestStageTest(generic_stages_unittest.AbstractStageTestCase,
-                      cbuildbot_unittest.SimpleBuilderTestCase):
-  """Tests for the VMTest stage."""
-
-  BOT_ID = 'amd64-generic-full'
-  RELEASE_TAG = ''
-
-  def setUp(self):
-    for cmd in ('RunTestSuite', 'CreateTestRoot', 'GenerateStackTraces',
-                'ArchiveFile', 'ArchiveTestResults', 'ArchiveVMFiles',
-                'UploadArchivedFile', 'RunDevModeTest', 'RunCrosVMTest',
-                'ListFailedTests', 'GetTestResultsDir',
-                'BuildAndArchiveTestResultsTarball'):
-      self.PatchObject(commands, cmd, autospec=True)
-    self.PatchObject(test_stages.VMTestStage, '_NoTestResults',
-                     autospec=True, return_value=False)
-    self.PatchObject(osutils, 'RmDir', autospec=True)
-    self.PatchObject(cgroups, 'SimpleContainChildren', autospec=True)
-    self._Prepare()
-
-    # Simulate breakpad symbols being ready.
-    board_runattrs = self._run.GetBoardRunAttrs(self._current_board)
-    board_runattrs.SetParallel('breakpad_symbols_generated', True)
-
-  def ConstructStage(self):
-    # pylint: disable=W0212
-    self._run.GetArchive().SetupArchivePath()
-    stage = test_stages.VMTestStage(self._run, self._current_board)
-    image_dir = stage.GetImageDirSymlink()
-    osutils.Touch(os.path.join(image_dir, constants.TEST_KEY_PRIVATE),
-                  makedirs=True)
-    return stage
-
-  def testFullTests(self):
-    """Tests if full unit and cros_au_test_harness tests are run correctly."""
-    self._run.config['vm_tests'] = [
-        config_lib.VMTestConfig(constants.FULL_AU_TEST_TYPE)
-    ]
-    self.RunStage()
-
-  def testQuickTests(self):
-    """Tests if quick unit and cros_au_test_harness tests are run correctly."""
-    self._run.config['vm_tests'] = [
-        config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)
-    ]
-    self.RunStage()
-
-  def testFailedTest(self):
-    """Tests if quick unit and cros_au_test_harness tests are run correctly."""
-    self.PatchObject(test_stages.VMTestStage, '_RunTest',
-                     autospec=True, side_effect=Exception())
-    self.assertRaises(failures_lib.StepFailure, self.RunStage)
-
-  def testRaisesInfraFail(self):
-    """Tests that a infra failures has been raised."""
-    commands.BuildAndArchiveTestResultsTarball.side_effect = (
-        OSError('Cannot archive'))
-    stage = self.ConstructStage()
-    self.assertRaises(failures_lib.InfrastructureFailure, stage.PerformStage)
-
-  def testSkipVMTest(self):
-    """Tests trybot with no vm test."""
-    extra_cmd_args = ['--novmtests']
-    self._Prepare(extra_cmd_args=extra_cmd_args)
-    self.RunStage()
-
 
 class UnitTestStageTest(generic_stages_unittest.AbstractStageTestCase):
   """Tests for the UnitTest stage."""
@@ -457,94 +329,6 @@ class HWTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     stage.PerformStage()
 
     mock_report.assert_called_once_with(mock.ANY, mock.ANY, mock.ANY)
-
-
-class AUTestStageTest(generic_stages_unittest.AbstractStageTestCase,
-                      cros_build_lib_unittest.RunCommandTestCase,
-                      cbuildbot_unittest.SimpleBuilderTestCase,
-                      cros_test_lib.MockTempDirTestCase):
-  """Test only custom methods in AUTestStageTest."""
-
-  BOT_ID = 'x86-mario-release'
-  RELEASE_TAG = '0.0.1'
-
-  # pylint: disable=W0201
-  def setUp(self):
-    self.PatchObject(commands, 'ArchiveFile', autospec=True,
-                     return_value='foo.txt')
-
-    self.archive_stage = None
-    self.suite_config = None
-    self.suite = None
-
-    self._Prepare()
-
-  def _Prepare(self, bot_id=None, **kwargs):
-    super(AUTestStageTest, self)._Prepare(bot_id, **kwargs)
-
-    self._run.GetArchive().SetupArchivePath()
-    self.archive_stage = artifact_stages.ArchiveStage(self._run,
-                                                      self._current_board)
-    self.suite_config = self.GetHWTestSuite()
-    self.suite = self.suite_config.suite
-
-  def ConstructStage(self):
-    board_runattrs = self._run.GetBoardRunAttrs(self._current_board)
-    board_runattrs.SetParallelDefault('test_artifacts_uploaded', True)
-    return test_stages.AUTestStage(
-        self._run, self._current_board, self._current_board, self.suite_config)
-
-  def _PatchJson(self):
-    """Mock out the code that loads from swarming task summary."""
-    # pylint: disable=protected-access
-    temp_json_path = os.path.join(self.tempdir, 'temp_summary.json')
-    orig_func = commands._CreateSwarmingArgs
-
-    def replacement(*args, **kargs):
-      swarming_args = orig_func(*args, **kargs)
-      swarming_args['temp_json_path'] = temp_json_path
-      return swarming_args
-
-    self.PatchObject(commands, '_CreateSwarmingArgs', side_effect=replacement)
-
-    j = {'shards':[{'name': 'fake_name', 'bot_id': 'chromeos-server990',
-                    'created_ts': '2015-06-12 12:00:00',
-                    'internal_failure': False,
-                    'outputs': ['some fake output']}]}
-    self.PatchObject(swarming_lib.SwarmingCommandResult, 'LoadJsonSummary',
-                     return_value=j)
-
-  def testPerformStage(self):
-    """Tests that we correctly generate a tarball and archive it."""
-    # pylint: disable=protected-access
-
-    topology.FetchTopologyFromCIDB(None)
-    self._PatchJson()
-    stage = self.ConstructStage()
-    stage.PerformStage()
-    cmd = ['site_utils/autoupdate/full_release_test.py', '--npo', '--dump',
-           '--archive_url', self.archive_stage.upload_url,
-           self.archive_stage.release_tag, self._current_board]
-    self.assertCommandContains(cmd)
-    # pylint: disable=W0212
-    self.assertCommandContains([swarming_lib._SWARMING_PROXY_CLIENT,
-                                commands.RUN_SUITE_PATH, self.suite])
-
-  def testPayloadsNotGenerated(self):
-    """Test that we exit early if payloads are not generated."""
-    board_runattrs = self._run.GetBoardRunAttrs(self._current_board)
-    board_runattrs.SetParallel('test_artifacts_uploaded', False)
-    self.warning_mock = self.PatchObject(
-        logging, 'PrintBuildbotStepWarnings')
-    self.run_suite_mock = self.PatchObject(commands, 'RunHWTestSuite')
-
-    self.RunStage()
-
-    # Make sure we make the stage orange.
-    self.warning_mock.assert_called_once()
-    # We exit early, so commands.RunHWTestSuite should not have been
-    # called.
-    self.assertFalse(self.run_suite_mock.called)
 
 
 class ImageTestStageTest(generic_stages_unittest.AbstractStageTestCase,

@@ -28,8 +28,8 @@ import org.chromium.chrome.browser.compositor.layouts.LayoutUpdateHost;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.content.browser.ContentViewCore;
-import org.chromium.content.browser.SelectionClient;
 import org.chromium.content.browser.SelectionPopupController;
+import org.chromium.content_public.browser.SelectionClient;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
 import org.chromium.ui.touch_selection.SelectionEventType;
@@ -84,9 +84,10 @@ public class ContextualSearchTapEventTest {
             setSelectionController(new MockCSSelectionController(activity, this));
             ContentViewCore contentView = getSelectionController().getBaseContentView();
             WebContents webContents = WebContentsFactory.createWebContents(false, false);
-            contentView.setSelectionPopupControllerForTesting(new SelectionPopupController(
-                    activity, null, webContents, null, contentView.getRenderCoordinates()));
-            contentView.setSelectionClient(this);
+            SelectionPopupController selectionPopupController = new SelectionPopupController(
+                    activity, null, webContents, null, contentView.getRenderCoordinates());
+            contentView.setSelectionPopupControllerForTesting(selectionPopupController);
+            contentView.setSelectionClient(this.getContextualSearchSelectionClient());
             MockContextualSearchPolicy policy = new MockContextualSearchPolicy();
             setContextualSearchPolicy(policy);
             mTranslateController = new MockedCSTranslateController(activity, policy, null);
@@ -248,7 +249,7 @@ public class ContextualSearchTapEventTest {
             public void run() {
                 // It only makes sense to send dummy data here because we can't easily control
                 // what's in the native context.
-                mContextualSearchManager.selectWordAroundCaretAck(true, 0, 0);
+                mContextualSearchClient.selectWordAroundCaretAck(true, 0, 0);
             }
         });
     }
@@ -268,11 +269,13 @@ public class ContextualSearchTapEventTest {
                 mPanelManager.setDynamicResourceLoader(new DynamicResourceLoader(0, null));
 
                 mContextualSearchManager = new ContextualSearchManagerWrapper(activity);
-                mPanel = new ContextualSearchPanelWrapper(activity, null, mPanelManager);
+                mPanel = new ContextualSearchPanelWrapper(activity,
+                        activity.getCompositorViewHolder().getLayoutManager(), mPanelManager);
                 mPanel.setManagementDelegate(mContextualSearchManager);
                 mContextualSearchManager.setContextualSearchPanel(mPanel);
 
-                mContextualSearchClient = mContextualSearchManager;
+                mContextualSearchClient =
+                        mContextualSearchManager.getContextualSearchSelectionClient();
             }
         });
     }

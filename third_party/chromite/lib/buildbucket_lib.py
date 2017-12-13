@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2016 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -88,6 +89,8 @@ def GetServiceAccount(service_account=None):
 def GetScheduledBuildDict(scheduled_slave_list):
   """Parse the build information from the scheduled_slave_list metadata.
 
+  Treats all listed builds as newly-scheduled.
+
   Args:
     scheduled_slave_list: A list of scheduled builds recorded in the
                           master metadata. In the format of
@@ -135,7 +138,7 @@ def GetBuildInfoDict(metadata):
   assert metadata is not None
 
   scheduled_slaves_list = metadata.GetValueWithDefault(
-      constants.METADATA_SCHEDULED_SLAVES, [])
+      constants.METADATA_SCHEDULED_IMPORTANT_SLAVES, [])
   experimental_builders = metadata.GetValueWithDefault(
       constants.METADATA_EXPERIMENTAL_BUILDERS, [])
   scheduled_slaves_list = [
@@ -161,17 +164,16 @@ def GetBuildbucketIds(metadata):
 class BuildbucketClient(object):
   """Buildbucket client to interact with the Buildbucket server."""
 
-  def __init__(self, service_account=None, host=None):
+  def __init__(self, get_access_token, host, **kwargs):
     """Init a BuildbucketClient instance.
 
     Args:
-      service_account: The path to the service account json file.
+      get_access_token: Method to get access token.
       host: The buildbucket instance to interact.
+      kwargs: The kwargs to pass to get_access_token.
     """
-    self.http = auth.AuthorizedHttp(
-        auth.GetAccessToken,
-        service_account_json=service_account)
     self.host = self._GetHost() if host is None else host
+    self.http = auth.AuthorizedHttp(get_access_token, None, **kwargs)
 
   def _GetHost(self):
     """Get buildbucket Server host from topology."""
@@ -281,6 +283,7 @@ class BuildbucketClient(object):
         'hostname': self.host
     }
 
+    assert isinstance(buildbucket_ids, list)
     body = json.dumps({'build_ids': buildbucket_ids})
 
     return self.SendBuildbucketRequest(url, POST_METHOD, body, dryrun)
@@ -413,7 +416,7 @@ def GetNestedAttr(content, nested_attr, default=None):
     default: Default value to return if the attribute doesn't exist.
 
   Returns:
-    The corresponding value if the attribute exits; else, default.
+    The corresponding value if the attribute exists; else, default.
   """
   assert isinstance(nested_attr, list), 'nested_attr must be a list.'
 

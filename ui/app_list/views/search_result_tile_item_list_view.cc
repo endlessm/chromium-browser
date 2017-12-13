@@ -11,6 +11,7 @@
 #include "ui/app_list/app_list_features.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/search_result.h"
+#include "ui/app_list/views/search_result_page_view.h"
 #include "ui/app_list/views/search_result_tile_item_view.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/background.h"
@@ -43,9 +44,11 @@ constexpr SkColor kSeparatorColor = SkColorSetARGBMacro(0x1F, 0x00, 0x00, 0x00);
 namespace app_list {
 
 SearchResultTileItemListView::SearchResultTileItemListView(
+    SearchResultPageView* search_result_page_view,
     views::Textfield* search_box,
     AppListViewDelegate* view_delegate)
-    : search_box_(search_box),
+    : search_result_page_view_(search_result_page_view),
+      search_box_(search_box),
       is_play_store_app_search_enabled_(
           features::IsPlayStoreAppSearchEnabled()),
       is_fullscreen_app_list_enabled_(features::IsFullscreenAppListEnabled()) {
@@ -68,7 +71,7 @@ SearchResultTileItemListView::SearchResultTileItemListView(
       }
 
       SearchResultTileItemView* tile_item = new SearchResultTileItemView(
-          this, view_delegate, false /* Not a suggested app */,
+          this, view_delegate, nullptr, false /* Not a suggested app */,
           is_fullscreen_app_list_enabled_, is_play_store_app_search_enabled_);
       tile_item->SetParentBackgroundColor(kCardBackgroundColorFullscreen);
       tile_views_.push_back(tile_item);
@@ -80,7 +83,7 @@ SearchResultTileItemListView::SearchResultTileItemListView(
         kBetweenTileSpacing));
     for (size_t i = 0; i < kNumSearchResultTiles; ++i) {
       SearchResultTileItemView* tile_item = new SearchResultTileItemView(
-          this, view_delegate, false /* Not a suggested app */,
+          this, view_delegate, nullptr, false /* Not a suggested app */,
           is_fullscreen_app_list_enabled_, is_play_store_app_search_enabled_);
       tile_item->SetParentBackgroundColor(kCardBackgroundColor);
       tile_item->SetBorder(
@@ -118,6 +121,15 @@ int SearchResultTileItemListView::GetYSize() {
 views::View* SearchResultTileItemListView::GetSelectedView() const {
   return IsValidSelectionIndex(selected_index()) ? tile_views_[selected_index()]
                                                  : nullptr;
+}
+
+views::View* SearchResultTileItemListView::SetFirstResultSelected(
+    bool selected) {
+  DCHECK(!tile_views_.empty());
+  if (num_results() <= 0)
+    return nullptr;
+  tile_views_[0]->SetSelected(selected);
+  return tile_views_[0];
 }
 
 int SearchResultTileItemListView::DoUpdate() {
@@ -182,6 +194,34 @@ void SearchResultTileItemListView::UpdateSelectedIndex(int old_selected,
 }
 
 bool SearchResultTileItemListView::OnKeyPressed(const ui::KeyEvent& event) {
+  if (features::IsAppListFocusEnabled()) {
+    views::View* next_focusable_view = nullptr;
+
+    // Since search result tile item views have horizontal layout, hitting
+    // up/down when one of them is focused moves focus to the previous/next
+    // search result container.
+    if (event.key_code() == ui::VKEY_UP) {
+      next_focusable_view = GetFocusManager()->GetNextFocusableView(
+          tile_views_.front(), GetWidget(), true, false);
+      if (!search_result_page_view_->Contains(next_focusable_view)) {
+        // Focus should be moved to search box when it is moved outside search
+        // result page view.
+        search_box_->RequestFocus();
+        return true;
+      }
+    } else if (event.key_code() == ui::VKEY_DOWN) {
+      next_focusable_view = GetFocusManager()->GetNextFocusableView(
+          tile_views_.back(), GetWidget(), false, false);
+    }
+
+    if (next_focusable_view) {
+      next_focusable_view->RequestFocus();
+      return true;
+    }
+    return false;
+  }
+  // TODO(weidongg/766807) Remove everything below when the flag is enabled by
+  // default.
   int selection_index = selected_index();
   // Also count the separator when Play Store app search feature is enabled.
   const int child_index = is_play_store_app_search_enabled_

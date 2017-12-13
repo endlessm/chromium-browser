@@ -30,6 +30,7 @@
 
           この設定が無効な場合や設定されていない場合、リモート アシスタンス ホストはユーザーのコンテキストで実行され、リモート ユーザーはデスクトップ上の権限昇格ウィンドウとやり取りできません。</translation>
 <translation id="1096105751829466145">デフォルトの検索プロバイダ</translation>
+<translation id="1099282607296956954">すべてのサイトに対してサイト分離を有効にする</translation>
 <translation id="1117535567637097036">このポリシーで設定したプロトコル ハンドラは、Android インテントの処理には使用されません。</translation>
 <translation id="1122282995569868661"><ph name="PRODUCT_NAME" /> ツールバー アイコンを表示する</translation>
 <translation id="1128903365609589950"><ph name="PRODUCT_NAME" /> でキャッシュしたファイルをディスクに保存する際に使用するディレクトリを設定します。
@@ -49,6 +50,12 @@
 
       このポリシーが False に設定されている場合、Dev スイッチの状態は報告されません。</translation>
 <translation id="1160939557934457296">セーフ ブラウジングの警告ページからの続行を無効にする</translation>
+<translation id="1166377463685560145">ユーザーに使用を許可しないプリンタを指定します。
+
+      このポリシーは、<ph name="DEVICE_PRINTERS_ACCESS_MODE" /> の値に <ph name="PRINTERS_BLACKLIST" /> が選択されている場合にのみ使用されます。
+
+      このポリシーが使用される場合、ユーザーはこのポリシーに指定されている ID 以外のすべてのプリンタを使用できます。
+      </translation>
 <translation id="1198465924256827162">デバイス ステータスのアップロードを送信する頻度をミリ秒単位で指定します。
 
 このポリシーが未設定の場合は、3 時間に 1 回の頻度となります。最短で 60 秒に 1 回の頻度を指定できます。</translation>
@@ -78,12 +85,20 @@
 
 このポリシーが false に設定されている場合、ゲストモードのプロフィールで <ph name="PRODUCT_NAME" /> を使用することはできません。</translation>
 <translation id="1363275621236827384">ハードウェア プロファイルを Quirks サーバーに問い合わせられるようにする</translation>
+<translation id="1393485621820363363">有効な企業デバイス プリンタ</translation>
 <translation id="1397855852561539316">デフォルト検索プロバイダ サジェスト URL</translation>
+<translation id="1420281424655200442">ユーザーが <ph name="DEVICE_PRINTERS_POLICY" /> のどのプリンタを使用できるかを制御します。
+
+      このポリシーは、プリンタの一括設定で使用するアクセス ポリシーを指定するものです。<ph name="PRINTERS_ALLOW_ALL" /> が選択されている場合は、すべてのプリンタが表示されます。<ph name="PRINTERS_BLACKLIST" /> が選択されている場合は、<ph name="DEVICE_PRINTERS_BLACKLIST" /> に基づき、指定されたプリンタへのアクセスが制限されます。<ph name="PRINTERS_WHITELIST" /> が選択されている場合は、<ph name="DEVICE_PRINTERS_WHITELIST" /> で指定されたプリンタのみが選択可能になります。
+
+      このポリシーが未設定の場合は、<ph name="PRINTERS_BLACKLIST" /> が選択された場合と同じ動作になります。
+      </translation>
 <translation id="1426410128494586442">はい</translation>
 <translation id="1427655258943162134">プロキシ サーバーのアドレスまたは URL</translation>
 <translation id="1435659902881071157">デバイス レベルのネットワーク設定</translation>
 <translation id="1438739959477268107">デフォルトのキー生成設定</translation>
 <translation id="1454846751303307294">JavaScript の実行を許可しないサイトを指定する URL パターンのリストを設定できます。このポリシーが未設定の場合、グローバルのデフォルト値がすべてのサイトで使用されます。グローバルのデフォルト値は「DefaultJavaScriptSetting」ポリシーの値か、この値が未設定の場合はユーザーの個人設定の値です。</translation>
+<translation id="1456822151187621582">Windows（<ph name="PRODUCT_OS_NAME" /> クライアント）:</translation>
 <translation id="1464848559468748897"><ph name="PRODUCT_OS_NAME" /> 搭載デバイス上のマルチプロフィール セッションでのユーザーの行動を制御します。
 
       このポリシーが「MultiProfileUserBehaviorUnrestricted」に設定されている場合、ユーザーはメイン ユーザーまたはサブ ユーザーとしてマルチプロフィール セッションに参加できます。
@@ -98,6 +113,11 @@
 
       このポリシーを設定しないままにした場合、デフォルト値として企業の管理対象ユーザーには「MultiProfileUserBehaviorMustBePrimary」が適用され、管理対象外のユーザーには「MultiProfileUserBehaviorUnrestricted」が適用されます。</translation>
 <translation id="1465619815762735808">クリックして再生する</translation>
+<translation id="1466133662354365542"><ph name="PRODUCT_NAME" /> の自動入力機能を有効にし、ユーザーが以前に保存した情報を使ってウェブフォームにクレジット カードや住所の情報を自動入力できるようにします。
+
+      この設定を無効にした場合は、クレジット カード情報が候補として表示されたり、自動入力されたりすることはありません。また、ユーザーがウェブの利用中に送信したクレジット カード情報が追加で保存されることもありません。
+
+      この設定を有効にするか、値を設定しない場合、ユーザーは UI で自動入力の全般的な機能（クレジット カードを含む）を制御できます。</translation>
 <translation id="1468307069016535757">ログイン画面でのユーザー補助機能「ハイコントラスト モード」のデフォルト状態を設定します。
 
           このポリシーが true に設定されている場合は、ログイン画面が表示されるときにハイコントラスト モードが有効になります。
@@ -141,6 +161,19 @@
 <translation id="1561424797596341174">リモート アクセス ホストの Debug ビルドでのポリシー オーバーライド</translation>
 <translation id="1561967320164410511">U2F と個人認証用拡張機能</translation>
 <translation id="1583248206450240930">デフォルトで <ph name="PRODUCT_FRAME_NAME" /> を使用する</translation>
+<translation id="1603058613431276040">デバイスに関連付けられる企業プリンタの設定を指定します。
+
+      このポリシーにより、<ph name="PRODUCT_OS_NAME" /> デバイスのプリンタ設定を指定できます。このファイルは、5 MB 以下のサイズで、JSON エンコードで作成されている必要があります。フォーマットは NativePrinters 辞書と同じです。5 MB は 約 2,1000 台のプリンタを指定してエンコードしたファイルに相当します。ダウンロードの整合性の確認には暗号化ハッシュが使用されます。
+
+      このファイルはダウンロードされてキャッシュされ、URL またはハッシュが変わったときには再度ダウンロードされます。
+
+      このポリシーが設定されている場合は、<ph name="PRODUCT_OS_NAME" /> によってプリンタ設定ファイルがダウンロードされ、<ph name="DEVICE_PRINTERS_ACCESS_MODE" />、<ph name="DEVICE_PRINTERS_WHITELIST" />、<ph name="DEVICE_PRINTERS_BLACKLIST" /> に沿ってプリンタが利用可能になります。
+
+      このポリシーは、ユーザーが個々のデバイスでプリンタを設定できるかどうかに影響するものではなく、個々のユーザーがプリンタを設定するときの補助として使用されることを想定したものです。
+
+      これは <ph name="BULK_PRINTERS_POLICY" /> の追加ポリシーとして使用されます。
+
+      このポリシーが未設定の場合、デバイス プリンタは存在しないことになり、<ph name="DEVICE_PRINTERS_POLICY_PATTERN" /> ポリシーは無視されます。</translation>
 <translation id="1608755754295374538">ユーザー確認なしで音声キャプチャ デバイスへのアクセスが許可される URL</translation>
 <translation id="1617235075406854669">閲覧とダウンロードの履歴を削除可能にする</translation>
 <translation id="163200210584085447">このリストに指定されているパターンと、リクエスト元 URL の
@@ -241,6 +274,12 @@
 <translation id="2030905906517501646">デフォルトの検索プロバイダのキーワード</translation>
 <translation id="203096360153626918">このポリシーは Android アプリには適用されません。このポリシーを <ph name="FALSE" /> に設定した場合でも、Android アプリの全画面表示は可能です。</translation>
 <translation id="2043770014371753404">無効な企業プリンタ</translation>
+<translation id="2063380907529983889">ユーザーが <ph name="BULK_PRINTERS_POLICY" /> のどのプリンタを使用できるかを制御します。
+
+      このポリシーは、プリンタの一括設定で使用するアクセス ポリシーを指定するものです。<ph name="PRINTERS_ALLOW_ALL" /> が選択されている場合は、すべてのプリンタが表示されます。<ph name="PRINTERS_BLACKLIST" /> が選択されている場合は、<ph name="BULK_PRINTERS_BLACKLIST" /> に基づき、指定されたプリンタへのアクセスが制限されます。<ph name="PRINTERS_WHITELIST" /> が選択されている場合は、<ph name="BULK_PRINTERS_WHITELIST" /> で指定されたプリンタのみが選択可能になります。
+
+      このポリシーが未設定の場合は、<ph name="PRINTERS_BLACKLIST" /> が選択された場合と同じ動作になります。
+      </translation>
 <translation id="206623763829450685"><ph name="PRODUCT_NAME" /> でサポートされる HTTP 認証スキームを指定します。
 
           有効な値は「basic」、「digest」、「ntlm」、「negotiate」です。値を複数指定する場合はカンマで区切ります。
@@ -324,6 +363,7 @@
 <translation id="2294382669900758280">Android アプリで再生中の動画は、このポリシーを <ph name="TRUE" /> に設定した場合でも考慮されません。</translation>
 <translation id="2298647742290373702"><ph name="PRODUCT_NAME" /> のデフォルトの新しいタブページを設定します。</translation>
 <translation id="2299220924812062390">有効なプラグインのリストを指定する</translation>
+<translation id="2303795211377219696">クレジット カードの自動入力を有効にする</translation>
 <translation id="2309390639296060546">デフォルトの位置情報設定</translation>
 <translation id="2312134445771258233">起動時に読み込まれるページを設定できます。[起動時の操作] の [URL のリストを開く] を選択しない場合、[起動時に開く URL] リストのコンテンツは無視されます。</translation>
 <translation id="2337466621458842053">画像を表示できるサイトを指定する url パターンのリストを設定できます。このポリシーが未設定の場合、グローバルのデフォルト値がすべてのサイトで使用されます。グローバルのデフォルト値は「DefaultImagesSetting」ポリシーの値か、この値が未設定の場合はユーザーの個人設定の値です。</translation>
@@ -478,16 +518,14 @@
 <translation id="2762164719979766599">ログイン画面でデバイスのローカル アカウントのリストを表示するよう指定します。
 
       リストの各エントリは識別子を示します。これらの識別子は、デバイスのローカル アカウントを区別するために内部で使用されます。</translation>
+<translation id="2766302473082018239">ユーザーに使用を許可するプリンタを指定します。
+
+      このポリシーは、<ph name="BULK_PRINTERS_ACCESS_MODE" /> の値に <ph name="PRINTERS_WHITELIST" /> が選択されている場合にのみ使用されます。
+
+      このポリシーが使用される場合、ユーザーはこのポリシーに指定されている値に一致する ID のプリンタのみを使用できます。この ID は、<ph name="BULK_PRINTERS_POLICY" /> で指定されたファイル内のエントリに対応している必要があります。
+      </translation>
 <translation id="2769952903507981510">リモート アクセス ホストの必須のドメイン名を設定する</translation>
 <translation id="2787173078141616821">Android のステータスに関する情報を報告する</translation>
-<translation id="2794520838025002425">ユーザーに使用を禁止するプリンタを指定します。
-
-      このポリシーは、NativePrintersBulkAccessMode の値に
-      BlacklistRestriction が選択されている場合にのみ使用されます。
-
-      このポリシーが使用される場合、ユーザーはこのポリシーに
-      指定されている ID 以外のすべてのプリンタを使用できます。
-      </translation>
 <translation id="2801230735743888564">デバイスがオフラインのときに、ユーザーが恐竜のイースター エッグゲームをプレイすることを許可します。
 
       このポリシーを False に設定すると、ユーザーはデバイスがオフラインのときに恐竜のイースター エッグゲームをプレイできません。True に設定するとプレイできます。ポリシーが未設定の場合、登録されている Chrome OS ではプレイできませんが、他の環境ではプレイできます。</translation>
@@ -499,6 +537,7 @@
           この設定が無効な場合で発信 UDP 接続がファイアウォールによって除外されている場合は、ローカル ネットワーク内のクライアント コンピュータのみがこのコンピュータに接続できます。
 
           このポリシーが未設定の場合、この設定は有効になります。</translation>
+<translation id="2823870601012066791">Windows レジストリでの <ph name="PRODUCT_OS_NAME" /> クライアントの場所:</translation>
 <translation id="2824715612115726353">シークレット モードを有効にする</translation>
 <translation id="2838830882081735096">データ移行と ARC を許可しない</translation>
 <translation id="2844404652289407061"><ph name="PRODUCT_NAME" /> のコンテンツ ビューで [タップして検索] を使用できるかどうかを制御します。
@@ -639,7 +678,23 @@
 <translation id="332771718998993005"><ph name="PRODUCT_NAME" /> のレシーバーとして表示する名前を指定します。
 
           このポリシーが空でない文字列に設定されている場合は、その文字列が <ph name="PRODUCT_NAME" /> のレシーバー名として使用されます。それ以外の場合、レシーバー名にはデバイス名が設定されます。このポリシーが未設定の場合、レシーバー名にはデバイス名が設定され、デバイスの所有者（またはデバイスを管理するドメインのユーザー）はその名前を変更できます。なお、名前は 24 文字以内で指定する必要があります。</translation>
+<translation id="3356249700768900657">
+      注: このポリシーは試験運用版であり、動作に影響を及ぼす可能性があります。
+      IsolateOrigins ポリシーの設定も参照し、状況に応じて使い分けてください。
+      IsolateOrigins ポリシーでは、分離するサイトを指定し、
+      ユーザーへの影響を限定します。
+      この SitePerProcess の設定ではすべてのサイトを分離します。
+      このポリシーが有効に設定されている場合、サイトはそれぞれ独自のプロセスで実行されます。
+      このポリシーが無効に設定されている場合は、サイト分離前のプロセス管理ロジックが適用されます。
+      このポリシーが未設定の場合、ユーザーはこの設定を変更できます。
+      </translation>
 <translation id="3381968327636295719">ホスト ブラウザをデフォルトで使用する</translation>
+<translation id="3395348522300156660">ユーザーに使用を許可するプリンタを指定します。
+
+      このポリシーは、<ph name="DEVICE_PRINTERS_ACCESS_MODE" /> の値に <ph name="PRINTERS_WHITELIST" /> が選択されている場合にのみ使用されます。
+
+      このポリシーが使用される場合、ユーザーはこのポリシーに指定されている値に一致する ID のプリンタのみを使用できます。この ID は、<ph name="DEVICE_PRINTERS_POLICY" /> で指定されたファイル内のエントリに対応している必要があります。
+      </translation>
 <translation id="3417418267404583991">このポリシーを true に設定した場合または未設定の場合、<ph name="PRODUCT_OS_NAME" /> ではゲスト ログインが有効になります。ゲスト ログインは匿名ユーザーのセッションで、パスワードが不要です。
 
       このポリシーを false に設定した場合、<ph name="PRODUCT_OS_NAME" /> ではゲスト セッションを開始できません。</translation>
@@ -679,7 +734,7 @@
 <translation id="3512226956150568738">ARC の実行に ext4 への移行が必要となる前からすでにクライアント端末機種で ARC がサポートされていて、かつ ArcEnabled ポリシーが true に設定されている場合、このオプションの動作は AskUser（値 3）と同じになります。その他すべての場合（端末機種で以前より ARC がサポートされていなかった場合、または ArcEnabled ポリシーが false に設定されている場合）、この値は DisallowArc（値 0）と同じになります。</translation>
 <translation id="3519432185185398282">TPM ファームウェア アップデート機能が利用可能かどうか、利用可能な場合はその動作を設定します。
 
-      個々の設定は JSON プロパティで指定できます。
+      個々の設定は JSON プロパティで指定できます。 
 
       <ph name="TPM_FIRMWARE_UPDATE_SETTINGS_ALLOW_USER_INITIATED_POWERWASH" />: <ph name="TPM_FIRMWARE_UPDATE_SETTINGS_ALLOW_USER_INITIATED_POWERWASH_TRUE" /> に設定されている場合、ユーザーは TPM ファームウェア アップデートをインストールするために Powerwash のフローを開始できます。
 
@@ -853,6 +908,7 @@
           ポリシーの値はミリ秒単位で指定してください。</translation>
 <translation id="4105989332710272578">指定した URL に対して証明書の透明性ポリシーの適用を無効にする</translation>
 <translation id="4121350739760194865">アプリのプロモーションが新しいタブ ページに表示されないようにする</translation>
+<translation id="4133144443101280166">デバイスの OffHours |ignored_policy_proto_tags| が解除されたときの管理外時間の間隔</translation>
 <translation id="4157003184375321727">OS とファームウェアのバージョンを報告する</translation>
 <translation id="4183229833636799228">デフォルトの <ph name="FLASH_PLUGIN_NAME" /> 設定</translation>
 <translation id="4192388905594723944">リモート アクセス クライアントの認証トークンを検証するための URL</translation>
@@ -968,7 +1024,6 @@
 <translation id="4541530620466526913">デバイスのローカル アカウント</translation>
 <translation id="4555850956567117258">ユーザーのリモート認証を有効にする</translation>
 <translation id="4557134566541205630">デフォルトの検索プロバイダの新しいタブ ページ URL</translation>
-<translation id="4558592878156368639">デバイスの OffHours |ignored_policies| が解除されたときの管理外時間の間隔</translation>
 <translation id="4600786265870346112">大きいカーソルを有効にする</translation>
 <translation id="4604931264910482931">ネイティブ メッセージングのブラックリストを設定する</translation>
 <translation id="4617338332148204752"><ph name="PRODUCT_FRAME_NAME" /> でのメタ タグ チェックをスキップする</translation>
@@ -992,6 +1047,7 @@
           パターンの例については、https://www.chromium.org/developers/how-tos/chrome-frame-getting-started をご覧ください。</translation>
 <translation id="467449052039111439">URL のリストを開く</translation>
 <translation id="4680961954980851756">自動入力を有効にする</translation>
+<translation id="4722122254122249791">指定した発行元に対してサイト分離を有効にする</translation>
 <translation id="4722399051042571387">false の場合、ユーザーは強度が低く推測されやすい PIN を設定できません。
 
           強度が低い PIN の例としては、数字がすべて同じ PIN（1111 など）、連続した数字の PIN（1234、4321 など）、一般によく使われる並びの PIN が挙げられます。
@@ -1066,16 +1122,29 @@
           値は文字列変換した JSON 辞書の配列で指定する必要があります。各辞書は { "pattern": "$URL_PATTERN", "filter" : $FILTER } の形式で指定します。$URL_PATTERN でコンテンツ設定パターンを指定し、$FILTER でブラウザが自動的に選択するクライアント証明書の発行元を指定します。なお、フィルタの設定に関わらず、選択される証明書はサーバーの証明書リクエストに一致するもののみとなります。$FILTER を { "ISSUER": { "CN": "$ISSUER_CN" } } の形式で指定すると、CommonName $ISSUER_CN が発行したクライアント証明書のみが選択されます。$FILTER が空の辞書 {} の場合は、クライアント証明書の選択にこうした条件は適用されません。
 
           このポリシーを未設定のままにすると、どのサイトについても証明書の自動選択は行われません。</translation>
+<translation id="4978405676361550165">「OffHours」ポリシーが設定されている場合、指定されたデバイス ポリシーは、定義された時間間隔の間は無視されます（ポリシーのデフォルト設定が使用されます）。「OffHours」の開始または終了のイベントが発生するたびに、Chrome によってデバイス ポリシーが再適用されます。「OffHours」の時間が終了し、デバイス ポリシーの設定が変更されたとき（許可されたアカウント以外でユーザーがログインしたときなど）には、ユーザーは通知を受けたうえで強制的にログアウトされます。</translation>
 <translation id="4980635395568992380">データ タイプ:</translation>
 <translation id="4983201894483989687">古いプラグインの実行を許可する</translation>
 <translation id="4988291787868618635">アイドル時間に到達したときに行われる操作</translation>
+<translation id="5027819375434797927">
+      注: このポリシーは試験運用版であり、動作に影響を及ぼす可能性があります。
+      このポリシーが有効に設定されている場合、カンマ区切りのリストで
+      指定された発行元がそれぞれ独自のプロセスで実行されます。また、
+      サブドメインによって指定された発行元も分離されます。たとえば、
+      https://example.com/ と指定すると、https://foo.example.com/ も 
+      https://example.com/ サイトの一部として分離されます。
+      このポリシーが無効に設定されている場合は、サイト分離前のプロセス管理ロジックが適用されます。
+      このポリシーが未設定の場合、ユーザーはこの設定を変更できます。
+      </translation>
 <translation id="5047604665028708335">コンテンツ パック外部のサイトへのアクセスを許可する</translation>
 <translation id="5052081091120171147">このポリシーを有効にすると、現在の既定のブラウザからインポートされた閲覧履歴を適用します。その場合、このポリシーはインポート ダイアログにも影響します。無効にすると閲覧履歴はインポートされません。このポリシーが未設定の場合、インポートするかどうかをユーザーに尋ねるか、自動的にインポートされます。</translation>
 <translation id="5056708224511062314">画面拡大鏡を無効にする</translation>
 <translation id="5067143124345820993">ログイン ユーザーのホワイト リスト</translation>
 <translation id="5068140065960598044"><ph name="PRODUCT_NAME" /> のクラウド ポリシーがマシン（デバイス）ポリシーよりも優先されます。</translation>
 <translation id="5085647276663819155">印刷プレビューを無効にする</translation>
+<translation id="5090209345759901501">Flash コンテンツ設定をすべてのコンテンツに拡張する</translation>
 <translation id="5105313908130842249">画面がロックされるまでの時間（バッテリー電源での実行時）</translation>
+<translation id="5108031557082757679">無効な企業デバイス プリンタ</translation>
 <translation id="5130288486815037971">TLS の RC4 暗号スイートを有効にするかどうかを指定する</translation>
 <translation id="5141670636904227950">ログイン画面で有効にする画面拡大鏡のデフォルトのタイプを設定する</translation>
 <translation id="5142301680741828703"><ph name="PRODUCT_FRAME_NAME" /> で次の URL パターンを常に表示する</translation>
@@ -1293,6 +1362,7 @@
           管理者がこのポリシーを設定した場合も、ユーザーは一時的に大きいカーソルを有効または無効にすることができます。ただし、このユーザーの選択は恒久的ではなく、ログイン画面が改めて表示されたときや、ログイン画面でユーザーが何もしない時間が 1 分に達したときにデフォルト値が復元されます。
 
           このポリシーが未設定の場合は、ログイン画面が表示された直後は大きいカーソルが無効になります。ユーザーはいつでも大きいカーソルを有効または無効にすることができ、ログイン画面での大きいカーソルの状態はログアウト後も維持されます。</translation>
+<translation id="5932767795525445337">このポリシーを使って Android アプリを固定することもできます。</translation>
 <translation id="5936622343001856595">セーフサーチをアクティブに設定して Google ウェブ検索のクエリを強制するとともに、ユーザーがこの設定を変更できないようにします。
 
       この設定を有効にすると、Google 検索のセーフサーチは常にアクティブになります。
@@ -1322,6 +1392,53 @@
 
       このポリシーが設定されていない場合や false に設定されている場合、印刷コマンドを実行すると印刷プレビュー画面が表示されます。</translation>
 <translation id="6022948604095165524">起動時の操作</translation>
+<translation id="6023030044732320798">ARC ランタイムに渡される一連のポリシーを指定します。値は有効な JSON である必要があります。
+
+      このポリシーを使用して、端末にどの Android アプリを自動的にインストールするかを設定できます。
+
+      {
+        "type": "object",
+        "properties": {
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "packageName": {
+                  "description": "Android アプリ識別子。たとえば、Gmail は "com.google.android.gm" など",
+                  "type": "string"
+                },
+                "installType": {
+                  "description": "アプリのインストール方法を指定します。OPTIONAL: アプリは自動的にはインストールされませんが、ユーザーがインストールすることはできます。このポリシーが指定されていない場合は、デフォルトでこの設定が使用されます。PRELOAD: アプリは自動的にインストールされますが、ユーザーがアンインストールすることもできます。FORCE_INSTALLED: アプリは自動的にインストールされ、ユーザーがアンインストールすることはできません。BLOCKED: アプリはブロックされ、インストールできません。以前のポリシーによってアプリがインストール済みの場合はアンインストールされます。",
+                  "type": "string",
+                  "enum": [
+                    "OPTIONAL",
+                    "PRELOAD",
+                    "FORCE_INSTALLED",
+                    "BLOCKED"
+                  ]
+                },
+                "defaultPermissionPolicy": {
+                  "description": "アプリへの権限付与のリクエストに関するポリシーです。PERMISSION_POLICY_UNSPECIFIED: ポリシーを指定しません。権限に関するポリシーがどのレベルでも指定されていなければ、デフォルトで「PROMPT」の動作が適用されます。PROMPT: 権限を付与するよう促すメッセージをユーザーに表示します。GRANT: 自動的に権限を付与します。DENY: 自動的に権限の付与を拒否します。",
+                  "type": "string",
+                  "enum": [
+                    "PERMISSION_POLICY_UNSPECIFIED",
+                    "PROMPT",
+                    "GRANT",
+                    "DENY"
+                  ]
+                },
+                "managedConfiguration": {
+                  "description": "アプリ固有の JSON 設定文字列です。例: '"managedConfiguration": { "key1": value1, "key2": value2 }'。キーはアプリのマニフェストで定義されます。",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+
+      ランチャーにアプリを固定する場合は、PinnedLauncherApps をご覧ください。</translation>
 <translation id="602728333950205286">デフォルトの検索プロバイダのインスタント検索 URL</translation>
 <translation id="603410445099326293">POST を使用するキーワード候補による検索 URL のパラメータ</translation>
 <translation id="6036523166753287175">リモート アクセス ホストからのファイアウォール トラバーサルを有効にする</translation>
@@ -1330,6 +1447,7 @@
 <translation id="6076099373507468537">ウェブ アプリケーション内で直接 chrome.usb API を通じて USB デバイスを使用できるように、カーネル ドライバからの分離が可能な USB デバイスの一覧を定義します。USB ベンダー ID と商品 ID をペアで入力し、個々のハードウェアを特定できるようにします。
 
       このポリシーが設定されていない場合、分離可能な USB デバイスのリストは空になります。</translation>
+<translation id="6083631234867522991">Windows（Windows クライアント）:</translation>
 <translation id="6093156968240188330">リモート ユーザーがリモート アシスタンス セッションで権限昇格ウィンドウとやり取りできるようにする</translation>
 <translation id="6095999036251797924">AC 電源またはバッテリーでの実行時に、ユーザー入力が行われなくなってから画面がロックされるまでの時間を指定します。
 
@@ -1345,7 +1463,6 @@
 <translation id="6111936128861357925">恐竜のイースター エッグゲームを許可する</translation>
 <translation id="6114416803310251055">廃止予定</translation>
 <translation id="6133088669883929098">すべてのサイトにキー生成の使用を許可する</translation>
-<translation id="6139485614509308022">「OffHours」ポリシーが設定されている場合、指定されたデバイス ポリシーは、定義された時間間隔の間は無視されます（ポリシーのデフォルト設定が使用されます）。「OffHours」の開始または終了のイベントが発生するたびに、Chrome によってデバイス ポリシーが再適用されます。「OffHours」の時間が終了し、デバイス ポリシーの設定が変更されたとき（許可されたアカウント以外でユーザーがログインしたとき）には、ユーザーは通知を受けたうえで強制的にログアウトされます。</translation>
 <translation id="6145799962557135888">JavaScript の実行を許可するサイトを指定する URL パターンのリストを設定できます。このポリシーが未設定の場合、グローバルのデフォルト値がすべてのサイトで使用されます。グローバルのデフォルト値は「DefaultJavaScriptSetting」ポリシーの値か、この値が未設定の場合はユーザーの個人設定の値です。</translation>
 <translation id="614662973812186053">このポリシーでは Android の使用状況と診断データの収集も管理できます。</translation>
 <translation id="6155936611791017817">ログイン画面での大きいカーソルのデフォルト状態を設定する</translation>
@@ -1423,6 +1540,11 @@
           [.pac プロキシ スクリプトを使用する] を選択した場合は、スクリプト URL が Android アプリに通知されます。</translation>
 <translation id="6491139795995924304">端末で Bluetooth を許可する</translation>
 <translation id="6520802717075138474">初回実行時にデフォルトのブラウザから検索エンジンをインポートする</translation>
+<translation id="6525955212636890608">この設定を有効にした場合、ユーザーまたは会社ポリシーの指定によりコンテンツ設定で Flash が許可されているウェブサイトでは、埋め込まれているすべての Flash コンテンツ（他のソースからのコンテンツ、小さなコンテンツを含む）が実行されます。
+
+      Flash の実行を許可するウェブサイトを指定する方法については、「DefaultPluginsSetting」、「PluginsAllowedForUrls」、「PluginsBlockedForUrls」の各ポリシーをご覧ください。
+
+      この設定が無効に設定されているか未設定の場合、他のソースからの Flash コンテンツや小さなコンテンツはブロックされる可能性があります。</translation>
 <translation id="653608967792832033">バッテリー電源での実行時に、ユーザー入力が行われなくなってから画面がロックされるまでの時間を指定します。
 
           このポリシーをゼロより大きい値に設定した場合、値は <ph name="PRODUCT_OS_NAME" /> の画面がロックされるまでのアイドル時間を表します。
@@ -1660,6 +1782,7 @@
       このポリシーが設定されていない場合、自動クリーンアップは組み込みのデフォルト設定を使用します。現在、この設定は「RemoveLRUIfDormant」です。</translation>
 <translation id="7336878834592315572">セッションの継続中は Cookie を保存する</translation>
 <translation id="7340034977315324840">デバイス操作時間を報告する</translation>
+<translation id="7343497214039883642">デバイスの企業プリンタ設定ファイル</translation>
 <translation id="7384999953864505698">QUIC プロトコルを許可する</translation>
 <translation id="7417972229667085380">プレゼンテーション モードでのアイドル時間に掛ける倍率（サポート終了）</translation>
 <translation id="7421483919690710988">メディア ディスク キャッシュ サイズをバイト単位で設定する</translation>
@@ -1669,7 +1792,6 @@
       このポリシーが未設定の場合、または false に設定されている場合、「<ph name="TLS_FALSE_START" />」は有効になります。true に設定されている場合、「<ph name="TLS_FALSE_START" />」は無効になります。</translation>
 <translation id="7433714841194914373">インスタント検索を有効にする</translation>
 <translation id="7443616896860707393">クロスオリジンでの HTTP Basic 認証プロンプト</translation>
-<translation id="7468416082528382842">Windows レジストリの場所:</translation>
 <translation id="7469554574977894907">検索キーワード候補を有効にする</translation>
 <translation id="7474249562477552702">ローカルの信頼済みアンカーが発行した SHA-1 署名証明書が許可されるかどうかを指定する</translation>
 <translation id="7485481791539008776">デフォルト プリンタ選択ルール</translation>
@@ -1796,6 +1918,39 @@
 <translation id="7841880500990419427">フィードバック先の最小 TLS バージョン</translation>
 <translation id="7842869978353666042">Google ドライブのオプションを設定します</translation>
 <translation id="7843525027689416831"><ph name="PRODUCT_NAME" /> の起動時に適用するフラグを指定します。指定したフラグはログイン画面にのみ適用されます。このポリシーで設定したフラグはユーザーのセッションには影響しません。</translation>
+<translation id="7844537954833753199"><ph name="PRODUCT_NAME" /> の拡張機能の管理設定を指定します。
+
+          このポリシーでは、拡張機能関連の既存のポリシーで管理されている設定を含めた複数の設定を管理します。このポリシーと以前のポリシーの両方が設定されている場合は、このポリシーが優先されます。
+
+          このポリシーでは、拡張機能 ID または更新 URL をそれぞれの設定にマッピングします。拡張機能 ID を使用する場合、設定は該当する拡張機能のみに適用されます。また、<ph name="DEFAULT_SCOPE" /> という特別な ID に対するデフォルト設定を指定することができます。デフォルト設定は、このポリシーでカスタムの設定が指定されないすべての拡張機能に適用されます。更新 URL を使用する場合、設定は、この拡張機能のマニフェストで指定されている更新 URL を使用するすべての拡張機能に適用されます（<ph name="LINK_TO_EXTENSION_DOC1" /> をご覧ください）。
+
+          個々の拡張機能（または更新 URL が同じ複数の拡張機能）に対する設定では、辞書形式で以下のフィールドを指定することができます。
+
+          <ph name="INSTALLATION_MODE" />: 拡張機能のインストール モードを示す文字列にマッピングされます。有効な文字列は次のとおりです。
+          * <ph name="ALLOWED" />: ユーザーによる拡張機能のインストールを許可します。これがデフォルトの動作です。
+          * <ph name="BLOCKED" />: 拡張機能のインストールをブロックします。
+          * <ph name="FORCE_INSTALLED" />: 拡張機能は自動的にインストールされ、ユーザーが削除することはできません。
+          * <ph name="NORMAL_INSTALLED" />: 拡張機能は自動的にインストールされますが、ユーザーが無効にできます。
+
+          <ph name="INSTALLTION_MODE" /> は複数の拡張機能に対しても設定できます。<ph name="DEFAULT_SCOPE" /> 拡張機能のデフォルト設定として指定したり、更新 URL が同じ複数の拡張機能に指定したりすることが可能です。この場合は、<ph name="ALLOWED" /> と <ph name="BLOCKED" /> の値のみを使用できます。
+
+          インストール モードを <ph name="FORCE_INSTALLED" /> または <ph name="NORMAL_INSTALLED" /> に設定する場合は、<ph name="UPDATE_URL" /> も設定する必要があります。なお、このポリシーで設定された更新 URL は初回インストールでのみ使用されます。それ以降に拡張機能が更新されるときには、拡張機能のマニフェストで指定されている更新 URL が使用されます。更新 URL は、前述の更新マニフェスト XML 文書を指し示している必要があります。
+
+          <ph name="BLOCKED_PERMISSIONS" />: この拡張機能に対してブロックされる API の権限を示す文字列のリストにマッピングされます。権限の名前は、拡張機能のマニフェストで指定されている権限文字列と同じです（<ph name="LINK_TO_EXTENSION_DOC3" /> をご覧ください）。この設定は、<ph name="DEFAULT_SCOPE" /> 拡張機能に対しても指定できます。拡張機能で必要とされる権限がブロックリストに登録されている場合、その拡張機能を読み込むことはできません。拡張機能の追加動作に必要とされる権限がブロックリストに登録されている場合、その拡張機能は通常の方法で処理されますが、競合する権限に対するリクエストはランタイムにおいて自動的に拒否されます。
+
+          <ph name="ALLOWED_PERMISSIONS" />: <ph name="BLOCKED_PERMISSIONS" /> と似ていますが、こちらは、グローバルな権限ブロックリストに登録されている可能性のある一部の権限を明示的に許可するものです。そのため、<ph name="DEFAULT_SCOPE" /> 拡張機能に対して設定することはできません。なお、この設定により、許可された権限が拡張機能に自動的に付与されるわけではありません。
+
+          <ph name="MINIMUM_VERSION_REQUIRED" />: バージョン文字列にマッピングされます。バージョン文字列の形式は、拡張機能のマニフェストで使用されているものと同じです（<ph name="LINK_TO_EXTENSION_DOC4" /> をご覧ください）。指定された最小バージョンよりも古いバージョンの拡張機能は無効になります。これは強制インストールされる拡張機能にも適用されます。
+
+          以下の設定は、デフォルトの <ph name="DEFAULT_SCOPE" /> の設定に対してのみ使用できます。
+
+          <ph name="INSTALL_SOURCES" />: このリストの各項目は、拡張機能スタイルのマッチパターンです（<ph name="LINK_TO_MATCH_PATTERNS" />）。ユーザーは、このリストの項目に一致する URL からアイテムを簡単にインストールできます。<ph name="EXTENSION_SUFFIX_WILDCARD" /> ファイルの場所と、ダウンロードが開始されるページ（参照 URL）の両方が、このパターンで許可されている必要があります。
+
+          <ph name="ALLOWED_TYPES" />: <ph name="PRODUCT_NAME" /> にインストールできる拡張機能やアプリのタイプをホワイトリスト登録します。値は文字列のリストで、それぞれが次のいずれかに該当する必要があります: <ph name="VALID_ALLOWED_TYPES" />。これらのタイプについて詳しくは、<ph name="PRODUCT_NAME" /> 拡張機能のドキュメントをご覧ください。
+          <ph name="BLOCKED_INSTALL_MESSAGE" />: ユーザーがインストールしようとした拡張機能がポリシーでブロックされている場合、Chrome ウェブストアでは一般的なエラー メッセージが表示されます。この設定を使用すると、エラー メッセージにテキストを追加できます。たとえば、ユーザーにサポート窓口を案内したり、特定の拡張機能がブロックされている理由を示したりすることが可能です。エラー メッセージが 1,000 文字を超える場合、超過部分は切り捨てられます。
+          <ph name="RUNTIME_BLOCKED_HOSTS" />: 拡張機能との通信をブロックするホストのリストを指定します。たとえば、JavaScript の挿入、webRequests や webNavigation の変更と表示、Cookie の変更と表示などをブロックできます。形式はマッチパターン（<ph name="LINK_TO_MATCH_PATTERNS" />）と似ていますが、定義できるのはパスなしのパターン（例: *://*.example.com）です。有効な形式の TLD ワイルドカード（例: *://example.*）も使用できます。
+          <ph name="RUNTIME_ALLOWED_HOSTS" />: 拡張機能との通信を許可するホストのリストを指定します。同じホストが <ph name="RUNTIME_BLOCKED_HOSTS" /> で指定されている場合、こちらの指定が優先されます。形式は <ph name="RUNTIME_BLOCKED_HOSTS" /> と同じです。
+          </translation>
 <translation id="787125417158068494">このポリシーを SyncDisabled に設定するか、設定しない場合、ARC アプリで <ph name="PRODUCT_OS_NAME" /> の証明書を使用することはできません。
 
       CopyCaCerts に設定すると、ARC アプリでは、ONC によってインストールされ <ph name="WEB_TRUSTED_BIT" /> を使用するすべての CA 証明書を使用できます。</translation>
@@ -1841,6 +1996,7 @@
       このポリシーが設定されていない場合、デバイスではデフォルトとして時刻が 24 時間形式で表示されます。</translation>
 <translation id="8114382167597081590">YouTube で制限付きモードを強制しない</translation>
 <translation id="8118665053362250806">メディア ディスクのキャッシュ サイズを設定します</translation>
+<translation id="8124468781472887384">デバイス プリンタの設定へのアクセス ポリシー</translation>
 <translation id="8135937294926049787">AC 電源での実行時に、ユーザー入力が行われなくなってから画面がオフになるまでの時間を指定します。
 
           このポリシーをゼロより大きい値に設定した場合、値は <ph name="PRODUCT_OS_NAME" /> の画面がオフになるまでのアイドル時間を表します。
@@ -1873,18 +2029,6 @@
 
       このポリシーが無効に設定されているか未設定の場合は、ログイン時に通常のプロフィールが適用されます。</translation>
 <translation id="8158758865057576716"><ph name="PRODUCT_NAME" /> プロフィール データのローミング コピーの作成を有効にする。</translation>
-<translation id="8169931650834542988">ユーザーが NativePrintersBulkConfiguration の
-      どのプリンタを使用できるかを制御します。
-
-      このポリシーは、プリンタの一括設定で使用するアクセス ポリシーを指定するものです。
-      AllowAll が選択されている場合は、すべてのプリンタが表示されます。
-      BlacklistRestrction が選択されている場合は、NativePrintersBulkBlacklist に
-      基づき、指定されたプリンタへのアクセスが制限されます。
-      WhitelistPrintersOnly が選択されている場合は、
-      NativePrintersWhitelist で指定されたプリンタのみが選択可能になります。
-
-      このポリシーが未設定の場合は、BlacklistRestriction が選択された場合と同じ動作になります。
-      </translation>
 <translation id="8170878842291747619"><ph name="PRODUCT_NAME" /> に統合された Google 翻訳サービスを有効にします。この設定を有効にすると、必要に応じてユーザーがページを翻訳できる統合ツールバー サービスが <ph name="PRODUCT_NAME" /> に表示されます。この設定を無効にすると、翻訳バーは表示されません。この設定を有効または無効にすると、ユーザーは <ph name="PRODUCT_NAME" /> でこの設定の変更やオーバーライドができなくなります。未設定の場合は、この機能を使用するかどうかをユーザーが指定できます。</translation>
 <translation id="817455428376641507">URL ブラックリストの例外として、リストに登録された URL へのアクセスを許可します。
 
@@ -1964,18 +2108,9 @@
 <translation id="8424255554404582727">再起動のたびにデフォルトのディスプレイ回転方法を再適用する</translation>
 <translation id="8426231401662877819">画面を時計回りに 90 度回転</translation>
 <translation id="8451988835943702790">新しいタブ ページをホームページとして使用する</translation>
-<translation id="8458790683633857482">ARC ランタイムに渡される一連のポリシーを指定します。値は有効な JSON である必要があります。</translation>
 <translation id="8465065632133292531">POST を使用するインスタント検索 URL のパラメータ</translation>
 <translation id="847472800012384958">すべてのサイトに対してポップアップ表示を許可しない</translation>
 <translation id="8477885780684655676">TLS 1.0</translation>
-<translation id="8480767919856518465">ユーザーに使用を許可するプリンタを指定します。
-
-      このポリシーは、NativePrintersBulkAccessMode の値に
-      WhitelistPrintersOnly が選択されている場合にのみ使用されます。
-
-      このポリシーが使用される場合、ユーザーはこのポリシーに指定されている値に
-      一致する ID のプリンタのみを使用できます。この ID は、
-      NativePrintersBulkConfiguration で指定されたファイル内のエントリに対応している必要があります。</translation>
 <translation id="8484458986062090479">常にホストブラウザでレンダリングする URL パターンのリストをカスタマイズします。
 
           このポリシーが未設定の場合は、「ChromeFrameRendererSettings」ポリシーで指定されているデフォルトのレンダラがすべてのサイトで使用されます。
@@ -1984,30 +2119,14 @@
 <translation id="8493645415242333585">ブラウザの履歴の保存を無効にする</translation>
 <translation id="8499172469244085141">デフォルト設定（ユーザーによるオーバーライド可能）</translation>
 <translation id="8519264904050090490">管理対象ユーザーの手動による例外 URL</translation>
+<translation id="8527932539502116028">ユーザーに使用を許可しないプリンタを指定します。
+
+      このポリシーは、<ph name="BULK_PRINTERS_ACCESS_MODE" /> の値に <ph name="PRINTERS_BLACKLIST" /> が選択されている場合にのみ使用されます。
+
+      このポリシーが使用される場合、ユーザーはこのポリシーに指定されている ID 以外のすべてのプリンタを使用できます。
+      </translation>
 <translation id="8544375438507658205"><ph name="PRODUCT_FRAME_NAME" /> のデフォルトの HTML レンダラ</translation>
 <translation id="8549772397068118889">コンテンツ パック外部のサイトを訪問したときに警告する</translation>
-<translation id="8555589883248082762">デバイスに関連付けられる企業プリンタの設定を指定します。
-
-      このポリシーにより、<ph name="PRODUCT_OS_NAME" /> デバイスのプリンタ設定を
-      指定できます。
-      このファイルは、5 MB 以下のサイズで、JSON エンコードで作成されている
-      必要があります。フォーマットは NativePrinters 辞書と同じです。
-      5 MB は約 2,1000 台のプリンタを指定してエンコードしたファイル
-      に相当します。ダウンロードの整合性の確認には暗号化ハッシュが使用
-      されます。
-
-      このファイルはダウンロードされてキャッシュされ、URL またはハッシュが
-      変わったときには再度ダウンロードされます。
-      このポリシーが設定されている場合は、<ph name="PRODUCT_OS_NAME" /> によって
-      プリンタ設定ファイルがダウンロードされ、NativePrintersBulkAccessMode、
-      NativePrintersBulkWhitelist、NativePrintersBulkBlacklist に沿って
-      プリンタが利用可能になります。
-
-      このポリシーを設定した場合、ユーザーが設定内容を変更したりオーバーライドしたりすることはできません。
-
-      このポリシーは、ユーザーが個々のデバイスでプリンタを
-      設定できるかどうかに影響するものではなく、個々のユーザーが
-      プリンタを設定するときの補助として使用されることを想定したものです。</translation>
 <translation id="8566842294717252664">新しいタブページとアプリ ランチャーでウェブストアを非表示にする</translation>
 <translation id="8587229956764455752">新しいユーザー アカウントの作成を許可する</translation>
 <translation id="8614804915612153606">自動更新を無効にする</translation>
@@ -2018,6 +2137,7 @@
           この設定を false にすると、デバイスはコンテンツ保護に関してリモート認証を使用しないため、保護コンテンツを再生できなくなります。
 
           この設定を true にするか、設定しないと、コンテンツ保護に関してリモート認証が使用されます。</translation>
+<translation id="8650974590712548439">Windows レジストリでの Windows クライアントの場所:</translation>
 <translation id="8654286232573430130">統合認証のホワイトリストに登録するサーバーを指定します。統合認証が有効になるのは、この許可リストに含まれているプロキシやサーバーから <ph name="PRODUCT_NAME" /> が認証チャレンジを受信した場合のみです。
 
           サーバー名を複数指定する場合はカンマで区切ります。ワイルドカード（*）を使用できます。
@@ -2075,6 +2195,18 @@
 
           ポリシーの値はミリ秒単位で指定してください。アイドル時間より長い値は指定できません。</translation>
 <translation id="891435090623616439">JSON 文字列としてのエンコードについて詳しくは、<ph name="COMPLEX_POLICIES_URL" /> をご覧ください</translation>
+<translation id="8927384992072706174">デバイスに関連付けられる企業プリンタの設定を指定します。
+
+      このポリシーにより、<ph name="PRODUCT_OS_NAME" /> デバイスのプリンタ設定を指定できます。このファイルは、5 MB 以下のサイズで、JSON エンコードで作成されている必要があります。フォーマットは NativePrinters 辞書と同じです。5 MB は 約 2,1000 台のプリンタを指定してエンコードしたファイルに相当します。ダウンロードの整合性の確認には暗号化ハッシュが使用されます。
+
+      このファイルはダウンロードされてキャッシュされ、URL またはハッシュが変わったときには再度ダウンロードされます。
+
+      このポリシーが設定されている場合は、<ph name="PRODUCT_OS_NAME" /> によってプリンタ設定ファイルがダウンロードされ、<ph name="BULK_PRINTERS_ACCESS_MODE" />、<ph name="BULK_PRINTERS_WHITELIST" />、<ph name="BULK_PRINTERS_BLACKLIST" /> に沿ってプリンタが利用可能になります。
+
+      このポリシーを設定した場合、ユーザーがこのポリシーを変更したりオーバーライドしたりすることはできません。
+
+      このポリシーは、ユーザーが個々のデバイスでプリンタを設定できるかどうかに影響するものではなく、個々のユーザーがプリンタを設定するときの補助として使用されることを想定したものです。
+      </translation>
 <translation id="8947415621777543415">端末の位置をレポート</translation>
 <translation id="8951350807133946005">ディスクのキャッシュ ディレクトリの設定</translation>
 <translation id="8952317565138994125">Google でホストされる同期サービスを使用した <ph name="PRODUCT_NAME" /> でのデータ同期を無効にするとともに、ユーザーがこの設定を変更できないようにします。

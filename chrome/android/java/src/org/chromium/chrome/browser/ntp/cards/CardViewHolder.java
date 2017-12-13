@@ -125,7 +125,7 @@ public abstract class CardViewHolder
         // lateral shadow of the card 9-patch and avoid a rounded corner effect.
         int cardCornerRadius = resources.getDimensionPixelSize(R.dimen.card_corner_radius);
         assert mCardShadow.left == mCardShadow.right;
-        if (FeatureUtilities.isChromeHomeModernEnabled()) {
+        if (FeatureUtilities.isChromeHomeEnabled()) {
             mDefaultLateralMargin =
                     resources.getDimensionPixelSize(R.dimen.content_suggestions_card_modern_margin);
         } else {
@@ -175,7 +175,7 @@ public abstract class CardViewHolder
      * with data.
      */
     @CallSuper
-    protected void onBindViewHolder() {
+    public void onBindViewHolder() {
         // Reset the transparency and translation in case a dismissed card is being recycled.
         itemView.setAlpha(1f);
         itemView.setTranslationX(0f);
@@ -215,7 +215,7 @@ public abstract class CardViewHolder
         if (getAdapterPosition() == RecyclerView.NO_POSITION) return;
 
         // Nothing to do for the modern layout.
-        if (FeatureUtilities.isChromeHomeModernEnabled()) return;
+        if (FeatureUtilities.isChromeHomeEnabled()) return;
 
         NewTabPageAdapter adapter = mRecyclerView.getNewTabPageAdapter();
 

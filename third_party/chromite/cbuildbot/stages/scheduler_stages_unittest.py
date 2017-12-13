@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2016 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -16,6 +17,7 @@ from chromite.lib import auth
 from chromite.lib import buildbucket_lib
 from chromite.lib import cidb
 from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import fake_cidb
 
 
@@ -97,9 +99,11 @@ class ScheduleSalvesStageTest(generic_stages_unittest.AbstractStageTestCase):
                      return_value=slave_config_map)
     stage.ScheduleSlaveBuildsViaBuildbucket(important_only=False, dryrun=True)
 
-    scheduled_slaves = self._run.attrs.metadata.GetValue('scheduled_slaves')
+    scheduled_slaves = self._run.attrs.metadata.GetValue(
+        constants.METADATA_SCHEDULED_IMPORTANT_SLAVES)
     self.assertEqual(len(scheduled_slaves), 0)
-    unscheduled_slaves = self._run.attrs.metadata.GetValue('unscheduled_slaves')
+    unscheduled_slaves = self._run.attrs.metadata.GetValue(
+        constants.METADATA_UNSCHEDULED_SLAVES)
     self.assertEqual(len(unscheduled_slaves), 2)
 
   def testScheduleSlaveBuildsFailure(self):
@@ -139,9 +143,11 @@ class ScheduleSalvesStageTest(generic_stages_unittest.AbstractStageTestCase):
 
     stage.ScheduleSlaveBuildsViaBuildbucket(important_only=False, dryrun=True)
 
-    scheduled_slaves = self._run.attrs.metadata.GetValue('scheduled_slaves')
+    scheduled_slaves = self._run.attrs.metadata.GetValue(
+        constants.METADATA_SCHEDULED_IMPORTANT_SLAVES)
     self.assertEqual(len(scheduled_slaves), 1)
-    unscheduled_slaves = self._run.attrs.metadata.GetValue('unscheduled_slaves')
+    unscheduled_slaves = self._run.attrs.metadata.GetValue(
+        constants.METADATA_UNSCHEDULED_SLAVES)
     self.assertEqual(len(unscheduled_slaves), 0)
 
   def testNoScheduledSlaveBuilds(self):

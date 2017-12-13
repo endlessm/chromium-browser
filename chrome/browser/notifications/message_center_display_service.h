@@ -10,28 +10,26 @@
 #include "chrome/browser/notifications/notification_display_service.h"
 
 class Notification;
-class NotificationUIManager;
 class Profile;
 
 // Implementation of display service for notifications displayed by chrome
 // instead of the native platform notification center.
 class MessageCenterDisplayService : public NotificationDisplayService {
  public:
-  MessageCenterDisplayService(Profile* profile,
-                              NotificationUIManager* ui_manager);
+  explicit MessageCenterDisplayService(Profile* profile);
   ~MessageCenterDisplayService() override;
 
   // NotificationDisplayService implementation.
   void Display(NotificationCommon::Type notification_type,
                const std::string& notification_id,
-               const Notification& notification) override;
+               const Notification& notification,
+               std::unique_ptr<NotificationCommon::Metadata> metadata) override;
   void Close(NotificationCommon::Type notification_type,
              const std::string& notification_id) override;
   void GetDisplayed(const DisplayedNotificationsCallback& callback) override;
 
  private:
   Profile* profile_;
-  NotificationUIManager* ui_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(MessageCenterDisplayService);
 };

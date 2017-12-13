@@ -11,7 +11,7 @@
 #include "base/macros.h"
 #include "extensions/browser/api/system_display/display_info_provider.h"
 
-namespace chromeos {
+namespace ash {
 class OverscanCalibrator;
 class TouchCalibratorController;
 }
@@ -47,9 +47,9 @@ class DisplayInfoProviderChromeOS : public DisplayInfoProvider {
       const api::system_display::Insets& delta) override;
   bool OverscanCalibrationReset(const std::string& id) override;
   bool OverscanCalibrationComplete(const std::string& id) override;
-  bool ShowNativeTouchCalibration(
-      const std::string& id, std::string* error,
-      const TouchCalibrationCallback& callback) override;
+  bool ShowNativeTouchCalibration(const std::string& id,
+                                  std::string* error,
+                                  TouchCalibrationCallback callback) override;
   bool StartCustomTouchCalibration(const std::string& id,
                                    std::string* error) override;
   bool CompleteCustomTouchCalibration(
@@ -61,14 +61,14 @@ class DisplayInfoProviderChromeOS : public DisplayInfoProvider {
   bool IsNativeTouchCalibrationActive(std::string* error) override;
 
  private:
-  chromeos::TouchCalibratorController* GetTouchCalibrator();
+  ash::TouchCalibratorController* GetTouchCalibrator();
 
-  chromeos::OverscanCalibrator* GetOverscanCalibrator(const std::string& id);
+  ash::OverscanCalibrator* GetOverscanCalibrator(const std::string& id);
 
-  std::map<std::string, std::unique_ptr<chromeos::OverscanCalibrator>>
+  std::map<std::string, std::unique_ptr<ash::OverscanCalibrator>>
       overscan_calibrators_;
 
-  std::unique_ptr<chromeos::TouchCalibratorController> touch_calibrator_;
+  std::unique_ptr<ash::TouchCalibratorController> touch_calibrator_;
 
   std::string touch_calibration_target_id_;
   bool custom_touch_calibration_active_ = false;

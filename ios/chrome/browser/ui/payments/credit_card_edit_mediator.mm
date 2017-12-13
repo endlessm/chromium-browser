@@ -36,8 +36,8 @@ using ::payment_request_util::GetBillingAddressLabelFromAutofillProfile;
 
 @interface CreditCardEditViewControllerMediator ()
 
-// The PaymentRequest object owning an instance of web::PaymentRequest as
-// provided by the page invoking the Payment Request API. This is a weak
+// The PaymentRequest object owning an instance of payments::WebPaymentRequest
+// as provided by the page invoking the Payment Request API. This is a weak
 // pointer and should outlive this class.
 @property(nonatomic, assign) payments::PaymentRequest* paymentRequest;
 
@@ -100,6 +100,8 @@ using ::payment_request_util::GetBillingAddressLabelFromAutofillProfile;
 - (void)setBillingProfile:(autofill::AutofillProfile*)billingProfile {
   _billingProfile = billingProfile;
   [self.consumer setEditorFields:[self createEditorFields]];
+  if (self.creditCardExpDateField)
+    [self loadMonthsAndYears];
 }
 
 #pragma mark - PaymentRequestEditViewControllerDataSource

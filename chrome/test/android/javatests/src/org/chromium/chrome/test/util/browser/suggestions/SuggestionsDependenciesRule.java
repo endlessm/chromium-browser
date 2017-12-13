@@ -7,8 +7,8 @@ package org.chromium.chrome.test.util.browser.suggestions;
 import org.junit.rules.TestWatcher;
 import org.junit.runner.Description;
 
+import org.chromium.base.DiscardableReferencePool;
 import org.chromium.base.annotations.SuppressFBWarnings;
-import org.chromium.chrome.browser.download.ui.ThumbnailProvider;
 import org.chromium.chrome.browser.favicon.FaviconHelper;
 import org.chromium.chrome.browser.favicon.LargeIconBridge;
 import org.chromium.chrome.browser.ntp.snippets.SuggestionsSource;
@@ -16,6 +16,7 @@ import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.suggestions.MostVisitedSites;
 import org.chromium.chrome.browser.suggestions.SuggestionsDependencyFactory;
 import org.chromium.chrome.browser.suggestions.SuggestionsEventReporter;
+import org.chromium.chrome.browser.widget.ThumbnailProvider;
 
 /**
  * Rule that allows mocking native dependencies of the suggestions package.
@@ -89,9 +90,9 @@ public class SuggestionsDependenciesRule extends TestWatcher {
         }
 
         @Override
-        public ThumbnailProvider createThumbnailProvider() {
+        public ThumbnailProvider createThumbnailProvider(DiscardableReferencePool referencePool) {
             if (thumbnailProvider != null) return thumbnailProvider;
-            return super.createThumbnailProvider();
+            return super.createThumbnailProvider(referencePool);
         }
 
         @Override

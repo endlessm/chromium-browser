@@ -35,10 +35,10 @@ class ArcMidisClientImpl : public ArcMidisClient {
     dbus::MessageWriter writer(&method_call);
 
     writer.AppendFileDescriptor(fd.get());
-    proxy_->CallMethod(&method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-                       base::Bind(&ArcMidisClientImpl::OnVoidDBusMethod,
-                                  weak_ptr_factory_.GetWeakPtr(),
-                                  base::Passed(std::move(callback))));
+    proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::BindOnce(&ArcMidisClientImpl::OnVoidDBusMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
  protected:
@@ -50,8 +50,7 @@ class ArcMidisClientImpl : public ArcMidisClient {
  private:
   void OnVoidDBusMethod(VoidDBusMethodCallback callback,
                         dbus::Response* response) {
-    std::move(callback).Run(response ? DBUS_METHOD_CALL_SUCCESS
-                                     : DBUS_METHOD_CALL_FAILURE);
+    std::move(callback).Run(response != nullptr);
   }
 
   dbus::ObjectProxy* proxy_ = nullptr;

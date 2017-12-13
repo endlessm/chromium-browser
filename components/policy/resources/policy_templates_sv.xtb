@@ -30,6 +30,7 @@
 
           Om inställningen är inaktiverad eller inte konfigurerad körs fjärrhjälpsvärden i användarens kontext och fjärranvändare kan inte interagera med fönster som öppnats med högre behörighet på datorn.</translation>
 <translation id="1096105751829466145">Standardsökleverantör</translation>
+<translation id="1099282607296956954">Aktivera webbplatsisolering för alla webbplatser</translation>
 <translation id="1117535567637097036">Protokollhanterarna som ställs in via den här principen används inte för intent i Android.</translation>
 <translation id="1122282995569868661">Visar ikonen för <ph name="PRODUCT_NAME" /> i verktygsfältet</translation>
 <translation id="1128903365609589950">Konfigurerar den katalog som <ph name="PRODUCT_NAME" /> ska använda för att lagra cachade filer på hårddisken.
@@ -49,6 +50,12 @@
 
       Om principen anges som False kommer utvecklarväxelns läge inte att redovisas.</translation>
 <translation id="1160939557934457296">Inaktivera möjligheten att fortsätta från varningssidan Säker webbsökning</translation>
+<translation id="1166377463685560145">Anger skrivare som inte får användas.
+
+      Den här principen används bara när <ph name="DEVICE_PRINTERS_ACCESS_MODE" /> är inställd på <ph name="PRINTERS_BLACKLIST" />.
+
+      Om principen används får användaren tillgång till alla skrivare utom dem vars id anges i den här principen.
+      </translation>
 <translation id="1198465924256827162">Hur ofta information om enhetsstatus laddas upp, uttryckt i millisekunder.
 
       Om inget värde anges för principen är standardfrekvensen 3 timmar. Den kortaste
@@ -79,7 +86,14 @@
 
       Om principen är inställd på falskt tillåts ingen användning av gästprofiler i <ph name="PRODUCT_NAME" />.</translation>
 <translation id="1363275621236827384">Aktivera frågor till Quirks-servern (servern för maskinvaruspecifik information) om maskinvaruprofiler</translation>
+<translation id="1393485621820363363">Aktiverade skrivare för företagsenheter</translation>
 <translation id="1397855852561539316">Standardsökleverantörens förslagsadress</translation>
+<translation id="1420281424655200442">Styr vilka skrivare i <ph name="DEVICE_PRINTERS_POLICY" /> som får användas.
+
+      Anger vilken åtkomstprincip som gäller vid gruppkonfigurering av skrivare. Med alternativet <ph name="PRINTERS_ALLOW_ALL" /> visas alla skrivare. Med alternativet <ph name="PRINTERS_BLACKLIST" /> blockeras de skrivare som anges i <ph name="DEVICE_PRINTERS_BLACKLIST" />. Med alternativet <ph name="PRINTERS_WHITELIST" /> går endast de skrivare som anges i <ph name="DEVICE_PRINTERS_WHITELIST" /> att välja.
+
+      Om inget värde anges för principen används <ph name="PRINTERS_BLACKLIST" />.
+      </translation>
 <translation id="1426410128494586442">Ja</translation>
 <translation id="1427655258943162134">Proxyserverns adress eller webbadress</translation>
 <translation id="1435659902881071157">Nätverkskonfiguration på enhetsnivå</translation>
@@ -87,6 +101,7 @@
 <translation id="1454846751303307294">Policyn gör att du kan ställa in en lista med webbadressmönster som anger webbplatser som inte får köra JavaScript.
 
           Om policyn inte anges används det globala standardvärdet för alla webbplatser. Standardvärdet hämtas från policyn DefaultJavaScriptSetting om den har ställts in. Annars används användarens personliga konfiguration.</translation>
+<translation id="1456822151187621582">Windows (<ph name="PRODUCT_OS_NAME" />-klienter):</translation>
 <translation id="1464848559468748897">Kontrollera användarbeteendet i en session med flera profiler på <ph name="PRODUCT_OS_NAME" />-enheter.
 
       Om MultiProfileUserBehaviorUnrestricted har angetts som policy kan användaren vara antingen en primär eller en sekundär användare i en session med flera profiler.
@@ -101,6 +116,11 @@
 
       Om policyn inte har angetts tillämpas standardvärdet MultiProfileUserBehaviorMustBePrimary för användare som hanteras av ett företag och MultiProfileUserBehaviorUnrestricted för användare som inte hanteras.</translation>
 <translation id="1465619815762735808">Klicka för att spela</translation>
+<translation id="1466133662354365542">Aktiverar funktionen Autofyll i <ph name="PRODUCT_NAME" /> så att användarna kan fylla i webbformulär automatiskt med uppgifter som är sparade sedan tidigare, till exempel adress- och kreditkortsuppgifter.
+
+      Om du inaktiverar Autofyll får du inga förslag och kreditkortsuppgifter fylls inte i automatiskt. Ytterligare kreditkortsuppgifter som du anger när du surfar på webben sparas inte heller.
+
+      Om du aktiverar funktionen eller inte anger något värde kan användarna själva styra autofyll (inklusive kreditkort) i användargränssnittet.</translation>
 <translation id="1468307069016535757">Välj standardtillståndet för hjälpmedelsfunktionen högkontrastläge på inloggningsskärmen.
 
           Om den här principen är sann är högkontrastläget aktiverat på inloggningsskärmen.
@@ -143,6 +163,19 @@
 <translation id="1561424797596341174">Åsidosättningar av policyn för felsökningsversioner av fjärråtkomstvärden</translation>
 <translation id="1561967320164410511">U2F plus tillägg för enskild attestering</translation>
 <translation id="1583248206450240930">Använd <ph name="PRODUCT_FRAME_NAME" /> som standard</translation>
+<translation id="1603058613431276040">Tillhandahåller skrivarkonfigurationer för företagsenheter.
+
+      Med den här principen kan du tillhandahålla skrivarkonfigurationer för <ph name="PRODUCT_OS_NAME" />-enheter. Filen får vara högst 5 MB stor och måste vara i JSON-format. Formatet är samma som för NativePrinters-ordlistan. En fil som är 5 MB stor beräknas rymma cirka 21 000 skrivare. Det kryptografiska hashvärdet används för att verifiera nedladdningens integritet.
+
+      Filen laddas ned och cachelagras. Den laddas ned på nytt varje gång webbadressen eller hashvärdet ändras.
+
+      Om principen har ställts in laddas filen med skrivarkonfigurationer ned i <ph name="PRODUCT_OS_NAME" /> och skrivarna görs tillgängliga i enlighet med principerna <ph name="DEVICE_PRINTERS_ACCESS_MODE" />, <ph name="DEVICE_PRINTERS_WHITELIST" /> och <ph name="DEVICE_PRINTERS_BLACKLIST" />.
+
+      Principen påverkar inte om användarna får konfigurera skrivare på enskilda enheter. Den är tänkt som ett komplement till enskilda användares skrivarkonfigurationer.
+
+      Principen gäller som tillägg till <ph name="BULK_PRINTERS_POLICY" />.
+
+      Om principen inte ställs in finns det inga enhetsskrivare och övriga principer med namnet <ph name="DEVICE_PRINTERS_POLICY_PATTERN" /> ignoreras.</translation>
 <translation id="1608755754295374538">Webbadresser som ska ges tillgång till ljudinspelningsenheter utan meddelande</translation>
 <translation id="1617235075406854669">Aktivera borttagning av webb- och nedladdningshistorik</translation>
 <translation id="163200210584085447">Mönster på den här listan kommer att matchas mot den begärande
@@ -195,8 +228,8 @@
       Om den här principen inte är konfigurerad eller om den är inställd på tls1.2 använder <ph name="PRODUCT_NAME" /> inte längre den alternativa versionen. Tänk på att detta inte inaktiverar stöd för äldre TLS-versioner. Det avgör bara om <ph name="PRODUCT_NAME" /> kringgår servrar med fel som inte kan förhandla versioner korrekt.
 
       Om kompatibiliteten med en server med fel måste upprätthållas kan den ställas in på tls1.1. Det här är en nödlösning och servern bör snabbt åtgärdas.</translation>
-<translation id="1864269674877167562">Om policyn anges som en tom sträng eller inte har konfigurerats visar inte <ph name="PRODUCT_OS_NAME" /> alternativet för autoslutförande under användarens inloggningsflöde.
-      Om policyn är inställd på en sträng som motsvarar ett domännamn visar <ph name="PRODUCT_OS_NAME" /> ett alternativ för autoslutförande under användarens inloggning så att användaren bara kan skriva sitt användarnamn utan domännamnstillägget. Användaren kan skriva över detta domännamnstillägg.</translation>
+<translation id="1864269674877167562">Om policyn anges som en tom sträng eller inte har konfigurerats visar inte <ph name="PRODUCT_OS_NAME" /> alternativet för autoslutför under användarens inloggningsflöde.
+      Om policyn är inställd på en sträng som motsvarar ett domännamn visar <ph name="PRODUCT_OS_NAME" /> ett alternativ för autoslutför under användarens inloggning så att användaren bara kan skriva sitt användarnamn utan domännamnstillägget. Användaren kan skriva över detta domännamnstillägg.</translation>
 <translation id="1865417998205858223">Nyckelbehörigheter</translation>
 <translation id="186719019195685253">Åtgärd som vidtas när fördröjning på grund av inaktivitet har uppnåtts vid anslutning till ett elnät</translation>
 <translation id="187819629719252111">Policyn tillåter åtkomst till lokala filer på datorn genom att tillåta att <ph name="PRODUCT_NAME" /> visar dialogrutor för filval.
@@ -249,6 +282,12 @@
 <translation id="2030905906517501646">Sökord för standardsökleverantör</translation>
 <translation id="203096360153626918">Den här principen gäller inte Android-appar. De kan använda helskärmsläge även om den har principen har ställts in på <ph name="FALSE" />.</translation>
 <translation id="2043770014371753404">Inaktiverade företagsskrivare</translation>
+<translation id="2063380907529983889">Styr vilka skrivare i <ph name="BULK_PRINTERS_POLICY" /> som får användas.
+
+      Anger vilken åtkomstprincip som gäller vid gruppkonfigurering av skrivare. Med alternativet <ph name="PRINTERS_ALLOW_ALL" /> visas alla skrivare. Med alternativet <ph name="PRINTERS_BLACKLIST" /> blockeras de skrivare som anges i <ph name="BULK_PRINTERS_BLACKLIST" />. Med alternativet <ph name="PRINTERS_WHITELIST" /> går endast de skrivare som anges i <ph name="BULK_PRINTERS_WHITELIST" /> att välja.
+
+      Om inget värde anges för principen används <ph name="PRINTERS_BLACKLIST" />.
+      </translation>
 <translation id="206623763829450685">Anger vilka scheman för HTTP-autentisering som stöds av <ph name="PRODUCT_NAME" />.
 
           Möjliga värden är basic, digest, ntlm och negotiate. Avgränsa värdena med komma.
@@ -340,6 +379,7 @@
 <translation id="2294382669900758280">Videouppspelning i Android-appar påverkas inte även om den här principen har ställts in på <ph name="TRUE" />.</translation>
 <translation id="2298647742290373702">Konfigurera standardinställningen för sidan Ny flik i <ph name="PRODUCT_NAME" />.</translation>
 <translation id="2299220924812062390">Ange en lista med aktiverade plugin-program</translation>
+<translation id="2303795211377219696">Aktivera autofyll för kreditkort</translation>
 <translation id="2309390639296060546">Standardinställning för geografisk plats</translation>
 <translation id="2312134445771258233">Innebär att du kan konfigurera sidorna som läses in vid start.
 
@@ -510,16 +550,14 @@
 <translation id="2762164719979766599">Anger en lista över lokala konton på enheten som ska visas på inloggningsskärmen.
 
       Alla poster i listan anger en identifierare som används internt för att skilja de olika lokala kontona på enheten från varandra.</translation>
+<translation id="2766302473082018239">Anger vilka skrivare som får användas.
+
+      Den här principen används bara när <ph name="BULK_PRINTERS_ACCESS_MODE" /> är inställd på <ph name="PRINTERS_WHITELIST" />.
+
+      Om principen används är bara de skrivare vars id matchar något av principens värden tillgängliga för användaren. Id:na måste svara mot posterna i den fil som angetts i <ph name="BULK_PRINTERS_POLICY" />.
+      </translation>
 <translation id="2769952903507981510">Konfigurera det obligatoriska domännamnet för fjärråtkomstvärdar</translation>
 <translation id="2787173078141616821">Rapportera information om Android-status</translation>
-<translation id="2794520838025002425">Anger skrivare som inte får användas.
-
-      Principen används bara om NativePrintersBulkAccessMode
-      är inställd på BlacklistRestriction.
-
-      Om principen används får användaren tillgång till alla skrivare utom
-      de id:n som angetts i den här principen.
-      </translation>
 <translation id="2801230735743888564">Tillåt användare att spela påskäggsspelet med dinosaurier när enheten är offline.
 
       Om den här principen är inställd på falskt kommer användare inte att kunna spela påskäggsspelet med dinosaurier när enheten är offline. Om principen är inställd på sant kommer användare att kunna spela dinosauriespelet. Om principen inte tillämpas kommer användare inte att kunna spela påskäggsspelet med dinosaurier på Chrome OS med registrering, men kan spela det under andra omständigheter.</translation>
@@ -531,6 +569,7 @@
           Om inställningen har inaktiverats och utgående UDP-anslutningar filtreras av brandväggen, tillåter datorn bara anslutningar från klientdatorer inom det lokala nätverket.
 
           Om policyn inte har angetts är inställningen aktiverad.</translation>
+<translation id="2823870601012066791">Windows-registerplats för <ph name="PRODUCT_OS_NAME" />-klienter:</translation>
 <translation id="2824715612115726353">Aktivera inkognitoläge</translation>
 <translation id="2838830882081735096">Tillåt inte datamigrering och ARC</translation>
 <translation id="2844404652289407061">Aktiverar tillgången till Tryck för att söka i innehållsvyn i <ph name="PRODUCT_NAME" />.
@@ -677,7 +716,24 @@
 <translation id="332771718998993005">Ange vilket namn som ska visas som mål för <ph name="PRODUCT_NAME" />.
 
           Om principen är inställd på något annat än en tom sträng används den strängen som namn på målet för <ph name="PRODUCT_NAME" />. I annat fall används enhetens namn som målnamn. Om principen lämnas utan inställning används enhetens namn som målnamn och enhetens ägare (eller en användare på den domän som hanterar enheten) kan ändra det. Namnet får vara högst 24 tecken långt.</translation>
+<translation id="3356249700768900657">
+      OBS! Det här är en experimentell princip som kan göra så att något slutar fungera!
+      Ta gärna en titt på principen IsolateOrigins också – du kan få det bästa av
+      två världar, isolering och begränsad inverkan på användarna, genom att ange
+      en lista med webbplatser som ska isoleras med IsolateOrigins. Med den här
+      inställningen, SitePerProcess, isoleras alla webbplatser.
+      När principen är aktiverad körs varje webbplats som en egen process.
+      När principen inaktiveras gäller den logik för processhantering som
+      användes före webbplatsisoleringen.
+      Om principen inte konfigureras kan användaren ändra inställningen.
+      </translation>
 <translation id="3381968327636295719">Använd värdwebbläsaren som standard</translation>
+<translation id="3395348522300156660">Anger vilka skrivare som får användas.
+
+      Den här principen används bara när <ph name="DEVICE_PRINTERS_ACCESS_MODE" /> är inställd på <ph name="PRINTERS_WHITELIST" />.
+
+      Om principen används är bara de skrivare vars id matchar något av principens värden tillgängliga för användaren. Id:na måste svara mot posterna i den fil som angetts i <ph name="DEVICE_PRINTERS_POLICY" />.
+      </translation>
 <translation id="3417418267404583991">Om den här policyn är inställd på sant eller inte är konfigurerad aktiveras gästinloggning i <ph name="PRODUCT_OS_NAME" />. Gästinloggningar är anonyma användarsessioner och kräver inget lösenord.
 
       Om policyn är inställd på falskt går det inte att starta gästsessioner i <ph name="PRODUCT_OS_NAME" />.</translation>
@@ -901,6 +957,7 @@
           Policyns värde anges i millisekunder.</translation>
 <translation id="4105989332710272578">Inaktivera tillämpning av Certifikattransparens för en lista med webbadresser</translation>
 <translation id="4121350739760194865">Förhindra att appkampanjer visas på den nya fliksidan</translation>
+<translation id="4133144443101280166">Intervall för användning utanför arbetstid när OffHours |ignored_policy_proto_tags| lanseras för enheten</translation>
 <translation id="4157003184375321727">Rapportera version av operativsystem och fast programvara</translation>
 <translation id="4183229833636799228">Standardinställning för <ph name="FLASH_PLUGIN_NAME" /></translation>
 <translation id="4192388905594723944">Webbadress för validering av autentiseringstoken för fjärråtkomstklient</translation>
@@ -1026,7 +1083,6 @@
 <translation id="4541530620466526913">Lokala konton på enheten</translation>
 <translation id="4555850956567117258">Aktivera fjärrattestering för användaren</translation>
 <translation id="4557134566541205630">Webbadress för standardsökleverantören av ny fliksida</translation>
-<translation id="4558592878156368639">Intervaller för användning utanför arbetstid när OffHours |ignored_policies| lanseras för enheten</translation>
 <translation id="4600786265870346112">Aktivera den stora markören</translation>
 <translation id="4604931264910482931">Konfigurera svarta listan för Native Messaging</translation>
 <translation id="4617338332148204752">Hoppa över kontroll av metataggar i <ph name="PRODUCT_FRAME_NAME" /></translation>
@@ -1050,6 +1106,7 @@
           Exempel på mönster finns på https://www.chromium.org/developers/how-tos/chrome-frame-getting-started.</translation>
 <translation id="467449052039111439">Öppna följande sidor</translation>
 <translation id="4680961954980851756">Aktivera Autofyll</translation>
+<translation id="4722122254122249791">Aktivera webbplatsisolering för enskilda ursprung</translation>
 <translation id="4722399051042571387">Om inställningen har konfigurerats som falsk kan inte användare ange pinkoder som är osäkra och lätta att gissa.
 
           Exempel på osäkra pinkoder är pinkoder som genomgående innehåller samma siffra (1111), pinkoder med sifferföljder i stigande (1234) eller fallande (4321) ordning och pinkoder som är vanliga.
@@ -1124,9 +1181,20 @@
           Värdet måste vara JSON-ordlistor i strängformat i en matris. Varje ordlista måste ha formen { "pattern": "$URL_PATTERN", "filter" : $FILTER }, där $URL_PATTERN är ett innehållsinställningsmönster. $FILTER begränsar vilka klientcertifikat webbläsaren automatiskt väljer mellan. Oavsett vilket filter som används väljs bara certifikat som matchar serverns certifikatbegäran. Om $FILTER har formen { "ISSUER": { "CN": "$ISSUER_CN" } } är det dessutom endast klientcertifikat som har skapats av ett certifikat med CommonName $ISSUER_CN som väljs. Om $FILTER är en tom ordlista {} begränsas inte valet av klientcertifikat ytterligare.
 
           Om principen inte anges görs inga automatiska val för någon webbplats.</translation>
+<translation id="4978405676361550165">När principen OffHours har ställts in ignoreras de angivna enhetsprinciperna (använd standardinställningarna för dessa principer) under de angivna tidsperioderna. Varje gång en OffHours-period börjar eller slutar ändras tillämpningen av enhetsprinciperna i Chrome. Användarna aviseras och måste logga ut när OffHours-perioden slutar och enhetens principinställningar ändras (t.ex. om användaren är inloggad med ett konto som inte är tillåtet).</translation>
 <translation id="4980635395568992380">Datatyp:</translation>
 <translation id="4983201894483989687">Tillåt att föråldrade plugin-program körs</translation>
 <translation id="4988291787868618635">Åtgärd som ska vidtas när inaktivitetstiden har gått</translation>
+<translation id="5027819375434797927">
+      OBS! Det här är en experimentell princip som kan göra så att något slutar fungera!
+      När principen är aktiverad körs varje namngivet ursprung i en
+      kommaavgränsad lista som en egen process. Även underdomäner isoleras:
+      om du anger https://example.com/ kommer även https://foo.example.com/ att
+      isoleras som en del av webbplatsen https://example.com/.
+      När principen inaktiveras gäller den logik för processhantering som
+      användes före webbplatsisoleringen.
+      Om principen inte konfigureras kan användaren ändra inställningen.
+      </translation>
 <translation id="5047604665028708335">Tillåt åtkomst till webbplatser utanför innehållspaket</translation>
 <translation id="5052081091120171147">Om den här policyn är aktiverad gör den att webbhistoriken måste importeras från den nuvarande standardwebbläsaren. Den påverkar då även importfönstret.
 
@@ -1137,7 +1205,9 @@
 <translation id="5067143124345820993">Vitlista för användarinloggning</translation>
 <translation id="5068140065960598044">Molnprincipen åsidosätter datorprincipen för <ph name="PRODUCT_NAME" />.</translation>
 <translation id="5085647276663819155">Inaktivera förhandsgranskning av utskrift</translation>
+<translation id="5090209345759901501">Utöka inställningen för Flash-innehåll till allt innehåll</translation>
 <translation id="5105313908130842249">Skärmlåsningstid när enheten drivs av batteriet</translation>
+<translation id="5108031557082757679">Inaktiverade skrivare för företagsenheter</translation>
 <translation id="5130288486815037971">Om RC4-krypteringssviter i TLS är aktiverade eller inte</translation>
 <translation id="5141670636904227950">Ange standardtypen för skärmförstoraren på inloggningsskärmen</translation>
 <translation id="5142301680741828703">Rendera alltid följande webbadressmönster i <ph name="PRODUCT_FRAME_NAME" /></translation>
@@ -1208,9 +1278,9 @@
           Om principen är inställd på falskt kan användarna inte casta till enheten. Om principen är inställd på sant får användarna casta innehåll. Om principen lämnas utan inställning får användarna inte casta till registrerade Chrome OS-enheter, men däremot till enheter som inte är registrerade.</translation>
 <translation id="5330684698007383292">Tillåt att <ph name="PRODUCT_FRAME_NAME" /> hanterar följande innehållstyper</translation>
 <translation id="5365946944967967336">Visa knappen Startsida i verktygsfältet</translation>
-<translation id="5366977351895725771">Om "false" anges inaktiveras alternativet att skapa övervakade användare för den här användaren. Eventuella befintliga övervakade användare är fortfarande tillgängliga.
+<translation id="5366977351895725771">Om "false" anges inaktiveras alternativet att skapa kontrollerade användare för den här användaren. Eventuella befintliga kontrollerade användare är fortfarande tillgängliga.
 
-          Om "true" anges eller ingen konfiguration utförs kan den här användaren skapa och hantera övervakade användare.</translation>
+          Om "true" anges eller ingen konfiguration utförs kan den här användaren skapa och hantera kontrollerade användare.</translation>
 <translation id="5378985487213287085">Policyn gör att du kan ange om webbplatser får visa meddelanden på skrivbordet. Meddelanden på skrivbordet kan vara tillåtet som standard, otillåtet som standard eller så kan användaren tillfrågas varje gång en webbplats försöker visa meddelanden på skrivbordet.
 
           Om policyn inte anges används AskNotifications och användaren kan ändra inställningen.</translation>
@@ -1384,6 +1454,7 @@
           Om du ställer in detta alternativ kan användarna temporärt åsidosätta det genom att aktivera eller inaktivera den stora markören. Men det val användaren gör sparas inte, och standardvärdet återställs när inloggningsskärmen visas nästa gång eller om användaren inte gör något på inloggningsskärmen under en hel minut.
 
           Om den här principen inte anges är den stora markören inaktiverad när inloggningsskärmen visas för första gången. Användarna kan aktivera eller inaktivera den stora markören när som helst, och dess status på inloggningsskärmen sparas för olika användare.</translation>
+<translation id="5932767795525445337">Du kan även använda principen till att fästa Android-appar.</translation>
 <translation id="5936622343001856595">Tvingar sökfrågor i Googles webbsökning att genomföras med SafeSearch aktiverat och förhindrar att användarna ändrar inställningen.
 
       Om du aktiverar den här inställningen är funktionen SafeSearch i Sök på Google alltid aktiv.
@@ -1413,6 +1484,53 @@
 
       Om policyn inte tillämpas eller tillämpas felaktigt visas skärmen med förhandsgranskning av utskriften vid utskrifter.</translation>
 <translation id="6022948604095165524">Åtgärd vid start</translation>
+<translation id="6023030044732320798">Anger en uppsättning principer som överlämnas till ARC-körning. Värdet måste vara en giltig JSON.
+
+      Principen används för att konfigurera vilka Android-appar som installeras automatiskt på enheten:
+
+      {
+        "type": "object",
+        "properties": {
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "packageName": {
+                  "beskrivning": "Identifierare för Android-app, t.ex. "com.google.android.gm" for Gmail",
+                  "type": "string"
+                },
+                "installType": {
+                  "beskrivning": "Anger hur en app installeras. OPTIONAL: Appen installeras inte automatiskt men användaren kan installera den. Detta är standardprincipen om annat inte anges. PRELOAD: Appen installeras automatiskt men användaren kan avinstallera den. FORCE_INSTALLED: Appen installeras automatiskt och användaren kan inte avinstallera den. BLOCKED: Appen blockeras och användaren kan inte installera den. Om appen installerades när en tidigare princip gällde så avinstalleras den.",
+                  "type": "string",
+                  "enum": [
+                    "OPTIONAL",
+                    "PRELOAD",
+                    "FORCE_INSTALLED",
+                    "BLOCKED"
+                  ]
+                },
+                "defaultPermissionPolicy": {
+                  "beskrivning": "Princip för att godkänna begäranden om behörighet till appar. PERMISSION_POLICY_UNSPECIFIED: Ingen princip är angiven. PROMPT är standard om ingen annan princip anges på någon nivå. PROMPT: Låt användaren ge behörighet. GRANT: Ge behörighet automatiskt. DENY: Neka behörighet automatiskt.",
+                  "type": "string",
+                  "enum": [
+                    "PERMISSION_POLICY_UNSPECIFIED",
+                    "PROMPT",
+                    "GRANT",
+                    "DENY"
+                  ]
+                },
+                "managedConfiguration": {
+                  "beskrivning": "Appspecifikt konfigurationsobjekt för JSON med en uppsättning nyckel-värden, t.ex. '"managedConfiguration": { "key1": value1, "key2": value2 }'. Nycklarna definieras i appens manifest.",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+
+      Läs mer om PinnedLauncherApps om du vill fästa appar i översikten.</translation>
 <translation id="602728333950205286">Dynamisk webbadress för standardsökleverantör</translation>
 <translation id="603410445099326293">Parametrar för föreslagen webbadress som använder POST</translation>
 <translation id="6036523166753287175">Aktivera brandväggspassage från fjärråtkomstsvärd</translation>
@@ -1421,6 +1539,7 @@
 <translation id="6076099373507468537">Definierar vilka USB-enheter som får kopplas bort från sina kärndrivrutiner så att de kan användas direkt i en webbapp med API:et chrome.usb. Posterna i listan består av id-par för USB, leverantörs-id och produkt-id, som tillsammans identifierar maskinvaran.
 
       Om principen inte har konfigurerats är listan med frånkopplingsbara USB-enheter tom.</translation>
+<translation id="6083631234867522991">Windows (Windows-klienter):</translation>
 <translation id="6093156968240188330">Tillåt att fjärranvändare kan interagera med fönster som öppnats med adminbehörighet i fjärrhjälpsessioner</translation>
 <translation id="6095999036251797924">Anger efter hur lång tid skärmen släcks när användaren är inaktiv och enheten drivs med batteri eller ström.
 
@@ -1436,7 +1555,6 @@
 <translation id="6111936128861357925">Tillåt påskäggsspelet med dinosaurier</translation>
 <translation id="6114416803310251055">föråldrad</translation>
 <translation id="6133088669883929098">Tillåt alla webbplatser att använda nyckelgenerering</translation>
-<translation id="6139485614509308022">När principen OffHours har ställts in ignoreras de angivna enhetsprinciperna (använd standardinställningarna för dessa principer) under de angivna tidsperioderna. Varje gång en OffHours-period börjar eller slutar ändras tillämpningen av enhetsprinciperna i Chrome. Användarna aviseras och måste logga ut när OffHours-perioden slutar och enhetens principinställningar ändras (t.ex. om användaren är inloggad med ett konto som inte är tillåtet).</translation>
 <translation id="6145799962557135888">Policyn gör att du kan ange en lista med webbadressmönster som anger webbplatser som får köra JavaScript.
 
           Om policyn inte anges används den globala standardpolicyn för alla webbplatser. Standardvärdet hämtas från policyn DefaultJavaScriptSetting om den har angetts eller användarens personliga konfiguration om den inte har det.</translation>
@@ -1489,7 +1607,7 @@
       Om den är inställd på falskt är komponentuppdateringar inaktiverade. Vissa komponenter undantas dock från principen. Uppdateringar för komponenter som inte innehåller körbar kod eller inte märkbart förändrar webbläsarens funktion eller är viktiga för dess säkerhet inaktiveras inte.
       Exempel på sådana komponenter är uppgifter om listor över återkallade certifikat och uppgifter från Säker webbsökning.
       Läs mer om Säker webbsökning på https://developers.google.com/safe-browsing.</translation>
-<translation id="6310223829319187614">Aktivera autoslutförande av domännamn vid användarinloggning</translation>
+<translation id="6310223829319187614">Aktivera autoslutför av domännamn vid användarinloggning</translation>
 <translation id="6315673513957120120">Chrome visar en varningssida när användare besöker webbplatser med SSL-fel. Som standardinställning eller om den här principen är inställd på sant ges användare möjligheten att klicka sig förbi dessa varningssidor.
       Om principen är inställd på falskt hindras användare från att klicka sig förbi varningssidor.</translation>
 <translation id="6353901068939575220">Anger parametrarna som används vid sökning efter en webbadress med POST. Den består av kommaavgränsade namn-/värdepar. Om ett värde är en mallparameter, t.ex. {searchTerms} i ovanstående exempel, ersätts det av riktiga söktermer.
@@ -1526,6 +1644,11 @@
           Med alternativet PAC-proxyskript får Android-apparna tillgång till skriptadressen.</translation>
 <translation id="6491139795995924304">Tillåt Bluetooth på enheten</translation>
 <translation id="6520802717075138474">Importera sökmotorer från standardwebbläsaren första gången den körs</translation>
+<translation id="6525955212636890608">Om du aktiverar den här inställningen körs allt inbäddat Flash-innehåll på webbplatser där Flash är tillåtet enligt innehållsinställningarna (som kan ha angetts av användaren eller med en företagsprincip). Det gäller även innehåll som kommer från andra domäner eller småskaligt innehåll.
+
+      Du styr vilka webbplatser som Flash får köras på med principerna DefaultPluginsSetting, PluginsAllowedForUrls och PluginsBlockedForUrls.
+
+      Om den här inställningen har inaktiverats eller lämnats orörd kan Flash-innehåll från andra domäner eller småskaligt innehåll blockeras.</translation>
 <translation id="653608967792832033">Anger efter hur lång tid utan indata från användaren som skärmen ska låsas när enheten går på batteri.
 
           Om policyns värde är större än noll anger det hur länge användaren kan vara inaktiv innan <ph name="PRODUCT_OS_NAME" /> låser skärmen.
@@ -1561,11 +1684,11 @@
 
           Om policyn inte anges används 3 och användaren kan ändra inställningen.</translation>
 <translation id="6641981670621198190">Inaktivera stöd för programmeringsgränssnitt för 3D-grafik</translation>
-<translation id="6647965994887675196">Om "true" anges kan övervakade användare skapas och användas.
+<translation id="6647965994887675196">Om "true" anges kan kontrollerade användare skapas och användas.
 
-          Om "false" anges eller om ingen konfiguration utförs inaktiveras alternativet att skapa övervakade användare och att logga in. Alla befintliga övervakade användare döljs.
+          Om "false" anges eller om ingen konfiguration utförs inaktiveras alternativet att skapa kontrollerade användare och att logga in. Alla befintliga kontrollerade användare döljs.
 
-          OBS! Standardbeteendet skiljer sig åt mellan kund- och företagsenheter: på kundenheter aktiveras övervakade användare som standard men på företagsenheter inaktiveras de som standard.</translation>
+          OBS! Standardbeteendet skiljer sig åt mellan kund- och företagsenheter: på kundenheter aktiveras kontrollerade användare som standard men på företagsenheter inaktiveras de som standard.</translation>
 <translation id="6649397154027560979">Den här principen är föråldrad, använd URLBlacklist i stället.
 
       Inaktiverar de protokollscheman som listas i <ph name="PRODUCT_NAME" />.
@@ -1581,7 +1704,7 @@
       Om du ställer in den här inställningen på ”alltid”, ”aldrig” eller ”endast Wi-Fi” kan inte användare ändra eller åsidosätta inställningen i <ph name="PRODUCT_NAME" />.
 
       Om policyn inte ställs in aktiveras nätverksförslag, men användaren kan då ändra det.</translation>
-<translation id="6658245400435704251">Anger hur många sekunder en hämtning av en uppdatering via en enhet får försenas slumpmässigt från den tidpunkt då uppdateringen först skickades till servern. Enheten kan hållas i vänteläge dels under en vanlig tidsperiod, dels beroende på antalet uppdateringskontroller. Spridningen är alltid bunden till en övre tidsgräns så att en enhet aldrig fastnar för gott medan en uppdatering håller på att laddas ned.</translation>
+<translation id="6658245400435704251">Anger hur många sekunder en nedladdning av en uppdatering via en enhet får försenas slumpmässigt från den tidpunkt då uppdateringen först skickades till servern. Enheten kan hållas i vänteläge dels under en vanlig tidsperiod, dels beroende på antalet uppdateringskontroller. Spridningen är alltid bunden till en övre tidsgräns så att en enhet aldrig fastnar för gott medan en uppdatering håller på att laddas ned.</translation>
 <translation id="6689792153960219308">Rapportera maskinvarustatus</translation>
 <translation id="6693751878507293182">Om inställningen är aktiverad inaktiveras automatisk sökning efter och installation av plugin-program som saknas i <ph name="PRODUCT_NAME" />.
 
@@ -1780,6 +1903,7 @@
       Om policyn inte har angetts används den inbyggda strategin av den automatiska rensningen. För närvarande är det strategin RemoveLRUIfDormant.</translation>
 <translation id="7336878834592315572">Behåll cookies under hela sessionen</translation>
 <translation id="7340034977315324840">Rapportera aktivitetstider för enhet</translation>
+<translation id="7343497214039883642">Skivarkonfigurationsfil för företagsenheter</translation>
 <translation id="7384999953864505698">Tillåter QUIC-protokoll</translation>
 <translation id="7417972229667085380">Procentsatsen med vilken fördröjningen vid dödtid skalanpassas i presentationsläge (föråldrad)</translation>
 <translation id="7421483919690710988">Ange medieenhetens cachestorlek i byte</translation>
@@ -1789,7 +1913,6 @@
       Om principen inte har konfigurerats eller har ställts in på falskt aktiveras f<ph name="TLS_FALSE_START" />. Om principen har ställts in på sant inaktiveras <ph name="TLS_FALSE_START" />.</translation>
 <translation id="7433714841194914373">Aktivera Instant</translation>
 <translation id="7443616896860707393">Frågor vid korsursprungs-HTTP med basauktorisering</translation>
-<translation id="7468416082528382842">Windows-registerplats:</translation>
 <translation id="7469554574977894907">Aktivera sökförslag</translation>
 <translation id="7474249562477552702">Om SHA-1-signerade certifikat som utfärdats av lokala tillitsankare tillåts eller inte</translation>
 <translation id="7485481791539008776">Skrivarens standardurvalsregler</translation>
@@ -1924,6 +2047,40 @@
 <translation id="7841880500990419427">Lägsta TLS-version som kan användas som alternativ</translation>
 <translation id="7842869978353666042">Konfigurera alternativ för Google Drive</translation>
 <translation id="7843525027689416831">Anger de flaggor som ska användas i <ph name="PRODUCT_NAME" /> vid start. De angivna flaggorna används bara för inloggningsskärmen. Flaggor som angetts via denna princip påverkar inte användarsessioner.</translation>
+<translation id="7844537954833753199">Konfigurerar inställningar för tilläggshantering för <ph name="PRODUCT_NAME" />.
+
+          Principen styr flera inställningar, bland annat inställningar som styrs av befintliga tilläggsrelaterande principer. Principen åsidosätter alla äldre principer om båda är angivna.
+
+          Principen mappar ett tilläggs-id eller en uppdateringsadress till dess konfiguration. Med ett tilläggs-id tillämpas konfigurationen endast på det angivna tillägget. En standardkonfiguration kan anges för det särskilda id:t <ph name="DEFAULT_SCOPE" /> som tillämpas på alla tillägg som inte har en anpassad konfiguration i den här principen. Med en uppdateringsadress tillämpas konfigurationen på alla tillägg med den exakta uppdateringsadressen som angetts i manifestet för tillägget, så som beskrivs på <ph name="LINK_TO_EXTENSION_DOC1" />.
+
+          Konfigurationen för varje tillägg (eller tillägg med samma uppdateringsadress) är en annan ordlista som kan innehålla fälten nedan.
+
+          <ph name="INSTALLATION_MODE" />: mappar till en sträng som anger installationsläget för tillägget. De giltiga strängarna är:
+          * <ph name="ALLOWED" />: tillåter att användaren installerar tillägget. Detta är standardbeteende.
+          * <ph name="BLOCKED" />: blockerar installationen av tillägget.
+          * <ph name="FORCE_INSTALLED" />: tillägget installeras automatiskt och kan inte tas bort av användaren.
+          * <ph name="NORMAL_INSTALLED" />: tillägget installeras automatiskt men kan inaktiveras av användaren.
+
+          <ph name="INSTALLTION_MODE" /> kan även konfigureras för flera tillägg, bland annat tillägget <ph name="DEFAULT_SCOPE" /> (som standardinställningar) och tillägg med samma uppdateringsadress. Endast värdena <ph name="ALLOWED" /> och <ph name="BLOCKED" /> 
+kan användas i det här fallet.
+
+          Om läget är inställt på <ph name="FORCE_INSTALLED" /> eller <ph name="NORMAL_INSTALLED" /> måste även en <ph name="UPDATE_URL" /> konfigureras. Tänk på att uppdateringsadressen som anges i den här principen endast används för den första installationen. Vid senare uppdateringar av tillägget används uppdateringsadressen som anges i tilläggets manifest. Uppdateringsadressen ska peka på ett Update Manifest-dokument i XML-format så som nämnts ovan.
+
+          <ph name="BLOCKED_PERMISSIONS" />: mappar till en lista med strängar som anger de blockerade API-behörigheterna för tillägget. Namnen på behörigheterna är desamma som behörighetssträngarna som deklarerats i manifestet för tillägget som beskrivs på <ph name="LINK_TO_EXTENSION_DOC3" />. Inställningen kan även konfigureras för tillägget <ph name="DEFAULT_SCOPE" />. Om tillägget kräver en behörighet som finns med på blockeringslistan läses den inte in. Om det innehåller en blockerad behörighet som inte är obligatorisk hanteras det som vanligt, men begäran om motstridiga behörigheter nekas automatiskt vid körning.
+
+          <ph name="ALLOWED_PERMISSIONS" />: liknar <ph name="BLOCKED_PERMISSIONS" /> men tillåter uttryckligen vissa behörigheter som kan vara blockerade av en global lista över blockerade behörigheter och kan därmed inte konfigureras för tillägget <ph name="DEFAULT_SCOPE" />. Tänk på att den här inställningen inte automatiskt tilldelar tilläggen beviljade behörigheter.
+
+          <ph name="MINIMUM_VERSION_REQUIRED" />: mappar till en versionssträng. Formatet för versionssträngen är detsamma som det som används i tilläggets manifest, som beskrivs på <ph name="LINK_TO_EXTENSION_DOC4" />. Ett tillägg med en version som är äldre än den angivna lägsta versionen inaktiveras. Detta gäller även för tillägg som måste installeras. 
+
+          Följande inställningar kan endast användas för standardkonfigurationen <ph name="DEFAULT_SCOPE" />:
+
+          <ph name="INSTALL_SOURCES" />: Varje objekt i listan motsvarar en matchning i form av ett tillägg (<ph name="LINK_TO_MATCH_PATTERNS" />). Användarna kan enkelt installera objekt från alla webbadresser som matchar ett objekt i listan. Både platsen för <ph name="EXTENSION_SUFFIX_WILDCARD" />-filen och sidan där nedladdningen påbörjades (dvs. hänvisningsadressen) måste tillåtas av mönstren.
+
+          <ph name="ALLOWED_TYPES" />: Den här inställningen godkänner de tillåtna typerna med tillägg/appar som kan installeras i <ph name="PRODUCT_NAME" />. Värdet är en lista med strängar där varje sträng måste vara något av följande: <ph name="VALID_ALLOWED_TYPES" />. Mer information om dessa typer finns i dokumentationen för tillägget <ph name="PRODUCT_NAME" />.
+          <ph name="BLOCKED_INSTALL_MESSAGE" />: Om en användare försöker installera ett tillägg som blockeras av en princip visas ett allmänt felmeddelande i Chrome Webstore. Med den här inställningen kan du lägga till text i felmeddelandet. Du kan till exempel hänvisa användarna till din support, förklara varför ett visst tillägg är blockerat eller annat. Felmeddelandet blir avklippt om det överstiger 1 000 tecken.
+          <ph name="RUNTIME_BLOCKED_HOSTS" />: Tar emot en lista över värdar som tillägget blockeras från att använda. Detta inkluderar att lägga till JavaScript, ändra och visa webRequests / webNavigation och att visa och ändra cookies. Formatet liknar matchningsmönstren <ph name="LINK_TO_MATCH_PATTERNS" /> förutom att sökvägar, t.ex. *://*.example.com, inte kan användas. Detta stöder även jokertoppdomäner, t.ex. *://example.*.
+          <ph name="RUNTIME_ALLOWED_HOSTS" />: Tar emot en lista över värdar som tillägget kan använda oavsett om de finns med på listan över <ph name="RUNTIME_BLOCKED_HOSTS" />. Detta är samma format som <ph name="RUNTIME_BLOCKED_HOSTS" />.
+          </translation>
 <translation id="787125417158068494">Om principen är inställd på SyncDisabled eller inte har konfigurerats blir inga certifikat i <ph name="PRODUCT_OS_NAME" /> tillgängliga för ARC-appar.
 
       Om principen är inställd på CopyCaCerts blir alla CA-certifikat som installerats via ONC med <ph name="WEB_TRUSTED_BIT" /> tillgängliga för ARC-appar.</translation>
@@ -1974,6 +2131,7 @@
       Om inget värde anges för policyn används formatet 24-timmarstid som standard.</translation>
 <translation id="8114382167597081590">Gör inte begränsat läge på YouTube obligatoriskt</translation>
 <translation id="8118665053362250806">Ange cachestorlek för medieenhet</translation>
+<translation id="8124468781472887384">Åtkomstprincip för skrivarkonfigurationer för enheter.</translation>
 <translation id="8135937294926049787">Anger efter hur lång tid utan åtgärd från användaren som skärmen ska stängas av när enheten är ansluten till elnätet.
 
           Om policyn är inställd på ett värde som är större än noll anger den hur länge användaren måste vara inaktiv innan skärmen stängs av av <ph name="PRODUCT_OS_NAME" />.
@@ -2006,18 +2164,6 @@
 
       Om policyn är inaktiverad eller inte inställd aktiveras vanliga profiler vid inloggning.</translation>
 <translation id="8158758865057576716">Aktivera framställningen av roamingkopior för profiluppgifterna för <ph name="PRODUCT_NAME" />.</translation>
-<translation id="8169931650834542988">Styr vilka skrivare i
-      NativePrintersBulkConfiguration som får användas.
-
-      Anger vilken åtkomstprincip som gäller för gruppkonfigurering av skrivare.
-      Med alternativet AllowAll visas alla skrivare. Med alternativet BlacklistRestriction
-      begränsas åtkomsten till de angivna skrivarna med hjälp av
-      NativePrintersBulkBlacklist. Med alternativet WhitelistPrintersOnly används
-      NativePrintersWhitelist för att ange enbart de skrivare som finns att
-      välja på.
-
-      Om inget värde anges för principen används BlacklistRestriction.
-      </translation>
 <translation id="8170878842291747619">Policyn aktiverar den integrerade tjänsten Google Översätt i <ph name="PRODUCT_NAME" />.
 
       Om du aktiverar inställningen visas ett integrerat verktygsfält i <ph name="PRODUCT_NAME" /> där användaren kan välja att få sidan översatt, om det är tillämpligt.
@@ -2105,18 +2251,9 @@
 <translation id="8424255554404582727">Ange standardrotation efter omstart för skärmen</translation>
 <translation id="8426231401662877819">Rotera skärmen 90 grader medurs</translation>
 <translation id="8451988835943702790">Använd sidan Ny flik som startsida</translation>
-<translation id="8458790683633857482">Anger en uppsättning principer som överlämnas till ARC-körning. Värdet måste vara en giltig JSON.</translation>
 <translation id="8465065632133292531">Parametrar för webbadress för Instant som använder POST</translation>
 <translation id="847472800012384958">Tillåt inte att popup-fönster visas på någon webbplats</translation>
 <translation id="8477885780684655676">TLS 1.0</translation>
-<translation id="8480767919856518465">Anger vilka skrivare som får användas.
-
-      Principen används bara om principen NativePrintersBulkAccessMode är
-      inställd på WhitelistPrintersOnly.
-
-      Om principen används är bara de skrivare vars id matchar något av den här
-      principens värden tillgängliga för användaren. Id:na måste svara mot
-      posterna i den fil som angetts i NativePrintersBulkConfiguration.</translation>
 <translation id="8484458986062090479">Anpassa listan med webbadressmönster som alltid ska renderas av värdwebbläsaren.
 
           Om principen inte har ställts in används standardrenderaren för alla webbplatser enligt specifikationen i principen ChromeFrameRendererSettings.
@@ -2125,32 +2262,14 @@
 <translation id="8493645415242333585">Spara inte webbhistorik</translation>
 <translation id="8499172469244085141">Standardinställningar (kan åsidosättas av användare)</translation>
 <translation id="8519264904050090490">Webbadresser för hanterade användares manuella undantag</translation>
+<translation id="8527932539502116028">Anger skrivare som inte får användas.
+
+      Den här principen används bara när <ph name="BULK_PRINTERS_ACCESS_MODE" /> är inställd på <ph name="PRINTERS_BLACKLIST" />.
+
+      Om principen används får användaren tillgång till alla skrivare utom dem vars id anges i den här principen.
+      </translation>
 <translation id="8544375438507658205">HTML-standardrenderare för <ph name="PRODUCT_FRAME_NAME" /></translation>
 <translation id="8549772397068118889">Varna när du besöker webbplatser utanför innehållspaket</translation>
-<translation id="8555589883248082762">Tillhandahåller konfigurationer för företagsskrivare.
-
-      Med den här principen kan du tillhandahålla skrivarkonfigurationer för
-      <ph name="PRODUCT_OS_NAME" />-enheter.
-      Filen får vara högst 5 MB och måste vara i JSON-format.
-      Formatet är samma som för NativePrinters-ordlistan. Uppskattningsvis
-      kan en fil som är 5 MB innehålla cirka 21 000 skrivare.
-      Det kryptografiska hashvärdet används för att verifiera nedladdningens
-      integritet.
-
-      Filen laddas ned och cachelagras. Den laddas ned på nytt varje gång
-      webbadressen eller hashvärdet ändras.
-
-      Om principen har ställts in
-      laddas filen med skrivarkonfigurationer
-      ned i <ph name="PRODUCT_OS_NAME" /> och skrivarna görs tillgängliga i enlighet med
-      principerna NativePrintersBulkAccessMode, NativePrintersBulkWhitelist,
-      och NativePrintersBulkBlacklist.
-
-      Om du anger den här principen kan användarna varken ändra eller åsidosätta den.
-
-      Principen påverkar inte om användarna får konfigurera skrivare på
-      enskilda enheter. Den är tänkt att komplettera enskilda användares
-      skrivarkonfigurationer.</translation>
 <translation id="8566842294717252664">Dölj webbutiken från sidan ny flik och startprogrammet för appar</translation>
 <translation id="8587229956764455752">Tillåt att nya användarkonton skapas</translation>
 <translation id="8614804915612153606">Inaktiverar automatisk uppdatering</translation>
@@ -2161,6 +2280,7 @@
           Om inställningen är Falskt kommer enheten inte att använda fjärrstyrd attestering för innehållsskydd och skyddat innehåll kanske inte kan spelas upp på enheten.
 
           Om inställningen är Sant eller om den inte anges kan fjärrstyrd attestering användas för innehållsskydd.</translation>
+<translation id="8650974590712548439">Windows-registerplats för Windows-klienter:</translation>
 <translation id="8654286232573430130">Anger vilka servrar som ska godkännas för integrerad autentisering. Integrerad autentisering är endast aktiverad när <ph name="PRODUCT_NAME" /> får en autentiseringsutmaning från en proxyserver som finns i listan över godkända servrar.
 
           Avgränsa flera servernamn med kommatecken. Jokertecken (*) tillåts.
@@ -2228,6 +2348,18 @@
 
           Policyns värde anges i millisekunder. Värdet måste vara mindre än inaktivitetstiden.</translation>
 <translation id="891435090623616439">kodad som en JSON-sträng. Mer information finns i <ph name="COMPLEX_POLICIES_URL" /></translation>
+<translation id="8927384992072706174">Tillhandahåller konfigurationer för företagsskrivare.
+
+      Med den här principen kan du tillhandahålla skrivarkonfigurationer för <ph name="PRODUCT_OS_NAME" />-enheter. Filen får vara högst 5 MB och måste vara i JSON-format. Formatet är samma som för NativePrinters-ordlistan. En fil som är 5 MB stor beräknas rymma cirka 21 000 skrivare. Det kryptografiska hashvärdet används för att verifiera nedladdningens integritet.
+
+      Filen laddas ned och cachelagras. Den laddas ned på nytt varje gång webbadressen eller hashvärdet ändras.
+
+      Om principen har ställts in laddas filen med skrivarkonfigurationer ned i <ph name="PRODUCT_OS_NAME" /> och skrivarna görs tillgängliga i enlighet med principerna <ph name="BULK_PRINTERS_ACCESS_MODE" />, <ph name="BULK_PRINTERS_WHITELIST" /> och <ph name="BULK_PRINTERS_BLACKLIST" />.
+
+      Om du anger den här principen kan användarna varken ändra eller åsidosätta den.
+
+      Principen påverkar inte om användarna får konfigurera skrivare på enskilda enheter. Den är tänkt som ett komplement till enskilda användares skrivarkonfigurationer.
+      </translation>
 <translation id="8947415621777543415">Rapportera enhetsplats</translation>
 <translation id="8951350807133946005">Ange katalog för diskcache</translation>
 <translation id="8952317565138994125">Inaktiverar datasynkronisering i <ph name="PRODUCT_NAME" /> med synkroniseringstjänster från Google och förhindrar att användarna ändrar inställningen.

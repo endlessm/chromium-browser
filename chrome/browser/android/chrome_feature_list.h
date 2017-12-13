@@ -13,6 +13,7 @@ namespace chrome {
 namespace android {
 
 // Alphabetical:
+extern const base::Feature kAllowReaderForAccessibility;
 extern const base::Feature kAndroidPayIntegrationV1;
 extern const base::Feature kAndroidPayIntegrationV2;
 extern const base::Feature kAndroidPaymentApps;
@@ -22,15 +23,19 @@ extern const base::Feature kCCTExternalLinkHandling;
 extern const base::Feature kCCTPostMessageAPI;
 extern const base::Feature kCCTRedirectPreconnect;
 extern const base::Feature kChromeHomeFeature;
+extern const base::Feature kChromeHomeDestroySuggestions;
 extern const base::Feature kChromeHomeDoodle;
-extern const base::Feature kChromeHomeExpandButton;
-extern const base::Feature kChromeHomeModernLayout;
+extern const base::Feature kChromeHomePromo;
+extern const base::Feature kChromeHomePromoInfoOnly;
+extern const base::Feature kChromeHomePromoOnStartup;
+extern const base::Feature kChromeHomeOptOutSnackbar;
 extern const base::Feature kChromeHomeSwipeLogic;
+extern const base::Feature kChromeMemexFeature;
 extern const base::Feature kContentSuggestionsLargeThumbnail;
+extern const base::Feature kChromeSmartSelection;
 extern const base::Feature kContentSuggestionsScrollToLoad;
-extern const base::Feature kContentSuggestionsVideoOverlay;
 extern const base::Feature kContentSuggestionsSettings;
-extern const base::Feature kContentSuggestionsShowSummary;
+extern const base::Feature kContentSuggestionsThumbnailDominantColor;
 extern const base::Feature kContextualSearchSingleActions;
 extern const base::Feature kContextualSearchUrlActions;
 extern const base::Feature kContextualSuggestionsCarousel;
@@ -54,6 +59,7 @@ extern const base::Feature kOmniboxSpareRenderer;
 extern const base::Feature kPayWithGoogleV1;
 extern const base::Feature kPhysicalWebFeature;
 extern const base::Feature kPhysicalWebSharing;
+extern const base::Feature kProgressBarThrottleFeature;
 extern const base::Feature kPwaImprovedSplashScreen;
 extern const base::Feature kPwaPersistentNotification;
 extern const base::Feature kReaderModeInCCT;

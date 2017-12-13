@@ -8,22 +8,22 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_PROCESSING_AEC3_AEC_STATE_H_
-#define WEBRTC_MODULES_AUDIO_PROCESSING_AEC3_AEC_STATE_H_
+#ifndef MODULES_AUDIO_PROCESSING_AEC3_AEC_STATE_H_
+#define MODULES_AUDIO_PROCESSING_AEC3_AEC_STATE_H_
 
 #include <algorithm>
 #include <memory>
 #include <vector>
 
-#include "webrtc/modules/audio_processing/aec3/aec3_common.h"
-#include "webrtc/modules/audio_processing/aec3/echo_path_variability.h"
-#include "webrtc/modules/audio_processing/aec3/erl_estimator.h"
-#include "webrtc/modules/audio_processing/aec3/erle_estimator.h"
-#include "webrtc/modules/audio_processing/aec3/render_buffer.h"
-#include "webrtc/modules/audio_processing/include/audio_processing.h"
-#include "webrtc/rtc_base/array_view.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/optional.h"
+#include "api/array_view.h"
+#include "api/optional.h"
+#include "modules/audio_processing/aec3/aec3_common.h"
+#include "modules/audio_processing/aec3/echo_path_variability.h"
+#include "modules/audio_processing/aec3/erl_estimator.h"
+#include "modules/audio_processing/aec3/erle_estimator.h"
+#include "modules/audio_processing/aec3/render_buffer.h"
+#include "modules/audio_processing/include/audio_processing.h"
+#include "rtc_base/constructormagic.h"
 
 namespace webrtc {
 
@@ -72,8 +72,8 @@ class AecState {
     capture_signal_saturation_ = capture_signal_saturation;
   }
 
-  // Returns whether a probable headset setup has been detected.
-  bool HeadsetDetected() const { return headset_detected_; }
+  // Returns whether the transparent mode is active
+  bool TransparentMode() const { return transparent_mode_; }
 
   // Takes appropriate action at an echo path change.
   void HandleEchoPathChange(const EchoPathVariability& echo_path_variability);
@@ -92,11 +92,28 @@ class AecState {
     echo_audibility_.UpdateWithOutput(e);
   }
 
+  // Returns whether the linear filter should have been able to adapt properly.
+  bool SufficientFilterUpdates() const {
+    return blocks_with_filter_adaptation_ >= kEchoPathChangeConvergenceBlocks;
+  }
+
+  // Returns whether the echo subtractor can be used to determine the residual
+  // echo.
+  bool LinearEchoEstimate() const {
+    return UsableLinearEstimate() && !TransparentMode();
+  }
+
+  // Returns whether the AEC is in an initial state.
+  bool InitialState() const {
+    return capture_block_counter_ < 3 * kNumBlocksPerSecond;
+  }
+
   // Updates the aec state.
   void Update(const std::vector<std::array<float, kFftLengthBy2Plus1>>&
                   adaptive_filter_frequency_response,
               const std::array<float, kAdaptiveFilterTimeDomainLength>&
                   adaptive_filter_impulse_response,
+              bool converged_filter,
               const rtc::Optional<size_t>& external_delay_samples,
               const RenderBuffer& render_buffer,
               const std::array<float, kFftLengthBy2Plus1>& E2_main,
@@ -109,7 +126,8 @@ class AecState {
   class EchoAudibility {
    public:
     void Update(rtc::ArrayView<const float> x,
-                const std::array<float, kBlockSize>& s);
+                const std::array<float, kBlockSize>& s,
+                bool converged_filter);
     void UpdateWithOutput(rtc::ArrayView<const float> e);
     bool InaudibleEcho() const { return inaudible_echo_; }
 
@@ -127,13 +145,13 @@ class AecState {
   std::unique_ptr<ApmDataDumper> data_dumper_;
   ErlEstimator erl_estimator_;
   ErleEstimator erle_estimator_;
-  int echo_path_change_counter_;
+  size_t capture_block_counter_ = 0;
   size_t blocks_with_filter_adaptation_ = 0;
   bool usable_linear_estimate_ = false;
   bool echo_leakage_detected_ = false;
   bool capture_signal_saturation_ = false;
   bool echo_saturation_ = false;
-  bool headset_detected_ = false;
+  bool transparent_mode_ = false;
   float previous_max_sample_ = 0.f;
   bool force_zero_gain_ = false;
   bool render_received_ = false;
@@ -153,4 +171,4 @@ class AecState {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_PROCESSING_AEC3_AEC_STATE_H_
+#endif  // MODULES_AUDIO_PROCESSING_AEC3_AEC_STATE_H_

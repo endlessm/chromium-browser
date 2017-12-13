@@ -6,12 +6,12 @@
 #define CONTENT_PUBLIC_TEST_BROWSER_TEST_UTILS_H_
 
 #include <memory>
-#include <queue>
 #include <string>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/containers/queue.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -19,7 +19,7 @@
 #include "base/run_loop.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
-#include "cc/output/compositor_frame.h"
+#include "components/viz/common/quads/compositor_frame.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -31,6 +31,7 @@
 #include "storage/common/fileapi/file_system_types.h"
 #include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/WebKit/public/platform/WebMouseEvent.h"
+#include "third_party/WebKit/public/platform/WebMouseWheelEvent.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/accessibility/ax_tree_update.h"
 #include "ui/events/keycodes/dom/dom_code.h"
@@ -143,7 +144,8 @@ void SimulateMouseEvent(WebContents* web_contents,
 // Simulate a mouse wheel event.
 void SimulateMouseWheelEvent(WebContents* web_contents,
                              const gfx::Point& point,
-                             const gfx::Vector2d& delta);
+                             const gfx::Vector2d& delta,
+                             const blink::WebMouseWheelEvent::Phase phase);
 
 // Sends a simple, three-event (Begin/Update/End) gesture scroll.
 void SimulateGestureScrollSequence(WebContents* web_contents,
@@ -505,7 +507,7 @@ class TitleWatcher : public WebContentsObserver {
  private:
   // Overridden WebContentsObserver methods.
   void DidStopLoading() override;
-  void TitleWasSet(NavigationEntry* entry, bool explicit_set) override;
+  void TitleWasSet(NavigationEntry* entry) override;
 
   void TestTitle();
 
@@ -593,7 +595,7 @@ class DOMMessageQueue : public NotificationObserver,
 
  private:
   NotificationRegistrar registrar_;
-  std::queue<std::string> message_queue_;
+  base::queue<std::string> message_queue_;
   scoped_refptr<MessageLoopRunner> message_loop_runner_;
   bool renderer_crashed_ = false;
 
@@ -650,7 +652,7 @@ class FrameWatcher : public WebContentsObserver {
   void WaitFrames(int frames_to_wait);
 
   // Return the last received CompositorFrame's metadata.
-  const cc::CompositorFrameMetadata& LastMetadata();
+  const viz::CompositorFrameMetadata& LastMetadata();
 
   // Call this method to start observing a WebContents for CompositorFrames.
   using WebContentsObserver::Observe;
@@ -778,13 +780,18 @@ class TestNavigationManager : public WebContentsObserver {
   // stack. Returns false if the request was aborted before starting.
   WARN_UNUSED_RESULT bool WaitForRequestStart();
 
-  // Waits until the navigation response has been sent received. Returns false
-  // if the request was aborted before getting a response.
+  // Waits until the navigation response's headers have been received. Returns
+  // false if the request was aborted before getting a response.
   WARN_UNUSED_RESULT bool WaitForResponse();
 
   // Waits until the navigation has been finished. Will automatically resume
   // navigations paused before this point.
   void WaitForNavigationFinished();
+
+  // Resume the navigation.
+  // * Called after |WaitForRequestStart|, it causes the request to be sent.
+  // * Called after |WaitForResponse|, it causes the response to be committed.
+  void ResumeNavigation();
 
  protected:
   // Derived classes can override if they want to filter out navigations. This
@@ -942,6 +949,8 @@ class MockOverscrollController {
   virtual void WaitForConsumedScroll() = 0;
 };
 #endif  // defined(USE_AURA)
+
+WebContents* GetEmbedderForGuest(content::WebContents* guest);
 
 }  // namespace content
 

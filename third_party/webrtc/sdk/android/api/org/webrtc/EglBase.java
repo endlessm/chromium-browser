@@ -19,10 +19,9 @@ import javax.microedition.khronos.egl.EGL10;
  * Holds EGL state and utility methods for handling an egl 1.0 EGLContext, an EGLDisplay,
  * and an EGLSurface.
  */
-@SuppressWarnings("StaticOrDefaultInterfaceMethod")
-public interface EglBase {
+public abstract class EglBase {
   // EGL wrapper for an actual EGLContext.
-  public static class Context {}
+  public interface Context { long getNativeEglContext(); }
 
   // According to the documentation, EGL can be used from multiple threads at the same time if each
   // thread has its own EGLContext, but in practice it deadlocks on some devices when doing this.
@@ -141,34 +140,34 @@ public interface EglBase {
     return new EglBase14(new EglBase14.Context(sharedContext), configAttributes);
   }
 
-  void createSurface(Surface surface);
+  public abstract void createSurface(Surface surface);
 
   // Create EGLSurface from the Android SurfaceTexture.
-  void createSurface(SurfaceTexture surfaceTexture);
+  public abstract void createSurface(SurfaceTexture surfaceTexture);
 
   // Create dummy 1x1 pixel buffer surface so the context can be made current.
-  void createDummyPbufferSurface();
+  public abstract void createDummyPbufferSurface();
 
-  void createPbufferSurface(int width, int height);
+  public abstract void createPbufferSurface(int width, int height);
 
-  Context getEglBaseContext();
+  public abstract Context getEglBaseContext();
 
-  boolean hasSurface();
+  public abstract boolean hasSurface();
 
-  int surfaceWidth();
+  public abstract int surfaceWidth();
 
-  int surfaceHeight();
+  public abstract int surfaceHeight();
 
-  void releaseSurface();
+  public abstract void releaseSurface();
 
-  void release();
+  public abstract void release();
 
-  void makeCurrent();
+  public abstract void makeCurrent();
 
   // Detach the current EGL context, so that it can be made current on another thread.
-  void detachCurrent();
+  public abstract void detachCurrent();
 
-  void swapBuffers();
+  public abstract void swapBuffers();
 
-  void swapBuffers(long presentationTimeStampNs);
+  public abstract void swapBuffers(long presentationTimeStampNs);
 }

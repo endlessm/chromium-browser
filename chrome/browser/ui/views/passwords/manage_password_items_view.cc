@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/passwords/manage_passwords_bubble_model.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
@@ -20,6 +21,7 @@
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/image_button.h"
+#include "ui/views/controls/button/image_button_factory.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/link.h"
 #include "ui/views/controls/link_listener.h"
@@ -72,70 +74,79 @@ void BuildColumnSetIfNeeded(views::GridLayout* layout, int column_set_id) {
   }
 }
 
-std::unique_ptr<views::ImageButton> GenerateDeleteButton(
+std::unique_ptr<views::ImageButton> CreateDeleteButton(
     views::ButtonListener* listener) {
-  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
-  std::unique_ptr<views::ImageButton> button(new views::ImageButton(listener));
-  button->SetImage(views::ImageButton::STATE_NORMAL,
-                   rb->GetImageNamed(IDR_CLOSE_2).ToImageSkia());
-  button->SetImage(views::ImageButton::STATE_HOVERED,
-                   rb->GetImageNamed(IDR_CLOSE_2_H).ToImageSkia());
-  button->SetImage(views::ImageButton::STATE_PRESSED,
-                   rb->GetImageNamed(IDR_CLOSE_2_P).ToImageSkia());
+  std::unique_ptr<views::ImageButton> button;
+  if (ChromeLayoutProvider::Get()->IsHarmonyMode()) {
+    button.reset(views::CreateVectorImageButton(listener));
+    views::SetImageFromVectorIcon(button.get(), kTrashCanIcon);
+  } else {
+    ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
+    button = base::MakeUnique<views::ImageButton>(listener);
+    button->SetImage(views::ImageButton::STATE_NORMAL,
+                     rb->GetImageNamed(IDR_CLOSE_2).ToImageSkia());
+    button->SetImage(views::ImageButton::STATE_HOVERED,
+                     rb->GetImageNamed(IDR_CLOSE_2_H).ToImageSkia());
+    button->SetImage(views::ImageButton::STATE_PRESSED,
+                     rb->GetImageNamed(IDR_CLOSE_2_P).ToImageSkia());
+  }
   button->SetFocusForPlatform();
   button->SetTooltipText(
       l10n_util::GetStringUTF16(IDS_MANAGE_PASSWORDS_DELETE));
   return button;
 }
 
-std::unique_ptr<views::Label> GenerateDeletedPasswordLabel() {
+std::unique_ptr<views::Label> CreateDeletedPasswordLabel() {
   auto text = base::MakeUnique<views::Label>(
       l10n_util::GetStringUTF16(IDS_MANAGE_PASSWORDS_DELETED),
-      CONTEXT_DEPRECATED_SMALL);
+      CONTEXT_BODY_TEXT_LARGE);
   text->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   return text;
 }
 
-std::unique_ptr<views::Link> GenerateUndoLink(views::LinkListener* listener) {
+std::unique_ptr<views::Link> CreateUndoLink(views::LinkListener* listener) {
   std::unique_ptr<views::Link> undo_link(
       new views::Link(l10n_util::GetStringUTF16(IDS_MANAGE_PASSWORDS_UNDO)));
   undo_link->SetHorizontalAlignment(gfx::ALIGN_RIGHT);
   undo_link->set_listener(listener);
   undo_link->SetUnderline(false);
-  undo_link->SetFontList(views::style::GetFont(CONTEXT_DEPRECATED_SMALL,
-                                               views::style::STYLE_LINK));
   return undo_link;
 }
 
 }  // namespace
 
-std::unique_ptr<views::Label> GenerateUsernameLabel(
+std::unique_ptr<views::Label> CreateUsernameLabel(
     const autofill::PasswordForm& form) {
-  auto label = base::MakeUnique<views::Label>(GetDisplayUsername(form),
-                                              CONTEXT_DEPRECATED_SMALL);
+  auto label = base::MakeUnique<views::Label>(
+      GetDisplayUsername(form), CONTEXT_BODY_TEXT_LARGE, STYLE_SECONDARY);
   label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   return label;
 }
 
-std::unique_ptr<views::Textfield> GenerateUsernameEditable(
+std::unique_ptr<views::Textfield> CreateUsernameEditable(
     const autofill::PasswordForm& form) {
   auto editable = base::MakeUnique<views::Textfield>();
   editable->SetText(form.username_value);
+  editable->SetAccessibleName(
+      l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_USERNAME_LABEL));
   return editable;
 }
 
-std::unique_ptr<views::Label> GeneratePasswordLabel(
-    const autofill::PasswordForm& form) {
+std::unique_ptr<views::Label> CreatePasswordLabel(
+    const autofill::PasswordForm& form,
+    bool is_password_visible) {
   base::string16 text =
       form.federation_origin.unique()
           ? form.password_value
           : l10n_util::GetStringFUTF16(
                 IDS_PASSWORDS_VIA_FEDERATION,
                 base::UTF8ToUTF16(form.federation_origin.host()));
-  auto label = base::MakeUnique<views::Label>(text, CONTEXT_DEPRECATED_SMALL);
+  auto label = base::MakeUnique<views::Label>(text, CONTEXT_BODY_TEXT_LARGE,
+                                              STYLE_SECONDARY);
   label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  if (form.federation_origin.unique())
+  if (form.federation_origin.unique() && !is_password_visible)
     label->SetObscured(true);
+  label->SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
   return label;
 }
 
@@ -204,9 +215,9 @@ int ManagePasswordItemsView::PasswordFormRow::GetFixedHeight(
   if (state != password_manager::ui::MANAGE_STATE)
     return 0;
   std::unique_ptr<views::ImageButton> delete_button(
-      GenerateDeleteButton(nullptr));
-  std::unique_ptr<views::Link> link(GenerateUndoLink(nullptr));
-  std::unique_ptr<views::Label> label(GenerateDeletedPasswordLabel());
+      CreateDeleteButton(nullptr));
+  std::unique_ptr<views::Link> link(CreateUndoLink(nullptr));
+  std::unique_ptr<views::Label> label(CreateDeletedPasswordLabel());
   views::View* row_views[] = {delete_button.get(), link.get(), label.get()};
   return std::accumulate(row_views, row_views + arraysize(row_views), 0,
                          [](int max_height, const views::View* view) {
@@ -219,13 +230,37 @@ void ManagePasswordItemsView::PasswordFormRow::AddCredentialsRow(
   ResetControls();
   BuildColumnSetIfNeeded(layout, THREE_COLUMN_SET);
   layout->StartRow(0, THREE_COLUMN_SET);
-  layout->AddView(GenerateUsernameLabel(*password_form_).release(), 1, 1,
-                  views::GridLayout::FILL, views::GridLayout::FILL,
-                  0, fixed_height_);
-  layout->AddView(GeneratePasswordLabel(*password_form_).release(), 1, 1,
-                  views::GridLayout::FILL, views::GridLayout::FILL,
-                  0, fixed_height_);
-  delete_button_ = GenerateDeleteButton(this).release();
+  std::unique_ptr<views::Label> username_label(
+      CreateUsernameLabel(*password_form_));
+  std::unique_ptr<views::Label> password_label(
+      CreatePasswordLabel(*password_form_, false));
+  delete_button_ = CreateDeleteButton(this).release();
+  // TODO(https://crbug.com/761767): Remove this workaround once the grid layout
+  // bug is fixed.
+  const int username_width = username_label->CalculatePreferredSize().width();
+  const int password_width = password_label->CalculatePreferredSize().width();
+  const int available_width =
+      host_->bubble_width_ - delete_button_->CalculatePreferredSize().width() -
+      2 * ChromeLayoutProvider::Get()->GetDistanceMetric(
+              views::DISTANCE_RELATED_CONTROL_HORIZONTAL);
+  if (username_width > available_width && password_width < available_width) {
+    layout->AddView(username_label.release(), 1, 1, views::GridLayout::FILL,
+                    views::GridLayout::FILL, available_width, fixed_height_);
+    layout->AddView(password_label.release(), 1, 1, views::GridLayout::FILL,
+                    views::GridLayout::FILL, 0, fixed_height_);
+  } else if (username_width < available_width &&
+             password_width > available_width) {
+    layout->AddView(username_label.release(), 1, 1, views::GridLayout::FILL,
+                    views::GridLayout::FILL, username_width, fixed_height_);
+    layout->AddView(password_label.release(), 1, 1, views::GridLayout::FILL,
+                    views::GridLayout::FILL, available_width - username_width,
+                    fixed_height_);
+  } else {
+    layout->AddView(username_label.release(), 1, 1, views::GridLayout::FILL,
+                    views::GridLayout::FILL, 0, fixed_height_);
+    layout->AddView(password_label.release(), 1, 1, views::GridLayout::FILL,
+                    views::GridLayout::FILL, 0, fixed_height_);
+  }
   layout->AddView(delete_button_, 1, 1, views::GridLayout::TRAILING,
                   views::GridLayout::FILL, 0, fixed_height_);
 }
@@ -233,8 +268,8 @@ void ManagePasswordItemsView::PasswordFormRow::AddCredentialsRow(
 void ManagePasswordItemsView::PasswordFormRow::AddUndoRow(
     views::GridLayout* layout) {
   ResetControls();
-  std::unique_ptr<views::Label> text = GenerateDeletedPasswordLabel();
-  std::unique_ptr<views::Link> undo_link = GenerateUndoLink(this);
+  std::unique_ptr<views::Label> text = CreateDeletedPasswordLabel();
+  std::unique_ptr<views::Link> undo_link = CreateUndoLink(this);
   undo_link_ = undo_link.get();
   BuildColumnSetIfNeeded(layout, TWO_COLUMN_SET);
   layout->StartRow(0, TWO_COLUMN_SET);
@@ -268,8 +303,9 @@ void ManagePasswordItemsView::PasswordFormRow::ResetControls() {
 // ManagePasswordItemsView
 ManagePasswordItemsView::ManagePasswordItemsView(
     ManagePasswordsBubbleModel* manage_passwords_bubble_model,
-    const std::vector<autofill::PasswordForm>* password_forms)
-    : model_(manage_passwords_bubble_model) {
+    const std::vector<autofill::PasswordForm>* password_forms,
+    int bubble_width)
+    : model_(manage_passwords_bubble_model), bubble_width_(bubble_width) {
   DCHECK_EQ(password_manager::ui::MANAGE_STATE, model_->state());
   int fixed_height = PasswordFormRow::GetFixedHeight(model_->state());
   for (const auto& password_form : *password_forms) {
@@ -284,7 +320,7 @@ ManagePasswordItemsView::~ManagePasswordItemsView() = default;
 void ManagePasswordItemsView::AddRows() {
   const int vertical_padding = ChromeLayoutProvider::Get()->GetDistanceMetric(
       views::DISTANCE_RELATED_CONTROL_VERTICAL);
-  views::GridLayout* layout = new views::GridLayout(this);
+  views::GridLayout* layout = views::GridLayout::CreateAndInstall(this);
   SetLayoutManager(layout);
   for (const std::unique_ptr<PasswordFormRow>& row : password_forms_rows_) {
     if (row != password_forms_rows_[0])

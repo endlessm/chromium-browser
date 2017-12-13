@@ -586,12 +586,14 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
             mFactory.addTask(new Runnable() {
                 @Override
                 public void run() {
-                    mAwContents.evaluateJavaScript(script, resultCallback);
+                    mAwContents.evaluateJavaScript(
+                            script, CallbackConverter.fromValueCallback(resultCallback));
                 }
             });
         } else {
             checkThread();
-            mAwContents.evaluateJavaScript(script, resultCallback);
+            mAwContents.evaluateJavaScript(
+                    script, CallbackConverter.fromValueCallback(resultCallback));
         }
     }
 
@@ -612,7 +614,8 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
             });
             return;
         }
-        mAwContents.saveWebArchive(basename, autoname, callback);
+        mAwContents.saveWebArchive(
+                basename, autoname, CallbackConverter.fromValueCallback(callback));
     }
 
     @Override
@@ -1633,32 +1636,14 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
 
     @Override
     public void onInitializeAccessibilityNodeInfo(final AccessibilityNodeInfo info) {
-        mFactory.startYourEngines(false);
-        if (checkNeedsPost()) {
-            mFactory.runVoidTaskOnUiThreadBlocking(new Runnable() {
-                @Override
-                public void run() {
-                    onInitializeAccessibilityNodeInfo(info);
-                }
-            });
-            return;
-        }
-        mAwContents.onInitializeAccessibilityNodeInfo(info);
+        // Intentional no-op. Chromium accessibility implementation currently does not need this
+        // calls.
     }
 
     @Override
     public void onInitializeAccessibilityEvent(final AccessibilityEvent event) {
-        mFactory.startYourEngines(false);
-        if (checkNeedsPost()) {
-            mFactory.runVoidTaskOnUiThreadBlocking(new Runnable() {
-                @Override
-                public void run() {
-                    onInitializeAccessibilityEvent(event);
-                }
-            });
-            return;
-        }
-        mAwContents.onInitializeAccessibilityEvent(event);
+        // Intentional no-op. Chromium accessibility implementation currently does not need this
+        // calls.
     }
 
     @Override

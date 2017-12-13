@@ -4,7 +4,9 @@
 
 #include "content/test/test_web_contents.h"
 
+#include <memory>
 #include <utility>
+#include <vector>
 
 #include "content/browser/browser_url_handler_impl.h"
 #include "content/browser/frame_host/cross_process_frame_connector.h"
@@ -51,7 +53,7 @@ TestWebContents::~TestWebContents() {
   EXPECT_FALSE(expect_set_history_offset_and_length_);
 }
 
-TestRenderFrameHost* TestWebContents::GetMainFrame() {
+TestRenderFrameHost* TestWebContents::GetMainFrame() const {
   return static_cast<TestRenderFrameHost*>(WebContentsImpl::GetMainFrame());
 }
 
@@ -60,13 +62,9 @@ TestRenderViewHost* TestWebContents::GetRenderViewHost() const {
         WebContentsImpl::GetRenderViewHost());
 }
 
-TestRenderFrameHost* TestWebContents::GetPendingMainFrame() const {
-  if (IsBrowserSideNavigationEnabled()) {
-    return static_cast<TestRenderFrameHost*>(
-        GetRenderManager()->speculative_render_frame_host_.get());
-  }
+TestRenderFrameHost* TestWebContents::GetPendingMainFrame() {
   return static_cast<TestRenderFrameHost*>(
-      GetRenderManager()->pending_frame_host());
+      WebContentsImpl::GetPendingMainFrame());
 }
 
 int TestWebContents::DownloadImage(const GURL& url,
@@ -133,7 +131,6 @@ void TestWebContents::TestDidNavigateWithSequenceNumber(
   FrameHostMsg_DidCommitProvisionalLoad_Params params;
 
   params.nav_entry_id = nav_entry_id;
-  params.frame_unique_name = std::string();
   params.item_sequence_number = item_sequence_number;
   params.document_sequence_number = document_sequence_number;
   params.url = url;
@@ -211,11 +208,12 @@ bool TestWebContents::CreateRenderViewForRenderManager(
     RenderViewHost* render_view_host,
     int opener_frame_routing_id,
     int proxy_routing_id,
+    const base::UnguessableToken& devtools_frame_token,
     const FrameReplicationState& replicated_frame_state) {
   // This will go to a TestRenderViewHost.
   static_cast<RenderViewHostImpl*>(render_view_host)
       ->CreateRenderView(opener_frame_routing_id, proxy_routing_id,
-                         replicated_frame_state, false);
+                         devtools_frame_token, replicated_frame_state, false);
   return true;
 }
 

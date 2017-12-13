@@ -4,11 +4,14 @@
 
 #include "ash/system/palette/palette_tray.h"
 
-#include "ash/ash_switches.h"
+#include <memory>
+
 #include "ash/highlighter/highlighter_controller.h"
 #include "ash/highlighter/highlighter_controller_test_api.h"
 #include "ash/public/cpp/ash_pref_names.h"
+#include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/config.h"
+#include "ash/public/cpp/stylus_utils.h"
 #include "ash/public/cpp/voice_interaction_state.h"
 #include "ash/session/test_session_controller_client.h"
 #include "ash/shell.h"
@@ -44,17 +47,17 @@ class PaletteTrayTest : public AshTestBase {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kAshEnablePaletteOnAllDisplays);
 
-    palette_utils::SetHasStylusInputForTesting();
+    stylus_utils::SetHasStylusInputForTesting();
 
     AshTestBase::SetUp();
 
     palette_tray_ =
         StatusAreaWidgetTestHelper::GetStatusAreaWidget()->palette_tray();
-    test_api_ = base::MakeUnique<PaletteTray::TestApi>(palette_tray_);
+    test_api_ = std::make_unique<PaletteTray::TestApi>(palette_tray_);
 
     // Set the test palette delegate here, since this requires an instance of
     // shell to be available.
-    ShellTestApi().SetPaletteDelegate(base::MakeUnique<TestPaletteDelegate>());
+    ShellTestApi().SetPaletteDelegate(std::make_unique<TestPaletteDelegate>());
     // Initialize the palette tray again since this test requires information
     // from the palette delegate. (It was initialized without the delegate in
     // AshTestBase::SetUp()).
@@ -180,13 +183,13 @@ TEST_F(PaletteTrayTest, ModeToolDeactivatedAutomatically) {
   ASSERT_TRUE(palette_tray_->is_active());
   ASSERT_TRUE(test_api_->GetTrayBubbleWrapper());
 
-  // Activate and deactivate the capture region tool.
+  // Activate and deactivate the laser pointer tool.
   test_api_->GetPaletteToolManager()->ActivateTool(
-      PaletteToolId::CAPTURE_REGION);
+      PaletteToolId::LASER_POINTER);
   ASSERT_TRUE(test_api_->GetPaletteToolManager()->IsToolActive(
-      PaletteToolId::CAPTURE_REGION));
+      PaletteToolId::LASER_POINTER));
   test_api_->GetPaletteToolManager()->DeactivateTool(
-      PaletteToolId::CAPTURE_REGION);
+      PaletteToolId::LASER_POINTER);
 
   // Verify the bubble is hidden and the button is inactive after deactivating
   // the capture region tool.
@@ -222,19 +225,14 @@ class PaletteTrayTestWithVoiceInteraction : public PaletteTrayTest {
     // ui takes ownership of the tick clock.
     ui::SetEventTickClockForTesting(base::WrapUnique(simulated_clock_));
 
-    highlighter_controller_ = base::MakeUnique<HighlighterController>();
-    highlighter_test_api_ = base::MakeUnique<HighlighterControllerTestApi>(
-        highlighter_controller_.get());
-    test_palette_delegate()->set_highlighter_test_api(
-        highlighter_test_api_.get());
+    highlighter_test_api_ = std::make_unique<HighlighterControllerTestApi>(
+        Shell::Get()->highlighter_controller());
   }
 
   void TearDown() override {
-    // This needs to be called first to remove the event handler before the
+    // This needs to be called first to reset the controller state before the
     // shell instance gets torn down.
-    test_palette_delegate()->set_highlighter_test_api(nullptr);
     highlighter_test_api_.reset();
-    highlighter_controller_.reset();
     PaletteTrayTest::TearDown();
   }
 
@@ -294,8 +292,6 @@ class PaletteTrayTestWithVoiceInteraction : public PaletteTrayTest {
   std::unique_ptr<HighlighterControllerTestApi> highlighter_test_api_;
 
  private:
-  std::unique_ptr<HighlighterController> highlighter_controller_;
-
   // Owned by |ui|.
   base::SimpleTestTickClock* simulated_clock_ = nullptr;
 
@@ -340,11 +336,7 @@ TEST_F(PaletteTrayTestWithVoiceInteraction, MetalayerToolActivatesHighlighter) {
                          true /* highlighter shown on press */);
   // When metalayer is entered normally (not via stylus button), a failed
   // selection should not exit the mode.
-  // NOTE that this is not testing the real logic in PaletteDelegateChromeOS,
-  // but the logic in HighlighterControllerTestApi (which is mimicking
-  // PaletteDelegateChromeOS). Once PaletteDelegateChromeOS is refactored
-  // (crbug/761120) the assertions below become more useful.
-  EXPECT_TRUE(highlighter_test_api_->handle_failed_selection_called());
+  EXPECT_FALSE(highlighter_test_api_->HandleSelectionCalled());
   EXPECT_TRUE(metalayer_enabled());
 
   // A successfull selection should exit the metalayer mode.
@@ -355,7 +347,7 @@ TEST_F(PaletteTrayTestWithVoiceInteraction, MetalayerToolActivatesHighlighter) {
   EXPECT_TRUE(metalayer_enabled());
   generator.MoveTouch(gfx::Point(300, 100));
   generator.ReleaseTouch();
-  EXPECT_TRUE(highlighter_test_api_->handle_selection_called());
+  EXPECT_TRUE(highlighter_test_api_->HandleSelectionCalled());
   EXPECT_FALSE(metalayer_enabled());
 
   SCOPED_TRACE("drag over palette");
@@ -539,6 +531,23 @@ TEST_F(PaletteTrayTestWithInternalStylus, PaletteTrayOnLockScreenBehavior) {
   // active before locking the screen is still inactive.
   GetSessionControllerClient()->UnlockScreen();
   EXPECT_TRUE(palette_tray_->visible());
+  EXPECT_FALSE(manager->IsToolActive(PaletteToolId::LASER_POINTER));
+}
+
+// Verify a tool deactivates when the palette bubble is opened while the tool
+// is active.
+TEST_F(PaletteTrayTestWithInternalStylus, ToolDeactivatesWhenOpeningBubble) {
+  ASSERT_TRUE(palette_tray_->visible());
+
+  palette_tray_->ShowBubble(false /* show_by_click */);
+  EXPECT_TRUE(test_api_->GetTrayBubbleWrapper());
+  PaletteToolManager* manager = test_api_->GetPaletteToolManager();
+  manager->ActivateTool(PaletteToolId::LASER_POINTER);
+  EXPECT_TRUE(manager->IsToolActive(PaletteToolId::LASER_POINTER));
+  EXPECT_FALSE(test_api_->GetTrayBubbleWrapper());
+
+  palette_tray_->ShowBubble(false /* show_by_click */);
+  EXPECT_TRUE(test_api_->GetTrayBubbleWrapper());
   EXPECT_FALSE(manager->IsToolActive(PaletteToolId::LASER_POINTER));
 }
 

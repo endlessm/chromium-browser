@@ -34,7 +34,6 @@ void EncodeDecodeTestAPIBase::InitialEncDec (int iWidth, int iHeight) {
   //set a fixed random value
   iRandValue = rand() % 256;
 }
-
 void EncodeDecodeTestAPIBase::RandomParamExtCombination() {
 
   param_.iPicWidth  = WelsClip3 ((((rand() % MAX_WIDTH) >> 1)  + 1) << 1, 2, MAX_WIDTH);
@@ -320,6 +319,51 @@ TEST_F (EncodeDecodeTestAPI, SetOptionEncParamExt) {
     //to do
     // currently, there are still some error cases even though under condition cmResultSuccess == iResult
     // so need to enhance the validation check for any random value of each variable in ParamExt
+
+    if (cmResultSuccess == iResult) {
+      InitialEncDec (param_.iPicWidth, param_.iPicHeight);
+      EncodeOneFrame (0);
+      encToDecData (info, len);
+      pData[0] = pData[1] = pData[2] = 0;
+      memset (&dstBufInfo_, 0, sizeof (SBufferInfo));
+
+      iResult = decoder_->DecodeFrame2 (info.sLayerInfo[0].pBsBuf, len, pData, &dstBufInfo_);
+      ASSERT_TRUE (iResult == cmResultSuccess);
+      iResult = decoder_->DecodeFrame2 (NULL, 0, pData, &dstBufInfo_);
+      ASSERT_TRUE (iResult == cmResultSuccess);
+      EXPECT_EQ (dstBufInfo_.iBufferStatus, 1);
+    }
+  }
+
+  iTraceLevel = WELS_LOG_ERROR;
+  encoder_->SetOption (ENCODER_OPTION_TRACE_LEVEL, &iTraceLevel);
+}
+
+
+TEST_F (EncodeDecodeTestAPI, SetOptionEncParamBase) {
+  int iSpatialLayerNum = 4;
+  int iWidth       = WelsClip3 ((((rand() % MAX_WIDTH) >> 1)  + 1) << 1, 1 << iSpatialLayerNum, MAX_WIDTH);
+  int iHeight      = WelsClip3 ((((rand() % MAX_HEIGHT) >> 1)  + 1) << 1, 1 << iSpatialLayerNum, MAX_HEIGHT);
+  float fFrameRate = rand() + 0.5f;
+  int iEncFrameNum = WelsClip3 ((rand() % ENCODE_FRAME_NUM) + 1, 1, ENCODE_FRAME_NUM);
+  int iSliceNum        = 1;
+  encoder_->GetDefaultParams (&param_);
+  prepareParamDefault (iSpatialLayerNum, iSliceNum, iWidth, iHeight, fFrameRate, &param_);
+
+  int rv = encoder_->InitializeExt (&param_);
+  ASSERT_TRUE (rv == cmResultSuccess);
+
+  int iTraceLevel = WELS_LOG_QUIET;
+  rv = encoder_->SetOption (ENCODER_OPTION_TRACE_LEVEL, &iTraceLevel);
+  ASSERT_TRUE (rv == cmResultSuccess);
+
+  for (int i = 0; i < iEncFrameNum; i++) {
+    int iResult;
+    int len = 0;
+    unsigned char* pData[3] = { NULL };
+
+    param_.iTargetBitrate     = rand() % BIT_RATE_RANGE;
+    iResult = encoder_->SetOption (ENCODER_OPTION_SVC_ENCODE_PARAM_BASE, &param_);
 
     if (cmResultSuccess == iResult) {
       InitialEncDec (param_.iPicWidth, param_.iPicHeight);
@@ -866,7 +910,7 @@ TEST_F (EncodeDecodeTestAPI, ParameterSetStrategy_SPS_PPS_LISTING3) {
 
   // step#2: set strategy for success
   int32_t iNewStra = SPS_PPS_LISTING;
-  rv = encoder_->SetOption (ENCODER_OPTION_ENABLE_SPS_PPS_ID_ADDITION, &iNewStra);
+  rv = encoder_->SetOption (ENCODER_OPTION_SPS_PPS_ID_STRATEGY, &iNewStra);
   ASSERT_TRUE (rv == cmResultSuccess) << "rv = " << rv << " iNewStra=" << iNewStra;
 
   // step#3: setting new strategy, SHOULD encounter ERROR
@@ -874,7 +918,7 @@ TEST_F (EncodeDecodeTestAPI, ParameterSetStrategy_SPS_PPS_LISTING3) {
   rv = encoder_->SetOption (ENCODER_OPTION_TRACE_LEVEL, &TraceLevel);
   ASSERT_TRUE (rv == cmResultSuccess);
   iNewStra = CONSTANT_ID;
-  rv = encoder_->SetOption (ENCODER_OPTION_ENABLE_SPS_PPS_ID_ADDITION, &iNewStra);
+  rv = encoder_->SetOption (ENCODER_OPTION_SPS_PPS_ID_STRATEGY, &iNewStra);
   ASSERT_TRUE (rv != cmResultSuccess);
 
   EncDecOneFrame (sParam2.iPicWidth, sParam2.iPicHeight, iEncFrameNum++, fEnc);
@@ -1233,7 +1277,7 @@ static const EncodeOptionParam kOptionParamArray[] = {
   {true, false, true, 2, 3072, 3072, 1, SM_RESERVED, 0, 15.0, 1, ""}, //30
   //{true, false, true, 2, 3072, 3072, 1, SM_RESERVED, 0, 15.0, 4, ""}, //14760
   {false, false, true, 2, 1072, 8576, 1, SM_RESERVED, 0, 15.0, 1, ""},
-  //{false, true, true, 2, 8576, 1072, 24, SM_SINGLE_SLICE, 0, 15.0, 1, ""}, //14754
+  {false, false, true, 2, 8576, 1072, 24, SM_SINGLE_SLICE, 0, 15.0, 1, ""}, //14754
   //{false, false, false, 2, 8576, 1088, 24, SM_SINGLE_SLICE, 0, 15.0, 1, ""}, //14755
   //{false, false, false, 2, 1088, 8576, 24, SM_SINGLE_SLICE, 0, 15.0, 1, ""}, //14755
   {false, false, true, 2, 8688, 1072, 24, SM_SINGLE_SLICE, 0, 15.0, 1, ""}, //Annex A: PicWidthInMbs <= sqrt(36864*8) = 543; 543*16=8688; 36864/543=67; 67*16=1072
@@ -1327,7 +1371,7 @@ TEST_P (EncodeTestAPI, SetEncOptionSize) {
 
 
     int32_t iSpsPpsIdAddition = 1;
-    encoder_->SetOption (ENCODER_OPTION_ENABLE_SPS_PPS_ID_ADDITION, &iSpsPpsIdAddition);
+    encoder_->SetOption (ENCODER_OPTION_SPS_PPS_ID_STRATEGY, &iSpsPpsIdAddition);
     int32_t iIDRPeriod = (int32_t) pow (2.0f, (param_.iTemporalLayerNum - 1)) * ((rand() % 5) + 1);
     encoder_->SetOption (ENCODER_OPTION_IDR_INTERVAL, &iIDRPeriod);
     int iIdx = 0;
@@ -1832,3 +1876,183 @@ TEST_F (EncodeDecodeTestAPI, TriggerLoadBalancing) {
   }
 }
 
+ELevelIdc CheckLevelLimitation (SEncParamExt*  pParam) {
+  int32_t iOrder = 0;
+  ELevelIdc iLevel = LEVEL_5_2;
+  const SLevelLimits* kpLevelLimit = g_ksLevelLimits;
+  uint32_t uiPicWidthInMBs = (pParam->sSpatialLayers[0].iVideoWidth + 15) >> 4;
+  uint32_t uiPicHeightInMBs = (pParam->sSpatialLayers[0].iVideoHeight + 15) >> 4;
+  uint32_t uiPicInMBs = uiPicWidthInMBs * uiPicHeightInMBs;
+  uint32_t uiNumRefFrames = pParam->iNumRefFrame;
+  for (iOrder = 0; iOrder < LEVEL_NUMBER; iOrder++, kpLevelLimit++) {
+
+
+    if (kpLevelLimit->uiMaxMBPS < (uint32_t) (uiPicInMBs * pParam->fMaxFrameRate))
+      continue;
+
+    if (kpLevelLimit->uiMaxFS < uiPicInMBs)
+      continue;
+
+    if ((kpLevelLimit->uiMaxFS << 3) < (uiPicWidthInMBs * uiPicWidthInMBs))
+      continue;
+    if ((kpLevelLimit->uiMaxFS << 3) < (uiPicHeightInMBs * uiPicHeightInMBs))
+      continue;
+    if (kpLevelLimit->uiMaxDPBMbs < uiNumRefFrames * uiPicInMBs)
+      continue;
+
+    if ((pParam->sSpatialLayers[0].iSpatialBitrate != UNSPECIFIED_BIT_RATE)
+        && ((int32_t) kpLevelLimit->uiMaxBR  * 1200) <
+        pParam->sSpatialLayers[0].iSpatialBitrate)   //RC enabled, considering bitrate constraint
+      continue;
+
+    break;
+  }
+  iLevel = kpLevelLimit->uiLevelIdc;
+
+  return iLevel;
+}
+TEST_F (EncodeDecodeTestAPI, ProfileLevelSetting) {
+  int iWidth       = GetRandWidth();
+  int iHeight      = GetRandHeight();
+  float fFrameRate = rand() % 30 + 0.5f;
+  int iEncFrameNum = 0;
+  int iSpatialLayerNum = 1;
+  int iSliceNum        = 1;
+
+  EProfileIdc profileList[11] = {PRO_UNKNOWN, PRO_BASELINE, PRO_MAIN,
+                               PRO_EXTENDED , PRO_HIGH , PRO_HIGH10,
+                               PRO_HIGH422, PRO_HIGH444, PRO_CAVLC444,
+                               PRO_SCALABLE_BASELINE,
+                               PRO_SCALABLE_HIGH
+                              };
+  ELevelIdc levelList[18] = {  LEVEL_UNKNOWN, LEVEL_1_0, LEVEL_1_B, LEVEL_1_1, LEVEL_1_2,
+                             LEVEL_1_3, LEVEL_2_0, LEVEL_2_1, LEVEL_2_2, LEVEL_3_0,
+                             LEVEL_3_1, LEVEL_3_2, LEVEL_4_0, LEVEL_4_1,
+                             LEVEL_4_2, LEVEL_5_0, LEVEL_5_1, LEVEL_5_2
+                          };
+
+  EProfileIdc iEncProfileIdc = PRO_UNKNOWN;
+  ELevelIdc iEncLevelIdc =  LEVEL_UNKNOWN;
+
+  EProfileIdc iDecProfileIdc = PRO_UNKNOWN;
+  ELevelIdc iDecLevelIdc =  LEVEL_UNKNOWN;
+
+  // prepare params
+  SEncParamExt   sParam;
+  encoder_->GetDefaultParams (&sParam);
+  prepareParamDefault (iSpatialLayerNum, iSliceNum, iWidth, iHeight, fFrameRate, &sParam);
+  sParam.bSimulcastAVC = 1;
+  sParam.iRCMode = RC_TIMESTAMP_MODE;
+  sParam.iNumRefFrame = 1;
+  sParam.fMaxFrameRate = fFrameRate;
+  sParam.iEntropyCodingModeFlag = rand() % 2;
+  sParam.sSpatialLayers[0].iSpatialBitrate = sParam.iTargetBitrate = 3000;
+
+  //int TraceLevel = WELS_LOG_DEBUG;
+  //encoder_->SetOption (ENCODER_OPTION_TRACE_LEVEL, &TraceLevel);
+  //decoder_->SetOption (DECODER_OPTION_TRACE_LEVEL, &TraceLevel);
+  iEncProfileIdc = profileList[rand() % 11];
+  iEncLevelIdc =  levelList[rand() % 18];
+  sParam.sSpatialLayers[0].uiProfileIdc = iEncProfileIdc;
+  sParam.sSpatialLayers[0].uiLevelIdc = iEncLevelIdc;
+  int rv = encoder_->InitializeExt (&sParam);
+  ASSERT_TRUE (rv == cmResultSuccess) << "InitializeExt: rv = " << rv << " at " << sParam.iPicWidth << "x" <<
+                                      sParam.iPicHeight;
+  EncDecOneFrame (sParam.iPicWidth, sParam.iPicHeight, iEncFrameNum++, NULL);
+
+  decoder_->GetOption (DECODER_OPTION_PROFILE, &iDecProfileIdc);
+
+  if ((iEncProfileIdc != PRO_BASELINE) && (iEncProfileIdc != PRO_MAIN) && (iEncProfileIdc != PRO_HIGH)) {
+    iEncProfileIdc = PRO_BASELINE;
+  }
+  if ((iEncProfileIdc == PRO_BASELINE) && (sParam.iEntropyCodingModeFlag == 1))
+    iEncProfileIdc = PRO_MAIN;
+
+
+  ASSERT_TRUE (iDecProfileIdc == iEncProfileIdc) << "enc_profile = " << iEncProfileIdc << "  dec_profile = " <<
+      iDecProfileIdc;
+
+  //check whether the level is changed according to level limitation
+  ELevelIdc uiLevel = LEVEL_UNKNOWN;
+  if (iEncLevelIdc != LEVEL_UNKNOWN) {
+    uiLevel = CheckLevelLimitation (&sParam) ;
+    if ((uiLevel == LEVEL_1_B) &&
+        ((iDecProfileIdc == PRO_BASELINE) || (iDecProfileIdc == PRO_MAIN) || (iDecProfileIdc == PRO_EXTENDED))) {
+      uiLevel = LEVEL_1_1;
+    }
+    if (iEncLevelIdc < uiLevel) {
+      iEncLevelIdc = uiLevel;
+    }
+  }
+  decoder_->GetOption (DECODER_OPTION_LEVEL, &iDecLevelIdc);
+
+  if (iEncLevelIdc == LEVEL_UNKNOWN)
+    ASSERT_TRUE (iDecLevelIdc == LEVEL_5_2) << "enc_level = " << iEncLevelIdc << "  dec_level = " << iDecLevelIdc;
+  else
+    ASSERT_TRUE (iDecLevelIdc == iEncLevelIdc) << "enc_level = " << iEncLevelIdc << "  dec_level = " << iDecLevelIdc;
+
+  rv = encoder_->Uninitialize();
+  ASSERT_TRUE (rv == cmResultSuccess) << "rv = " << rv;
+
+  // new change profile
+  iEncProfileIdc = profileList[rand() % 10];
+  iEncLevelIdc =  levelList[rand() % 17];
+  sParam.sSpatialLayers[0].uiProfileIdc = iEncProfileIdc;
+  sParam.sSpatialLayers[0].uiLevelIdc = iEncLevelIdc;
+
+  SProfileInfo sProfileInfo;
+  sProfileInfo.iLayer = 0;
+  sProfileInfo.uiProfileIdc = iEncProfileIdc;
+
+  rv = encoder_->InitializeExt (&sParam);
+  ASSERT_TRUE (rv == cmResultSuccess) << "InitializeExt: rv = " << rv << " at " << sParam.iPicWidth << "x" <<
+                                      sParam.iPicHeight;
+
+  rv = encoder_->SetOption (ENCODER_OPTION_PROFILE, &sProfileInfo);
+  ASSERT_TRUE (rv == cmResultSuccess) << "rv = " << rv;
+
+  SLevelInfo sLevelInfo;
+  sLevelInfo.iLayer = 0;
+  sLevelInfo.uiLevelIdc = iEncLevelIdc;
+
+  rv = encoder_->SetOption (ENCODER_OPTION_LEVEL, &sLevelInfo);
+  ASSERT_TRUE (rv == cmResultSuccess) << "rv = " << rv;
+
+  rv = encoder_->ForceIntraFrame (true);
+  ASSERT_TRUE (rv == cmResultSuccess) << "rv = " << rv;
+
+  EncDecOneFrame (sParam.iPicWidth, sParam.iPicHeight, iEncFrameNum++, NULL);
+
+  decoder_->GetOption (DECODER_OPTION_PROFILE, &iDecProfileIdc);
+
+  if ((iEncProfileIdc != PRO_BASELINE) && (iEncProfileIdc != PRO_MAIN) && (iEncProfileIdc != PRO_HIGH)) {
+    iEncProfileIdc = PRO_BASELINE;
+  }
+  if ((iEncProfileIdc == PRO_BASELINE) && (sParam.iEntropyCodingModeFlag == 1))
+    iEncProfileIdc = PRO_MAIN;
+
+
+  ASSERT_TRUE (iDecProfileIdc == iEncProfileIdc) << "enc_profile = " << iEncProfileIdc << "  dec_profile = " <<
+      iDecProfileIdc;
+
+  //check whether the level is changed according to level limitation
+  if (iEncLevelIdc != LEVEL_UNKNOWN) {
+    uiLevel = CheckLevelLimitation (&sParam) ;
+    if ((uiLevel == LEVEL_1_B) &&
+        ((iDecProfileIdc == PRO_BASELINE) || (iDecProfileIdc == PRO_MAIN) || (iDecProfileIdc == PRO_EXTENDED))) {
+      uiLevel = LEVEL_1_1;
+    }
+    if (iEncLevelIdc < uiLevel) {
+      iEncLevelIdc = uiLevel;
+    }
+  }
+  decoder_->GetOption (DECODER_OPTION_LEVEL, &iDecLevelIdc);
+
+  if (iEncLevelIdc == LEVEL_UNKNOWN)
+    ASSERT_TRUE (iDecLevelIdc == LEVEL_5_2) << "enc_level = " << iEncLevelIdc << "  dec_level = " << iDecLevelIdc;
+  else
+    ASSERT_TRUE (iDecLevelIdc == iEncLevelIdc) << "enc_level = " << iEncLevelIdc << "  dec_level = " << iDecLevelIdc;
+
+  rv = encoder_->Uninitialize();
+  ASSERT_TRUE (rv == cmResultSuccess) << "rv = " << rv;
+}

@@ -33,6 +33,7 @@
 #include "net/base/net_errors.h"
 #include "net/cert/nss_cert_database_chromeos.h"
 #include "net/cert/x509_certificate.h"
+#include "net/cert/x509_util_nss.h"
 #include "net/test/cert_test_util.h"
 #include "net/test/test_data_directory.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -63,8 +64,6 @@ class ClientCertResolverTest : public testing::Test,
     test_nsscertdb_.reset(new net::NSSCertDatabaseChromeOS(
         crypto::ScopedPK11Slot(PK11_ReferenceSlot(test_nssdb_.slot())),
         crypto::ScopedPK11Slot(PK11_ReferenceSlot(test_nssdb_.slot()))));
-    test_nsscertdb_->SetSlowTaskRunnerForTest(
-        scoped_task_environment_.GetMainThreadTaskRunner());
 
     DBusThreadManager::Initialize();
     service_test_ =
@@ -101,8 +100,8 @@ class ClientCertResolverTest : public testing::Test,
     cert_loader_->SetUserNSSDB(test_nsscertdb_.get());
     if (test_client_cert_.get()) {
       int slot_id = 0;
-      const std::string pkcs11_id =
-          CertLoader::GetPkcs11IdAndSlotForCert(*test_client_cert_, &slot_id);
+      const std::string pkcs11_id = CertLoader::GetPkcs11IdAndSlotForCert(
+          test_client_cert_.get(), &slot_id);
       test_cert_id_ = base::StringPrintf("%i:%s", slot_id, pkcs11_id.c_str());
     }
   }
@@ -112,12 +111,12 @@ class ClientCertResolverTest : public testing::Test,
   // test_ca_cert_pem_) that issued the client certificate.
   void SetupTestCerts(const std::string& prefix, bool import_issuer) {
     // Load a CA cert.
-    net::CertificateList ca_cert_list = net::CreateCertificateListFromFile(
-        net::GetTestCertsDirectory(), prefix + "_ca.pem",
-        net::X509Certificate::FORMAT_AUTO);
+    net::ScopedCERTCertificateList ca_cert_list =
+        net::CreateCERTCertificateListFromFile(
+            net::GetTestCertsDirectory(), prefix + "_ca.pem",
+            net::X509Certificate::FORMAT_AUTO);
     ASSERT_TRUE(!ca_cert_list.empty());
-    net::X509Certificate::GetPEMEncoded(ca_cert_list[0]->os_cert_handle(),
-                                        &test_ca_cert_pem_);
+    net::x509_util::GetPEMEncoded(ca_cert_list[0].get(), &test_ca_cert_pem_);
     ASSERT_TRUE(!test_ca_cert_pem_.empty());
 
     if (import_issuer) {
@@ -129,9 +128,9 @@ class ClientCertResolverTest : public testing::Test,
     }
 
     // Import a client cert signed by that CA.
-    test_client_cert_ = net::ImportClientCertAndKeyFromFile(
-        net::GetTestCertsDirectory(), prefix + ".pem", prefix + ".pk8",
-        test_nssdb_.slot());
+    net::ImportClientCertAndKeyFromFile(net::GetTestCertsDirectory(),
+                                        prefix + ".pem", prefix + ".pk8",
+                                        test_nssdb_.slot(), &test_client_cert_);
     ASSERT_TRUE(test_client_cert_.get());
   }
 
@@ -139,9 +138,9 @@ class ClientCertResolverTest : public testing::Test,
     test_nsscertdb_->SetSystemSlot(
         crypto::ScopedPK11Slot(PK11_ReferenceSlot(test_system_nssdb_.slot())));
 
-    test_client_cert_ = net::ImportClientCertAndKeyFromFile(
+    net::ImportClientCertAndKeyFromFile(
         net::GetTestCertsDirectory(), prefix + ".pem", prefix + ".pk8",
-        test_system_nssdb_.slot());
+        test_system_nssdb_.slot(), &test_client_cert_);
     ASSERT_TRUE(test_client_cert_.get());
   }
 
@@ -327,7 +326,7 @@ class ClientCertResolverTest : public testing::Test,
   std::unique_ptr<NetworkConfigurationHandler> network_config_handler_;
   std::unique_ptr<ManagedNetworkConfigurationHandlerImpl>
       managed_config_handler_;
-  scoped_refptr<net::X509Certificate> test_client_cert_;
+  net::ScopedCERTCertificate test_client_cert_;
   std::string test_ca_cert_pem_;
   crypto::ScopedTestNSSDB test_nssdb_;
   crypto::ScopedTestNSSDB test_system_nssdb_;
@@ -594,6 +593,41 @@ TEST_F(ClientCertResolverTest, PopulateIdentityFromCert) {
   GetServiceProperty(shill::kEapIdentityProperty, &identity);
   EXPECT_EQ("upn-santest@ad.corp.example.com-suffix", identity);
   EXPECT_EQ(2, network_properties_changed_count_);
+}
+
+// Test for crbug.com/781276. A notification which results in no networks to be
+// resolved should not alter the state of IsAnyResolveTaskRunning().
+TEST_F(ClientCertResolverTest, TestResolveTaskQueued) {
+  // Set up ClientCertResolver and let it run initially
+  SetupTestCerts("client_1", true /* import issuer */);
+  StartCertLoader();
+  SetupWifi();
+  SetupNetworkHandlers();
+  SetupPolicyMatchingIssuerPEM(onc::ONC_SOURCE_USER_POLICY, "");
+  scoped_task_environment_.RunUntilIdle();
+
+  // Pretend that policy was applied, this shall queue a resolving task.
+  static_cast<NetworkPolicyObserver*>(client_cert_resolver_.get())
+      ->PolicyAppliedToNetwork(kWifiStub);
+  EXPECT_TRUE(client_cert_resolver_->IsAnyResolveTaskRunning());
+  // Pretend that the network list has changed. One resolving task should still
+  // be queued.
+  static_cast<NetworkStateHandlerObserver*>(client_cert_resolver_.get())
+      ->NetworkListChanged();
+  EXPECT_TRUE(client_cert_resolver_->IsAnyResolveTaskRunning());
+  // Pretend that certificates have changed. One resolving task should still be
+  // queued.
+  static_cast<CertLoader::Observer*>(client_cert_resolver_.get())
+      ->OnCertificatesLoaded(CertLoader::Get()->all_certs());
+  EXPECT_TRUE(client_cert_resolver_->IsAnyResolveTaskRunning());
+
+  scoped_task_environment_.RunUntilIdle();
+  EXPECT_FALSE(client_cert_resolver_->IsAnyResolveTaskRunning());
+  // Verify that the resolver positively matched the pattern in the policy with
+  // the test client cert and configured the network.
+  std::string pkcs11_id;
+  GetServiceProperty(shill::kEapCertIdProperty, &pkcs11_id);
+  EXPECT_EQ(test_cert_id_, pkcs11_id);
 }
 
 }  // namespace chromeos

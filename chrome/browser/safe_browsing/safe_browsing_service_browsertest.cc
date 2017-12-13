@@ -61,15 +61,15 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/common/safebrowsing_switches.h"
-#include "components/safe_browsing_db/database_manager.h"
-#include "components/safe_browsing_db/metadata.pb.h"
-#include "components/safe_browsing_db/notification_types.h"
-#include "components/safe_browsing_db/test_database_manager.h"
-#include "components/safe_browsing_db/util.h"
-#include "components/safe_browsing_db/v4_database.h"
-#include "components/safe_browsing_db/v4_feature_list.h"
-#include "components/safe_browsing_db/v4_get_hash_protocol_manager.h"
-#include "components/safe_browsing_db/v4_protocol_manager_util.h"
+#include "components/safe_browsing/db/database_manager.h"
+#include "components/safe_browsing/db/metadata.pb.h"
+#include "components/safe_browsing/db/notification_types.h"
+#include "components/safe_browsing/db/test_database_manager.h"
+#include "components/safe_browsing/db/util.h"
+#include "components/safe_browsing/db/v4_database.h"
+#include "components/safe_browsing/db/v4_feature_list.h"
+#include "components/safe_browsing/db/v4_get_hash_protocol_manager.h"
+#include "components/safe_browsing/db/v4_protocol_manager_util.h"
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_frame_host.h"
@@ -323,9 +323,6 @@ class TestSafeBrowsingDatabase : public SafeBrowsingDatabase {
     return true;
   }
   bool ContainsDownloadWhitelistedUrl(const GURL& url) override { return true; }
-  bool ContainsModuleWhitelistedString(const std::string& str) override {
-    return true;
-  }
   bool ContainsExtensionPrefixes(const std::vector<SBPrefix>& prefixes,
                                  std::vector<SBPrefix>* prefix_hits) override {
     return false;
@@ -453,8 +450,7 @@ class TestSafeBrowsingDatabaseFactory : public SafeBrowsingDatabaseFactory {
       bool enable_download_whitelist,
       bool enable_extension_blacklist,
       bool enable_ip_blacklist,
-      bool enabled_unwanted_software_list,
-      bool enable_module_whitelist) override {
+      bool enabled_unwanted_software_list) override {
     db_ = new TestSafeBrowsingDatabase();
     return base::WrapUnique(db_);
   }
@@ -1925,8 +1921,10 @@ class V4SafeBrowsingServiceTest : public SafeBrowsingServiceTest {
   void MarkUrlForListIdUnexpired(const GURL& bad_url,
                                  const ListIdentifier& list_id,
                                  ThreatPatternType threat_pattern_type) {
+    ThreatMetadata metadata;
+    metadata.threat_pattern_type = threat_pattern_type;
     FullHashInfo full_hash_info =
-        GetFullHashInfoWithMetadata(bad_url, list_id, threat_pattern_type);
+        GetFullHashInfoWithMetadata(bad_url, list_id, metadata);
     v4_db_factory_->MarkPrefixAsBad(list_id, full_hash_info.full_hash);
     v4_get_hash_factory_->AddToFullHashCache(full_hash_info);
   }

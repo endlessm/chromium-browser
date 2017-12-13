@@ -156,9 +156,11 @@ TEST_P(VP9QuantizeTest, OperationCheck) {
   ASSERT_TRUE(qcoeff.Init());
   Buffer<tran_low_t> dqcoeff = Buffer<tran_low_t>(max_size_, max_size_, 0, 32);
   ASSERT_TRUE(dqcoeff.Init());
-  Buffer<tran_low_t> ref_qcoeff = Buffer<tran_low_t>(max_size_, max_size_, 0);
+  Buffer<tran_low_t> ref_qcoeff =
+      Buffer<tran_low_t>(max_size_, max_size_, 0, 32);
   ASSERT_TRUE(ref_qcoeff.Init());
-  Buffer<tran_low_t> ref_dqcoeff = Buffer<tran_low_t>(max_size_, max_size_, 0);
+  Buffer<tran_low_t> ref_dqcoeff =
+      Buffer<tran_low_t>(max_size_, max_size_, 0, 32);
   ASSERT_TRUE(ref_dqcoeff.Init());
   uint16_t eob, ref_eob;
 
@@ -213,9 +215,11 @@ TEST_P(VP9QuantizeTest, EOBCheck) {
   ASSERT_TRUE(qcoeff.Init());
   Buffer<tran_low_t> dqcoeff = Buffer<tran_low_t>(max_size_, max_size_, 0, 32);
   ASSERT_TRUE(dqcoeff.Init());
-  Buffer<tran_low_t> ref_qcoeff = Buffer<tran_low_t>(max_size_, max_size_, 0);
+  Buffer<tran_low_t> ref_qcoeff =
+      Buffer<tran_low_t>(max_size_, max_size_, 0, 32);
   ASSERT_TRUE(ref_qcoeff.Init());
-  Buffer<tran_low_t> ref_dqcoeff = Buffer<tran_low_t>(max_size_, max_size_, 0);
+  Buffer<tran_low_t> ref_dqcoeff =
+      Buffer<tran_low_t>(max_size_, max_size_, 0, 32);
   ASSERT_TRUE(ref_dqcoeff.Init());
   uint16_t eob, ref_eob;
 
@@ -299,7 +303,13 @@ TEST_P(VP9QuantizeTest, DISABLED_Speed) {
 
       if (i == 0) {
         // When |coeff values| are less than zbin the results are 0.
-        for (int j = 0; j < 8; ++j) zbin_ptr_[j] = 100;
+        int threshold = 100;
+        if (max_size_ == 32) {
+          // For 32x32, the threshold is halved. Double it to keep the values
+          // from clearing it.
+          threshold = 200;
+        }
+        for (int j = 0; j < 8; ++j) zbin_ptr_[j] = threshold;
         coeff.Set(&rnd, -99, 99);
       } else if (i == 1) {
         for (int j = 0; j < 8; ++j) zbin_ptr_[j] = 50;
@@ -316,9 +326,8 @@ TEST_P(VP9QuantizeTest, DISABLED_Speed) {
       }
       vpx_usec_timer_mark(&timer);
       const int elapsed_time = static_cast<int>(vpx_usec_timer_elapsed(&timer));
-      if (i == 0) printf("Skip block.\n");
-      if (i == 1) printf("Bypass calculations.\n");
-      if (i == 2) printf("Full calculations.\n");
+      if (i == 0) printf("Bypass calculations.\n");
+      if (i == 1) printf("Full calculations.\n");
       printf("Quantize %dx%d time: %5d ms\n", 4 << sz, 4 << sz,
              elapsed_time / 1000);
     }
@@ -362,14 +371,11 @@ INSTANTIATE_TEST_CASE_P(
                                  16)));
 #endif  // HAVE_SSE2
 
-#if HAVE_SSSE3
-#if !CONFIG_VP9_HIGHBITDEPTH
-// TODO(johannkoenig): SSSE3 optimizations do not yet pass this test.
+#if HAVE_SSSE3 && !CONFIG_VP9_HIGHBITDEPTH
 INSTANTIATE_TEST_CASE_P(SSSE3, VP9QuantizeTest,
                         ::testing::Values(make_tuple(&vpx_quantize_b_ssse3,
                                                      &vpx_quantize_b_c,
                                                      VPX_BITS_8, 16)));
-#endif
 
 #if ARCH_X86_64
 // TODO(johannkoenig): SSSE3 optimizations do not yet pass this test.
@@ -384,21 +390,19 @@ INSTANTIATE_TEST_CASE_P(
                                  &QuantFPWrapper<vp9_quantize_fp_32x32_c>,
                                  VPX_BITS_8, 32)));
 #endif  // ARCH_X86_64
-#endif  // HAVE_SSSE3
+#endif  // HAVE_SSSE3 && !CONFIG_VP9_HIGHBITDEPTH
 
 // TODO(johannkoenig): AVX optimizations do not yet pass the 32x32 test or
 // highbitdepth configurations.
 #if HAVE_AVX && !CONFIG_VP9_HIGHBITDEPTH
-INSTANTIATE_TEST_CASE_P(AVX, VP9QuantizeTest,
-                        ::testing::Values(make_tuple(&vpx_quantize_b_avx,
-                                                     &vpx_quantize_b_c,
-                                                     VPX_BITS_8, 16)));
-#if ARCH_X86_64
-INSTANTIATE_TEST_CASE_P(DISABLED_AVX, VP9QuantizeTest,
-                        ::testing::Values(make_tuple(&vpx_quantize_b_32x32_avx,
-                                                     &vpx_quantize_b_32x32_c,
-                                                     VPX_BITS_8, 32)));
-#endif  // ARCH_X86_64
+INSTANTIATE_TEST_CASE_P(
+    AVX, VP9QuantizeTest,
+    ::testing::Values(make_tuple(&vpx_quantize_b_avx, &vpx_quantize_b_c,
+                                 VPX_BITS_8, 16),
+                      // Even though SSSE3 and AVX do not match the reference
+                      // code, we can keep them in sync with each other.
+                      make_tuple(&vpx_quantize_b_32x32_avx,
+                                 &vpx_quantize_b_32x32_ssse3, VPX_BITS_8, 32)));
 #endif  // HAVE_AVX && !CONFIG_VP9_HIGHBITDEPTH
 
 // TODO(webm:1448): dqcoeff is not handled correctly in HBD builds.

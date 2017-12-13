@@ -30,6 +30,7 @@
 
           Kui seade on keelatud või seadistamata, käitatakse kaugabi hosti kasutaja kontekstis ja kaugkasutajad ei saa töölaual suhelda administraatoriõigusi nõudvate akendega.</translation>
 <translation id="1096105751829466145">Vaikeotsingupakkuja</translation>
+<translation id="1099282607296956954">Saidi isoleerimise lubamine igal saidil</translation>
 <translation id="1117535567637097036">Selle reegliga määratud protokollitöötlejaid Androidi kavatsuste käsitlemisel ei kasutata.</translation>
 <translation id="1122282995569868661">Kuvatakse teenuse <ph name="PRODUCT_NAME" /> tööriistariba ikoon</translation>
 <translation id="1128903365609589950">Seadistab kataloogi, mida <ph name="PRODUCT_NAME" /> kasutab vahemälus olevate failide kettale salvestamiseks.
@@ -49,6 +50,12 @@
 
       Kui määrate reegli olekule Väär, siis ei saadeta teavet arendaja lüliti oleku kohta.</translation>
 <translation id="1160939557934457296">Keela turvalise sirvimise hoiatuslehest edasiliikumine</translation>
+<translation id="1166377463685560145">Määrab printerid, mida kasutaja ei saa kasutada.
+
+      Seda reeglit kasutatakse ainult siis, kui režiimis <ph name="DEVICE_PRINTERS_ACCESS_MODE" /> on valitud väärtus <ph name="PRINTERS_BLACKLIST" />.
+
+      Selle reegli kasutamisel on kasutajale saadaval kõik printerid, v.a need, mille ID-d on selles reeglis loetletud.
+      </translation>
 <translation id="1198465924256827162">Seadme oleku üleslaadimiste saatmise sagedus millisekundites.
 
       Kui see reegel on määramata, on vaikesagedus 3 tundi. Minimaalne
@@ -79,7 +86,14 @@
 
       Kui selle reegli väärtuseks määratakse Väär, ei luba teenus <ph name="PRODUCT_NAME" /> külaliste profiile käivitada.</translation>
 <translation id="1363275621236827384">Lubatakse riistvaraprofiilide päringud Quirks Serverist</translation>
+<translation id="1393485621820363363">Ettevõtte seadmete jaoks lubatud printerid</translation>
 <translation id="1397855852561539316">Vaikeotsingupakkuja soovitatud URL</translation>
+<translation id="1420281424655200442">Juhib, millised printerid seadistusest <ph name="DEVICE_PRINTERS_POLICY" /> on kasutajatele saadaval.
+
+      Määrab, millist juurdepääsureeglit kasutatakse printerite hulgiseadistamiseks. Kui valitud on väärtus <ph name="PRINTERS_ALLOW_ALL" />, kuvatakse kõik printerid. Kui valitud on väärtus <ph name="PRINTERS_BLACKLIST" />, kasutatakse määratud printeritele juurdepääsu piiramiseks reeglit <ph name="DEVICE_PRINTERS_BLACKLIST" />. Kui valitud on väärtus <ph name="PRINTERS_WHITELIST" />, määrab reegel <ph name="DEVICE_PRINTERS_WHITELIST" /> ainult need printerid, mida saab valida.
+
+      Kui see reegel on määramata, kasutatakse reeglit <ph name="PRINTERS_BLACKLIST" />.
+      </translation>
 <translation id="1426410128494586442">Jah</translation>
 <translation id="1427655258943162134">Puhverserveri aadress või URL</translation>
 <translation id="1435659902881071157">Seadme tasemel võrgukonfigureerimine</translation>
@@ -87,6 +101,7 @@
 <translation id="1454846751303307294">Võimaldab teil määrata URL-i mustrite loendi, mis määrab saidid, millel on keelatud JavaScripti käitada.
 
           Kui jätate selle reegli määramata, siis kasutatakse kõikide saitide puhul globaalset vaikeväärtust, mis pärineb reeglist „DefaultJavaScriptSetting”, kui see on määratud, või kasutaja isiklikku konfigureerimist.</translation>
+<translation id="1456822151187621582">Windows (operatsioonisüsteemiga <ph name="PRODUCT_OS_NAME" /> kliendid):</translation>
 <translation id="1464848559468748897">Kasutaja käitumise juhtimine mitme profiiliga seansside puhul operatsioonisüsteemi <ph name="PRODUCT_OS_NAME" /> seadmetes.
 
       Kui reegel on määratud valikule „MultiProfileUserBehaviorUnrestricted”, saab kasutaja mitme profiiliga seansi puhul olla kas peamine või sekundaarne kasutaja.
@@ -101,6 +116,11 @@
 
       Kui jätate reegli määramata, kasutatakse seade „MultiProfileUserBehaviorMustBePrimary” vaikeväärtust ettevõtte hallatud kasutajate puhul ja seadet „MultiProfileUserBehaviorUnrestricted” haldamata kasutajate puhul.</translation>
 <translation id="1465619815762735808">Klõpsa esitamiseks</translation>
+<translation id="1466133662354365542">Lubab rakenduse <ph name="PRODUCT_NAME" /> automaattäite funktsiooni ja võimaldab kasutajatel automaatselt täita veebivorme varem salvestatud teabega, näiteks aadressi või krediitkaarditeabega.
+
+      Selle seade keelamisel ei anna automaattäite funktsioon soovitusi ega sisesta krediitkaarditeavet. Lisaks ei salvesta see krediitkaardi lisateavet, mille kasutaja võib veebi sirvimisel esitada.
+
+      Selle seade lubamisel või määramata jätmisel saab kasutaja kasutajaliideses juhtida üldiseid automaattäite funktsioone (sh krediitkaardid).</translation>
 <translation id="1468307069016535757">Sisselogimisekraanil suure kontrastsusega režiimi hõlbustusfunktsiooni vaikeoleku määramine.
 
          Kui reegel on seatud väärtusele Tõene, on suure kontrastsusega režiim sisselogimisekraanili kuvamisel alati lubatud.
@@ -142,6 +162,19 @@
 <translation id="1561424797596341174">Kaugjuurdepääsu hosti silumisjärkude reeglite alistused</translation>
 <translation id="1561967320164410511">U2F koos laiendustega individuaalseks atesteerimiseks</translation>
 <translation id="1583248206450240930">Kasuta vaikimisi rakendust <ph name="PRODUCT_FRAME_NAME" /></translation>
+<translation id="1603058613431276040">Määrab seadistused seadmetega seotud ettevõtte printeritele.
+
+      See reegel võimaldab teil määrata printeri seadistused operatsioonisüsteemi <ph name="PRODUCT_OS_NAME" /> seadmetele. Faili maht ei tohi ületada 5 MB ja see peab olema kodeeritud JSON-is. Vorming on sama, mis sõnastikul NativePrinters. Prognooside kohaselt kodeeritakse fail, mis sisaldab ligikaudu 21 000 printerit, 5 MB failina. Krüptograafilist räsiväärtust kasutatakse allalaadimise terviklikkuse kinnitamiseks.
+
+      Fail laaditakse alla ja salvestatakse vahemällu. See laaditakse uuesti alla alati, kui URL või räsiväärtus muutub.
+
+      Kui see reegel on määratud, laadib operatsioonisüsteem <ph name="PRODUCT_OS_NAME" /> alla faili printeri seadistuste jaoks ja muudab printerid kättesaadavaks kooskõlas reeglitega <ph name="DEVICE_PRINTERS_ACCESS_MODE" />, <ph name="DEVICE_PRINTERS_WHITELIST" /> ja <ph name="DEVICE_PRINTERS_BLACKLIST" />.
+
+      See reegel ei mõjuta seda, kas kasutajad saavad printereid seadistada individuaalsetes seadmetes. See on mõeldud individuaalsete kasutajate printerite seadistuse täienduseks.
+
+      See reegel on reegli <ph name="BULK_PRINTERS_POLICY" /> lisa.
+
+      Kui see reegel on määramata, siis seadme printereid ei ole ja teisi reegleid <ph name="DEVICE_PRINTERS_POLICY_PATTERN" /> eiratakse.</translation>
 <translation id="1608755754295374538">URL-id, millele antakse ilma küsimata juurdepääs helijäädvustusseadmetele</translation>
 <translation id="1617235075406854669">Brauseri ja allalaadimiste ajaloo kustutamise lubamine</translation>
 <translation id="163200210584085447">Selles loendis olevaid mustreid võrreldakse taotleva URL-i
@@ -248,6 +281,12 @@
 <translation id="2030905906517501646">Vaikeotsingupakkuja märksõna</translation>
 <translation id="203096360153626918">See reegel ei mõjuta Androidi rakendusi. Täisekraanirežiimi saab aktiveerida ka siis, kui reegli väärtuseks on määratud <ph name="FALSE" />.</translation>
 <translation id="2043770014371753404">Ettevõtte keelatud printerid</translation>
+<translation id="2063380907529983889">Juhib, millised printerid seadistusest <ph name="BULK_PRINTERS_POLICY" /> on kasutajatele saadaval.
+
+      Määrab, millist juurdepääsureeglit kasutatakse printerite hulgiseadistamiseks. Kui valitud on väärtus <ph name="PRINTERS_ALLOW_ALL" />, kuvatakse kõik printerid. Kui valitud on väärtus <ph name="PRINTERS_BLACKLIST" />, kasutatakse määratud printeritele juurdepääsu piiramiseks reeglit <ph name="BULK_PRINTERS_BLACKLIST" />. Kui valitud on väärtus <ph name="PRINTERS_WHITELIST" />, määrab reegel <ph name="BULK_PRINTERS_WHITELIST" /> ainult need printerid, mida saab valida.
+
+      Kui see reegel on määramata, kasutatakse reeglit <ph name="PRINTERS_BLACKLIST" />.
+      </translation>
 <translation id="206623763829450685">Määrab, milliseid HTTP autentimisskeeme rakendus <ph name="PRODUCT_NAME" /> toetab.
 
           Võimalikud väärtused on „basic”, „digest”, „ntlm” ja „negotiate”. Eraldage eri väärtused komadega.
@@ -339,6 +378,7 @@
 <translation id="2294382669900758280">Video esitamist Androidi rakendustes ei arvestata, isegi kui reegli väärtuseks on määratud <ph name="TRUE" />.</translation>
 <translation id="2298647742290373702">Seadistab uue vaikevahelehe teenuses <ph name="PRODUCT_NAME" />.</translation>
 <translation id="2299220924812062390">Lubatud pistikprogrammide loendi määramine</translation>
+<translation id="2303795211377219696">Automaattäite lubamine krediitkaartide puhul</translation>
 <translation id="2309390639296060546">Geograafilise asukoha vaikeseade</translation>
 <translation id="2312134445771258233">Võimaldab seadistada käivitamisel avatavad lehed. Loendi „Käivitamisel avatavad URL-id” sisu eiratakse, kui te ei vali jaotises „Toiming käivitamisel” käsku „Ava URL-ide loend”.</translation>
 <translation id="2337466621458842053">Võimaldab teil määrata URL-i mustrite loendi, mis määrab saidid, millel on lubatud kujutisi kuvada.
@@ -508,16 +548,14 @@
 <translation id="2762164719979766599">Määrab loendi seadmepõhistest kontodest, mis ilmuvad sisselogimiskuval.
 
       Loendi iga kirje määrab identifikaatori, mida kasutatakse seesmiselt seadmepõhiste kontode eristamiseks.</translation>
+<translation id="2766302473082018239">Määrab printerid, mida kasutaja saab kasutada.
+
+      Seda reeglit kasutatakse ainult siis, kui režiimis <ph name="BULK_PRINTERS_ACCESS_MODE" /> on valitud väärtus <ph name="PRINTERS_WHITELIST" />.
+
+      Selle reegli kasutamisel on kasutajale saadaval ainult printerid, mille ID-d ühtivad selles reeglis olevate väärtustega. ID-d peavad ühtima reeglis <ph name="BULK_PRINTERS_POLICY" /> määratud faili kannetega.
+      </translation>
 <translation id="2769952903507981510">Kaugjuurdepääsu hostidele nõutava domeeninime seadistamine</translation>
 <translation id="2787173078141616821">Saada teavet Androidi oleku kohta</translation>
-<translation id="2794520838025002425">Määrab printerid, mida kasutaja ei saa kasutada.
-
-      Seda reeglit kasutatakse vaid juhul, kui režiimis
-      NativePrintersBulkAccessMode on valitud väärtus BlacklistRestriction.
-
-      Selle reegli kasutamisel on kasutajale saadaval kõik printerid, v.a need,
-      mille ID-d on reeglis kirjas.
-      </translation>
 <translation id="2801230735743888564">Luba kasutajal mängida dinosauruse üllatusmängu, kui seade pole võrguga ühendatud.
 
       Kui selle reegli väärtuseks on määratud Väär, ei saa kasutajad dinosauruse üllatusmängu mängida, kui seade pole võrguga ühendatud. Kui seade väärtuseks on määratud Tõene, saavad kasutajad dinosaurusemängu mängida. Kui see reegel on määramata, ei saa kasutajad dinosauruse üllatusmängu mängida registreeritud Chrome OS-is, kuid saavad seda mängida muudel juhtudel.</translation>
@@ -529,6 +567,7 @@
           Kui seade on keelatud ja tulemüür filtreerib väljuvad UDP-ühendused, siis lubab seade klientseadmetest tulevaid ühendusi vaid kohalikus võrgus.
 
           Kui jätate selle reegli määramata, siis seade lubatakse.</translation>
+<translation id="2823870601012066791">Windowsi registri asukoht operatsioonisüsteemiga <ph name="PRODUCT_OS_NAME" /> klientide puhul:</translation>
 <translation id="2824715612115726353">Luba inkognitorežiim</translation>
 <translation id="2838830882081735096">Keela andmete üleviimine ja ARC</translation>
 <translation id="2844404652289407061">Lubab teenuse <ph name="PRODUCT_NAME" /> sisu vaates funktsiooni Puuduta otsimiseks.
@@ -672,7 +711,23 @@
 <translation id="332771718998993005">Määratakse nimi, mida esitatakse teenuse <ph name="PRODUCT_NAME" /> sihtkohana.
 
           Kui selle reegli väärtuseks määratakse mõni täidetud string, kasutatakse seda stringi teenuse <ph name="PRODUCT_NAME" /> sihtkohana. Muul juhul on sihtkoha nimeks seadme nimi. Kui see reegel jäetakse määramata, on sihtkoha nimeks seadme nimi ja seadme omanik (või seadet haldava domeeni kasutaja) saab seda muuta. Nimi tohib olla maksimaalselt 24 tähemärki.</translation>
+<translation id="3356249700768900657">
+      MÄRKUS. See reegel on katseline ja funktsioonid ei pruugi töötada.
+      Soovitame teil vaadata reegli IsolateOrigins seadet, et kasutada
+      nii isoleerimist kui ka piirata mõju kasutajate jaoks, kasutades reeglit
+      IsolateOrigins saitide puhul, mille soovite isoleerida. Seade
+      SitePerProcess isoleerib kõik saidid.
+      Kui reegel on lubatud, käitab iga sait siiski oma protsesse.
+      Kui reegel on keelatud, jõustub saidi isoleerimise eelse protsessihalduse loogika.
+      Kui reegel on seadistamata, saab kasutaja seda seadet muuta.
+      </translation>
 <translation id="3381968327636295719">Kasuta vaikimisi hostbrauserit</translation>
+<translation id="3395348522300156660">Määrab printerid, mida kasutaja saab kasutada.
+
+      Seda reeglit kasutatakse ainult siis, kui režiimis <ph name="DEVICE_PRINTERS_ACCESS_MODE" /> on valitud väärtus <ph name="PRINTERS_WHITELIST" />
+
+      Selle reegli kasutamisel on kasutajale saadaval ainult printerid, mille ID-d ühtivad selles reeglis olevate väärtustega. ID-d peavad ühtima reeglis <ph name="DEVICE_PRINTERS_POLICY" /> määratud faili kannetega.
+      </translation>
 <translation id="3417418267404583991">Kui lubate selle reegli või jätate seadistamata, siis lubab <ph name="PRODUCT_OS_NAME" /> külastajatel sisse logida. Külastajana sisse logides kasutatakse anonüümseid seansse ja selleks ei ole vaja parooli sisestada.
 
       Selle reegli keelamisel ei luba <ph name="PRODUCT_OS_NAME" /> külastajaseansse alustada.</translation>
@@ -890,6 +945,7 @@
           Reegli väärtus tuleb määrata millisekundites.</translation>
 <translation id="4105989332710272578">Sertifikaadi läbipaistvuse jõustamise keelamine URL-ide loendi jaoks</translation>
 <translation id="4121350739760194865">Rakenduste reklaamide ilmumise takistamine uuel vahelehel</translation>
+<translation id="4133144443101280166">Väljalülitatud aegade intervallid, kui seadme reegel OffHours |ignored_policy_proto_tags| avaldatakse</translation>
 <translation id="4157003184375321727">OS-ist ja püsivara versioonist teavitamine</translation>
 <translation id="4183229833636799228">Pistikprogrammi <ph name="FLASH_PLUGIN_NAME" /> vaikeseade</translation>
 <translation id="4192388905594723944">URL kaugjuurdepääsuga kliendi autentimismärgi kinnitamiseks</translation>
@@ -1015,7 +1071,6 @@
 <translation id="4541530620466526913">Seadmepõhised kontod</translation>
 <translation id="4555850956567117258">Kasutajale kaugatesteerimise lubamine</translation>
 <translation id="4557134566541205630">Otsingupakkuja uue vahelehe vaike-URL</translation>
-<translation id="4558592878156368639">Väljalülitatud aegade intervallid, kui seadme reeglid OffHours |ignored_policies| avaldatakse</translation>
 <translation id="4600786265870346112">Suure kursori lubamine</translation>
 <translation id="4604931264910482931">Omasõnumside musta nimekirja seadistamine</translation>
 <translation id="4617338332148204752">Metasildi kontrollimise vahelejätmine teenuses <ph name="PRODUCT_FRAME_NAME" /></translation>
@@ -1039,6 +1094,7 @@
           Vaadake näidismustreid aadressilt http://www.chromium.org/developers/how-tos/chrome-frame-getting-started.</translation>
 <translation id="467449052039111439">Ava URL-ide loend</translation>
 <translation id="4680961954980851756">Luba automaatne täitmine</translation>
+<translation id="4722122254122249791">Saidi isoleerimise lubamine konkreetsete lähtekohtade puhul</translation>
 <translation id="4722399051042571387">Kui see on vale, ei saa kasutajad määrata PIN-koode, mis on nõrgad ja hõlpsalt äraarvatavad.
 
           Mõned nõrga PIN-koodi näited: PIN-koodid, mis sisaldavad ainult ühte numbrit (1111); PIN-koodid, milles olevad numbrid suurenevad ühe võrra (1234); PIN-koodid, milles olevad numbrid vähenevad ühe võrra (4321); sageli kasutatavad PIN-koodid.
@@ -1114,9 +1170,20 @@
           Väärtus peab olema rida stringideks jaotatud JSON-i sõnastikke. Igas sõnastikus peab olema vorm { "pattern": "$URL_PATTERN", "filter" : $FILTER }, kus $URL_PATTERN on sisuseadete muster. $FILTER piirab seda, milliste kliendisertifikaatide hulgast brauser automaatselt valib. Olenemata filtrist, valitakse ainult sertifikaadid, mis ühtivad serveri sertifikaadi taotlusega. Kui $FILTER on vormis { "ISSUER": { "CN": "$ISSUER_CN" } }, valitakse lisaks ainult kliendisertifikaadid, mille on väljastanud sertifikaat mustriga CommonName $ISSUER_CN. Kui $FILTER on tühi sõnastik {}, ei ole kliendisertifikaatide valik täiendavalt piiratud.
 
           Kui seda reeglit ei määrata, ei tehta ühegi saidi puhul automaatset valikut.</translation>
+<translation id="4978405676361550165">Kui reegel „OffHours” on määratud, siis eiratakse määratud ajavahemikes seadmereegleid (kasutage nende reeglite vaikeseadeid). Chrome rakendab seadmereegleid uuesti iga sündmuse puhul, kui ajavahemik „OffHours” algab või lõpeb. Kui ajavahemik „OffHours” lõpeb ja seadmereeglite seadeid muudetakse, teavitatakse sellest kasutajat ning ta logitakse välja (näiteks kui kasutaja pole sisse logitud lubatud kontoga).</translation>
 <translation id="4980635395568992380">Andmetüüp:</translation>
 <translation id="4983201894483989687">Luba vananenud pistikprogrammide käitamine</translation>
 <translation id="4988291787868618635">Tehtav toiming, kui möödub jõudeoleku viiteaeg</translation>
+<translation id="5027819375434797927">
+      MÄRKUS. See reegel on katseline ja funktsioonid ei pruugi töötada.
+      Kui reegel on lubatud, käitab iga komadega eraldatud loendis
+      nimetatud lähtekoht oma protsesse. See isoleerib ka
+      alamdomeenide nimetatud lähtekohad; nt määrates aadressi https://example.com/
+      isoleeritakse ka aadress https://foo.example.com/ saidi
+      https://example.com/ osana.
+      Kui reegel on keelatud, jõustub saidi isoleerimise eelse protsessihalduse loogika.
+      Kui reegel on seadistamata, saab kasutaja seda seadet muuta.
+      </translation>
 <translation id="5047604665028708335">Sisupakettidest väljaspool olevatele saitidele juurdepääsu lubamine</translation>
 <translation id="5052081091120171147">Selle reegli lubamisel imporditakse sirvimisajalugu praegusest vaikebrauserist. Lubamisel mõjutab reegel ka importimisdialoogi.
 
@@ -1127,7 +1194,9 @@
 <translation id="5067143124345820993">Kasutajate sisselogimise lubatud loend</translation>
 <translation id="5068140065960598044">Teenuse <ph name="PRODUCT_NAME" /> pilve-eeskirjad alistavad seadme-eeskirjad.</translation>
 <translation id="5085647276663819155">Printimise eelvaate keelamine</translation>
+<translation id="5090209345759901501">Flash-sisu seade laiendamine kogu sisule</translation>
 <translation id="5105313908130842249">Ekraani lukustamise viiteaeg akutoite kasutamisel</translation>
+<translation id="5108031557082757679">Ettevõtte seadmete jaoks keelatud printerid</translation>
 <translation id="5130288486815037971">Kas RC4 šifreerimiskomplektid TLS-is on lubatud?</translation>
 <translation id="5141670636904227950">Lubage ekraaniluubi vaiketüüp sisselogimisekraanil</translation>
 <translation id="5142301680741828703">Renderda alati rakenduses <ph name="PRODUCT_FRAME_NAME" /> järgmiste URL-ide mustrid</translation>
@@ -1370,6 +1439,7 @@
           Kui määrate reegli, saavad kasutajad selle ajutiselt alistada, lubades või keelates suure kursori. Kasutaja valik pole siiski püsiv ja vaikeväärtus taastatakse, kui kuvatakse uuesti sisselogimisekraan või kui kasutaja jääb sisselogimisekraanile minutiks tegevuseta olekusse.
 
           Kui jätate reegli määramata, on suur kursor sisselogimisekraani esmakuvamisel keelatud. Kasutajad võivad suure kursori igal ajal lubada või keelata ja selle olek on sisselogimisekraanil kasutajati püsiv.</translation>
+<translation id="5932767795525445337">Seda reeglit saab kasutada ka Androidi rakenduste kinnitamiseks.</translation>
 <translation id="5936622343001856595">Sunnib Google'i veebiotsingute tegemisel kasutama SafeSearchi ja takistab kasutajaid seadet muutmast.
 
       Seade lubamisel on Google'i otsingu funktsioon SafeSearch alati aktiivne.
@@ -1399,6 +1469,53 @@
 
       Kui reegel on määramata või keelatud, ilmub printimiskäsu sisestamisel printimise eelvaate kuva.</translation>
 <translation id="6022948604095165524">Toiming käivitamisel</translation>
+<translation id="6023030044732320798">Määrab reeglite kogumi, mis edastatakse ARC käitusajale. Väärtus peab olema sobiv JSON.
+
+      Selle reegli abil saab seadistada, millised Androidi rakendused automaatselt seadmesse installitakse:
+
+      {
+        "type": "object",
+        "properties": {
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "packageName": {
+                  "description": "Androidi rakenduse identifikaator, nt „com.google.android.gm” Gmaili puhul",
+                  "type": "string"
+                },
+                "installType": {
+                  "description": "Määrab, kuidas rakendus installitakse. OPTIONAL: rakendust ei installita automaatselt, kuid kasutaja saab selle installida. Kui seda reeglit ei määrata, on see vaikeseade. PRELOAD: rakendus installitakse automaatselt, kuid kasutaja saab selle desinstallida. FORCE_INSTALLED: rakendus installitakse automaatselt ja kasutaja ei saa seda desinstallida. BLOCKED: rakendus on blokeeritud ja seda ei saa installida. Kui rakendus installiti eelmise reegli põhjal, siis see desinstallitakse.",
+                  "type": "string",
+                  "enum": [
+                    "OPTIONAL",
+                    "PRELOAD",
+                    "FORCE_INSTALLED",
+                    "BLOCKED"
+                  ]
+                },
+                "defaultPermissionPolicy": {
+                  "description": "Reegel rakendustele lubade taotluste andmiseks. PERMISSION_POLICY_UNSPECIFIED: reeglit pole määratud. Kui loa jaoks pole reeglit määratud mitte ühelgi tasemel, kasutatakse vaikimisi käitumist `PROMPT`. PROMPT: kasutajal palutakse luba anda. GRANT: luba antakse automaatselt. DENY: luba keelatakse automaatselt.",
+                  "type": "string",
+                  "enum": [
+                    "PERMISSION_POLICY_UNSPECIFIED",
+                    "PROMPT",
+                    "GRANT",
+                    "DENY"
+                  ]
+                },
+                "managedConfiguration": {
+                  "description": "Rakendusepõhine JSON-i konfiguratsiooniobjekt, millel on komplekt võtmeväärtuse paare, nt '"managedConfiguration": { "key1": value1, "key2": value2 }'. Võtmed määratakse rakenduse manifestis.",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+
+      Rakenduste kinnitamiseks käivitusprogrammi vaadake reeglit PinnedLauncherApps.</translation>
 <translation id="602728333950205286">Vaikeotsingupakkuja Instant-URL</translation>
 <translation id="603410445099326293">Parameetrid POST-meetodit kasutava soovituse URL-i jaoks</translation>
 <translation id="6036523166753287175">Luba tulemüüri läbimine kaugjuurdepääsu hostist</translation>
@@ -1407,6 +1524,7 @@
 <translation id="6076099373507468537">Luuakse loend USB-seadmetest, mis lubatakse eemaldada tuumadraiverist, et neid veebirakenduses otse chrome.usb API kaudu kasutada. Kirjed on USB teenusepakkuja ID-de ja toote ID-de paarid, mille abil konkreetne riistvara tuvastada.
 
       Kui see reegel jäetakse seadistamata, on eemaldatavate USB-seadmete loend tühi.</translation>
+<translation id="6083631234867522991">Windows (Windowsi kliendid):</translation>
 <translation id="6093156968240188330">Lubab kaugkasutajatel kaugabiseanssides suhelda administraatoriõigusi nõudvate akendega</translation>
 <translation id="6095999036251797924">Määrab, kui palju aega võib mööduda kasutaja viimasest toimingust, enne kui ekraan lukustatakse, kui seade töötab vahelduvvoolu- või akutoitel.
 
@@ -1422,7 +1540,6 @@
 <translation id="6111936128861357925">Luba dinosauruse üllatusmäng</translation>
 <translation id="6114416803310251055">iganenud</translation>
 <translation id="6133088669883929098">Luba kõikidel saitidel võtmeid luua</translation>
-<translation id="6139485614509308022">Kui reegel „OffHours” on määratud, siis eiratakse määratud ajavahemikes seadme määratud reegleid (kasutage nende reeglite vaikeseadeid). Chrome rakendab seadme reeglid uuesti iga sündmuse korral, kui periood „OffHours” algab või lõpeb. Kui aeg „OffHours” lõpeb ja seadme reeglite seadeid muudetakse, teavitatakse sellest kasutajat ning ta logitakse välja (näiteks kui kasutaja pole sisse logitud lubatud kontoga).</translation>
 <translation id="6145799962557135888">Võimaldab määrata URL-i mustrite nimekirja, mis määrab saidid, millel on lubatud käitada JavaScripti.
 
           Kui jätate selle reegli määramata, siis kasutatakse kõikide saitide puhul globaalset vaikeväärtust, mis pärineb reeglist „DefaultJavaScriptSetting”, kui see on määratud, või kasutaja isiklikku konfigureerimist.</translation>
@@ -1512,6 +1629,11 @@
           Kui otsustate kasutada puhverserveri skripti .pac, esitatakse Androidi rakendustele skripti URL.</translation>
 <translation id="6491139795995924304">Luba Bluetooth seadmes</translation>
 <translation id="6520802717075138474">Impordi otsingumootorid vaikebrauserist esimesel käitamisel</translation>
+<translation id="6525955212636890608">Selle seade lubamisel käitatakse kogu Flash-sisu, mis on manustatud veebisaitidele, kus Flash on sisu seadetes lubatud – seda nii kasutaja kui ka ettevõtte reegliga (sh muu päritoluga või väikesemahuline sisu).
+
+      Kui soovite juhtida, millistel veebisaitidel on Flashi käitamine lubatud, vaadake reegleid „DefaultPluginsSetting”, „PluginsAllowedForUrls” ja „PluginsBlockedForUrls”.
+
+      Kui see seade on keelatud või määramata, võidakse muu päritoluga või väikesemahuline Flash-sisu blokeerida.</translation>
 <translation id="653608967792832033">Määrab aja, pärast mida lukustatakse ekraan akutoitel töötamisel, kui kasutaja pole midagi sisestanud.
 
           Kui selle reegli väärtuseks määratakse arv, mis on suurem kui null, määrab see aja, mille jooksul peab kasutaja olema tegevusetu, enne kui <ph name="PRODUCT_OS_NAME" /> ekraani lukustab.
@@ -1768,6 +1890,7 @@
       Kui reegel on määramata, kasutab automaatne puhastamine sisseehitatud vaikestrateegiat. Praegu on selleks strateegia „RemoveLRUIfDormant”.</translation>
 <translation id="7336878834592315572">Säilita küpsised seansi kestuse jooksul</translation>
 <translation id="7340034977315324840">Saada teavet seadme aktiivsuse aja kohta</translation>
+<translation id="7343497214039883642">Ettevõtte printerite konfiguratsioonifail seadmetele</translation>
 <translation id="7384999953864505698">Lubab QUIC-protokolli</translation>
 <translation id="7417972229667085380">Esitlusrežiimis tegevusetu oleku viivituse skaleerimise määr protsentides (tugi on katkestatud)</translation>
 <translation id="7421483919690710988">Määrake meediumiketta vahemälu suurus baitides</translation>
@@ -1777,7 +1900,6 @@
       Kui reegel on määramata või selle väärtuseks on määratud Väär, siis <ph name="TLS_FALSE_START" /> lubatakse. Kui väärtuseks on määratud Tõene, siis <ph name="TLS_FALSE_START" /> keelatakse.</translation>
 <translation id="7433714841194914373">Luba Instant</translation>
 <translation id="7443616896860707393">Erineva päritoluga HTTP Basic Authi viibad</translation>
-<translation id="7468416082528382842">Windowsi registri asukoht:</translation>
 <translation id="7469554574977894907">Luba otsingusoovitused</translation>
 <translation id="7474249562477552702">Kas kohalike usaldusvõtmete väljastatud SHA-1 allkirjastatud sertifikaadid on lubatud?</translation>
 <translation id="7485481791539008776">Vaikeprinteri valimise reeglid</translation>
@@ -1911,6 +2033,39 @@
 <translation id="7841880500990419427">Minimaalne TLS-i versioon, millele tagasi minna</translation>
 <translation id="7842869978353666042">Google Drive'i valikute seadistamine</translation>
 <translation id="7843525027689416831">Määrab märgistused, mis tuleb rakendada teenuses <ph name="PRODUCT_NAME" /> selle käivitamisel. Määratud märgistused rakendatakse ainult sisselogimisekraanil. Selle reegliga määratud märgistused ei rakendu kasutaja seanssides.</translation>
+<translation id="7844537954833753199">Seadistab brauseri <ph name="PRODUCT_NAME" /> laienduste halduse seaded.
+
+          See reegel juhib mitut seadet, sealhulgas mis tahes olemasoleva laiendustega seotud reegli seadeid. Reegel alistab pärandreeglid, kui mõlemad on määratud.
+
+          Reegel vastendab laienduse ID või värskenduse URL-i seadistusega. Laienduse ID puhul rakendatakse seadistus vaid määratud laiendusele. Saate määrata spetsiaalsele ID-le <ph name="DEFAULT_SCOPE" /> vaikeseadistuse, mis kehtib kõikide laienduste puhul, millele ei ole reeglis määratud kohandatud seadistust. Värskenduse URL-i puhul rakendatakse seadistus kõikidele laiendustele, mille manifestis on märgitud täpselt see värskenduse URL, nagu on kirjeldatud jaotises <ph name="LINK_TO_EXTENSION_DOC1" />.
+
+          Iga laienduse – või mitme sama värskenduse URL-iga laienduse – seadistus on eraldi sõnastik, mis võib hõlmata allmärgitud välju.
+
+          <ph name="INSTALLATION_MODE" />: vastendab stringi, mis näitab laienduse installimise režiimi. Lubatud on järgmised stringid.
+          * <ph name="ALLOWED" />: lubab kasutajal laienduse installida. See on vaikekäitumine.
+          * <ph name="BLOCKED" />: blokeerib laienduse installimise.
+          * <ph name="FORCE_INSTALLED" />: laiendus installitakse automaatselt ja kasutaja ei saa seda eemaldada.
+          * <ph name="NORMAL_INSTALLED" />: laiendus installitakse automaatselt, ent kasutaja saab selle keelata.
+
+          Atribuudi <ph name="INSTALLTION_MODE" /> võib seadistada ka mitme laienduse jaoks (sh vaikeseadena laienduse <ph name="DEFAULT_SCOPE" /> jaoks) ning sama värskenduse URL-iga laienduste jaoks. Sel juhul saab kasutada vaid väärtusi <ph name="ALLOWED" /> ja <ph name="BLOCKED" />.
+
+          Kui režiim on seatud väärtusele <ph name="FORCE_INSTALLED" /> või <ph name="NORMAL_INSTALLED" />, tuleb seadistada ka atribuut <ph name="UPDATE_URL" />. Pange tähele, et selles reeglis määratud värskenduse URL-i kasutatakse vaid esmase installimise puhul ja laienduse edasisel värskendamisel kasutatakse laienduse manifestis märgitud värskenduse URL-i. Värskenduse URL peab viitama XML-vormingus värskendusmanifestile, nagu on ülal mainitud.
+
+          <ph name="BLOCKED_PERMISSIONS" />: vastendab stringide loendi, mis viitab laienduse blokeeritud API lubadele. Lubade nimed on samad mis laienduse manifestis märgitud lubade stringidel, nagu on kirjeldatud jaotises <ph name="LINK_TO_EXTENSION_DOC3" />. Seade saab seadistada ka laiendusele <ph name="DEFAULT_SCOPE" />. Kui laiendus vajab blokeeritud loendisse kantud luba, keelatakse selle laadimine. Kui see sisaldab valikulise nõudena blokeeritud luba, käsitletakse seda tavapärasel moel, kuid vastuoluliste lubade taotlused lükatakse käitusajal automaatselt tagasi.
+
+          <ph name="ALLOWED_PERMISSIONS" />: sarnaneb atribuudiga <ph name="BLOCKED_PERMISSIONS" />, kuid lubab selgesõnaliselt teatud load, mis võivad olla globaalse blokeeritud lubade loendis blokeeritud. Seetõttu ei saa seda kasutada laienduse <ph name="DEFAULT_SCOPE" /> puhul. Pange tähele, et seade ei anna laiendustele lube automaatselt. 
+
+          <ph name="MINIMUM_VERSION_REQUIRED" />: vastendab versioonistringi. Versioonistringi vorming kattub laienduse manifestis kasutatavaga, nagu on kirjeldatud jaotises <ph name="LINK_TO_EXTENSION_DOC4" />. Laiendused, mille versioon on määratud miinimumversioonist vanem, keelatakse. See kehtib ka sundinstallitud laienduste puhul.
+
+          Järgmisi seadeid saab kasutada vaid vaikeseadistuse <ph name="DEFAULT_SCOPE" /> puhul.
+
+          <ph name="INSTALL_SOURCES" />: iga loendis olev üksus on laiendusstiilis vastendusmuster (<ph name="LINK_TO_MATCH_PATTERNS" />). Kasutajad saavad hõlpsasti installida üksusi mis tahes URL-ilt, mis kattub loendis oleva üksusega. Mustrid peavad lubama nii <ph name="EXTENSION_SUFFIX_WILDCARD" />-faili asukoha kui ka lehe, kust allalaadimine algab (st viitaja).
+
+          <ph name="ALLOWED_TYPES" />: see seade kannab lubatud üksuste loendisse kõik laienduste/rakenduste lubatud tüübid, mida saab installida brauseris <ph name="PRODUCT_NAME" />. Väärtus on stringide loend ja iga stringi tüüp peab olema üks järgmistest: <ph name="VALID_ALLOWED_TYPES" />. Vaadake tüüpide kohta lisateavet brauseri <ph name="PRODUCT_NAME" /> laienduste dokumentidest.
+          <ph name="BLOCKED_INSTALL_MESSAGE" />: kui kasutaja üritab installida laienduse, ent see on reegliga blokeeritud, kuvab Chrome'i veebipood üldise veateate. See seade võimaldab teil lisada veateatele teksti. See võimaldab paluda kasutajatel pöörduda tugiteenuse poole, selgitada, miks teatud laiendus on blokeeritud jms. Veateadet kärbitakse, kui see on pikem kui 1000 tähemärki.
+          <ph name="RUNTIME_BLOCKED_HOSTS" />: võtab vastu loendi hostidest, millega rakendusel on keelatud suhelda. See hõlmab JavaScripti sisestamist, veebitaotluste / veebinavigeerimise muutmist ja vaatamist ning küpsisefailide muutmist ja vaatamist. Vorming sarnaneb mustrite vastendamisele (<ph name="LINK_TO_MATCH_PATTERNS" />), ent tee ei tohi olla määratud, nt „*://*.example.com”. See toetab ka tõhusat TLD metamärkide kasutamist, nt „*://example.*”.
+          <ph name="RUNTIME_ALLOWED_HOSTS" />: võtab vastu loendi hostidest, millega rakendus tohib suhelda, olenemata sellest, kas need on loetletud loendis <ph name="RUNTIME_BLOCKED_HOSTS" />. Vorming on sama mis atribuudil <ph name="RUNTIME_BLOCKED_HOSTS" />.
+          </translation>
 <translation id="787125417158068494">Kui määratud on reegel SyncDisabled või seda ei määrata, pole operatsioonisüsteemi <ph name="PRODUCT_OS_NAME" /> sertifikaadid ARC-rakenduste jaoks saadaval.
 
       Kui reegliks on määratud CopyCaCerts, on kõik üksusega <ph name="WEB_TRUSTED_BIT" /> ONC installitud CA-sertifikaadid ARC-rakenduste jaoks saadaval.</translation>
@@ -1961,6 +2116,7 @@
       Kui reegel on määramata, siis kasutab seade vaikevalikuna 24-tunnist kellaaja vormingut.</translation>
 <translation id="8114382167597081590">Ära jõusta YouTube'is piiratud režiimi</translation>
 <translation id="8118665053362250806">Määra meediaketta vahemälu maht</translation>
+<translation id="8124468781472887384">Seadmete printerite seadistuse juurdepääsu reegel.</translation>
 <translation id="8135937294926049787">Määrab aja, pärast mida ekraan võrgutoitega töötamisel välja lülitatakse, kui kasutaja pole midagi sisestanud.
 
           Kui selle reegli väärtuseks määratakse arv, mis on suurem kui null, määrab see aja, mille jooksul peab kasutaja olema tegevusetu, enne kui <ph name="PRODUCT_OS_NAME" /> ekraani välja lülitab.
@@ -1993,18 +2149,6 @@
 
       Kui keelate reegli või jätate selle määramata, suunatakse kasutaja sisselogimisel tavapärasele profiilile.</translation>
 <translation id="8158758865057576716">Lubatakse teenuse <ph name="PRODUCT_NAME" /> profiiliandmete puhul rändluskoopiate loomine.</translation>
-<translation id="8169931650834542988">Juhib, millised printerid seadistusest
-      NativePrintersBulkConfiguration on kasutajatele saadaval.
-
-      Määrab, millist juurdepääsureeglit kasutatakse printerite hulgiseadistamiseks.
-      Kui valitud on väärtus AllowAll, kuvatakse kõik printerid. Kui valitud
-      on väärtus BlacklistRestrction, kasutatakse määratud printeritele
-      juurdepääsu piiramiseks reeglit NativePrintersBulkBlacklist.
-      Kui valitud on väärtus WhitelistPrintersOnly, määrab reegel
-      NativePrintersWhitelist ainult need printerid, mida saab valida.
-
-      Kui see reegel on määramata, kasutatakse reeglit BlacklistRestriction.
-      </translation>
 <translation id="8170878842291747619">Lubab integreeritud Google'i tõlketeenuse rakenduses <ph name="PRODUCT_NAME" />.
 
       Kui lubate seade, siis kuvab rakendus <ph name="PRODUCT_NAME" /> integreeritud tööriistariba, mille abil saab kasutaja võimaluse korral lehe tõlkida.
@@ -2093,18 +2237,9 @@
 <translation id="8424255554404582727">Määratakse ekraani vaikepöördenurk, mis rakendatakse uuesti igal taaskäivitamisel</translation>
 <translation id="8426231401662877819">Ekraani pööramine 90 kraadi päripäeva</translation>
 <translation id="8451988835943702790">Kasuta avalehena Uut vahelehte</translation>
-<translation id="8458790683633857482">Määrab reeglite kogumi, mis edastatakse ARC käitusajale. Väärtus peab olema sobiv JSON.</translation>
 <translation id="8465065632133292531">Parameetrid Instant-URL-i jaoks, mis kasutab POST-meetodit</translation>
 <translation id="847472800012384958">Keela kõikidel saitidel hüpikakende näitamine</translation>
 <translation id="8477885780684655676">TLS 1.0</translation>
-<translation id="8480767919856518465">Määrab printerid, mida kasutaja saab kasutada.
-
-      Seda reeglit kasutatakse ainult siis, kui režiimis
-      NativePrintersBulkAccessMode on valitud väärtus WhitelistPrintersOnly.
-
-      Selle reegli kasutamisel on kasutajale saadaval ainult printerid,
-      mille ID-d ühtivad selles reeglis olevate väärtustega. ID-d peavad ühtima
-      reeglis NativePrintersBulkConfiguration määratud faili kannetega.</translation>
 <translation id="8484458986062090479">Kohandab loendit URL-i mustritest, mille peab alati renderdama hostbrauser.
 
           Kui seda reeglit ei määrata, kasutatakse kõikide saitide puhul vaikerenderdajat, mis on määratud reegliga „ChromeFrameRendererSettings”.
@@ -2113,32 +2248,14 @@
 <translation id="8493645415242333585">Keela brauseri ajaloo salvestamine</translation>
 <translation id="8499172469244085141">Vaikeseaded (kasutajad saavad alistada)</translation>
 <translation id="8519264904050090490">Kasutaja käsitsi sisestatavate URL-ide erandite haldamine</translation>
+<translation id="8527932539502116028">Määrab printerid, mida kasutaja ei saa kasutada.
+
+      Seda reeglit kasutatakse ainult siis, kui režiimis <ph name="BULK_PRINTERS_ACCESS_MODE" /> on valitud väärtus <ph name="PRINTERS_BLACKLIST" />.
+
+      Selle reegli kasutamisel on kasutajale saadaval kõik printerid, v.a need, mille ID-d on selles reeglis loetletud.
+      </translation>
 <translation id="8544375438507658205">Rakenduse <ph name="PRODUCT_FRAME_NAME" /> HTML-i vaikerenderdaja</translation>
 <translation id="8549772397068118889">Hoiatamine sisupakettidest väljaspool olevate saitide külastamisel</translation>
-<translation id="8555589883248082762">Määrab seadistused ettevõtte printeritele.
-
-      See reegel võimaldab teil määrata printeri seadistused
-      operatsioonisüsteemi <ph name="PRODUCT_OS_NAME" /> seadmetele.
-      Faili maht ei tohi ületada 5 MB ja see peab olema kodeeritud JSON-is.
-      Vorming on sama, mis sõnastikul NativePrinters.  Prognooside kohaselt
-      kodeeritakse fail, mis sisaldab ligikaudu 21 000 printerit, 5 MB failina.
-      Krüptograafilist räsiväärtust kasutatakse allalaadimise terviklikkuse
-      kinnitamiseks.
-
-      Fail laaditakse alla ja salvestatakse vahemällu. See laaditakse uuesti alla alati,
-      kui URL või räsiväärtus muutub.
-
-      Kui see reegel on määratud,
-      laadib operatsioonisüsteem <ph name="PRODUCT_OS_NAME" /> alla
-      faili printeri seadistuste jaoks ja muudab printerid kättesaadavaks
-      kooskõlas reeglitega NativePrintersBulkAccessMode, NativePrintersBulkWhitelist,
-      ja NativePrintersBulkBlacklist.
-
-      Selle reegli määramisel ei saa kasutajad seda muuta ega alistada.
-
-      See reegel ei mõjuta seda, kas kasutajad saavad printereid seadistada
-      individuaalsetes seadmetes.  See on mõeldud individuaalsete kasutajate
-      printerite seadistuse täienduseks.</translation>
 <translation id="8566842294717252664">Veebipoe peitmine uuel vahelehel ja rakenduste käivitajas</translation>
 <translation id="8587229956764455752">Luba uute kasutajakontode loomine</translation>
 <translation id="8614804915612153606">Keelab automaatvärskenduse</translation>
@@ -2149,6 +2266,7 @@
           Kui seade väärtuseks on Vale, ei kasuta seade sisu kaitsmiseks kaugatesteerimist ja seade ei pruugi saada kaitstud sisu esitada.
 
           Kui seade väärtuseks on Tõene või see pole määratud, võidakse sisu kaitsmiseks kasutada kaugatesteerimist.</translation>
+<translation id="8650974590712548439">Windowsi registri asukoht Windowsi klientide puhul:</translation>
 <translation id="8654286232573430130">Määrab, millised serverid tuleb integreeritud autentimiseks lisada lubatud üksuste loendisse. Integreeritud autentimine on saadaval vaid siis, kui toode <ph name="PRODUCT_NAME" /> saab puhverserverilt või serverilt, mis on selles lubatud üksuste loendis, autentimise väljakutse.
 
           Eraldage serveri nimed komadega. Metamärgid (*) on lubatud.
@@ -2214,6 +2332,18 @@
 
           Reegli väärtus tuleb määrata millisekundites. Väärtused tuleb kinnitada väiksematena kui jõudeoleku viiteaeg.</translation>
 <translation id="891435090623616439">kodeeritud JSON-stringina. Lisateavet vaadake saidilt <ph name="COMPLEX_POLICIES_URL" /></translation>
+<translation id="8927384992072706174">Määrab seadistused ettevõtte printeritele.
+
+      See reegel võimaldab teil määrata printeri seadistused operatsioonisüsteemi <ph name="PRODUCT_OS_NAME" /> seadmetele. Faili maht ei tohi ületada 5 MB ja see peab olema kodeeritud JSON-is. Vorming on sama, mis sõnastikul NativePrinters. Prognooside kohaselt kodeeritakse fail, mis sisaldab ligikaudu 21 000 printerit, 5 MB failina. Krüptograafilist räsiväärtust kasutatakse allalaadimise terviklikkuse kinnitamiseks.
+
+      Fail laaditakse alla ja salvestatakse vahemällu. See laaditakse uuesti alla alati, kui URL või räsiväärtus muutub.
+
+      Kui see reegel on määratud, laadib operatsioonisüsteem <ph name="PRODUCT_OS_NAME" /> alla faili printeri seadistuste jaoks ja muudab printerid kättesaadavaks kooskõlas reeglitega <ph name="BULK_PRINTERS_ACCESS_MODE" />, <ph name="BULK_PRINTERS_WHITELIST" /> ja <ph name="BULK_PRINTERS_BLACKLIST" />.
+
+      Selle reegli määramisel ei saa kasutajad seda muuta ega alistada.
+
+      See reegel ei mõjuta seda, kas kasutajad saavad printereid seadistada individuaalsetes seadmetes. See on mõeldud individuaalsete kasutajate printerite seadistuse täienduseks.
+      </translation>
 <translation id="8947415621777543415">Esita seadme asukoht</translation>
 <translation id="8951350807133946005">Vahemälu kataloogi seadmine</translation>
 <translation id="8952317565138994125">Keelab teenuses <ph name="PRODUCT_NAME" /> andmete sünkroonimise Google'i hostitavate sünkroonimisteenuste kaudu ja takistab kasutajaid seda seadet muutmast.

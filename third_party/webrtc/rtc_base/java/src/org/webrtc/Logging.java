@@ -22,13 +22,13 @@ import java.util.logging.Logger;
  * app:
  * - Logging.enableLogThreads
  * - Logging.enableLogTimeStamps
- * - Logging.enableTracing
  * - Logging.enableLogToDebugOutput
- * Using native logging requires the presence of the jingle_peerconnection_so library.
+ *
+ * Using these APIs requires that the native library is loaded, using
+ * PeerConnectionFactory.initialize.
  */
 public class Logging {
   private static final Logger fallbackLogger = createFallbackLogger();
-  private static volatile boolean tracingEnabled;
   private static volatile boolean loggingEnabled;
   private static enum NativeLibStatus { UNINITIALIZED, LOADED, FAILED }
   private static volatile NativeLibStatus nativeLibStatus = NativeLibStatus.UNINITIALIZED;
@@ -52,7 +52,8 @@ public class Logging {
     return nativeLibStatus == NativeLibStatus.LOADED;
   }
 
-  // Keep in sync with webrtc/common_types.h:TraceLevel.
+  // TODO(solenberg): Remove once dependent projects updated.
+  @Deprecated
   public enum TraceLevel {
     TRACE_NONE(0x0000),
     TRACE_STATEINFO(0x0001),
@@ -96,25 +97,9 @@ public class Logging {
     nativeEnableLogTimeStamps();
   }
 
-  // Enable tracing to |path| of messages of |levels|.
-  // On Android, use "logcat:" for |path| to send output there.
-  // Note: this function controls the output of the WEBRTC_TRACE() macros.
-  public static synchronized void enableTracing(String path, EnumSet<TraceLevel> levels) {
-    if (!loadNativeLibrary()) {
-      fallbackLogger.log(Level.WARNING, "Cannot enable tracing because native lib not loaded.");
-      return;
-    }
-
-    if (tracingEnabled) {
-      return;
-    }
-    int nativeLevel = 0;
-    for (TraceLevel level : levels) {
-      nativeLevel |= level.level;
-    }
-    nativeEnableTracing(path, nativeLevel);
-    tracingEnabled = true;
-  }
+  // TODO(solenberg): Remove once dependent projects updated.
+  @Deprecated
+  public static void enableTracing(String path, EnumSet<TraceLevel> levels) {}
 
   // Enable diagnostic logging for messages of |severity| to the platform debug
   // output. On Android, the output will be directed to Logcat.
@@ -192,7 +177,6 @@ public class Logging {
     return sw.toString();
   }
 
-  private static native void nativeEnableTracing(String path, int nativeLevels);
   private static native void nativeEnableLogToDebugOutput(int nativeSeverity);
   private static native void nativeEnableLogThreads();
   private static native void nativeEnableLogTimeStamps();

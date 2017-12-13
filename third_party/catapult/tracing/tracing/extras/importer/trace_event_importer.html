@@ -812,6 +812,7 @@ tr.exportTo('tr.e.importer', function() {
           for (let i = 0, len = samples.length; i < len; ++i) {
             const node = profileTree.getNode(samples[i]);
             profileTree.endTime += timeDeltas[i];
+            if (node === undefined) continue;
             const start = this.toModelTimeFromUs_(profileTree.endTime);
             this.model_.samples.push(
                 new tr.model.Sample(start, node.sampleTitle, node, thread));
@@ -2774,6 +2775,12 @@ tr.exportTo('tr.e.importer', function() {
         }
         if (rawTotalName === 'is_peak_rss_resetable') {
           totals.arePeakResidentBytesResettable = !!rawTotalValue;
+          continue;
+        }
+
+        // Private footprint
+        if (rawTotalName === 'private_footprint_bytes') {
+          totals.privateFootprintBytes = parseInt(rawTotalValue, 16);
           continue;
         }
 

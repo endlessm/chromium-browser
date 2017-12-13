@@ -31,6 +31,11 @@ found in the LICENSE file.
 
       #running {
         background: var(--paper-indigo-50);
+        color: var(--paper-indigo-500);
+      }
+
+      h1 {
+        margin-bottom: 0.1em;
       }
     </style>
 
@@ -38,20 +43,29 @@ found in the LICENSE file.
 
     <h1 id="testing">
       Job [[routeData.jobId]]
-      <template is="dom-if" if="[[failed(jobInfo)]]">
-        <span id="failed" class="chip">Failed</span>
+      <template is="dom-if" if="[[failed(job)]]">
+        <span id="failed" class="badge">Error</span>
         <paper-tooltip for="failed" animation-delay="0">
-          <div id="failed-tooltip">[[jobInfo.exception]]</div>
+          <div id="failed-tooltip">[[job.exception]]</div>
         </paper-tooltip>
       </template>
-      <template is="dom-if" if="[[running(jobInfo)]]">
-        <span id="running" class="chip">Running</span>
+      <template is="dom-if" if="[[running(job)]]">
+        <span id="running" class="badge">Running</span>
       </template>
     </h1>
-    <loading-wrapper id="loader">
-      <job-page-header job-info="[[jobInfo]]"></job-page-header>
-      <job-page-chart job-info="[[jobInfo]]" point-selected-index="{{pointSelectedIndex}}"></job-page-chart>
-      <job-page-change-table job-info="[[jobInfo]]" index="[[pointSelectedIndex]]"></job-page-change-table>
+    <loading-wrapper url="/api/job" params="[[params(routeData.jobId)]]" response="{{job}}">
+      <p class="byline">
+        <template is="dom-if" if="[[job.bug_id]]">
+          <a href="https://crbug.com/[[job.bug_id]]">Issue [[job.bug_id]]</a>
+          <span class="middle-dot"></span>
+        </template>
+        [[duration(job)]]
+        <span class="middle-dot"></span>
+        [[start(job)]]
+      </p>
+      <job-page-header job="[[job]]"></job-page-header>
+      <job-page-chart job="[[job]]" change-index="{{changeIndex}}"></job-page-chart>
+      <job-page-change-table job="[[job]]" change-index="[[changeIndex]]"></job-page-change-table>
     </loading-wrapper>
   </template>
 
@@ -61,119 +75,54 @@ found in the LICENSE file.
       is: 'job-page',
 
       properties: {
-        jobInfo: {
+        job: {
           type: Object,
-          value: () => {},
-          notify: true,
         },
 
-        pointSelectedIndex: {
+        changeIndex: {
           type: Number,
-          value: -1,
-          notify: true
+          value: null,
         }
+      },
+
+      params(jobId) {
+        return {job_id: jobId};
       },
 
       deselected() {
-        this.set('pointSelectedIndex', -1);
+        this.set('changeIndex', null);
       },
 
-      async selected() {
-        const params = {job_id: this.routeData.jobId};
-        const response = await this.$.loader.load('/api/job', params);
-        if (response) {
-          this.set('jobInfo', new JobResults(response.data));
+      failed(job) {
+        return job.status.toLowerCase() === 'failed';
+      },
+
+      running(job) {
+        return job.status.toLowerCase() === 'running';
+      },
+
+      start(job) {
+        return new Date(job.created + 'Z').toLocaleString();
+      },
+
+      duration(job) {
+        const created = new Date(job.created + 'Z');
+        const updated = new Date(job.updated + 'Z');
+        const durationMs = updated - created;
+
+        const seconds = durationMs / 1000;
+        if (seconds < 60) {
+          return seconds.toFixed(1) + ' seconds';
         }
-      },
 
-      failed(jobInfo) {
-        return jobInfo.status.toLowerCase() === 'failed';
-      },
+        const minutes = durationMs / (1000 * 60);
+        if (minutes < 60) {
+          return minutes.toFixed(1) + ' minutes';
+        }
 
-      running(jobInfo) {
-        return jobInfo.status.toLowerCase() === 'running';
-      }
+        const hours = durationMs / (1000 * 60 * 60);
+        return hours.toFixed(1) + ' hours';
+      },
     });
-
-    class JobResults {
-      constructor(data) {
-        this.data_ = data;
-      }
-
-      get data() {
-        return this.data_;
-      }
-
-      get exception() {
-        return this.data_.exception;
-      }
-
-      get resultValues() {
-        return this.data_.state.result_values;
-      }
-
-      get comparisons() {
-        return this.data_.state.comparisons;
-      }
-
-      get changes() {
-        return this.data_.state.changes;
-      }
-
-      get quests() {
-        return this.data_.state.quests;
-      }
-
-      get status() {
-        return this.data_.status;
-      }
-
-      get created() {
-        return this.data_.created;
-      }
-
-      get updated() {
-        return this.data_.updated;
-      }
-
-      get arguments() {
-        return this.data_.arguments;
-      }
-
-      getAttemptData(changeIndex, questIndex, dataName) {
-        const result = [];
-        const attempts = this.data_.state.attempts[changeIndex];
-
-        for (let i = 0; i < attempts.length; i++) {
-          const execution = attempts[i].executions[questIndex];
-          if (!execution) {
-            continue;
-          }
-
-          if (dataName in execution) {
-            result.push(execution[dataName]);
-          } else if (dataName in execution.result_arguments) {
-            result.push(execution.result_arguments[dataName]);
-          }
-        }
-        return result;
-      }
-
-      getStatusString(changeIndex, questIndex) {
-        const passed = this.valuesAllPassed(
-            this.data_.state.result_values[changeIndex][questIndex]);
-        if (passed) {
-          return 'Passed';
-        }
-
-        return 'Failed';
-      }
-
-      valuesAllPassed(values) {
-        const numPass = values.filter(x => (x == 0 || x == null)).length;
-
-        return numPass == values.length;
-      }
-    }
   </script>
 </dom-module>

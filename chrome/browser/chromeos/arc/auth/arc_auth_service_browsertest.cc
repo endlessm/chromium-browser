@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
 #include <string>
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "chrome/browser/chromeos/arc/arc_auth_notification.h"
 #include "chrome/browser/chromeos/arc/arc_service_launcher.h"
@@ -26,10 +26,11 @@
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_features.h"
+#include "components/arc/arc_prefs.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_session_runner.h"
 #include "components/arc/arc_util.h"
@@ -59,14 +60,15 @@ class FakeAuthInstance : public mojom::AuthInstance {
   // mojom::AuthInstance:
   void Init(mojom::AuthHostPtr host) override { host_ = std::move(host); }
 
-  void OnAccountInfoReady(mojom::AccountInfoPtr account_info) override {
+  void OnAccountInfoReady(mojom::AccountInfoPtr account_info,
+                          mojom::ArcSignInStatus status) override {
     account_info_ = std::move(account_info);
     base::ResetAndReturn(&done_closure_).Run();
   }
 
   void RequestAccountInfo(base::Closure done_closure) {
     done_closure_ = done_closure;
-    host_->RequestAccountInfo();
+    host_->RequestAccountInfo(true);
   }
 
   mojom::AccountInfo* account_info() { return account_info_.get(); }
@@ -90,7 +92,7 @@ class ArcAuthServiceTest : public InProcessBrowserTest {
 
   void SetUpOnMainThread() override {
     user_manager_enabler_ =
-        base::MakeUnique<chromeos::ScopedUserManagerEnabler>(
+        std::make_unique<chromeos::ScopedUserManagerEnabler>(
             new chromeos::FakeChromeUserManager());
     // Init ArcSessionManager for testing.
     ArcServiceLauncher::Get()->ResetForTesting();
@@ -98,7 +100,7 @@ class ArcAuthServiceTest : public InProcessBrowserTest {
     ArcAuthNotification::DisableForTesting();
     ArcSessionManager::EnableCheckAndroidManagementForTesting();
     ArcSessionManager::Get()->SetArcSessionRunnerForTesting(
-        base::MakeUnique<ArcSessionRunner>(base::Bind(FakeArcSession::Create)));
+        std::make_unique<ArcSessionRunner>(base::Bind(FakeArcSession::Create)));
 
     chromeos::ProfileHelper::SetAlwaysReturnPrimaryUserForTesting(true);
 

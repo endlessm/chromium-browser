@@ -61,9 +61,7 @@ def get_log_url(upstream_url, head, master):
 def should_show_log(upstream_url):
   """Returns True if a short log should be included in the tree."""
   # Skip logs for very active projects.
-  if upstream_url.endswith((
-      '/angle/angle.git',
-      '/v8/v8.git')):
+  if upstream_url.endswith('/v8/v8.git'):
     return False
   if 'webrtc' in upstream_url:
     return False
@@ -147,6 +145,8 @@ def roll(root, deps_dir, roll_to, key, reviewers, bug, no_log, log_limit,
     log_section = log_url + '\n\n'
   log_section += '$ %s ' % ' '.join(cmd)
   log_section += '--format=\'%ad %ae %s\'\n'
+  # It is important that --no-log continues to work, as it is used by
+  # internal -> external rollers. Please do not remove or break it.
   if not no_log and should_show_log(upstream_url):
     if len(cleaned_lines) > log_limit:
       # Keep the first N log entries.
@@ -189,6 +189,8 @@ def main():
       help='To specify multiple reviewers, use comma separated list, e.g. '
            '-r joe,jane,john. Defaults to @chromium.org')
   parser.add_argument('-b', '--bug', help='Associate a bug number to the roll')
+  # It is important that --no-log continues to work, as it is used by
+  # internal -> external rollers. Please do not remove or break it.
   parser.add_argument(
       '--no-log', action='store_true',
       help='Do not include the short log in the commit message')

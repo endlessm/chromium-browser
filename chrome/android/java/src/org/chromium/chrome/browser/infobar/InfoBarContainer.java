@@ -98,6 +98,13 @@ public class InfoBarContainer extends SwipableOverlayView {
          * @param hasInfobars True if infobar container has infobars to show.
          */
         void onInfoBarContainerAttachedToWindow(boolean hasInfobars);
+
+        /**
+         * A notification that the shown ratio of the infobar container has changed.
+         * @param container The notifying {@link InfoBarContainer}
+         * @param shownRatio The shown ratio of the infobar container.
+         */
+        void onInfoBarContainerShownRatioChanged(InfoBarContainer container, float shownRatio);
     }
 
     /** Resets the state of the InfoBarContainer when the user navigates. */
@@ -240,6 +247,15 @@ public class InfoBarContainer extends SwipableOverlayView {
     }
 
     @Override
+    public void setTranslationY(float translationY) {
+        super.setTranslationY(translationY);
+        float shownFraction = getHeight() > 0 ? 1f - (translationY / getHeight()) : 0;
+        for (InfoBarContainerObserver observer : mObservers) {
+            observer.onInfoBarContainerShownRatioChanged(this, shownFraction);
+        }
+    }
+
+    @Override
     public void setContentViewCore(ContentViewCore contentViewCore) {
         super.setContentViewCore(contentViewCore);
         if (getContentViewCore() != null) {
@@ -302,6 +318,15 @@ public class InfoBarContainer extends SwipableOverlayView {
         infoBar.createView();
 
         mLayout.addInfoBar(infoBar);
+    }
+
+    /**
+     * Adds an InfoBar to the view hierarchy.
+     * @param infoBar InfoBar to add to the View hierarchy.
+     */
+    @VisibleForTesting
+    public void addInfoBarForTesting(InfoBar infoBar) {
+        addInfoBar(infoBar);
     }
 
     /**

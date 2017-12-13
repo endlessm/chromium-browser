@@ -14,6 +14,7 @@
 #include "components/ntp_tiles/metrics.h"
 #include "components/ntp_tiles/most_visited_sites.h"
 #include "components/ntp_tiles/ntp_tile.h"
+#include "components/ntp_tiles/ntp_tile_impression.h"
 #include "components/rappor/rappor_service_impl.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/search_engines/template_url_service_observer.h"
@@ -28,15 +29,11 @@
 #include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
 #include "ios/chrome/browser/search_engines/template_url_service_factory.h"
 #import "ios/chrome/browser/ui/browser_view_controller.h"
-#import "ios/chrome/browser/ui/commands/UIKit+ChromeExecuteCommand.h"
 #include "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
-#import "ios/chrome/browser/ui/commands/generic_chrome_command.h"
-#include "ios/chrome/browser/ui/commands/ios_command_ids.h"
 #import "ios/chrome/browser/ui/ntp/google_landing_consumer.h"
 #import "ios/chrome/browser/ui/ntp/notification_promo_whats_new.h"
 #include "ios/chrome/browser/ui/ntp/ntp_tile_saver.h"
-#import "ios/chrome/browser/ui/toolbar/web_toolbar_controller.h"
 #import "ios/chrome/browser/ui/url_loader.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
@@ -53,6 +50,12 @@
 using base::UserMetricsAction;
 
 namespace {
+
+// The What's New promo command that shows the Bookmarks Manager.
+const char kBookmarkCommand[] = "bookmark";
+
+// The What's New promo command that launches Rate This App.
+const char kRateThisAppCommand[] = "ratethisapp";
 
 const CGFloat kFaviconMinSize = 32;
 const NSInteger kMaxNumMostVisitedFavicons = 8;
@@ -143,17 +146,8 @@ void SearchEngineObserver::OnTemplateURLServiceChanged() {
   base::CancelableTaskTracker _cancelable_task_tracker;
 }
 
-// Consumer to handle google landing update notifications.
-@property(nonatomic, weak) id<GoogleLandingConsumer> consumer;
-
 // The WebStateList that is being observed by this mediator.
 @property(nonatomic, assign, readonly) WebStateList* webStateList;
-
-// The dispatcher for this mediator.
-@property(nonatomic, weak) id<ChromeExecuteCommand, UrlLoader> dispatcher;
-
-// Perform initial setup.
-- (void)setUp;
 
 @end
 
@@ -163,21 +157,15 @@ void SearchEngineObserver::OnTemplateURLServiceChanged() {
 @synthesize consumer = _consumer;
 @synthesize dispatcher = _dispatcher;
 
-- (instancetype)initWithConsumer:(id<GoogleLandingConsumer>)consumer
-                    browserState:(ios::ChromeBrowserState*)browserState
-                      dispatcher:(id<ChromeExecuteCommand, UrlLoader>)dispatcher
-                    webStateList:(WebStateList*)webStateList {
+- (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState
+                        webStateList:(WebStateList*)webStateList {
   self = [super init];
   if (self) {
-    _consumer = consumer;
     _browserState = browserState;
-    _dispatcher = dispatcher;
     _webStateList = webStateList;
 
     _webStateListObserver = base::MakeUnique<WebStateListObserverBridge>(self);
     _webStateList->AddObserver(_webStateListObserver.get());
-
-    [self setUp];
   }
   return self;
 }
@@ -414,7 +402,9 @@ void SearchEngineObserver::OnTemplateURLServiceChanged() {
       _browserState, new_tab_page_uma::ACTION_OPENED_MOST_VISITED_ENTRY);
   base::RecordAction(UserMetricsAction("MobileNTPMostVisited"));
   const ntp_tiles::NTPTile& tile = _mostVisitedData[visitedIndex];
-  ntp_tiles::metrics::RecordTileClick(visitedIndex, tile.source, tileType);
+  ntp_tiles::metrics::RecordTileClick(ntp_tiles::NTPTileImpression(
+      visitedIndex, tile.source, tile.title_source, tileType,
+      tile.data_generation_time, GURL()));
 }
 
 - (ReadingListModel*)readingListModel {
@@ -449,18 +439,18 @@ void SearchEngineObserver::OnTemplateURLServiceChanged() {
     return;
   }
 
-  if (_notificationPromo->IsChromeCommand()) {
-    int command_id = _notificationPromo->command_id();
-    if (command_id == IDC_RATE_THIS_APP) {
-      [self.dispatcher performSelector:@selector(showRateThisAppDialog)];
+  if (_notificationPromo->IsChromeCommandPromo()) {
+    std::string command = _notificationPromo->command();
+    if (command == kBookmarkCommand) {
+      [self.dispatcher showBookmarksManager];
+    } else if (command == kRateThisAppCommand) {
+      [self.dispatcher showRateThisAppDialog];
     } else {
-      GenericChromeCommand* command =
-          [[GenericChromeCommand alloc] initWithTag:command_id];
-      [self.dispatcher chromeExecuteCommand:command];
+      NOTREACHED() << "Promo command is not valid.";
     }
     return;
   }
-  NOTREACHED();
+  NOTREACHED() << "Promo type is neither URL or command.";
 }
 
 #pragma mark - Private
@@ -480,7 +470,9 @@ void SearchEngineObserver::OnTemplateURLServiceChanged() {
     ntp_tiles::NTPTile& ntpTile = _mostVisitedDataForLogging[i];
     if (ntpTile.url == URL) {
       ntp_tiles::metrics::RecordTileImpression(
-          i, ntpTile.source, tileType, URL,
+          ntp_tiles::NTPTileImpression(i, ntpTile.source, ntpTile.title_source,
+                                       tileType, ntpTile.data_generation_time,
+                                       URL),
           GetApplicationContext()->GetRapporServiceImpl());
       // Reset the URL to be sure to log the impression only once.
       ntpTile.url = GURL();

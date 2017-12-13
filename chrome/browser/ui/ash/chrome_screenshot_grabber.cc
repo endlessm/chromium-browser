@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "ash/shell.h"
-#include "ash/strings/grit/ash_strings.h"
 #include "ash/system/system_notifier.h"
 #include "base/base64.h"
 #include "base/bind.h"
@@ -31,12 +30,11 @@
 #include "chrome/browser/chromeos/note_taking_helper.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
-#include "chrome/browser/notifications/notifier_state_tracker.h"
-#include "chrome/browser/notifications/notifier_state_tracker_factory.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "chromeos/login/login_state.h"
 #include "components/drive/chromeos/file_system_interface.h"
@@ -50,9 +48,8 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/message_center/message_center.h"
-#include "ui/message_center/message_center_style.h"
-#include "ui/strings/grit/ui_strings.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/public/cpp/message_center_switches.h"
 
 namespace {
 
@@ -118,7 +115,8 @@ void ReadFileAndCopyToClipboardDrive(
 // Delegate for a notification. This class has two roles: to implement callback
 // methods for notification, and to provide an identity of the associated
 // notification.
-class ScreenshotGrabberNotificationDelegate : public NotificationDelegate {
+class ScreenshotGrabberNotificationDelegate
+    : public message_center::NotificationDelegate {
  public:
   ScreenshotGrabberNotificationDelegate(bool success,
                                         Profile* profile,
@@ -127,7 +125,7 @@ class ScreenshotGrabberNotificationDelegate : public NotificationDelegate {
         profile_(profile),
         screenshot_path_(screenshot_path) {}
 
-  // Overridden from NotificationDelegate:
+  // message_center::NotificationDelegate:
   void Click() override {
     if (!success_)
       return;
@@ -165,7 +163,6 @@ class ScreenshotGrabberNotificationDelegate : public NotificationDelegate {
     }
   }
   bool HasClickedListener() override { return success_; }
-  std::string id() const override { return std::string(kNotificationId); }
 
  private:
   ~ScreenshotGrabberNotificationDelegate() override {}
@@ -186,11 +183,11 @@ int GetScreenshotNotificationTitle(
     ui::ScreenshotGrabberObserver::Result screenshot_result) {
   switch (screenshot_result) {
     case ui::ScreenshotGrabberObserver::SCREENSHOTS_DISABLED:
-      return IDS_ASH_SCREENSHOT_NOTIFICATION_TITLE_DISABLED;
+      return IDS_SCREENSHOT_NOTIFICATION_TITLE_DISABLED;
     case ui::ScreenshotGrabberObserver::SCREENSHOT_SUCCESS:
-      return IDS_ASH_SCREENSHOT_NOTIFICATION_TITLE_SUCCESS;
+      return IDS_SCREENSHOT_NOTIFICATION_TITLE_SUCCESS;
     default:
-      return IDS_ASH_SCREENSHOT_NOTIFICATION_TITLE_FAIL;
+      return IDS_SCREENSHOT_NOTIFICATION_TITLE_FAIL;
   }
 }
 
@@ -198,11 +195,11 @@ int GetScreenshotNotificationText(
     ui::ScreenshotGrabberObserver::Result screenshot_result) {
   switch (screenshot_result) {
     case ui::ScreenshotGrabberObserver::SCREENSHOTS_DISABLED:
-      return IDS_ASH_SCREENSHOT_NOTIFICATION_TEXT_DISABLED;
+      return IDS_SCREENSHOT_NOTIFICATION_TEXT_DISABLED;
     case ui::ScreenshotGrabberObserver::SCREENSHOT_SUCCESS:
-      return IDS_ASH_SCREENSHOT_NOTIFICATION_TEXT_SUCCESS;
+      return IDS_SCREENSHOT_NOTIFICATION_TEXT_SUCCESS;
     default:
-      return IDS_ASH_SCREENSHOT_NOTIFICATION_TEXT_FAIL;
+      return IDS_SCREENSHOT_NOTIFICATION_TEXT_FAIL;
   }
 }
 
@@ -390,9 +387,8 @@ void ChromeScreenshotGrabber::HandleTakeWindowScreenshot(aura::Window* window) {
 
   base::FilePath screenshot_path =
       screenshot_directory.AppendASCII(GetScreenshotBaseFilename() + ".png");
-  screenshot_grabber_->TakeScreenshot(window,
-                                      gfx::Rect(window->bounds().size()),
-                                      screenshot_path);
+  screenshot_grabber_->TakeScreenshot(
+      window, gfx::Rect(window->bounds().size()), screenshot_path);
   base::RecordAction(base::UserMetricsAction("Screenshot_TakeWindow"));
 }
 
@@ -423,13 +419,21 @@ void ChromeScreenshotGrabber::OnScreenshotCompleted(
   if (!chromeos::LoginState::Get()->IsUserLoggedIn())
     return;
 
-  // TODO(sschmitz): make this work for Windows.
-  NotifierStateTracker* const notifier_state_tracker =
-      NotifierStateTrackerFactory::GetForProfile(GetProfile());
-  if (notifier_state_tracker->IsNotifierEnabled(message_center::NotifierId(
-          message_center::NotifierId::SYSTEM_COMPONENT,
-          ash::system_notifier::kNotifierScreenshot))) {
-    if (result != ui::ScreenshotGrabberObserver::SCREENSHOT_SUCCESS) {
+  if (result != ui::ScreenshotGrabberObserver::SCREENSHOT_SUCCESS) {
+    content::BrowserThread::PostTask(
+        content::BrowserThread::UI, FROM_HERE,
+        base::BindOnce(
+            &ChromeScreenshotGrabber::OnReadScreenshotFileForPreviewCompleted,
+            weak_factory_.GetWeakPtr(), result, screenshot_path, gfx::Image()));
+    return;
+  }
+
+  if (drive::util::IsUnderDriveMountPoint(screenshot_path)) {
+    drive::FileSystemInterface* file_system =
+        drive::util::GetFileSystemByProfile(GetProfile());
+    if (!file_system) {
+      LOG(ERROR) << "Failed to get file system of current profile";
+
       content::BrowserThread::PostTask(
           content::BrowserThread::UI, FROM_HERE,
           base::BindOnce(
@@ -438,33 +442,17 @@ void ChromeScreenshotGrabber::OnScreenshotCompleted(
               gfx::Image()));
       return;
     }
-
-    if (drive::util::IsUnderDriveMountPoint(screenshot_path)) {
-      drive::FileSystemInterface* file_system =
-          drive::util::GetFileSystemByProfile(GetProfile());
-      if (!file_system) {
-        LOG(ERROR) << "Failed to get file system of current profile";
-
-        content::BrowserThread::PostTask(
-            content::BrowserThread::UI, FROM_HERE,
-            base::BindOnce(&ChromeScreenshotGrabber::
-                               OnReadScreenshotFileForPreviewCompleted,
-                           weak_factory_.GetWeakPtr(), result, screenshot_path,
-                           gfx::Image()));
-        return;
-      }
-      file_system->GetFile(
-          drive::util::ExtractDrivePath(screenshot_path),
-          base::BindRepeating(
-              &ChromeScreenshotGrabber::ReadScreenshotFileForPreviewDrive,
-              weak_factory_.GetWeakPtr(), screenshot_path));
-    } else {
-      content::BrowserThread::PostTask(
-          content::BrowserThread::UI, FROM_HERE,
-          base::BindOnce(
-              &ChromeScreenshotGrabber::ReadScreenshotFileForPreviewLocal,
-              weak_factory_.GetWeakPtr(), screenshot_path, screenshot_path));
-    }
+    file_system->GetFile(
+        drive::util::ExtractDrivePath(screenshot_path),
+        base::BindRepeating(
+            &ChromeScreenshotGrabber::ReadScreenshotFileForPreviewDrive,
+            weak_factory_.GetWeakPtr(), screenshot_path));
+  } else {
+    content::BrowserThread::PostTask(
+        content::BrowserThread::UI, FROM_HERE,
+        base::BindOnce(
+            &ChromeScreenshotGrabber::ReadScreenshotFileForPreviewLocal,
+            weak_factory_.GetWeakPtr(), screenshot_path, screenshot_path));
   }
 }
 
@@ -575,14 +563,14 @@ Notification* ChromeScreenshotGrabber::CreateNotification(
     // The order in which these buttons are added must be reflected by
     // ScreenshotGrabberNotificationDelegate::ButtonIndex.
     message_center::ButtonInfo copy_button(l10n_util::GetStringUTF16(
-        IDS_MESSAGE_CENTER_NOTIFICATION_BUTTON_COPY_SCREENSHOT_TO_CLIPBOARD));
+        IDS_SCREENSHOT_NOTIFICATION_BUTTON_COPY_TO_CLIPBOARD));
     copy_button.icon = ui::ResourceBundle::GetSharedInstance().GetImageNamed(
         IDR_NOTIFICATION_SCREENSHOT_COPY_TO_CLIPBOARD);
     optional_field.buttons.push_back(copy_button);
 
     if (chromeos::NoteTakingHelper::Get()->IsAppAvailable(GetProfile())) {
       message_center::ButtonInfo annotate_button(l10n_util::GetStringUTF16(
-          IDS_MESSAGE_CENTER_NOTIFICATION_BUTTON_ANNOTATE_SCREENSHOT));
+          IDS_SCREENSHOT_NOTIFICATION_BUTTON_ANNOTATE));
       annotate_button.icon =
           ui::ResourceBundle::GetSharedInstance().GetImageNamed(
               IDR_NOTIFICATION_SCREENSHOT_ANNOTATE);
@@ -600,6 +588,7 @@ Notification* ChromeScreenshotGrabber::CreateNotification(
   Notification* notification = new Notification(
       image.IsEmpty() ? message_center::NOTIFICATION_TYPE_SIMPLE
                       : message_center::NOTIFICATION_TYPE_IMAGE,
+      kNotificationId,
       l10n_util::GetStringUTF16(
           GetScreenshotNotificationTitle(screenshot_result)),
       l10n_util::GetStringUTF16(
@@ -608,11 +597,11 @@ Notification* ChromeScreenshotGrabber::CreateNotification(
           IDR_SCREENSHOT_NOTIFICATION_ICON),
       message_center::NotifierId(message_center::NotifierId::SYSTEM_COMPONENT,
                                  ash::system_notifier::kNotifierScreenshot),
-      l10n_util::GetStringUTF16(IDS_MESSAGE_CENTER_NOTIFIER_SCREENSHOT_NAME),
+      l10n_util::GetStringUTF16(IDS_SCREENSHOT_NOTIFICATION_NOTIFIER_NAME),
       GURL(kNotificationOriginUrl), notification_id, optional_field,
       new ScreenshotGrabberNotificationDelegate(success, GetProfile(),
                                                 screenshot_path));
-  if (message_center::MessageCenter::IsNewStyleNotificationEnabled()) {
+  if (message_center::IsNewStyleNotificationEnabled()) {
     notification->set_accent_color(
         message_center::kSystemNotificationColorNormal);
     notification->set_small_image(gfx::Image(

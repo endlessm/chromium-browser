@@ -6,22 +6,24 @@
 'use strict';
 
 (function() {
-
   // Make sure functions are injected only once.
-  if (window.__GestureCommon_GetBoundingVisibleRect)
+  if (window.__GestureCommon_GetBoundingVisibleRect) {
     return;
+  }
 
-  // Returns the bounding rectangle wrt to the top-most document.
+  // Returns the bounding rectangle wrt to the layout viewport.
   function getBoundingRect(el) {
-    var clientRect = el.getBoundingClientRect();
-    var bound = { left: clientRect.left,
-                  top: clientRect.top,
-                  width: clientRect.width,
-                  height: clientRect.height };
+    const clientRect = el.getBoundingClientRect();
+    const bound = {
+      left: clientRect.left,
+      top: clientRect.top,
+      width: clientRect.width,
+      height: clientRect.height
+    };
 
-    var frame = el.ownerDocument.defaultView.frameElement;
+    let frame = el.ownerDocument.defaultView.frameElement;
     while (frame) {
-      var frameBound = frame.getBoundingClientRect();
+      const frameBound = frame.getBoundingClientRect();
       // This computation doesn't account for more complex CSS transforms on the
       // frame (e.g. scaling or rotations).
       bound.left += frameBound.left;
@@ -32,35 +34,46 @@
     return bound;
   }
 
-  // TODO(ulan): Remove this function once
-  // chrome.gpuBenchmarking.pageScaleFactor is available in reference builds.
-  function getPageScaleFactor() {
-    if (chrome.gpuBenchmarking.pageScaleFactor)
-      return chrome.gpuBenchmarking.pageScaleFactor();
-    return 1;
-  }
-
   // Zoom-independent window height. See crbug.com/627123 for more details.
   function getWindowHeight() {
-    return getPageScaleFactor() * chrome.gpuBenchmarking.visualViewportHeight();
+    return chrome.gpuBenchmarking.pageScaleFactor() *
+        chrome.gpuBenchmarking.visualViewportHeight();
   }
 
   // Zoom-independent window width. See crbug.com/627123 for more details.
   function getWindowWidth() {
-    return getPageScaleFactor() * chrome.gpuBenchmarking.visualViewportWidth();
+    return chrome.gpuBenchmarking.pageScaleFactor() *
+        chrome.gpuBenchmarking.visualViewportWidth();
   }
 
   function clamp(min, value, max) {
     return Math.min(Math.max(min, value), max);
   }
 
+  // Returns the bounding rect in the visual viewport's coordinates.
   function getBoundingVisibleRect(el) {
     // Get the element bounding rect.
-    var rect = getBoundingRect(el);
+    const rect = getBoundingRect(el);
+
+    // TODO(bokan): Remove this once gpuBenchmarking is changed to take all
+    // coordinates in viewport space. crbug.com/610021.
+    if ('gesturesExpectedInViewportCoordinates' in chrome.gpuBenchmarking) {
+      // Apply the visual viewport transform (i.e. pinch-zoom) to the bounding
+      // rect. The viewportX|Y values are in CSS pixels so they don't change
+      // with page scale. We first translate so that the viewport offset is
+      // at the origin and then we apply the scaling factor.
+      const scale = chrome.gpuBenchmarking.pageScaleFactor();
+      const visualViewportX = chrome.gpuBenchmarking.visualViewportX();
+      const visualViewportY = chrome.gpuBenchmarking.visualViewportY();
+      rect.top = (rect.top - visualViewportY) * scale;
+      rect.left = (rect.left - visualViewportX) * scale;
+      rect.width *= scale;
+      rect.height *= scale;
+    }
 
     // Get the window dimensions.
-    var windowHeight = getWindowHeight();
-    var windowWidth = getWindowWidth();
+    const windowHeight = getWindowHeight();
+    const windowWidth = getWindowWidth();
 
     // Then clip the rect to the screen size.
     rect.top = clamp(0, rect.top, windowHeight);

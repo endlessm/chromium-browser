@@ -1,26 +1,15 @@
-# TODO(fuchsia): Fix these tests and remove the filter. crbug.com/731302 .
--*HTTPS*
--*QuicEndToEndTest.Large*
--*QuicEndToEndTest.TokenBinding*
--*QuicEndToEndTest.Uber*
--CertVerifyProcInternalTest.*
--CloseOnConnectHttpServerTest.ServerImmediatelyClosesConnection
--DiskCacheEntryTest*AsyncIO*  # Flaky on the bots
--DiskCacheTest.BlockFiles_Grow  # Flaky timeouts
--HttpCache.RangeGET_ParallelValidationDifferentRanges  # https://crbug.com/755552
--HttpCache.RangeGET_ParallelValidationOverlappingRanges  # https://crbug.com/758221
--HttpNetworkTransactionTest.UploadUnreadableFile
--HttpServerTest.*
+# TODO(fuchsia): Fix these tests and remove the filter. https://crbug.com/731302 .
+
+# Timeout on the bots exceeding 45s on the bots (apperently due to slow IO).
+-DiskCacheTest.BlockFiles_Grow
+-DiskCacheBackendTest.SimpleCacheDeleteQuickly
+
+# getifaddrs() not implemented, ZX-766.
 -NetworkInterfacesTest.GetNetworkList
--NetworkQualityEstimatorTest*
--Proxy*
--PythonUtils*
--ReportingUploader*
+
+# Exceeds FD limit, ZX-1127.
+-ProxyScriptFetcherImplTest.Priority
+
+# base::MakeFileUnreadable() doesn't work. https://crbug.com/759853
+-HttpNetworkTransactionTest.UploadUnreadableFile
 -SpdyNetworkTransactionTest.UnreadableFilePost
--SQLite*
--SSL*
--TokenBindingURLRequest*
--UnixDomain*Socket*
--URLFetcher*
--URLRequest*
--WebSocket*

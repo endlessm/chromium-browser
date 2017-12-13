@@ -43,6 +43,9 @@ public class TextBubble implements OnTouchListener {
      */
     public static final long NO_TIMEOUT = 0;
 
+    /** Orientation preferences for the bubble */
+    public enum Orientation { MAX_AVAILABLE_SPACE, BELOW, ABOVE }
+
     /**
      * A set of bubbles which are active at this moment. This set can be used to dismiss the
      * bubbles on a back press event.
@@ -105,6 +108,9 @@ public class TextBubble implements OnTouchListener {
     private int mY;
     private int mWidth;
     private int mHeight;
+
+    // Preferred orientation for the bubble with respect to the anchor.
+    private Orientation mPreferredOrientation = Orientation.MAX_AVAILABLE_SPACE;
 
     /**
      * Tracks whether or not we are in the process of updating the bubble, which might include a
@@ -188,9 +194,9 @@ public class TextBubble implements OnTouchListener {
     }
 
     /**
-     * Dismisses the active bubbles if user has pressed the back button.
+     * Dismisses all the currently showing bubbles.
      */
-    public static void onBackPressed() {
+    public static void dismissBubbles() {
         Set<TextBubble> bubbles = new HashSet<>(sBubbles);
         for (TextBubble bubble : bubbles) {
             bubble.dismiss();
@@ -260,6 +266,15 @@ public class TextBubble implements OnTouchListener {
     }
 
     /**
+     * Sets the preferred orientation of the bubble with respect to the anchor view such as above or
+     * below the anchor.
+     * @param orientation The orientation preferred.
+     */
+    public void setPreferredOrientation(Orientation orientation) {
+        mPreferredOrientation = orientation;
+    }
+
+    /**
      * Causes this bubble to position/size itself.  The calculations will happen even if the bubble
      * isn't visible.
      */
@@ -284,6 +299,12 @@ public class TextBubble implements OnTouchListener {
 
         mRootView.getWindowVisibleDisplayFrame(mCachedWindowRect);
 
+        // In multi-window, the coordinates of root view will be different than (0,0).
+        // So we translate the coordinates of |mCachedWindowRect| w.r.t. its window.
+        int[] rootCoordinates = new int[2];
+        mRootView.getLocationOnScreen(rootCoordinates);
+        mCachedWindowRect.offset(-rootCoordinates[0], -rootCoordinates[1]);
+
         // TODO(dtrainor): This follows the previous logic.  But we should look into if we want to
         // use the root view dimensions instead of the window dimensions here so the bubble can't
         // bleed onto the decorations.
@@ -305,6 +326,9 @@ public class TextBubble implements OnTouchListener {
             if (!currentPositionBelow && idealFitsAbove) positionBelow = false;
         }
 
+        if (mPreferredOrientation == Orientation.BELOW && idealFitsBelow) positionBelow = true;
+        if (mPreferredOrientation == Orientation.ABOVE && idealFitsAbove) positionBelow = false;
+
         int maxContentHeight = positionBelow ? spaceBelowAnchor : spaceAboveAnchor;
         contentView.measure(
                 widthSpec, MeasureSpec.makeMeasureSpec(maxContentHeight, MeasureSpec.AT_MOST));
@@ -320,7 +344,10 @@ public class TextBubble implements OnTouchListener {
         }
 
         mX = mAnchorRect.left + (mAnchorRect.width() - mWidth) / 2 + mMarginPx;
-        mX = MathUtils.clamp(mX, mMarginPx, mRootView.getWidth() - mWidth - mMarginPx);
+
+        // In landscape mode, root view includes the decorations in some devices. So we guard the
+        // window dimensions against |mCachedWindowRect.right| instead.
+        mX = MathUtils.clamp(mX, mMarginPx, mCachedWindowRect.right - mWidth - mMarginPx);
         int arrowXOffset = mAnchorRect.centerX() - mX;
 
         // Force the anchor to be in a reasonable spot w.r.t. the bubble (not over the corners).

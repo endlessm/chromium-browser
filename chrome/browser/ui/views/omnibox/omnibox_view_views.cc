@@ -18,9 +18,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/omnibox/clipboard_utils.h"
 #include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_popup_contents_view.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/feature_engagement/features.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/omnibox_client.h"
@@ -60,7 +62,7 @@
 #include "chrome/browser/browser_process.h"
 #endif
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_MACOSX)
+#if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
 #include "chrome/browser/feature_engagement/new_tab/new_tab_tracker.h"
 #include "chrome/browser/feature_engagement/new_tab/new_tab_tracker_factory.h"
 #endif
@@ -153,13 +155,14 @@ void OmniboxViewViews::Init() {
 
   if (location_bar_view_) {
     // Initialize the popup view using the same font.
-    popup_view_.reset(OmniboxPopupContentsView::Create(
-        GetFontList(), this, model(), location_bar_view_));
+    popup_view_.reset(new OmniboxPopupContentsView(GetFontList(), this, model(),
+                                                   location_bar_view_));
   }
 
   // Override the default FocusableBorder from Textfield, since the
   // LocationBarView will indicate the focus state.
-  SetBorder(views::NullBorder());
+  SetBorder(views::CreateEmptyBorder(
+      ChromeLayoutProvider::Get()->GetInsetsMetric(INSETS_OMNIBOX)));
 
 #if defined(OS_CHROMEOS)
   chromeos::input_method::InputMethodManager::Get()->
@@ -567,9 +570,6 @@ void OmniboxViewViews::ShowImeIfNeeded() {
   GetInputMethod()->ShowImeIfNeeded();
 }
 
-void OmniboxViewViews::OnMatchOpened(AutocompleteMatch::Type match_type) {
-}
-
 int OmniboxViewViews::GetOmniboxTextLength() const {
   // TODO(oshima): Support IME.
   return static_cast<int>(text().length());
@@ -602,14 +602,11 @@ void OmniboxViewViews::EmphasizeURLComponents() {
   if (!location_bar_view_)
     return;
 
-  // If the current contents is a URL, force left-to-right rendering at the
-  // paragraph level. Right-to-left runs are still rendered RTL, but will not
-  // flip the whole URL around. For example (if "ABC" is Hebrew), this will
-  // render "ABC.com" as "CBA.com", rather than "com.CBA".
+  // If the current contents is a URL, turn on special URL rendering mode in
+  // RenderText.
   bool text_is_url = model()->CurrentTextIsURL();
-  GetRenderText()->SetDirectionalityMode(text_is_url
-                                             ? gfx::DIRECTIONALITY_FORCE_LTR
-                                             : gfx::DIRECTIONALITY_FROM_TEXT);
+  GetRenderText()->SetDirectionalityMode(
+      text_is_url ? gfx::DIRECTIONALITY_AS_URL : gfx::DIRECTIONALITY_FROM_TEXT);
   SetStyle(gfx::STRIKE, false);
   UpdateTextStyle(text(), model()->client()->GetSchemeClassifier());
 }
@@ -790,7 +787,7 @@ void OmniboxViewViews::OnFocus() {
 // session, we don't want to wait until the user is in the middle of editing
 // or navigating, because we'd like to show them the promo at the time when
 // it would be immediately useful.
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_MACOSX)
+#if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
   if (controller()->GetToolbarModel()->ShouldDisplayURL()) {
     feature_engagement::NewTabTrackerFactory::GetInstance()
         ->GetForProfile(location_bar_view_->profile())
@@ -1095,7 +1092,8 @@ int OmniboxViewViews::OnDrop(const ui::OSExchangeData& data) {
   } else if (data.HasString()) {
     base::string16 text;
     if (data.GetString(&text)) {
-      base::string16 collapsed_text(base::CollapseWhitespace(text, true));
+      base::string16 collapsed_text(
+          StripJavascriptSchemas(base::CollapseWhitespace(text, true)));
       if (model()->CanPasteAndGo(collapsed_text))
         model()->PasteAndGo(collapsed_text);
       return ui::DragDropTypes::DRAG_COPY;

@@ -37,6 +37,7 @@ import org.chromium.chrome.browser.preferences.ChromePreferenceManager;
 import org.chromium.chrome.browser.suggestions.SiteSuggestion;
 import org.chromium.chrome.browser.suggestions.TileSectionType;
 import org.chromium.chrome.browser.suggestions.TileSource;
+import org.chromium.chrome.browser.suggestions.TileTitleSource;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeActivityTestRule;
@@ -61,6 +62,7 @@ import org.chromium.ui.base.PageTransition;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Semaphore;
@@ -105,9 +107,11 @@ public class NewTabPageTest {
 
         mSiteSuggestions = new ArrayList<>();
         mSiteSuggestions.add(new SiteSuggestion("TOP_SITES", mTestServer.getURL(TEST_PAGE) + "#1",
-                "", TileSource.TOP_SITES, TileSectionType.PERSONALIZED));
+                "", TileTitleSource.TITLE_TAG, TileSource.TOP_SITES, TileSectionType.PERSONALIZED,
+                new Date()));
         mSiteSuggestions.add(new SiteSuggestion("WHITELIST", mTestServer.getURL(TEST_PAGE) + "#2",
-                "/test.png", TileSource.WHITELIST, TileSectionType.PERSONALIZED));
+                "/test.png", TileTitleSource.UNKNOWN, TileSource.WHITELIST,
+                TileSectionType.PERSONALIZED, new Date()));
 
         mMostVisitedSites = new FakeMostVisitedSites();
         mMostVisitedSites.setTileSuggestions(mSiteSuggestions.get(0), mSiteSuggestions.get(1));

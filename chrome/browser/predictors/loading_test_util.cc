@@ -129,6 +129,7 @@ PageRequestSummary CreatePageRequestSummary(
   PageRequestSummary summary(main_frame_gurl);
   summary.initial_url = GURL(initial_url);
   summary.subresource_requests = subresource_requests;
+  summary.UpdateOrAddToOrigins(CreateURLRequestSummary(1, main_frame_url));
   for (auto& request_summary : subresource_requests)
     summary.UpdateOrAddToOrigins(request_summary);
   return summary;
@@ -207,23 +208,26 @@ void PopulateTestConfig(LoadingPredictorConfig* config, bool small_db) {
     config->max_redirect_consecutive_misses = 2;
     config->min_resource_confidence_to_trigger_prefetch = 0.5;
   }
+  config->is_host_learning_enabled = true;
   config->is_url_learning_enabled = true;
-  config->is_manifests_enabled = true;
   config->is_origin_learning_enabled = true;
   config->mode = LoadingPredictorConfig::LEARNING;
 }
 
 scoped_refptr<net::HttpResponseHeaders> MakeResponseHeaders(
     const char* headers) {
-  return make_scoped_refptr(new net::HttpResponseHeaders(
-      net::HttpUtil::AssembleRawHeaders(headers, strlen(headers))));
+  return base::MakeRefCounted<net::HttpResponseHeaders>(
+      net::HttpUtil::AssembleRawHeaders(headers, strlen(headers)));
 }
 
-MockURLRequestJob::MockURLRequestJob(net::URLRequest* request,
-                                     const net::HttpResponseInfo& response_info,
-                                     const std::string& mime_type)
+MockURLRequestJob::MockURLRequestJob(
+    net::URLRequest* request,
+    const net::HttpResponseInfo& response_info,
+    const net::LoadTimingInfo& load_timing_info,
+    const std::string& mime_type)
     : net::URLRequestJob(request, nullptr),
       response_info_(response_info),
+      load_timing_info_(load_timing_info),
       mime_type_(mime_type) {}
 
 bool MockURLRequestJob::GetMimeType(std::string* mime_type) const {
@@ -239,6 +243,10 @@ void MockURLRequestJob::GetResponseInfo(net::HttpResponseInfo* info) {
   *info = response_info_;
 }
 
+void MockURLRequestJob::GetLoadTimingInfo(net::LoadTimingInfo* info) const {
+  *info = load_timing_info_;
+}
+
 MockURLRequestJobFactory::MockURLRequestJobFactory() {}
 MockURLRequestJobFactory::~MockURLRequestJobFactory() {}
 
@@ -251,7 +259,8 @@ net::URLRequestJob* MockURLRequestJobFactory::MaybeCreateJobWithProtocolHandler(
     const std::string& scheme,
     net::URLRequest* request,
     net::NetworkDelegate* network_delegate) const {
-  return new MockURLRequestJob(request, response_info_, mime_type_);
+  return new MockURLRequestJob(request, response_info_, load_timing_info_,
+                               mime_type_);
 }
 
 net::URLRequestJob* MockURLRequestJobFactory::MaybeInterceptRedirect(
@@ -288,7 +297,7 @@ std::unique_ptr<net::URLRequest> CreateURLRequest(
   request->set_site_for_cookies(url);
   content::ResourceRequestInfo::AllocateForTesting(
       request.get(), resource_type, nullptr, -1, -1, -1, is_main_frame, false,
-      false, true, content::PREVIEWS_OFF);
+      true, content::PREVIEWS_OFF);
   request->Start();
   return request;
 }

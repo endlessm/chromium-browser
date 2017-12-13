@@ -58,8 +58,9 @@ class MediaEngagementContentsObserverTest
     return contents_observer_->player_states_.size();
   }
 
-  void SimulatePlaybackStarted(int id, bool has_audio) {
-    content::WebContentsObserver::MediaPlayerInfo player_info(true, has_audio);
+  void SimulatePlaybackStarted(int id, bool has_audio, bool has_video) {
+    content::WebContentsObserver::MediaPlayerInfo player_info(has_video,
+                                                              has_audio);
     SimulatePlaybackStarted(player_info, id, false);
   }
 
@@ -69,7 +70,9 @@ class MediaEngagementContentsObserverTest
     contents_observer_->MediaResized(size, player_id);
   }
 
-  void SimulatePlaybackStarted(int id) { SimulatePlaybackStarted(id, true); }
+  void SimulateAudioVideoPlaybackStarted(int id) {
+    SimulatePlaybackStarted(id, true, true);
+  }
 
   void SimulateResizeEventSignificantSize(int id) {
     SimulateResizeEvent(id, MediaEngagementContentsObserver::kSignificantSize);
@@ -198,9 +201,14 @@ class MediaEngagementContentsObserverTest
 
   void SimulateDestroy() { contents_observer_->WebContentsDestroyed(); }
 
-  void SimulateSignificantPlayer(int id) {
-    SimulatePlaybackStarted(id);
-    SimulateIsVisible();
+  void SimulateSignificantAudioPlayer(int id) {
+    SimulatePlaybackStarted(id, true, false);
+    SimulateAudible();
+    web_contents()->SetAudioMuted(false);
+  }
+
+  void SimulateSignificantVideoPlayer(int id) {
+    SimulateAudioVideoPlaybackStarted(id);
     SimulateAudible();
     web_contents()->SetAudioMuted(false);
     SimulateResizeEventSignificantSize(id);
@@ -253,15 +261,15 @@ class MediaEngagementContentsObserverTest
 TEST_F(MediaEngagementContentsObserverTest, SignificantActivePlayerCount) {
   EXPECT_EQ(0u, GetSignificantActivePlayersCount());
 
-  SimulatePlaybackStarted(0);
+  SimulateAudioVideoPlaybackStarted(0);
   SimulateResizeEventSignificantSize(0);
   EXPECT_EQ(1u, GetSignificantActivePlayersCount());
 
-  SimulatePlaybackStarted(1);
+  SimulateAudioVideoPlaybackStarted(1);
   SimulateResizeEventSignificantSize(1);
   EXPECT_EQ(2u, GetSignificantActivePlayersCount());
 
-  SimulatePlaybackStarted(2);
+  SimulateAudioVideoPlaybackStarted(2);
   SimulateResizeEventSignificantSize(2);
   EXPECT_EQ(3u, GetSignificantActivePlayersCount());
 
@@ -273,12 +281,15 @@ TEST_F(MediaEngagementContentsObserverTest, SignificantActivePlayerCount) {
 
   SimulateResizeEvent(2, gfx::Size(1, 1));
   EXPECT_EQ(0u, GetSignificantActivePlayersCount());
+
+  SimulateSignificantAudioPlayer(3);
+  EXPECT_EQ(1u, GetSignificantActivePlayersCount());
 }
 
 TEST_F(MediaEngagementContentsObserverTest, AreConditionsMet) {
   EXPECT_FALSE(AreConditionsMet());
 
-  SimulateSignificantPlayer(0);
+  SimulateSignificantVideoPlayer(0);
   EXPECT_TRUE(AreConditionsMet());
 
   SimulateResizeEvent(0, gfx::Size(1, 1));
@@ -302,26 +313,29 @@ TEST_F(MediaEngagementContentsObserverTest, AreConditionsMet) {
   EXPECT_FALSE(AreConditionsMet());
   web_contents()->SetAudioMuted(false);
 
-  SimulateIsHidden();
-  EXPECT_FALSE(AreConditionsMet());
-
-  SimulateIsVisible();
   SimulatePlaybackStopped(0);
   EXPECT_FALSE(AreConditionsMet());
 
-  SimulatePlaybackStarted(0);
+  SimulateAudioVideoPlaybackStarted(0);
   EXPECT_TRUE(AreConditionsMet());
 
   SimulateMutedStateChange(0, true);
   EXPECT_FALSE(AreConditionsMet());
 
-  SimulateSignificantPlayer(1);
+  SimulateSignificantVideoPlayer(1);
+  EXPECT_TRUE(AreConditionsMet());
+}
+
+TEST_F(MediaEngagementContentsObserverTest, AreConditionsMet_AudioOnly) {
+  EXPECT_FALSE(AreConditionsMet());
+
+  SimulateSignificantAudioPlayer(0);
   EXPECT_TRUE(AreConditionsMet());
 }
 
 TEST_F(MediaEngagementContentsObserverTest, RecordInsignificantReason) {
   // Play the media.
-  SimulatePlaybackStarted(0);
+  SimulateAudioVideoPlaybackStarted(0);
   SimulateResizeEvent(0, gfx::Size(1, 1));
   ExpectNotAddedFirstTimeBucketCount(
       MediaEngagementContentsObserver::InsignificantPlaybackReason::
@@ -352,7 +366,7 @@ TEST_F(MediaEngagementContentsObserverTest, RecordInsignificantReason) {
                            1);
   ExpectRemovedBucketCount(
       MediaEngagementContentsObserver::InsignificantPlaybackReason::kCount, 2);
-  SimulatePlaybackStarted(0);
+  SimulateAudioVideoPlaybackStarted(0);
 
   // Mute the player.
   ExpectRemovedBucketCount(
@@ -370,7 +384,7 @@ TEST_F(MediaEngagementContentsObserverTest, RecordInsignificantReason) {
       MediaEngagementContentsObserver::InsignificantPlaybackReason::
           kNoAudioTrack,
       0);
-  SimulatePlaybackStarted(2, false);
+  SimulatePlaybackStarted(2, false, true);
   SimulateResizeEventSignificantSize(2);
   ExpectNotAddedFirstTimeBucketCount(
       MediaEngagementContentsObserver::InsignificantPlaybackReason::
@@ -380,7 +394,7 @@ TEST_F(MediaEngagementContentsObserverTest, RecordInsignificantReason) {
       MediaEngagementContentsObserver::InsignificantPlaybackReason::kCount, 2);
 
   // Make sure we only record not added when we have the full state.
-  SimulatePlaybackStarted(3);
+  SimulateAudioVideoPlaybackStarted(3);
   ExpectNotAddedFirstTimeBucketCount(
       MediaEngagementContentsObserver::InsignificantPlaybackReason::kCount, 2);
   SimulateResizeEvent(3, gfx::Size(1, 1));
@@ -388,7 +402,7 @@ TEST_F(MediaEngagementContentsObserverTest, RecordInsignificantReason) {
       MediaEngagementContentsObserver::InsignificantPlaybackReason::kCount, 3);
 
   // Make sure we only record removed when we have the full state.
-  SimulatePlaybackStarted(4);
+  SimulateAudioVideoPlaybackStarted(4);
   SimulateMutedStateChange(4, true);
   ExpectRemovedBucketCount(
       MediaEngagementContentsObserver::InsignificantPlaybackReason::kCount, 3);
@@ -401,7 +415,7 @@ TEST_F(MediaEngagementContentsObserverTest, RecordInsignificantReason) {
 
 TEST_F(MediaEngagementContentsObserverTest,
        RecordInsignificantReason_NotAdded_AfterFirstTime) {
-  SimulatePlaybackStarted(0, false);
+  SimulatePlaybackStarted(0, false, true);
   SimulateMutedStateChange(0, true);
   SimulateResizeEventSignificantSize(0);
 
@@ -445,7 +459,7 @@ TEST_F(MediaEngagementContentsObserverTest, EnsureCleanupAfterNavigation) {
 TEST_F(MediaEngagementContentsObserverTest, TimerRunsDependingOnConditions) {
   EXPECT_FALSE(IsTimerRunning());
 
-  SimulateSignificantPlayer(0);
+  SimulateSignificantVideoPlayer(0);
   EXPECT_TRUE(IsTimerRunning());
 
   SimulateResizeEvent(0, gfx::Size(1, 1));
@@ -466,32 +480,39 @@ TEST_F(MediaEngagementContentsObserverTest, TimerRunsDependingOnConditions) {
   EXPECT_FALSE(IsTimerRunning());
 
   web_contents()->SetAudioMuted(false);
-  SimulateIsHidden();
-  EXPECT_FALSE(IsTimerRunning());
+  EXPECT_TRUE(IsTimerRunning());
 
-  SimulateIsVisible();
   SimulatePlaybackStopped(0);
   EXPECT_FALSE(IsTimerRunning());
 
-  SimulatePlaybackStarted(0);
+  SimulateAudioVideoPlaybackStarted(0);
   EXPECT_TRUE(IsTimerRunning());
 
   SimulateMutedStateChange(0, true);
   EXPECT_FALSE(IsTimerRunning());
 
-  SimulateSignificantPlayer(1);
+  SimulateSignificantVideoPlayer(1);
   EXPECT_TRUE(IsTimerRunning());
 }
 
+TEST_F(MediaEngagementContentsObserverTest,
+       TimerRunsDependingOnConditions_AudioOnly) {
+  EXPECT_FALSE(IsTimerRunning());
+
+  SimulateSignificantAudioPlayer(0);
+  EXPECT_TRUE(IsTimerRunning());
+};
+
 TEST_F(MediaEngagementContentsObserverTest, TimerDoesNotRunIfEntryRecorded) {
   SimulateSignificantPlaybackRecorded();
-  SimulateSignificantPlayer(0);
+  SimulateSignificantVideoPlayer(0);
   EXPECT_FALSE(IsTimerRunning());
 }
 
 TEST_F(MediaEngagementContentsObserverTest,
        SignificantPlaybackRecordedWhenTimerFires) {
-  SimulateSignificantPlayer(0);
+  Navigate(GURL("https://www.example.com"));
+  SimulateSignificantVideoPlayer(0);
   EXPECT_TRUE(IsTimerRunning());
   EXPECT_FALSE(WasSignificantPlaybackRecorded());
 
@@ -501,20 +522,22 @@ TEST_F(MediaEngagementContentsObserverTest,
 
 TEST_F(MediaEngagementContentsObserverTest, InteractionsRecorded) {
   GURL url("https://www.example.com");
+  GURL url2("https://www.example.org");
   ExpectScores(url, 0.0, 0, 0);
 
   Navigate(url);
+  Navigate(url2);
   ExpectScores(url, 0.0, 1, 0);
 
+  Navigate(url);
   SimulateAudible();
   SimulateSignificantPlaybackTime();
-  ExpectScores(url, 0.0, 1, 1);
+  ExpectScores(url, 0.0, 2, 1);
 }
 
 TEST_F(MediaEngagementContentsObserverTest,
        SignificantPlaybackNotRecordedIfAudioSilent) {
-  SimulatePlaybackStarted(0);
-  SimulateIsVisible();
+  SimulateAudioVideoPlaybackStarted(0);
   SimulateInaudible();
   web_contents()->SetAudioMuted(false);
   EXPECT_FALSE(IsTimerRunning());
@@ -532,7 +555,7 @@ TEST_F(MediaEngagementContentsObserverTest, DoNotRecordAudiolessTrack) {
 TEST_F(MediaEngagementContentsObserverTest,
        ResetStateOnNavigationWithPlayingPlayers) {
   Navigate(GURL("https://www.google.com"));
-  SimulateSignificantPlayer(0);
+  SimulateSignificantVideoPlayer(0);
   ForceUpdateTimer();
   EXPECT_TRUE(IsTimerRunning());
 
@@ -547,27 +570,27 @@ TEST_F(MediaEngagementContentsObserverTest, RecordScoreOnPlayback) {
   GURL url2("https://www.google.co.uk");
   GURL url3("https://www.example.com");
 
-  SetScores(url1, 5, 5);
-  SetScores(url2, 5, 3);
-  SetScores(url3, 1, 1);
+  SetScores(url1, 6, 5);
+  SetScores(url2, 6, 3);
+  SetScores(url3, 2, 1);
   base::HistogramTester tester;
   tester.ExpectTotalCount(
       MediaEngagementContentsObserver::kHistogramScoreAtPlaybackName, 0);
 
   Navigate(url1);
-  SimulatePlaybackStarted(0);
+  SimulateAudioVideoPlaybackStarted(0);
   tester.ExpectBucketCount(
       MediaEngagementContentsObserver::kHistogramScoreAtPlaybackName, 83, 1);
 
   Navigate(url2);
-  SimulatePlaybackStarted(0);
-  SimulatePlaybackStarted(1);
+  SimulateAudioVideoPlaybackStarted(0);
+  SimulateAudioVideoPlaybackStarted(1);
   SimulateMutedStateChange(0, false);
   tester.ExpectBucketCount(
       MediaEngagementContentsObserver::kHistogramScoreAtPlaybackName, 50, 2);
 
   Navigate(url3);
-  SimulatePlaybackStarted(0);
+  SimulateAudioVideoPlaybackStarted(0);
   tester.ExpectBucketCount(
       MediaEngagementContentsObserver::kHistogramScoreAtPlaybackName, 0, 1);
   tester.ExpectTotalCount(
@@ -577,14 +600,14 @@ TEST_F(MediaEngagementContentsObserverTest, RecordScoreOnPlayback) {
   tester.ExpectTotalCount(
       MediaEngagementContentsObserver::kHistogramScoreAtPlaybackName, 4);
 
-  SimulatePlaybackStarted(1);
+  SimulateAudioVideoPlaybackStarted(1);
   tester.ExpectTotalCount(
       MediaEngagementContentsObserver::kHistogramScoreAtPlaybackName, 5);
 }
 
 TEST_F(MediaEngagementContentsObserverTest, DoNotRecordScoreOnPlayback_Muted) {
   GURL url("https://www.google.com");
-  SetScores(url, 5, 5);
+  SetScores(url, 6, 5);
 
   base::HistogramTester tester;
   Navigate(url);
@@ -601,7 +624,7 @@ TEST_F(MediaEngagementContentsObserverTest, DoNotRecordScoreOnPlayback_Muted) {
 TEST_F(MediaEngagementContentsObserverTest,
        DoNotRecordScoreOnPlayback_NoAudioTrack) {
   GURL url("https://www.google.com");
-  SetScores(url, 5, 5);
+  SetScores(url, 6, 5);
 
   base::HistogramTester tester;
   Navigate(url);
@@ -614,13 +637,26 @@ TEST_F(MediaEngagementContentsObserverTest,
 TEST_F(MediaEngagementContentsObserverTest,
        DoNotRecordScoreOnPlayback_InternalUrl) {
   GURL url("chrome://about");
-  SetScores(url, 5, 5);
+  SetScores(url, 6, 5);
 
   base::HistogramTester tester;
   Navigate(url);
-  SimulatePlaybackStarted(0);
+  SimulateAudioVideoPlaybackStarted(0);
   tester.ExpectTotalCount(
       MediaEngagementContentsObserver::kHistogramScoreAtPlaybackName, 0);
+}
+
+TEST_F(MediaEngagementContentsObserverTest, VisibilityNotRequired) {
+  EXPECT_FALSE(IsTimerRunning());
+
+  SimulateSignificantVideoPlayer(0);
+  EXPECT_TRUE(IsTimerRunning());
+
+  SimulateIsVisible();
+  EXPECT_TRUE(IsTimerRunning());
+
+  SimulateIsHidden();
+  EXPECT_TRUE(IsTimerRunning());
 }
 
 TEST_F(MediaEngagementContentsObserverTest, RecordUkmMetricsOnDestroy) {
@@ -629,7 +665,7 @@ TEST_F(MediaEngagementContentsObserverTest, RecordUkmMetricsOnDestroy) {
   Navigate(url);
 
   EXPECT_FALSE(WasSignificantPlaybackRecorded());
-  SimulateSignificantPlayer(0);
+  SimulateSignificantVideoPlayer(0);
   SimulateSignificantPlaybackTime();
   ExpectScores(url, 6.0 / 7.0, 7, 6);
   EXPECT_TRUE(WasSignificantPlaybackRecorded());
@@ -645,7 +681,7 @@ TEST_F(MediaEngagementContentsObserverTest,
   Navigate(url);
 
   EXPECT_FALSE(WasSignificantPlaybackRecorded());
-  ExpectScores(url, 5.0 / 7.0, 7, 5);
+  ExpectScores(url, 5.0 / 6.0, 6, 5);
 
   SimulateDestroy();
   ExpectUkmEntry(url, 5, 7, 71, 0, true);
@@ -657,12 +693,12 @@ TEST_F(MediaEngagementContentsObserverTest, RecordUkmMetricsOnNavigate) {
   Navigate(url);
 
   EXPECT_FALSE(WasSignificantPlaybackRecorded());
-  SimulateSignificantPlayer(0);
+  SimulateSignificantVideoPlayer(0);
   SimulateSignificantPlaybackTime();
-  ExpectScores(url, 6.0 / 7.0, 7, 6);
   EXPECT_TRUE(WasSignificantPlaybackRecorded());
 
   Navigate(GURL("https://www.example.org"));
+  ExpectScores(url, 6.0 / 7.0, 7, 6);
   ExpectUkmEntry(url, 6, 7, 86, 1, true);
 }
 
@@ -673,9 +709,9 @@ TEST_F(MediaEngagementContentsObserverTest,
   Navigate(url);
 
   EXPECT_FALSE(WasSignificantPlaybackRecorded());
-  ExpectScores(url, 2 / 10.0, 10, 2);
 
   Navigate(GURL("https://www.example.org"));
+  ExpectScores(url, 2 / 10.0, 10, 2);
   ExpectUkmEntry(url, 2, 10, 20, 0, false);
 }
 
@@ -683,7 +719,7 @@ TEST_F(MediaEngagementContentsObserverTest, DoNotRecordMetricsOnInternalUrl) {
   Navigate(GURL("chrome://about"));
 
   EXPECT_FALSE(WasSignificantPlaybackRecorded());
-  SimulateSignificantPlayer(0);
+  SimulateSignificantVideoPlayer(0);
   SimulateSignificantPlaybackTime();
   EXPECT_TRUE(WasSignificantPlaybackRecorded());
 

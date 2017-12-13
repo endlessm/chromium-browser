@@ -13,9 +13,12 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "chrome/browser/ui/passwords/credential_provider_interface.h"
+#include "chrome/browser/ui/passwords/password_manager_porter.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "components/prefs/pref_member.h"
+#include "components/undo/undo_manager.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 
 namespace autofill {
@@ -34,7 +37,8 @@ class PasswordUIView;
 // interact with PasswordStore. It provides completion callbacks for
 // PasswordStore operations and updates the view on PasswordStore changes.
 class PasswordManagerPresenter
-    : public password_manager::PasswordStore::Observer {
+    : public password_manager::PasswordStore::Observer,
+      public CredentialProviderInterface {
  public:
   // |password_view| the UI view that owns this presenter, must not be NULL.
   explicit PasswordManagerPresenter(PasswordUIView* password_view);
@@ -52,8 +56,9 @@ class PasswordManagerPresenter
   // Gets the password entry at |index|.
   const autofill::PasswordForm* GetPassword(size_t index);
 
-  // Gets all password entries.
-  std::vector<std::unique_ptr<autofill::PasswordForm>> GetAllPasswords();
+  // CredentialProviderInterface:
+  std::vector<std::unique_ptr<autofill::PasswordForm>> GetAllPasswords()
+      override;
 
   // Gets the password exception entry at |index|.
   const autofill::PasswordForm* GetPasswordException(size_t index);
@@ -66,12 +71,31 @@ class PasswordManagerPresenter
   // |index| the entry index to be removed.
   void RemovePasswordException(size_t index);
 
+  // Undoes the last saved password or exception removal.
+  void UndoRemoveSavedPasswordOrException();
+
   // Requests the plain text password for entry at |index| to be revealed.
   // |index| The index of the entry.
   void RequestShowPassword(size_t index);
 
   // Returns true if the user is authenticated.
   virtual bool IsUserAuthenticated();
+
+  // Trigger the password import procedure, allowing the user to load passwords
+  // from a file.
+  void ImportPasswords(content::WebContents* web_contents);
+
+  // Trigger the password export procedure, allowing the user to save all their
+  // passwords to a file.
+  void ExportPasswords(content::WebContents* web_contents);
+
+  // Wrapper around |PasswordStore::AddLogin| that adds the corresponding undo
+  // action to |undo_manager_|.
+  void AddLogin(const autofill::PasswordForm& form);
+
+  // Wrapper around |PasswordStore::RemoveLogin| that adds the corresponding
+  // undo action to |undo_manager_|.
+  void RemoveLogin(const autofill::PasswordForm& form);
 
  private:
   friend class PasswordManagerPresenterTest;
@@ -142,6 +166,8 @@ class PasswordManagerPresenter
   DuplicatesMap password_duplicates_;
   DuplicatesMap password_exception_duplicates_;
 
+  UndoManager undo_manager_;
+
   // Whether to show stored passwords or not.
   BooleanPrefMember show_passwords_;
 
@@ -151,6 +177,8 @@ class PasswordManagerPresenter
 
   // UI view that owns this presenter.
   PasswordUIView* password_view_;
+
+  PasswordManagerPorter password_manager_porter_;
 
   DISALLOW_COPY_AND_ASSIGN(PasswordManagerPresenter);
 };

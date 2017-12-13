@@ -21,13 +21,13 @@ class Execution(object):
 
   def __init__(self):
     self._completed = False
-    self._failed = False
+    self._exception = None
     self._result_values = ()
     self._result_arguments = {}
 
   @property
   def completed(self):
-    """Returns True iff the Execution is completed. Otherwise, it's in progress.
+    """Returns True iff the Execution is completed. Otherwise, it's running.
 
     This accessor doesn't contact external servers. Call Poll() to update the
     Execution's completed status.
@@ -41,7 +41,12 @@ class Execution(object):
     This accessor doesn't contact external servers. Call Poll() to update the
     Execution's failed status.
     """
-    return self._failed
+    return bool(self._exception)
+
+  @property
+  def exception(self):
+    """Returns the stack trace if the Execution failed, or None otherwise."""
+    return self._exception
 
   @property
   def result_values(self):
@@ -67,17 +72,27 @@ class Execution(object):
 
   def AsDict(self):
     d = {
-        'result_arguments': self.result_arguments if self.completed else {},
-        'result_values': self.result_values if self.completed else None,
+        'completed': self._completed,
+        'exception': self._exception,
+        'details': self._AsDict(),
+        'result_arguments': self._result_arguments,
+        'result_values': self._result_values,
     }
-    d.update(self._AsDict())
     return d
 
   def _AsDict(self):
     raise NotImplementedError()
 
   def Poll(self):
-    """Update the Execution status."""
+    """Update the Execution status, with error handling.
+
+    Pinpoint has two kinds of errors: Job-level errors, which are fatal and
+    cause the Job to fail; and Execution-level errors, which only cause that
+    one execution to fail. If something might pass at one commit and fail at
+    another, it should be an Execution-level error. The type of Exception
+    indicates the error level. StandardErrors are Job-level and all other
+    errors are Execution-level.
+    """
     assert not self.completed
 
     try:
@@ -90,15 +105,12 @@ class Execution(object):
       # We allow broad exception handling here, because we log the exception and
       # display it in the UI.
       self._completed = True
-      self._failed = True
-      self._result_values = (traceback.format_exc(),)
-
+      self._exception = traceback.format_exc()
 
   def _Poll(self):
     raise NotImplementedError()
 
-  def _Complete(self, result_values=None, result_arguments=None):
+  def _Complete(self, result_values=(), result_arguments=None):
     self._completed = True
-    self._failed = False
-    self._result_values = result_values or (None,)
+    self._result_values = result_values
     self._result_arguments = result_arguments or {}

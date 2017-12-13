@@ -57,8 +57,7 @@ std::unique_ptr<WebState> WebState::Create(const CreateParams& params) {
   // Initialize the new session.
   web_state->GetNavigationManagerImpl().InitializeSession();
 
-  // TODO(crbug.com/703565): remove std::move() once Xcode 9.0+ is required.
-  return std::move(web_state);
+  return web_state;
 }
 
 /* static */
@@ -66,11 +65,7 @@ std::unique_ptr<WebState> WebState::CreateWithStorageSession(
     const CreateParams& params,
     CRWSessionStorage* session_storage) {
   DCHECK(session_storage);
-  std::unique_ptr<WebStateImpl> web_state(
-      new WebStateImpl(params, session_storage));
-
-  // TODO(crbug.com/703565): remove std::move() once Xcode 9.0+ is required.
-  return std::move(web_state);
+  return base::WrapUnique(new WebStateImpl(params, session_storage));
 }
 
 WebStateImpl::WebStateImpl(const CreateParams& params)
@@ -85,13 +80,20 @@ WebStateImpl::WebStateImpl(const CreateParams& params,
       interstitial_(nullptr),
       created_with_opener_(params.created_with_opener),
       weak_factory_(this) {
-  // Create or deserialize the NavigationManager.
   if (web::GetWebClient()->IsSlimNavigationManagerEnabled()) {
     navigation_manager_ = base::MakeUnique<WKBasedNavigationManagerImpl>();
   } else {
     navigation_manager_ = base::MakeUnique<LegacyNavigationManagerImpl>();
   }
 
+  navigation_manager_->SetDelegate(this);
+  navigation_manager_->SetBrowserState(params.browser_state);
+  // Send creation event and create the web controller.
+  GlobalWebStateEventTracker::GetInstance()->OnWebStateCreated(this);
+  web_controller_.reset([[CRWWebController alloc] initWithWebState:this]);
+
+  // Restore session history last because WKBasedNavigationManagerImpl relies on
+  // CRWWebController to restore history into the web view.
   if (session_storage) {
     SessionStorageBuilder session_storage_builder;
     session_storage_builder.ExtractSessionState(this, session_storage);
@@ -99,11 +101,6 @@ WebStateImpl::WebStateImpl(const CreateParams& params,
     certificate_policy_cache_ =
         base::MakeUnique<SessionCertificatePolicyCacheImpl>();
   }
-  navigation_manager_->SetDelegate(this);
-  navigation_manager_->SetBrowserState(params.browser_state);
-  // Send creation event and create the web controller.
-  GlobalWebStateEventTracker::GetInstance()->OnWebStateCreated(this);
-  web_controller_.reset([[CRWWebController alloc] initWithWebState:this]);
 }
 
 WebStateImpl::~WebStateImpl() {
@@ -242,6 +239,10 @@ double WebStateImpl::GetLoadingProgress() const {
 
 bool WebStateImpl::IsCrashed() const {
   return [web_controller_ isWebProcessCrashed];
+}
+
+bool WebStateImpl::IsVisible() const {
+  return [web_controller_ isVisible];
 }
 
 bool WebStateImpl::IsEvicted() const {
@@ -512,6 +513,23 @@ bool WebStateImpl::ShouldAllowResponse(NSURLResponse* response,
   return true;
 }
 
+bool WebStateImpl::ShouldPreviewLink(const GURL& link_url) {
+  return delegate_ && delegate_->ShouldPreviewLink(this, link_url);
+}
+
+UIViewController* WebStateImpl::GetPreviewingViewController(
+    const GURL& link_url) {
+  return delegate_ ? delegate_->GetPreviewingViewController(this, link_url)
+                   : nil;
+}
+
+void WebStateImpl::CommitPreviewingViewController(
+    UIViewController* previewing_view_controller) {
+  if (delegate_) {
+    delegate_->CommitPreviewingViewController(this, previewing_view_controller);
+  }
+}
+
 #pragma mark - RequestTracker management
 
 WebStateInterfaceProvider* WebStateImpl::GetWebStateInterfaceProvider() {
@@ -657,10 +675,10 @@ const GURL& WebStateImpl::GetLastCommittedURL() const {
 
 GURL WebStateImpl::GetCurrentURL(URLVerificationTrustLevel* trust_level) const {
   GURL URL = [web_controller_ currentURLWithTrustLevel:trust_level];
-  bool equalURLs = web::GURLByRemovingRefFromGURL(URL) ==
-                   web::GURLByRemovingRefFromGURL(GetLastCommittedURL());
-  DCHECK(equalURLs);
-  UMA_HISTOGRAM_BOOLEAN("Web.CurrentURLEqualsLastCommittedURL", equalURLs);
+  bool equalOrigins = URL.GetOrigin() == GetLastCommittedURL().GetOrigin();
+  DCHECK(equalOrigins);
+  UMA_HISTOGRAM_BOOLEAN("Web.CurrentOriginEqualsLastCommittedOrigin",
+                        equalOrigins);
   return URL;
 }
 
@@ -687,6 +705,10 @@ id<CRWWebViewProxy> WebStateImpl::GetWebViewProxy() const {
 
 bool WebStateImpl::HasOpener() const {
   return created_with_opener_;
+}
+
+void WebStateImpl::SetHasOpener(bool has_opener) {
+  created_with_opener_ = has_opener;
 }
 
 void WebStateImpl::TakeSnapshot(const SnapshotCallback& callback,

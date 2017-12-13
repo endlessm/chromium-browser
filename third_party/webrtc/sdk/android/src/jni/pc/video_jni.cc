@@ -10,17 +10,18 @@
 
 #include <jni.h>
 
-#include "webrtc/api/videosourceproxy.h"
-#include "webrtc/media/engine/webrtcvideodecoderfactory.h"
-#include "webrtc/media/engine/webrtcvideoencoderfactory.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/sdk/android/src/jni/androidmediadecoder_jni.h"
-#include "webrtc/sdk/android/src/jni/androidmediaencoder_jni.h"
-#include "webrtc/sdk/android/src/jni/androidvideotracksource.h"
-#include "webrtc/sdk/android/src/jni/classreferenceholder.h"
-#include "webrtc/sdk/android/src/jni/pc/ownedfactoryandthreads.h"
-#include "webrtc/sdk/android/src/jni/surfacetexturehelper_jni.h"
-#include "webrtc/sdk/android/src/jni/videodecoderfactorywrapper.h"
+#include "api/videosourceproxy.h"
+#include "media/engine/webrtcvideodecoderfactory.h"
+#include "media/engine/webrtcvideoencoderfactory.h"
+#include "rtc_base/logging.h"
+#include "sdk/android/src/jni/androidmediadecoder_jni.h"
+#include "sdk/android/src/jni/androidmediaencoder_jni.h"
+#include "sdk/android/src/jni/androidvideotracksource.h"
+#include "sdk/android/src/jni/classreferenceholder.h"
+#include "sdk/android/src/jni/pc/ownedfactoryandthreads.h"
+#include "sdk/android/src/jni/surfacetexturehelper_jni.h"
+#include "sdk/android/src/jni/videodecoderfactorywrapper.h"
+#include "sdk/android/src/jni/videoencoderfactorywrapper.h"
 
 namespace webrtc {
 namespace jni {
@@ -29,14 +30,19 @@ namespace jni {
 // used and all applications inject their own codecs.
 // This is semi broken if someone wants to create multiple peerconnection
 // factories.
+static bool use_media_codec_encoder_factory;
 static bool use_media_codec_decoder_factory;
 
 cricket::WebRtcVideoEncoderFactory* CreateVideoEncoderFactory(
     JNIEnv* jni,
     jobject j_encoder_factory) {
-  RTC_DCHECK(j_encoder_factory == nullptr)
-      << "Injectable video encoders are not supported yet.";
-  return new MediaCodecVideoEncoderFactory();
+  use_media_codec_encoder_factory = j_encoder_factory == nullptr;
+
+  if (use_media_codec_encoder_factory) {
+    return new MediaCodecVideoEncoderFactory();
+  } else {
+    return new VideoEncoderFactoryWrapper(jni, j_encoder_factory);
+  }
 }
 
 cricket::WebRtcVideoDecoderFactory* CreateVideoDecoderFactory(
@@ -111,7 +117,7 @@ JNI_FUNCTION_DECLARATION(
   MediaCodecVideoEncoderFactory* encoder_factory =
       static_cast<MediaCodecVideoEncoderFactory*>(
           owned_factory->encoder_factory());
-  if (encoder_factory &&
+  if (use_media_codec_encoder_factory && encoder_factory &&
       jni->IsInstanceOf(local_egl_context, j_eglbase14_context_class)) {
     LOG(LS_INFO) << "Set EGL context for HW encoding.";
     encoder_factory->SetEGLContext(jni, local_egl_context);

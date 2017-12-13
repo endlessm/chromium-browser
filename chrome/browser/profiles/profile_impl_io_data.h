@@ -25,7 +25,6 @@ class DomainReliabilityMonitor;
 
 namespace net {
 class CookieStore;
-class HttpServerPropertiesManager;
 struct ReportingPolicy;
 class ReportingService;
 class URLRequestContextBuilder;
@@ -85,13 +84,15 @@ class ProfileImplIOData : public ProfileIOData {
             const base::FilePath& partition_path,
             bool in_memory) const;
 
-    // Returns the DevToolsNetworkControllerHandle attached to ProfileIOData.
-    DevToolsNetworkControllerHandle* GetDevToolsNetworkControllerHandle() const;
-
     // Deletes all network related data since |time|. It deletes transport
     // security state since |time| and also deletes HttpServerProperties data.
     // Works asynchronously, however if the |completion| callback is non-null,
     // it will be posted on the UI thread once the removal process completes.
+    //
+    // Wraps NetworkContext::ClearNetworkingHistorySince() for the
+    // Profile's main NetworkContext.
+    //
+    // TODO(mmenke): Remove this.
     void ClearNetworkingHistorySince(base::Time time,
                                      const base::Closure& completion);
 
@@ -146,8 +147,6 @@ class ProfileImplIOData : public ProfileIOData {
     base::FilePath extensions_cookie_path;
     content::CookieStoreConfig::SessionCookieMode session_cookie_mode;
     scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy;
-    std::unique_ptr<net::HttpServerPropertiesManager>
-        http_server_properties_manager;
     std::unique_ptr<domain_reliability::DomainReliabilityMonitor>
         domain_reliability_monitor;
   };
@@ -206,29 +205,14 @@ class ProfileImplIOData : public ProfileIOData {
   // returns nullptr.
   static std::unique_ptr<net::ReportingPolicy> MaybeCreateReportingPolicy();
 
-  // Deletes all network related data since |time|. It deletes transport
-  // security state since |time| and also deletes HttpServerProperties data.
-  // Works asynchronously, however if the |completion| callback is non-null,
-  // it will be posted on the UI thread once the removal process completes.
-  void ClearNetworkingHistorySinceOnIOThread(base::Time time,
-                                             const base::Closure& completion);
-
   // Lazy initialization params.
   mutable std::unique_ptr<LazyParams> lazy_params_;
-
-  // Owned by URLRequestContextStorage, reference here to can be shut down on
-  // the UI thread.
-  net::HttpServerPropertiesManager* http_server_properties_manager_;
 
   mutable std::unique_ptr<net::CookieStore> extensions_cookie_store_;
 
   mutable std::unique_ptr<chrome_browser_net::Predictor> predictor_;
 
   mutable std::unique_ptr<net::URLRequestContext> media_request_context_;
-
-  // Owned by ChromeNetworkDelegate (which is owned by |network_delegate_|).
-  mutable domain_reliability::DomainReliabilityMonitor*
-      domain_reliability_monitor_;
 
   // Parameters needed for isolated apps.
   base::FilePath profile_path_;

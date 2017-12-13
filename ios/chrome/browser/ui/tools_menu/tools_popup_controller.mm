@@ -9,7 +9,6 @@
 #include "base/logging.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
-#include "ios/chrome/browser/ui/commands/ios_command_ids.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_view.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_menu_configuration.h"
@@ -72,11 +71,19 @@ NS_INLINE UIEdgeInsets TabHistoryPopupMenuInsets() {
     CGRect containerBounds = [configuration.displayView bounds];
     CGFloat minY = CGRectGetMinY(configuration.sourceRect) - popupInsets.top;
 
+    UIEdgeInsets safeAreaInsets = UIEdgeInsetsZero;
+    if (@available(iOS 11.0, *)) {
+      safeAreaInsets = configuration.displayView.safeAreaInsets;
+    }
+
     // The tools popup appears trailing- aligned, but because
     // kToolsPopupMenuTrailingOffset is smaller than the popupInsets's trailing
     // value, destination needs to be shifted a bit.
     CGFloat trailingShift =
         UIEdgeInsetsGetTrailing(popupInsets) - kToolsPopupMenuTrailingOffset;
+    // The tools popup needs to be displayed inside the safe area.
+    trailingShift -= UIEdgeInsetsGetTrailing(safeAreaInsets);
+
     if (UseRTLLayout())
       trailingShift = -trailingShift;
 
@@ -193,19 +200,19 @@ NS_INLINE UIEdgeInsets TabHistoryPopupMenuInsets() {
     case TOOLS_SHARE_ITEM:
       base::RecordAction(UserMetricsAction("MobileMenuShare"));
       break;
-    case IDC_REQUEST_DESKTOP_SITE:
+    case TOOLS_REQUEST_DESKTOP_SITE:
       base::RecordAction(UserMetricsAction("MobileMenuRequestDesktopSite"));
       break;
-    case IDC_REQUEST_MOBILE_SITE:
+    case TOOLS_REQUEST_MOBILE_SITE:
       base::RecordAction(UserMetricsAction("MobileMenuRequestMobileSite"));
       break;
-    case IDC_SHOW_BOOKMARK_MANAGER:
+    case TOOLS_SHOW_BOOKMARKS:
       base::RecordAction(UserMetricsAction("MobileMenuAllBookmarks"));
       break;
     case TOOLS_SHOW_HISTORY:
       base::RecordAction(UserMetricsAction("MobileMenuHistory"));
       break;
-    case IDC_SHOW_OTHER_DEVICES:
+    case TOOLS_SHOW_RECENT_TABS:
       base::RecordAction(UserMetricsAction("MobileMenuRecentTabs"));
       break;
     case TOOLS_STOP_ITEM:

@@ -7,10 +7,11 @@
 #include <string>
 #include <utility>
 
-#include "ash/accessibility_delegate.h"
+#include "ash/accessibility/test_accessibility_delegate.h"
 #include "ash/app_list/test_app_list_presenter_impl.h"
 #include "ash/frame/custom_frame_view_ash.h"
 #include "ash/public/cpp/app_types.h"
+#include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
@@ -25,10 +26,11 @@
 #include "ash/shell_test_api.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/test/ash_test_base.h"
-#include "ash/test/test_accessibility_delegate.h"
 #include "ash/wm/fullscreen_window_finder.h"
 #include "ash/wm/overview/window_selector_controller.h"
+#include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_backdrop_delegate_impl.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
@@ -57,6 +59,10 @@
 #include "ui/events/base_event_utils.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/keyboard/keyboard_controller.h"
+#include "ui/keyboard/keyboard_test_util.h"
+#include "ui/keyboard/keyboard_ui.h"
+#include "ui/keyboard/keyboard_util.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/wm/core/window_util.h"
@@ -113,9 +119,10 @@ display::Display GetDisplayNearestWindow(aura::Window* window) {
   return display::Screen::GetScreen()->GetDisplayNearestWindow(window);
 }
 
-void DisableNewVKMode() {
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  command_line->AppendSwitch(::switches::kDisableNewVirtualKeyboardBehavior);
+void EnableStickyKeyboard() {
+  keyboard::KeyboardController::ResetInstance(new keyboard::KeyboardController(
+      std::make_unique<keyboard::FakeKeyboardUI>(), nullptr));
+  keyboard::KeyboardController::GetInstance()->set_keyboard_locked(true);
 }
 
 }  // namespace
@@ -382,7 +389,7 @@ class DontClobberRestoreBoundsWindowObserver : public aura::WindowObserver {
 // doesn't effect the restore bounds.
 TEST_F(WorkspaceLayoutManagerTest, DontClobberRestoreBounds) {
   DontClobberRestoreBoundsWindowObserver window_observer;
-  std::unique_ptr<aura::Window> window(base::MakeUnique<aura::Window>(
+  std::unique_ptr<aura::Window> window(std::make_unique<aura::Window>(
       nullptr, aura::client::WINDOW_TYPE_NORMAL));
   window->Init(ui::LAYER_TEXTURED);
   window->SetBounds(gfx::Rect(10, 20, 30, 40));
@@ -422,7 +429,7 @@ TEST_F(WorkspaceLayoutManagerTest, ChildBoundsResetOnMaximize) {
 // Verifies a window created with maximized state has the maximized
 // bounds.
 TEST_F(WorkspaceLayoutManagerTest, MaximizeWithEmptySize) {
-  std::unique_ptr<aura::Window> window(base::MakeUnique<aura::Window>(
+  std::unique_ptr<aura::Window> window(std::make_unique<aura::Window>(
       nullptr, aura::client::WINDOW_TYPE_NORMAL));
   window->Init(ui::LAYER_TEXTURED);
   wm::GetWindowState(window.get())->Maximize();
@@ -579,7 +586,7 @@ TEST_F(WorkspaceLayoutManagerTest,
   Shell::Get()->SetDisplayWorkAreaInsets(window.get(), insets);
   const wm::WMEvent snap_left(wm::WM_EVENT_SNAP_LEFT);
   window_state->OnWMEvent(&snap_left);
-  EXPECT_EQ(wm::WINDOW_STATE_TYPE_LEFT_SNAPPED, window_state->GetStateType());
+  EXPECT_EQ(mojom::WindowStateType::LEFT_SNAPPED, window_state->GetStateType());
   const gfx::Rect kWorkAreaBounds = GetPrimaryDisplay().work_area();
   gfx::Rect expected_bounds =
       gfx::Rect(kWorkAreaBounds.x(), kWorkAreaBounds.y(),
@@ -605,7 +612,7 @@ TEST_F(WorkspaceLayoutManagerTest,
 TEST_F(WorkspaceLayoutManagerTest,
        DoNotAdjustTransientWindowBoundsToEnsureMinimumVisibility) {
   UpdateDisplay("300x400");
-  std::unique_ptr<aura::Window> window(base::MakeUnique<aura::Window>(
+  std::unique_ptr<aura::Window> window(std::make_unique<aura::Window>(
       nullptr, aura::client::WINDOW_TYPE_NORMAL));
   window->Init(ui::LAYER_TEXTURED);
   window->SetBounds(gfx::Rect(10, 0, 100, 200));
@@ -653,6 +660,17 @@ TEST_F(WorkspaceLayoutManagerSoloTest, Minimize) {
   EXPECT_TRUE(window->IsVisible());
   EXPECT_FALSE(wm::GetWindowState(window.get())->IsMinimized());
   EXPECT_EQ(bounds, window->bounds());
+}
+
+// Tests that activation of a minimized window unminimizes the window.
+TEST_F(WorkspaceLayoutManagerSoloTest, UnminimizeWithActivation) {
+  std::unique_ptr<aura::Window> window = CreateTestWindow();
+  wm::GetWindowState(window.get())->Minimize();
+  EXPECT_TRUE(wm::GetWindowState(window.get())->IsMinimized());
+  EXPECT_FALSE(wm::GetWindowState(window.get())->IsActive());
+  wm::GetWindowState(window.get())->Activate();
+  EXPECT_FALSE(wm::GetWindowState(window.get())->IsMinimized());
+  EXPECT_TRUE(wm::GetWindowState(window.get())->IsActive());
 }
 
 // A aura::WindowObserver which sets the focus when the window becomes visible.
@@ -979,7 +997,7 @@ class WorkspaceLayoutManagerBackdropTest : public AshTestBase {
   void ShowTopWindowBackdropForContainer(aura::Window* container, bool show) {
     std::unique_ptr<BackdropDelegate> backdrop;
     if (show) {
-      backdrop = base::MakeUnique<TabletModeBackdropDelegateImpl>();
+      backdrop = std::make_unique<TabletModeBackdropDelegateImpl>();
     }
     GetWorkspaceLayoutManager(container)->SetBackdropDelegate(
         std::move(backdrop));
@@ -1553,8 +1571,7 @@ class WorkspaceLayoutManagerKeyboardTest : public AshTestBase {
 // Tests that when a child window gains focus the top level window containing it
 // is resized to fit the remaining workspace area.
 TEST_F(WorkspaceLayoutManagerKeyboardTest, ChildWindowFocused) {
-  // Append the flag to cause work area change in non-sticky mode.
-  DisableNewVKMode();
+  EnableStickyKeyboard();
 
   // See comment at top of file for why this is needed.
   CustomFrameViewAshSizeLock min_size_lock;
@@ -1586,8 +1603,7 @@ TEST_F(WorkspaceLayoutManagerKeyboardTest, ChildWindowFocused) {
 }
 
 TEST_F(WorkspaceLayoutManagerKeyboardTest, AdjustWindowForA11yKeyboard) {
-  // Append the flag to cause work area change in non-sticky mode.
-  DisableNewVKMode();
+  EnableStickyKeyboard();
 
   // See comment at top of file for why this is needed.
   CustomFrameViewAshSizeLock min_size_lock;
@@ -1639,8 +1655,7 @@ TEST_F(WorkspaceLayoutManagerKeyboardTest, AdjustWindowForA11yKeyboard) {
 }
 
 TEST_F(WorkspaceLayoutManagerKeyboardTest, IgnoreKeyboardBoundsChange) {
-  // Append the flag to cause work area change in non-sticky mode.
-  DisableNewVKMode();
+  EnableStickyKeyboard();
   InitKeyboardBounds();
 
   std::unique_ptr<aura::Window> window(CreateTestWindow(keyboard_bounds()));
@@ -1653,6 +1668,134 @@ TEST_F(WorkspaceLayoutManagerKeyboardTest, IgnoreKeyboardBoundsChange) {
   EXPECT_EQ(keyboard_bounds(), window->bounds());
   ShowKeyboard();
   EXPECT_EQ(keyboard_bounds(), window->bounds());
+}
+
+// When kAshUseNewVKWindowBehavior flag enabled, do not change accessibility
+// keyboard work area in non-sticky mode.
+TEST_F(WorkspaceLayoutManagerKeyboardTest,
+       IgnoreWorkAreaChangeinNonStickyMode) {
+  keyboard::SetAccessibilityKeyboardEnabled(true);
+  InitKeyboardBounds();
+  Shell::Get()->CreateKeyboard();
+  keyboard::KeyboardController* kb_controller =
+      keyboard::KeyboardController::GetInstance();
+
+  gfx::Rect work_area(
+      display::Screen::GetScreen()->GetPrimaryDisplay().work_area());
+
+  gfx::Rect orig_window_bounds(0, 100, work_area.width(),
+                               work_area.height() - 100);
+  std::unique_ptr<aura::Window> window(
+      CreateToplevelTestWindow(orig_window_bounds));
+
+  wm::ActivateWindow(window.get());
+  EXPECT_EQ(orig_window_bounds, window->bounds());
+
+  // Open keyboard in non-sticky mode.
+  kb_controller->ShowKeyboard(false);
+  kb_controller->ui()->GetContentsWindow()->SetBounds(
+      keyboard::KeyboardBoundsFromRootBounds(
+          Shell::GetPrimaryRootWindow()->bounds(), 100));
+
+  // Window should not be shifted up.
+  EXPECT_EQ(orig_window_bounds, window->bounds());
+
+  kb_controller->HideKeyboard(
+      keyboard::KeyboardController::HIDE_REASON_AUTOMATIC);
+  EXPECT_EQ(orig_window_bounds, window->bounds());
+
+  // Open keyboard in sticky mode.
+  kb_controller->ShowKeyboard(true);
+
+  int shift =
+      work_area.height() - kb_controller->GetContainerWindow()->bounds().y();
+  gfx::Rect changed_window_bounds(orig_window_bounds);
+  changed_window_bounds.Offset(0, -shift);
+  // Window should be shifted up.
+  EXPECT_EQ(changed_window_bounds, window->bounds());
+
+  kb_controller->HideKeyboard(
+      keyboard::KeyboardController::HIDE_REASON_AUTOMATIC);
+  EXPECT_EQ(orig_window_bounds, window->bounds());
+}
+
+// Test that backdrop works in split view mode.
+TEST_F(WorkspaceLayoutManagerBackdropTest, BackdropForSplitScreenTest) {
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kAshEnableTabletSplitView);
+  ShowTopWindowBackdropForContainer(default_container(), true);
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
+
+  SplitViewController* split_view_controller =
+      Shell::Get()->split_view_controller();
+
+  // Windows in tablet mode are created with immersive mode on. In mash,
+  // immersive mode creates a new widget to render the title area. This will
+  // cause some differences in the test in mash configuration and non-mash
+  // configuration.
+  const bool is_mash = Shell::GetAshConfig() == Config::MASH;
+
+  const gfx::Rect bounds(0, 0, 400, 400);
+  std::unique_ptr<aura::Window> window1(CreateTestWindow(bounds));
+  window1->Show();
+
+  // In mash, with one window, there is a extra child, the title area renderer
+  // of |window1|.
+  size_t expected_size = is_mash ? 3U : 2U;
+  // Test that backdrop window is visible and is the second child in the
+  // container. Its bounds should be the same as the container bounds.
+  ASSERT_EQ(expected_size, default_container()->children().size());
+  for (auto* child : default_container()->children())
+    EXPECT_TRUE(child->IsVisible());
+  EXPECT_EQ(window1.get(), default_container()->children()[1]);
+  EXPECT_EQ(default_container()->bounds(),
+            default_container()->children()[0]->bounds());
+
+  // Snap the window to left. Test that the backdrop window is still visible
+  // and is the second child in the container. Its bounds should still be the
+  // same as the container bounds.
+  split_view_controller->SnapWindow(window1.get(), SplitViewController::LEFT);
+  ASSERT_EQ(expected_size, default_container()->children().size());
+  for (auto* child : default_container()->children())
+    EXPECT_TRUE(child->IsVisible());
+  EXPECT_EQ(window1.get(), default_container()->children()[1]);
+  EXPECT_EQ(default_container()->bounds(),
+            default_container()->children()[0]->bounds());
+
+  // Now snap another window to right. Test that the backdrop window is still
+  // visible but is now the third window in the container. Its bounds should
+  // still be the same as the container bounds.
+  std::unique_ptr<aura::Window> window2(CreateTestWindow(bounds));
+  split_view_controller->SnapWindow(window2.get(), SplitViewController::RIGHT);
+
+  // In mash, with two windows, there are two extra children, the title area
+  // renderer of |window1| and |window2|.
+  expected_size = is_mash ? 5U : 3U;
+  const int expected_second_window_index = is_mash ? 3 : 2;
+
+  ASSERT_EQ(expected_size, default_container()->children().size());
+  for (auto* child : default_container()->children())
+    EXPECT_TRUE(child->IsVisible());
+  EXPECT_EQ(window1.get(), default_container()->children()[1]);
+  EXPECT_EQ(window2.get(),
+            default_container()->children()[expected_second_window_index]);
+  EXPECT_EQ(default_container()->bounds(),
+            default_container()->children()[0]->bounds());
+
+  // Test activation change correctly updates the backdrop.
+  wm::ActivateWindow(window1.get());
+  EXPECT_EQ(window1.get(),
+            default_container()->children()[expected_second_window_index]);
+  EXPECT_EQ(window2.get(), default_container()->children()[1]);
+  EXPECT_EQ(default_container()->bounds(),
+            default_container()->children()[0]->bounds());
+
+  wm::ActivateWindow(window2.get());
+  EXPECT_EQ(window1.get(), default_container()->children()[1]);
+  EXPECT_EQ(window2.get(),
+            default_container()->children()[expected_second_window_index]);
+  EXPECT_EQ(default_container()->bounds(),
+            default_container()->children()[0]->bounds());
 }
 
 }  // namespace ash

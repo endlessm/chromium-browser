@@ -21,6 +21,7 @@
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/navigation_simulator.h"
@@ -95,6 +96,7 @@ class TestSafeBrowsingBlockingPageFactory
         IsExtendedReportingEnabled(*prefs), IsScout(*prefs),
         is_proceed_anyway_disabled,
         true,  // should_open_links_in_new_tab
+        true,  // always_show_back_to_safety
         "cpn_safe_browsing" /* help_center_article_link */);
     return new TestSafeBrowsingBlockingPage(manager, web_contents,
                                             main_frame_url, unsafe_resources,
@@ -177,6 +179,7 @@ class TestSafeBrowsingBlockingQuietPageFactory
         IsExtendedReportingEnabled(*prefs), IsScout(*prefs),
         is_proceed_anyway_disabled,
         true,  // should_open_links_in_new_tab
+        true,  // always_show_back_to_safety
         "cpn_safe_browsing" /* help_center_article_link */);
     return new TestSafeBrowsingBlockingPageQuiet(
         manager, web_contents, main_frame_url, unsafe_resources,
@@ -256,10 +259,8 @@ class SafeBrowsingBlockingPageTest : public ChromeRenderViewHostTestHarness {
   void DidNavigateCrossSite(const char* url,
                             int nav_entry_id,
                             bool did_create_new_entry) {
-    content::RenderFrameHost* render_frame_host =
-        content::WebContentsTester::For(web_contents())->GetPendingMainFrame();
     content::WebContentsTester::For(web_contents())
-        ->TestDidNavigate(render_frame_host, nav_entry_id,
+        ->TestDidNavigate(pending_main_rfh(), nav_entry_id,
                           did_create_new_entry, GURL(url),
                           ui::PAGE_TRANSITION_TYPED);
   }
@@ -271,9 +272,8 @@ class SafeBrowsingBlockingPageTest : public ChromeRenderViewHostTestHarness {
     web_contents()->GetController().GoBack();
 
     // The pending RVH should commit for cross-site navigations.
-    content::RenderFrameHost* rfh = is_cross_site ?
-        WebContentsTester::For(web_contents())->GetPendingMainFrame() :
-        web_contents()->GetMainFrame();
+    content::RenderFrameHost* rfh =
+        is_cross_site ? pending_main_rfh() : web_contents()->GetMainFrame();
     WebContentsTester::For(web_contents())->TestDidNavigate(
         rfh,
         entry->GetUniqueID(),
@@ -344,7 +344,7 @@ class SafeBrowsingBlockingPageTest : public ChromeRenderViewHostTestHarness {
     resource->threat_type = SB_THREAT_TYPE_URL_MALWARE;
     resource->web_contents_getter =
         security_interstitials::UnsafeResource::GetWebContentsGetter(
-            web_contents()->GetRenderProcessHost()->GetID(),
+            web_contents()->GetMainFrame()->GetProcess()->GetID(),
             web_contents()->GetMainFrame()->GetRoutingID());
     resource->threat_source = safe_browsing::ThreatSource::LOCAL_PVER3;
   }
@@ -964,7 +964,7 @@ class SafeBrowsingBlockingQuietPageTest
     resource->threat_type = type;
     resource->web_contents_getter =
         security_interstitials::UnsafeResource::GetWebContentsGetter(
-            web_contents()->GetRenderProcessHost()->GetID(),
+            web_contents()->GetMainFrame()->GetProcess()->GetID(),
             web_contents()->GetMainFrame()->GetRoutingID());
     resource->threat_source = safe_browsing::ThreatSource::LOCAL_PVER3;
   }

@@ -261,16 +261,6 @@ base::string16 FindChildTextWithIgnoreList(
   return node_text;
 }
 
-// Returns the aggregated values of the descendants of |element| that are
-// non-empty text nodes.  This is a faster alternative to |innerText()| for
-// performance critical operations.  It does a full depth-first search so can be
-// used when the structure is not directly known.  However, unlike with
-// |innerText()|, the search depth and breadth are limited to a fixed threshold.
-// Whitespace is trimmed from text accumulated at descendant nodes.
-base::string16 FindChildText(const WebNode& node) {
-  return FindChildTextWithIgnoreList(node, std::set<WebNode>());
-}
-
 // Shared function for InferLabelFromPrevious() and InferLabelFromNext().
 base::string16 InferLabelFromSibling(const WebFormControlElement& element,
                                      bool forward) {
@@ -1155,6 +1145,11 @@ bool UnownedFormElementsAndFieldSetsToFormData(
     FormData* form,
     FormFieldData* field) {
   form->origin = GetCanonicalOriginForDocument(document);
+  DCHECK(document.GetFrame()->Top());
+  url::Origin main_frame_origin =
+      document.GetFrame()->Top()->GetSecurityOrigin();
+  form->main_frame_origin = main_frame_origin.GetURL();
+
   form->is_form_tag = false;
 
   return FormOrFieldsetsToFormData(
@@ -1473,14 +1468,16 @@ bool WebFormElementToFormData(
     ExtractMask extract_mask,
     FormData* form,
     FormFieldData* field) {
-  const WebLocalFrame* frame = form_element.GetDocument().GetFrame();
+  WebLocalFrame* frame = form_element.GetDocument().GetFrame();
   if (!frame)
     return false;
 
   form->name = GetFormIdentifier(form_element);
   form->origin = GetCanonicalOriginForDocument(frame->GetDocument());
   form->action = frame->GetDocument().CompleteURL(form_element.Action());
-
+  DCHECK(frame->Top());
+  url::Origin main_frame_origin = frame->Top()->GetSecurityOrigin();
+  form->main_frame_origin = main_frame_origin.GetURL();
   // If the completed URL is not valid, just use the action we get from
   // WebKit.
   if (!form->action.is_valid())
@@ -1806,6 +1803,10 @@ void PreviewSuggestion(const base::string16& suggestion,
   }
 
   input_element->SetSelectionRange(selection_start, suggestion.length());
+}
+
+base::string16 FindChildText(const WebNode& node) {
+  return FindChildTextWithIgnoreList(node, std::set<WebNode>());
 }
 
 }  // namespace form_util

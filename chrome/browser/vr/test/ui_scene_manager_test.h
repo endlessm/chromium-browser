@@ -8,9 +8,8 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/time/time.h"
 #include "chrome/browser/vr/elements/ui_element_name.h"
-#include "chrome/browser/vr/target_property.h"
 #include "chrome/browser/vr/test/mock_browser_interface.h"
 #include "chrome/browser/vr/test/mock_content_input_delegate.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -21,6 +20,7 @@ namespace vr {
 class UiElement;
 class UiScene;
 class UiSceneManager;
+struct Model;
 
 class UiSceneManagerTest : public testing::Test {
  public:
@@ -64,21 +64,23 @@ class UiSceneManagerTest : public testing::Test {
   bool VerifyRequiresLayout(const std::set<UiElementName>& names,
                             bool requires_layout) const;
 
+  // Check if element is using correct opacity in Render recursively.
+  void CheckRendererOpacityRecursive(UiElement* element);
+
   // Advances current_time_ by delta. This is done in frame increments and
   // UiScene::OnBeginFrame is called at each increment.
   void AnimateBy(base::TimeDelta delta);
 
-  // Returns true if the given properties are being animated by the element.
-  bool IsAnimating(UiElement* element,
-                   const std::vector<TargetProperty>& properties) const;
+  // A wrapper to call scene_->OnBeginFrame.
+  void OnBeginFrame();
 
-  SkColor GetBackgroundColor() const;
+  void GetBackgroundColor(SkColor* background_color) const;
 
-  base::MessageLoop message_loop_;
   std::unique_ptr<MockBrowserInterface> browser_;
+  std::unique_ptr<MockContentInputDelegate> content_input_delegate_;
   std::unique_ptr<UiScene> scene_;
+  std::unique_ptr<Model> model_;
   std::unique_ptr<UiSceneManager> manager_;
-  MockContentInputDelegate content_input_delegate_;
   base::TimeTicks current_time_;
 };
 

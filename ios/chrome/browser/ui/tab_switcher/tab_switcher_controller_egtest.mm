@@ -324,11 +324,8 @@ void EnterTabSwitcherWithCommand() {
   chrome_test_util::ExecuteJavaScript(
       [NSString stringWithFormat:kAlertFormat, kCancelledMessageText], nil);
 
-  // Close the Tab that is attempting to display a dialog.
-  id<GREYMatcher> closeButton = grey_allOf(
-      grey_accessibilityID(kTabSwicherPanelCellCloseButtonAccessibilityID),
-      grey_sufficientlyVisible(), nil);
-  [[EarlGrey selectElementWithMatcher:closeButton] performAction:grey_tap()];
+  // Close the tab so that the queued dialog is cancelled.
+  [[self class] closeAllTabs];
 
   // Open a new tab.  This will exit the stack view and will make the non-
   // incognito BrowserState active.  Attempt to present an alert with

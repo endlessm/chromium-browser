@@ -4,6 +4,10 @@
 
 #import "ios/clean/chrome/app/steps/step_features.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 namespace step_features {
 
 NSString* const kProviders = @"providers";
@@ -14,6 +18,7 @@ NSString* const kForeground = @"foreground";
 NSString* const kBrowserState = @"browserState";
 NSString* const kBrowserStateInitialized = @"browserStateInit";
 NSString* const kMainWindow = @"mainWindow";
+NSString* const kScheduledTasks = @"scheduledTasks";
 NSString* const kRootCoordinatorStarted = @"rootCoordinatorStarted";
 NSString* const kBreakpad = @"breakpad";
 

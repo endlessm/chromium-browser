@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/containers/circular_deque.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
@@ -92,12 +93,12 @@ class NonOwningProxyTaskRunner : public SingleThreadTaskRunner {
   bool RunsTasksInCurrentSequence() const override {
     return target_->RunsTasksInCurrentSequence();
   }
-  bool PostDelayedTask(const tracked_objects::Location& from_here,
+  bool PostDelayedTask(const Location& from_here,
                        OnceClosure task,
                        TimeDelta delay) override {
     return target_->PostDelayedTask(from_here, std::move(task), delay);
   }
-  bool PostNonNestableDelayedTask(const tracked_objects::Location& from_here,
+  bool PostNonNestableDelayedTask(const Location& from_here,
                                   OnceClosure task,
                                   TimeDelta delay) override {
     return target_->PostNonNestableDelayedTask(from_here, std::move(task),
@@ -123,7 +124,7 @@ class NonOwningProxyTaskRunner : public SingleThreadTaskRunner {
 struct TestMockTimeTaskRunner::TestOrderedPendingTask
     : public base::TestPendingTask {
   TestOrderedPendingTask();
-  TestOrderedPendingTask(const tracked_objects::Location& location,
+  TestOrderedPendingTask(const Location& location,
                          OnceClosure task,
                          TimeTicks post_time,
                          TimeDelta delay,
@@ -148,7 +149,7 @@ TestMockTimeTaskRunner::TestOrderedPendingTask::TestOrderedPendingTask(
     TestOrderedPendingTask&&) = default;
 
 TestMockTimeTaskRunner::TestOrderedPendingTask::TestOrderedPendingTask(
-    const tracked_objects::Location& location,
+    const Location& location,
     OnceClosure task,
     TimeTicks post_time,
     TimeDelta delay,
@@ -251,9 +252,10 @@ std::unique_ptr<TickClock> TestMockTimeTaskRunner::GetMockTickClock() const {
   return std::make_unique<MockTickClock>(this);
 }
 
-std::deque<TestPendingTask> TestMockTimeTaskRunner::TakePendingTasks() {
+base::circular_deque<TestPendingTask>
+TestMockTimeTaskRunner::TakePendingTasks() {
   AutoLock scoped_lock(tasks_lock_);
-  std::deque<TestPendingTask> tasks;
+  base::circular_deque<TestPendingTask> tasks;
   while (!tasks_.empty()) {
     // It's safe to remove const and consume |task| here, since |task| is not
     // used for ordering the item.
@@ -287,10 +289,9 @@ bool TestMockTimeTaskRunner::RunsTasksInCurrentSequence() const {
   return thread_checker_.CalledOnValidThread();
 }
 
-bool TestMockTimeTaskRunner::PostDelayedTask(
-    const tracked_objects::Location& from_here,
-    OnceClosure task,
-    TimeDelta delay) {
+bool TestMockTimeTaskRunner::PostDelayedTask(const Location& from_here,
+                                             OnceClosure task,
+                                             TimeDelta delay) {
   AutoLock scoped_lock(tasks_lock_);
   tasks_.push(TestOrderedPendingTask(from_here, std::move(task), now_ticks_,
                                      delay, next_task_ordinal_++,
@@ -300,7 +301,7 @@ bool TestMockTimeTaskRunner::PostDelayedTask(
 }
 
 bool TestMockTimeTaskRunner::PostNonNestableDelayedTask(
-    const tracked_objects::Location& from_here,
+    const Location& from_here,
     OnceClosure task,
     TimeDelta delay) {
   return PostDelayedTask(from_here, std::move(task), delay);
@@ -371,16 +372,16 @@ bool TestMockTimeTaskRunner::DequeueNextTask(const TimeTicks& reference,
   return false;
 }
 
-void TestMockTimeTaskRunner::Run() {
+void TestMockTimeTaskRunner::Run(bool application_tasks_allowed) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   // Since TestMockTimeTaskRunner doesn't process system messages: there's no
-  // hope for anything but a chrome task to call Quit(). If this RunLoop can't
-  // process chrome tasks (i.e. disallowed by default in nested RunLoops), it's
-  // thereby guaranteed to hang...
-  DCHECK(run_loop_client_->ProcessingTasksAllowed())
+  // hope for anything but an application task to call Quit(). If this RunLoop
+  // can't process application tasks (i.e. disallowed by default in nested
+  // RunLoops) it's guaranteed to hang...
+  DCHECK(application_tasks_allowed)
       << "This is a nested RunLoop instance and needs to be of "
-         "Type::NESTABLE_TASKS_ALLOWED.";
+         "Type::kNestableTasksAllowed.";
 
   while (!quit_run_loop_) {
     RunUntilIdle();

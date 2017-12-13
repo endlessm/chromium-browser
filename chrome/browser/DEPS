@@ -49,6 +49,9 @@ include_rules = [
   "+services/metrics/public",
   "+services/preferences/public/cpp",
   "+services/preferences/public/interfaces",
+  "+services/proxy_resolver",  # Android runs the packaged proxy resolver
+                               # service in process and needs impl access.
+  "+services/proxy_resolver/public/interfaces",
   "+services/resource_coordinator/public/cpp",
   "+services/resource_coordinator/public/interfaces",
   "+services/service_manager",
@@ -66,7 +69,6 @@ include_rules = [
   # //ash/README.md.
   "-ash",
   "+ash/public",
-  "+ash/ash_switches.h",
 
   # chrome only needs switches from cc. All usage of the compositor is from
   # content. Definitely don't include generic stuff from cc/base here, if this
@@ -93,6 +95,8 @@ include_rules = [
   # Allows in-process use of NetworkService for URLRequestContext configuration.
   # Should be removed once the actual network service ships.
   "+content/public/network",
+
+  "+mash/quick_launch/public/interfaces",
 
   # Other libraries.
   "+libxml",
@@ -145,6 +149,7 @@ include_rules = [
   "+third_party/WebKit/public/web/WebMediaPlayerAction.h",
   "+third_party/WebKit/public/web/WebPluginAction.h",
   "+third_party/WebKit/public/web/WebTextDirection.h",
+  "+third_party/WebKit/public/web/WebTriggeringEventInfo.h",
   "+third_party/WebKit/public/web/window_features.mojom.h",
 
   # Unlike other WebKit directories WebKit/common is for the files that
@@ -179,5 +184,8 @@ specific_include_rules = {
   "fullscreen_chromeos\.cc": [
     "+ash/root_window_controller.h",
     "+ash/shell.h",
+  ],
+  "mash_service_registry.cc": [
+    "+mash/quick_launch/quick_launch.h",
   ]
 }

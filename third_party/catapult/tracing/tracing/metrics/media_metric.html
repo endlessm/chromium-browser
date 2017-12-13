@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<!--
+Copyright 2017 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<!--
+media_metrics uses Chrome trace events to calculate metrics about video
+and audio playback. It is meant to be used for pages with a <video> or
+<audio> element. It is used by videostack-eng@google.com team for
+regression testing.
+
+This metric currently supports the following measurement:
+* time_to_video_play calculates how long after a video is requested to
+  start playing before the video actually starts. If time_to_video_play
+  regresses, then users will click to play videos and then have
+  to wait longer before the videos start actually playing.
+* time_to_audio_play is similar to time_to_video_play, but measures the
+  time delay before audio starts playing.
+* buffering_time calculates the difference between the actual play time of
+  media vs its expected play time. Ideally the two should be the same.
+  If actual play time is significantly longer than expected play time,
+  it indicates that there were stalls during the play for buffering or
+  some other reasons.
+* dropped_frame_count reports the number of video frames that were dropped.
+  Ideally this should be 0. If a large number of frames are dropped, the
+  video play will not be smooth.
+* seek_time calculates how long after a user requests a seek operation
+  before the seek completes and the media starts playing at the new
+  location.
+
+Please inform crouleau@chromium.org and johnchen@chromium.org about
+changes to this file.
+-->
+
+<link rel="import" href="/tracing/metrics/metric_registry.html">
+<link rel="import" href="/tracing/model/helpers/chrome_model_helper.html">
+<link rel="import" href="/tracing/value/histogram.html">
+
+<script>
+'use strict';
+
+tr.exportTo('tr.metrics', function() {
+  function mediaMetric(histograms, model) {
+    const chromeHelper = model.getOrCreateHelper(
+        tr.model.helpers.ChromeModelHelper);
+    if (chromeHelper === undefined) return;
+
+    for (const rendererHelper of Object.values(chromeHelper.rendererHelpers)) {
+      // Find the threads we're interested in, and if a needed thread
+      // is missing, no need to look further in this process.
+      const mainThread = rendererHelper.mainThread;
+      if (mainThread === undefined) continue;
+
+      const compositorThread = rendererHelper.compositorThread;
+      const audioThread =
+        rendererHelper.process.findAtMostOneThreadNamed('AudioOutputDevice');
+      if (compositorThread === undefined && audioThread === undefined) continue;
+
+      const playStart = getPlayStart(mainThread);
+      if (playStart === undefined) continue;
+
+      const timeToVideoPlay = compositorThread === undefined ? undefined :
+        getTimeToVideoPlay(compositorThread, playStart);
+      const timeToAudioPlay = audioThread === undefined ? undefined :
+        getTimeToAudioPlay(audioThread, playStart);
+
+      if (timeToVideoPlay === undefined && timeToAudioPlay === undefined) {
+        continue;
+      }
+
+      const droppedFrameCount = timeToVideoPlay === undefined ? undefined :
+        getDroppedFrameCount(compositorThread);
+      const seekTimes = timeToVideoPlay === undefined ? new Map() :
+        getSeekTimes(mainThread);
+      const bufferingTime = seekTimes.size !== 0 ? undefined :
+        getBufferingTime(mainThread, playStart, timeToVideoPlay,
+            timeToAudioPlay);
+
+      if (timeToVideoPlay !== undefined) {
+        histograms.createHistogram('time_to_video_play',
+            tr.b.Unit.byName.timeDurationInMs_smallerIsBetter,
+            timeToVideoPlay);
+      }
+      if (timeToAudioPlay !== undefined) {
+        histograms.createHistogram('time_to_audio_play',
+            tr.b.Unit.byName.timeDurationInMs_smallerIsBetter,
+            timeToAudioPlay);
+      }
+      if (droppedFrameCount !== undefined) {
+        histograms.createHistogram('dropped_frame_count',
+            tr.b.Unit.byName.count_smallerIsBetter, droppedFrameCount);
+      }
+      for (const [key, value] of seekTimes.entries()) {
+        // key is a numerical value that can have '.' when converted to string.
+        // However, '.' causes problems in histogram names, so replace with '_'.
+        histograms.createHistogram(
+            'seek_time_' + key.toString().replace('.', '_'),
+            tr.b.Unit.byName.timeDurationInMs_smallerIsBetter, value);
+      }
+      if (bufferingTime !== undefined) {
+        histograms.createHistogram('buffering_time',
+            tr.b.Unit.byName.timeDurationInMs_smallerIsBetter, bufferingTime);
+      }
+    }
+  }
+
+  function getPlayStart(mainThread) {
+    let playStart;
+    for (const event of mainThread.sliceGroup.getDescendantEvents()) {
+      if (event.title === 'WebMediaPlayerImpl::DoLoad') {
+        // TODO(johnchen@chromium.org): Support multiple audio/video
+        // elements per page. Currently, we only support a single
+        // audio or video element, so we can store the start time in
+        // a simple variable.
+        if (playStart !== undefined) {
+          throw new Error(
+              'Loading multiple audio/video elements not yet supported');
+        }
+        playStart = event.start;
+      }
+    }
+    return playStart;
+  }
+
+  function getTimeToVideoPlay(compositorThread, playStart) {
+    for (const event of compositorThread.sliceGroup.getDescendantEvents()) {
+      if (event.title === 'VideoRendererImpl::Render') {
+        return event.start - playStart;
+      }
+    }
+    return undefined;
+  }
+
+  function getTimeToAudioPlay(audioThread, playStart) {
+    for (const event of audioThread.sliceGroup.getDescendantEvents()) {
+      if (event.title === 'AudioRendererImpl::Render') {
+        return event.start - playStart;
+      }
+    }
+    return undefined;
+  }
+
+  function getSeekTimes(mainThread) {
+    // We support multiple seeks per page, as long as they seek to different
+    // target time. Thus the following two variables are maps instead of simple
+    // variables. The key of the maps is event.args.target, which is a numerical
+    // value indicating the target location of the seek, in unit of seconds.
+    // For example, with a seek to 5 seconds mark, event.args.target === 5.
+    const seekStartTimes = new Map();
+    const seekTimes = new Map();
+    for (const event of mainThread.sliceGroup.getDescendantEvents()) {
+      if (event.title === 'WebMediaPlayerImpl::DoSeek') {
+        seekStartTimes.set(event.args.target, event.start);
+      } else if (event.title === 'WebMediaPlayerImpl::OnPipelineSeeked') {
+        const startTime = seekStartTimes.get(event.args.target);
+        if (startTime !== undefined) {
+          seekTimes.set(event.args.target, event.start - startTime);
+          seekStartTimes.delete(event.args.target);
+        }
+      }
+    }
+    return seekTimes;
+  }
+
+  function getBufferingTime(mainThread, playStart, timeToVideoPlay,
+      timeToAudioPlay) {
+    let playEnd;
+    let duration;
+    for (const event of mainThread.sliceGroup.getDescendantEvents()) {
+      if (event.title === 'WebMediaPlayerImpl::OnEnded') {
+        // TODO(johnchen@chromium.org): Support multiple audio/video
+        // elements per page. Currently, we only support a single
+        // audio or video element, so we can store the end time in
+        // a simple variable.
+        if (playEnd !== undefined) {
+          throw new Error(
+              'Multiple media ended events not yet supported');
+        }
+        playEnd = event.start;
+        duration = 1000 * event.args.duration;  // seconds to milliseconds
+      }
+    }
+    if (playEnd === undefined) return undefined;
+    let bufferingTime = playEnd - playStart - duration;
+    if (timeToVideoPlay !== undefined) {
+      bufferingTime -= timeToVideoPlay;
+    } else {
+      bufferingTime -= timeToAudioPlay;
+    }
+    return bufferingTime;
+  }
+
+  function getDroppedFrameCount(compositorThread) {
+    let droppedFrameCount = 0;
+    for (const event of compositorThread.sliceGroup.getDescendantEvents()) {
+      if (event.title === 'VideoFramesDropped') {
+        droppedFrameCount += event.args.count;
+      }
+    }
+    return droppedFrameCount;
+  }
+
+  tr.metrics.MetricRegistry.register(mediaMetric);
+
+  return {
+    mediaMetric,
+  };
+});
+</script>

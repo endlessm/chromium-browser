@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -20,7 +21,6 @@ from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import manifest_version_unittest
 from chromite.cbuildbot import patch_series
 from chromite.cbuildbot import repository
-from chromite.cbuildbot import remote_try
 from chromite.cbuildbot import trybot_patch_pool
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import generic_stages_unittest
@@ -45,6 +45,7 @@ from chromite.lib import metadata_lib
 from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
 from chromite.lib import patch_unittest
+from chromite.lib import remote_try
 from chromite.lib import timeout_util
 from chromite.lib import tree_status
 
@@ -82,50 +83,6 @@ class BootstrapStageTest(
     self.assertCommandContains([
         'git', 'clone', constants.CHROMITE_URL,
         mock.ANY,  # Can't predict new chromium checkout diretory.
-        '--reference', mock.ANY
-    ])
-
-    # Switch to the test branch.
-    self.assertCommandContains(['git', 'checkout', 'ooga_booga'])
-
-    # Re-exec cbuildbot. We mostly only want to test the CL options Bootstrap
-    # changes.
-    #   '--sourceroot=%s'
-    #   '--test-bootstrap'
-    #   '--nobootstrap'
-    #   '--manifest-repo-url'
-    self.assertCommandContains([
-        'chromite/cbuildbot/cbuildbot', 'sync-test-cbuildbot',
-        '-r', os.path.join(self.tempdir, 'buildroot'),
-        '--buildbot', '--noprebuilts', '--buildnumber', '1234321',
-        '--branch', 'ooga_booga',
-        '--sourceroot', mock.ANY,
-        '--nobootstrap',
-    ])
-
-
-  def testSiteConfigBootstrap(self):
-    """Verify Bootstrap behavior, if config_repo is passed in."""
-
-    # Set a new command line option to set the repo.
-    self._run.options.config_repo = 'http://happy/config/repo'
-
-    self.RunStage()
-
-    # Clone next chromite.
-    self.assertCommandContains([
-        'git', 'clone', 'https://chromium.googlesource.com/chromiumos/chromite',
-        mock.ANY, # Can't predict new chromium checkout diretory.
-        '--reference', mock.ANY
-    ])
-
-    # Switch to the test branch.
-    self.assertCommandContains(['git', 'checkout', 'ooga_booga'])
-
-    # Clone the site config.
-    self.assertCommandContains([
-        'git', 'clone', 'http://happy/config/repo',
-        mock.ANY, # Can't predict new chromium checkout diretory.
         '--reference', mock.ANY
     ])
 
@@ -688,58 +645,6 @@ class PreCQLauncherStageTest(MasterCQSyncTestCase):
 
     failed_configs = self.sync_stage._GetFailedPreCQConfigs(action_history)
     self.assertItemsEqual(failed_configs, ['lumpy-pre-cq'])
-
-  def testFailureStreakCounterExceedsThreshold(self):
-    """Test FailureStreakCounterExceedsThreshold."""
-    pre_cq_1 = self.fake_db.InsertBuild(
-        'lumpy-pre-cq', constants.WATERFALL_TRYBOT, 0, 'lumpy-pre-cq',
-        'bot hostname')
-    pre_cq_2 = self.fake_db.InsertBuild(
-        'lumpy-pre-cq', constants.WATERFALL_TRYBOT, 1, 'lumpy-pre-cq',
-        'bot hostname')
-    pre_cq_3 = self.fake_db.InsertBuild(
-        'lumpy-pre-cq', constants.WATERFALL_TRYBOT, 2, 'lumpy-pre-cq',
-        'bot hostname')
-    self.fake_db.FinishBuild(pre_cq_1, status=constants.BUILDER_STATUS_PASSED)
-    self.fake_db.FinishBuild(pre_cq_2, status=constants.BUILDER_STATUS_FAILED)
-    self.fake_db.FinishBuild(pre_cq_3, status=constants.BUILDER_STATUS_FAILED)
-
-    build_history = self.fake_db.GetBuildHistory('lumpy-pre-cq', -1, final=True)
-    self.assertFalse(self.sync_stage. _FailureStreakCounterExceedsThreshold(
-        'lumpy-pre-cq', build_history))
-
-    pre_cq_4 = self.fake_db.InsertBuild(
-        'lumpy-pre-cq', constants.WATERFALL_TRYBOT, 2, 'lumpy-pre-cq',
-        'bot hostname')
-    self.fake_db.FinishBuild(pre_cq_4, status=constants.BUILDER_STATUS_FAILED)
-
-    build_history = self.fake_db.GetBuildHistory('lumpy-pre-cq', -1, final=True)
-    self.assertTrue(self.sync_stage. _FailureStreakCounterExceedsThreshold(
-        'lumpy-pre-cq', build_history))
-
-  def testGetBuildConfigsToSanityCheck(self):
-    """Test _GetBuildConfigsToSanityCheck."""
-    build_configs = {'lumpy-pre-cq', 'cyan-pre-cq', 'betty-pre-cq'}
-
-    for build_config in ('lumpy-pre-cq', 'cyan-pre-cq'):
-      for _ in range(0, 3):
-        pre_cq = self.fake_db.InsertBuild(
-            build_config, constants.WATERFALL_TRYBOT, 0, build_config,
-            'bot hostname')
-        self.fake_db.FinishBuild(pre_cq, status=constants.BUILDER_STATUS_FAILED)
-
-    self.fake_db.InsertBuildRequest(
-        self.build_id, 'lumpy-pre-cq', 'sanity-pre-cq',
-        request_buildbucket_id='bb_id_1', timestamp=datetime.datetime.now())
-
-    stale_timestamp = datetime.datetime.now() - datetime.timedelta(hours=10)
-    self.fake_db.InsertBuildRequest(
-        self.build_id, 'cyan-pre-cq', 'sanity-pre-cq',
-        request_buildbucket_id='bb_id_2', timestamp=stale_timestamp)
-
-    sanity_check_build_configs = self.sync_stage._GetBuildConfigsToSanityCheck(
-        self.fake_db, build_configs)
-    self.assertEqual(sanity_check_build_configs, ['cyan-pre-cq'])
 
   def testLaunchSanityCheckPreCQsIfNeeded(self):
     """Test _LaunchSanityCheckPreCQsIfNeeded."""

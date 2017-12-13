@@ -13,6 +13,7 @@
 #import "base/mac/bind_objc_block.h"
 #import "ios/third_party/material_components_ios/src/components/Dialogs/src/MaterialDialogs.h"
 #import "ios/third_party/material_components_ios/src/components/Snackbar/src/MaterialSnackbar.h"
+#import "remoting/ios/audio/audio_player_ios.h"
 #import "remoting/ios/display/gl_display_handler.h"
 #import "remoting/ios/domain/client_session_details.h"
 #import "remoting/ios/domain/host_info.h"
@@ -42,7 +43,6 @@ NSString* const kHostSessionPin = @"kHostSessionPin";
 
 @interface RemotingClient () {
   remoting::ChromotingClientRuntime* _runtime;
-  std::unique_ptr<remoting::ChromotingSession> _session;
   std::unique_ptr<remoting::RemotingClientSessonDelegate> _sessonDelegate;
   ClientSessionDetails* _sessionDetails;
   // Call _secretFetchedCallback on the network thread.
@@ -50,6 +50,8 @@ NSString* const kHostSessionPin = @"kHostSessionPin";
   std::unique_ptr<remoting::RendererProxy> _renderer;
   std::unique_ptr<remoting::GestureInterpreter> _gestureInterpreter;
   std::unique_ptr<remoting::KeyboardInterpreter> _keyboardInterpreter;
+  std::unique_ptr<remoting::AudioPlayerIos> _audioPlayer;
+  std::unique_ptr<remoting::ChromotingSession> _session;
 }
 @end
 
@@ -131,32 +133,39 @@ NSString* const kHostSessionPin = @"kHostSessionPin";
         }
         strongSelf->_secretFetchedCallback = secret_fetched_callback;
         strongSelf->_sessionDetails.state = SessionPinPrompt;
-        [[NSNotificationCenter defaultCenter]
-            postNotificationName:kHostSessionStatusChanged
-                          object:weakSelf
-                        userInfo:@{
-                          kSessionDetails : strongSelf->_sessionDetails,
-                          kSessionSupportsPairing :
-                              [NSNumber numberWithBool:pairing_supported],
-                        }];
+
+        // Notification will be received on the thread they are posted, so we
+        // need to post the notification on UI thread.
+        strongSelf->_runtime->ui_task_runner()->PostTask(
+            FROM_HERE, base::BindBlockArc(^() {
+              [NSNotificationCenter.defaultCenter
+                  postNotificationName:kHostSessionStatusChanged
+                                object:weakSelf
+                              userInfo:@{
+                                kSessionDetails : strongSelf->_sessionDetails,
+                                kSessionSupportsPairing :
+                                    [NSNumber numberWithBool:pairing_supported],
+                              }];
+            }));
       });
 
-  // TODO(nicholss): Add audio support to iOS.
-  base::WeakPtr<remoting::protocol::AudioStub> audioPlayer = nullptr;
+  _audioPlayer = remoting::AudioPlayerIos::CreateAudioPlayer(
+      _runtime->audio_task_runner());
 
   _displayHandler = [[GlDisplayHandler alloc] init];
   _displayHandler.delegate = self;
 
   _session.reset(new remoting::ChromotingSession(
       _sessonDelegate->GetWeakPtr(), [_displayHandler CreateCursorShapeStub],
-      [_displayHandler CreateVideoRenderer], audioPlayer, info,
-      client_auth_config));
+      [_displayHandler CreateVideoRenderer],
+      _audioPlayer->GetAudioStreamConsumer(), info, client_auth_config));
   _renderer = [_displayHandler CreateRendererProxy];
   _gestureInterpreter.reset(
       new remoting::GestureInterpreter(_renderer.get(), _session.get()));
   _keyboardInterpreter.reset(new remoting::KeyboardInterpreter(_session.get()));
 
   _session->Connect();
+  _audioPlayer->Start();
 }
 
 - (void)disconnectFromHost {
@@ -164,8 +173,14 @@ NSString* const kHostSessionPin = @"kHostSessionPin";
     _session->Disconnect();
     _runtime->network_task_runner()->DeleteSoon(FROM_HERE, _session.release());
   }
+
   _displayHandler = nil;
 
+  if (_audioPlayer) {
+    _audioPlayer->Invalidate();
+    _runtime->audio_task_runner()->DeleteSoon(FROM_HERE,
+                                              _audioPlayer.release());
+  }
   // This needs to be deleted on the display thread since GlDisplayHandler binds
   // its WeakPtrFactory to the display thread.
   // TODO(yuweih): Ideally this constraint can be removed once we allow
@@ -321,13 +336,14 @@ NSString* const kHostSessionPin = @"kHostSessionPin";
 }
 
 - (void)setCapabilities:(NSString*)capabilities {
-  NSLog(@"TODO(nicholss): implement this, setCapabilities. %@", capabilities);
+  DCHECK(capabilities.length == 0) << "No capability has been implemented on "
+                                   << "iOS yet";
 }
 
 - (void)handleExtensionMessageOfType:(NSString*)type
                              message:(NSString*)message {
-  NSLog(@"TODO(nicholss): implement this, handleExtensionMessageOfType %@:%@.",
-        type, message);
+  NOTREACHED() << "handleExtensionMessageOfType is unimplemented. " << type
+               << ":" << message;
 }
 
 - (void)setHostResolution:(CGSize)dipsResolution scale:(int)scale {
@@ -338,11 +354,15 @@ NSString* const kHostSessionPin = @"kHostSessionPin";
 #pragma mark - GlDisplayHandlerDelegate
 
 - (void)canvasSizeChanged:(CGSize)size {
-  _gestureInterpreter->OnDesktopSizeChanged(size.width, size.height);
+  if (_gestureInterpreter) {
+    _gestureInterpreter->OnDesktopSizeChanged(size.width, size.height);
+  }
 }
 
 - (void)rendererTicked {
-  _gestureInterpreter->ProcessAnimations();
+  if (_gestureInterpreter) {
+    _gestureInterpreter->ProcessAnimations();
+  }
 }
 
 @end

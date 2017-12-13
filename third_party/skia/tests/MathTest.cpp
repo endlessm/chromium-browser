@@ -5,7 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SkColorPriv.h"
+#include "SkColorData.h"
 #include "SkEndian.h"
 #include "SkFDot6.h"
 #include "SkFixed.h"
@@ -690,6 +690,30 @@ DEF_TEST(FloatSaturate, reporter) {
 
     for (auto r : recs) {
         int i = sk_float_saturate2int(r.fFloat);
+        REPORTER_ASSERT(reporter, r.fExpectedInt == i);
+    }
+}
+
+DEF_TEST(DoubleSaturate, reporter) {
+    const struct {
+        double  fDouble;
+        int     fExpectedInt;
+    } recs[] = {
+        { 0, 0 },
+        { 100.5, 100 },
+        { SK_MaxS32, SK_MaxS32 },
+        { SK_MinS32, SK_MinS32 },
+        { SK_MaxS32 - 1, SK_MaxS32 - 1 },
+        { SK_MinS32 + 1, SK_MinS32 + 1 },
+        { SK_MaxS32 * 100.0, SK_MaxS32 },
+        { SK_MinS32 * 100.0, SK_MinS32 },
+        { SK_ScalarInfinity, SK_MaxS32 },
+        { SK_ScalarNegativeInfinity, SK_MinS32 },
+        { SK_ScalarNaN, SK_MaxS32 },
+    };
+
+    for (auto r : recs) {
+        int i = sk_double_saturate2int(r.fDouble);
         REPORTER_ASSERT(reporter, r.fExpectedInt == i);
     }
 }

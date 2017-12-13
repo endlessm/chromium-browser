@@ -138,7 +138,7 @@
       "configs": [
         {
           "builder": "RELEASE",
-          "experimental": true,
+          "experimental": false,
           "leader_board": true,
           "board_group": "vm builds",
           "arch": "X86_INTERNAL"
@@ -150,7 +150,7 @@
       "configs": [
         {
           "builder": "RELEASE",
-          "experimental": true,
+          "experimental": false,
           "leader_board": false,
           "board_group": "gru",
           "arch": "ARM_INTERNAL"
@@ -218,13 +218,25 @@
       ]
     },
     {
+      "name": "caroline-bertha",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "glados",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "caroline-userdebug",
       "configs": [
         {
           "builder": "RELEASE",
           "experimental": true,
           "leader_board": false,
-          "board_group": "",
+          "board_group": "glados",
           "arch": "X86_INTERNAL"
         }
       ]
@@ -274,6 +286,18 @@
           "leader_board": true,
           "board_group": "rambi",
           "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "cobblepot",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "ARM_INTERNAL"
         }
       ]
     },
@@ -374,6 +398,42 @@
       ]
     },
     {
+      "name": "eve-bertha",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "poppy",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "eve-kvm",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "poppy",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "eve-userdebug",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "poppy",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "expresso",
       "configs": [
         {
@@ -405,18 +465,6 @@
           "experimental": false,
           "leader_board": false,
           "board_group": "slippy",
-          "arch": "X86_INTERNAL"
-        }
-      ]
-    },
-    {
-      "name": "fizz",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": false,
-          "leader_board": true,
-          "board_group": "fizz",
           "arch": "X86_INTERNAL"
         }
       ]
@@ -470,6 +518,18 @@
       ]
     },
     {
+      "name": "gonzo",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "ARM_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "gru",
       "configs": [
         {
@@ -494,6 +554,18 @@
       ]
     },
     {
+      "name": "guado-accelerator",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "jecht",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "guado_labstation",
       "configs": [
         {
@@ -502,6 +574,18 @@
           "leader_board": false,
           "board_group": "",
           "arch": "UNKNOWN"
+        }
+      ]
+    },
+    {
+      "name": "guado-macrophage",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "X86_INTERNAL"
         }
       ]
     },
@@ -590,6 +674,18 @@
       ]
     },
     {
+      "name": "kevin-bertha",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "gru",
+          "arch": "ARM_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "kip",
       "configs": [
         {
@@ -626,6 +722,18 @@
       ]
     },
     {
+      "name": "lakitu-nc",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "lakitu_next",
       "configs": [
         {
@@ -642,7 +750,7 @@
       "configs": [
         {
           "builder": "RELEASE",
-          "experimental": true,
+          "experimental": false,
           "leader_board": false,
           "board_group": "",
           "arch": "X86_INTERNAL"
@@ -658,6 +766,30 @@
           "leader_board": true,
           "board_group": "kunimitsu",
           "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "lasilla-ground",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "ARM_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "lasilla-sky",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "ARM_INTERNAL"
         }
       ]
     },
@@ -710,6 +842,18 @@
       ]
     },
     {
+      "name": "macchiato-ground",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "ARM_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "mccloud",
       "configs": [
         {
@@ -734,11 +878,23 @@
       ]
     },
     {
-      "name": "nefario",
+      "name": "nautilus",
       "configs": [
         {
           "builder": "RELEASE",
           "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "nefario",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": false,
           "leader_board": false,
           "board_group": "",
           "arch": "ARM_INTERNAL"
@@ -786,7 +942,7 @@
       "configs": [
         {
           "builder": "RELEASE",
-          "experimental": true,
+          "experimental": false,
           "leader_board": true,
           "board_group": "vm builds",
           "arch": "X86_INTERNAL"
@@ -837,6 +993,18 @@
           "experimental": false,
           "leader_board": true,
           "board_group": "oak",
+          "arch": "ARM_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "octavius",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
           "arch": "ARM_INTERNAL"
         }
       ]
@@ -1018,6 +1186,18 @@
           "leader_board": false,
           "board_group": "jecht",
           "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "romer",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "ARM_INTERNAL"
         }
       ]
     },
@@ -1370,6 +1550,18 @@
       ]
     },
     {
+      "name": "wooten",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "ARM_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "zako",
       "configs": [
         {
@@ -1405,15 +1597,101 @@
       "models": [
         {
           "board_name": "coral",
+          "name": "astronaut",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
+          "name": "blue",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
+          "name": "bruce",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
           "name": "coral",
-          "test_suites": [
-            "sanity",
-            "bvt-inline",
-            "bvt-arc",
-            "au",
-            "bvt-cq",
-            "bvt-perbuild"
-          ],
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
+          "name": "lava",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
+          "name": "nasher",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
+          "name": "nasher360",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
+          "name": "porbeagle",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
+          "name": "robo",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
+          "name": "robo360",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
+          "name": "santa",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
+          "name": "whitetip1",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "coral",
+          "name": "whitetip2",
+          "cq_test_enabled": false
+        }
+      ]
+    },
+    {
+      "name": "fizz",
+      "reference_board_name": "fizz",
+      "arch": "X86_INTERNAL",
+      "builder": "RELEASE",
+      "experimental": false,
+      "models": [
+        {
+          "board_name": "fizz",
+          "name": "fizz",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "fizz",
+          "name": "kench",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "fizz",
+          "name": "sion",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "fizz",
+          "name": "talon",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "fizz",
+          "name": "teemo",
           "cq_test_enabled": false
         }
       ]
@@ -1423,19 +1701,11 @@
       "reference_board_name": "kahlee",
       "arch": "X86_INTERNAL",
       "builder": "RELEASE",
-      "experimental": true,
+      "experimental": false,
       "models": [
         {
           "board_name": "kahlee",
           "name": "kahlee",
-          "test_suites": [
-            "sanity",
-            "bvt-inline",
-            "bvt-arc",
-            "au",
-            "bvt-cq",
-            "bvt-perbuild"
-          ],
           "cq_test_enabled": false
         }
       ]
@@ -1449,20 +1719,22 @@
       "models": [
         {
           "board_name": "reef-uni",
+          "name": "basking",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "reef-uni",
+          "name": "electro",
+          "cq_test_enabled": false
+        },
+        {
+          "board_name": "reef-uni",
           "name": "pyro",
           "cq_test_enabled": false
         },
         {
           "board_name": "reef-uni",
           "name": "reef",
-          "test_suites": [
-            "sanity",
-            "bvt-inline",
-            "bvt-arc",
-            "au",
-            "bvt-cq",
-            "bvt-perbuild"
-          ],
           "cq_test_enabled": false
         },
         {

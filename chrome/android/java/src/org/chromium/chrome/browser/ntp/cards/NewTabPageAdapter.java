@@ -45,6 +45,7 @@ import java.util.Set;
 public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements NodeParent {
     private final SuggestionsUiDelegate mUiDelegate;
     private final ContextMenuManager mContextMenuManager;
+    private final OfflinePageBridge mOfflinePageBridge;
 
     @Nullable
     private final View mAboveTheFoldView;
@@ -112,7 +113,7 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
             mRoot.addChild(mSiteSection);
         }
 
-        if (FeatureUtilities.isChromeHomeModernEnabled()) {
+        if (FeatureUtilities.isChromeHomeEnabled()) {
             mRoot.addChildren(mSigninPromo, mAllDismissed, mSections);
         } else {
             mRoot.addChildren(mSections, mSigninPromo, mAllDismissed);
@@ -128,6 +129,8 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
             mBottomSpacer = new SpacingItem();
             mRoot.addChild(mBottomSpacer);
         }
+
+        mOfflinePageBridge = offlinePageBridge;
 
         RemoteSuggestionsStatusObserver suggestionsObserver = new RemoteSuggestionsStatusObserver();
         mUiDelegate.addDestructionObserver(suggestionsObserver);
@@ -151,14 +154,15 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
                 return new NewTabPageViewHolder(mAboveTheFoldView);
 
             case ItemViewType.SITE_SECTION:
-                return SiteSection.createViewHolder(SiteSection.inflateSiteSection(parent));
+                return SiteSection.createViewHolder(
+                        SiteSection.inflateSiteSection(parent), mUiConfig);
 
             case ItemViewType.HEADER:
                 return new SectionHeaderViewHolder(mRecyclerView, mUiConfig);
 
             case ItemViewType.SNIPPET:
-                return new SnippetArticleViewHolder(
-                        mRecyclerView, mContextMenuManager, mUiDelegate, mUiConfig);
+                return new SnippetArticleViewHolder(mRecyclerView, mContextMenuManager, mUiDelegate,
+                        mUiConfig, mOfflinePageBridge);
 
             case ItemViewType.SPACING:
                 return new NewTabPageViewHolder(SpacingItem.createView(parent));
@@ -183,7 +187,7 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
                 return new AllDismissedItem.ViewHolder(mRecyclerView, mSections);
 
             case ItemViewType.CAROUSEL:
-                return mSuggestionsCarousel.createViewHolder(parent);
+                return new SuggestionsCarousel.ViewHolder(mRecyclerView);
         }
 
         assert false : viewType;
@@ -257,15 +261,25 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
     private void updateAllDismissedVisibility() {
         boolean areRemoteSuggestionsEnabled =
                 mUiDelegate.getSuggestionsSource().areRemoteSuggestionsEnabled();
-        boolean hasAllBeenDismissed = hasAllBeenDismissed();
+        boolean allDismissed = hasAllBeenDismissed() && !areArticlesLoading();
 
-        mAllDismissed.setVisible(areRemoteSuggestionsEnabled && hasAllBeenDismissed);
+        mAllDismissed.setVisible(areRemoteSuggestionsEnabled && allDismissed);
         mFooter.setVisible(!SuggestionsConfig.scrollToLoad() && areRemoteSuggestionsEnabled
-                && !hasAllBeenDismissed);
+                && !allDismissed);
 
         if (mBottomSpacer != null) {
-            mBottomSpacer.setVisible(areRemoteSuggestionsEnabled || !hasAllBeenDismissed);
+            mBottomSpacer.setVisible(areRemoteSuggestionsEnabled || !allDismissed);
         }
+    }
+
+    private boolean areArticlesLoading() {
+        for (int category : mUiDelegate.getSuggestionsSource().getCategories()) {
+            if (category != KnownCategories.ARTICLES) continue;
+
+            return mUiDelegate.getSuggestionsSource().getCategoryStatus(KnownCategories.ARTICLES)
+                    == CategoryStatus.AVAILABLE_LOADING;
+        }
+        return false;
     }
 
     @Override
@@ -280,7 +294,7 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
         assert child == mRoot;
         notifyItemRangeInserted(itemPosition, itemCount);
         if (mBottomSpacer != null) mBottomSpacer.refresh();
-        if (mRecyclerView != null && FeatureUtilities.isChromeHomeModernEnabled()
+        if (mRecyclerView != null && FeatureUtilities.isChromeHomeEnabled()
                 && mSections.hasRecentlyInsertedContent()) {
             mRecyclerView.highlightContentLength();
         }
@@ -310,9 +324,15 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
         mRecyclerView = (SuggestionsRecyclerView) recyclerView;
 
         if (SuggestionsConfig.scrollToLoad()) {
-            mRecyclerView.addOnScrollListener(new ScrollToLoadListener(
+            mRecyclerView.setScrollToLoadListener(new ScrollToLoadListener(
                     this, mRecyclerView.getLinearLayoutManager(), mSections));
         }
+    }
+
+    @Override
+    public void onDetachedFromRecyclerView(RecyclerView recyclerView) {
+        super.onDetachedFromRecyclerView(recyclerView);
+        if (SuggestionsConfig.scrollToLoad()) mRecyclerView.clearScrollToLoadListener();
     }
 
     @Override
@@ -342,11 +362,11 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
     private boolean hasAllBeenDismissed() {
         if (mSigninPromo.isVisible()) return false;
 
-        if (!FeatureUtilities.isChromeHomeModernEnabled()) return mSections.isEmpty();
+        if (!FeatureUtilities.isChromeHomeEnabled()) return mSections.isEmpty();
 
         // In the modern layout, we only consider articles.
         SuggestionsSection suggestions = mSections.getSection(KnownCategories.ARTICLES);
-        return suggestions == null || !suggestions.hasSuggestions();
+        return suggestions == null || !suggestions.hasCards();
     }
 
     private int getChildPositionOffset(TreeNode child) {

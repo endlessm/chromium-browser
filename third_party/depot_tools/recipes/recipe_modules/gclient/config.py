@@ -18,7 +18,7 @@ def BaseConfig(USE_MIRROR=True, CACHE_DIR=None,
     solutions = ConfigList(
       lambda: ConfigGroup(
         name = Single(basestring),
-        url = Single(basestring),
+        url = Single((basestring, type(None)), empty_val=''),
         deps_file = Single(basestring, empty_val='.DEPS.git', required=False,
                            hidden=False),
         managed = Single(bool, empty_val=True, required=False, hidden=False),
@@ -81,6 +81,8 @@ def BaseConfig(USE_MIRROR=True, CACHE_DIR=None,
     # then a patch to Angle project can be applied to a chromium src's
     # checkout after first updating Angle's repo to its master's HEAD.
     patch_projects = Dict(value_type=tuple, hidden=True),
+    # Same as the above, except the keys are full repo URLs.
+    repo_path_map = Dict(value_type=tuple, hidden=True),
 
     # Check out refs/branch-heads.
     # TODO (machenbach): Only implemented for bot_update atm.
@@ -175,6 +177,14 @@ def skia(c):  # pragma: no cover
   m['skia'] = 'got_revision'
 
 @config_ctx()
+def skia_buildbot(c):  # pragma: no cover
+  s = c.solutions.add()
+  s.name = 'skia_buildbot'
+  s.url = 'https://skia.googlesource.com/buildbot.git'
+  m = c.got_revision_mapping
+  m['skia_buildbot'] = 'got_revision'
+
+@config_ctx()
 def chrome_golo(c):  # pragma: no cover
   s = c.solutions.add()
   s.name = 'chrome_golo'
@@ -209,26 +219,26 @@ def build_internal_scripts_slave(c):
 @config_ctx()
 def master_deps(c):
   s = c.solutions.add()
-  s.name = 'build_internal/master.DEPS'
+  s.name = 'master.DEPS'
   s.url = ('https://chrome-internal.googlesource.com/'
            'chrome/tools/build/master.DEPS.git')
-  c.got_revision_mapping['build_internal/master.DEPS'] = 'got_revision'
+  c.got_revision_mapping['master.DEPS'] = 'got_revision'
 
 @config_ctx()
 def slave_deps(c):
   s = c.solutions.add()
-  s.name = 'build_internal/slave.DEPS'
+  s.name = 'slave.DEPS'
   s.url = ('https://chrome-internal.googlesource.com/'
            'chrome/tools/build/slave.DEPS.git')
-  c.got_revision_mapping['build_internal/slave.DEPS'] = 'got_revision'
+  c.got_revision_mapping['slave.DEPS'] = 'got_revision'
 
 @config_ctx()
 def internal_deps(c):
   s = c.solutions.add()
-  s.name = 'build_internal/internal.DEPS'
+  s.name = 'internal.DEPS'
   s.url = ('https://chrome-internal.googlesource.com/'
            'chrome/tools/build/internal.DEPS.git')
-  c.got_revision_mapping['build_internal/internal.DEPS'] = 'got_revision'
+  c.got_revision_mapping['internal.DEPS'] = 'got_revision'
 
 @config_ctx()
 def pdfium(c):

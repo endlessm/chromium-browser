@@ -36,6 +36,7 @@
 #include "base/json/json_reader.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
+#include "base/strings/utf_string_conversions.h"
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
 #include "components/cdm/browser/cdm_message_filter_android.h"
 #include "components/crash/content/browser/crash_dump_observer_android.h"
@@ -78,6 +79,7 @@
 
 using content::BrowserThread;
 using content::ResourceType;
+using content::WebContents;
 
 namespace android_webview {
 namespace {
@@ -86,7 +88,7 @@ namespace {
 // This class filters out incoming aw_contents related IPC messages for the
 // renderer process on the IPC thread.
 class AwContentsMessageFilter : public content::BrowserMessageFilter {
-public:
+ public:
   explicit AwContentsMessageFilter(int process_id);
 
   // BrowserMessageFilter methods.
@@ -102,8 +104,8 @@ public:
                                   bool* ignore_navigation);
   void OnSubFrameCreated(int parent_render_frame_id, int child_render_frame_id);
 
-private:
- ~AwContentsMessageFilter() override;
+ private:
+  ~AwContentsMessageFilter() override;
 
   int process_id_;
 
@@ -295,7 +297,7 @@ std::string AwContentBrowserClient::GetAcceptLangs(
 }
 
 const gfx::ImageSkia* AwContentBrowserClient::GetDefaultFavicon() {
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
   // TODO(boliu): Bundle our own default favicon?
   return rb.GetImageSkiaNamed(IDR_DEFAULT_FAVICON);
 }
@@ -376,7 +378,6 @@ void AwContentBrowserClient::AllowCertificateError(
     const net::SSLInfo& ssl_info,
     const GURL& request_url,
     ResourceType resource_type,
-    bool overridable,
     bool strict_enforcement,
     bool expired_previous_decision,
     const base::Callback<void(content::CertificateRequestResultType)>&
@@ -602,6 +603,52 @@ AwContentBrowserClient::GetSafeBrowsingUrlCheckerDelegate() {
   }
 
   return safe_browsing_url_checker_delegate_.get();
+}
+
+bool AwContentBrowserClient::ShouldOverrideUrlLoading(
+    int frame_tree_node_id,
+    bool browser_initiated,
+    const GURL& gurl,
+    const std::string& request_method,
+    bool has_user_gesture,
+    bool is_redirect,
+    bool is_main_frame,
+    ui::PageTransition transition) {
+  // Only GETs can be overridden.
+  if (request_method != "GET")
+    return false;
+
+  bool application_initiated =
+      browser_initiated || transition & ui::PAGE_TRANSITION_FORWARD_BACK;
+
+  // Don't offer application-initiated navigations unless it's a redirect.
+  if (application_initiated && !is_redirect)
+    return false;
+
+  // For HTTP schemes, only top-level navigations can be overridden. Similarly,
+  // WebView Classic lets app override only top level about:blank navigations.
+  // So we filter out non-top about:blank navigations here.
+  //
+  // Note: about:blank navigations are not received in this path at the moment,
+  // they use the old SYNC IPC path as they are not handled by network stack.
+  // However, the old path should be removed in future.
+  if (!is_main_frame &&
+      (gurl.SchemeIs(url::kHttpScheme) || gurl.SchemeIs(url::kHttpsScheme) ||
+       gurl.SchemeIs(url::kAboutScheme)))
+    return false;
+
+  WebContents* web_contents =
+      WebContents::FromFrameTreeNodeId(frame_tree_node_id);
+  if (web_contents == nullptr)
+    return false;
+  AwContentsClientBridge* client_bridge =
+      AwContentsClientBridge::FromWebContents(web_contents);
+  if (client_bridge == nullptr)
+    return false;
+
+  base::string16 url = base::UTF8ToUTF16(gurl.possibly_invalid_spec());
+  return client_bridge->ShouldOverrideUrlLoading(url, has_user_gesture,
+                                                 is_redirect, is_main_frame);
 }
 
 }  // namespace android_webview

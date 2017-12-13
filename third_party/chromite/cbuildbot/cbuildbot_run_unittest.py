@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -350,7 +351,7 @@ class BuilderRunTest(_BuilderRunTestCase):
     self.assertFalse(run.InEmailReportingEnvironment())
 
     run.attrs.metadata.UpdateWithDict(
-        {'buildbot-master-name': waterfall.WATERFALL_BRILLO})
+        {'buildbot-master-name': waterfall.WATERFALL_INTERNAL})
     self.assertTrue(run.InEmailReportingEnvironment())
 
 

@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-#import "base/ios/weak_nsobject.h"
 #include "base/logging.h"
 #import "base/mac/scoped_nsobject.h"
 #include "base/memory/ptr_util.h"
@@ -69,7 +68,7 @@ enum BeaconType {
 
 @implementation PhysicalWebScanner {
   // Delegate that will be notified when the list of devices change.
-  __unsafe_unretained id<PhysicalWebScannerDelegate> delegate_;
+  __weak id<PhysicalWebScannerDelegate> delegate_;
   // The value of |started_| is YES when the scanner has been started and NO
   // when it's been stopped. The initial value is NO.
   BOOL started_;
@@ -238,13 +237,12 @@ enum BeaconType {
 }
 
 - (BOOL)bluetoothEnabled {
-// TODO(crbug.com/619982): The CBManager base class appears to still be in
-// flux.  Unwind this #ifdef once the APIs settle.
-#if defined(__IPHONE_10_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_10_0
-  return [centralManager_ state] == CBManagerStatePoweredOn;
-#else
-  return [centralManager_ state] == CBCentralManagerStatePoweredOn;
-#endif
+  if (@available(iOS 10, *)) {
+    return [centralManager_ state] == CBManagerStatePoweredOn;
+  } else {
+    return (CBCentralManagerState)[centralManager_ state] ==
+           CBCentralManagerStatePoweredOn;
+  }
 }
 
 - (void)reallyStart {
@@ -480,7 +478,7 @@ enum BeaconType {
       [[PhysicalWebRequest alloc] initWithDevice:device]);
   PhysicalWebRequest* strongRequest = request.get();
   [pendingRequests_ addObject:strongRequest];
-  base::WeakNSObject<PhysicalWebScanner> weakSelf(self);
+  __weak PhysicalWebScanner* weakSelf = self;
   [request start:^(PhysicalWebDevice* device, NSError* error) {
     base::scoped_nsobject<PhysicalWebScanner> strongSelf(weakSelf);
     if (!strongSelf) {

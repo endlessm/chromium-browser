@@ -19,7 +19,7 @@ from measurements import media
 import page_sets
 
 
-# TODO(rnephew): Revist the re-enabled benchmarks on Wed, Aug 8 2017.
+# TODO(rnephew): Revisit the re-enabled benchmarks on Wed, Aug 8 2017.
 # See tr.v.Numeric.getSummarizedScalarNumericsWithNames()
 # https://github.com/catapult-project/catapult/blob/master/tracing/tracing/value/numeric.html#L323
 _IGNORED_STATS_RE = re.compile(
@@ -92,7 +92,10 @@ class MediaAndroidToughVideoCases(perf_benchmark.PerfBenchmark):
     return StoryExpectations()
 
 
-class _MediaTBMv2Benchmark(perf_benchmark.PerfBenchmark):
+class _MediaBenchmark(perf_benchmark.PerfBenchmark):
+  """ Base class for TBMv2-based media benchmarks (MediaDesktop and
+  MediaMobile)."""
+
   def CreateStorySet(self, options):
     return page_sets.ToughVideoCasesPageSet(measure_memory=True)
 
@@ -106,6 +109,9 @@ class _MediaTBMv2Benchmark(perf_benchmark.PerfBenchmark):
     # time to different activities, such as video_animation, etc.
     category_filter.AddIncludedCategory('rail')
 
+    # Collect media related events required by mediaMetric.
+    category_filter.AddIncludedCategory('media')
+
     # Collect memory data.
     category_filter.AddDisabledByDefault('disabled-by-default-memory-infra')
 
@@ -117,22 +123,22 @@ class _MediaTBMv2Benchmark(perf_benchmark.PerfBenchmark):
     options.config.chrome_trace_config.SetMemoryDumpConfig(
         chrome_trace_config.MemoryDumpConfig())
 
-    options.SetTimelineBasedMetrics(['powerMetric',
+    options.SetTimelineBasedMetrics(['powerMetric', 'mediaMetric',
                                      'cpuTimeMetric', 'memoryMetric'])
     return options
 
 
-# android: See media.android.tough_video_cases below
+# android: See media.mobile below
 @benchmark.Owner(emails=['johnchen@chromium.org', 'crouleau@chromium.org'],
                  component='Internals>Media')
-class MediaToughVideoCasesTBMv2(_MediaTBMv2Benchmark):
+class MediaDesktop(_MediaBenchmark):
   """Obtains media metrics using TBMv2.
   Will eventually replace MediaToughVideoCases class."""
   SUPPORTED_PLATFORMS = [story.expectations.ALL_DESKTOP]
 
   @classmethod
   def Name(cls):
-    return 'media.tough_video_cases_tbmv2'
+    return 'media.desktop'
 
   @classmethod
   def ValueCanBeAddedPredicate(cls, value, is_first_result):
@@ -151,7 +157,7 @@ class MediaToughVideoCasesTBMv2(_MediaTBMv2Benchmark):
 # If any story is failing on svelte, please only disable on svelte.
 @benchmark.Owner(emails=['johnchen@chromium.org', 'crouleau@chromium.org'],
                  component='Internals>Media')
-class MediaAndroidToughVideoCasesTBMv2(_MediaTBMv2Benchmark):
+class MediaMobile(_MediaBenchmark):
   """Obtains media metrics for key user scenarios on Android using TBMv2.
   Will eventually replace MediaAndroidToughVideoCases class."""
 
@@ -161,7 +167,7 @@ class MediaAndroidToughVideoCasesTBMv2(_MediaTBMv2Benchmark):
 
   @classmethod
   def Name(cls):
-    return 'media.android.tough_video_cases_tbmv2'
+    return 'media.mobile'
 
   def GetExpectations(self):
     class StoryExpectations(story.expectations.StoryExpectations):

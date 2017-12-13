@@ -22,6 +22,7 @@
 #include "components/autofill/core/browser/country_combobox_model.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "components/autofill/core/browser/phone_number_i18n.h"
 #include "components/autofill/core/browser/validation.h"
 #include "components/autofill/core/common/autofill_constants.h"
 #include "components/autofill/core/common/autofill_l10n_util.h"
@@ -36,7 +37,6 @@
 #include "ui/views/controls/textfield/textfield.h"
 
 namespace payments {
-
 namespace {
 
 // size_t doesn't have a defined maximum value, so this is a trick to create one
@@ -47,7 +47,7 @@ const size_t kInvalidCountryIndex = static_cast<size_t>(-1);
 // Used to normalize a profile in place and synchronously from an
 // AddressNormalizer that already loaded the normalization rules.
 class SynchronousAddressNormalizerDelegate
-    : public AddressNormalizer::Delegate {
+    : public autofill::AddressNormalizer::Delegate {
  public:
   // Doesn't take ownership of |profile_to_normalize| but does modify it.
   SynchronousAddressNormalizerDelegate(
@@ -107,7 +107,7 @@ ShippingAddressEditorViewController::GetFieldDefinitions() {
 base::string16 ShippingAddressEditorViewController::GetInitialValueForType(
     autofill::ServerFieldType type) {
   if (type == autofill::PHONE_HOME_WHOLE_NUMBER) {
-    return data_util::GetFormattedPhoneNumberForDisplay(
+    return autofill::i18n::GetFormattedPhoneNumberForDisplay(
         temporary_profile_, state()->GetApplicationLocale());
   }
 
@@ -277,6 +277,105 @@ ShippingAddressEditorViewController::CreatePrimaryButton() {
   return button;
 }
 
+ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
+    ShippingAddressValidationDelegate(
+        ShippingAddressEditorViewController* controller,
+        const EditorField& field)
+    : field_(field), controller_(controller) {}
+
+ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
+    ~ShippingAddressValidationDelegate() {}
+
+bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
+    ShouldFormat() {
+  return field_.type == autofill::PHONE_HOME_WHOLE_NUMBER;
+}
+
+base::string16
+ShippingAddressEditorViewController::ShippingAddressValidationDelegate::Format(
+    const base::string16& text) {
+  if (controller_->chosen_country_index_ < controller_->countries_.size()) {
+    return base::UTF8ToUTF16(autofill::i18n::FormatPhoneForDisplay(
+        base::UTF16ToUTF8(text),
+        controller_->countries_[controller_->chosen_country_index_].first));
+  } else {
+    return text;
+  }
+}
+
+bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
+    IsValidTextfield(views::Textfield* textfield,
+                     base::string16* error_message) {
+  return ValidateValue(textfield->text(), error_message);
+}
+
+bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
+    IsValidCombobox(views::Combobox* combobox, base::string16* error_message) {
+  return ValidateValue(combobox->GetTextForRow(combobox->selected_index()),
+                       error_message);
+}
+
+bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
+    TextfieldValueChanged(views::Textfield* textfield, bool was_blurred) {
+  if (!was_blurred)
+    return true;
+
+  base::string16 error_message;
+  bool is_valid = ValidateValue(textfield->text(), &error_message);
+  controller_->DisplayErrorMessageForField(field_.type, error_message);
+  return is_valid;
+}
+
+bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
+    ComboboxValueChanged(views::Combobox* combobox) {
+  base::string16 error_message;
+  bool is_valid = ValidateValue(
+      combobox->GetTextForRow(combobox->selected_index()), &error_message);
+  controller_->DisplayErrorMessageForField(field_.type, error_message);
+  return is_valid;
+}
+
+void ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
+    ComboboxModelChanged(views::Combobox* combobox) {
+  controller_->OnComboboxModelChanged(combobox);
+}
+
+bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
+    ValidateValue(const base::string16& value, base::string16* error_message) {
+  if (!value.empty()) {
+    if (field_.type == autofill::PHONE_HOME_WHOLE_NUMBER &&
+        controller_->chosen_country_index_ < controller_->countries_.size() &&
+        !autofill::IsValidPhoneNumber(
+            value, controller_->countries_[controller_->chosen_country_index_]
+                       .first)) {
+      if (error_message) {
+        *error_message = l10n_util::GetStringUTF16(
+            IDS_PAYMENTS_PHONE_INVALID_VALIDATION_MESSAGE);
+      }
+      return false;
+    }
+
+    if (field_.type == autofill::ADDRESS_HOME_STATE &&
+        value == l10n_util::GetStringUTF16(IDS_AUTOFILL_LOADING_REGIONS)) {
+      // Wait for the regions to be loaded or timeout before assessing validity.
+      return false;
+    }
+
+    // As long as other field types are non-empty, they are valid.
+    return true;
+  }
+  if (error_message && field_.required) {
+    *error_message = l10n_util::GetStringUTF16(
+        IDS_PAYMENTS_FIELD_REQUIRED_VALIDATION_MESSAGE);
+  }
+  return !field_.required;
+}
+
+bool ShippingAddressEditorViewController::GetSheetId(DialogViewID* sheet_id) {
+  *sheet_id = DialogViewID::SHIPPING_ADDRESS_EDITOR_SHEET;
+  return true;
+}
+
 void ShippingAddressEditorViewController::UpdateCountries(
     autofill::CountryComboboxModel* model) {
   autofill::CountryComboboxModel local_model;
@@ -335,10 +434,9 @@ void ShippingAddressEditorViewController::UpdateEditorFields() {
     chosen_country_code = countries_[chosen_country_index_].first;
 
   std::unique_ptr<base::ListValue> components(new base::ListValue);
-  std::string unused;
   autofill::GetAddressComponents(chosen_country_code,
                                  state()->GetApplicationLocale(),
-                                 components.get(), &unused);
+                                 components.get(), &language_code_);
   for (size_t line_index = 0; line_index < components->GetSize();
        ++line_index) {
     const base::ListValue* line = nullptr;
@@ -486,6 +584,7 @@ bool ShippingAddressEditorViewController::SaveFieldsToProfile(
     if (!success && !ignore_errors)
       return false;
   }
+  profile->set_language_code(language_code_);
   return success;
 }
 
@@ -510,105 +609,6 @@ void ShippingAddressEditorViewController::OnComboboxModelChanged(
       OnPerformAction(combobox);
     }
   }
-}
-
-bool ShippingAddressEditorViewController::GetSheetId(DialogViewID* sheet_id) {
-  *sheet_id = DialogViewID::SHIPPING_ADDRESS_EDITOR_SHEET;
-  return true;
-}
-
-ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
-    ShippingAddressValidationDelegate(
-        ShippingAddressEditorViewController* controller,
-        const EditorField& field)
-    : field_(field), controller_(controller) {}
-
-ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
-    ~ShippingAddressValidationDelegate() {}
-
-bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
-    ShouldFormat() {
-  return field_.type == autofill::PHONE_HOME_WHOLE_NUMBER;
-}
-
-base::string16
-ShippingAddressEditorViewController::ShippingAddressValidationDelegate::Format(
-    const base::string16& text) {
-  if (controller_->chosen_country_index_ < controller_->countries_.size()) {
-    return base::UTF8ToUTF16(data_util::FormatPhoneForDisplay(
-        base::UTF16ToUTF8(text),
-        controller_->countries_[controller_->chosen_country_index_].first));
-  } else {
-    return text;
-  }
-}
-
-bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
-    IsValidTextfield(views::Textfield* textfield,
-                     base::string16* error_message) {
-  return ValidateValue(textfield->text(), error_message);
-}
-
-bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
-    IsValidCombobox(views::Combobox* combobox, base::string16* error_message) {
-  return ValidateValue(combobox->GetTextForRow(combobox->selected_index()),
-                       error_message);
-}
-
-bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
-    TextfieldValueChanged(views::Textfield* textfield, bool was_blurred) {
-  if (!was_blurred)
-    return true;
-
-  base::string16 error_message;
-  bool is_valid = ValidateValue(textfield->text(), &error_message);
-  controller_->DisplayErrorMessageForField(field_.type, error_message);
-  return is_valid;
-}
-
-bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
-    ComboboxValueChanged(views::Combobox* combobox) {
-  base::string16 error_message;
-  bool is_valid = ValidateValue(
-      combobox->GetTextForRow(combobox->selected_index()), &error_message);
-  controller_->DisplayErrorMessageForField(field_.type, error_message);
-  return is_valid;
-}
-
-void ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
-    ComboboxModelChanged(views::Combobox* combobox) {
-  controller_->OnComboboxModelChanged(combobox);
-}
-
-bool ShippingAddressEditorViewController::ShippingAddressValidationDelegate::
-    ValidateValue(const base::string16& value, base::string16* error_message) {
-  if (!value.empty()) {
-    if (field_.type == autofill::PHONE_HOME_WHOLE_NUMBER &&
-        controller_->chosen_country_index_ < controller_->countries_.size() &&
-        !autofill::IsValidPhoneNumber(
-            value, controller_->countries_[controller_->chosen_country_index_]
-                       .first)) {
-      if (error_message) {
-        *error_message = l10n_util::GetStringUTF16(
-            IDS_PAYMENTS_PHONE_INVALID_VALIDATION_MESSAGE);
-      }
-      return false;
-    }
-
-    if (field_.type == autofill::ADDRESS_HOME_STATE &&
-        value == l10n_util::GetStringUTF16(IDS_AUTOFILL_LOADING_REGIONS)) {
-      // Wait for the regions to be loaded or timeout before assessing validity.
-      return false;
-    }
-
-    // As long as other field types are non-empty, they are valid.
-    return true;
-  }
-  if (error_message && field_.required) {
-    *error_message = l10n_util::GetStringUTF16(
-        IDS_PAYMENTS_FIELD_REQUIRED_VALIDATION_MESSAGE);
-  }
-  return !field_.required;
 }
 
 }  // namespace payments

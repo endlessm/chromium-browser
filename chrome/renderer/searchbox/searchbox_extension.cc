@@ -16,12 +16,14 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "chrome/common/search/instant_types.h"
 #include "chrome/common/search/ntp_logging_events.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/renderer_resources.h"
 #include "chrome/renderer/searchbox/searchbox.h"
 #include "components/crx_file/id_util.h"
+#include "components/ntp_tiles/ntp_tile_impression.h"
 #include "components/ntp_tiles/tile_source.h"
 #include "components/ntp_tiles/tile_visual_type.h"
 #include "content/public/renderer/render_frame.h"
@@ -167,6 +169,8 @@ v8::Local<v8::Object> GenerateMostVisitedItem(
              UTF8ToV8String(isolate, mv_item.favicon.spec()));
   }
 
+  obj->Set(v8::String::NewFromUtf8(isolate, "tileTitleSource"),
+           v8::Integer::New(isolate, static_cast<int>(mv_item.title_source)));
   obj->Set(v8::String::NewFromUtf8(isolate, "tileSource"),
            v8::Integer::New(isolate, static_cast<int>(mv_item.source)));
   obj->Set(v8::String::NewFromUtf8(isolate, "title"),
@@ -177,6 +181,11 @@ v8::Local<v8::Object> GenerateMostVisitedItem(
            v8::String::NewFromUtf8(isolate, direction));
   obj->Set(v8::String::NewFromUtf8(isolate, "url"),
            UTF8ToV8String(isolate, mv_item.url.spec()));
+  obj->Set(
+      v8::String::NewFromUtf8(isolate, "dataGenerationTime"),
+      mv_item.data_generation_time.is_null()
+          ? v8::Local<v8::Value>(v8::Null(isolate))
+          : v8::Date::New(isolate, mv_item.data_generation_time.ToJsTime()));
   return obj;
 }
 
@@ -198,6 +207,15 @@ content::RenderFrame* GetRenderFrameWithCheckedOrigin(const GURL& origin) {
     return NULL;
 
   return main_frame;
+}
+
+base::Time ConvertDateValueToTime(v8::Value* value) {
+  DCHECK(value);
+  if (value->IsNull())
+    return base::Time();
+
+  DCHECK(value->IsDate());
+  return base::Time::FromJsTime(v8::Date::Cast(value)->ValueOf());
 }
 
 }  // namespace
@@ -306,28 +324,6 @@ static const char kDispatchMostVisitedChangedScript[] =
     "  true;"
     "}";
 
-static const char kDispatchSubmitEventScript[] =
-    "if (window.chrome &&"
-    "    window.chrome.embeddedSearch &&"
-    "    window.chrome.embeddedSearch.searchBox &&"
-    "    window.chrome.embeddedSearch.searchBox.onsubmit &&"
-    "    typeof window.chrome.embeddedSearch.searchBox.onsubmit =="
-    "        'function') {"
-    "  window.chrome.embeddedSearch.searchBox.onsubmit();"
-    "  true;"
-    "}";
-
-static const char kDispatchSuggestionChangeEventScript[] =
-    "if (window.chrome &&"
-    "    window.chrome.embeddedSearch &&"
-    "    window.chrome.embeddedSearch.searchBox &&"
-    "    window.chrome.embeddedSearch.searchBox.onsuggestionchange &&"
-    "    typeof window.chrome.embeddedSearch.searchBox.onsuggestionchange =="
-    "        'function') {"
-    "  window.chrome.embeddedSearch.searchBox.onsuggestionchange();"
-    "  true;"
-    "}";
-
 static const char kDispatchThemeChangeEventScript[] =
     "if (window.chrome &&"
     "    window.chrome.embeddedSearch &&"
@@ -379,14 +375,6 @@ class SearchBoxExtensionWrapper : public v8::Extension {
   // Returns true if the Chrome UI is rendered right-to-left.
   static void GetRightToLeft(const v8::FunctionCallbackInfo<v8::Value>& args);
 
-  // Gets the Embedded Search request params. Used for logging purposes.
-  static void GetSearchRequestParams(
-      const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Gets the current top suggestion to prefetch search results.
-  static void GetSuggestionToPrefetch(
-      const v8::FunctionCallbackInfo<v8::Value>& args);
-
   // Gets the background info of the theme currently adopted by browser.
   // Call only when overlay is showing NTP page.
   static void GetThemeBackgroundInfo(
@@ -403,7 +391,7 @@ class SearchBoxExtensionWrapper : public v8::Extension {
   static void IsKeyCaptureEnabled(
       const v8::FunctionCallbackInfo<v8::Value>& args);
 
-  // Logs information from the iframes/titles on the NTP.
+  // Logs information from the NTP.
   static void LogEvent(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   // Logs an impression on one of the Most Visited tile on the NTP.
@@ -439,8 +427,9 @@ class SearchBoxExtensionWrapper : public v8::Extension {
 
 // static
 v8::Extension* SearchBoxExtension::Get() {
-  return new SearchBoxExtensionWrapper(ResourceBundle::GetSharedInstance().
-      GetRawDataResource(IDR_SEARCHBOX_API));
+  return new SearchBoxExtensionWrapper(
+      ui::ResourceBundle::GetSharedInstance().GetRawDataResource(
+          IDR_SEARCHBOX_API));
 }
 
 // static
@@ -491,16 +480,6 @@ void SearchBoxExtension::DispatchMostVisitedChanged(
 }
 
 // static
-void SearchBoxExtension::DispatchSubmit(blink::WebLocalFrame* frame) {
-  Dispatch(frame, kDispatchSubmitEventScript);
-}
-
-// static
-void SearchBoxExtension::DispatchSuggestionChange(blink::WebLocalFrame* frame) {
-  Dispatch(frame, kDispatchSuggestionChangeEventScript);
-}
-
-// static
 void SearchBoxExtension::DispatchThemeChange(blink::WebLocalFrame* frame) {
   Dispatch(frame, kDispatchThemeChangeEventScript);
 }
@@ -531,10 +510,6 @@ SearchBoxExtensionWrapper::GetNativeFunctionTemplate(
     return v8::FunctionTemplate::New(isolate, GetMostVisitedItemData);
   if (name_str == "GetRightToLeft")
     return v8::FunctionTemplate::New(isolate, GetRightToLeft);
-  if (name_str == "GetSearchRequestParams")
-    return v8::FunctionTemplate::New(isolate, GetSearchRequestParams);
-  if (name_str == "GetSuggestionToPrefetch")
-    return v8::FunctionTemplate::New(isolate, GetSuggestionToPrefetch);
   if (name_str == "GetThemeBackgroundInfo")
     return v8::FunctionTemplate::New(isolate, GetThemeBackgroundInfo);
   if (name_str == "IsFocused")
@@ -680,59 +655,6 @@ void SearchBoxExtensionWrapper::GetRightToLeft(
   args.GetReturnValue().Set(base::i18n::IsRTL());
 }
 
-// static
-void SearchBoxExtensionWrapper::GetSearchRequestParams(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
-  content::RenderFrame* render_frame = GetRenderFrame();
-  if (!render_frame)
-    return;
-
-  const EmbeddedSearchRequestParams& params =
-      SearchBox::Get(render_frame)->GetEmbeddedSearchRequestParams();
-  v8::Isolate* isolate = args.GetIsolate();
-  v8::Local<v8::Object> data = v8::Object::New(isolate);
-  if (!params.search_query.empty()) {
-    data->Set(v8::String::NewFromUtf8(isolate, kSearchQueryKey),
-              UTF16ToV8String(isolate, params.search_query));
-  }
-  if (!params.original_query.empty()) {
-    data->Set(v8::String::NewFromUtf8(isolate, kOriginalQueryKey),
-              UTF16ToV8String(isolate, params.original_query));
-  }
-  if (!params.rlz_parameter_value.empty()) {
-    data->Set(v8::String::NewFromUtf8(isolate, kRLZParameterKey),
-              UTF16ToV8String(isolate, params.rlz_parameter_value));
-  }
-  if (!params.input_encoding.empty()) {
-    data->Set(v8::String::NewFromUtf8(isolate, kInputEncodingKey),
-              UTF16ToV8String(isolate, params.input_encoding));
-  }
-  if (!params.assisted_query_stats.empty()) {
-    data->Set(v8::String::NewFromUtf8(isolate, kAssistedQueryStatsKey),
-              UTF16ToV8String(isolate, params.assisted_query_stats));
-  }
-  args.GetReturnValue().Set(data);
-}
-
-// static
-void SearchBoxExtensionWrapper::GetSuggestionToPrefetch(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
-  content::RenderFrame* render_frame = GetRenderFrame();
-  if (!render_frame)
-    return;
-
-  const InstantSuggestion& suggestion =
-      SearchBox::Get(render_frame)->suggestion();
-  v8::Isolate* isolate = args.GetIsolate();
-  v8::Local<v8::Object> data = v8::Object::New(isolate);
-  data->Set(v8::String::NewFromUtf8(isolate, "text"),
-            UTF16ToV8String(isolate, suggestion.text));
-  data->Set(v8::String::NewFromUtf8(isolate, "metadata"),
-            UTF8ToV8String(isolate, suggestion.metadata));
-  args.GetReturnValue().Set(data);
-}
-
-// static
 void SearchBoxExtensionWrapper::GetThemeBackgroundInfo(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   content::RenderFrame* render_frame = GetRenderFrame();
@@ -929,6 +851,11 @@ void SearchBoxExtensionWrapper::LogEvent(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   content::RenderFrame* render_frame = GetRenderFrameWithCheckedOrigin(
       GURL(chrome::kChromeSearchMostVisitedUrl));
+
+  if (!render_frame) {
+    render_frame =
+        GetRenderFrameWithCheckedOrigin(GURL(chrome::kChromeSearchLocalNtpUrl));
+  }
   if (!render_frame)
     return;
 
@@ -954,23 +881,29 @@ void SearchBoxExtensionWrapper::LogMostVisitedImpression(
   if (!render_frame)
     return;
 
-  if (args.Length() < 3 || !args[0]->IsNumber() || !args[1]->IsNumber() ||
-      !args[2]->IsNumber()) {
+  if (args.Length() < 5 || !args[0]->IsNumber() || !args[1]->IsNumber() ||
+      !args[2]->IsNumber() || !args[3]->IsNumber() ||
+      (!args[4]->IsDate() && !args[4]->IsNull())) {
     ThrowInvalidParameters(args);
     return;
   }
 
   DVLOG(1) << render_frame << " LogMostVisitedImpression";
 
-  if (args[1]->Uint32Value() <= static_cast<int>(ntp_tiles::TileSource::LAST) &&
-      args[2]->Uint32Value() <= ntp_tiles::TileVisualType::TILE_TYPE_MAX) {
-    auto tile_source =
-        static_cast<ntp_tiles::TileSource>(args[1]->Uint32Value());
-    auto tile_type =
-        static_cast<ntp_tiles::TileVisualType>(args[2]->Uint32Value());
-    SearchBox::Get(render_frame)
-        ->LogMostVisitedImpression(args[0]->IntegerValue(), tile_source,
-                                   tile_type);
+  if (args[1]->Uint32Value() <=
+          static_cast<int>(ntp_tiles::TileTitleSource::LAST) &&
+      args[2]->Uint32Value() <= static_cast<int>(ntp_tiles::TileSource::LAST) &&
+      args[3]->Uint32Value() <= ntp_tiles::TileVisualType::TILE_TYPE_MAX) {
+    const ntp_tiles::NTPTileImpression impression(
+        /*index=*/args[0]->IntegerValue(),
+        /*source=*/static_cast<ntp_tiles::TileSource>(args[2]->Uint32Value()),
+        /*title_source=*/
+        static_cast<ntp_tiles::TileTitleSource>(args[1]->Uint32Value()),
+        /*visual_type=*/
+        static_cast<ntp_tiles::TileVisualType>(args[3]->Uint32Value()),
+        /*data_generation_time=*/ConvertDateValueToTime(*args[4]),
+        /*url_for_rappor=*/GURL());
+    SearchBox::Get(render_frame)->LogMostVisitedImpression(impression);
   }
 }
 
@@ -982,22 +915,29 @@ void SearchBoxExtensionWrapper::LogMostVisitedNavigation(
   if (!render_frame)
     return;
 
-  if (args.Length() < 2 || !args[0]->IsNumber() || !args[1]->IsNumber()) {
+  if (args.Length() < 5 || !args[0]->IsNumber() || !args[1]->IsNumber() ||
+      !args[2]->IsNumber() || !args[3]->IsNumber() ||
+      (!args[4]->IsDate() && !args[4]->IsNull())) {
     ThrowInvalidParameters(args);
     return;
   }
 
   DVLOG(1) << render_frame << " LogMostVisitedNavigation";
 
-  if (args[1]->Uint32Value() <= static_cast<int>(ntp_tiles::TileSource::LAST) &&
-      args[2]->Uint32Value() <= ntp_tiles::TileVisualType::TILE_TYPE_MAX) {
-    auto tile_source =
-        static_cast<ntp_tiles::TileSource>(args[1]->Uint32Value());
-    auto tile_type =
-        static_cast<ntp_tiles::TileVisualType>(args[2]->Uint32Value());
-    SearchBox::Get(render_frame)
-        ->LogMostVisitedNavigation(args[0]->IntegerValue(), tile_source,
-                                   tile_type);
+  if (args[1]->Uint32Value() <=
+          static_cast<int>(ntp_tiles::TileTitleSource::LAST) &&
+      args[2]->Uint32Value() <= static_cast<int>(ntp_tiles::TileSource::LAST) &&
+      args[3]->Uint32Value() <= ntp_tiles::TileVisualType::TILE_TYPE_MAX) {
+    const ntp_tiles::NTPTileImpression impression(
+        /*index=*/args[0]->IntegerValue(),
+        /*source=*/static_cast<ntp_tiles::TileSource>(args[2]->Uint32Value()),
+        /*title_source=*/
+        static_cast<ntp_tiles::TileTitleSource>(args[1]->Uint32Value()),
+        /*visual_type=*/
+        static_cast<ntp_tiles::TileVisualType>(args[3]->Uint32Value()),
+        /*data_generation_time=*/ConvertDateValueToTime(*args[4]),
+        /*url_for_rappor=*/GURL());
+    SearchBox::Get(render_frame)->LogMostVisitedNavigation(impression);
   }
 }
 

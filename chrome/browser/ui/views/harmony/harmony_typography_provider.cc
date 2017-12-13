@@ -17,7 +17,8 @@
 #include "ui/native_theme/native_theme_win.h"
 #endif
 
-#if defined(USE_ASH)
+#if defined(OS_CHROMEOS)
+// gn check complains on Linux Ozone.
 #include "ash/public/cpp/ash_typography.h"  // nogncheck
 #endif
 
@@ -83,6 +84,7 @@ SkColor GetHarmonyTextColorForNonStandardNativeTheme(
 }  // namespace
 
 #if defined(OS_WIN)
+// static
 int HarmonyTypographyProvider::GetPlatformFontHeight(int font_context) {
   const bool direct_write_enabled =
       gfx::PlatformFontWin::IsDirectWriteEnabled();
@@ -91,7 +93,7 @@ int HarmonyTypographyProvider::GetPlatformFontHeight(int font_context) {
     case CONTEXT_HEADLINE:
       return windows_10 && direct_write_enabled ? 27 : 28;
     case views::style::CONTEXT_DIALOG_TITLE:
-      return windows_10 ? 20 : 21;
+      return windows_10 || !direct_write_enabled ? 20 : 21;
     case CONTEXT_BODY_TEXT_LARGE:
       return direct_write_enabled ? 18 : 17;
     case CONTEXT_BODY_TEXT_SMALL:
@@ -113,7 +115,7 @@ const gfx::FontList& HarmonyTypographyProvider::GetFont(int context,
   int size_delta = kDefaultSize - gfx::PlatformFont::kDefaultBaseFontSize;
   gfx::Font::Weight font_weight = gfx::Font::Weight::NORMAL;
 
-#if defined(USE_ASH)
+#if defined(OS_CHROMEOS)
   ash::ApplyAshFontStyles(context, style, &size_delta, &font_weight);
 #endif
 
@@ -219,7 +221,7 @@ int HarmonyTypographyProvider::GetLineHeight(int context, int style) const {
   constexpr int kTemplateStyle = views::style::STYLE_PRIMARY;
 
   // TODO(tapted): These statics should be cleared out when something invokes
-  // ResourceBundle::ReloadFonts(). Currently that only happens on ChromeOS.
+  // ui::ResourceBundle::ReloadFonts(). Currently that only happens on ChromeOS.
   // See http://crbug.com/708943.
   static const int headline_height =
       GetFont(CONTEXT_HEADLINE, kTemplateStyle).GetHeight() -

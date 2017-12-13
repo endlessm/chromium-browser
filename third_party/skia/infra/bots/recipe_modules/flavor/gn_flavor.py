@@ -30,7 +30,8 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
     os            = self.m.vars.builder_cfg.get('os',            '')
     target_arch   = self.m.vars.builder_cfg.get('target_arch',   '')
 
-    clang_linux   = str(self.m.vars.slave_dir.join('clang_linux'))
+    clang_linux        = str(self.m.vars.slave_dir.join('clang_linux'))
+    emscripten_sdk     = str(self.m.vars.slave_dir.join('emscripten_sdk'))
     linux_vulkan_sdk   = str(self.m.vars.slave_dir.join('linux_vulkan_sdk'))
     win_toolchain = str(self.m.vars.slave_dir.join(
       't', 'depot_tools', 'win_toolchain', 'vs_files',
@@ -53,8 +54,20 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
       cc, cxx = 'gcc-4.8', 'g++-4.8'
     elif compiler == 'GCC':
       cc, cxx = 'gcc', 'g++'
+    elif compiler == 'EMCC':
+      cc   = emscripten_sdk + '/emscripten/incoming/emcc'
+      cxx  = emscripten_sdk + '/emscripten/incoming/em++'
+      extra_cflags.append('-Wno-unknown-warning-option')
 
-    if compiler != 'MSVC' and configuration == 'Debug':
+    if 'Coverage' in extra_config:
+      # See https://clang.llvm.org/docs/SourceBasedCodeCoverage.html for
+      # more info on using llvm to gather coverage information.
+      extra_cflags.append('-fprofile-instr-generate')
+      extra_cflags.append('-fcoverage-mapping')
+      extra_ldflags.append('-fprofile-instr-generate')
+      extra_ldflags.append('-fcoverage-mapping')
+
+    elif compiler != 'MSVC' and configuration == 'Debug':
       extra_cflags.append('-O1')
 
     if extra_config == 'Exceptions':
@@ -80,7 +93,7 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
     if extra_config == 'MSAN':
       args['skia_enable_gpu']     = 'false'
       args['skia_use_fontconfig'] = 'false'
-    if extra_config == 'ASAN':
+    if 'ASAN' in extra_config or 'UBSAN' in extra_config:
       args['skia_enable_spirv_validation'] = 'false'
     if extra_config == 'Mesa':
       args['skia_use_mesa'] = 'true'
@@ -101,7 +114,7 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
       args['skia_enable_gpu'] = 'false'
     if extra_config == 'Shared':
       args['is_component_build'] = 'true'
-    if extra_config == 'Vulkan':
+    if 'Vulkan' in extra_config and not 'Android' in extra_config:
       args['skia_enable_vulkan_debug_layers'] = 'false'
       if self.m.vars.is_linux:
         args['skia_vulkan_sdk'] = '"%s"' % linux_vulkan_sdk
@@ -113,11 +126,27 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
       args['skia_compile_processors'] = 'true'
     if compiler == 'Clang' and 'Win' in os:
       args['clang_win'] = '"%s"' % self.m.vars.slave_dir.join('clang_win')
+    if target_arch == 'wasm':
+      args.update({
+        'skia_use_freetype':   'false',
+        'skia_use_fontconfig': 'false',
+        'skia_use_dng_sdk':    'false',
+        'skia_use_icu':        'false',
+        'skia_enable_gpu':     'false',
+      })
+    if 'Coverage' in extra_config:
+      args['skia_use_system_freetype2'] = 'false'
+
+    sanitize = ''
+    if extra_config == 'UBSAN_float_cast_overflow':
+      sanitize = 'float-cast-overflow'
+    elif 'SAN' in extra_config:
+      sanitize = extra_config
 
     for (k,v) in {
       'cc':  cc,
       'cxx': cxx,
-      'sanitize': extra_config if 'SAN' in extra_config else '',
+      'sanitize': sanitize,
       'target_cpu': target_arch,
       'target_os': 'ios' if 'iOS' in extra_config else '',
       'windk': win_toolchain if 'Win' in os else '',
@@ -143,6 +172,9 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
         self._py(
             'fetch-clang-format',
             self.m.vars.skia_dir.join('bin', 'fetch-clang-format'))
+      if target_arch == 'wasm':
+        fastcomp = emscripten_sdk + '/clang/fastcomp/build_incoming_64/bin'
+        env['PATH'] = '%s:%%(PATH)s' % fastcomp
 
       with self.m.env(env):
         self._run('gn gen', [gn, 'gen', self.out_dir, '--args=' + gn_args])
@@ -163,30 +195,66 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
     app = self.m.vars.skia_out.join(self.m.vars.configuration, cmd[0])
     cmd = [app] + cmd[1:]
     env = self.m.context.env
+    path = []
+    ld_library_path = []
 
-    clang_linux = str(self.m.vars.slave_dir.join('clang_linux'))
+    slave_dir = self.m.vars.slave_dir
+    clang_linux = str(slave_dir.join('clang_linux'))
     extra_config = self.m.vars.builder_cfg.get('extra_config', '')
+
+    if self.m.vars.is_linux:
+      if (self.m.vars.builder_cfg.get('cpu_or_gpu', '') == 'GPU'
+          and 'Intel' in self.m.vars.builder_cfg.get('cpu_or_gpu_value', '')):
+        # The vulkan in this asset name simply means that the graphics driver
+        # supports Vulkan. It is also the driver used for GL code.
+        dri_path = slave_dir.join('linux_vulkan_intel_driver_release')
+        if self.m.vars.builder_cfg.get('configuration', '') == 'Debug':
+          dri_path = slave_dir.join('linux_vulkan_intel_driver_debug')
+        ld_library_path.append(dri_path)
+        env['LIBGL_DRIVERS_PATH'] = str(dri_path)
+        env['VK_ICD_FILENAMES'] = str(dri_path.join('intel_icd.x86_64.json'))
+
+      if 'Vulkan' in extra_config:
+        path.append(slave_dir.join('linux_vulkan_sdk', 'bin'))
+        ld_library_path.append(slave_dir.join('linux_vulkan_sdk', 'lib'))
 
     if 'SAN' in extra_config:
       # Sanitized binaries may want to run clang_linux/bin/llvm-symbolizer.
-      env['PATH'] = '%%(PATH)s:%s' % clang_linux + '/bin'
+      path.append(clang_linux + '/bin')
     elif self.m.vars.is_linux:
       cmd = ['catchsegv'] + cmd
 
-    if 'ASAN' == extra_config:
+    if 'ASAN' == extra_config or 'UBSAN' in extra_config:
       env[ 'ASAN_OPTIONS'] = 'symbolize=1 detect_leaks=1'
       env[ 'LSAN_OPTIONS'] = 'symbolize=1 print_suppressions=1'
       env['UBSAN_OPTIONS'] = 'symbolize=1 print_stacktrace=1'
 
     if 'MSAN' == extra_config:
       # Find the MSAN-built libc++.
-      env['LD_LIBRARY_PATH'] = clang_linux + '/msan'
+      ld_library_path.append(clang_linux + '/msan')
+
+    if 'TSAN' == extra_config:
+      # We don't care about malloc(), fprintf, etc. used in signal handlers.
+      # If we're in a signal handler, we're already crashing...
+      env['TSAN_OPTIONS'] = 'report_signal_unsafe=0'
+
+    if 'Coverage' in extra_config:
+      # This is the output file for the coverage data. Just running the binary
+      # will produce the output. The output_file is in the swarming_out_dir and
+      # thus will be an isolated output of the Test step.
+      env['LLVM_PROFILE_FILE'] = self.m.path.join(self.m.vars.swarming_out_dir,
+                                                  'output.profraw')
+
+    if path:
+      env['PATH'] = '%%(PATH)s:%s' % ':'.join('%s' % p for p in path)
+    if ld_library_path:
+      env['LD_LIBRARY_PATH'] = ':'.join('%s' % p for p in ld_library_path)
 
     to_symbolize = ['dm', 'nanobench']
     if name in to_symbolize and self.m.vars.is_linux:
       # Convert path objects or placeholders into strings such that they can
       # be passed to symbolize_stack_trace.py
-      args = [self.m.vars.slave_dir] + [str(x) for x in cmd]
+      args = [slave_dir] + [str(x) for x in cmd]
       with self.m.context(cwd=self.m.vars.skia_dir, env=env):
         self._py('symbolized %s' % name,
                  self.module.resource('symbolize_stack_trace.py'),

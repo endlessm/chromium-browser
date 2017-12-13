@@ -5,10 +5,10 @@
 #ifndef CHROMEOS_DBUS_FAKE_POWER_MANAGER_CLIENT_H_
 #define CHROMEOS_DBUS_FAKE_POWER_MANAGER_CLIENT_H_
 
-#include <deque>
 #include <string>
 
 #include "base/callback_forward.h"
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -62,8 +62,10 @@ class CHROMEOS_EXPORT FakePowerManagerClient : public PowerManagerClient {
   void IncreaseKeyboardBrightness() override;
   void RequestStatusUpdate() override;
   void RequestSuspend() override;
-  void RequestRestart() override;
-  void RequestShutdown() override;
+  void RequestRestart(power_manager::RequestRestartReason reason,
+                      const std::string& description) override;
+  void RequestShutdown(power_manager::RequestShutdownReason reason,
+                       const std::string& description) override;
   void NotifyUserActivity(power_manager::UserActivityType type) override;
   void NotifyVideoActivity(bool is_fullscreen) override;
   void SetPolicy(const power_manager::PowerManagementPolicy& policy) override;
@@ -148,7 +150,7 @@ class CHROMEOS_EXPORT FakePowerManagerClient : public PowerManagerClient {
 
   // Video activity reports that we were requested to send, in the order they
   // were requested. True if fullscreen.
-  std::deque<bool> video_activity_reports_;
+  base::circular_deque<bool> video_activity_reports_;
 
   // Delegate for managing power consumption of Chrome's renderer processes.
   base::WeakPtr<RenderProcessManagerDelegate> render_process_manager_delegate_;

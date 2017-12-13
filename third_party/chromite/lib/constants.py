@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -31,12 +32,13 @@ SOURCE_ROOT = _FindSourceRoot()
 CHROOT_SOURCE_ROOT = '/mnt/host/source'
 CHROOT_WORKSPACE_ROOT = '/mnt/host/workspace'
 CHROOT_CACHE_ROOT = '/var/cache/chromeos-cache'
+DEPOT_TOOLS_SUBPATH = 'chromium/tools/depot_tools'
 
 CROSUTILS_DIR = os.path.join(SOURCE_ROOT, 'src/scripts')
 CHROMITE_DIR = os.path.realpath(os.path.join(
     os.path.abspath(__file__), '..', '..'))
 BOOTSTRAP_DIR = os.path.join(CHROMITE_DIR, 'bootstrap')
-DEPOT_TOOLS_DIR = os.path.join(SOURCE_ROOT, 'chromium/tools/depot_tools')
+DEPOT_TOOLS_DIR = os.path.join(SOURCE_ROOT, DEPOT_TOOLS_SUBPATH)
 CHROMITE_BIN_SUBDIR = 'chromite/bin'
 CHROMITE_BIN_DIR = os.path.join(CHROMITE_DIR, 'bin')
 PATH_TO_CBUILDBOT = os.path.join(CHROMITE_BIN_SUBDIR, 'cbuildbot')
@@ -250,7 +252,8 @@ MON_BB_CANCEL_BATCH_BUILDS_COUNT = ('chromeos/cbuildbot/buildbucket/'
 MON_BB_CANCEL_PRE_CQ_BUILD_COUNT = ('chromeos/cbuildbot/buildbucket/'
                                     'cancel_pre_cq_build_count')
 MON_EXPORT_TO_GCLOUD = 'chromeos/cbuildbot/export_to_gcloud'
-MON_CL_REJECT_COUNT = ('chromeos/cbuildbot/change/rejected_count')
+MON_CL_REJECT_COUNT = 'chromeos/cbuildbot/change/rejected_count'
+MON_GS_ERROR = 'chromeos/gs/error_count'
 
 
 # Re-execution API constants.
@@ -309,6 +312,16 @@ INTERNAL_GERRIT_HOST = GOB_HOST % INTERNAL_GERRIT_INSTANCE
 INTERNAL_GOB_URL = 'https://%s' % INTERNAL_GOB_HOST
 INTERNAL_GERRIT_URL = 'https://%s' % INTERNAL_GERRIT_HOST
 
+# Tests without 'cheets_CTS_', 'cheets_GTS.' prefix will not considered
+# as CTS/GTS test in chromite.lib.cts_helper
+DEFAULT_CTS_TEST_XML_MAP = {
+    'cheets_CTS_': 'test_result.xml',
+    'cheets_GTS.': 'test_result.xml',
+}
+# Google Storage bucket URI to store results in.
+DEFAULT_CTS_RESULTS_GSURI = 'gs://chromeos-cts-results/'
+DEFAULT_CTS_APFE_GSURI = 'gs://chromeos-cts-apfe/'
+
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
 ANDROID_MASTER_ARC_DEV_BUILD_BRANCH = 'git_master-arc-dev'
 ANDROID_MNC_BUILD_BRANCH = 'git_mnc-dr-arc-dev'
@@ -326,11 +339,15 @@ ANDROID_MNC_BUILD_TARGETS = {
     'SDK_TOOLS': ('linux-static_sdk_tools', r'/(aapt|adb)$'),
 
 }
+
+ANDROID_INTERNAL_PATTERN = r'\.zip.internal$'
+
 ANDROID_NYC_BUILD_TARGETS = {
     # TODO(b/29509721): Workaround to roll adb with system image. We want to
     # get rid of this.
     'ARM': ('linux-cheets_arm-user', r'(\.zip|/adb)$'),
     'X86': ('linux-cheets_x86-user', r'\.zip$'),
+    'X86_INTERNAL': ('linux-cheets_x86-user', ANDROID_INTERNAL_PATTERN),
     'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
     'AOSP_X86_USERDEBUG': ('linux-aosp_cheets_x86-userdebug', r'\.zip$'),
     'SDK_TOOLS': ('linux-static_sdk_tools', r'/(aapt|adb)$'),
@@ -355,18 +372,18 @@ ARC_BUCKET_ACLS = {
     'AOSP_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
     'SDK_GOOGLE_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
     'SDK_GOOGLE_X86_64_USERDEBUG': 'googlestorage_acl_x86.txt',
+    'X86_INTERNAL': 'googlestorage_acl_internal.txt',
     'SDK_TOOLS': 'googlestorage_acl_public.txt',
     'XTS': 'googlestorage_acl_cts.txt',
-}
-ARC_USE_FLAG_TO_ARCH = {
-    'arm': 'arm',
-    'x86': 'x86',
-    'amd64': 'x86_64',
 }
 ANDROID_SYMBOLS_URL_TEMPLATE = (
     ARC_BUCKET_URL +
     '/%(branch)s-linux-cheets_%(arch)s-user/%(version)s'
     '/cheets_%(arch)s-symbols-%(version)s.zip')
+ANDROID_SYMBOLS_BERTHA_URL_TEMPLATE = (
+    ARC_BUCKET_URL +
+    '/%(branch)s-linux-aosp_bertha_x86-userdebug/%(version)s'
+    '/bertha_aosp_%(arch)s_userdebug-symbols-%(version)s.zip')
 ANDROID_SYMBOLS_FILE = 'android-symbols.zip'
 # x86-user, x86-userdebug and x86-eng builders create build artifacts with the
 # same name, e.g. cheets_x86-target_files-${VERSION}.zip. Chrome OS builders
@@ -628,8 +645,6 @@ HWTEST_GTS_POOL = HWTEST_CTS_POOL
 HWTEST_MAX_RETRIES = 5
 
 # Defines for the various hardware test suites:
-#   AU: Blocking suite run against all canaries; tests basic AU
-#       functionality.
 #   BVT:  Basic blocking suite to be run against any build that
 #       requires a HWTest phase.
 #   COMMIT:  Suite of basic tests required for commits to the source
@@ -638,12 +653,14 @@ HWTEST_MAX_RETRIES = 5
 #   CANARY:  Non-blocking suite run only against the canaries.
 #   AFDO:  Non-blocking suite run only AFDO builders.
 #   MOBLAB: Blocking Suite run only on *_moblab builders.
+#   INSTALLER: Blocking suite run against all canaries; tests basic installer
+#              functionality.
 HWTEST_ARC_COMMIT_SUITE = 'bvt-arc'
 HWTEST_ARC_CANARY_SUITE = 'arc-bvt-perbuild'
-HWTEST_AU_SUITE = 'au'
 HWTEST_BVT_SUITE = 'bvt-inline'
 HWTEST_COMMIT_SUITE = 'bvt-cq'
 HWTEST_CANARY_SUITE = 'bvt-perbuild'
+HWTEST_INSTALLER_SUITE = 'bvt-installer'
 HWTEST_AFDO_SUITE = 'AFDO_record'
 HWTEST_JETSTREAM_COMMIT_SUITE = 'jetstream_cq'
 HWTEST_MOBLAB_SUITE = 'moblab'
@@ -958,6 +975,7 @@ CHROOT_ENVIRONMENT_WHITELIST = (
     'RSYNC_PROXY',
     'SSH_AGENT_PID',
     'SSH_AUTH_SOCK',
+    'TMUX',
     'USE',
     'all_proxy',
     'ftp_proxy',
@@ -1073,7 +1091,6 @@ PFQ_MASTER = 'master-chromium-pfq'
 BINHOST_PRE_CQ = 'binhost-pre-cq'
 WIFICELL_PRE_CQ = 'wificell-pre-cq'
 BLUESTREAK_PRE_CQ = 'bluestreak-pre-cq'
-MNC_ANDROID_PFQ_MASTER = 'master-android-pfq'
 NYC_ANDROID_PFQ_MASTER = 'master-nyc-android-pfq'
 TOOLCHAIN_MASTTER = 'master-toolchain'
 
@@ -1117,6 +1134,7 @@ CHROMEOS_SERVICE_ACCOUNT = os.path.join('/', 'creds', 'service_accounts',
 TRYSERVER_BUILDBUCKET_BUCKET = 'master.chromiumos.tryserver'
 CHROMEOS_BUILDBUCKET_BUCKET = 'master.chromeos'
 CHROMIUMOS_BUILDBUCKET_BUCKET = 'master.chromiumos'
+INTERNAL_SWARMING_BUILDBUCKET_BUCKET = 'luci.chromeos.general'
 
 # Build retry limit on buildbucket
 BUILDBUCKET_BUILD_RETRY_LIMIT = 2
@@ -1125,7 +1143,8 @@ BUILDBUCKET_BUILD_RETRY_LIMIT = 2
 # add a unit test to avoid duplicated keys in run_metadata
 
 # Builder_run metadata keys
-METADATA_SCHEDULED_SLAVES = 'scheduled_slaves'
+METADATA_SCHEDULED_IMPORTANT_SLAVES = 'scheduled_important_slaves'
+METADATA_SCHEDULED_EXPERIMENTAL_SLAVES = 'scheduled_experimental_slaves'
 METADATA_UNSCHEDULED_SLAVES = 'unscheduled_slaves'
 # List of builders marked as experimental through the tree status, not all the
 # experimental builders for a run.
@@ -1136,3 +1155,7 @@ SELF_DESTRUCTED_BUILD = 'self_destructed_build'
 
 # Metadata key to indicate whether a build is self-destructed with success.
 SELF_DESTRUCTED_WITH_SUCCESS_BUILD = 'self_destructed_with_success_build'
+
+# The path to update_payload in the update_engine.
+UPDATE_ENGINE_SCRIPTS_PATH = os.path.join(SOURCE_ROOT, 'src', 'aosp', 'system',
+                                          'update_engine', 'scripts')

@@ -9,6 +9,7 @@
 
 @class OpenNewTabCommand;
 @class OpenUrlCommand;
+@class ShowSigninCommand;
 @class StartVoiceSearchCommand;
 
 // This protocol groups commands that are part of ApplicationCommands, but
@@ -17,6 +18,12 @@
 
 // Shows the accounts settings.
 - (void)showAccountsSettings;
+
+// Shows the sync settings UI.
+- (void)showSyncSettings;
+
+// Shows the sync encryption passphrase UI.
+- (void)showSyncPassphraseSettings;
 
 @end
 
@@ -72,6 +79,12 @@
 
 // Opens the |command| URL.
 - (void)openURL:(OpenUrlCommand*)command;
+
+// Shows the signin UI.
+- (void)showSignin:(ShowSigninCommand*)command;
+
+// Shows the Add Account UI
+- (void)showAddAccount;
 
 @end
 

@@ -25,7 +25,7 @@ import android.view.Surface;
  * and an EGLSurface.
  */
 @TargetApi(18)
-class EglBase14 implements EglBase {
+class EglBase14 extends EglBase {
   private static final String TAG = "EglBase14";
   private static final int EGLExt_SDK_VERSION = android.os.Build.VERSION_CODES.JELLY_BEAN_MR2;
   private static final int CURRENT_SDK_VERSION = android.os.Build.VERSION.SDK_INT;
@@ -43,8 +43,16 @@ class EglBase14 implements EglBase {
     return (CURRENT_SDK_VERSION >= EGLExt_SDK_VERSION);
   }
 
-  public static class Context extends EglBase.Context {
+  public static class Context implements EglBase.Context {
     private final android.opengl.EGLContext egl14Context;
+
+    @Override
+    @SuppressWarnings("deprecation")
+    public long getNativeEglContext() {
+      return CURRENT_SDK_VERSION >= android.os.Build.VERSION_CODES.LOLLIPOP
+          ? egl14Context.getNativeHandle()
+          : egl14Context.getHandle();
+    }
 
     public Context(android.opengl.EGLContext eglContext) {
       this.egl14Context = eglContext;

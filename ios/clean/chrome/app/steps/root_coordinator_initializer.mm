@@ -7,9 +7,12 @@
 #import "ios/chrome/app/startup/provider_registration.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/ui/browser_list/browser.h"
 #import "ios/chrome/browser/ui/browser_list/browser_list.h"
+#import "ios/chrome/browser/ui/browser_list/browser_list_factory.h"
 #import "ios/chrome/browser/ui/browser_list/browser_list_session_service.h"
 #import "ios/chrome/browser/ui/browser_list/browser_list_session_service_factory.h"
+#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/coordinators/browser_coordinator+internal.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_opener.h"
@@ -37,10 +40,14 @@
 
 - (void)runFeature:(NSString*)feature withContext:(id<StepContext>)context {
   _rootCoordinator = [[RootCoordinator alloc] init];
-  [_rootCoordinator
-      setBrowser:BrowserList::FromBrowserState(context.browserState)
-                     ->CreateNewBrowser()];
 
+  // Create the main browser, set the root coordinator's dispatcher.
+  _rootCoordinator.browser =
+      BrowserListFactory::GetForBrowserState(context.browserState)
+          ->CreateNewBrowser();
+  _rootCoordinator.dispatcher = [[CommandDispatcher alloc] init];
+
+  // Restore the previous session's tabs, if any.
   BrowserListSessionService* service =
       BrowserListSessionServiceFactory::GetForBrowserState(
           context.browserState);
@@ -55,6 +62,8 @@
     webStateList.ActivateWebStateAt(0);
   }
 
+  // Start the root coordinator and assign it as the URL opener for the app.
+  // This creates and starts the Chrome UI.
   [_rootCoordinator start];
   context.URLOpener = _rootCoordinator;
   context.window.rootViewController = _rootCoordinator.viewController;

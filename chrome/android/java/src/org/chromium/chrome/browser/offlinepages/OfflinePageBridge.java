@@ -39,6 +39,7 @@ public class OfflinePageBridge {
     public static final String CCT_NAMESPACE = "custom_tabs";
     public static final String DOWNLOAD_NAMESPACE = "download";
     public static final String SUGGESTED_ARTICLES_NAMESPACE = "suggested_articles";
+    public static final String BROWSER_ACTIONS_NAMESPACE = "browser_actions";
 
     /**
      * Retrieves the OfflinePageBridge for the given profile, creating it the first time
@@ -223,10 +224,10 @@ public class OfflinePageBridge {
      * @return A list of {@link OfflinePageItem} matching the provided namespace, or an empty list
      * if none exist.
      */
-    public void getPagesForNamespace(
+    public void getPagesByNamespace(
             final String namespace, final Callback<List<OfflinePageItem>> callback) {
         List<OfflinePageItem> result = new ArrayList<>();
-        nativeGetPagesForNamespace(mNativeOfflinePageBridge, result, namespace, callback);
+        nativeGetPagesByNamespace(mNativeOfflinePageBridge, result, namespace, callback);
     }
 
     /**
@@ -625,6 +626,18 @@ public class OfflinePageBridge {
     }
 
     /**
+     * Queries the model for offline content that's been added since the given timestamp.
+     * @param timestamp Returned content must be newer than |timestamp|, a date represented as the
+     * number of millis since the Java epoch.
+     * @param callback Fired when the model check has been finished, with a String parameter that
+     * represents the source of the offline content.  The parameter will be the empty string if no
+     * fresh enough content is found.
+     */
+    public void checkForNewOfflineContent(long freshnessTimeMillis, Callback<String> callback) {
+        nativeCheckForNewOfflineContent(mNativeOfflinePageBridge, freshnessTimeMillis, callback);
+    }
+
+    /**
      * Allows setting the offline bookmarks feature as enabled or disabled for testing. This is
      * required for tests that don't load the native binary otherwise UnsatisfiedLinkError sadness
      * will occur.
@@ -727,7 +740,7 @@ public class OfflinePageBridge {
     native void nativeGetPagesByRequestOrigin(long nativeOfflinePageBridge,
             List<OfflinePageItem> result, String requestOrigin,
             Callback<List<OfflinePageItem>> callback);
-    native void nativeGetPagesForNamespace(long nativeOfflinePageBridge,
+    native void nativeGetPagesByNamespace(long nativeOfflinePageBridge,
             List<OfflinePageItem> result, String nameSpace,
             Callback<List<OfflinePageItem>> callback);
     @VisibleForTesting
@@ -756,4 +769,6 @@ public class OfflinePageBridge {
             long nativeOfflinePageBridge, WebContents webContents);
     private native OfflinePageItem nativeGetOfflinePage(
             long nativeOfflinePageBridge, WebContents webContents);
+    private native void nativeCheckForNewOfflineContent(
+            long nativeOfflinePageBridge, long freshnessTimeMillis, Callback<String> callback);
 }

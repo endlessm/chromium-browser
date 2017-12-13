@@ -66,48 +66,6 @@ class StateController : public ash::mojom::TrayActionClient,
                         public ui::InputDeviceEventObserver,
                         public chromeos::PowerManagerClient::Observer {
  public:
-  // Type of action that triggered a request for new note.
-  // Used in histograms - should be kept in sync with
-  // NewLockScreenNoteRequestType histogram enum, and assigned values should
-  // never be changed.
-  enum class NewNoteRequestType {
-    kTrayAction = 0,
-    kLockScreenUiTap = 1,
-    kLockScreenUiSwipe = 2,
-    kLockScreenUiKeyboard = 3,
-    kStylusEject = 4,
-    kCount,
-  };
-
-  // Reason for resetting note taking app window, and exiting note taking app.
-  // Used primarily for metrics reporting.
-  // IMPORTANT: The values should be kept in sync with
-  // LockScreenNoteTakingExitReason histogram enum, and assigned values should
-  // never be changed.
-  enum class NoteTakingExitReason {
-    kSessionUnlock = 0,
-    kShutdown = 1,
-    kScreenDimmed = 2,
-    kSuspend = 3,
-    kAppWindowClosed = 4,
-    kAppLockScreenSupportDisabled = 5,
-    kUnlockButtonPressed = 6,
-    kCount
-  };
-
-  // Action taken by the user on lock screen when a lock screen app window was
-  // in the background - used primarily for metrics reporting.
-  // IMPORTANT: The values should be kept in sync with
-  // LockScreenNoteTakingUnlockUIAction, and assigned values should never be
-  // changed.
-  enum class LockScreenUnlockAction {
-    kSessionUnlocked = 0,
-    kUnlockCancelled = 1,
-    kShutdown = 2,
-    kSignOut = 3,
-    kCount
-  };
-
   // Returns whether the StateController is enabled - it is currently guarded by
   // a feature flag. If not enabled, |StateController| instance is not allowed
   // to be created. |Get| will still work, but it will return nullptr.
@@ -163,7 +121,10 @@ class StateController : public ash::mojom::TrayActionClient,
   ash::mojom::TrayActionState GetLockScreenNoteState() const;
 
   // ash::mojom::TrayActionClient:
-  void RequestNewLockScreenNote() override;
+  void RequestNewLockScreenNote(
+      ash::mojom::LockScreenNoteOrigin origin) override;
+  void CloseLockScreenNote(
+      ash::mojom::CloseLockScreenNoteReason reason) override;
 
   // session_manager::SessionManagerObserver:
   void OnSessionStateChanged() override;
@@ -174,6 +135,7 @@ class StateController : public ash::mojom::TrayActionClient,
 
   // ui::InputDeviceEventObserver:
   void OnStylusStateChanged(ui::StylusState state) override;
+  void OnTouchscreenDeviceConfigurationChanged() override;
 
   // chromeos::PowerManagerClient::Observer
   void BrightnessChanged(int level, bool user_initiated) override;
@@ -197,22 +159,6 @@ class StateController : public ash::mojom::TrayActionClient,
   // Returns whether the focus has been taken from the app window.
   bool HandleTakeFocus(content::WebContents* web_contents, bool reverse);
 
-  // If there are any active lock screen action handlers, moved their windows
-  // to background, to ensure lock screen UI is visible.
-  void MoveToBackground();
-
-  // If there are any lock screen action handler in background, moves their
-  // windows back to foreground (i.e. visible over lock screen UI).
-  void MoveToForeground();
-
-  // Handles new note requests that come from lock screen UI.
-  void HandleNewNoteRequestFromLockScreen(NewNoteRequestType type);
-
-  // Records the user action taken on lock screen when the lock screen app
-  // unlock UI is shown - i.e. when lock UI is shown on top of backgrounded
-  // lock screen app window.
-  void RecordLockScreenAppUnlockAction(LockScreenUnlockAction action);
-
  private:
   // Called when profiles needed to run lock screen apps are ready - i.e. when
   // primary user profile was set using |SetPrimaryProfile| and the profile in
@@ -229,13 +175,14 @@ class StateController : public ash::mojom::TrayActionClient,
   // Returns whether |crypto_key| was successfully retrieved.
   bool GetUserCryptoKey(Profile* profile, std::string* crypto_key);
 
-  // Finishes lock screen apps initialization with primary user profile and
+  // Continues lock screen apps initialization with primary user profile and
   // associated encryption key to be used for encrypting user data created in
   // lock screen context.
   void InitializeWithCryptoKey(Profile* profile, const std::string& crypto_key);
 
-  // Handles request to launch a new-note lock screen flow.
-  void HandleNewNoteRequest(NewNoteRequestType type);
+  // Continues lock screen apps initialization. Should be called when stylus
+  // input has been detected.
+  void InitializeWithStylusInputPresent();
 
   // Called when app manager reports that note taking availability has changed.
   void OnNoteTakingAvailabilityChanged();
@@ -246,7 +193,7 @@ class StateController : public ash::mojom::TrayActionClient,
   // on whether lock screen note taking action can still be handled.
   void ResetNoteTakingWindowAndMoveToNextState(
       bool close_window,
-      NoteTakingExitReason exit_reason);
+      ash::mojom::CloseLockScreenNoteReason reason);
 
   // Requests lock screen note action state change to |state|.
   // Returns whether the action state has changed.
@@ -270,6 +217,11 @@ class StateController : public ash::mojom::TrayActionClient,
   ash::mojom::TrayActionPtr tray_action_ptr_;
 
   Profile* lock_screen_profile_ = nullptr;
+
+  // Whether lock screen apps initialization was stopped due to stylus input
+  // missing (or stylus not being otherwise enabled). If stylus availability
+  // changes due to stylus input being detected, initialization will continue.
+  bool stylus_input_missing_ = false;
 
   std::unique_ptr<extensions::lock_screen_data::LockScreenItemStorage>
       lock_screen_data_;

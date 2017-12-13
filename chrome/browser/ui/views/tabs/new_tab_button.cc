@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/tabs/new_tab_button.h"
-
 #include "build/build_config.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -11,6 +10,7 @@
 #include "chrome/browser/ui/views/feature_promos/new_tab_promo_bubble_view.h"
 #include "chrome/browser/ui/views/tabs/browser_tab_strip_controller.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "components/feature_engagement/features.h"
 #include "third_party/skia/include/core/SkColorFilter.h"
 #include "third_party/skia/include/effects/SkBlurMaskFilter.h"
 #include "third_party/skia/include/effects/SkLayerDrawLooper.h"
@@ -26,9 +26,10 @@
 #include "ui/views/win/hwnd_util.h"
 #endif
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_MACOSX)
+#if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
 #include "chrome/browser/feature_engagement/new_tab/new_tab_tracker.h"
 #include "chrome/browser/feature_engagement/new_tab/new_tab_tracker_factory.h"
+#include "chrome/browser/ui/views/feature_promos/new_tab_promo_bubble_view.h"
 #endif
 
 namespace {
@@ -86,11 +87,24 @@ void NewTabButton::ShowPromoForLastActiveBrowser() {
   browser->tabstrip()->new_tab_button()->ShowPromo();
 }
 
+// static
+void NewTabButton::CloseBubbleForLastActiveBrowser() {
+  BrowserView* browser = static_cast<BrowserView*>(
+      BrowserList::GetInstance()->GetLastActive()->window());
+  browser->tabstrip()->new_tab_button()->CloseBubble();
+}
+
 void NewTabButton::ShowPromo() {
+  DCHECK(!new_tab_promo_);
   // Owned by its native widget. Will be destroyed as its widget is destroyed.
-  new_tab_promo_ = NewTabPromoBubbleView::CreateOwned(GetVisibleBounds());
+  new_tab_promo_ = NewTabPromoBubbleView::CreateOwned(this);
   new_tab_promo_observer_.Add(new_tab_promo_->GetWidget());
   SchedulePaint();
+}
+
+void NewTabButton::CloseBubble() {
+  if (new_tab_promo_)
+    new_tab_promo_->CloseBubble();
 }
 
 #if defined(OS_WIN)
@@ -194,12 +208,13 @@ bool NewTabButton::GetHitTestMask(gfx::Path* mask) const {
 }
 
 void NewTabButton::OnWidgetDestroying(views::Widget* widget) {
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_MACOSX)
+#if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
   feature_engagement::NewTabTrackerFactory::GetInstance()
       ->GetForProfile(tab_strip_->controller()->GetProfile())
       ->OnPromoClosed();
 #endif
   new_tab_promo_observer_.Remove(widget);
+  new_tab_promo_ = nullptr;
   // When the promo widget is destroyed, the NewTabButton needs to be
   // recolored.
   SchedulePaint();

@@ -11,6 +11,7 @@ from google.appengine.ext import ndb
 
 from dashboard.models import graph_data
 from dashboard.models import internal_only_model
+from tracing.value.diagnostics import reserved_infos
 
 
 class JsonModel(internal_only_model.InternalOnlyModel):
@@ -35,6 +36,7 @@ class SparseDiagnostic(JsonModel):
   end_revision = ndb.IntegerProperty(indexed=True)
 
   @staticmethod
+  @ndb.synctasklet
   def GetMostRecentValuesByNames(test_key, diagnostic_names):
     """Gets the data in the latests sparse diagnostics with the given
        set of diagnostic names.
@@ -48,9 +50,16 @@ class SparseDiagnostic(JsonModel):
       corresponding diagnostics' values.
       None if no diagnostics are found with the given keys or type.
     """
-    diagnostics = SparseDiagnostic.query(
+    result = yield SparseDiagnostic.GetMostRecentValuesByNamesAsync(
+        test_key, diagnostic_names)
+    raise ndb.Return(result)
+
+  @staticmethod
+  @ndb.tasklet
+  def GetMostRecentValuesByNamesAsync(test_key, diagnostic_names):
+    diagnostics = yield SparseDiagnostic.query(
         ndb.AND(SparseDiagnostic.end_revision == sys.maxint,
-                SparseDiagnostic.test == test_key)).fetch()
+                SparseDiagnostic.test == test_key)).fetch_async()
 
     diagnostic_map = {}
 
@@ -59,4 +68,12 @@ class SparseDiagnostic(JsonModel):
         assert diagnostic_map.get(diagnostic.name) is None
         diagnostic_data = json.loads(diagnostic.data)
         diagnostic_map[diagnostic.name] = diagnostic_data.get('values')
-    return diagnostic_map
+    raise ndb.Return(diagnostic_map)
+
+
+def GetTIRLabelFromHistogram(hist):
+  tags = hist.diagnostics.get(reserved_infos.STORY_TAGS.name) or []
+
+  tags_to_use = [t.split(':') for t in tags if ':' in t]
+
+  return '_'.join(v for _, v in sorted(tags_to_use))

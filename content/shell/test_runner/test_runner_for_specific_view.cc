@@ -12,7 +12,6 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "content/shell/test_runner/layout_and_paint_async_then.h"
 #include "content/shell/test_runner/layout_dump.h"
@@ -51,7 +50,6 @@
 #include "third_party/WebKit/public/web/WebInputElement.h"
 #include "third_party/WebKit/public/web/WebKit.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebPageImportanceSignals.h"
 #include "third_party/WebKit/public/web/WebScriptSource.h"
 #include "third_party/WebKit/public/web/WebSecurityPolicy.h"
 #include "third_party/WebKit/public/web/WebSerializedScriptValue.h"
@@ -272,8 +270,8 @@ void TestRunnerForSpecificView::CapturePixelsCallback(
   const SkImageInfo bufferInfo =
       snapshot.info().makeColorType(kRGBA_8888_SkColorType);
   const size_t bufferRowBytes = bufferInfo.minRowBytes();
-  blink::WebArrayBuffer buffer =
-      blink::WebArrayBuffer::Create(bufferInfo.getSafeSize(bufferRowBytes), 1);
+  blink::WebArrayBuffer buffer = blink::WebArrayBuffer::Create(
+      bufferInfo.computeByteSize(bufferRowBytes), 1);
   if (!snapshot.readPixels(bufferInfo, buffer.Data(), bufferRowBytes, 0, 0)) {
     // We only expect readPixels to fail for null bitmaps.
     DCHECK(snapshot.isNull());
@@ -503,22 +501,6 @@ void TestRunnerForSpecificView::SetTextDirection(
     return;
 
   web_view()->SetTextDirection(direction);
-}
-
-void TestRunnerForSpecificView::DumpPageImportanceSignals() {
-  blink::WebPageImportanceSignals* signals =
-      web_view()->PageImportanceSignals();
-  if (!signals)
-    return;
-
-  std::string message = base::StringPrintf(
-      "WebPageImportanceSignals:\n"
-      "  hadFormInteraction: %s\n"
-      "  issuedNonGetFetchFromScript: %s\n",
-      signals->HadFormInteraction() ? "true" : "false",
-      signals->IssuedNonGetFetchFromScript() ? "true" : "false");
-  if (delegate())
-    delegate()->PrintMessage(message);
 }
 
 void TestRunnerForSpecificView::AddWebPageOverlay() {

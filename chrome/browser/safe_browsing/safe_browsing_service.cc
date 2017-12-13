@@ -38,11 +38,11 @@
 #include "components/safe_browsing/browser/safe_browsing_url_request_context_getter.h"
 #include "components/safe_browsing/common/safebrowsing_constants.h"
 #include "components/safe_browsing/common/safebrowsing_switches.h"
+#include "components/safe_browsing/db/database_manager.h"
+#include "components/safe_browsing/db/v4_feature_list.h"
+#include "components/safe_browsing/db/v4_get_hash_protocol_manager.h"
+#include "components/safe_browsing/db/v4_local_database_manager.h"
 #include "components/safe_browsing/triggers/trigger_manager.h"
-#include "components/safe_browsing_db/database_manager.h"
-#include "components/safe_browsing_db/v4_feature_list.h"
-#include "components/safe_browsing_db/v4_get_hash_protocol_manager.h"
-#include "components/safe_browsing_db/v4_local_database_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/resource_request_info.h"
@@ -64,11 +64,8 @@
 #include "chrome/browser/safe_browsing/client_side_detection_service.h"
 #include "chrome/browser/safe_browsing/download_protection/download_protection_service.h"
 #include "chrome/browser/safe_browsing/incident_reporting/binary_integrity_analyzer.h"
-#include "chrome/browser/safe_browsing/incident_reporting/blacklist_load_analyzer.h"
 #include "chrome/browser/safe_browsing/incident_reporting/incident_reporting_service.h"
-#include "chrome/browser/safe_browsing/incident_reporting/module_load_analyzer.h"
 #include "chrome/browser/safe_browsing/incident_reporting/resource_request_detector.h"
-#include "chrome/browser/safe_browsing/incident_reporting/variations_seed_signature_analyzer.h"
 #include "chrome/browser/safe_browsing/protocol_manager.h"
 #include "components/safe_browsing/password_protection/password_protection_service.h"
 #endif
@@ -271,7 +268,9 @@ TriggerManager* SafeBrowsingService::trigger_manager() const {
 
 PasswordProtectionService* SafeBrowsingService::GetPasswordProtectionService(
     Profile* profile) const {
-  return services_delegate_->GetPasswordProtectionService(profile);
+  if (profile->GetPrefs()->GetBoolean(prefs::kSafeBrowsingEnabled))
+    return services_delegate_->GetPasswordProtectionService(profile);
+  return nullptr;
 }
 
 std::unique_ptr<prefs::mojom::TrackedPreferenceValidationDelegate>
@@ -320,8 +319,6 @@ SafeBrowsingDatabaseManager* SafeBrowsingService::CreateDatabaseManager() {
 void SafeBrowsingService::RegisterAllDelayedAnalysis() {
 #if defined(FULL_SAFE_BROWSING)
   RegisterBinaryIntegrityAnalysis();
-  RegisterBlacklistLoadAnalysis();
-  RegisterVariationsSeedSignatureAnalysis();
 #endif
 }
 

@@ -13,9 +13,8 @@ from chromite.cli import command
 from chromite.lib import config_lib
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
-from chromite.lib import path_util
+from chromite.lib import remote_try
 
-from chromite.cbuildbot import remote_try
 from chromite.cbuildbot import trybot_patch_pool
 
 
@@ -57,11 +56,16 @@ def CbuildbotArgs(options):
   """
   args = []
 
-  if options.production:
-    args.append('--buildbot')
+
+  if options.remote:
+    if options.production:
+      args.append('--buildbot')
+    else:
+      args.append('--remote-trybot')
   else:
-    # TODO: Remove from remote_try.py after cbuildbot --remote removed.
-    args.append('--remote-trybot')
+    args.extend(('--buildroot', options.buildroot, '--no-buildbot-tags'))
+    if not options.production:
+      args.append('--debug')
 
   if options.branch:
     args.extend(('-b', options.branch))
@@ -80,6 +84,9 @@ def CbuildbotArgs(options):
 
 def RunLocal(options):
   """Run a local tryjob."""
+  if cros_build_lib.IsInsideChroot():
+    cros_build_lib.Die('Local tryjobs cannot be started inside the chroot.')
+
   # Create the buildroot, if needed.
   if not os.path.exists(options.buildroot):
     prompt = 'Create %s as buildroot' % options.buildroot
@@ -91,7 +98,7 @@ def RunLocal(options):
   # Define the command to run.
   launcher = os.path.join(constants.CHROMITE_DIR, 'scripts', 'cbuildbot_launch')
   args = CbuildbotArgs(options)  # The requested build arguments.
-  cmd = ([launcher, '--buildroot', options.buildroot] +
+  cmd = ([launcher] +
          args +
          options.build_configs)
 
@@ -109,6 +116,11 @@ def RunRemote(options, patch_pool):
   # Figure out the cbuildbot command line to pass in.
   args = CbuildbotArgs(options)
 
+  if options.production:
+    display_group = 'Production Tryjob'
+  else:
+    display_group = 'Tryjob'
+
   # Figure out the tryjob description.
   description = options.remote_description
   if description is None:
@@ -117,16 +129,24 @@ def RunRemote(options, patch_pool):
         options.gerrit_patches+options.local_patches)
 
   print('Submitting tryjob...')
-  tryjob = remote_try.RemoteTryJob(options.build_configs,
-                                   patch_pool.local_patches,
-                                   args,
-                                   path_util.GetCacheDir(),
-                                   description,
-                                   options.committer_email)
+  tryjob = remote_try.RemoteTryJob(
+      build_configs=options.build_configs,
+      display_group=display_group,
+      remote_description=description,
+      branch=options.branch,
+      pass_through_args=args,
+      production_cidb=options.production,
+      local_patches=patch_pool.local_patches,
+      committer_email=options.committer_email,
+      swarming=options.swarming,
+      master_buildbucket_id='',  # TODO: Add new option to populate.
+  )
+
   tryjob.Submit(dryrun=False)
   print('Tryjob submitted!')
-  print(('Go to %s to view the status of your job.'
-         % tryjob.GetTrybotWaterfallLink()))
+  print('To view your tryjobs, visit:')
+  for link in tryjob.GetTrybotWaterfallLinks():
+    print('  %s' % link)
 
 
 @command.CommandDecorator('tryjob')
@@ -137,7 +157,9 @@ class TryjobCommand(command.CliCommand):
 Remote Examples:
   cros tryjob -g 123 lumpy-compile-only-pre-cq
   cros tryjob -g 123 -g 456 lumpy-compile-only-pre-cq daisy-pre-cq
-  cros tryjob -g 123 --hwtest daisy-paladin
+  cros tryjob -g *123 --hwtest daisy-paladin
+  cros tryjob -p chromiumos/chromite lumpy-compile-only-pre-cq
+  cros tryjob -p chromiumos/chromite:foo_branch lumpy-paladin
 
 Local Examples:
   cros tryjob --local -g 123 daisy-paladin
@@ -156,7 +178,7 @@ Production Examples (danger, can break production if misused):
         'build_configs', nargs='*',
         help='One or more configs to build.')
     parser.add_argument(
-        '-b', '--branch',
+        '-b', '--branch', default='master',
         help='The manifest branch to test.  The branch to '
              'check the buildroot out to.')
     parser.add_argument(
@@ -183,6 +205,9 @@ Production Examples (danger, can break production if misused):
         '--remote', action='store_true', default=True,
         help='Run the tryjob on a remote builder. (default)')
     where_group.add_argument(
+        '--swarming', action='store_true', default=False,
+        help='Run the tryjob on a swarming builder (experimental)')
+    where_group.add_argument(
         '-r', '--buildroot', type='path', dest='buildroot',
         default=os.path.join(os.path.dirname(constants.SOURCE_ROOT), 'tryjob'),
         help='Root directory to use for the local tryjob. '
@@ -193,13 +218,13 @@ Production Examples (danger, can break production if misused):
         'Patch',
         description='Which patches should be included with the tryjob?')
     what_group.add_argument(
-        '-g', '--gerrit-patches', action='append', default=[],
+        '-g', '--gerrit-patches', action='split_extend', default=[],
         # metavar='Id1 *int_Id2...IdN',
         help='Space-separated list of short-form Gerrit '
              "Change-Id's or change numbers to patch. "
              "Please prepend '*' to internal Change-Id's")
     what_group.add_argument(
-        '-p', '--local-patches', action='append', default=[],
+        '-p', '--local-patches', action='split_extend', default=[],
         # metavar="'<project1>[:<branch1>]...<projectN>[:<branchN>]'",
         help='Space-separated list of project branches with '
              'patches to apply.  Projects are specified by name. '
@@ -272,6 +297,28 @@ Production Examples (danger, can break production if misused):
              'be specified multiple times. No valid for '
              'non-payloads configs.')
 
+    # branch_util tryjob specific options.
+    branch_util_group = parser.add_argument_group(
+        'branch_util',
+        description='Options only used by branch-util tryjobs.')
+
+    branch_util_group.add_argument(
+        '--branch-name', dest='passthrough', action='append_option_value',
+        help='The branch to create or delete.')
+    branch_util_group.add_argument(
+        '--delete-branch', dest='passthrough', action='append_option',
+        help='Delete the branch specified in --branch-name.')
+    branch_util_group.add_argument(
+        '--rename-to', dest='passthrough', action='append_option_value',
+        help='Rename a branch to the specified name.')
+    branch_util_group.add_argument(
+        '--force-create', dest='passthrough', action='append_option',
+        help='Overwrites an existing branch.')
+    branch_util_group.add_argument(
+        '--skip-remote-push', dest='passthrough', action='append_option',
+        help='Do not actually push to remote git repos.  '
+             'Used for end-to-end testing branching.')
+
     configs_group = parser.add_argument_group(
         'Configs',
         description='Options for displaying available build configs.')
@@ -295,6 +342,9 @@ Production Examples (danger, can break production if misused):
     if not self.options.build_configs:
       cros_build_lib.Die('At least one build_config is required.')
 
+    if not self.options.remote and self.options.swarming:
+      cros_build_lib.Die('--swarming cannot be used with local tryjobs.')
+
     unknown_build_configs = [b for b in self.options.build_configs
                              if b not in site_config]
     if unknown_build_configs and not self.options.yes:
@@ -313,7 +363,7 @@ Production Examples (danger, can break production if misused):
       # Ask for confirmation if there are no patches to test.
       if not patches_given and not self.options.yes:
         prompt = ('No patches were provided; are you sure you want to just '
-                  'run a remote build of %s?' % (
+                  'run a build of %s?' % (
                       self.options.branch if self.options.branch else 'ToT'))
         if not cros_build_lib.BooleanPrompt(prompt=prompt, default=False):
           cros_build_lib.Die('No confirmation.')

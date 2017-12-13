@@ -13,6 +13,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/signin/account_reconcilor_factory.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
@@ -84,6 +85,7 @@ class DiceResponseHandlerFactory : public BrowserContextKeyedServiceFactory {
       : BrowserContextKeyedServiceFactory(
             "DiceResponseHandler",
             BrowserContextDependencyManager::GetInstance()) {
+    DependsOn(AccountReconcilorFactory::GetInstance());
     DependsOn(AccountTrackerServiceFactory::GetInstance());
     DependsOn(ChromeSigninClientFactory::GetInstance());
     DependsOn(ProfileOAuth2TokenServiceFactory::GetInstance());
@@ -103,7 +105,8 @@ class DiceResponseHandlerFactory : public BrowserContextKeyedServiceFactory {
         ChromeSigninClientFactory::GetForProfile(profile),
         SigninManagerFactory::GetForProfile(profile),
         ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
-        AccountTrackerServiceFactory::GetForProfile(profile));
+        AccountTrackerServiceFactory::GetForProfile(profile),
+        AccountReconcilorFactory::GetForProfile(profile));
   }
 };
 
@@ -131,18 +134,26 @@ DiceResponseHandler::DiceTokenFetcher::DiceTokenFetcher(
     const std::string& email,
     const std::string& authorization_code,
     SigninClient* signin_client,
+    AccountReconcilor* account_reconcilor,
+    std::unique_ptr<ProcessDiceHeaderObserver> observer,
     DiceResponseHandler* dice_response_handler)
     : gaia_id_(gaia_id),
       email_(email),
       authorization_code_(authorization_code),
+      observer_(std::move(observer)),
       dice_response_handler_(dice_response_handler),
       timeout_closure_(
           base::Bind(&DiceResponseHandler::DiceTokenFetcher::OnTimeout,
                      base::Unretained(this))) {
   DCHECK(dice_response_handler_);
+  if (signin::IsAccountConsistencyDiceEnabled()) {
+    account_reconcilor_lock_ =
+        base::MakeUnique<AccountReconcilor::Lock>(account_reconcilor);
+  }
   gaia_auth_fetcher_ = signin_client->CreateGaiaAuthFetcher(
       this, GaiaConstants::kChromeSource,
       signin_client->GetURLRequestContext());
+  VLOG(1) << "Start fetching token for account: " << email;
   gaia_auth_fetcher_->StartAuthCodeForOAuth2TokenExchange(authorization_code_);
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE, timeout_closure_.callback(),
@@ -165,8 +176,8 @@ void DiceResponseHandler::DiceTokenFetcher::OnClientOAuthSuccess(
   RecordDiceFetchTokenResult(kFetchSuccess);
   gaia_auth_fetcher_.reset();
   timeout_closure_.Cancel();
-  dice_response_handler_->OnTokenExchangeSuccess(this, gaia_id_, email_,
-                                                 result);
+  dice_response_handler_->OnTokenExchangeSuccess(
+      this, gaia_id_, email_, result.refresh_token, std::move(observer_));
   // |this| may be deleted at this point.
 }
 
@@ -192,27 +203,32 @@ DiceResponseHandler::DiceResponseHandler(
     SigninClient* signin_client,
     SigninManager* signin_manager,
     ProfileOAuth2TokenService* profile_oauth2_token_service,
-    AccountTrackerService* account_tracker_service)
+    AccountTrackerService* account_tracker_service,
+    AccountReconcilor* account_reconcilor)
     : signin_manager_(signin_manager),
       signin_client_(signin_client),
       token_service_(profile_oauth2_token_service),
-      account_tracker_service_(account_tracker_service) {
+      account_tracker_service_(account_tracker_service),
+      account_reconcilor_(account_reconcilor) {
   DCHECK(signin_client_);
   DCHECK(signin_manager_);
   DCHECK(token_service_);
   DCHECK(account_tracker_service_);
+  DCHECK(account_reconcilor_);
 }
 
 DiceResponseHandler::~DiceResponseHandler() {}
 
 void DiceResponseHandler::ProcessDiceHeader(
-    const signin::DiceResponseParams& dice_params) {
+    const signin::DiceResponseParams& dice_params,
+    std::unique_ptr<ProcessDiceHeaderObserver> observer) {
   DCHECK(signin::IsDiceFixAuthErrorsEnabled());
+  DCHECK(observer);
   switch (dice_params.user_intention) {
     case signin::DiceAction::SIGNIN:
-      ProcessDiceSigninHeader(dice_params.signin_info.gaia_id,
-                              dice_params.signin_info.email,
-                              dice_params.signin_info.authorization_code);
+      ProcessDiceSigninHeader(
+          dice_params.signin_info.gaia_id, dice_params.signin_info.email,
+          dice_params.signin_info.authorization_code, std::move(observer));
       return;
     case signin::DiceAction::SIGNOUT: {
       const signin::DiceResponseParams::SignoutInfo& signout_info =
@@ -227,9 +243,7 @@ void DiceResponseHandler::ProcessDiceHeader(
       NOTREACHED() << "Invalid Dice response parameters.";
       return;
   }
-
   NOTREACHED();
-  return;
 }
 
 size_t DiceResponseHandler::GetPendingDiceTokenFetchersCountForTesting() const {
@@ -257,10 +271,12 @@ bool DiceResponseHandler::CanGetTokenForAccount(const std::string& gaia_id,
 void DiceResponseHandler::ProcessDiceSigninHeader(
     const std::string& gaia_id,
     const std::string& email,
-    const std::string& authorization_code) {
+    const std::string& authorization_code,
+    std::unique_ptr<ProcessDiceHeaderObserver> observer) {
   DCHECK(!gaia_id.empty());
   DCHECK(!email.empty());
   DCHECK(!authorization_code.empty());
+  VLOG(1) << "Start processing Dice signin response";
   RecordDiceResponseHeader(kSignin);
 
   if (!CanGetTokenForAccount(gaia_id, email)) {
@@ -275,15 +291,17 @@ void DiceResponseHandler::ProcessDiceSigninHeader(
       return;  // There is already a request in flight with the same parameters.
     }
   }
-
+  observer->WillStartRefreshTokenFetch(gaia_id, email);
   token_fetchers_.push_back(base::MakeUnique<DiceTokenFetcher>(
-      gaia_id, email, authorization_code, signin_client_, this));
+      gaia_id, email, authorization_code, signin_client_, account_reconcilor_,
+      std::move(observer), this));
 }
 
 void DiceResponseHandler::ProcessDiceSignoutHeader(
     const std::vector<std::string>& gaia_ids,
     const std::vector<std::string>& emails) {
   DCHECK_EQ(gaia_ids.size(), emails.size());
+  VLOG(1) << "Start processing Dice signout response";
   if (!signin::IsAccountConsistencyDiceEnabled()) {
     // Ignore signout responses when using kDiceFixAuthErrors.
     DCHECK_EQ(signin::AccountConsistencyMethod::kDiceFixAuthErrors,
@@ -302,8 +320,9 @@ void DiceResponseHandler::ProcessDiceSignoutHeader(
     if (signed_out_account == current_account) {
       VLOG(1) << "[Dice] Signing out all accounts.";
       RecordDiceResponseHeader(kSignoutPrimary);
-      signin_manager_->SignOut(signin_metrics::SERVER_FORCED_DISABLE,
-                               signin_metrics::SignoutDelete::IGNORE_METRIC);
+      signin_manager_->SignOutAndRemoveAllAccounts(
+          signin_metrics::SERVER_FORCED_DISABLE,
+          signin_metrics::SignoutDelete::IGNORE_METRIC);
       // Cancel all Dice token fetches currently in flight.
       token_fetchers_.clear();
       return;
@@ -341,17 +360,21 @@ void DiceResponseHandler::DeleteTokenFetcher(DiceTokenFetcher* token_fetcher) {
 
 void DiceResponseHandler::OnTokenExchangeSuccess(
     DiceTokenFetcher* token_fetcher,
-    const std::string& gaia_id,
-    const std::string& email,
-    const GaiaAuthConsumer::ClientOAuthResult& result) {
+    std::string gaia_id,
+    std::string email,
+    std::string refresh_token,
+    std::unique_ptr<ProcessDiceHeaderObserver> observer) {
   if (!CanGetTokenForAccount(gaia_id, email))
     return;
 
   std::string account_id =
       account_tracker_service_->SeedAccountInfo(gaia_id, email);
   VLOG(1) << "[Dice] OAuth success for account: " << account_id;
-  token_service_->UpdateCredentials(account_id, result.refresh_token);
   DeleteTokenFetcher(token_fetcher);
+
+  // Store the new account and start sync if needed.
+  token_service_->UpdateCredentials(account_id, refresh_token);
+  observer->DidFinishRefreshTokenFetch(gaia_id, email);
 }
 
 void DiceResponseHandler::OnTokenExchangeFailure(

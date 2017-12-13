@@ -11,7 +11,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#import "ios/chrome/browser/ui/toolbar/toolbar_controller.h"
+#include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
 #import "ios/chrome/test/app/settings_test_util.h"
 #import "ios/chrome/test/app/web_view_interaction_test_util.h"
@@ -32,6 +32,9 @@
 #endif
 
 namespace {
+
+// The page height of test pages. This must be big enough to triger fullscreen.
+const int kPageHeightEM = 200;
 
 // TODO(crbug.com/638674): Move this to a shared location as it is a duplicate
 // of ios/web/shell/test/page_state_egtest.mm.
@@ -209,9 +212,9 @@ void AssertURLIs(const GURL& expectedURL) {
 - (void)testHideHeaderUserScrollLongPage {
   std::map<GURL, std::string> responses;
   const GURL URL = web::test::HttpServer::MakeUrl("http://tallpage");
-
   // A page long enough to ensure that the toolbar goes away on scrolling.
-  responses[URL] = "<p style='height:200em'>a</p><p>b</p>";
+  responses[URL] =
+      base::StringPrintf("<p style='height:%dem'>a</p><p>b</p>", kPageHeightEM);
   web::test::SetUpSimpleHttpServer(responses);
 
   [ChromeEarlGrey loadURL:URL];
@@ -234,9 +237,10 @@ void AssertURLIs(const GURL& expectedURL) {
   const GURL URL = web::test::HttpServer::MakeUrl("http://origin");
   // This is a tall page -- necessary to make sure scrolling can hide away the
   // toolbar safely-- and with a link to reload itself.
-  responses[URL] =
-      "<p style='height:200em'>Tall page</p>"
-      "<a onclick='window.location.reload();' id='link'>link</a>";
+  responses[URL] = base::StringPrintf(
+      "<p style='height:%dem'>Tall page</p>"
+      "<a onclick='window.location.reload();' id='link'>link</a>",
+      kPageHeightEM);
   web::test::SetUpSimpleHttpServer(responses);
 
   [ChromeEarlGrey loadURL:URL];
@@ -265,16 +269,16 @@ void AssertURLIs(const GURL& expectedURL) {
 
   // A long page with a link to execute JavaScript.
   responses[URL] = base::StringPrintf(
-      "<p style='height:200em'>whatever</p>"
+      "<p style='height:%dem'>whatever</p>"
       "<a onclick='%s' id='link1'>link1</a>",
-      javaScript.c_str());
+      kPageHeightEM, javaScript.c_str());
   // A long page with some simple text and link to close itself using
   // window.close.
   javaScript = "window.close()";
   responses[destinationURL] = base::StringPrintf(
-      "<p style='height:200em'>whatever</p><a onclick='%s' "
+      "<p style='height:%dem'>whatever</p><a onclick='%s' "
       "id='link2'>link2</a>",
-      javaScript.c_str());
+      kPageHeightEM, javaScript.c_str());
 
   web::test::SetUpSimpleHttpServer(responses);
   chrome_test_util::SetContentSettingsBlockPopups(CONTENT_SETTING_ALLOW);
@@ -318,8 +322,8 @@ void AssertURLIs(const GURL& expectedURL) {
   const GURL destinationURL =
       web::test::HttpServer::MakeUrl("http://destination");
 
-  const std::string manyLines =
-      "<p style='height:100em'>a</p><p>End of lines</p>";
+  const std::string manyLines = base::StringPrintf(
+      "<p style='height:%dem'>a</p><p>End of lines</p>", kPageHeightEM);
 
   // A long page representing many lines and a link to the destination URL page.
   responses[originURL] = manyLines + "<a href='" + destinationURL.spec() +
@@ -363,9 +367,10 @@ void AssertURLIs(const GURL& expectedURL) {
   const GURL URL = web::test::HttpServer::MakeUrl("http://origin");
 
   // A long page representing many lines and a link to go back.
-  std::string manyLines =
-      "<p style='height:100em'>a</p>"
-      "<a onclick='window.history.back()' id='link'>link</a>";
+  std::string manyLines = base::StringPrintf(
+      "<p style='height:%dem'>a</p>"
+      "<a onclick='window.history.back()' id='link'>link</a>",
+      kPageHeightEM);
   responses[URL] = manyLines;
   web::test::SetUpSimpleHttpServer(responses);
 
@@ -391,8 +396,9 @@ void AssertURLIs(const GURL& expectedURL) {
   // A long page with some simple text -- a long page is necessary so that
   // enough content is present to ensure that the toolbar can be hidden safely.
   responses[URL] = base::StringPrintf(
-      "<p style='height:100em'>a</p>"
+      "<p style='height:%dem'>a</p>"
       "<a href=\"%s\" id=\"link\">bad link</a>",
+      kPageHeightEM,
       ErrorPageResponseProvider::GetDnsFailureUrl().spec().c_str());
   std::unique_ptr<web::DataResponseProvider> provider(
       new ErrorPageResponseProvider(responses));

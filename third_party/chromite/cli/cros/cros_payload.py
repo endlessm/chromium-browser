@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2015 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,15 +8,14 @@
 from __future__ import print_function
 
 import itertools
-import os
 import sys
 import textwrap
 
 from chromite.lib import constants
 from chromite.cli import command
 
-# Needed for the dev.host.lib import below.
-sys.path.insert(0, os.path.join(constants.SOURCE_ROOT, 'src', 'platform'))
+# Needed for the update_payload import below.
+sys.path.insert(0, constants.UPDATE_ENGINE_SCRIPTS_PATH)
 
 MAJOR_PAYLOAD_VERSION_CHROMEOS = 1
 MAJOR_PAYLOAD_VERSION_BRILLO = 2
@@ -55,7 +55,7 @@ Example:
   def __init__(self, options):
     # TODO(alliewood)(chromium:454629) update once update_payload is moved
     # into chromite. google.protobuf may not be available outside the chroot.
-    from dev.host.lib import update_payload
+    import update_payload
     self._update_payload = update_payload
 
     super(PayloadCommand, self).__init__(options)
@@ -127,7 +127,7 @@ Example:
 
   @staticmethod
   def _DisplaySignaturesBlob(signature_name, signatures_blob):
-    from dev.host.lib.update_payload import update_metadata_pb2
+    from update_payload import update_metadata_pb2
     signatures = update_metadata_pb2.Signatures()
     signatures.ParseFromString(signatures_blob)
     print('%s signatures: (%d entries)' %

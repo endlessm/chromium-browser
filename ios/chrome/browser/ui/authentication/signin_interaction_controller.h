@@ -11,7 +11,7 @@
 #include "components/signin/core/browser/signin_metrics.h"
 #include "ios/chrome/browser/signin/constants.h"
 
-@protocol ApplicationSettingsCommands;
+@protocol ApplicationCommands;
 namespace ios {
 class ChromeBrowserState;
 }
@@ -25,37 +25,29 @@ class ChromeBrowserState;
 // Designated initializer.
 // * |browserState| is the current browser state
 // * |presentingViewController| is the top presented view controller.
-// * |isPresentedOnSettings| indicates whether the settings view controller is
-//   part of the presented view controllers stack
 // * |accessPoint| represents the access point that initiated the sign-in.
 - (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState
             presentingViewController:(UIViewController*)presentingViewController
-               isPresentedOnSettings:(BOOL)isPresentedOnSettings
                          accessPoint:(signin_metrics::AccessPoint)accessPoint
                          promoAction:(signin_metrics::PromoAction)promoAction
-                          dispatcher:
-                              (id<ApplicationSettingsCommands>)dispatcher;
+                          dispatcher:(id<ApplicationCommands>)dispatcher;
 
 // Starts user sign-in.
-// * |viewController| is the current view controller.
 // * |identity|, if not nil, the user will be signed in without requiring user
 //   input, using this Chrome identity.
 // * |completion| will be called when the operation is done, and
 //   |succeeded| will notify the caller on whether the user is now signed in.
-- (void)signInWithViewController:(UIViewController*)viewController
-                        identity:(ChromeIdentity*)identity
-                      completion:(signin_ui::CompletionCallback)completion;
+- (void)signInWithIdentity:(ChromeIdentity*)identity
+                completion:(signin_ui::CompletionCallback)completion;
 
 // Re-authenticate the user. This method will always show a sign-in web flow.
 // The completion block will be called when the operation is done, and
 // |succeeded| will notify the caller on whether the user has been
 // correctly re-authenticated.
-- (void)reAuthenticateWithCompletion:(signin_ui::CompletionCallback)completion
-                      viewController:(UIViewController*)viewController;
+- (void)reAuthenticateWithCompletion:(signin_ui::CompletionCallback)completion;
 
 // Starts the flow to add an identity via ChromeIdentityInteractionManager.
-- (void)addAccountWithCompletion:(signin_ui::CompletionCallback)completion
-                  viewController:(UIViewController*)viewController;
+- (void)addAccountWithCompletion:(signin_ui::CompletionCallback)completion;
 
 // Cancels any current process. Calls the completion callback when done.
 - (void)cancel;

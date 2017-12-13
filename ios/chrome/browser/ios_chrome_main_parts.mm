@@ -19,8 +19,6 @@
 #include "components/flags_ui/pref_service_flags_storage.h"
 #include "components/language_usage_metrics/language_usage_metrics.h"
 #include "components/metrics/metrics_service.h"
-#include "components/metrics/profiler/ios/ios_tracking_synchronizer_delegate.h"
-#include "components/metrics/profiler/tracking_synchronizer.h"
 #include "components/metrics_services_manager/metrics_services_manager.h"
 #include "components/open_from_clipboard/clipboard_recent_content.h"
 #include "components/prefs/json_pref_store.h"
@@ -78,13 +76,13 @@ IOSChromeMainParts::~IOSChromeMainParts() {}
 void IOSChromeMainParts::PreMainMessageLoopStart() {
   l10n_util::OverrideLocaleWithCocoaLocale();
   const std::string loaded_locale =
-      ResourceBundle::InitSharedInstanceWithLocale(
-          std::string(), nullptr, ResourceBundle::LOAD_COMMON_RESOURCES);
+      ui::ResourceBundle::InitSharedInstanceWithLocale(
+          std::string(), nullptr, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
   CHECK(!loaded_locale.empty());
 
   base::FilePath resources_pack_path;
   PathService::Get(ios::FILE_RESOURCES_PACK, &resources_pack_path);
-  ResourceBundle::GetSharedInstance().AddDataPackFromPath(
+  ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
       resources_pack_path, ui::SCALE_FACTOR_100P);
 }
 
@@ -124,11 +122,6 @@ void IOSChromeMainParts::PreCreateThreads() {
       application_context_->GetLocalState());
   ConvertFlagsToSwitches(&flags_storage,
                          base::CommandLine::ForCurrentProcess());
-
-  // Initialize tracking synchronizer system.
-  tracking_synchronizer_ = new metrics::TrackingSynchronizer(
-      base::MakeUnique<base::DefaultTickClock>(),
-      base::Bind(&metrics::IOSTrackingSynchronizerDelegate::Create));
 
   // Now that the command line has been mutated based on about:flags, we can
   // initialize field trials. The field trials are needed by IOThread's

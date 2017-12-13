@@ -143,7 +143,7 @@
 #   persistent IDs for all fields (but not for groups!) are needed. These are
 #   specified by the 'id' keys of each policy. NEVER CHANGE EXISTING IDs,
 #   because doing so would break the deployed wire format!
-#   For your editing convenience: highest ID currently used: 390
+#   For your editing convenience: highest ID currently used: 399
 #   And don't forget to also update the EnterprisePolicies enum of
 #   histograms.xml (run 'python tools/metrics/histograms/update_policies.py').
 #
@@ -158,8 +158,19 @@
 #   An additional flag 'device_only' (optional, defaults to False) indicates
 #   that this policy is only supported as a device-level Cloud Policy. In that
 #   case no entry in the UserPolicy Protobuf is generated and it is assumed that
-#   it will be added to the DevicePolicy Protobuf manually.  Device policy only
+#   it will be added to the DevicePolicy Protobuf manually. Device policy only
 #   exists on Chrome OS.
+#
+# Management Type:
+#   Chrome OS devices can either be managed through the Google cloud or through
+#   Active Directory. Most policies are supported for both management types, but
+#   some are not. To indicate supported management types, use
+#     'supported_chrome_os_management': ['google_cloud', 'active_directory'],
+#   where
+#     'google_cloud' = Policy is supported for Google cloud management.
+#     'active_directory' = Policy is supported for Active Directory management.
+#   This setting applies to Chrome OS only. If the setting is missing, both
+#   types are assumed. The array must not be empty.
 #
 # Enterprise defaults:
 #   For managed users on Chrome OS (i.e. users receiving user policy from the
@@ -1387,6 +1398,32 @@
 
       If you enable this setting or do not set a value, AutoFill will remain under the control of the user. This will allow them to configure AutoFill profiles and to switch AutoFill on or off at their own discretion.''',
     },
+
+    {
+      'name': 'AutofillCreditCardEnabled',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': [
+        'chrome.*:63-',
+        'chrome_os:63-',
+        'android:63-',
+      ],
+      'features': {
+        'can_be_recommended': True,
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': False,
+      'id': 392,
+      'caption': '''Enable AutoFill for credit cards''',
+      'tags': [],
+      'desc': '''Enables <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>'s AutoFill feature and allows users to auto complete credit card and address information in web forms using previously stored information.
+
+      If you disable this setting, Autofill will never suggest, or fill credit card information, nor will it save additional credit card information that the user might submit while browsing the web.
+
+      If you enable this setting or do not set a value, then user will be able to control the overall autofill feature (incuding credit cards) in the UI.''',
+    },
+
     {
       'name': 'DisabledPlugins',
       'type': 'list',
@@ -2143,8 +2180,7 @@
           'type': 'string',
           'schema': { 'type': 'string' },
           'supported_on': ['chrome.*:9-','android:46-','chrome_os:62-'],
-          # TODO(ljusten): Uncomment, once that property is in:
-          # 'supported_cros_management': ['ad'],
+          'supported_chrome_os_management': ['active_directory'],
           'features': {
             'dynamic_refresh': False,
             'per_profile': False,
@@ -2164,8 +2200,7 @@
           'type': 'main',
           'schema': { 'type': 'boolean' },
           'supported_on': ['chrome.*:9-','android:46-','chrome_os:62-'],
-          # TODO(ljusten): Uncomment, once that property is in:
-          # 'supported_cros_management': ['ad'],
+          'supported_chrome_os_management': ['active_directory'],
           'features': {
             'dynamic_refresh': False,
             'per_profile': False,
@@ -2185,8 +2220,7 @@
           'type': 'main',
           'schema': { 'type': 'boolean' },
           'supported_on': ['chrome.*:9-','chrome_os:62-'],
-          # TODO(ljusten): Uncomment, once that property is in:
-          # 'supported_cros_management': ['ad'],
+          'supported_chrome_os_management': ['active_directory'],
           'features': {
             'dynamic_refresh': False,
             'per_profile': False,
@@ -2206,8 +2240,7 @@
           'type': 'string',
           'schema': { 'type': 'string' },
           'supported_on': ['chrome.*:9-','android:46-','webview_android:49-','chrome_os:62-'],
-          # TODO(ljusten): Uncomment, once that property is in:
-          # 'supported_cros_management': ['ad'],
+          'supported_chrome_os_management': ['active_directory'],
           'features': {
             'dynamic_refresh': False,
             'per_profile': False,
@@ -2227,8 +2260,7 @@
           'type': 'string',
           'schema': { 'type': 'string' },
           'supported_on': ['chrome.*:9-','android:46-','chrome_os:62-'],
-          # TODO(ljusten): Uncomment, once that property is in:
-          # 'supported_cros_management': ['ad'],
+          'supported_chrome_os_management': ['active_directory'],
           'features': {
             'dynamic_refresh': False,
             'per_profile': False,
@@ -2282,8 +2314,7 @@
           'type': 'main',
           'schema': { 'type': 'boolean' },
           'supported_on': ['chrome.*:13-','chrome_os:62-'],
-          # TODO(ljusten): Uncomment, once that property is in:
-          # 'supported_cros_management': ['ad'],
+          'supported_chrome_os_management': ['active_directory'],
           'features': {
             'dynamic_refresh': True,
             'per_profile': False,
@@ -2546,8 +2577,7 @@
               },
             },
           },
-          'future': True,
-          'supported_on': ['chrome.*:40-', 'chrome_os:40-'],
+          'supported_on': ['chrome.*:62-', 'chrome_os:62-'],
           'features': {
             'dynamic_refresh': True,
             'per_profile': True,
@@ -2610,9 +2640,6 @@
           <ph name="BLOCKED_INSTALL_MESSAGE">"blocked_install_message"</ph>: If a user tries to install an extension, but it is blocked by policy the Chrome Webstore displays a generic error message. This setting allows you to append text to the error message. This could be be used to direct users to your help desk, explain why a particular extension is blocked, or something else. This error message will be truncated if longer than 1000 characters.
           <ph name="RUNTIME_BLOCKED_HOSTS">"runtime_blocked_hosts"</ph>: Accepts a list of hosts that an extension will be blocked from interacting with. This includes injecting javascript, altering and viewing webRequests / webNavigation, viewing and altering cookies. The format is similar to Match Patterns <ph name="LINK_TO_MATCH_PATTERNS">https://developer.chrome.com/extensions/match_patterns</ph> except no paths may be defined. e.g. "*://*.example.com". This also supports effective TLD wildcarding e.g. "*://example.*".
           <ph name="RUNTIME_ALLOWED_HOSTS">"runtime_allowed_hosts"</ph>: Accepts a list of hosts that an extension can interact with regardless of whether they are listed in <ph name="RUNTIME_BLOCKED_HOSTS">"runtime_blocked_hosts"</ph>. This is the same format as <ph name="RUNTIME_BLOCKED_HOSTS">"runtime_blocked_hosts"</ph>.
-
-
-          This policy isn't ready for usage yet, please don't use it.
           '''
         },
       ],
@@ -4315,6 +4342,25 @@
       If this setting is disabled or not set, users will be asked for permission to run plugins that require authorization. These are plugins that can compromise security.''',
     },
     {
+      'name': 'RunAllFlashInAllowMode',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome.*:63-', 'chrome_os:63-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': True,
+      },
+      'example_value': True,
+      'id': 391,
+      'caption': '''Extend Flash content setting to all content''',
+      'tags': ['system-security'],
+      'desc': '''If you enable this setting, all Flash content embedded on websites that have been set to allow Flash in content settings -- either by the user or by enterprise policy -- will be run, including content from other origins or small content.
+
+      To control which websites are allowed to run Flash, see the "DefaultPluginsSetting", "PluginsAllowedForUrls", and "PluginsBlockedForUrls" policies.
+
+      If this setting is disabled or not set, Flash content from other origins or small content might be blocked.''',
+    },
+    {
       'name': 'BookmarkBarEnabled',
       'type': 'main',
       'schema': { 'type': 'boolean' },
@@ -5036,6 +5082,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:18-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5054,6 +5101,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:18-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5072,6 +5120,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:18-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5090,6 +5139,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:20-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5109,6 +5159,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:29-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5127,6 +5178,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:32-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5145,6 +5197,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:42-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5164,6 +5217,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:42-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5185,6 +5239,7 @@
       'type': 'int',
       'schema': { 'type': 'integer', 'minimum': 60000 },
       'supported_on': ['chrome_os:42-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5204,6 +5259,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:55-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'features': {
         'dynamic_refresh': True,
         'per_profile': True,
@@ -5225,6 +5281,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:43-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5245,6 +5302,7 @@
       'type': 'int',
       'schema': { 'type': 'integer', 'minimum': 30000 },
       'supported_on': ['chrome_os:43-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5265,6 +5323,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:46-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5689,6 +5748,7 @@
         'items': { 'type': 'string' },
       },
       'supported_on': ['chrome_os:25-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5706,6 +5766,7 @@
       'type': 'string',
       'schema': { 'type': 'string' },
       'supported_on': ['chrome_os:26-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5725,6 +5786,7 @@
       'type': 'int',
       'schema': { 'type': 'integer' },
       'supported_on': ['chrome_os:26-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5748,6 +5810,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:28-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5767,6 +5830,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:33-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -5880,7 +5944,7 @@
         'dynamic_refresh': True,
         'per_profile': True,
       },
-      'example_value': ['pjkljhegncpnkpknbcohdijeoejaedia'],
+      'example_value': ['pjkljhegncpnkpknbcohdijeoejaedia', 'com.google.android.gm'],
       'id': 144,
       'caption': '''List of pinned apps to show in the launcher''',
       'tags': [],
@@ -5889,6 +5953,7 @@
       If this policy is configured, the set of applications is fixed and can't be changed by the user.
 
       If this policy is left unset, the user may change the list of pinned apps in the launcher.''',
+      'arc_support': 'This policy can also be used to pin Android apps.',
     },
     {
       'name': 'RestrictSigninToPattern',
@@ -5899,7 +5964,7 @@
         'dynamic_refresh': True,
         'per_profile': False,
       },
-      'example_value': '*@domain.com',
+      'example_value': '.*@example.com',
       'id': 147,
       'caption': '''Restrict which users are allowed to sign in to <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>''',
       'tags': [],
@@ -7531,6 +7596,7 @@
       'type': 'int',
       'schema': { 'type': 'integer' },
       'supported_on': ['chrome_os:29-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -7627,6 +7693,7 @@
           'type': 'main',
           'schema': { 'type': 'boolean' },
           'supported_on': ['chrome_os:28-'],
+          'supported_chrome_os_management': ['google_cloud'],
           'features': {
             'dynamic_refresh': True,
           },
@@ -7681,6 +7748,7 @@
           'type': 'main',
           'schema': { 'type': 'boolean' },
           'supported_on': ['chrome_os:31-'],
+          'supported_chrome_os_management': ['google_cloud'],
           'features': {
             'dynamic_refresh': True,
           },
@@ -7813,6 +7881,7 @@
           'type': 'main',
           'schema': { 'type': 'boolean' },
           'supported_on': ['chrome_os:29-'],
+          'supported_chrome_os_management': ['google_cloud'],
           'device_only': True,
           'features': {
             'dynamic_refresh': False,
@@ -8080,6 +8149,7 @@
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:38-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -8468,6 +8538,7 @@
       'type': 'int',
       'schema': { 'type': 'integer' },
       'supported_on': ['chrome_os:43-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': False,
@@ -8485,6 +8556,7 @@
       'type': 'string',
       'schema': { 'type': 'string' },
       'supported_on': [ 'chrome_os:44-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -8726,18 +8798,65 @@
         'dynamic_refresh': True,
         'per_profile': False,
       },
-      'example_value': '',
+      'example_value': '{"applications":[{"packageName":"com.google.android.gm","installType":"FORCE_INSTALLED"},{"packageName":"com.google.android.apps.docs","installType":"PRELOAD"}]}',
       'id': 318,
       'caption': '''Configure ARC''',
       'tags': [],
       'desc':
-      '''Specifies a set of policies that will be handed over to the ARC runtime. The value must be valid JSON.'''
+      '''Specifies a set of policies that will be handed over to the ARC runtime. The value must be valid JSON.
+
+      This policy can be used to configure which Android apps are automatically installed on the device:
+
+      {
+        "type": "object",
+        "properties": {
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "packageName": {
+                  "description": "Android app identifier, e.g. \"com.google.android.gm\" for Gmail",
+                  "type": "string"
+                },
+                "installType": {
+                  "description": "Specifies how an app is installed. OPTIONAL: The app is not installed automatically, but the user can install it. This is the default if this policy is not specified. PRELOAD: The app is installed automatically, but the user can uninstall it. FORCE_INSTALLED: The app is installed automatically and the user cannot uninstall it. BLOCKED: The app is blocked and cannot be installed. If the app was installed under a previous policy it will be uninstalled.",
+                  "type": "string",
+                  "enum": [
+                    "OPTIONAL",
+                    "PRELOAD",
+                    "FORCE_INSTALLED",
+                    "BLOCKED"
+                  ]
+                },
+                "defaultPermissionPolicy": {
+                  "description": "Policy for granting permission requests to apps. PERMISSION_POLICY_UNSPECIFIED: Policy not specified. If no policy is specified for a permission at any level, then the `PROMPT` behavior is used by default. PROMPT: Prompt the user to grant a permission. GRANT: Automatically grant a permission. DENY: Automatically deny a permission.",
+                  "type": "string",
+                  "enum": [
+                    "PERMISSION_POLICY_UNSPECIFIED",
+                    "PROMPT",
+                    "GRANT",
+                    "DENY"
+                  ]
+                },
+                "managedConfiguration": {
+                  "description": "App-specific JSON configuration object with a set of key-value pairs, e.g. '\"managedConfiguration\": { \"key1\": value1, \"key2\": value2 }'. The keys are defined in the app manifest.",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+
+      To pin apps to the launcher, see PinnedLauncherApps.'''
     },
     {
       'name': 'AllowKioskAppControlChromeVersion',
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:51-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -8777,6 +8896,7 @@
         },
       ],
       'supported_on': ['chrome_os:51-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -8991,6 +9111,7 @@
         'required': ['enabled', 'upload_rate_kbits', 'download_rate_kbits']
       },
       'supported_on': ['chrome_os:56-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'features': {
         'dynamic_refresh': True,
         'per_profile': False,
@@ -9007,6 +9128,7 @@
         'items': { 'type': 'string' },
       },
       'supported_on': ['chrome_os:52-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -9416,28 +9538,16 @@
       'tags': [],
       'desc': '''Provides configurations for enterprise printers.
 
-      This policy allows you to provide printer configurations to
-      <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> devices.
-      The size of the file must not exceed 5MB and must be encoded in JSON.
-      The format is the same as the NativePrinters dictionary.  It is estimated
-      that a file containing approximately 21,000 printers will encode as a 5MB
-      file.  The cryptographic hash is used to verify the integrity of the
-      download.
+      This policy allows you to provide printer configurations to <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> devices. The size of the file must not exceed 5MB and must be encoded in JSON.  The format is the same as the NativePrinters dictionary.  It is estimated that a file containing approximately 21,000 printers will encode as a 5MB file.  The cryptographic hash is used to verify the integrity of the download.
 
-      The file is downloaded and cached. It will be re-downloaded whenever
-      the URL or the hash changes.
+      The file is downloaded and cached. It will be re-downloaded whenever the URL or the hash changes.
 
-      If this policy is set,
-      <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> will download
-      the file for printer configurations and make printers available in
-      accordance with NativePrintersBulkAccessMode, NativePrintersBulkWhitelist,
-      and NativePrintersBulkBlacklist.
+      If this policy is set, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> will download the file for printer configurations and make printers available in accordance with <ph name="BULK_PRINTERS_ACCESS_MODE">NativePrintersBulkAccessMode</ph>, <ph name="BULK_PRINTERS_WHITELIST">NativePrintersBulkWhitelist</ph>, and <ph name="BULK_PRINTERS_BLACKLIST">NativePrintersBulkBlacklist</ph>.
 
       If you set this policy, users cannot change or override it.
 
-      This policy has no effect on whether users can configure printers on
-      individual devices.  It is intended to be supplementary to the
-      configuration of printers by individual users.''',
+      This policy has no effect on whether users can configure printers on individual devices.  It is intended to be supplementary to the configuration of printers by individual users.
+      ''',
     },
     {
       'name': 'NativePrintersBulkAccessMode',
@@ -9473,17 +9583,11 @@
       'example_value': 1,
       'caption': '''Printer configuration access policy.''',
       'tags': [],
-      'desc': '''Controls which printers from the
-      NativePrintersBulkConfiguration are available to users.
+      'desc': '''Controls which printers from the <ph name="BULK_PRINTERS_POLICY">NativePrintersBulkConfiguration</ph> are available to users.
 
-      Designates which access policy is used for bulk printer configuration.
-      If AllowAll is selected, all printers are shown. If BlacklistRestrction
-      is selected, NativePrintersBulkBlacklist is used to restrict access to
-      the specified printers.  If WhitelistPrintersOnly is selected,
-      NativePrintersWhitelist designates only those printers which are
-      selectable.
+      Designates which access policy is used for bulk printer configuration. If <ph name="PRINTERS_ALLOW_ALL">AllowAll</ph> is selected, all printers are shown. If <ph name="PRINTERS_BLACKLIST">BlacklistRestriction</ph> is selected, <ph name="BULK_PRINTERS_BLACKLIST">NativePrintersBulkBlacklist</ph> is used to restrict access to the specified printers.  If <ph name="PRINTERS_WHITELIST">WhitelistPrintersOnly</ph> is selected, <ph name="BULK_PRINTERS_WHITELIST">NativePrintersBulkWhitelist</ph> designates only those printers which are selectable.
 
-      If this policy is not set, BlacklistRestriction is assumed.
+      If this policy is not set, <ph name="PRINTERS_BLACKLIST">BlacklistRestriction</ph> is assumed.
       ''',
     },
     {
@@ -9504,11 +9608,9 @@
       'tags': [],
       'desc': '''Specifies the printers which a user cannot use.
 
-      This policy is only used if BlacklistRestriction is chosen for
-      NativePrintersBulkAccessMode.
+      This policy is only used if <ph name="PRINTERS_BLACKLIST">BlacklistRestriction</ph> is chosen for <ph name="BULK_PRINTERS_ACCESS_MODE">NativePrintersBulkAccessMode</ph>.
 
-      If this policy is used, all printers are provided to the user except
-      for the ids listed in this policy.
+      If this policy is used, all printers are provided to the user except for the ids listed in this policy.
       ''',
     },
     {
@@ -9529,16 +9631,140 @@
       'tags': [],
       'desc': '''Specifies the printers which a user can use.
 
-      This policy is only used if WhitelistPrintersOnly is chosen for
-      NativePrintersBulkAccessMode.
+      This policy is only used if <ph name="PRINTERS_WHITELIST">WhitelistPrintersOnly</ph> is chosen for <ph name="BULK_PRINTERS_ACCESS_MODE">NativePrintersBulkAccessMode</ph>.
 
-      If this policy is used, only the printers with ids matching the values
-      in this policy are available to the user. The ids must coorespond to
-      the entries in the file specified in NativePrintersBulkConfiguration.''',
+      If this policy is used, only the printers with ids matching the values in this policy are available to the user. The ids must correspond to the entries in the file specified in <ph name="BULK_PRINTERS_POLICY">NativePrintersBulkConfiguration</ph>.
+      ''',
+    },
+    {
+      'name': 'DeviceNativePrinters',
+      'id': 386,
+      'device_only': True,
+      'type': 'external',
+      'schema': {
+        'type': 'object',
+        'properties': {
+          'url': { 'type': 'string' },
+          'hash': { 'type': 'string' }
+        },
+      },
+      'supported_on': ['chrome_os:63-'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': False,
+      },
+      'example_value': {
+        "url": "https://example.com/printerpolicy",
+        "hash": "deadbeefdeadbeefdeadbeefdeadbeefdeafdeadbeefdeadbeef"
+      },
+      'max_size': 5242880,
+      'caption': '''Enterprise printer configuration file for devices''',
+      'tags': [],
+      'desc': '''Provides configurations for enterprise printers bound to devices.
+
+      This policy allows you to provide printer configurations to <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> devices. The size of the file must not exceed 5MB and must be encoded in JSON. The format is the same as the NativePrinters dictionary.  It is estimated that a file containing approximately 21,000 printers will encode as a 5MB file.  The cryptographic hash is used to verify the integrity of the download.
+
+      The file is downloaded and cached. It will be re-downloaded whenever the URL or the hash changes.
+
+      If this policy is set, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> will download the file for printer configurations and make printers available in accordance with <ph name="DEVICE_PRINTERS_ACCESS_MODE">DeviceNativePrintersAccessMode</ph>, <ph name="DEVICE_PRINTERS_WHITELIST">DeviceNativePrintersWhitelist</ph>, and <ph name="DEVICE_PRINTERS_BLACKLIST">DeviceNativePrintersBlacklist</ph>.
+
+      This policy has no effect on whether users can configure printers on individual devices.  It is intended to be supplementary to the configuration of printers by individual users.
+
+      This policy is additive to the <ph name="BULK_PRINTERS_POLICY">NativePrintersBulkConfiguration</ph>.
+
+      If this policy is unset, there will be no device printers and the other <ph name="DEVICE_PRINTERS_POLICY_PATTERN">DeviceNativePrinter*</ph> policies will be ignored.''',
+    },
+    {
+      'name': 'DeviceNativePrintersAccessMode',
+      'id': 387,
+      'device_only': True,
+      'supported_on': ['chrome_os:63-'],
+      'type': 'int-enum',
+      'schema': {
+        'type': 'integer',
+        'enum': [ 0, 1, 2 ],
+      },
+      'items': [
+        {
+          'name': 'BlacklistRestriction',
+          'value': 0,
+          'caption': '''All printers are shown except those in the blacklist.''',
+        },
+        {
+          'name': 'WhitelistPrintersOnly',
+          'value': 1,
+          'caption': '''Only printers in the whitelist are shown to users''',
+        },
+        {
+          'name': 'AllowAll',
+          'value': 2,
+          'caption': '''Allow all printers from the configuration file.''',
+        },
+      ],
+      'features' : {
+        'dynamic_refresh': True,
+        'per_profile': False,
+      },
+      'example_value': 1,
+      'caption': '''Device printers configuration access policy.''',
+      'tags': [],
+      'desc': '''Controls which printers from the <ph name="DEVICE_PRINTERS_POLICY">DeviceNativePrinters</ph> are available to users.
+
+      Designates which access policy is used for bulk printer configuration. If <ph name="PRINTERS_ALLOW_ALL">AllowAll</ph> is selected, all printers are shown. If <ph name="PRINTERS_BLACKLIST">BlacklistRestriction</ph> is selected, <ph name="DEVICE_PRINTERS_BLACKLIST">DeviceNativePrintersBlacklist</ph> is used to restrict access to the specified printers.  If <ph name="PRINTERS_WHITELIST">WhitelistPrintersOnly</ph> is selected, <ph name="DEVICE_PRINTERS_WHITELIST">DeviceNativePrintersWhitelist</ph> designates only those printers which are selectable.
+
+      If this policy is not set, <ph name="PRINTERS_BLACKLIST">BlacklistRestriction</ph> is assumed.
+      ''',
+    },
+    {
+      'name': 'DeviceNativePrintersBlacklist',
+      'supported_on': ['chrome_os:63-'],
+      'device_only': True,
+      'id': 388,
+      'type': 'list',
+      'schema': {
+        'type': 'array',
+        'items': { 'type': 'string' },
+      },
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'example_value':  ["id1", "id2", "id3"],
+      'caption': '''Disabled enterprise device printers''',
+      'tags': [],
+      'desc': '''Specifies the printers which a user cannot use.
+
+      This policy is only used if <ph name="PRINTERS_BLACKLIST">BlacklistRestriction</ph> is chosen for <ph name="DEVICE_PRINTERS_ACCESS_MODE">DeviceNativePrintersAccessMode</ph>.
+
+      If this policy is used, all printers are provided to the user except for the ids listed in this policy.
+      ''',
+    },
+    {
+      'name': 'DeviceNativePrintersWhitelist',
+      'supported_on': ['chrome_os:63-'],
+      'device_only': True,
+      'id': 389,
+      'type': 'list',
+      'schema': {
+        'type': 'array',
+        'items': { 'type': 'string' },
+      },
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': False,
+      },
+      'example_value':  ["id1", "id2", "id3"],
+      'caption': '''Enabled enterprise device printers''',
+      'tags': [],
+      'desc': '''Specifies the printers which a user can use.
+
+      This policy is only used if <ph name="PRINTERS_WHITELIST">WhitelistPrintersOnly</ph> is chosen for <ph name="DEVICE_PRINTERS_ACCESS_MODE">DeviceNativePrintersAccessMode</ph>
+
+      If this policy is used, only the printers with ids matching the values in this policy are available to the user. The ids must correspond to the entries in the file specified in <ph name="DEVICE_PRINTERS_POLICY">DeviceNativePrinters</ph>.
+      ''',
     },
     {
       'name': 'TPMFirmwareUpdateSettings',
-      'supported_on': ['chrome_os:61-'],
+      'supported_on': ['chrome_os:63-'],
       'device_only': True,
       'id': 390,
       'type': 'dict',
@@ -9567,6 +9793,7 @@
 
       If the policy is not set, TPM firmware update functionality will not be available.''',
     },
+
     {
       'name': 'QuickUnlock',
       'type': 'group',
@@ -9717,7 +9944,7 @@
           'hash': { "type": "string" }
         },
       },
-      'supported_on': ['chrome_os:57-'],
+      'supported_on': ['chrome_os:61-'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -9841,6 +10068,7 @@
         },
       ],
       'supported_on': ['chrome_os:61-'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': False,
@@ -9904,6 +10132,7 @@
         },
       ],
       'supported_on': ['chrome_os:60-60'],
+      'supported_chrome_os_management': ['google_cloud'],
       'device_only': True,
       'features': {
         'dynamic_refresh': True,
@@ -10097,9 +10326,9 @@
             }
           },
           'timezone': { 'type': 'string' },
-          'ignored_policies': {
+          'ignored_policy_proto_tags': {
             'type': 'array',
-            'items': { 'type':'string' }
+            'items': { 'type':'integer' }
           }
         }
       },
@@ -10133,12 +10362,12 @@
           }
         ],
         'timezone': 'GMT',
-        'ignored_policies': ['allow_new_users', 'guest_mode_enabled']
+        'ignored_policy_proto_tags': [3, 8]
       },
       'id': 380,
-      'caption': '''Off hours intervals when device OffHours |ignored_policies| are released''',
+      'caption': '''Off hours intervals when device OffHours |ignored_policy_proto_tags| are released''',
       'tags': [],
-      'desc': '''If "OffHours" policy is set, then the specified device policies are ignored (use the default settings of these policies) during the defined time intervals. Device policies are re-applied by Chrome on every event when "OffHours" period starts or ends. User will be notified and forced to sign out when "OffHours" time end and device policy settings are changed (i.e. when user is logged in not with an allowed account).''',
+      'desc': '''If "OffHours" policy is set, then the specified device policies are ignored (use the default settings of these policies) during the defined time intervals. Device policies are re-applied by Chrome on every event when "OffHours" period starts or ends. User will be notified and forced to sign out when "OffHours" time end and device policy settings are changed (e.g. when user is logged in not with an allowed account).''',
     },
     {
       'name': 'CloudPolicyOverridesMachinePolicy',
@@ -10161,6 +10390,56 @@
 
       This policy is not available on Windows instances that are not joined to a <ph name="MS_AD_NAME">Microsoft® Active Directory®</ph> domain.
       '''
+    },
+    {
+      'name': 'IsolateOrigins',
+      'type': 'string',
+      'schema': { 'type': 'string' },
+      'supported_on': ['chrome.*:63-', 'chrome_os:63-'],
+      'device_only': False,
+      'features': {
+        'dynamic_refresh': False,
+        'per_profile': False,
+      },
+      'example_value': 'https://example.com/,https://othersite.org/',
+      'id': 398,
+      'caption': '''Enable Site Isolation for specified origins''',
+      'tags': ['system-security'],
+      'desc': '''
+      NOTE: This policy is experimental and may break functionality!
+      If the policy is enabled, each of the named origins in a
+      comma-separated list will run in its own process. This will also isolate
+      origins named by subdomains; e.g. specifying https://example.com/ will
+      also cause https://foo.example.com/ to be isolated as part of the
+      https://example.com/ site.
+      If the policy is disabled, the pre-Site Isolation process management logic will take effect.
+      If the policy is not configured, the user will be able to change this setting.
+      ''',
+    },
+    {
+      'name': 'SitePerProcess',
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'supported_on': ['chrome.*:63-', 'chrome_os:63-'],
+      'device_only': False,
+      'features': {
+        'dynamic_refresh': False,
+        'per_profile': False,
+      },
+      'example_value': True,
+      'id': 399,
+      'caption': '''Enable Site Isolation for every site''',
+      'tags': ['system-security'],
+      'desc': '''
+      NOTE: This policy is experimental and may break functionality!
+      You might want to look at the IsolateOrigins policy setting to get the
+      best of both worlds, isolation and limited impact for users, by using
+      IsolateOrigins with a list of the sites you want to isolate. This setting,
+      SitePerProcess, isolates all sites.
+      If the policy is enabled, each site will run in its own process.
+      If the policy is disabled, the pre-Site Isolation process management logic will take effect.
+      If the policy is not configured, the user will be able to change this setting.
+      ''',
     }
   ],
   'messages': {
@@ -10179,7 +10458,11 @@
     },
     'doc_win_reg_loc': {
       'desc': '''Caption text of the field 'windows registry location' in the summary chart of a policy in the generated documentation''',
-      'text': '''Windows registry location:'''
+      'text': '''Windows registry location for Windows clients:'''
+    },
+    'doc_chrome_os_reg_loc': {
+      'desc': '''Caption text of the field '<ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> registry location' in the summary chart of a policy in the generated documentation''',
+      'text': '''Windows registry location for <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> clients:'''
     },
     'doc_mac_linux_pref_name': {
       'desc': '''Caption text of the field 'mac/linux preference name' in the summary chart of a policy in the generated documentation''',
@@ -10220,6 +10503,14 @@
     'doc_example_value': {
       'desc': '''Caption text of the field 'example value' in the summary chart of a policy in the generated documentation''',
       'text': '''Example value:'''
+    },
+    'doc_win_example_value': {
+      'desc': '''Caption text of the field 'windows (windows clients)' in the summary chart of a policy in the generated documentation''',
+      'text': '''Windows (Windows clients):'''
+    },
+    'doc_chrome_os_example_value': {
+      'desc': '''Caption text of the field 'windows (Chrome OS clients)' in the summary chart of a policy in the generated documentation''',
+      'text': '''Windows (<ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex></ph> clients):'''
     },
     'doc_intro': {
       'desc': '''Introduction text for the generated policy documentation''',

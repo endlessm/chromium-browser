@@ -55,6 +55,13 @@
 #include "ui/resources/grit/ui_resources.h"
 #include "url/gurl.h"
 
+using search_provider_logos::EncodedLogo;
+using search_provider_logos::EncodedLogoCallback;
+using search_provider_logos::LogoCallbacks;
+using search_provider_logos::LogoCallbackReason;
+using search_provider_logos::LogoMetadata;
+using search_provider_logos::LogoService;
+
 namespace {
 
 // Signifies a locally constructed resource, i.e. not from grit/.
@@ -122,6 +129,8 @@ std::unique_ptr<base::DictionaryValue> GetTranslatedStrings(bool is_google) {
     AddString(translated_strings.get(), "audioError",
               IDS_NEW_TAB_VOICE_AUDIO_ERROR);
     AddString(translated_strings.get(), "details", IDS_NEW_TAB_VOICE_DETAILS);
+    AddString(translated_strings.get(), "clickToViewDoodle",
+              IDS_CLICK_TO_VIEW_DOODLE);
     AddString(translated_strings.get(), "fakeboxMicrophoneTooltip",
               IDS_TOOLTIP_MIC_SEARCH);
     AddString(translated_strings.get(), "languageError",
@@ -141,6 +150,8 @@ std::unique_ptr<base::DictionaryValue> GetTranslatedStrings(bool is_google) {
     AddString(translated_strings.get(), "tryAgain",
               IDS_NEW_TAB_VOICE_TRY_AGAIN);
     AddString(translated_strings.get(), "waiting", IDS_NEW_TAB_VOICE_WAITING);
+    AddString(translated_strings.get(), "otherError",
+              IDS_NEW_TAB_VOICE_OTHER_ERROR);
   }
 
   return translated_strings;
@@ -213,8 +224,15 @@ std::unique_ptr<base::DictionaryValue> ConvertOGBDataToDict(
   return result;
 }
 
+std::string ConvertLogoImageToBase64(const EncodedLogo& logo) {
+  std::string base64;
+  base::Base64Encode(logo.encoded_image->data(), &base64);
+  return base::StringPrintf("data:%s;base64,%s",
+                            logo.metadata.mime_type.c_str(), base64.c_str());
+}
+
 std::unique_ptr<base::DictionaryValue> ConvertLogoMetadataToDict(
-    const search_provider_logos::LogoMetadata& meta) {
+    const LogoMetadata& meta) {
   auto result = base::MakeUnique<base::DictionaryValue>();
   result->SetString("onClickUrl", meta.on_click_url.spec());
   result->SetString("altText", meta.alt_text);
@@ -283,18 +301,14 @@ class LocalNtpSource::GoogleSearchProviderTracker
   GURL google_base_url_;
 };
 
-class LocalNtpSource::DesktopLogoObserver
-    : public search_provider_logos::LogoObserver {
+class LocalNtpSource::DesktopLogoObserver {
  public:
-  DesktopLogoObserver() = default;
+  DesktopLogoObserver() : weak_ptr_factory_(this) {}
 
   // Get the cached logo.
-  void GetCachedLogo(search_provider_logos::LogoService* service,
+  void GetCachedLogo(LogoService* service,
                      const content::URLDataSource::GotDataCallback& callback) {
-    cached_requests_.push_back(callback);
-    if (!observing_) {
-      StartGetLogo(service);
-    }
+    StartGetLogo(service, callback, /*from_cache=*/true);
   }
 
   // Get the fresh logo corresponding to a previous request for a cached logo.
@@ -305,82 +319,93 @@ class LocalNtpSource::DesktopLogoObserver
   // Strictly speaking, it's not a "fresh" logo anymore, but it should be the
   // same logo that would have been fresh relative to the corresponding cached
   // request, or perhaps one newer.
-  void GetFreshLogo(search_provider_logos::LogoService* service,
+  void GetFreshLogo(LogoService* service,
                     int requested_version,
                     const content::URLDataSource::GotDataCallback& callback) {
-    if (observing_) {
-      if (requested_version == version_) {
-        fresh_requests_.push_back(callback);
-      } else {
-        DCHECK_LT(requested_version, version_);
-        cached_requests_.push_back(callback);
-      }
-    } else {
-      cached_requests_.push_back(callback);
-      StartGetLogo(service);
-    }
-  }
-
-  void OnLogoAvailable(const search_provider_logos::Logo* logo,
-                       bool from_cache) override {
-    DCHECK(observing_);
-
-    scoped_refptr<base::RefCountedString> response;
-    if (logo) {
-      std::string js;
-      auto ddl = base::MakeUnique<base::DictionaryValue>();
-      ddl->SetInteger("version", version_);
-      ddl->Set("data", ConvertLogoMetadataToDict(logo->metadata));
-      base::JSONWriter::Write(*ddl, &js);
-      js = "var ddl = " + js + ";";
-      response = base::RefCountedString::TakeString(&js);
-    } else {
-      response = EmptyResponse();
-    }
-
-    std::vector<content::URLDataSource::GotDataCallback> requests;
-    if (from_cache) {
-      cached_requests_.swap(requests);
-    } else {
-      fresh_requests_.swap(requests);
-    }
-    for (const auto& request : requests) {
-      request.Run(response);
-    }
-  }
-
-  void OnObserverRemoved() override {
-    DCHECK(observing_);
-
-    auto response = EmptyResponse();
-    for (auto* requests : {&cached_requests_, &fresh_requests_}) {
-      for (const auto& request : *requests) {
-        request.Run(response);
-      }
-      requests->clear();
-    }
-    observing_ = false;
+    bool from_cache = (requested_version <= version_finished_);
+    StartGetLogo(service, callback, from_cache);
   }
 
  private:
-  void StartGetLogo(search_provider_logos::LogoService* service) {
-    DCHECK(!observing_);
+  void OnLogoAvailable(const content::URLDataSource::GotDataCallback& callback,
+                       LogoCallbackReason type,
+                       const base::Optional<EncodedLogo>& logo) {
+    scoped_refptr<base::RefCountedString> response;
+    auto ddl = base::MakeUnique<base::DictionaryValue>();
+    ddl->SetInteger("v", version_started_);
+    if (type == LogoCallbackReason::DETERMINED) {
+      ddl->SetBoolean("usable", true);
+      if (logo.has_value()) {
+        ddl->SetString("image", ConvertLogoImageToBase64(logo.value()));
+        ddl->Set("metadata", ConvertLogoMetadataToDict(logo->metadata));
+      } else {
+        ddl->SetKey("image", base::Value());
+        ddl->SetKey("metadata", base::Value());
+      }
+    } else {
+      ddl->SetBoolean("usable", false);
+    }
 
-    service->GetLogo(this);
-    observing_ = true;
-    ++version_;
+    std::string js;
+    base::JSONWriter::Write(*ddl, &js);
+    js = "var ddl = " + js + ";";
+    response = base::RefCountedString::TakeString(&js);
+    callback.Run(response);
   }
 
-  static scoped_refptr<base::RefCountedString> EmptyResponse() {
-    std::string s("{}");
-    return base::RefCountedString::TakeString(&s);
+  void OnCachedLogoAvailable(
+      const content::URLDataSource::GotDataCallback& callback,
+      LogoCallbackReason type,
+      const base::Optional<EncodedLogo>& logo) {
+    OnLogoAvailable(callback, type, logo);
   }
 
-  bool observing_ = false;
-  int version_ = 0;
+  void OnFreshLogoAvailable(
+      const content::URLDataSource::GotDataCallback& callback,
+      LogoCallbackReason type,
+      const base::Optional<EncodedLogo>& logo) {
+    OnLogoAvailable(callback, type, logo);
+    OnRequestCompleted(type, logo);
+  }
 
-  std::vector<content::URLDataSource::GotDataCallback> cached_requests_;
-  std::vector<content::URLDataSource::GotDataCallback> fresh_requests_;
+  void OnRequestCompleted(LogoCallbackReason type,
+                          const base::Optional<EncodedLogo>& logo) {
+    version_finished_ = version_started_;
+  }
+
+  void StartGetLogo(LogoService* service,
+                    const content::URLDataSource::GotDataCallback& callback,
+                    bool from_cache) {
+    EncodedLogoCallback cached, fresh;
+    LogoCallbacks callbacks;
+    if (from_cache) {
+      callbacks.on_cached_encoded_logo_available =
+          base::BindOnce(&DesktopLogoObserver::OnCachedLogoAvailable,
+                         weak_ptr_factory_.GetWeakPtr(), callback);
+      callbacks.on_fresh_encoded_logo_available =
+          base::BindOnce(&DesktopLogoObserver::OnRequestCompleted,
+                         weak_ptr_factory_.GetWeakPtr());
+    } else {
+      callbacks.on_fresh_encoded_logo_available =
+          base::BindOnce(&DesktopLogoObserver::OnFreshLogoAvailable,
+                         weak_ptr_factory_.GetWeakPtr(), callback);
+    }
+    if (!observing()) {
+      ++version_started_;
+    }
+    service->GetLogo(std::move(callbacks));
+  }
+
+  bool observing() const {
+    DCHECK_LE(version_finished_, version_started_);
+    DCHECK_LE(version_started_, version_finished_ + 1);
+    return version_started_ != version_finished_;
+  }
+
+  int version_started_ = 0;
+  int version_finished_ = 0;
+
+  base::WeakPtrFactory<DesktopLogoObserver> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DesktopLogoObserver);
 };
@@ -492,7 +517,7 @@ void LocalNtpSource::StartDataRequest(
 #endif  // !defined(GOOGLE_CHROME_BUILD)
 
   if (stripped_path == kMainHtmlFilename) {
-    std::string html = ResourceBundle::GetSharedInstance()
+    std::string html = ui::ResourceBundle::GetSharedInstance()
                            .GetRawDataResource(IDR_LOCAL_NTP_HTML)
                            .as_string();
     std::string config_integrity = base::StringPrintf(
@@ -524,7 +549,7 @@ void LocalNtpSource::StartDataRequest(
   for (size_t i = 0; i < arraysize(kResources); ++i) {
     if (filename == kResources[i].filename) {
       scoped_refptr<base::RefCountedMemory> response(
-          ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
+          ui::ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
               kResources[i].identifier, scale_factor));
       callback.Run(response.get());
       return;
@@ -581,7 +606,7 @@ std::string LocalNtpSource::GetContentSecurityPolicyScriptSrc() const {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kLocalNtpReload)) {
     // While live-editing the local NTP files, turn off CSP.
-    return "script-src *;";
+    return "script-src * 'unsafe-inline';";
   }
 #endif  // !defined(GOOGLE_CHROME_BUILD)
 

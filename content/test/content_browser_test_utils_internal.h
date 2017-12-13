@@ -18,7 +18,6 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
-#include "components/viz/common/surfaces/surface_id.h"
 #include "content/public/browser/resource_dispatcher_host_delegate.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/file_chooser_params.h"
@@ -28,6 +27,7 @@
 namespace content {
 
 class FrameTreeNode;
+class MessageLoopRunner;
 class RenderFrameHost;
 class Shell;
 class SiteInstance;
@@ -177,6 +177,34 @@ class UrlCommitObserver : WebContentsObserver {
   base::RunLoop run_loop_;
 
   DISALLOW_COPY_AND_ASSIGN(UrlCommitObserver);
+};
+
+// Class to sniff incoming IPCs for FrameHostMsg_FrameRectChanged messages.
+class FrameRectChangedMessageFilter : public content::BrowserMessageFilter {
+ public:
+  FrameRectChangedMessageFilter();
+
+  bool OnMessageReceived(const IPC::Message& message) override;
+
+  gfx::Rect last_rect() const;
+
+  void Wait();
+  void Reset();
+
+ private:
+  ~FrameRectChangedMessageFilter() override;
+
+  void OnFrameRectChanged(const gfx::Rect& rect,
+                          const viz::LocalSurfaceId& local_surface_id);
+
+  void OnFrameRectChangedOnUI(const gfx::Rect& rect,
+                              const viz::LocalSurfaceId& local_surface_id);
+
+  scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
+  bool frame_rect_received_;
+  gfx::Rect last_rect_;
+
+  DISALLOW_COPY_AND_ASSIGN(FrameRectChangedMessageFilter);
 };
 
 }  // namespace content

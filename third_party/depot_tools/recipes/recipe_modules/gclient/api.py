@@ -149,7 +149,7 @@ class GclientApi(recipe_api.RecipeApi):
       return revision.resolve(self.m.properties)
     return revision
 
-  def sync(self, cfg, with_branch_heads=False, **kwargs):
+  def sync(self, cfg, extra_sync_flags=None, **kwargs):
     revisions = []
     self.set_patch_project_revision(self.m.properties.get('patch_project'), cfg)
     for i, s in enumerate(cfg.solutions):
@@ -185,8 +185,10 @@ class GclientApi(recipe_api.RecipeApi):
       # dir for git-based builds (e.g. maybe some combination of 'git
       # reset/clean -fx' and removing the 'out' directory).
       j = '-j2' if self.m.platform.is_win else '-j8'
-      args = ['sync', '--verbose', '--with_branch_heads', '--nohooks', j,
-              '--reset', '--force', '--upstream', '--no-nag-max']
+      args = ['sync', '--verbose', '--nohooks', j, '--reset', '--force',
+              '--upstream', '--no-nag-max', '--with_branch_heads',
+              '--with_tags']
+      args.extend(extra_sync_flags or [])
       if cfg.delete_unversioned_trees:
         args.append('--delete_unversioned_trees')
       self('sync', args + revisions +
@@ -231,7 +233,7 @@ class GclientApi(recipe_api.RecipeApi):
             cfg.solutions[0].custom_vars[custom_var] = val
 
   def checkout(self, gclient_config=None, revert=RevertOnTryserver,
-               inject_parent_got_revision=True, with_branch_heads=False,
+               inject_parent_got_revision=True, extra_sync_flags=None,
                **kwargs):
     """Return a step generator function for gclient checkouts."""
     cfg = gclient_config or self.c
@@ -247,8 +249,7 @@ class GclientApi(recipe_api.RecipeApi):
 
     sync_step = None
     try:
-      sync_step = self.sync(cfg, with_branch_heads=with_branch_heads,
-                            **kwargs)
+      sync_step = self.sync(cfg, extra_sync_flags=extra_sync_flags, **kwargs)
 
       cfg_cmds = [
         ('user.name', 'local_bot'),
@@ -306,16 +307,19 @@ class GclientApi(recipe_api.RecipeApi):
       infra_step=True,
     )
 
-  def calculate_patch_root(self, patch_project, gclient_config=None):
+  def calculate_patch_root(self, patch_project, gclient_config=None,
+                           patch_repo=None):
     """Returns path where a patch should be applied to based patch_project.
 
-    Maps "patch_project" to a path of directories relative to checkout's root,
-    which describe where to place the patch.
+    Maps the patch's repo to a path of directories relative to checkout's root,
+    which describe where to place the patch. If no mapping is found for the
+    repo url, falls back to trying to find a mapping for the old-style
+    "patch_project".
 
     For now, considers only first solution (c.solutions[0]), but in theory can
     be extended to all of them.
 
-    See patch_projects solution config property.
+    See patch_projects and repo_path_map solution config property.
 
     Returns:
       Relative path, including solution's root.
@@ -323,15 +327,17 @@ class GclientApi(recipe_api.RecipeApi):
       solution root.
     """
     cfg = gclient_config or self.c
-    root, _ = cfg.patch_projects.get(patch_project, ('', ''))
-    if root:
-      # Note, that c.patch_projects contains patch roots as
-      # slash(/)-separated path, which are roots of the respective project repos
-      # and include actual solution name in them.
-      return self.m.path.join(*root.split('/'))
-    # Default case - assume patch is for first solution, as this is what most
-    # projects rely on.
-    return cfg.solutions[0].name
+    root, _ = cfg.repo_path_map.get(patch_repo, ('', ''))
+    if not root:
+      root, _ = cfg.patch_projects.get(patch_project, ('', ''))
+    if not root:
+      # Failure case - assume patch is for first solution, as this is what most
+      # projects rely on.
+      return cfg.solutions[0].name
+    # Note, that c.patch_projects contains patch roots as
+    # slash(/)-separated path, which are roots of the respective project repos
+    # and include actual solution name in them.
+    return self.m.path.join(*root.split('/'))
 
   def set_patch_project_revision(self, patch_project, gclient_config=None):
     """Updates config revision corresponding to patch_project.

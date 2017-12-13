@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2015 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -219,6 +220,6 @@ class AnnotationsTable(BaseModel):
       choices=FAILURE_CATEGORY_CHOICES,
       default='mystery')
   failure_message = models.CharField(max_length=1024, blank=True, null=True)
-  blame_url = models.CharField(max_length=80, blank=True, null=True)
+  blame_url = models.CharField(max_length=512, blank=True, null=True)
   notes = models.CharField(max_length=1024, blank=True, null=True)
   deleted = models.BooleanField(default=False, null=False)

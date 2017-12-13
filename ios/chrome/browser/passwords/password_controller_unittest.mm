@@ -29,6 +29,7 @@
 #import "ios/chrome/browser/autofill/form_suggestion_controller.h"
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/passwords/js_password_manager.h"
+#import "ios/chrome/browser/passwords/password_form_filler.h"
 #import "ios/web/public/navigation_item.h"
 #import "ios/web/public/navigation_manager.h"
 #include "ios/web/public/ssl_status.h"
@@ -38,6 +39,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gtest_mac.h"
+#include "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
 #import "third_party/ocmock/OCMock/OCPartialMockObject.h"
 #include "url/gurl.h"
@@ -160,7 +162,7 @@ class PasswordControllerTest : public web::WebTestWithWebState {
   void SetUp() override {
     web::WebTestWithWebState::SetUp();
     passwordController_ =
-        CreatePasswordController(web_state(), store_.get(), nullptr);
+        CreatePasswordController(web_state(), store_.get(), &weak_client_);
     @autoreleasepool {
       // Make sure the temporary array is released after SetUp finishes,
       // otherwise [passwordController_ suggestionProvider] will be retained
@@ -246,6 +248,8 @@ class PasswordControllerTest : public web::WebTestWithWebState {
   PasswordController* passwordController_;
 
   scoped_refptr<password_manager::MockPasswordStore> store_;
+
+  MockPasswordManagerClient* weak_client_;
 };
 
 struct PasswordFormTestData {
@@ -923,13 +927,14 @@ TEST_F(PasswordControllerTest, FindAndFillOnePasswordForm) {
             "<input id='pw' type='password' name='p'></form>");
   __block int call_counter = 0;
   __block int success_counter = 0;
-  [passwordController_ findAndFillPasswordForms:@"john.doe@gmail.com"
-                                       password:@"super!secret"
-                              completionHandler:^(BOOL complete) {
-                                ++call_counter;
-                                if (complete)
-                                  ++success_counter;
-                              }];
+  [passwordController_.passwordFormFiller
+      findAndFillPasswordForms:@"john.doe@gmail.com"
+                      password:@"super!secret"
+             completionHandler:^(BOOL complete) {
+               ++call_counter;
+               if (complete)
+                 ++success_counter;
+             }];
   base::test::ios::WaitUntilCondition(^{
     return call_counter == 1;
   });
@@ -952,15 +957,16 @@ TEST_F(PasswordControllerTest, FindAndFillMultiplePasswordForms) {
             "<input id='p3' type='password' name='pw3'></form>");
   __block int call_counter = 0;
   __block int success_counter = 0;
-  [passwordController_ findAndFillPasswordForms:@"john.doe@gmail.com"
-                                       password:@"super!secret"
-                              completionHandler:^(BOOL complete) {
-                                ++call_counter;
-                                if (complete)
-                                  ++success_counter;
-                                LOG(INFO) << "HANDLER call " << call_counter
-                                          << " success " << success_counter;
-                              }];
+  [passwordController_.passwordFormFiller
+      findAndFillPasswordForms:@"john.doe@gmail.com"
+                      password:@"super!secret"
+             completionHandler:^(BOOL complete) {
+               ++call_counter;
+               if (complete)
+                 ++success_counter;
+               LOG(INFO) << "HANDLER call " << call_counter << " success "
+                         << success_counter;
+             }];
   // There should be 3 password forms and only 2 successfully filled forms.
   base::test::ios::WaitUntilCondition(^{
     return call_counter == 3;
@@ -1287,9 +1293,11 @@ TEST_F(PasswordControllerTest, CheckIncorrectData) {
   }
 }
 
+using PasswordControllerTestSimple = PlatformTest;
+
 // The test case below does not need the heavy fixture from above, but it
 // needs to use MockWebState.
-TEST(PasswordControllerTestSimple, SaveOnNonHTMLLandingPage) {
+TEST_F(PasswordControllerTestSimple, SaveOnNonHTMLLandingPage) {
   base::test::ScopedTaskEnvironment task_environment;
   TestChromeBrowserState::Builder builder;
   std::unique_ptr<TestChromeBrowserState> browser_state(builder.Build());
@@ -1417,4 +1425,36 @@ TEST_F(PasswordControllerTest, SendingToStoreDynamicallyAddedFormsOnFocus) {
   base::test::ios::WaitUntilCondition(^bool() {
     return *p_get_logins_called;
   });
+}
+
+// Tests that a touchend event from a button which contains in a password form
+// works as a submission indicator for this password form.
+TEST_F(PasswordControllerTest, TouchendAsSubmissionIndicator) {
+  LoadHtml(
+      @"<html><body>"
+       "<form name='login_form' id='login_form'>"
+       "  <input type='text' name='username'>"
+       "  <input type='password' name='password'>"
+       "  <button id='submit_button' value='Submit'>"
+       "</form>"
+       "</body></html>");
+  // Use a mock LogManager to detect that OnPasswordFormSubmitted has been
+  // called. TODO(crbug.com/598672): this is a hack, we should modularize the
+  // code better to allow proper unit-testing.
+  MockLogManager log_manager;
+  EXPECT_CALL(log_manager, IsLoggingActive()).WillRepeatedly(Return(true));
+  const char kExpectedMessage[] =
+      "Message: \"PasswordManager::ProvisionallySavePassword\"\n";
+  EXPECT_CALL(log_manager, LogSavePasswordProgress(kExpectedMessage));
+  EXPECT_CALL(log_manager,
+              LogSavePasswordProgress(testing::Ne(kExpectedMessage)))
+      .Times(testing::AnyNumber());
+  EXPECT_CALL(*weak_client_, GetLogManager())
+      .WillRepeatedly(Return(&log_manager));
+
+  ExecuteJavaScript(
+      @"document.getElementsByName('username')[0].value = 'user1';"
+       "document.getElementsByName('password')[0].value = 'password1';"
+       "var e = new UIEvent('touchend');"
+       "document.getElementsByTagName('button')[0].dispatchEvent(e);");
 }

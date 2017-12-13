@@ -636,10 +636,6 @@ void MaybeScanAndPrompt(const SwReporterInvocation& reporter_invocation) {
 void MaybeFetchSRT(Browser* browser, const base::Version& reporter_version) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  if (g_testing_delegate_) {
-    g_testing_delegate_->TriggerPrompt();
-    return;
-  }
   Profile* profile = browser->profile();
   DCHECK(profile);
   PrefService* prefs = profile->GetPrefs();
@@ -667,6 +663,11 @@ void MaybeFetchSRT(Browser* browser, const base::Version& reporter_version) {
   }
   prefs->SetString(prefs::kSwReporterPromptVersion,
                    reporter_version.GetString());
+
+  if (g_testing_delegate_) {
+    g_testing_delegate_->TriggerPrompt();
+    return;
+  }
 
   // Download the SRT.
   RecordReporterStepHistogram(SW_REPORTER_DOWNLOAD_START);
@@ -697,7 +698,9 @@ class ReporterRunner : public chrome::BrowserListObserver {
     // There's nothing to do if the invocation parameters and version of the
     // reporter have not changed, we just keep running the tasks that are
     // running now.
-    if (instance_->pending_invocations_ == invocations &&
+    if (std::equal(instance_->pending_invocations_.begin(),
+                   instance_->pending_invocations_.end(), invocations.begin(),
+                   invocations.end()) &&
         instance_->version_.IsValid() && instance_->version_ == version)
       return;
 
@@ -727,7 +730,7 @@ class ReporterRunner : public chrome::BrowserListObserver {
   void ScheduleNextInvocation() {
     DCHECK(!current_invocations_.empty());
     auto next_invocation = current_invocations_.front();
-    current_invocations_.pop();
+    current_invocations_.pop_front();
 
     AppendInvocationSpecificSwitches(&next_invocation);
 
@@ -952,9 +955,16 @@ class ReporterRunner : public chrome::BrowserListObserver {
                             Now().ToInternalValue());
     }
 
-    if (ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled())
+    if (ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled()) {
       next_invocation->command_line.AppendSwitch(
           chrome_cleaner::kEnableCrashReportingSwitch);
+    }
+
+    const std::string group_name = GetSRTFieldTrialGroupName();
+    if (!group_name.empty()) {
+      next_invocation->command_line.AppendSwitchASCII(
+          chrome_cleaner::kSRTPromptFieldTrialGroupNameSwitch, group_name);
+    }
   }
 
   // Adds switches to be sent to the Software Reporter when the user opted into

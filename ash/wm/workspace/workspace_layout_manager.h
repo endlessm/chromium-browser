@@ -11,7 +11,6 @@
 #include "ash/ash_export.h"
 #include "ash/shell_observer.h"
 #include "ash/wm/window_state_observer.h"
-#include "ash/wm/wm_types.h"
 #include "base/macros.h"
 #include "base/scoped_observer.h"
 #include "ui/aura/layout_manager.h"
@@ -76,6 +75,9 @@ class ASH_EXPORT WorkspaceLayoutManager
                              const gfx::Rect& new_bounds) override;
 
   // wm::ActivationChangeObserver overrides:
+  void OnWindowActivating(ActivationReason reason,
+                          aura::Window* gaining_active,
+                          aura::Window* losing_active) override;
   void OnWindowActivated(
       ::wm::ActivationChangeObserver::ActivationReason reason,
       aura::Window* gained_active,
@@ -87,7 +89,7 @@ class ASH_EXPORT WorkspaceLayoutManager
 
   // WindowStateObserver overrides:
   void OnPostWindowStateTypeChange(wm::WindowState* window_state,
-                                   wm::WindowStateType old_type) override;
+                                   mojom::WindowStateType old_type) override;
 
   // display::DisplayObserver overrides:
   void OnDisplayMetricsChanged(const display::Display& display,

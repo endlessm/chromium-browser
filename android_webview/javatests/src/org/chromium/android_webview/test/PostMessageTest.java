@@ -639,11 +639,9 @@ public class PostMessageTest {
     // transferred to JS and full communication can happen on it.
     // Do this by sending a message to JS and let it echo'ing the message with
     // some text prepended to it.
-    // Disabled because flaky, see crbug.com/715960.
-    // @SmallTest
-    // @Feature({"AndroidWebView", "Android-PostMessage"})
+    @SmallTest
+    @Feature({"AndroidWebView", "Android-PostMessage"})
     @Test
-    @DisabledTest
     public void testMessageChannelUsingPendingPort() throws Throwable {
         final ChannelContainer channelContainer = new ChannelContainer();
         loadPage(ECHO_PAGE);
@@ -720,10 +718,9 @@ public class PostMessageTest {
     // 3. Java sends a message using the new channel in 2.
     // 4. Js responds to this message using the channel in 2.
     // 5. Java responds to message in 4 using the channel in 2.
-    // @SmallTest
-    // @Feature({"AndroidWebView", "Android-PostMessage"})
+    @SmallTest
+    @Feature({"AndroidWebView", "Android-PostMessage"})
     @Test
-    @DisabledTest
     public void testCanUseReceivedAwMessagePortFromJS() throws Throwable {
         loadPage(RECEIVE_JS_MESSAGE_CHANNEL_PAGE);
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {

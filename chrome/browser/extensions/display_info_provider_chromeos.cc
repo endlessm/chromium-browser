@@ -7,15 +7,15 @@
 #include <stdint.h>
 
 #include "ash/display/display_configuration_controller.h"
+#include "ash/display/overscan_calibrator.h"
 #include "ash/display/resolution_notification_controller.h"
 #include "ash/display/screen_orientation_controller_chromeos.h"
+#include "ash/display/touch_calibrator_controller.h"
 #include "ash/shell.h"
 #include "ash/touch/ash_touch_transform_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/chromeos/display/display_preferences.h"
-#include "chrome/browser/chromeos/display/overscan_calibrator.h"
-#include "chrome/browser/chromeos/display/touch_calibrator/touch_calibrator_controller.h"
 #include "chrome/browser/ui/ash/ash_util.h"
 #include "extensions/common/api/system_display.h"
 #include "ui/display/display.h"
@@ -399,7 +399,7 @@ display::TouchCalibrationData::CalibrationPointPair GetCalibrationPair(
 bool ValidateParamsForTouchCalibration(
     const std::string& id,
     const display::Display& display,
-    chromeos::TouchCalibratorController* const touch_calibrator_controller,
+    ash::TouchCalibratorController* const touch_calibrator_controller,
     std::string* error) {
   if (display.id() == display::kInvalidDisplayId) {
     *error = "Display Id(" + id + ") is an invalid display ID";
@@ -645,11 +645,23 @@ DisplayInfoProviderChromeOS::GetAllDisplaysInfo(bool single_unified) {
     NOTIMPLEMENTED();
     return DisplayInfoProvider::DisplayUnitInfoList();
   }
+  DisplayUnitInfoList all_displays;
+
   display::DisplayManager* display_manager =
       ash::Shell::Get()->display_manager();
 
-  if (!display_manager->IsInUnifiedMode())
-    return DisplayInfoProvider::GetAllDisplaysInfo(single_unified);
+  if (!display_manager->IsInUnifiedMode()) {
+    all_displays = DisplayInfoProvider::GetAllDisplaysInfo(single_unified);
+    if (IsTabletModeWindowManagerEnabled()) {
+      // Set is_tablet_mode for displays with has_accelerometer_support.
+      for (auto& display : all_displays) {
+        if (display.has_accelerometer_support) {
+          display.is_tablet_mode = std::make_unique<bool>(true);
+        }
+      }
+    }
+    return all_displays;
+  }
 
   // Chrome OS specific: get displays for unified mode.
   std::vector<display::Display> displays;
@@ -665,7 +677,6 @@ DisplayInfoProviderChromeOS::GetAllDisplaysInfo(bool single_unified) {
     primary_id = displays[0].id();
   }
 
-  DisplayUnitInfoList all_displays;
   for (const display::Display& display : displays) {
     system_display::DisplayUnitInfo unit_info =
         CreateDisplayUnitInfo(display, primary_id);
@@ -723,8 +734,7 @@ bool DisplayInfoProviderChromeOS::OverscanCalibrationStart(
   auto insets =
       ash::Shell::Get()->window_tree_host_manager()->GetOverscanInsets(
           display.id());
-  overscan_calibrators_[id].reset(
-      new chromeos::OverscanCalibrator(display, insets));
+  overscan_calibrators_[id].reset(new ash::OverscanCalibrator(display, insets));
   return true;
 }
 
@@ -732,7 +742,7 @@ bool DisplayInfoProviderChromeOS::OverscanCalibrationAdjust(
     const std::string& id,
     const system_display::Insets& delta) {
   VLOG(1) << "OverscanCalibrationAdjust: " << id;
-  chromeos::OverscanCalibrator* calibrator = GetOverscanCalibrator(id);
+  ash::OverscanCalibrator* calibrator = GetOverscanCalibrator(id);
   if (!calibrator)
     return false;
   gfx::Insets insets = calibrator->insets();
@@ -744,7 +754,7 @@ bool DisplayInfoProviderChromeOS::OverscanCalibrationAdjust(
 bool DisplayInfoProviderChromeOS::OverscanCalibrationReset(
     const std::string& id) {
   VLOG(1) << "OverscanCalibrationReset: " << id;
-  chromeos::OverscanCalibrator* calibrator = GetOverscanCalibrator(id);
+  ash::OverscanCalibrator* calibrator = GetOverscanCalibrator(id);
   if (!calibrator)
     return false;
   calibrator->Reset();
@@ -754,7 +764,7 @@ bool DisplayInfoProviderChromeOS::OverscanCalibrationReset(
 bool DisplayInfoProviderChromeOS::OverscanCalibrationComplete(
     const std::string& id) {
   VLOG(1) << "OverscanCalibrationComplete: " << id;
-  chromeos::OverscanCalibrator* calibrator = GetOverscanCalibrator(id);
+  ash::OverscanCalibrator* calibrator = GetOverscanCalibrator(id);
   if (!calibrator)
     return false;
   calibrator->Commit();
@@ -765,7 +775,7 @@ bool DisplayInfoProviderChromeOS::OverscanCalibrationComplete(
 bool DisplayInfoProviderChromeOS::ShowNativeTouchCalibration(
     const std::string& id,
     std::string* error,
-    const DisplayInfoProvider::TouchCalibrationCallback& callback) {
+    DisplayInfoProvider::TouchCalibrationCallback callback) {
   if (ash_util::IsRunningInMash()) {
     // TODO(crbug.com/682402): Mash support.
     NOTIMPLEMENTED();
@@ -785,7 +795,8 @@ bool DisplayInfoProviderChromeOS::ShowNativeTouchCalibration(
     return false;
   }
 
-  GetTouchCalibrator()->StartCalibration(display, callback);
+  GetTouchCalibrator()->StartCalibration(
+      display, false /* is_custom_calibration */, std::move(callback));
   return true;
 }
 
@@ -807,8 +818,8 @@ bool DisplayInfoProviderChromeOS::StartCustomTouchCalibration(
   touch_calibration_target_id_ = id;
   custom_touch_calibration_active_ = true;
 
-  // Enable un-transformed touch input.
-  ash::Shell::Get()->touch_transformer_controller()->SetForCalibration(true);
+  GetTouchCalibrator()->StartCalibration(
+      display, true /* is_custom_calibration */, base::Callback<void(bool)>());
   return true;
 }
 
@@ -871,8 +882,7 @@ bool DisplayInfoProviderChromeOS::CompleteCustomTouchCalibration(
   }
 
   gfx::Size display_size(bounds.width, bounds.height);
-  ash::Shell::Get()->display_manager()->SetTouchCalibrationData(
-      display.id(), calibration_points, display_size);
+  GetTouchCalibrator()->CompleteCalibration(calibration_points, display_size);
   return true;
 }
 
@@ -891,32 +901,33 @@ bool DisplayInfoProviderChromeOS::ClearTouchCalibration(const std::string& id,
     return false;
   }
 
-  ash::Shell::Get()->display_manager()->ClearTouchCalibrationData(display.id());
+  ash::Shell::Get()->display_manager()->ClearTouchCalibrationData(
+      display.id(), base::nullopt);
   return true;
 }
 
 bool DisplayInfoProviderChromeOS::IsNativeTouchCalibrationActive(
     std::string* error) {
   // If native touch calibration UX is active, set error and return false.
-  if (GetTouchCalibrator()->is_calibrating()) {
+  if (GetTouchCalibrator()->IsCalibrating()) {
     *error = kNativeTouchCalibrationActiveError;
     return true;
   }
   return false;
 }
 
-chromeos::OverscanCalibrator*
-DisplayInfoProviderChromeOS::GetOverscanCalibrator(const std::string& id) {
+ash::OverscanCalibrator* DisplayInfoProviderChromeOS::GetOverscanCalibrator(
+    const std::string& id) {
   auto iter = overscan_calibrators_.find(id);
   if (iter == overscan_calibrators_.end())
     return nullptr;
   return iter->second.get();
 }
 
-chromeos::TouchCalibratorController*
+ash::TouchCalibratorController*
 DisplayInfoProviderChromeOS::GetTouchCalibrator() {
   if (!touch_calibrator_)
-    touch_calibrator_.reset(new chromeos::TouchCalibratorController);
+    touch_calibrator_.reset(new ash::TouchCalibratorController);
   return touch_calibrator_.get();
 }
 

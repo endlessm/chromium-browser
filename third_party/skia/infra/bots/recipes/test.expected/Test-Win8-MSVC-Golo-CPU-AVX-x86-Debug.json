@@ -263,12 +263,7 @@
       "gm",
       "image",
       "colorImage",
-      "svg",
       "--blacklist",
-      "~8888",
-      "svg",
-      "_",
-      "svgparse_",
       "_",
       "image",
       "gen_platf",
@@ -616,7 +611,8 @@
       "_",
       "image",
       "_",
-      ".SRW"
+      ".SRW",
+      "--verbose"
     ],
     "env": {
       "BUILDTYPE": "Debug",

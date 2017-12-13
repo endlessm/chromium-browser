@@ -143,10 +143,10 @@
 
 #if !defined(OS_ANDROID)
 #include "chrome/browser/gcm/gcm_product_util.h"
-#include "chrome/browser/lifetime/keep_alive_registry.h"
 #include "chrome/browser/ui/user_manager.h"
 #include "components/gcm_driver/gcm_client_factory.h"
 #include "components/gcm_driver/gcm_desktop_utils.h"
+#include "components/keep_alive_registry/keep_alive_registry.h"
 #endif
 
 #if BUILDFLAG(ENABLE_BACKGROUND)
@@ -160,10 +160,6 @@
 #include "chrome/browser/ui/apps/chrome_app_window_client.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "extensions/common/extension_l10n_util.h"
-#endif
-
-#if !defined(DISABLE_NACL)
-#include "chrome/browser/component_updater/pnacl_component_installer.h"
 #endif
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -277,6 +273,7 @@ BrowserProcessImpl::BrowserProcessImpl(
       ChromeUpdateQueryParamsDelegate::GetInstance());
 
 #if !defined(OS_ANDROID)
+  KeepAliveRegistry::GetInstance()->SetIsShuttingDown(false);
   KeepAliveRegistry::GetInstance()->AddObserver(this);
 #endif  // !defined(OS_ANDROID)
 }
@@ -292,8 +289,6 @@ BrowserProcessImpl::~BrowserProcessImpl() {
   KeepAliveRegistry::GetInstance()->RemoveObserver(this);
 #endif  // !defined(OS_ANDROID)
 
-  tracked_objects::ThreadData::EnsureCleanupWasCalled(4);
-
   g_browser_process = NULL;
 }
 
@@ -304,6 +299,11 @@ void BrowserProcessImpl::StartTearDown() {
   // |tearing_down_| necessary in IsShuttingDown().
   tearing_down_ = true;
   DCHECK(IsShuttingDown());
+
+#if !defined(OS_ANDROID)
+  KeepAliveRegistry::GetInstance()->SetIsShuttingDown();
+#endif  // !defined(OS_ANDROID)
+
   // We need to destroy the MetricsServicesManager, IntranetRedirectDetector,
   // NetworkTimeTracker, and SafeBrowsing ClientSideDetectionService
   // (owned by the SafeBrowsingService) before the io_thread_ gets destroyed,
@@ -975,19 +975,6 @@ CRLSetFetcher* BrowserProcessImpl::crl_set_fetcher() {
   if (!crl_set_fetcher_)
     crl_set_fetcher_ = base::MakeRefCounted<CRLSetFetcher>();
   return crl_set_fetcher_.get();
-}
-
-component_updater::PnaclComponentInstaller*
-BrowserProcessImpl::pnacl_component_installer() {
-#if !defined(DISABLE_NACL)
-  if (!pnacl_component_installer_) {
-    pnacl_component_installer_ =
-        base::MakeRefCounted<component_updater::PnaclComponentInstaller>();
-  }
-  return pnacl_component_installer_.get();
-#else
-  return nullptr;
-#endif
 }
 
 component_updater::SupervisedUserWhitelistInstaller*

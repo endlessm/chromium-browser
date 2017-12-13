@@ -21,8 +21,6 @@ class Profile;
 
 namespace chromeos {
 
-class VoiceInteractionSelectionObserver;
-
 // A class which allows the Ash palette to perform chrome actions.
 class PaletteDelegateChromeOS
     : public ash::PaletteDelegate,
@@ -40,11 +38,6 @@ class PaletteDelegateChromeOS
   bool HasNoteApp() override;
   bool ShouldAutoOpenPalette() override;
   bool ShouldShowPalette() override;
-  void TakeScreenshot() override;
-  void TakePartialScreenshot(const base::Closure& done) override;
-  void CancelPartialScreenshot() override;
-  void ShowMetalayer(base::OnceClosure done, bool via_button) override;
-  void HideMetalayer() override;
 
   // user_manager::UserManager::UserSessionStateObserver:
   void ActiveUserChanged(const user_manager::User* active_user) override;
@@ -58,7 +51,6 @@ class PaletteDelegateChromeOS
   void OnPaletteEnabledPrefChanged();
 
   void SetProfile(Profile* profile);
-  void OnPartialScreenshotDone(const base::Closure& then);
 
   base::CallbackList<void(bool)> palette_enabled_callback_list_;
 
@@ -68,9 +60,6 @@ class PaletteDelegateChromeOS
   std::unique_ptr<user_manager::ScopedUserSessionStateObserver>
       session_state_observer_;
   content::NotificationRegistrar registrar_;
-
-  std::unique_ptr<VoiceInteractionSelectionObserver>
-      highlighter_selection_observer_;
 
   base::WeakPtrFactory<PaletteDelegateChromeOS> weak_factory_;
 

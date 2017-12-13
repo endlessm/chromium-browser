@@ -7,8 +7,8 @@
 
 #include <memory>
 
-#include "components/safe_browsing_db/v4_database.h"
-#include "components/safe_browsing_db/v4_get_hash_protocol_manager.h"
+#include "components/safe_browsing/db/v4_database.h"
+#include "components/safe_browsing/db/v4_get_hash_protocol_manager.h"
 
 namespace safe_browsing {
 
@@ -101,7 +101,7 @@ FullHashInfo GetFullHashInfo(const GURL& url, const ListIdentifier& list_id);
 // object.
 FullHashInfo GetFullHashInfoWithMetadata(const GURL& url,
                                          const ListIdentifier& list_id,
-                                         ThreatPatternType threat_pattern_type);
+                                         const ThreatMetadata& threat_metadata);
 
 }  // namespace safe_browsing
 

@@ -8,8 +8,8 @@
 
 #include "base/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "cc/output/output_surface_client.h"
-#include "cc/output/output_surface_frame.h"
+#include "components/viz/service/display/output_surface_client.h"
+#include "components/viz/service/display/output_surface_frame.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "ui/gfx/transform.h"
@@ -26,14 +26,14 @@ PixelTestOutputSurface::PixelTestOutputSurface(
 }
 
 PixelTestOutputSurface::PixelTestOutputSurface(
-    std::unique_ptr<SoftwareOutputDevice> software_device)
+    std::unique_ptr<viz::SoftwareOutputDevice> software_device)
     : OutputSurface(std::move(software_device)), weak_ptr_factory_(this) {
   capabilities_.supports_stencil = true;
 }
 
 PixelTestOutputSurface::~PixelTestOutputSurface() = default;
 
-void PixelTestOutputSurface::BindToClient(OutputSurfaceClient* client) {
+void PixelTestOutputSurface::BindToClient(viz::OutputSurfaceClient* client) {
   client_ = client;
 }
 
@@ -69,7 +69,7 @@ bool PixelTestOutputSurface::HasExternalStencilTest() const {
 
 void PixelTestOutputSurface::ApplyExternalStencil() {}
 
-void PixelTestOutputSurface::SwapBuffers(OutputSurfaceFrame frame) {
+void PixelTestOutputSurface::SwapBuffers(viz::OutputSurfaceFrame frame) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(&PixelTestOutputSurface::SwapBuffersCallback,
                                 weak_ptr_factory_.GetWeakPtr()));
@@ -79,7 +79,7 @@ void PixelTestOutputSurface::SwapBuffersCallback() {
   client_->DidReceiveSwapBuffersAck();
 }
 
-OverlayCandidateValidator*
+viz::OverlayCandidateValidator*
 PixelTestOutputSurface::GetOverlayCandidateValidator() const {
   return nullptr;
 }

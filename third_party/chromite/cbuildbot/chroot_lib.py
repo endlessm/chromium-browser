@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2014 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -12,6 +13,7 @@ from __future__ import print_function
 import os
 
 from chromite.lib import constants
+from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 from chromite.lib import sudo
@@ -77,8 +79,8 @@ class ChrootManager(object):
       return False
     else:
       logging.PrintBuildbotStepText('(Using fresh chroot)')
+      cros_build_lib.CleanupChrootMount(chroot, delete_image=True)
       osutils.RmDir(chroot, ignore_missing=True, sudo=True)
-      osutils.SafeUnlink(chroot + '.img')
       return True
 
   def ClearChrootVersion(self, chroot=None):

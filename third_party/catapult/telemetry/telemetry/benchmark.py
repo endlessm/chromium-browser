@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import optparse
+import sys
 
 from py_utils import class_util
 from telemetry import decorators
@@ -13,8 +14,6 @@ from telemetry.story import expectations
 from telemetry.web_perf import timeline_based_measurement
 from tracing.value import histogram
 
-Disabled = decorators.Disabled # pylint: disable=invalid-name
-Enabled = decorators.Enabled # pylint: disable=invalid-name
 Owner = decorators.Owner # pylint: disable=invalid-name
 
 
@@ -64,6 +63,8 @@ class Benchmark(command_line.Command):
   page_set = None
   test = timeline_based_measurement.TimelineBasedMeasurement
   SUPPORTED_PLATFORMS = [expectations.ALL]
+
+  MAX_NUM_VALUES = sys.maxint
 
   def __init__(self, max_failures=None):
     """Creates a new Benchmark.

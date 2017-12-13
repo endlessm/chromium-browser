@@ -65,9 +65,8 @@ class BlitFramebufferANGLETest : public ANGLETest
     {
         ANGLETest::SetUp();
 
-        const std::string passthroughVS = SHADER_SOURCE
-        (
-            precision highp float;
+        const std::string passthroughVS =
+            R"(precision highp float;
             attribute vec4 position;
             varying vec4 pos;
 
@@ -75,12 +74,10 @@ class BlitFramebufferANGLETest : public ANGLETest
             {
                 gl_Position = position;
                 pos = position;
-            }
-        );
+            })";
 
-        const std::string checkeredFS = SHADER_SOURCE
-        (
-            precision highp float;
+        const std::string checkeredFS =
+            R"(precision highp float;
             varying vec4 pos;
 
             void main()
@@ -93,19 +90,16 @@ class BlitFramebufferANGLETest : public ANGLETest
                 {
                     gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
                 }
-            }
-        );
+            })";
 
-        const std::string blueFS = SHADER_SOURCE
-        (
-            precision highp float;
+        const std::string blueFS =
+            R"(precision highp float;
             varying vec4 pos;
 
             void main()
             {
                 gl_FragColor = vec4(0.0, 0.0, 1.0, 1.0);
-            }
-        );
+            })";
 
         mCheckerProgram = CompileProgram(passthroughVS, checkeredFS);
         mBlueProgram = CompileProgram(passthroughVS, blueFS);
@@ -506,13 +500,6 @@ TEST_P(BlitFramebufferANGLETest, ScissoredBlit)
 // blit from system FBO to user-created framebuffer, with the scissor test enabled.
 TEST_P(BlitFramebufferANGLETest, ReverseScissoredBlit)
 {
-    // TODO(jmadill): Triage this driver bug.
-    if (IsAMD() && IsD3D11())
-    {
-        std::cout << "Test skipped on AMD D3D11." << std::endl;
-        return;
-    }
-
     glBindFramebuffer(GL_FRAMEBUFFER, mOriginalFBO);
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -1060,13 +1047,6 @@ class BlitFramebufferTest : public ANGLETest
 // Tests resolving a multisample depth buffer.
 TEST_P(BlitFramebufferTest, MultisampleDepth)
 {
-    // TODO(jmadill): Triage this driver bug.
-    if (IsAMD() && IsD3D11())
-    {
-        std::cout << "Test skipped on AMD D3D11." << std::endl;
-        return;
-    }
-
     GLRenderbuffer renderbuf;
     glBindRenderbuffer(GL_RENDERBUFFER, renderbuf.get());
     glRenderbufferStorageMultisample(GL_RENDERBUFFER, 2, GL_DEPTH_COMPONENT24, 256, 256);

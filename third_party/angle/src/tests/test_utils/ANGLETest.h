@@ -78,6 +78,10 @@ struct GLColor
 
     angle::Vector4 toNormalizedVector() const;
 
+    GLubyte &operator[](size_t index) { return (&R)[index]; }
+
+    const GLubyte &operator[](size_t index) const { return (&R)[index]; }
+
     GLubyte R, G, B, A;
 
     static const GLColor black;
@@ -151,6 +155,16 @@ GLColor32F ReadColor32F(GLint x, GLint y);
               angle::ReadColor(static_cast<GLint>(vec2.x()), static_cast<GLint>(vec2.y())))
 
 #define EXPECT_PIXEL_COLOR32F_EQ(x, y, angleColor) EXPECT_EQ(angleColor, angle::ReadColor32F(x, y))
+
+#define EXPECT_PIXEL_RECT_EQ(x, y, width, height, color)                                           \
+    \
+{                                                                                           \
+        std::vector<GLColor> actualColors(width *height);                                          \
+        glReadPixels((x), (y), (width), (height), GL_RGBA, GL_UNSIGNED_BYTE, actualColors.data()); \
+        std::vector<GLColor> expectedColors(width *height, color);                                 \
+        EXPECT_EQ(expectedColors, actualColors);                                                   \
+    \
+}
 
 #define EXPECT_PIXEL_NEAR(x, y, r, g, b, a, abs_error) \
 { \
@@ -250,14 +264,15 @@ class ANGLETestBase
                   GLfloat positionAttribZ,
                   GLfloat positionAttribXYScale,
                   bool useVertexBuffer);
-    void drawQuad(GLuint program,
-                  const std::string &positionAttribName,
-                  GLfloat positionAttribZ,
-                  GLfloat positionAttribXYScale,
-                  bool useVertexBuffer,
-                  bool useInstancedDrawCalls,
-                  GLuint numInstances);
+    void drawQuadInstanced(GLuint program,
+                           const std::string &positionAttribName,
+                           GLfloat positionAttribZ,
+                           GLfloat positionAttribXYScale,
+                           bool useVertexBuffer,
+                           GLuint numInstances);
+
     static std::array<angle::Vector3, 6> GetQuadVertices();
+    static std::array<GLushort, 6> GetQuadIndices();
     void drawIndexedQuad(GLuint program,
                          const std::string &positionAttribName,
                          GLfloat positionAttribZ);
@@ -278,8 +293,7 @@ class ANGLETestBase
                          bool useBufferObject,
                          bool restrictedRange);
 
-    void draw2DTexturedQuad(const std::string &positionAttribName,
-                            GLfloat positionAttribZ,
+    void draw2DTexturedQuad(GLfloat positionAttribZ,
                             GLfloat positionAttribXYScale,
                             bool useVertexBuffer);
 
@@ -303,6 +317,7 @@ class ANGLETestBase
     void setDebugEnabled(bool enabled);
     void setNoErrorEnabled(bool enabled);
     void setWebGLCompatibilityEnabled(bool webglCompatibility);
+    void setRobustAccess(bool enabled);
     void setBindGeneratesResource(bool bindGeneratesResource);
     void setDebugLayersEnabled(bool enabled);
     void setClientArraysEnabled(bool enabled);
@@ -328,12 +343,30 @@ class ANGLETestBase
 
     angle::PlatformMethods mPlatformMethods;
 
+    class ScopedIgnorePlatformMessages : angle::NonCopyable
+    {
+      public:
+        ScopedIgnorePlatformMessages(ANGLETestBase *test);
+        ~ScopedIgnorePlatformMessages();
+
+      private:
+        ANGLETestBase *mTest;
+    };
+
   private:
     bool destroyEGLContext();
 
     void checkD3D11SDKLayersMessages();
 
     GLuint get2DTexturedQuadProgram();
+
+    void drawQuad(GLuint program,
+                  const std::string &positionAttribName,
+                  GLfloat positionAttribZ,
+                  GLfloat positionAttribXYScale,
+                  bool useVertexBuffer,
+                  bool useInstancedDrawCalls,
+                  GLuint numInstances);
 
     EGLWindow *mEGLWindow;
     int mWidth;

@@ -28,9 +28,8 @@ const char* ButtonStyleClassFromButtonType(
     case chrome::FrameButtonDisplayType::kMinimize:
       return "minimize";
     case chrome::FrameButtonDisplayType::kMaximize:
-      return "maximize";
     case chrome::FrameButtonDisplayType::kRestore:
-      return "restore";
+      return "maximize";
     case chrome::FrameButtonDisplayType::kClose:
       return "close";
     default:
@@ -97,12 +96,6 @@ gfx::Insets MarginFromStyleContext(GtkStyleContext* context,
   return InsetsFromGtkBorder(margin);
 }
 
-int DefaultMonitorScaleFactor() {
-  GdkScreen* screen = gdk_screen_get_default();
-  return gdk_screen_get_monitor_scale_factor(
-      screen, gdk_screen_get_primary_monitor(screen));
-}
-
 ScopedGObject<GdkPixbuf> LoadNavButtonIcon(chrome::FrameButtonDisplayType type,
                                            GtkStyleContext* button_context,
                                            int scale) {
@@ -149,10 +142,8 @@ void CalculateUnscaledButtonSize(chrome::FrameButtonDisplayType type,
   ScopedGObject<GdkPixbuf> icon_pixbuf =
       LoadNavButtonIcon(type, button_context, 1);
 
-  const int monitor_scale = DefaultMonitorScaleFactor();
-
-  gfx::Size icon_size(gdk_pixbuf_get_width(icon_pixbuf) / monitor_scale,
-                      gdk_pixbuf_get_height(icon_pixbuf) / monitor_scale);
+  gfx::Size icon_size(gdk_pixbuf_get_width(icon_pixbuf),
+                      gdk_pixbuf_get_height(icon_pixbuf));
   auto image_context =
       AppendCssNodeToStyleContext(button_context, "GtkImage#image");
   gfx::Size image_size = GetMinimumWidgetSize(icon_size, nullptr, image_context,

@@ -22,6 +22,7 @@
 #include "base/metrics/user_metrics_action.h"
 #include "base/task_scheduler/post_task.h"
 #include "chrome/browser/chromeos/arc/boot_phase_monitor/arc_boot_phase_monitor_bridge.h"
+#include "chrome/browser/chromeos/arc/voice_interaction/highlighter_controller_client.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
 #include "chrome/browser/profiles/profile.h"
@@ -34,6 +35,7 @@
 #include "chromeos/chromeos_switches.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
+#include "components/arc/arc_prefs.h"
 #include "components/arc/arc_util.h"
 #include "components/arc/instance_holder.h"
 #include "components/session_manager/core/session_manager.h"
@@ -69,18 +71,6 @@ constexpr base::TimeDelta kMaxTimeSinceUserInteractionForHistogram =
 
 constexpr int32_t kContextRequestMaxRemainingCount = 2;
 
-void ScreenshotCallback(
-    const mojom::VoiceInteractionFrameworkHost::CaptureFocusedWindowCallback&
-        callback,
-    scoped_refptr<base::RefCountedMemory> data) {
-  if (data.get() == nullptr) {
-    callback.Run(std::vector<uint8_t>{});
-    return;
-  }
-  std::vector<uint8_t> result(data->front(), data->front() + data->size());
-  callback.Run(result);
-}
-
 std::unique_ptr<ui::LayerTreeOwner> CreateLayerTreeForSnapshot(
     aura::Window* root_window) {
   LayerSet blocked_layers;
@@ -107,7 +97,7 @@ std::unique_ptr<ui::LayerTreeOwner> CreateLayerTreeForSnapshot(
                          if (blocked_layers.count(owner->layer()->parent()))
                            return nullptr;
                          if (blocked_layers.count(owner->layer())) {
-                           auto layer = base::MakeUnique<ui::Layer>(
+                           auto layer = std::make_unique<ui::Layer>(
                                ui::LayerType::LAYER_SOLID_COLOR);
                            layer->SetBounds(owner->layer()->bounds());
                            layer->SetColor(SK_ColorBLACK);
@@ -135,22 +125,21 @@ std::unique_ptr<ui::LayerTreeOwner> CreateLayerTreeForSnapshot(
 }
 
 void EncodeAndReturnImage(
-    const ArcVoiceInteractionFrameworkService::CaptureFullscreenCallback&
-        callback,
+    ArcVoiceInteractionFrameworkService::CaptureFullscreenCallback callback,
     std::unique_ptr<ui::LayerTreeOwner> old_layer_owner,
     const gfx::Image& image) {
   old_layer_owner.reset();
   base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE,
       base::TaskTraits{base::MayBlock(), base::TaskPriority::USER_BLOCKING},
-      base::Bind(
+      base::BindOnce(
           [](const gfx::Image& image) -> std::vector<uint8_t> {
             std::vector<uint8_t> res;
             gfx::JPEG1xEncodedDataFromImage(image, 100, &res);
             return res;
           },
           image),
-      callback);
+      std::move(callback));
 }
 
 template <typename T>
@@ -206,6 +195,7 @@ ArcVoiceInteractionFrameworkService::ArcVoiceInteractionFrameworkService(
     : context_(context),
       arc_bridge_service_(bridge_service),
       binding_(this),
+      highlighter_client_(std::make_unique<HighlighterControllerClient>(this)),
       weak_ptr_factory_(this) {
   arc_bridge_service_->voice_interaction_framework()->AddObserver(this);
   ArcSessionManager::Get()->AddObserver(this);
@@ -238,39 +228,22 @@ void ArcVoiceInteractionFrameworkService::OnInstanceReady() {
       framework_instance->StartVoiceInteractionSession(IsHomescreenActive());
     }
   }
+
+  highlighter_client_->Attach();
 }
 
 void ArcVoiceInteractionFrameworkService::OnInstanceClosed() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-}
-
-void ArcVoiceInteractionFrameworkService::CaptureFocusedWindow(
-    const CaptureFocusedWindowCallback& callback) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  if (!ValidateTimeSinceUserInteraction()) {
-    callback.Run(std::vector<uint8_t>{});
-    return;
-  }
-
-  aura::Window* window =
-      ash::Shell::Get()->activation_client()->GetActiveWindow();
-
-  if (window == nullptr) {
-    callback.Run(std::vector<uint8_t>{});
-    return;
-  }
-  ui::GrabWindowSnapshotAsyncJPEG(
-      window, gfx::Rect(window->bounds().size()),
-      base::Bind(&ScreenshotCallback, callback));
+  binding_.Close();
+  highlighter_client_->Detach();
 }
 
 void ArcVoiceInteractionFrameworkService::CaptureFullscreen(
-    const CaptureFullscreenCallback& callback) {
+    CaptureFullscreenCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   if (!ValidateTimeSinceUserInteraction()) {
-    callback.Run(std::vector<uint8_t>{});
+    std::move(callback).Run(std::vector<uint8_t>{});
     return;
   }
 
@@ -282,7 +255,7 @@ void ArcVoiceInteractionFrameworkService::CaptureFullscreen(
   auto old_layer_owner = CreateLayerTreeForSnapshot(window);
   ui::GrabLayerSnapshotAsync(
       old_layer_owner->root(), gfx::Rect(window->bounds().size()),
-      base::Bind(&EncodeAndReturnImage, callback,
+      base::Bind(&EncodeAndReturnImage, base::Passed(std::move(callback)),
                  base::Passed(std::move(old_layer_owner))));
 }
 
@@ -469,8 +442,7 @@ void ArcVoiceInteractionFrameworkService::SetVoiceInteractionEnabled(
     return;
   }
   framework_instance->SetVoiceInteractionEnabled(
-      enable,
-      base::Bind(base::AdaptCallbackForRepeating(std::move(callback)), true));
+      enable, base::BindOnce(std::move(callback), true));
 }
 
 void ArcVoiceInteractionFrameworkService::SetVoiceInteractionContextEnabled(

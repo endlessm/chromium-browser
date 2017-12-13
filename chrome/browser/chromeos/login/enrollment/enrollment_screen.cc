@@ -32,14 +32,12 @@ using namespace pairing_chromeos;
 using policy::EnrollmentConfig;
 
 // Do not change the UMA histogram parameters without renaming the histograms!
-#define UMA_ENROLLMENT_TIME(histogram_name, elapsed_timer) \
-  do {                                                     \
-    UMA_HISTOGRAM_CUSTOM_TIMES(                            \
-      (histogram_name),                                    \
-      (elapsed_timer)->Elapsed(),                          \
-      base::TimeDelta::FromMilliseconds(100) /* min */,    \
-      base::TimeDelta::FromMinutes(15) /* max */,          \
-      100 /* bucket_count */);                             \
+#define UMA_ENROLLMENT_TIME(histogram_name, elapsed_timer)                   \
+  do {                                                                       \
+    UMA_HISTOGRAM_CUSTOM_TIMES(                                              \
+        (histogram_name), (elapsed_timer)->Elapsed(),                        \
+        base::TimeDelta::FromMilliseconds(100) /* min */,                    \
+        base::TimeDelta::FromMinutes(15) /* max */, 100 /* bucket_count */); \
   } while (0)
 
 namespace {
@@ -254,7 +252,8 @@ void EnrollmentScreen::AutomaticRetry() {
 
 void EnrollmentScreen::ProcessRetry() {
   ++num_retries_;
-  LOG(WARNING) << "Enrollment retry " << num_retries_;
+  LOG(WARNING) << "Enrollment retries: " << num_retries_
+               << ", current_auth_: " << current_auth_;
   Show();
 }
 
@@ -308,10 +307,6 @@ void EnrollmentScreen::OnMultipleLicensesAvailable(
 }
 
 void EnrollmentScreen::OnEnrollmentError(policy::EnrollmentStatus status) {
-  // TODO(pbond): remove this LOG once http://crbug.com/586961 is fixed.
-  LOG(WARNING) << "Enrollment error occured: status=" << status.status()
-               << " http status=" << status.http_status()
-               << " DM status=" << status.client_status();
   RecordEnrollmentErrorMetrics();
   // If the DM server does not have a device pre-provisioned for attestation-
   // based enrollment and we have a fallback authentication, show it.
@@ -335,8 +330,6 @@ void EnrollmentScreen::OnOtherError(
 }
 
 void EnrollmentScreen::OnDeviceEnrolled(const std::string& additional_token) {
-  // TODO(pbond): remove this LOG once http://crbug.com/586961 is fixed.
-  LOG(WARNING) << "Device is successfully enrolled.";
   if (!additional_token.empty())
     SendEnrollmentAuthToken(additional_token);
 
@@ -351,20 +344,15 @@ void EnrollmentScreen::OnDeviceAttributeProvided(const std::string& asset_id,
 void EnrollmentScreen::OnDeviceAttributeUpdatePermission(bool granted) {
   // If user is permitted to update device attributes
   // Show attribute prompt screen
-  if (granted) {
-    // TODO(pbond): remove this LOG once http://crbug.com/586961 is fixed.
-    LOG(WARNING) << "Show device attribute prompt screen";
+  if (granted && !WizardController::skip_enrollment_prompts()) {
     StartupUtils::MarkDeviceRegistered(
         base::BindOnce(&EnrollmentScreen::ShowAttributePromptScreen,
                        weak_ptr_factory_.GetWeakPtr()));
   } else {
-    // TODO(pbond): remove this LOG once http://crbug.com/586961 is fixed.
-    LOG(WARNING) << "The device attribute update is not permitted";
     StartupUtils::MarkDeviceRegistered(
         base::BindOnce(&EnrollmentScreen::ShowEnrollmentStatusOnSuccess,
                        weak_ptr_factory_.GetWeakPtr()));
   }
-
 }
 
 void EnrollmentScreen::OnDeviceAttributeUploadCompleted(bool success) {
@@ -405,7 +393,8 @@ void EnrollmentScreen::ShowEnrollmentStatusOnSuccess() {
   retry_backoff_->InformOfRequest(true);
   if (elapsed_timer_)
     UMA_ENROLLMENT_TIME(kMetricEnrollmentTimeSuccess, elapsed_timer_);
-  if (WizardController::UsingHandsOffEnrollment()) {
+  if (WizardController::UsingHandsOffEnrollment() ||
+      WizardController::skip_enrollment_prompts()) {
     OnConfirmationClosed();
   } else {
     view_->ShowEnrollmentStatus(

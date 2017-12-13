@@ -244,8 +244,7 @@ class BattOrWrapper(object):
     self._trace_results_path = temp_file.name
     temp_file.close()
     self._SendBattOrCommand(
-        '%s %s' % (self._STOP_TRACING_CMD, self._trace_results_path),
-        check_return=False)
+        '%s %s' % (self._STOP_TRACING_CMD, self._trace_results_path))
     self._tracing = False
     self._stop_tracing_time = int(time.time())
 
@@ -256,6 +255,12 @@ class BattOrWrapper(object):
         seconds.
     Returns: Trace data in form of a list.
     """
+    if not self._stop_tracing_time or not self._start_tracing_time:
+      raise battor_error.BattOrError(
+          'No start or stop time detected when collecting BattOr trace.\n'
+          'Start: %s \n Stop: %s' % (self._start_tracing_time,
+                                     self._stop_tracing_time))
+
     # The BattOr shell terminates after returning the results.
     if timeout is None:
       timeout = self._stop_tracing_time - self._start_tracing_time

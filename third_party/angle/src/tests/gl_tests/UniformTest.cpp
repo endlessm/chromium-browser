@@ -110,25 +110,21 @@ TEST_P(UniformTest, UniformArrayLocations)
         return;
     }
 
-    const std::string vertexShader = SHADER_SOURCE
-    (
-        precision mediump float;
+    const std::string vertexShader =
+        R"(precision mediump float;
         uniform float uPosition[4];
         void main(void)
         {
             gl_Position = vec4(uPosition[0], uPosition[1], uPosition[2], uPosition[3]);
-        }
-    );
+        })";
 
-    const std::string fragShader = SHADER_SOURCE
-    (
-        precision mediump float;
+    const std::string fragShader =
+        R"(precision mediump float;
         uniform float uColor[4];
         void main(void)
         {
             gl_FragColor = vec4(uColor[0], uColor[1], uColor[2], uColor[3]);
-        }
-    );
+        })";
 
     GLuint program = CompileProgram(vertexShader, fragShader);
     ASSERT_NE(program, 0u);
@@ -416,7 +412,7 @@ class UniformTestES3 : public ANGLETest
 };
 
 // Test queries for transposed arrays of non-square matrix uniforms.
-TEST_P(UniformTestES3, TranposedMatrixArrayUniformStateQuery)
+TEST_P(UniformTestES3, TransposedMatrixArrayUniformStateQuery)
 {
     const std::string &vertexShader =
         "#version 300 es\n"
@@ -941,6 +937,37 @@ TEST_P(UniformTestES3, StructWithNonSquareMatrixAndBool)
     glUniform1i(location, 1);
 
     drawQuad(program.get(), "a_position", 0.0f);
+
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
+}
+
+// Test that uniforms with reserved OpenGL names that aren't reserved in GL ES 2 work correctly.
+TEST_P(UniformTest, UniformWithReservedOpenGLName)
+{
+    const char *vertexShader =
+        "attribute highp vec4 a_position;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = a_position;\n"
+        "}\n";
+    const char *fragShader =
+        "precision mediump float;\n"
+        "uniform float buffer;"
+        "void main() {\n"
+        "    gl_FragColor = vec4(buffer);\n"
+        "}";
+
+    mProgram = CompileProgram(vertexShader, fragShader);
+    ASSERT_NE(mProgram, 0u);
+
+    GLint location = glGetUniformLocation(mProgram, "buffer");
+    ASSERT_NE(-1, location);
+
+    glUseProgram(mProgram);
+    glUniform1f(location, 1.0f);
+
+    drawQuad(mProgram, "a_position", 0.0f);
 
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);

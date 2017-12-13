@@ -7,16 +7,18 @@
 
 #include "ash/ash_export.h"
 #include "ash/login/ui/login_display_style.h"
-#include "ash/public/interfaces/user_info.mojom.h"
+#include "ash/public/interfaces/login_user_info.mojom.h"
 #include "base/macros.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/view.h"
 
 namespace views {
-class ImageView;
+class ImageButton;
 }
 
 namespace ash {
+
+class LoginBubble;
 
 // Display the user's profile icon, name, and a menu icon in various layout
 // styles.
@@ -52,12 +54,12 @@ class ASH_EXPORT LoginUserView : public views::Button,
   ~LoginUserView() override;
 
   // Update the user view to display the given user information.
-  void UpdateForUser(const mojom::UserInfoPtr& user, bool animate);
+  void UpdateForUser(const mojom::LoginUserInfoPtr& user, bool animate);
 
   // Set if the view must be opaque.
   void SetForceOpaque(bool force_opaque);
 
-  const mojom::UserInfoPtr& current_user() const { return current_user_; }
+  const mojom::LoginUserInfoPtr& current_user() const { return current_user_; }
 
   // views::Button:
   const char* GetClassName() const override;
@@ -87,7 +89,7 @@ class ASH_EXPORT LoginUserView : public views::Button,
 
   // The user that is currently being displayed (or will be displayed when an
   // animation completes).
-  mojom::UserInfoPtr current_user_;
+  mojom::LoginUserInfoPtr current_user_;
 
   // Used to dispatch opacity update events.
   std::unique_ptr<OpacityInputHandler> opacity_input_handler_;
@@ -95,7 +97,8 @@ class ASH_EXPORT LoginUserView : public views::Button,
   LoginDisplayStyle display_style_;
   UserImage* user_image_ = nullptr;
   UserLabel* user_label_ = nullptr;
-  views::ImageView* user_dropdown_ = nullptr;
+  views::ImageButton* user_dropdown_ = nullptr;
+  std::unique_ptr<LoginBubble> user_menu_;
 
   // True iff the view is currently opaque (ie, opacity = 1).
   bool is_opaque_ = false;

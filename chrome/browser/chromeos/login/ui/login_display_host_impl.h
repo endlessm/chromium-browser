@@ -36,11 +36,14 @@
 class AccountId;
 class ScopedKeepAlive;
 
+namespace ash {
+class FocusRingController;
+}
+
 namespace chromeos {
 
 class ArcKioskController;
 class DemoAppLauncher;
-class FocusRingController;
 class WebUILoginDisplay;
 class WebUILoginView;
 
@@ -66,7 +69,7 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
   WebUILoginView* GetWebUILoginView() const override;
   void BeforeSessionStart() override;
   void Finalize(base::OnceClosure completion_callback) override;
-  void OpenProxySettings(const std::string& network_id) override;
+  void OpenInternetDetailDialog(const std::string& network_id) override;
   void SetStatusAreaVisible(bool visible) override;
   void StartWizard(OobeScreen first_screen) override;
   WizardController* GetWizardController() override;
@@ -76,10 +79,9 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
   void StartSignInScreen(const LoginScreenContext& context) override;
   void OnPreferencesChanged() override;
   void PrewarmAuthentication() override;
-  void StartAppLaunch(
-      const std::string& app_id,
-      bool diagnostic_mode,
-      bool auto_launch) override;
+  void StartAppLaunch(const std::string& app_id,
+                      bool diagnostic_mode,
+                      bool auto_launch) override;
   void StartDemoAppLaunch() override;
   void StartArcKiosk(const AccountId& account_id) override;
   bool IsVoiceInteractionOobe() override;
@@ -284,7 +286,7 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
 
   // A focus ring controller to draw focus ring around view for keyboard
   // driven oobe.
-  std::unique_ptr<FocusRingController> focus_ring_controller_;
+  std::unique_ptr<ash::FocusRingController> focus_ring_controller_;
 
   // Handles special keys for keyboard driven oobe.
   std::unique_ptr<KeyboardDrivenOobeKeyHandler>

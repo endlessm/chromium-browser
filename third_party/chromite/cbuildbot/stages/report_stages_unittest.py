@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -161,11 +162,6 @@ class BuildStartStageTest(generic_stages_unittest.AbstractStageTestCase):
     self.PatchObject(toolchain, 'GetArchForTarget', return_value='x86')
 
     self._Prepare(build_id=None, master_build_id=master_build_id)
-
-  def testUnknownWaterfall(self):
-    """Test that an assertion is thrown if master name is not valid."""
-    os.environ['BUILDBOT_MASTERNAME'] = 'gibberish'
-    self.assertRaises(failures_lib.StepFailure, self.RunStage)
 
   def testPerformStage(self):
     """Test that a normal run of the stage does a database insert."""

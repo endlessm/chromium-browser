@@ -13,6 +13,7 @@
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view.h"
 #import "ios/chrome/browser/ui/collection_view/cells/collection_view_switch_item.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_text_field_ios.h"
 #import "ios/chrome/browser/ui/payments/payment_request_error_view_controller.h"
 #import "ios/chrome/browser/ui/payments/payment_request_view_controller.h"
@@ -22,8 +23,9 @@
 #import "ios/chrome/browser/ui/settings/settings_collection_view_controller.h"
 #import "ios/chrome/browser/ui/settings/sync_settings_collection_view_controller.h"
 #import "ios/chrome/browser/ui/static_content/static_html_view_controller.h"
-#import "ios/chrome/browser/ui/toolbar/toolbar_controller.h"
+#import "ios/chrome/browser/ui/toolbar/toolbar_controller_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_menu_constants.h"
+#import "ios/chrome/browser/ui/tools_menu/tools_popup_controller.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
@@ -96,16 +98,6 @@ id<GREYMatcher> StaticTextWithAccessibilityLabel(NSString* label) {
 id<GREYMatcher> StaticTextWithAccessibilityLabelId(int message_id) {
   return StaticTextWithAccessibilityLabel(
       l10n_util::GetNSStringWithFixup(message_id));
-}
-
-id<GREYMatcher> WebViewContainingBlockedImage(std::string image_id) {
-  return web::WebViewContainingBlockedImage(
-      std::move(image_id), chrome_test_util::GetCurrentWebState());
-}
-
-id<GREYMatcher> WebViewContainingLoadedImage(std::string image_id) {
-  return web::WebViewContainingLoadedImage(
-      std::move(image_id), chrome_test_util::GetCurrentWebState());
 }
 
 id<GREYMatcher> CancelButton() {
@@ -271,6 +263,36 @@ id<GREYMatcher> PaymentRequestView() {
 // Returns matcher for the error confirmation view for payment request.
 id<GREYMatcher> PaymentRequestErrorView() {
   return grey_accessibilityID(kPaymentRequestErrorCollectionViewID);
+}
+
+id<GREYMatcher> VoiceSearchButton() {
+  return grey_allOf(grey_accessibilityID(kSettingsVoiceSearchCellId),
+                    grey_accessibilityTrait(UIAccessibilityTraitButton), nil);
+}
+
+id<GREYMatcher> SettingsCollectionView() {
+  return grey_accessibilityID(kSettingsCollectionViewId);
+}
+
+id<GREYMatcher> ClearBrowsingHistoryButton() {
+  return grey_accessibilityID(kClearBrowsingHistoryCellId);
+}
+
+id<GREYMatcher> ClearCookiesButton() {
+  return grey_accessibilityID(kClearCookiesCellId);
+}
+
+id<GREYMatcher> ClearCacheButton() {
+  return grey_accessibilityID(kClearCacheCellId);
+}
+
+id<GREYMatcher> ClearSavedPasswordsButton() {
+  return grey_accessibilityID(kClearSavedPasswordsCellId);
+}
+
+id<GREYMatcher> ContentSuggestionCollectionView() {
+  return grey_accessibilityID(
+      [ContentSuggestionsViewController collectionAccessibilityIdentifier]);
 }
 
 }  // namespace chrome_test_util

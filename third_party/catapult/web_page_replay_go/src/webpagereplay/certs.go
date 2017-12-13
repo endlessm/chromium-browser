@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -22,7 +23,7 @@ func ReplayTLSConfig(root tls.Certificate, a *Archive) (*tls.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bad local cert: %v", err)
 	}
-	tp := &tlsProxy{&root, root_cert, a, nil, make(map[string][]byte)}
+	tp := &tlsProxy{&root, root_cert, a, nil, sync.Mutex{}, make(map[string][]byte)}
 	return &tls.Config{
 		GetConfigForClient: tp.getReplayConfigForClient,
 	}, nil
@@ -35,7 +36,7 @@ func RecordTLSConfig(root tls.Certificate, w *WritableArchive) (*tls.Config, err
 	if err != nil {
 		return nil, fmt.Errorf("bad local cert: %v", err)
 	}
-	tp := &tlsProxy{&root, root_cert, nil, w, nil}
+	tp := &tlsProxy{&root, root_cert, nil, w, sync.Mutex{}, nil}
 	return &tls.Config{
 		GetConfigForClient: tp.getRecordConfigForClient,
 	}, nil
@@ -74,7 +75,12 @@ func MintDummyCertificate(serverName string, rootCert *x509.Certificate, rootKey
 
 // Returns DER encoded server cert.
 func MintServerCert(serverName string, rootCert *x509.Certificate, rootKey crypto.PrivateKey) ([]byte, string, error) {
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", serverName), &tls.Config{
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		DualStack: true,
+	}
+	conn, err := tls.DialWithDialer(dialer, "tcp", fmt.Sprintf("%s:443", serverName), &tls.Config{
 		NextProtos: []string{"h2", "http/1.1"},
 	})
 	if err != nil {
@@ -108,6 +114,7 @@ type tlsProxy struct {
 	root_cert        *x509.Certificate
 	archive          *Archive
 	writable_archive *WritableArchive
+	mu               sync.Mutex
 	dummy_certs_map  map[string][]byte
 }
 
@@ -126,6 +133,8 @@ func (tp *tlsProxy) getReplayConfigForClient(clientHello *tls.ClientHelloInfo) (
 	}
 
 	derBytes, negotiatedProtocol, err := tp.archive.FindHostTlsConfig(h)
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
 	if err != nil || derBytes == nil {
 		if _, ok := tp.dummy_certs_map[h]; !ok {
 			derBytes, negotiatedProtocol, err = MintDummyCertificate(h, tp.root_cert, tp.root.PrivateKey)

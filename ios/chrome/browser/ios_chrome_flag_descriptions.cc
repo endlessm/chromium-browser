@@ -29,6 +29,11 @@ const char kContextualSearch[] = "Contextual Search";
 const char kContextualSearchDescription[] =
     "Whether or not Contextual Search is enabled.";
 
+const char kHistoryBatchUpdatesFilterName[] = "History Single Batch Filtering";
+const char kHistoryBatchUpdatesFilterDescription[] =
+    "When enabled History inserts and deletes history items in the same "
+    "BatchUpdates block.";
+
 const char kInProductHelpDemoModeName[] = "In-Product Help Demo Mode";
 const char kInProductHelpDemoModeDescription[] =
     "When enabled, in-product help promotions occur exactly once per cold "
@@ -73,6 +78,17 @@ const char kPhysicalWeb[] = "Physical Web";
 const char kPhysicalWebDescription[] =
     "When enabled, the omnibox will include suggestions for web pages "
     "broadcast by devices near you.";
+
+extern const char kSafeAreaCompatibleToolbarName[] =
+    "Safe Area Compatible Toolbar";
+extern const char kSafeAreaCompatibleToolbarDescription[] =
+    "When enabled, the toolbar resizes itself when the safe area changes.";
+
+const char kTabSwitcherPresentsBVCName[] = "TabSwitcher Presents BVC";
+const char kTabSwitcherPresentsBVCDescription[] =
+    "When enabled, the tab switcher will present the BVC, so that when the "
+    "BVC is visible, the tab switcher will remain in the VC hierarchy "
+    "underneath it.";
 
 const char kUseDdljsonApiName[] = "Use new ddljson API for Doodles";
 const char kUseDdljsonApiDescription[] =

@@ -281,6 +281,12 @@ class FakeReposBase(object):
       new_tree = tree.copy()
     self.git_hashes[repo].append((commit_hash, new_tree))
 
+  def _fast_import_git(self, repo, data):
+    repo_root = join(self.git_root, repo)
+    logging.debug('%s: fast-import %s', repo, data)
+    subprocess2.check_call(
+        ['git', 'fast-import', '--quiet'], cwd=repo_root, stdin=data)
+
   def check_port_is_free(self, port):
     sock = socket.socket()
     try:
@@ -298,7 +304,7 @@ class FakeReposBase(object):
 
 class FakeRepos(FakeReposBase):
   """Implements populateGit()."""
-  NB_GIT_REPOS = 10
+  NB_GIT_REPOS = 13
 
   def populateGit(self):
     # Testing:
@@ -323,9 +329,24 @@ class FakeRepos(FakeReposBase):
       'DEPS': """
 vars = {
   'DummyVariable': 'repo',
+  'false_var': False,
+  'false_str_var': 'False',
+  'true_var': True,
+  'true_str_var': 'True',
+  'str_var': 'abc',
+  'cond_var': 'false_str_var and true_var',
 }
-gclient_gn_args_file = 'src/gclient.args'
-gclient_gn_args = ['DummyVariable']
+# Nest the args file in a sub-repo, to make sure we don't try to
+# write it before we've cloned everything.
+gclient_gn_args_file = 'src/repo2/gclient.args'
+gclient_gn_args = [
+  'false_var',
+  'false_str_var',
+  'true_var',
+  'true_str_var',
+  'str_var',
+  'cond_var',
+]
 deps = {
   'src/repo2': {
     'url': '%(git_base)srepo_2',
@@ -461,9 +482,25 @@ vars = {
   'git_base': '%(git_base)s',
   'hook1_contents': 'git_hooked1',
   'repo5_var': '/repo_5',
+
+  'false_var': False,
+  'false_str_var': 'False',
+  'true_var': True,
+  'true_str_var': 'True',
+  'str_var': 'abc',
+  'cond_var': 'false_str_var and true_var',
 }
-gclient_gn_args_file = 'src/gclient.args'
-gclient_gn_args = ['DummyVariable']
+
+gclient_gn_args_file = 'src/repo2/gclient.args'
+gclient_gn_args = [
+  'false_var',
+  'false_str_var',
+  'true_var',
+  'true_str_var',
+  'str_var',
+  'cond_var',
+]
+
 allowed_hosts = [
   '%(git_base)s',
 ]
@@ -495,6 +532,7 @@ deps_os ={
 hooks = [
   {
     'pattern': '.',
+    'condition': 'True',
     'action': ['python', '-c',
                'open(\\'src/git_hooked1\\', \\'w\\').write(\\'{hook1_contents}\\')'],
   },
@@ -593,10 +631,68 @@ deps = {
   # in recursedeps.
   'src/repo6': '/repo_6',
 }
+deps_os = {
+  'mac': {
+    'src/repo11': '/repo_11',
+  },
+  'ios': {
+    'src/repo11': '/repo_11',
+  }
+}
 recursedeps = [
   'src/repo9',
+  'src/repo11',
 ]""",
       'origin': 'git/repo_10@1\n',
+    })
+
+    self._commit_git('repo_11', {
+      'DEPS': """
+deps = {
+  'src/repo12': '/repo_12',
+}""",
+      'origin': 'git/repo_11@1\n',
+    })
+
+    self._commit_git('repo_12', {
+      'origin': 'git/repo_12@1\n',
+    })
+
+    self._fast_import_git('repo_12', """blob
+mark :1
+data 6
+Hello
+
+blob
+mark :2
+data 4
+Bye
+
+reset refs/changes/1212
+commit refs/changes/1212
+mark :3
+author Bob <bob@example.com> 1253744361 -0700
+committer Bob <bob@example.com> 1253744361 -0700
+data 8
+A and B
+M 100644 :1 a
+M 100644 :2 b
+""")
+
+    self._commit_git('repo_13', {
+      'DEPS': """
+deps = {
+  'src/repo12': '/repo_12',
+}""",
+      'origin': 'git/repo_13@1\n',
+    })
+
+    self._commit_git('repo_13', {
+      'DEPS': """
+deps = {
+  'src/repo12': '/repo_12@refs/changes/1212',
+}""",
+      'origin': 'git/repo_13@2\n',
     })
 
 

@@ -21,6 +21,7 @@
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/toolbar/test_toolbar_model.h"
 #include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
+#include "ios/chrome/browser/bookmarks/bookmark_new_generation_features.h"
 #import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_paths.h"
 #include "ios/chrome/browser/chrome_switches.h"
@@ -37,8 +38,6 @@
 #import "ios/chrome/browser/ui/browser_view_controller_dependency_factory.h"
 #import "ios/chrome/browser/ui/browser_view_controller_testing.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
-#import "ios/chrome/browser/ui/commands/generic_chrome_command.h"
-#include "ios/chrome/browser/ui/commands/ios_command_ids.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_controller.h"
 #import "ios/chrome/browser/ui/page_not_available_controller.h"
 #include "ios/chrome/browser/ui/toolbar/test_toolbar_model_ios.h"
@@ -84,7 +83,6 @@ using web::WebStateImpl;
 - (void)tabSelected:(Tab*)tab;
 - (void)tabDeselected:(NSNotification*)notification;
 - (void)tabCountChanged:(NSNotification*)notification;
-- (IBAction)chromeExecuteCommand:(id)sender;
 @end
 
 @interface BVCTestTabMock : OCMockComplexTypeHelper {
@@ -131,12 +129,14 @@ using web::WebStateImpl;
 
 @interface BVCTestTabModel : OCMockComplexTypeHelper
 - (instancetype)init NS_DESIGNATED_INITIALIZER;
+@property(nonatomic, assign) ios::ChromeBrowserState* browserState;
 @end
 
 @implementation BVCTestTabModel {
   FakeWebStateListDelegate _webStateListDelegate;
   std::unique_ptr<WebStateList> _webStateList;
 }
+@synthesize browserState = _browserState;
 
 - (instancetype)init {
   if ((self = [super
@@ -186,6 +186,7 @@ class BrowserViewControllerTest : public BlockCleanupTest {
 
     // Set up mock TabModel, Tab, and CRWWebController.
     id tabModel = [[BVCTestTabModel alloc] init];
+    [tabModel setBrowserState:chrome_browser_state_.get()];
     id currentTab = [[BVCTestTabMock alloc]
         initWithRepresentedObject:[OCMockObject niceMockForClass:[Tab class]]];
     id webControllerMock =
@@ -226,16 +227,12 @@ class BrowserViewControllerTest : public BlockCleanupTest {
     // Set up a stub dependency factory.
     id factory = [OCMockObject
         mockForClass:[BrowserViewControllerDependencyFactory class]];
-    [[[factory stub] andReturn:nil]
-        newTabStripControllerWithTabModel:[OCMArg any]
-                               dispatcher:[OCMArg any]];
     [[[factory stub] andReturnValue:OCMOCK_VALUE(toolbarModelIOS_)]
         newToolbarModelIOSWithDelegate:static_cast<ToolbarModelDelegateIOS*>(
                                            [OCMArg anyPointer])];
     [[[factory stub] andReturn:nil]
         newWebToolbarControllerWithDelegate:[OCMArg any]
                                   urlLoader:[OCMArg any]
-                            preloadProvider:[OCMArg any]
                                  dispatcher:[OCMArg any]];
     [[[factory stub] andReturn:passKitViewController_]
         newPassKitViewControllerForPass:nil];
@@ -268,10 +265,6 @@ class BrowserViewControllerTest : public BlockCleanupTest {
     [bvc_ shutdown];
 
     BlockCleanupTest::TearDown();
-  }
-
-  GenericChromeCommand* GetCommandWithTag(NSInteger tag) {
-    return [[GenericChromeCommand alloc] initWithTag:tag];
   }
 
   MOCK_METHOD0(OnCompletionCalled, void());
@@ -354,11 +347,13 @@ TEST_F(BrowserViewControllerTest, TestNativeContentController) {
       [bvc_ controllerForURL:GURL(kChromeUIBookmarksURL)
                     webState:webStateImpl_.get()];
   EXPECT_TRUE(controller != nil);
-  if (IsIPadIdiom()) {
-    EXPECT_TRUE([controller isMemberOfClass:[NewTabPageController class]]);
-  } else {
+  // TODO(crbug.com/753599): When the old bookmark is gone, rewrite the
+  // following so that it will expect PageNotAvailable only.
+  if (base::FeatureList::IsEnabled(kBookmarkNewGeneration) || !IsIPadIdiom()) {
     EXPECT_TRUE(
         [controller isMemberOfClass:[PageNotAvailableController class]]);
+  } else {
+    EXPECT_TRUE([controller isMemberOfClass:[NewTabPageController class]]);
   }
 
   controller = [bvc_ controllerForURL:GURL(kChromeUINewTabURL)

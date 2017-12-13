@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -280,7 +281,8 @@ def MarkImageToBeSigned(ctx, tbs_base, insns_path, priority):
 
 
 def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
-              sign_types=None, dry_run=False, mock=False, force_keysets=()):
+              sign_types=None, dry_run=False, mock=False, force_keysets=(),
+              force_channels=None):
   """Push the image from the archive bucket to the release bucket.
 
   Args:
@@ -295,6 +297,7 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
     dry_run: Show what would be done, but do not upload anything.
     mock: Upload to a testing bucket rather than the real one.
     force_keysets: Set of keysets to use rather than what the inputs say.
+    force_channels: Set of channels to use rather than what the inputs say.
 
   Returns:
     A dictionary that maps 'channel' -> ['gs://signer_instruction_uri1',
@@ -335,7 +338,12 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
     logging.warning('Missing base instruction file: %s', e)
     logging.warning('not uploading anything for signing')
     return
-  channels = input_insns.GetChannels()
+
+  if force_channels is None:
+    channels = input_insns.GetChannels()
+  else:
+    # Filter out duplicates.
+    channels = sorted(set(force_channels))
 
   # We want force_keysets as a set.
   force_keysets = set(force_keysets)
@@ -562,7 +570,8 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
   return instruction_urls
 
 
-def main(argv):
+def GetParser():
+  """Creates the argparse parser."""
   parser = commandline.ArgumentParser(description=__doc__)
 
   # The type of image_dir will strip off trailing slashes (makes later
@@ -575,6 +584,8 @@ def main(argv):
                       help='board profile in use (e.g. "asan")')
   parser.add_argument('--version', default=None,
                       help='version info (normally extracted from image_dir)')
+  parser.add_argument('--channels', default=None, action='split_extend',
+                      help='override list of channels to process')
   parser.add_argument('-n', '--dry-run', default=False, action='store_true',
                       help='show what would be done, but do not upload')
   parser.add_argument('-M', '--mock', default=False, action='store_true',
@@ -590,6 +601,11 @@ def main(argv):
   parser.add_argument('--yes', action='store_true', default=False,
                       help='answer yes to all prompts')
 
+  return parser
+
+
+def main(argv):
+  parser = GetParser()
   opts = parser.parse_args(argv)
   opts.Freeze()
 
@@ -611,4 +627,4 @@ def main(argv):
   PushImage(opts.image_dir, opts.board, versionrev=opts.version,
             profile=opts.profile, priority=opts.priority,
             sign_types=opts.sign_types, dry_run=opts.dry_run, mock=opts.mock,
-            force_keysets=force_keysets)
+            force_keysets=force_keysets, force_channels=opts.channels)

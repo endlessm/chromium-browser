@@ -8,7 +8,9 @@
 #import <map>
 #import <string>
 
+#include "base/test/scoped_feature_list.h"
 #include "components/strings/grit/components_strings.h"
+#include "ios/chrome/browser/bookmarks/bookmark_new_generation_features.h"
 #include "ios/chrome/browser/ui/tools_menu/tools_menu_constants.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
@@ -19,6 +21,7 @@
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/web/public/test/http_server/http_server.h"
 #include "ios/web/public/test/http_server/http_server_util.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -103,6 +106,10 @@ id<GREYMatcher> RecentlyClosedLabelMatcher() {
 // Tests that a closed tab appears in the Recent Tabs panel, and that tapping
 // the entry in the Recent Tabs panel re-opens the closed tab.
 - (void)testClosedTabAppearsInRecentTabsPanel {
+  // TODO(crbug.com/782551): Rewrite this egtest for the new bookmark.
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(kBookmarkNewGeneration);
+
   const GURL testPageURL = web::test::HttpServer::MakeUrl(kURLOfTestPage);
 
   // Open the test page in a new tab.
@@ -145,6 +152,38 @@ id<GREYMatcher> RecentlyClosedLabelMatcher() {
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       assertWithMatcher:chrome_test_util::OmniboxText(
                             testPageURL.GetContent())];
+}
+
+// Tests that tapping "Show Full History" open the history.
+- (void)testOpenHistory {
+  // TODO(crbug.com/782551): Rewrite this egtest for the new bookmark.
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(kBookmarkNewGeneration);
+
+  OpenRecentTabsPanel();
+
+  // Tap "Show Full History"
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabel(
+                                   l10n_util::GetNSString(
+                                       IDS_HISTORY_SHOWFULLHISTORY_LINK))]
+      performAction:grey_tap()];
+
+  // Make sure history is opened.
+  [[EarlGrey
+      selectElementWithMatcher:grey_accessibilityLabel(
+                                   l10n_util::GetNSString(IDS_HISTORY_TITLE))]
+      assertWithMatcher:grey_sufficientlyVisible()];
+
+  // Close History.
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabel(
+                                   l10n_util::GetNSString(
+                                       IDS_IOS_NAVIGATION_BAR_DONE_BUTTON))]
+      performAction:grey_tap()];
+
+  // Close tab.
+  chrome_test_util::CloseCurrentTab();
 }
 
 @end

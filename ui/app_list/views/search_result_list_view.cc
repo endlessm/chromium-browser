@@ -74,6 +74,11 @@ void SearchResultListView::UpdateAutoLaunchState() {
 }
 
 bool SearchResultListView::OnKeyPressed(const ui::KeyEvent& event) {
+  if (features::IsAppListFocusEnabled()) {
+    // TODO(weidongg/766807) Remove this function when the flag is enabled by
+    // default.
+    return false;
+  }
   if (selected_index() >= 0 &&
       results_container_->child_at(selected_index())->OnKeyPressed(event)) {
     return true;
@@ -170,6 +175,16 @@ views::View* SearchResultListView::GetSelectedView() const {
   return IsValidSelectionIndex(selected_index())
              ? GetResultViewAt(selected_index())
              : nullptr;
+}
+
+views::View* SearchResultListView::SetFirstResultSelected(bool selected) {
+  DCHECK(results_container_->has_children());
+  if (num_results() <= 0)
+    return nullptr;
+  SearchResultView* search_result_view =
+      static_cast<SearchResultView*>(results_container_->child_at(0));
+  search_result_view->SetSelected(selected);
+  return search_result_view;
 }
 
 int SearchResultListView::DoUpdate() {

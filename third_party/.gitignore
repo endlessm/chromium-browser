@@ -29,6 +29,7 @@
 /bison
 /boringssl/src
 /bouncycastle/lib/*.jar
+/breakpad/breakpad
 /byte_buddy/lib/*.jar
 /cacheinvalidation/cacheinvalidation_unittests_run.xml
 /cardboard-java/src
@@ -48,10 +49,9 @@
 /cygwin
 /depot_tools
 /deqp/src
+/devtools-node-modules
 /directxsdk
 /dom_distiller_js/dist
-/drmemory/drmemory-windows-sfx.exe
-/drmemory/unpacked
 /elfutils/src
 /errorprone/lib
 /espresso/lib/*-2.2.1-*.jar

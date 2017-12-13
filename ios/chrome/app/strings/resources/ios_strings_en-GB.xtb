@@ -20,7 +20,6 @@
 <translation id="1254117744268754948">Choose Folder</translation>
 <translation id="1265739287306757398">Learn How</translation>
 <translation id="1272079795634619415">Stop</translation>
-<translation id="129553762522093515">Recently closed</translation>
 <translation id="1323735185997015385">Delete</translation>
 <translation id="132683371494960526">Double tap to change the parent folder.</translation>
 <translation id="1340643665687018190">Close menu</translation>
@@ -48,7 +47,6 @@ For example, some websites may respond to this request by showing you ads that a
 <translation id="1690731385917361335">No items</translation>
 <translation id="1700629756560807968"><ph name="NUMBER_OF_SELECTED_BOOKMARKS" /> selected</translation>
 <translation id="1740468249224277719">Double tap to install.</translation>
-<translation id="1749561566933687563">Sync your bookmarks</translation>
 <translation id="1752547299766512813">Save Passwords</translation>
 <translation id="1753905327828125965">Most Visited</translation>
 <translation id="1809939268435598390">Delete Folder</translation>
@@ -80,6 +78,7 @@ For example, some websites may respond to this request by showing you ads that a
 <translation id="2381405137052800939">Basics</translation>
 <translation id="2386793615875593361">1 selected</translation>
 <translation id="2435457462613246316">Show password</translation>
+<translation id="2529021024822217800">Open All</translation>
 <translation id="2572712655377361602">A device policy blocked access to your photos</translation>
 <translation id="2584132361465095047">Add Account…</translation>
 <translation id="2593774076813182497">This page cannot be printed.</translation>
@@ -129,7 +128,6 @@ For example, some websites may respond to this request by showing you ads that a
 <translation id="3324193307694657476">Address 2</translation>
 <translation id="3329904751041170572">Could not connect to the server.</translation>
 <translation id="3335947283844343239">Re-open Closed Tab</translation>
-<translation id="3387752218061326363">Showing history from your signed-in devices. <ph name="BEGIN_LINK" />Find out more<ph name="END_LINK" />.</translation>
 <translation id="3393920035788932672">Pop-ups Allowed</translation>
 <translation id="3414292259312108062">Chrome will store this in your <ph name="BEGIN_LINK" />Google saved passwords<ph name="END_LINK" /> and autofill it for you so that you don't have to remember it yourself.</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> min</translation>
@@ -181,6 +179,7 @@ To adjust your search term, long press to select. To refine your search, slide t
 <translation id="4342284590510997375">New</translation>
 <translation id="434816576838749873">Choose Email App</translation>
 <translation id="4359125752503270327">This page will open in another application.</translation>
+<translation id="4370827530403103842">Sync isn't working. Tap to fix.</translation>
 <translation id="4375040482473363939">QR code Search</translation>
 <translation id="4378154925671717803">Phone</translation>
 <translation id="441868831736628555">Privacy Notice</translation>
@@ -188,6 +187,7 @@ To adjust your search term, long press to select. To refine your search, slide t
 <translation id="4508750114462689118">Close sign-in promo</translation>
 <translation id="4526249700380860531">View and manage saved passwords at <ph name="BEGIN_LINK" />passwords.google.com<ph name="END_LINK" /></translation>
 <translation id="4536418791685807335">Try signing in again.</translation>
+<translation id="457386861538956877">More...</translation>
 <translation id="461440297010471931">Searching with Google</translation>
 <translation id="4620246317052452550">Pages That You've Read</translation>
 <translation id="4636930964841734540">Info</translation>
@@ -309,6 +309,7 @@ Your data was encrypted with your sync passphrase on <ph name="TIME" />. Enter i
 <translation id="6785453220513215166">Sending crash report...</translation>
 <translation id="679325081238418596">Get your bookmarks, history, passwords and other settings on all your devices</translation>
 <translation id="6797885426782475225">Voice Search</translation>
+<translation id="6807889908376551050">Show All...</translation>
 <translation id="681368974849482173">Item created</translation>
 <translation id="6896758677409633944">Copy</translation>
 <translation id="6903907808598579934">Turn on sync</translation>
@@ -319,7 +320,6 @@ Your data was encrypted with your sync passphrase on <ph name="TIME" />. Enter i
 <translation id="7031882061095297553">Sync to</translation>
 <translation id="7062545763355031412">Accept and switch accounts</translation>
 <translation id="7108338896283013870">Hide</translation>
-<translation id="7131892264600713844">Showing history from this device. <ph name="BEGIN_LINK" />Find out more.<ph name="END_LINK" /></translation>
 <translation id="7133798577887235672">Full Name</translation>
 <translation id="7136892417564438900">Camera is unavailable</translation>
 <translation id="7159472599653637159">Request Mobile Site</translation>
@@ -356,7 +356,6 @@ Your data was encrypted with your sync passphrase on <ph name="TIME" />. Enter i
 <translation id="7769602470925380267">Accept and sign out</translation>
 <translation id="7772032839648071052">Confirm passphrase</translation>
 <translation id="780301667611848630">No, thank you</translation>
-<translation id="7851858861565204677">Other Devices</translation>
 <translation id="7859704718976024901">Browsing history</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7947953824732555851">Accept and sign in</translation>
@@ -382,6 +381,7 @@ Your data was encrypted with your sync passphrase on <ph name="TIME" />. Enter i
 <translation id="8458397775385147834">1 item deleted</translation>
 <translation id="8487700953926739672">Available offline</translation>
 <translation id="8503813439785031346">Username</translation>
+<translation id="850600235656508448">Open in Incognito</translation>
 <translation id="8517375800490286174">Open-Source Licences</translation>
 <translation id="8524799873541103884"><ph name="INCOGNITO" /> Tabs <ph name="FIRST_VISIBLE_TAB" /> through <ph name="LAST_VISIBLE_TAB" /> of <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8532105204136943229">Year of Expiry</translation>
@@ -400,6 +400,7 @@ Your data was encrypted with your sync passphrase on <ph name="TIME" />. Enter i
 <translation id="8775144690796719618">Invalid URL</translation>
 <translation id="8820817407110198400">Bookmarks</translation>
 <translation id="8840513115188359703">You won't be signed out of your Google Account.</translation>
+<translation id="8870413625673593573">Recently Closed</translation>
 <translation id="8881801611828450202">Search <ph name="SEARCH_ENGINE" /> for This Image</translation>
 <translation id="8904976895050290827">Chrome Sync</translation>
 <translation id="895541991026785598">Report an Issue</translation>

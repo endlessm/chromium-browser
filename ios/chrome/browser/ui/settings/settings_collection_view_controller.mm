@@ -65,9 +65,9 @@
 #import "ios/chrome/browser/ui/settings/save_passwords_collection_view_controller.h"
 #import "ios/chrome/browser/ui/settings/search_engine_settings_collection_view_controller.h"
 #import "ios/chrome/browser/ui/settings/settings_utils.h"
+#import "ios/chrome/browser/ui/settings/sync_utils/sync_util.h"
 #import "ios/chrome/browser/ui/settings/utils/pref_backed_boolean.h"
 #import "ios/chrome/browser/ui/settings/voicesearch_collection_view_controller.h"
-#import "ios/chrome/browser/ui/sync/sync_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #include "ios/chrome/browser/voice/speech_input_locale_config.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
@@ -99,7 +99,7 @@ namespace {
 
 const CGFloat kAccountProfilePhotoDimension = 40.0f;
 
-const int kAutomaticSigninPromoViewDismissCount = 5;
+const int kAutomaticSigninPromoViewDismissCount = 20;
 
 typedef NS_ENUM(NSInteger, SectionIdentifier) {
   SectionIdentifierSignIn = kSectionIdentifierEnumZero,
@@ -293,6 +293,8 @@ void SigninObserverBridge::GoogleSignedOut(const std::string& account_id,
     _settingsMainPageDispatcher = self;
     _dispatcher = dispatcher;
 
+    // TODO(crbug.com/764578): -loadModel should not be called from
+    // initializer. A possible fix is to move this call to -viewDidLoad.
     [self loadModel];
   }
   return self;
@@ -312,6 +314,15 @@ void SigninObserverBridge::GoogleSignedOut(const std::string& account_id,
 
 - (SigninInteractionController*)signinInteractionController {
   return _signinInteractionController;
+}
+
+- (void)signinPromoCloseButtonAction {
+  PrefService* prefs = _browserState->GetPrefs();
+  prefs->SetBoolean(prefs::kIosSettingsPromoAlreadySeen, true);
+  UMA_HISTOGRAM_COUNTS_100(
+      "MobileSignInPromo.SettingsManager.ImpressionsTilXButton",
+      prefs->GetInteger(prefs::kIosSettingsSigninPromoDisplayedCount));
+  [self reloadData];
 }
 
 #pragma mark View lifecycle
@@ -346,17 +357,21 @@ void SigninObserverBridge::GoogleSignedOut(const std::string& account_id,
     PrefService* prefs = _browserState->GetPrefs();
     int displayedCount =
         prefs->GetInteger(prefs::kIosSettingsSigninPromoDisplayedCount);
-    if (experimental_flags::IsSigninPromoEnabled() &&
-        displayedCount < kAutomaticSigninPromoViewDismissCount) {
+    if (displayedCount < kAutomaticSigninPromoViewDismissCount &&
+        !prefs->GetBoolean(prefs::kIosSettingsPromoAlreadySeen)) {
       if (!_signinPromoViewMediator) {
         _signinPromoViewMediator = [[SigninPromoViewMediator alloc]
             initWithBrowserState:_browserState
                      accessPoint:signin_metrics::AccessPoint::
-                                     ACCESS_POINT_SETTINGS];
+                                     ACCESS_POINT_SETTINGS
+                      dispatcher:self.dispatcher];
         _signinPromoViewMediator.consumer = self;
         prefs->SetInteger(prefs::kIosSettingsSigninPromoDisplayedCount,
                           displayedCount + 1);
       }
+    } else {
+      [_signinPromoViewMediator signinPromoViewRemoved];
+      _signinPromoViewMediator = nil;
     }
     [model addItem:[self signInTextItem]
         toSectionWithIdentifier:SectionIdentifierSignIn];
@@ -677,6 +692,10 @@ void SigninObserverBridge::GoogleSignedOut(const std::string& account_id,
       SigninPromoCell* signinPromoCell =
           base::mac::ObjCCast<SigninPromoCell>(cell);
       signinPromoCell.signinPromoView.delegate = self;
+      __weak SettingsCollectionViewController* weakSelf = self;
+      signinPromoCell.signinPromoView.closeButtonAction = ^() {
+        [weakSelf signinPromoCloseButtonAction];
+      };
       break;
     }
     case ItemTypeViewSource: {
@@ -990,19 +1009,16 @@ void SigninObserverBridge::GoogleSignedOut(const std::string& account_id,
   _signinInteractionController = [[SigninInteractionController alloc]
           initWithBrowserState:_browserState
       presentingViewController:self.navigationController
-         isPresentedOnSettings:YES
                    accessPoint:signin_metrics::AccessPoint::
                                    ACCESS_POINT_SETTINGS
                    promoAction:promoAction
                     dispatcher:self.dispatcher];
 
   __weak SettingsCollectionViewController* weakSelf = self;
-  [_signinInteractionController
-      signInWithViewController:self
-                      identity:identity
-                    completion:^(BOOL success) {
-                      [weakSelf didFinishSignin:success];
-                    }];
+  [_signinInteractionController signInWithIdentity:identity
+                                        completion:^(BOOL success) {
+                                          [weakSelf didFinishSignin:success];
+                                        }];
 }
 
 - (void)didFinishSignin:(BOOL)signedIn {

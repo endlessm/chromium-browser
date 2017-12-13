@@ -53,25 +53,25 @@ void FakeVRDevice::SetVRDevice(const mojom::VRDisplayInfoPtr& display_info) {
   display_info_ = display_info.Clone();
 }
 
-void FakeVRDevice::CreateVRDisplayInfo(
-    const base::Callback<void(mojom::VRDisplayInfoPtr)>& on_created) {
-  mojom::VRDisplayInfoPtr display = display_info_.Clone();
-  on_created.Run(std::move(display));
+mojom::VRDisplayInfoPtr FakeVRDevice::GetVRDisplayInfo() {
+  return display_info_.Clone();
 }
 
-void FakeVRDevice::RequestPresent(mojom::VRSubmitFrameClientPtr submit_client,
-                                  mojom::VRPresentationProviderRequest request,
-                                  const base::Callback<void(bool)>& callback) {
-  callback.Run(true);
+void FakeVRDevice::RequestPresent(
+    VRDisplayImpl* display,
+    mojom::VRSubmitFrameClientPtr submit_client,
+    mojom::VRPresentationProviderRequest request,
+    mojom::VRDisplayHost::RequestPresentCallback callback) {
+  SetPresentingDisplay(display);
+  std::move(callback).Run(true);
 }
 
 void FakeVRDevice::ExitPresent() {
   OnExitPresent();
 }
 
-void FakeVRDevice::GetNextMagicWindowPose(
-    VRDisplayImpl* display,
-    mojom::VRDisplay::GetNextMagicWindowPoseCallback callback) {
+void FakeVRDevice::GetPose(
+    mojom::VRMagicWindowProvider::GetPoseCallback callback) {
   std::move(callback).Run(nullptr);
 }
 

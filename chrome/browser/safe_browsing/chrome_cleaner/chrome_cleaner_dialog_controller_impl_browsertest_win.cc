@@ -9,8 +9,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "chrome/browser/lifetime/keep_alive_types.h"
-#include "chrome/browser/lifetime/scoped_keep_alive.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/chrome_cleaner_controller_win.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/srt_field_trial_win.h"
@@ -19,6 +17,8 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/component_updater/pref_names.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
+#include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/variations/variations_params_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -31,7 +31,6 @@ using ::testing::InvokeWithoutArgs;
 using ::testing::StrictMock;
 using ::testing::Return;
 
-constexpr char kSRTPromptTrial[] = "SRTPromptFieldTrial";
 constexpr char kSRTPromptGroup[] = "SRTGroup";
 
 class MockChromeCleanerPromptDelegate : public ChromeCleanerPromptDelegate {

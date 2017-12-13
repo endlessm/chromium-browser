@@ -12,6 +12,7 @@
 
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
 #import "remoting/ios/app/remoting_theme.h"
+#import "remoting/ios/app/view_utils.h"
 #import "remoting/ios/domain/host_info.h"
 
 #include "base/strings/sys_string_conversions.h"
@@ -50,6 +51,8 @@ static const CGFloat kHostCardIconSize = 45.f;
 }
 
 - (void)commonInit {
+  self.isAccessibilityElement = YES;
+
   _imageView = [[UIImageView alloc] init];
   _imageView.translatesAutoresizingMaskIntoConstraints = NO;
   _imageView.contentMode = UIViewContentModeCenter;
@@ -65,17 +68,20 @@ static const CGFloat kHostCardIconSize = 45.f;
 
   _titleLabel = [[UILabel alloc] init];
   _titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
-  _titleLabel.font = [MDCTypography titleFont];
-  _titleLabel.alpha = [MDCTypography titleFontOpacity];
-  _titleLabel.textColor = [UIColor colorWithWhite:0 alpha:0.87f];
+  _titleLabel.font = [MDCTypography boldFontFromFont:MDCTypography.subheadFont];
+  _titleLabel.alpha = MDCTypography.subheadFontOpacity;
+  _titleLabel.textColor = RemotingTheme.hostCellTitleColor;
   [_labelView addSubview:_titleLabel];
 
   _statusLabel = [[UILabel alloc] init];
   _statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
-  _statusLabel.font = [MDCTypography captionFont];
-  _statusLabel.alpha = [MDCTypography captionFontOpacity];
-  _statusLabel.textColor = [UIColor colorWithWhite:0 alpha:0.60f];
+  _statusLabel.font = MDCTypography.captionFont;
+  _statusLabel.alpha = MDCTypography.captionFontOpacity;
+  _statusLabel.textColor = RemotingTheme.hostCellStatusTextColor;
   [_labelView addSubview:_statusLabel];
+
+  UILayoutGuide* safeAreaLayoutGuide =
+      remoting::SafeAreaLayoutGuideForView(self);
 
   // Constraints
   NSArray* constraints = @[
@@ -89,10 +95,10 @@ static const CGFloat kHostCardIconSize = 45.f;
     //       |              |
     //  Image View     Label View
     [[_imageView leadingAnchor]
-        constraintEqualToAnchor:[self.contentView leadingAnchor]
+        constraintEqualToAnchor:safeAreaLayoutGuide.leadingAnchor
                        constant:kHostCardIconInset],
     [[_imageView centerYAnchor]
-        constraintEqualToAnchor:[self.contentView centerYAnchor]],
+        constraintEqualToAnchor:safeAreaLayoutGuide.centerYAnchor],
     [[_imageView widthAnchor] constraintEqualToConstant:kHostCardIconSize],
     [[_imageView heightAnchor] constraintEqualToConstant:kHostCardIconSize],
 
@@ -100,12 +106,12 @@ static const CGFloat kHostCardIconSize = 45.f;
         constraintEqualToAnchor:[_imageView trailingAnchor]
                        constant:kHostCardIconInset],
     [[_labelView trailingAnchor]
-        constraintEqualToAnchor:[self.contentView trailingAnchor]
+        constraintEqualToAnchor:safeAreaLayoutGuide.trailingAnchor
                        constant:-kHostCardPadding / 2.f],
     [[_labelView topAnchor]
-        constraintEqualToAnchor:[self.contentView topAnchor]],
+        constraintEqualToAnchor:safeAreaLayoutGuide.topAnchor],
     [[_labelView bottomAnchor]
-        constraintEqualToAnchor:[self.contentView bottomAnchor]],
+        constraintEqualToAnchor:safeAreaLayoutGuide.bottomAnchor],
 
     // Put titleLable and statusLable symmetrically around centerY.
     [[_titleLabel leadingAnchor]
@@ -147,6 +153,9 @@ static const CGFloat kHostCardIconSize = 45.f;
                   base::SysNSStringToUTF16(hostInfo.updatedTime))
             : l10n_util::GetNSString(IDS_HOST_OFFLINE_SUBTITLE);
   }
+
+  self.accessibilityLabel = [NSString
+      stringWithFormat:@"%@\n%@", _titleLabel.text, _statusLabel.text];
 }
 
 #pragma mark - UICollectionReusableView
@@ -156,6 +165,7 @@ static const CGFloat kHostCardIconSize = 45.f;
   _hostInfo = nil;
   _statusLabel.text = nil;
   _titleLabel.text = nil;
+  self.accessibilityLabel = nil;
 }
 
 @end

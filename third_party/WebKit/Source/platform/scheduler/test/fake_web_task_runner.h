@@ -11,7 +11,6 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "platform/WebTaskRunner.h"
-#include "platform/wtf/PassRefPtr.h"
 #include "platform/wtf/RefPtr.h"
 
 namespace blink {
@@ -28,11 +27,16 @@ class FakeWebTaskRunner : public WebTaskRunner {
   bool RunsTasksInCurrentSequence() override;
   double VirtualTimeSeconds() const override;
   double MonotonicallyIncreasingVirtualTimeSeconds() const override;
-  SingleThreadTaskRunner* ToSingleThreadTaskRunner() override;
+  SingleThreadTaskRunnerRefPtr ToSingleThreadTaskRunner() override;
 
   void RunUntilIdle();
   void AdvanceTimeAndRun(double delta_seconds);
   std::deque<std::pair<base::OnceClosure, double>> TakePendingTasksForTesting();
+
+ protected:
+  bool PostDelayedTask(const base::Location& location,
+                       base::OnceClosure task,
+                       base::TimeDelta delay) override;
 
  private:
   ~FakeWebTaskRunner() override;
@@ -42,7 +46,7 @@ class FakeWebTaskRunner : public WebTaskRunner {
   RefPtr<Data> data_;
   scoped_refptr<BaseTaskRunner> base_task_runner_;
 
-  FakeWebTaskRunner(PassRefPtr<Data> data,
+  FakeWebTaskRunner(RefPtr<Data> data,
                     scoped_refptr<BaseTaskRunner> base_task_runner);
 
   DISALLOW_COPY_AND_ASSIGN(FakeWebTaskRunner);

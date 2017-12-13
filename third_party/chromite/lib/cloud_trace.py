@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2017 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -45,7 +46,7 @@ def LogSpan(span):
     with open(GetSpanLogFilePath(span), 'w') as fh:
       fh.write(json.dumps(span.ToDict()))
   # Catch various configuration errors
-  except OSError as error:
+  except (OSError, IOError) as error:
     if error.errno == errno.EPERM:
       log.warning(
           'Received permissions error while trying to open the span log file.')

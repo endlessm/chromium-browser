@@ -34,8 +34,11 @@ const (
 	ISOLATE_SKP_NAME     = "Housekeeper-PerCommit-IsolateSKP"
 	ISOLATE_SVG_NAME     = "Housekeeper-PerCommit-IsolateSVG"
 
-	DEFAULT_OS_DEBIAN = "Debian-9.1"
-	DEFAULT_OS_UBUNTU = "Ubuntu-14.04"
+	DEFAULT_OS_DEBIAN    = "Debian-9.1"
+	DEFAULT_OS_LINUX_GCE = "Debian-9.2"
+	DEFAULT_OS_MAC       = "Mac-10.12"
+	DEFAULT_OS_UBUNTU    = "Ubuntu-14.04"
+	DEFAULT_OS_WIN       = "Windows-2016Server-14393"
 
 	// Name prefix for upload jobs.
 	PREFIX_UPLOAD = "Upload"
@@ -50,15 +53,20 @@ var (
 
 	// General configuration information.
 	CONFIG struct {
-		GsBucketGm   string   `json:"gs_bucket_gm"`
-		GsBucketNano string   `json:"gs_bucket_nano"`
-		NoUpload     []string `json:"no_upload"`
-		Pool         string   `json:"pool"`
+		GsBucketCoverage string   `json:"gs_bucket_coverage"`
+		GsBucketGm       string   `json:"gs_bucket_gm"`
+		GsBucketNano     string   `json:"gs_bucket_nano"`
+		NoUpload         []string `json:"no_upload"`
+		Pool             string   `json:"pool"`
 	}
 
 	// alternateSwarmDimensions can be set in an init function to override the default swarming bot
 	// dimensions for the given task.
 	alternateSwarmDimensions func(parts map[string]string) []string
+
+	// internalHardwareLabelFn can be set in an init function to provide an
+	// internal_hardware_label variable to the recipe.
+	internalHardwareLabelFn func(parts map[string]string) *int
 
 	// Defines the structure of job names.
 	jobNameSchema *JobNameSchema
@@ -82,13 +90,22 @@ var (
 	jobsFile              = flag.String("jobs", "", "JSON file containing jobs to run.")
 )
 
+// internalHardwareLabel returns the internal ID for the bot, if any.
+func internalHardwareLabel(parts map[string]string) *int {
+	if internalHardwareLabelFn != nil {
+		return internalHardwareLabelFn(parts)
+	}
+	return nil
+}
+
 // linuxGceDimensions are the Swarming dimensions for Linux GCE
 // instances.
 func linuxGceDimensions() []string {
 	return []string{
-		"cpu:x86-64-avx2",
+		// Specify CPU to avoid running builds on bots with a more unique CPU.
+		"cpu:x86-64-Haswell_GCE",
 		"gpu:none",
-		fmt.Sprintf("os:%s", DEFAULT_OS_DEBIAN),
+		fmt.Sprintf("os:%s", DEFAULT_OS_LINUX_GCE),
 		fmt.Sprintf("pool:%s", CONFIG.Pool),
 	}
 }
@@ -170,13 +187,14 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			"Chromecast": "Android",
 			"ChromeOS":   "ChromeOS",
 			"Debian9":    DEFAULT_OS_DEBIAN,
-			"Mac":        "Mac-10.12",
+			"Mac":        DEFAULT_OS_MAC,
 			"Ubuntu14":   DEFAULT_OS_UBUNTU,
 			"Ubuntu16":   "Ubuntu-16.10",
 			"Ubuntu17":   "Ubuntu-17.04",
-			"Win":        "Windows-2008ServerR2-SP1",
+			"Win":        DEFAULT_OS_WIN,
 			"Win10":      "Windows-10-15063",
 			"Win2k8":     "Windows-2008ServerR2-SP1",
+			"Win2016":    DEFAULT_OS_WIN,
 			"Win7":       "Windows-7-SP1",
 			"Win8":       "Windows-8.1-SP0",
 			"iOS":        "iOS-10.3.1",
@@ -212,10 +230,10 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 				"Nexus6p":         {"angler", "OPP1.170223.012"},
 				"Nexus7":          {"grouper", "LMY47V"},
 				"Nexus7v2":        {"flo", "M"},
-				"NexusPlayer":     {"fugu", "OPP2.170420.017"},
-				"Pixel":           {"sailfish", "NMF26Q"},
-				"PixelC":          {"dragon", "N2G47D"},
-				"PixelXL":         {"marlin", "OPP3.170518.006"},
+				"NexusPlayer":     {"fugu", "OPR6.170623.010"},
+				"Pixel":           {"sailfish", "OPR3.170623.008"},
+				"PixelC":          {"dragon", "OPR6.170623.010"},
+				"PixelXL":         {"marlin", "OPR3.170623.008"},
 			}[parts["model"]]
 			if !ok {
 				glog.Fatalf("Entry %q not found in Android mapping.", parts["model"])
@@ -235,23 +253,28 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 			d["device"] = device
 		} else if parts["cpu_or_gpu"] == "CPU" {
 			d["gpu"] = "none"
-			cpu, ok := map[string]string{
-				"AVX":  "x86-64",
-				"AVX2": "x86-64-avx2",
-				"SSE4": "x86-64",
+			modelMapping, ok := map[string]map[string]string{
+				"AVX": {
+					"MacMini7.1": "x86-64-E5-2697_v2",
+					"Golo":       "x86-64-E5-2670",
+				},
+				"AVX2": {
+					"GCE": "x86-64-Haswell_GCE",
+				},
+				"AVX512": {
+					"GCE": "x86-64-Skylake_GCE",
+				},
 			}[parts["cpu_or_gpu_value"]]
 			if !ok {
 				glog.Fatalf("Entry %q not found in CPU mapping.", parts["cpu_or_gpu_value"])
 			}
+			cpu, ok := modelMapping[parts["model"]]
+			if !ok {
+				glog.Fatalf("Entry %q not found in %q model mapping.", parts["model"], parts["cpu_or_gpu_value"])
+			}
 			d["cpu"] = cpu
-			if strings.Contains(parts["os"], "Win") && parts["cpu_or_gpu_value"] == "AVX2" {
-				// AVX2 is not correctly detected on Windows. Fall back on other
-				// dimensions to ensure that we correctly target machines which we know
-				// have AVX2 support.
-				d["cpu"] = "x86-64"
-				if parts["model"] != "GCE" {
-					glog.Fatalf("Please double-check that %q supports AVX2 and update this assertion.", parts["model"])
-				}
+			if parts["model"] == "GCE" && d["os"] == DEFAULT_OS_DEBIAN {
+				d["os"] = DEFAULT_OS_LINUX_GCE
 			}
 		} else {
 			if strings.Contains(parts["os"], "Win") {
@@ -264,7 +287,6 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 					"IntelHD530":    "8086:1912-21.20.16.4590",
 					"IntelHD4400":   "8086:0a16-20.19.15.4703",
 					"IntelHD4600":   "8086:0412-20.19.15.4703",
-					"IntelHD615":    "8086:591e-21.20.16.4590",
 					"IntelIris540":  "8086:1926-21.20.16.4590",
 					"IntelIris6100": "8086:162b-20.19.15.4703",
 					"RadeonR9M470X": "1002:6646-22.19.165.512",
@@ -330,6 +352,12 @@ func defaultSwarmDimensions(parts map[string]string) []string {
 		d["gpu"] = "none"
 		if d["os"] == DEFAULT_OS_DEBIAN {
 			return linuxGceDimensions()
+		} else if d["os"] == DEFAULT_OS_WIN {
+			// Windows CPU bots.
+			d["cpu"] = "x86-64-Haswell_GCE"
+		} else if d["os"] == DEFAULT_OS_MAC {
+			// Mac CPU bots.
+			d["cpu"] = "x86-64-E5-2697_v2"
 		}
 	}
 
@@ -466,6 +494,9 @@ func compile(b *specs.TasksCfgBuilder, name string, parts map[string]string) str
 		}
 		if strings.Contains(name, "Vulkan") {
 			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("linux_vulkan_sdk"))
+		}
+		if strings.Contains(name, "EMCC") {
+			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("emscripten_sdk"))
 		}
 	} else if strings.Contains(name, "Win") {
 		pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("win_toolchain"))
@@ -714,9 +745,14 @@ func test(b *specs.TasksCfgBuilder, name string, parts map[string]string, compil
 		// skia:6737
 		s.ExecutionTimeout = 6 * time.Hour
 	}
+	iid := internalHardwareLabel(parts)
+	if iid != nil {
+		s.ExtraArgs = append(s.ExtraArgs, fmt.Sprintf("internal_hardware_label=%d", *iid))
+	}
 	b.MustAddTask(name, s)
 
-	// Upload results if necessary.
+	// Upload results if necessary. TODO(kjlubick): If we do coverage analysis at the same
+	// time as normal tests (which would be nice), cfg.json needs to have Coverage removed.
 	if doUpload(name) {
 		uploadName := fmt.Sprintf("%s%s%s", PREFIX_UPLOAD, jobNameSchema.Sep, name)
 		b.MustAddTask(uploadName, &specs.TaskSpec{
@@ -738,7 +774,38 @@ func test(b *specs.TasksCfgBuilder, name string, parts map[string]string, compil
 			Priority: 0.8,
 		})
 		return uploadName
+	} else if strings.Contains(name, "Coverage") {
+		uploadName := fmt.Sprintf("%s%s%s", "Upload", jobNameSchema.Sep, name)
+		// We need clang_linux to get access to the llvm-profdata and llvm-cov binaries
+		// which are used to deal with the raw coverage data output by the Test step.
+		pkgs := []*specs.CipdPackage{}
+		pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("clang_linux"))
+		b.MustAddTask(uploadName, &specs.TaskSpec{
+			// A dependency on compileTaskName makes the TaskScheduler link the
+			// isolated output of the compile step to the input of the upload step,
+			// which gives us access to the instrumented binary. The binary is
+			// needed to figure out symbol names and line numbers.
+			Dependencies: []string{name, compileTaskName},
+			Dimensions:   linuxGceDimensions(),
+			CipdPackages: pkgs,
+			ExtraArgs: []string{
+				"--workdir", "../../..", "upload_coverage_results",
+				fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
+				fmt.Sprintf("buildername=%s", name),
+				fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
+				fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+				fmt.Sprintf("patch_repo=%s", specs.PLACEHOLDER_PATCH_REPO),
+				fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+				fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+				fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
+				fmt.Sprintf("gs_bucket=%s", CONFIG.GsBucketCoverage),
+			},
+			Isolate:  relpath("upload_coverage_results.isolate"),
+			Priority: 0.8,
+		})
+		return uploadName
 	}
+
 	return name
 }
 
@@ -803,6 +870,10 @@ func perf(b *specs.TasksCfgBuilder, name string, parts map[string]string, compil
 	} else if parts["arch"] == "x86" && parts["configuration"] == "Debug" {
 		// skia:6737
 		s.ExecutionTimeout = 6 * time.Hour
+	}
+	iid := internalHardwareLabel(parts)
+	if iid != nil {
+		s.ExtraArgs = append(s.ExtraArgs, fmt.Sprintf("internal_hardware_label=%d", *iid))
 	}
 	b.MustAddTask(name, s)
 
@@ -914,17 +985,19 @@ func process(b *specs.TasksCfgBuilder, name string) {
 		}
 	}
 
-	if (strings.Contains(name, "Ubuntu") || strings.Contains(name, "Debian")) && strings.Contains(name, "SAN") {
-		pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("clang_linux"))
-	}
-	if strings.Contains(name, "Ubuntu16") {
+	if strings.Contains(name, "Ubuntu") || strings.Contains(name, "Debian") {
+		if strings.Contains(name, "SAN") {
+			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("clang_linux"))
+		}
 		if strings.Contains(name, "Vulkan") {
 			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("linux_vulkan_sdk"))
 		}
-		if strings.Contains(name, "Release") {
-			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("linux_vulkan_intel_driver_release"))
-		} else {
-			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("linux_vulkan_intel_driver_debug"))
+		if strings.Contains(name, "Intel") && strings.Contains(name, "GPU") {
+			if strings.Contains(name, "Release") {
+				pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("linux_vulkan_intel_driver_release"))
+			} else {
+				pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("linux_vulkan_intel_driver_debug"))
+			}
 		}
 	}
 

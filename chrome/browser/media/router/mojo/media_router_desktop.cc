@@ -4,10 +4,12 @@
 
 #include "chrome/browser/media/router/mojo/media_router_desktop.h"
 
-#include "chrome/browser/media/router/event_page_request_manager.h"
-#include "chrome/browser/media/router/event_page_request_manager_factory.h"
+#include "chrome/browser/media/router/discovery/dial/dial_media_sink_service_proxy.h"
+#include "chrome/browser/media/router/discovery/mdns/cast_media_sink_service.h"
 #include "chrome/browser/media/router/media_router_factory.h"
+#include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/media/router/mojo/media_route_controller.h"
+#include "chrome/browser/media/router/mojo/media_router_mojo_metrics.h"
 #include "chrome/common/media_router/media_source_helper.h"
 #include "extensions/common/extension.h"
 #if defined(OS_WIN)
@@ -16,7 +18,15 @@
 
 namespace media_router {
 
-MediaRouterDesktop::~MediaRouterDesktop() = default;
+MediaRouterDesktop::~MediaRouterDesktop() {
+  if (dial_media_sink_service_proxy_) {
+    dial_media_sink_service_proxy_->Stop();
+    dial_media_sink_service_proxy_->ClearObserver(
+        cast_media_sink_service_.get());
+  }
+  if (cast_media_sink_service_)
+    cast_media_sink_service_->Stop();
+}
 
 // static
 void MediaRouterDesktop::BindToRequest(const extensions::Extension* extension,
@@ -31,283 +41,21 @@ void MediaRouterDesktop::BindToRequest(const extensions::Extension* extension,
 }
 
 void MediaRouterDesktop::OnUserGesture() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   MediaRouterMojoImpl::OnUserGesture();
   // Allow MRPM to intelligently update sinks and observers by passing in a
   // media source.
   UpdateMediaSinks(MediaSourceForDesktop().id());
+  if (cast_media_sink_service_)
+    cast_media_sink_service_->ForceDiscovery();
 
 #if defined(OS_WIN)
   EnsureMdnsDiscoveryEnabled();
 #endif
 }
 
-void MediaRouterDesktop::DoCreateRoute(
-    const MediaSource::Id& source_id,
-    const MediaSink::Id& sink_id,
-    const url::Origin& origin,
-    int tab_id,
-    std::vector<MediaRouteResponseCallback> callbacks,
-    base::TimeDelta timeout,
-    bool incognito) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoCreateRoute(source_id, sink_id, origin, tab_id,
-                                       std::move(callbacks), timeout,
-                                       incognito);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoCreateRoute,
-                     weak_factory_.GetWeakPtr(), source_id, sink_id, origin,
-                     tab_id, std::move(callbacks), timeout, incognito),
-      MediaRouteProviderWakeReason::CREATE_ROUTE);
-}
-
-void MediaRouterDesktop::DoJoinRoute(
-    const MediaSource::Id& source_id,
-    const std::string& presentation_id,
-    const url::Origin& origin,
-    int tab_id,
-    std::vector<MediaRouteResponseCallback> callbacks,
-    base::TimeDelta timeout,
-    bool incognito) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoJoinRoute(source_id, presentation_id, origin, tab_id,
-                                     std::move(callbacks), timeout, incognito);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoJoinRoute,
-                     weak_factory_.GetWeakPtr(), source_id, presentation_id,
-                     origin, tab_id, std::move(callbacks), timeout, incognito),
-      MediaRouteProviderWakeReason::JOIN_ROUTE);
-}
-
-void MediaRouterDesktop::DoConnectRouteByRouteId(
-    const MediaSource::Id& source_id,
-    const MediaRoute::Id& route_id,
-    const url::Origin& origin,
-    int tab_id,
-    std::vector<MediaRouteResponseCallback> callbacks,
-    base::TimeDelta timeout,
-    bool incognito) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoConnectRouteByRouteId(source_id, route_id, origin,
-                                                 tab_id, std::move(callbacks),
-                                                 timeout, incognito);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoConnectRouteByRouteId,
-                     weak_factory_.GetWeakPtr(), source_id, route_id, origin,
-                     tab_id, std::move(callbacks), timeout, incognito),
-      MediaRouteProviderWakeReason::CONNECT_ROUTE_BY_ROUTE_ID);
-}
-
-void MediaRouterDesktop::DoTerminateRoute(const MediaRoute::Id& route_id) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoTerminateRoute(route_id);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoTerminateRoute,
-                     weak_factory_.GetWeakPtr(), route_id),
-      MediaRouteProviderWakeReason::TERMINATE_ROUTE);
-}
-
-void MediaRouterDesktop::DoDetachRoute(const MediaRoute::Id& route_id) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoDetachRoute(route_id);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoDetachRoute,
-                     weak_factory_.GetWeakPtr(), route_id),
-      MediaRouteProviderWakeReason::DETACH_ROUTE);
-}
-
-void MediaRouterDesktop::DoSendRouteMessage(const MediaRoute::Id& route_id,
-                                            const std::string& message,
-                                            SendRouteMessageCallback callback) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoSendRouteMessage(route_id, message,
-                                            std::move(callback));
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoSendRouteMessage,
-                     weak_factory_.GetWeakPtr(), route_id, message,
-                     std::move(callback)),
-      MediaRouteProviderWakeReason::SEND_SESSION_MESSAGE);
-}
-
-void MediaRouterDesktop::DoSendRouteBinaryMessage(
-    const MediaRoute::Id& route_id,
-    std::unique_ptr<std::vector<uint8_t>> data,
-    SendRouteMessageCallback callback) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoSendRouteBinaryMessage(route_id, std::move(data),
-                                                  std::move(callback));
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoSendRouteBinaryMessage,
-                     weak_factory_.GetWeakPtr(), route_id,
-                     base::Passed(std::move(data)), std::move(callback)),
-      MediaRouteProviderWakeReason::SEND_SESSION_BINARY_MESSAGE);
-}
-
-void MediaRouterDesktop::DoStartListeningForRouteMessages(
-    const MediaRoute::Id& route_id) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoStartListeningForRouteMessages(route_id);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoStartListeningForRouteMessages,
-                     weak_factory_.GetWeakPtr(), route_id),
-      MediaRouteProviderWakeReason::START_LISTENING_FOR_ROUTE_MESSAGES);
-}
-
-void MediaRouterDesktop::DoStopListeningForRouteMessages(
-    const MediaRoute::Id& route_id) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoStopListeningForRouteMessages(route_id);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoStopListeningForRouteMessages,
-                     weak_factory_.GetWeakPtr(), route_id),
-      MediaRouteProviderWakeReason::STOP_LISTENING_FOR_ROUTE_MESSAGES);
-}
-
-void MediaRouterDesktop::DoStartObservingMediaSinks(
-    const MediaSource::Id& source_id) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoStartObservingMediaSinks(source_id);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoStartObservingMediaSinks,
-                     weak_factory_.GetWeakPtr(), source_id),
-      MediaRouteProviderWakeReason::START_OBSERVING_MEDIA_SINKS);
-}
-
-void MediaRouterDesktop::DoStopObservingMediaSinks(
-    const MediaSource::Id& source_id) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoStopObservingMediaSinks(source_id);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoStopObservingMediaSinks,
-                     weak_factory_.GetWeakPtr(), source_id),
-      MediaRouteProviderWakeReason::STOP_OBSERVING_MEDIA_SINKS);
-}
-
-void MediaRouterDesktop::DoStartObservingMediaRoutes(
-    const MediaSource::Id& source_id) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoStartObservingMediaRoutes(source_id);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoStartObservingMediaRoutes,
-                     weak_factory_.GetWeakPtr(), source_id),
-      MediaRouteProviderWakeReason::START_OBSERVING_MEDIA_ROUTES);
-}
-
-void MediaRouterDesktop::DoStopObservingMediaRoutes(
-    const MediaSource::Id& source_id) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoStopObservingMediaRoutes(source_id);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoStopObservingMediaRoutes,
-                     weak_factory_.GetWeakPtr(), source_id),
-      MediaRouteProviderWakeReason::STOP_OBSERVING_MEDIA_ROUTES);
-}
-
-void MediaRouterDesktop::DoSearchSinks(
-    const MediaSink::Id& sink_id,
-    const MediaSource::Id& source_id,
-    const std::string& search_input,
-    const std::string& domain,
-    MediaSinkSearchResponseCallback sink_callback) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoSearchSinks(sink_id, source_id, search_input, domain,
-                                       std::move(sink_callback));
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoSearchSinks,
-                     weak_factory_.GetWeakPtr(), sink_id, source_id,
-                     search_input, domain, std::move(sink_callback)),
-      MediaRouteProviderWakeReason::SEARCH_SINKS);
-}
-
-void MediaRouterDesktop::DoCreateMediaRouteController(
-    const MediaRoute::Id& route_id,
-    mojom::MediaControllerRequest mojo_media_controller_request,
-    mojom::MediaStatusObserverPtr mojo_observer) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoCreateMediaRouteController(
-        route_id, std::move(mojo_media_controller_request),
-        std::move(mojo_observer));
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoCreateMediaRouteController,
-                     weak_factory_.GetWeakPtr(), route_id,
-                     std::move(mojo_media_controller_request),
-                     std::move(mojo_observer)),
-      MediaRouteProviderWakeReason::CREATE_MEDIA_ROUTE_CONTROLLER);
-}
-
-void MediaRouterDesktop::DoProvideSinks(const std::string& provider_name,
-                                        std::vector<MediaSinkInternal> sinks) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoProvideSinks(provider_name, std::move(sinks));
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoProvideSinks,
-                     weak_factory_.GetWeakPtr(), provider_name,
-                     std::move(sinks)),
-      MediaRouteProviderWakeReason::PROVIDE_SINKS);
-}
-
-void MediaRouterDesktop::DoUpdateMediaSinks(const MediaSource::Id& source_id) {
-  if (request_manager_->mojo_connections_ready()) {
-    MediaRouterMojoImpl::DoUpdateMediaSinks(source_id);
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoUpdateMediaSinks,
-                     weak_factory_.GetWeakPtr(), source_id),
-      MediaRouteProviderWakeReason::UPDATE_MEDIA_SINKS);
-}
-
-#if defined(OS_WIN)
-void MediaRouterDesktop::DoEnsureMdnsDiscoveryEnabled() {
-  if (request_manager_->mojo_connections_ready()) {
-    DVLOG(1) << "DoEnsureMdnsDiscoveryEnabled";
-    if (!is_mdns_enabled_) {
-      media_route_provider_->EnableMdnsDiscovery();
-      is_mdns_enabled_ = true;
-    }
-    return;
-  }
-  request_manager_->RunOrDefer(
-      base::BindOnce(&MediaRouterDesktop::DoEnsureMdnsDiscoveryEnabled,
-                     weak_factory_.GetWeakPtr()),
-      MediaRouteProviderWakeReason::ENABLE_MDNS_DISCOVERY);
-}
-#endif
-
 void MediaRouterDesktop::OnConnectionError() {
-  request_manager_->OnMojoConnectionError();
-  binding_.Close();
+  extension_provider_.OnMojoConnectionError();
   MediaRouterMojoImpl::OnConnectionError();
 }
 
@@ -318,21 +66,18 @@ void MediaRouterDesktop::SyncStateToMediaRouteProvider() {
   // triggering a firewall prompt out of the context of MR from the user's
   // perspective. This particular call reminds the extension to enable mDNS
   // discovery when it wakes up, has been upgraded, etc.
-  if (should_enable_mdns_discovery_) {
-    DoEnsureMdnsDiscoveryEnabled();
-  }
+  if (should_enable_mdns_discovery_)
+    media_route_provider_->EnableMdnsDiscovery();
 #endif
   MediaRouterMojoImpl::SyncStateToMediaRouteProvider();
+  StartDiscovery();
 }
 
 MediaRouterDesktop::MediaRouterDesktop(content::BrowserContext* context,
                                        FirewallCheck check_firewall)
     : MediaRouterMojoImpl(context),
-      request_manager_(
-          EventPageRequestManagerFactory::GetApiForBrowserContext(context)),
-      binding_(this),
+      extension_provider_(context, mojo::MakeRequest(&media_route_provider_)),
       weak_factory_(this) {
-  DCHECK(request_manager_);
 #if defined(OS_WIN)
   if (check_firewall == FirewallCheck::RUN) {
     CanFirewallUseLocalPorts(
@@ -345,8 +90,16 @@ MediaRouterDesktop::MediaRouterDesktop(content::BrowserContext* context,
 void MediaRouterDesktop::RegisterMediaRouteProvider(
     mojom::MediaRouteProviderPtr media_route_provider_ptr,
     mojom::MediaRouter::RegisterMediaRouteProviderCallback callback) {
-  MediaRouterMojoImpl::RegisterMediaRouteProvider(
-      std::move(media_route_provider_ptr), std::move(callback));
+  auto config = mojom::MediaRouteProviderConfig::New();
+  // Enabling browser side discovery means disabling extension side discovery.
+  // We are migrating discovery from the external Media Route Provider to the
+  // Media Router (crbug.com/687383), so we need to disable it in the provider.
+  config->enable_dial_discovery = !media_router::DialLocalDiscoveryEnabled();
+  config->enable_cast_discovery = !media_router::CastDiscoveryEnabled();
+  std::move(callback).Run(instance_id(), std::move(config));
+
+  SyncStateToMediaRouteProvider();
+
 #if defined(OS_WIN)
   // The MRPM may have been upgraded or otherwise reload such that we could be
   // seeing an MRPM that doesn't know mDNS is enabled, even if we've told a
@@ -355,32 +108,62 @@ void MediaRouterDesktop::RegisterMediaRouteProvider(
   // ExecutePendingRequests().
   is_mdns_enabled_ = false;
 #endif
-  // Now that we have a Mojo pointer to the MRP, we request MRP-side route
-  // controllers to be created again. This must happen before |request_manager_|
-  // executes requests to the MRP and its route controllers.
-  for (const auto& pair : route_controllers_) {
-    const MediaRoute::Id& route_id = pair.first;
-    MediaRouteController* route_controller = pair.second;
-    MediaRouterMojoImpl::DoCreateMediaRouteController(
-        route_id, route_controller->CreateControllerRequest(),
-        route_controller->BindObserverPtr());
-  }
-  request_manager_->OnMojoConnectionsReady();
+  // Now that we have a Mojo pointer to the extension MRP, we reset the Mojo
+  // pointers to extension-side route controllers and request them to be bound
+  // to new implementations. This must happen before EventPageRequestManager
+  // executes commands to the MRP and its route controllers. Commands to the
+  // route controllers, once executed, will be queued in Mojo pipes until the
+  // Mojo requests are bound to implementations.
+  for (const auto& pair : route_controllers_)
+    InitMediaRouteController(pair.second);
+
+  extension_provider_.RegisterMediaRouteProvider(
+      std::move(media_route_provider_ptr));
 }
 
 void MediaRouterDesktop::BindToMojoRequest(
     mojo::InterfaceRequest<mojom::MediaRouter> request,
     const extensions::Extension& extension) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  binding_.Bind(std::move(request));
-  binding_.set_connection_error_handler(base::BindOnce(
-      &MediaRouterDesktop::OnConnectionError, base::Unretained(this)));
-
-  request_manager_->SetExtensionId(extension.id());
+  MediaRouterMojoImpl::BindToMojoRequest(std::move(request));
+  extension_provider_.SetExtensionId(extension.id());
   if (!provider_version_was_recorded_) {
     MediaRouterMojoMetrics::RecordMediaRouteProviderVersion(extension);
     provider_version_was_recorded_ = true;
+  }
+}
+
+void MediaRouterDesktop::StartDiscovery() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  DVLOG(1) << "StartDiscovery";
+
+  if (media_router::CastDiscoveryEnabled()) {
+    if (!cast_media_sink_service_) {
+      cast_media_sink_service_ = base::MakeRefCounted<CastMediaSinkService>(
+          base::BindRepeating(&MediaRouterMojoImpl::ProvideSinks,
+                              weak_factory_.GetWeakPtr(), "cast"),
+          context(),
+          content::BrowserThread::GetTaskRunnerForThread(
+              content::BrowserThread::IO));
+      cast_media_sink_service_->Start();
+    } else {
+      cast_media_sink_service_->ForceSinkDiscoveryCallback();
+    }
+  }
+
+  if (media_router::DialLocalDiscoveryEnabled()) {
+    if (!dial_media_sink_service_proxy_) {
+      dial_media_sink_service_proxy_ =
+          base::MakeRefCounted<DialMediaSinkServiceProxy>(
+              base::BindRepeating(&MediaRouterMojoImpl::ProvideSinks,
+                                  weak_factory_.GetWeakPtr(), "dial"),
+              context());
+      dial_media_sink_service_proxy_->SetObserver(
+          cast_media_sink_service_.get());
+      dial_media_sink_service_proxy_->Start();
+    } else {
+      dial_media_sink_service_proxy_->ForceSinkDiscoveryCallback();
+    }
   }
 }
 
@@ -389,7 +172,7 @@ void MediaRouterDesktop::EnsureMdnsDiscoveryEnabled() {
   if (is_mdns_enabled_)
     return;
 
-  DoEnsureMdnsDiscoveryEnabled();
+  media_route_provider_->EnableMdnsDiscovery();
   should_enable_mdns_discovery_ = true;
 }
 

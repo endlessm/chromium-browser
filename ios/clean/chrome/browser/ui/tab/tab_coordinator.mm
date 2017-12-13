@@ -6,7 +6,6 @@
 
 #include <memory>
 
-#include "base/mac/foundation_util.h"
 #include "base/memory/ptr_util.h"
 #include "base/scoped_observer.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
@@ -17,12 +16,12 @@
 #include "ios/chrome/browser/web_state_list/web_state_list.h"
 #include "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
 #import "ios/clean/chrome/browser/ui/commands/tab_commands.h"
-#import "ios/clean/chrome/browser/ui/commands/tab_strip_commands.h"
 #import "ios/clean/chrome/browser/ui/find_in_page/find_in_page_coordinator.h"
 #import "ios/clean/chrome/browser/ui/ntp/ntp_coordinator.h"
+#import "ios/clean/chrome/browser/ui/settings/settings_coordinator.h"
 #import "ios/clean/chrome/browser/ui/tab/tab_container_view_controller.h"
+#include "ios/clean/chrome/browser/ui/tab/tab_features.h"
 #import "ios/clean/chrome/browser/ui/tab/tab_navigation_controller.h"
-#import "ios/clean/chrome/browser/ui/tab_strip/tab_strip_coordinator.h"
 #import "ios/clean/chrome/browser/ui/toolbar/toolbar_coordinator.h"
 #import "ios/clean/chrome/browser/ui/transitions/zoom_transition_controller.h"
 #import "ios/clean/chrome/browser/ui/web_contents/web_coordinator.h"
@@ -42,6 +41,11 @@
 @property(nonatomic, weak) WebCoordinator* webCoordinator;
 @property(nonatomic, weak) ToolbarCoordinator* toolbarCoordinator;
 @property(nonatomic, strong) TabNavigationController* navigationController;
+
+// Creates and returns a new view controller for use as a tab container.
+// Subclasses may override this method with a custom layout view controller.
+- (TabContainerViewController*)newTabContainer;
+
 @end
 
 @implementation TabCoordinator {
@@ -70,7 +74,8 @@
 #pragma mark - BrowserCoordinator
 
 - (void)start {
-  self.viewController = [self newTabContainer];
+  if (self.started)
+    return;
   self.transitionController = [[ZoomTransitionController alloc] init];
   self.transitionController.presentationKey = self.presentationKey;
   self.viewController.transitioningDelegate = self.transitionController;
@@ -84,20 +89,12 @@
       _webStateListObserver.get());
   _scopedWebStateListObserver->Add(&self.browser->web_state_list());
 
-  [self.browser->broadcaster()
-      broadcastValue:@"tabStripVisible"
-            ofObject:self.viewController
-            selector:@selector(broadcastTabStripVisible:)];
-
-  CommandDispatcher* dispatcher = self.browser->dispatcher();
-  // Register Commands
-  [dispatcher startDispatchingToTarget:self forSelector:@selector(loadURL:)];
-  [dispatcher startDispatchingToTarget:self
-                           forSelector:@selector(showTabStrip)];
+  [self.dispatcher startDispatchingToTarget:self
+                                forSelector:@selector(loadURL:)];
 
   // NavigationController will handle all the dispatcher navigation calls.
   self.navigationController = [[TabNavigationController alloc]
-      initWithDispatcher:self.browser->dispatcher()
+      initWithDispatcher:self.callableDispatcher
                 webState:self.webState];
 
   WebCoordinator* webCoordinator = [[WebCoordinator alloc] init];
@@ -107,20 +104,16 @@
   self.webCoordinator = webCoordinator;
 
   ToolbarCoordinator* toolbarCoordinator = [[ToolbarCoordinator alloc] init];
+  self.toolbarCoordinator = toolbarCoordinator;
   toolbarCoordinator.webState = self.webState;
   [self addChildCoordinator:toolbarCoordinator];
   [toolbarCoordinator start];
-  self.toolbarCoordinator = toolbarCoordinator;
 
   // Create the FindInPage coordinator but do not start it.  It will be started
   // when a find in page operation is invoked.
   FindInPageCoordinator* findInPageCoordinator =
       [[FindInPageCoordinator alloc] init];
   [self addChildCoordinator:findInPageCoordinator];
-
-  TabStripCoordinator* tabStripCoordinator = [[TabStripCoordinator alloc] init];
-  [self addChildCoordinator:tabStripCoordinator];
-  [tabStripCoordinator start];
 
   // PLACEHOLDER: Fix the order of events here. The ntpCoordinator was already
   // created above when |webCoordinator.webState = self.webState;| triggers
@@ -130,19 +123,17 @@
     self.viewController.contentViewController =
         self.ntpCoordinator.viewController;
   }
-
   [super start];
 }
 
 - (void)stop {
   [super stop];
-  for (BrowserCoordinator* child in self.children) {
+  for (BrowserCoordinator* child in self.children)
     [self removeChildCoordinator:child];
-  }
-  [self.browser->broadcaster()
-      stopBroadcastingForSelector:@selector(broadcastTabStripVisible:)];
+  _scopedWebStateListObserver.reset();
+  _webStateListObserver.reset();
   _webStateObserver.reset();
-  [self.browser->dispatcher() stopDispatchingToTarget:self];
+  [self.dispatcher stopDispatchingToTarget:self];
   [self.navigationController stop];
 }
 
@@ -152,11 +143,12 @@
   } else if ([childCoordinator isKindOfClass:[WebCoordinator class]] ||
              [childCoordinator isKindOfClass:[NTPCoordinator class]]) {
     self.viewController.contentViewController = childCoordinator.viewController;
-  } else if ([childCoordinator isKindOfClass:[TabStripCoordinator class]]) {
-    self.viewController.tabStripViewController =
-        childCoordinator.viewController;
   } else if ([childCoordinator isKindOfClass:[FindInPageCoordinator class]]) {
     self.viewController.findBarViewController = childCoordinator.viewController;
+  } else if ([childCoordinator isKindOfClass:[SettingsCoordinator class]]) {
+    [self.viewController presentViewController:childCoordinator.viewController
+                                      animated:YES
+                                    completion:nil];
   }
 }
 
@@ -166,31 +158,28 @@
   } else if ([childCoordinator isKindOfClass:[WebCoordinator class]] ||
              [childCoordinator isKindOfClass:[NTPCoordinator class]]) {
     self.viewController.contentViewController = nil;
+  } else if ([childCoordinator isKindOfClass:[SettingsCoordinator class]]) {
+    [childCoordinator.viewController.presentingViewController
+        dismissViewControllerAnimated:YES
+                           completion:nil];
   }
 }
 
-- (BOOL)canAddOverlayCoordinator:(BrowserCoordinator*)overlayCoordinator {
-  // This coordinator will always accept overlay coordinators.
-  return YES;
+#pragma mark - Private accessors
+
+- (TabContainerViewController*)viewController {
+  if (!_viewController) {
+    _viewController = [self newTabContainer];
+    _viewController.usesBottomToolbar =
+        base::FeatureList::IsEnabled(kTabFeaturesBottomToolbar);
+  }
+  return _viewController;
 }
 
-#pragma mark - Experiment support
+#pragma mark - Methods for subclasses to override
 
-- (BOOL)usesBottomToolbar {
-  NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-  NSString* bottomToolbarPreference =
-      [defaults stringForKey:@"EnableBottomToolbar"];
-  return [bottomToolbarPreference isEqualToString:@"Enabled"];
-}
-
-// Creates and returns a new view controller for use as a tab container;
-// experimental configurations determine which subclass of
-// TabContainerViewController to return.
 - (TabContainerViewController*)newTabContainer {
-  if ([self usesBottomToolbar]) {
-    return [[BottomToolbarTabViewController alloc] init];
-  }
-  return [[TopToolbarTabViewController alloc] init];
+  return [[TabContainerViewController alloc] init];
 }
 
 #pragma mark - CRWWebStateObserver
@@ -257,12 +246,6 @@
 
 - (void)loadURL:(web::NavigationManager::WebLoadParams)params {
   self.webState->GetNavigationManager()->LoadURLWithParams(params);
-}
-
-#pragma mark - TabStripCommands
-
-- (void)showTabStrip {
-  self.viewController.tabStripVisible = YES;
 }
 
 @end

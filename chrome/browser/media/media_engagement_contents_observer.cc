@@ -71,6 +71,9 @@ MediaEngagementContentsObserver::MediaEngagementContentsObserver(
 MediaEngagementContentsObserver::~MediaEngagementContentsObserver() = default;
 
 void MediaEngagementContentsObserver::WebContentsDestroyed() {
+  // Commit a visit if we have not had a playback.
+  MaybeCommitPendingData();
+
   playback_timer_->Stop();
   RecordUkmMetrics();
   ClearPlayerStates();
@@ -105,6 +108,27 @@ void MediaEngagementContentsObserver::RecordUkmMetrics() {
       .Record(ukm_recorder);
 }
 
+void MediaEngagementContentsObserver::MaybeCommitPendingData() {
+  if (!pending_data_to_commit_.has_value())
+    return;
+
+  // If the current origin is not a valid URL then we should just silently reset
+  // any pending data.
+  if (!committed_origin_.GetURL().is_valid()) {
+    pending_data_to_commit_.reset();
+    return;
+  }
+
+  MediaEngagementScore score =
+      service_->CreateEngagementScore(committed_origin_.GetURL());
+  score.IncrementVisits();
+  if (pending_data_to_commit_.value_or(false))
+    score.IncrementMediaPlaybacks();
+  score.Commit();
+
+  pending_data_to_commit_.reset();
+}
+
 void MediaEngagementContentsObserver::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   if (!navigation_handle->IsInMainFrame() ||
@@ -120,21 +144,21 @@ void MediaEngagementContentsObserver::DidFinishNavigation(
   if (committed_origin_.IsSameOriginWith(new_origin))
     return;
 
+  // Commit a visit if we have not had a playback before the new origin is
+  // updated.
+  MaybeCommitPendingData();
+
   RecordUkmMetrics();
 
   committed_origin_ = new_origin;
   significant_playback_recorded_ = false;
-  service_->RecordVisit(committed_origin_.GetURL());
-}
 
-void MediaEngagementContentsObserver::WasShown() {
-  is_visible_ = true;
-  UpdateTimer();
-}
-
-void MediaEngagementContentsObserver::WasHidden() {
-  is_visible_ = false;
-  UpdateTimer();
+  // As any pending data would have been committed above, we should have no
+  // pending data and we should create a PendingData object. A visit will be
+  // automatically recorded if the PendingData object is present when
+  // MaybeCommitPendingData is called.
+  DCHECK(!pending_data_to_commit_.has_value());
+  pending_data_to_commit_ = false;
 }
 
 MediaEngagementContentsObserver::PlayerState::PlayerState() = default;
@@ -159,6 +183,7 @@ void MediaEngagementContentsObserver::MediaStartedPlaying(
   PlayerState& state = GetPlayerState(media_player_id);
   state.playing = true;
   state.has_audio = media_player_info.has_audio;
+  state.has_video = media_player_info.has_video;
 
   MaybeInsertRemoveSignificantPlayer(media_player_id);
   UpdateTimer();
@@ -173,7 +198,8 @@ void MediaEngagementContentsObserver::
 
   PlayerState& state = GetPlayerState(id);
   if (!state.playing.value_or(false) || state.muted.value_or(true) ||
-      !state.has_audio.value_or(false) || state.score_recorded)
+      !state.has_audio.value_or(false) || !state.has_video.value_or(false) ||
+      state.score_recorded)
     return;
 
   int percentage = round(service_->GetEngagementScore(url) * 100);
@@ -229,7 +255,8 @@ MediaEngagementContentsObserver::GetInsignificantPlayerReasons(
                           InsignificantPlaybackReason::kMediaPaused);
   }
 
-  if (!state.significant_size.value_or(false)) {
+  if (!state.significant_size.value_or(false) &&
+      state.has_video.value_or(false)) {
     reasons.push_back(MediaEngagementContentsObserver::
                           InsignificantPlaybackReason::kFrameSizeTooSmall);
   }
@@ -245,7 +272,9 @@ MediaEngagementContentsObserver::GetInsignificantPlayerReasons(
 bool MediaEngagementContentsObserver::IsPlayerStateComplete(
     const PlayerState& state) {
   return state.muted.has_value() && state.playing.has_value() &&
-         state.significant_size.has_value() && state.has_audio.has_value();
+         state.has_audio.has_value() && state.has_video.has_value() &&
+         (!state.has_video.value_or(false) ||
+          state.significant_size.has_value());
 }
 
 void MediaEngagementContentsObserver::OnSignificantMediaPlaybackTime() {
@@ -261,7 +290,12 @@ void MediaEngagementContentsObserver::OnSignificantMediaPlaybackTime() {
 #endif
 
   significant_playback_recorded_ = true;
-  service_->RecordPlayback(committed_origin_.GetURL());
+
+  // A playback always comes after a visit so the visit should always be pending
+  // to commit.
+  DCHECK(pending_data_to_commit_.has_value());
+  pending_data_to_commit_ = true;
+  MaybeCommitPendingData();
 }
 
 void MediaEngagementContentsObserver::RecordInsignificantReasons(
@@ -349,7 +383,7 @@ void MediaEngagementContentsObserver::MaybeInsertRemoveSignificantPlayer(
 }
 
 bool MediaEngagementContentsObserver::AreConditionsMet() const {
-  if (significant_players_.empty() || !is_visible_)
+  if (significant_players_.empty())
     return false;
 
   return !web_contents()->IsAudioMuted();

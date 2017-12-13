@@ -9,8 +9,6 @@
 #include "components/strings/grit/components_strings.h"
 #include "ios/chrome/browser/bookmarks/bookmark_new_generation_features.h"
 #import "ios/chrome/browser/ui/browser_view_controller.h"
-#import "ios/chrome/browser/ui/commands/generic_chrome_command.h"
-#include "ios/chrome/browser/ui/commands/ios_command_ids.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_controller.h"
 #include "ios/chrome/browser/ui/tools_menu/tools_menu_constants.h"
 #include "ios/chrome/browser/ui/ui_util.h"
@@ -177,12 +175,10 @@ const CGFloat kScrollDisplacement = 50.0;
 
 // Tests that keyboard commands are not registered when the Bookmarks UI is
 // shown on iPhone and registered on iPad.
-// TODO(crbug.com/695749): Check if we need to rewrite this test for the new
-// Bookmarks UI.
 - (void)testKeyboardCommandsNotRegistered_BookmarksPresented {
+  // TODO(crbug.com/782551): Rewrite this test for the new Bookmarks UI.
   base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(
-      bookmark_new_generation::features::kBookmarkNewGeneration);
+  scoped_feature_list.InitAndDisableFeature(kBookmarkNewGeneration);
 
   // Open Bookmarks
   [self selectToolsMenuItem:grey_accessibilityID(kToolsMenuBookmarksId)];

@@ -675,12 +675,16 @@ public class PaymentRequestImpl
                 && mIsCurrentPaymentRequestShowing) {
             assert !mPaymentMethodsSection.isEmpty();
 
-            mDidRecordShowEvent = true;
-            mShouldRecordAbortReason = true;
-            mJourneyLogger.setEventOccurred(Event.SKIPPED_SHOW);
+            if (mPaymentMethodsSection.getSize() > 1) {
+                mUI.show();
+            } else {
+                mDidRecordShowEvent = true;
+                mShouldRecordAbortReason = true;
+                mJourneyLogger.setEventOccurred(Event.SKIPPED_SHOW);
 
-            onPayClicked(null /* selectedShippingAddress */, null /* selectedShippingOption */,
-                    mPaymentMethodsSection.getItem(0));
+                onPayClicked(null /* selectedShippingAddress */, null /* selectedShippingOption */,
+                        mPaymentMethodsSection.getItem(0));
+            }
         }
     }
 
@@ -746,8 +750,10 @@ public class PaymentRequestImpl
         if (disconnectIfNoPaymentMethodsSupported()) return;
 
         for (Map.Entry<PaymentApp, Map<String, PaymentMethodData>> q : queryApps.entrySet()) {
-            q.getKey().getInstruments(
-                    q.getValue(), mTopLevelOrigin, mPaymentRequestOrigin, mCertificateChain, this);
+            q.getKey().getInstruments(q.getValue(), mTopLevelOrigin, mPaymentRequestOrigin,
+                    mCertificateChain,
+                    mModifiers == null ? new HashMap() : Collections.unmodifiableMap(mModifiers),
+                    this);
         }
     }
 

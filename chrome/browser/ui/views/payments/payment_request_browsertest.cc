@@ -52,6 +52,20 @@ class PaymentRequestNoShippingTest : public PaymentRequestBrowserTestBase {
   DISALLOW_COPY_AND_ASSIGN(PaymentRequestNoShippingTest);
 };
 
+IN_PROC_BROWSER_TEST_F(PaymentRequestNoShippingTest, InactiveBrowserWindow) {
+  SetBrowserWindowInactive();
+
+  ResetEventObserver(DialogEvent::DIALOG_CLOSED);
+
+  EXPECT_TRUE(content::ExecuteScript(
+      GetActiveWebContents(),
+      "(function() { document.getElementById('buy').click(); })();"));
+
+  WaitForObservedEvent();
+
+  ExpectBodyContains({"AbortError"});
+}
+
 IN_PROC_BROWSER_TEST_F(PaymentRequestNoShippingTest, OpenAndNavigateTo404) {
   InvokePaymentRequestUI();
 
@@ -353,7 +367,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestPaymentMethodIdentifierTest,
 IN_PROC_BROWSER_TEST_F(PaymentRequestPaymentMethodIdentifierTest, Url_Valid) {
   InvokePaymentRequestWithJs(
       "buyHelper([{"
-      "  supportedMethods: ['https://bobpay.xyz', 'http://bobpay.xyz']"
+      "  supportedMethods: ['https://bobpay.xyz']"
       "}, {"
       "  supportedMethods: ['basic-card']"
       "}]);");
@@ -373,7 +387,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestPaymentMethodIdentifierTest,
                        MultiplePaymentMethodIdentifiers) {
   InvokePaymentRequestWithJs(
       "buyHelper([{"
-      "  supportedMethods: ['https://bobpay.xyz', 'http://bobpay.xyz']"
+      "  supportedMethods: ['https://bobpay.xyz', 'https://bobpay.xyz']"
       "}, {"
       "  supportedMethods: ['mastercard', 'visa', 'https://alicepay.com']"
       "}, {"

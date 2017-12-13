@@ -175,6 +175,23 @@ AutomationPredicate.leafWithText = function(node) {
 };
 
 /**
+ * @param {!AutomationNode} node
+ * @return {boolean}
+ */
+AutomationPredicate.leafWithWordStop = function(node) {
+  function hasWordStop(node) {
+    if (node.role == Role.INLINE_TEXT_BOX)
+      return node.wordStarts && node.wordStarts.length;
+
+    // Non-text objects  are treated as having a single word stop.
+    return true;
+  }
+  // Do not include static text leaves, which occur for an en end-of-line.
+  return AutomationPredicate.leaf(node) && !node.state[State.INVISIBLE] &&
+      node.role != Role.STATIC_TEXT && hasWordStop(node);
+};
+
+/**
  * Matches against leaves or static text nodes. Useful when restricting
  * traversal to non-inline textboxes while still allowing them if navigation
  * already entered into an inline textbox.
@@ -332,10 +349,6 @@ AutomationPredicate.shouldIgnoreNode = function(node) {
 
   // Ignore structural containres.
   if (AutomationPredicate.structuralContainer(node))
-    return true;
-
-  // Ignore list markers since we already announce listitem role.
-  if (node.role == Role.LIST_MARKER)
     return true;
 
   // Don't ignore nodes with names or name-like attribute.

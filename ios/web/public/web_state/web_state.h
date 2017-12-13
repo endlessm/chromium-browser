@@ -187,6 +187,10 @@ class WebState : public base::SupportsUserData {
   // (nothing loaded) and 1.0 (fully loaded).
   virtual double GetLoadingProgress() const = 0;
 
+  // Whether the WebState is visible. Returns true after WasShown() call and
+  // false after WasHidden() call.
+  virtual bool IsVisible() const = 0;
+
   // Returns true if the web process backing this WebState is believed to
   // currently be crashed.
   virtual bool IsCrashed() const = 0;
@@ -284,9 +288,10 @@ class WebState : public base::SupportsUserData {
                                       std::move(request.PassMessagePipe()));
   }
 
-  // Returns whether this WebState was created with an opener.  See
-  // CreateParams::created_with_opener for more details.
+  // Whether this WebState was created with an opener.
+  // See CreateParams::created_with_opener for more details.
   virtual bool HasOpener() const = 0;
+  virtual void SetHasOpener(bool has_opener) = 0;
 
   // Callback used to handle snapshots. The parameter is the snapshot image.
   typedef base::Callback<void(const gfx::Image&)> SnapshotCallback;

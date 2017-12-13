@@ -16,7 +16,6 @@
 #include "base/files/file_path.h"
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/string_search.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -24,6 +23,7 @@
 #include "ui/app_list/app_list_item_list.h"
 #include "ui/app_list/app_list_model.h"
 #include "ui/app_list/app_list_view_delegate.h"
+#include "ui/app_list/presenter/app_list.h"
 #include "ui/app_list/search_box_model.h"
 #include "ui/app_list/search_result.h"
 #include "ui/app_list/speech_ui_model.h"
@@ -260,7 +260,7 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
       if (base::i18n::StringSearchIgnoringCaseAndAccents(query, title, NULL,
                                                          NULL)) {
         model_->results()->Add(
-            base::MakeUnique<ExampleSearchResult>(type, query));
+            std::make_unique<ExampleSearchResult>(type, query));
       }
     }
   }
@@ -271,7 +271,7 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
 
   void Dismiss() override {
     DCHECK(ShellPort::HasInstance());
-    Shell::Get()->DismissAppList();
+    Shell::Get()->app_list()->Dismiss();
   }
 
   void ViewClosing() override {

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -139,7 +140,7 @@ class RemoteAccessTest(cros_test_lib.MockTempDirTestCase):
 
 class RemoteShTest(RemoteAccessTest):
   """Tests of basic RemoteSh functions"""
-  TEST_CMD = 'ls'
+  TEST_CMD = ['ls']
   RETURN_CODE = 0
   OUTPUT = 'witty'
   ERROR = 'error'

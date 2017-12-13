@@ -6,12 +6,16 @@
 #define CHROME_BROWSER_UI_VIEWS_IME_DRIVER_REMOTE_TEXT_INPUT_CLIENT_H_
 
 #include "services/ui/public/interfaces/ime/ime.mojom.h"
+#include "ui/base/ime/chromeos/ime_candidate_window_handler_interface.h"
+#include "ui/base/ime/input_method_delegate.h"
 #include "ui/base/ime/text_input_client.h"
 
 // This implementation of ui::TextInputClient sends all updates via mojo IPC to
 // a remote client. This is intended to be passed to the overrides of
 // ui::InputMethod::SetFocusedTextInputClient().
-class RemoteTextInputClient : public ui::TextInputClient {
+class RemoteTextInputClient : public ui::TextInputClient,
+                              public ui::internal::InputMethodDelegate,
+                              chromeos::IMECandidateWindowHandlerInterface {
  public:
   RemoteTextInputClient(ui::mojom::TextInputClientPtr remote_client,
                         ui::TextInputType text_input_type,
@@ -55,12 +59,28 @@ class RemoteTextInputClient : public ui::TextInputClient {
   bool IsTextEditCommandEnabled(ui::TextEditCommand command) const override;
   void SetTextEditCommandForNextKeyEvent(ui::TextEditCommand command) override;
 
+  // ui::internal::InputMethodDelegate:
+  ui::EventDispatchDetails DispatchKeyEventPostIME(
+      ui::KeyEvent* event) override;
+
+  // chromeos::IMECandidateWindowHandlerInterface:
+  void UpdateLookupTable(const ui::CandidateWindow& candidate_window,
+                         bool visible) override;
+  void UpdatePreeditText(const base::string16& text,
+                         uint32_t cursor_pos,
+                         bool visible) override;
+  void SetCursorBounds(const gfx::Rect& cursor_bounds,
+                       const gfx::Rect& composition_head) override;
+  void OnCandidateWindowVisibilityChanged(bool visible) override;
+
   ui::mojom::TextInputClientPtr remote_client_;
   ui::TextInputType text_input_type_;
   ui::TextInputMode text_input_mode_;
   base::i18n::TextDirection text_direction_;
   int text_input_flags_;
   gfx::Rect caret_bounds_;
+  std::deque<std::unique_ptr<base::OnceCallback<void(bool)>>>
+      pending_callbacks_;
 
   DISALLOW_COPY_AND_ASSIGN(RemoteTextInputClient);
 };

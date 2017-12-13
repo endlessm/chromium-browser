@@ -7,11 +7,11 @@
 
 #include <map>
 #include <memory>
-#include <queue>
 #include <set>
 #include <string>
 
 #include "base/callback.h"
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/notifications/notification_common.h"
@@ -34,7 +34,8 @@ class NativeNotificationDisplayService : public NotificationDisplayService {
   // NotificationDisplayService implementation.
   void Display(NotificationCommon::Type notification_type,
                const std::string& notification_id,
-               const Notification& notification) override;
+               const Notification& notification,
+               std::unique_ptr<NotificationCommon::Metadata> metadata) override;
   void Close(NotificationCommon::Type notification_type,
              const std::string& notification_id) override;
   void GetDisplayed(const DisplayedNotificationsCallback& callback) override;
@@ -56,7 +57,7 @@ class NativeNotificationDisplayService : public NotificationDisplayService {
 
   // Tasks that need to be run once we have the initialization status
   // for |notification_bridge_|.
-  std::queue<base::OnceClosure> actions_;
+  base::queue<base::OnceClosure> actions_;
 
   base::WeakPtrFactory<NativeNotificationDisplayService> weak_factory_;
 

@@ -21,6 +21,7 @@
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/field_types.h"
+#include "components/autofill/core/browser/form_types.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
 #include "url/gurl.h"
 
@@ -207,6 +208,8 @@ class FormStructure {
 
   const GURL& target_url() const { return target_url_; }
 
+  const GURL& main_frame_url() const { return main_frame_url_; }
+
   bool has_author_specified_types() const {
     return has_author_specified_types_;
   }
@@ -242,6 +245,9 @@ class FormStructure {
 
   // Returns a FormData containing the data this form structure knows about.
   FormData ToFormData() const;
+
+  // Returns the possible form types.
+  std::set<FormType> GetFormTypes() const;
 
   bool operator==(const FormData& form) const;
   bool operator!=(const FormData& form) const;
@@ -298,6 +304,9 @@ class FormStructure {
 
   // The target URL.
   GURL target_url_;
+
+  // The source URL of the main frame of this form.
+  GURL main_frame_url_;
 
   // The number of fields able to be auto-filled.
   size_t autofill_count_;

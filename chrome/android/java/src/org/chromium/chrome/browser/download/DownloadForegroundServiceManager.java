@@ -7,18 +7,22 @@ package org.chromium.chrome.browser.download;
 import static org.chromium.chrome.browser.download.DownloadSnackbarController.INVALID_NOTIFICATION_ID;
 
 import android.app.Notification;
+import android.app.NotificationManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.os.Build;
 import android.os.IBinder;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.VisibleForTesting;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 
 import javax.annotation.Nullable;
@@ -47,6 +51,8 @@ public class DownloadForegroundServiceManager {
 
     @VisibleForTesting
     final Map<Integer, DownloadUpdate> mDownloadUpdateQueue = new HashMap<>();
+    // Used to track existing notifications for UMA stats.
+    private final List<Integer> mExistingNotifications = new ArrayList<>();
 
     private int mPinnedNotificationId = INVALID_NOTIFICATION_ID;
 
@@ -62,6 +68,15 @@ public class DownloadForegroundServiceManager {
         mDownloadUpdateQueue.put(notificationId,
                 new DownloadUpdate(notificationId, notification, downloadStatus, context));
         processDownloadUpdateQueue(false /* not isProcessingPending */);
+
+        // Record instance where notification is being launched for the first time.
+        if (!mExistingNotifications.contains(notificationId)) {
+            mExistingNotifications.add(notificationId);
+            if (Build.VERSION.SDK_INT < 24) {
+                DownloadNotificationUmaHelper.recordNotificationFlickerCountHistogram(
+                        DownloadNotificationUmaHelper.LaunchType.LAUNCH);
+            }
+        }
     }
 
     /**
@@ -173,6 +188,8 @@ public class DownloadForegroundServiceManager {
                 return;
             }
             mBoundService = ((DownloadForegroundService.LocalBinder) service).getService();
+            DownloadForegroundServiceObservers.addObserver(
+                    DownloadNotificationServiceObserver.class);
             processDownloadUpdateQueue(true /* isProcessingPending */);
         }
 
@@ -188,8 +205,33 @@ public class DownloadForegroundServiceManager {
     void startOrUpdateForegroundService(int notificationId, Notification notification) {
         if (mBoundService != null && notificationId != INVALID_NOTIFICATION_ID
                 && notification != null) {
-            mPinnedNotificationId = notificationId;
             mBoundService.startOrUpdateForegroundService(notificationId, notification);
+
+            // In the case that there was another notification pinned to the foreground, re-launch
+            // that notification because it gets cancelled in the switching process.
+            // This does not happen for API >= 24.
+            if (mPinnedNotificationId != notificationId && Build.VERSION.SDK_INT < 24) {
+                relaunchPinnedNotification();
+            }
+
+            mPinnedNotificationId = notificationId;
+        }
+    }
+
+    private void relaunchPinnedNotification() {
+        if (mPinnedNotificationId != INVALID_NOTIFICATION_ID
+                && mDownloadUpdateQueue.containsKey(mPinnedNotificationId)
+                && mDownloadUpdateQueue.get(mPinnedNotificationId).mDownloadStatus
+                        != DownloadStatus.CANCEL) {
+            NotificationManager notificationManager =
+                    (NotificationManager) ContextUtils.getApplicationContext().getSystemService(
+                            Context.NOTIFICATION_SERVICE);
+            notificationManager.notify(mPinnedNotificationId,
+                    mDownloadUpdateQueue.get(mPinnedNotificationId).mNotification);
+
+            // Record the need to relaunch the notification.
+            DownloadNotificationUmaHelper.recordNotificationFlickerCountHistogram(
+                    DownloadNotificationUmaHelper.LaunchType.RELAUNCH);
         }
     }
 
@@ -198,16 +240,26 @@ public class DownloadForegroundServiceManager {
     @VisibleForTesting
     void stopAndUnbindService(boolean isCancelled) {
         mIsServiceBound = false;
+
         if (mBoundService != null) {
             stopAndUnbindServiceInternal(isCancelled);
             mBoundService = null;
         }
+
+        // If the download isn't cancelled,  need to relaunch the notification so it is no longer
+        // pinned to the foreground service.
+        if (!isCancelled && Build.VERSION.SDK_INT < 24) {
+            relaunchPinnedNotification();
+        }
+        mPinnedNotificationId = INVALID_NOTIFICATION_ID;
     }
 
     @VisibleForTesting
     void stopAndUnbindServiceInternal(boolean isCancelled) {
         mBoundService.stopDownloadForegroundService(isCancelled);
         ContextUtils.getApplicationContext().unbindService(mConnection);
+        DownloadForegroundServiceObservers.removeObserver(
+                DownloadNotificationServiceObserver.class);
     }
 
     /** Helper code for testing. */

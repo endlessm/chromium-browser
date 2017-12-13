@@ -32,16 +32,6 @@
 		</dict>
 		<dict>
 			<key>Type</key>
-			<string>PSToggleSwitchSpecifier</string>
-			<key>Title</key>
-			<string>Disable SafariVC Sign In</string>
-			<key>Key</key>
-			<string>SafariVCSignInDisabled</string>
-			<key>DefaultValue</key>
-			<false/>
-		</dict>
-		<dict>
-			<key>Type</key>
 			<string>PSMultiValueSpecifier</string>
 			<key>Title</key>
 			<string>Gaia Environment</string>
@@ -177,6 +167,22 @@
 			<string>Enable New FeedbackKit</string>
 			<key>Key</key>
 			<string>NewFeedbackKitEnabled</string>
+			<key>DefaultValue</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
+			<string>Application Group</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Clear Application Group sandbox</string>
+			<key>Key</key>
+			<string>ClearApplicationGroup</string>
 			<key>DefaultValue</key>
 			<false/>
 		</dict>

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -177,7 +178,7 @@ class SDKFetcher(object):
       Version number in format '3929.0.0'.
     """
     version = osutils.ReadFile(os.path.join(
-        chrome_src_dir, constants.PATH_TO_CHROME_LKGM))
+        chrome_src_dir, constants.PATH_TO_CHROME_LKGM)).rstrip()
     logging.debug('Loading LKGM version from "%s": %s',
                   constants.PATH_TO_CHROME_LKGM, version)
     return version
@@ -392,7 +393,13 @@ class SDKFetcher(object):
           # generating worker processes; therefore the functionality needs to
           # be moved into the DiskCache class itself -
           # i.e.,DiskCache.ParallelSetDefault().
-          self._UpdateTarball(url, ref)
+          try:
+            self._UpdateTarball(url, ref)
+          except gs.GSNoSuchKey:
+            if key == constants.VM_IMAGE_TAR:
+              logging.warning('No VM available.')
+            else:
+              raise
 
       ctx_version = version
       if self.sdk_path is not None:

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "base/i18n/case_conversion.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
@@ -22,6 +23,7 @@
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/strings/grit/components_strings.h"
+#include "components/url_formatter/url_formatter.h"
 #include "net/base/escape.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -81,8 +83,7 @@ KeywordProvider::KeywordProvider(AutocompleteProviderClient* client,
     : AutocompleteProvider(AutocompleteProvider::TYPE_KEYWORD),
       listener_(listener),
       model_(client->GetTemplateURLService()),
-      extensions_delegate_(client->GetKeywordExtensionsDelegate(this)) {
-}
+      extensions_delegate_(client->GetKeywordExtensionsDelegate(this)) {}
 
 // static
 base::string16 KeywordProvider::SplitKeywordFromInput(
@@ -132,7 +133,7 @@ const TemplateURL* KeywordProvider::GetSubstitutingTemplateURLForInput(
     return NULL;
 
   base::string16 keyword, remaining_input;
-  if (!ExtractKeywordFromInput(*input, &keyword, &remaining_input))
+  if (!ExtractKeywordFromInput(*input, model, &keyword, &remaining_input))
     return NULL;
 
   DCHECK(model);
@@ -171,14 +172,14 @@ const TemplateURL* KeywordProvider::GetSubstitutingTemplateURLForInput(
 
 base::string16 KeywordProvider::GetKeywordForText(
     const base::string16& text) const {
-  const base::string16 keyword(TemplateURLService::CleanUserInputKeyword(text));
-
-  if (keyword.empty())
-    return keyword;
-
   TemplateURLService* url_service = GetTemplateURLService();
   if (!url_service)
     return base::string16();
+
+  const base::string16 keyword(CleanUserInputKeyword(url_service, text));
+
+  if (keyword.empty())
+    return keyword;
 
   // Don't provide a keyword if it doesn't support replacement.
   const TemplateURL* const template_url =
@@ -204,7 +205,31 @@ AutocompleteMatch KeywordProvider::CreateVerbatimMatch(
   return CreateAutocompleteMatch(
       GetTemplateURLService()->GetTemplateURLForKeyword(keyword),
       keyword.length(), input, keyword.length(),
-      SplitReplacementStringFromInput(text, true), true, 0);
+      SplitReplacementStringFromInput(text, true), true, 0, false);
+}
+
+void KeywordProvider::DeleteMatch(const AutocompleteMatch& match) {
+  const base::string16& suggestion_text = match.contents;
+
+  const auto pred = [&match](const AutocompleteMatch& i) {
+    return i.keyword == match.keyword &&
+           i.fill_into_edit == match.fill_into_edit;
+  };
+  base::EraseIf(matches_, pred);
+
+  base::string16 keyword, remaining_input;
+  if (!KeywordProvider::ExtractKeywordFromInput(
+          keyword_input_, GetTemplateURLService(), &keyword, &remaining_input))
+    return;
+  const TemplateURL* const template_url =
+      GetTemplateURLService()->GetTemplateURLForKeyword(keyword);
+
+  if ((template_url->type() == TemplateURL::OMNIBOX_API_EXTENSION) &&
+      extensions_delegate_ &&
+      extensions_delegate_->IsEnabledExtension(
+          template_url->GetExtensionId())) {
+    extensions_delegate_->DeleteSuggestion(template_url, suggestion_text);
+  }
 }
 
 void KeywordProvider::Start(const AutocompleteInput& input,
@@ -242,8 +267,10 @@ void KeywordProvider::Start(const AutocompleteInput& input,
   // typed, if the user uses them enough and isn't obviously typing something
   // else.  In this case we'd consider all input here to be query input.
   base::string16 keyword, remaining_input;
-  if (!ExtractKeywordFromInput(input, &keyword, &remaining_input))
+  if (!ExtractKeywordFromInput(input, model_, &keyword, &remaining_input))
     return;
+
+  keyword_input_ = input;
 
   // Get the best matches for this keyword.
   //
@@ -314,7 +341,7 @@ void KeywordProvider::Start(const AutocompleteInput& input,
     // input), allow the match to be the default match.
     matches_.push_back(CreateAutocompleteMatch(
         template_url, meaningful_keyword_length, input, keyword.length(),
-        remaining_input, true, -1));
+        remaining_input, true, -1, false));
 
     if (is_extension_keyword && extensions_delegate_) {
       if (extensions_delegate_->Start(input, minimal_changes, template_url,
@@ -337,7 +364,7 @@ void KeywordProvider::Start(const AutocompleteInput& input,
       if (duplicate == matches_.end()) {
         matches_.push_back(CreateAutocompleteMatch(
             i->first, i->second, input, keyword.length(), remaining_input,
-            false, -1));
+            false, -1, false));
       }
     }
   }
@@ -356,13 +383,16 @@ void KeywordProvider::Stop(bool clear_cached_results,
 KeywordProvider::~KeywordProvider() {}
 
 // static
-bool KeywordProvider::ExtractKeywordFromInput(const AutocompleteInput& input,
-                                              base::string16* keyword,
-                                              base::string16* remaining_input) {
+bool KeywordProvider::ExtractKeywordFromInput(
+    const AutocompleteInput& input,
+    const TemplateURLService* template_url_service,
+    base::string16* keyword,
+    base::string16* remaining_input) {
   if ((input.type() == metrics::OmniboxInputType::INVALID))
     return false;
 
-  *keyword = TemplateURLService::CleanUserInputKeyword(
+  *keyword = CleanUserInputKeyword(
+      template_url_service,
       SplitKeywordFromInput(input.text(), true, remaining_input));
   return !keyword->empty();
 }
@@ -396,7 +426,8 @@ AutocompleteMatch KeywordProvider::CreateAutocompleteMatch(
     size_t prefix_length,
     const base::string16& remaining_input,
     bool allowed_to_be_default_match,
-    int relevance) {
+    int relevance,
+    bool deletable) {
   DCHECK(template_url);
   const bool supports_replacement =
       template_url->url_ref().SupportsReplacement(
@@ -419,9 +450,11 @@ AutocompleteMatch KeywordProvider::CreateAutocompleteMatch(
                            supports_replacement, input.prefer_keyword(),
                            input.allow_exact_keyword_match());
   }
-  AutocompleteMatch match(this, relevance, false,
-      supports_replacement ? AutocompleteMatchType::SEARCH_OTHER_ENGINE :
-                             AutocompleteMatchType::HISTORY_KEYWORD);
+
+  AutocompleteMatch match(this, relevance, deletable,
+                          supports_replacement
+                              ? AutocompleteMatchType::SEARCH_OTHER_ENGINE
+                              : AutocompleteMatchType::HISTORY_KEYWORD);
   match.allowed_to_be_default_match = allowed_to_be_default_match;
   match.fill_into_edit = keyword;
   if (!remaining_input.empty() || supports_replacement)
@@ -494,4 +527,50 @@ TemplateURLService* KeywordProvider::GetTemplateURLService() const {
   // the model is already loaded.
   model_->Load();
   return model_;
+}
+
+// static
+base::string16 KeywordProvider::CleanUserInputKeyword(
+    const TemplateURLService* template_url_service,
+    const base::string16& keyword) {
+  base::string16 result(base::i18n::ToLower(keyword));
+  base::TrimWhitespace(result, base::TRIM_ALL, &result);
+  // If this keyword is found with no additional cleaning of input, return it.
+  if ((template_url_service != nullptr) &&
+      (template_url_service->GetTemplateURLForKeyword(result) != nullptr))
+    return result;
+
+  // If keyword is not found, try removing a "http" or "https" scheme if any.
+  url::Component scheme_component;
+  if (url::ExtractScheme(base::UTF16ToUTF8(result).c_str(),
+                         static_cast<int>(result.length()),
+                         &scheme_component) &&
+      (!result.compare(0, scheme_component.end(),
+                       base::ASCIIToUTF16(url::kHttpScheme)) ||
+       !result.compare(0, scheme_component.end(),
+                       base::ASCIIToUTF16(url::kHttpsScheme)))) {
+    // Remove the scheme and the trailing ':'.
+    result.erase(0, scheme_component.end() + 1);
+    if ((template_url_service != nullptr) &&
+        (template_url_service->GetTemplateURLForKeyword(result) != nullptr))
+      return result;
+    // Many schemes usually have "//" after them, so strip it too.
+    const base::string16 after_scheme(base::ASCIIToUTF16("//"));
+    if (result.compare(0, after_scheme.length(), after_scheme) == 0)
+      result.erase(0, after_scheme.length());
+    if ((template_url_service != nullptr) &&
+        (template_url_service->GetTemplateURLForKeyword(result) != nullptr))
+      return result;
+  }
+
+  // Remove leading "www.", if any, and again try to find a matching keyword.
+  result = url_formatter::StripWWW(result);
+  if ((template_url_service != nullptr) &&
+      (template_url_service->GetTemplateURLForKeyword(result) != nullptr))
+    return result;
+
+  // Remove trailing "/", if any.
+  if (!result.empty() && result.back() == '/')
+    result.pop_back();
+  return result;
 }

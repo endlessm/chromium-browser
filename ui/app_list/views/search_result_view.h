@@ -67,6 +67,9 @@ class APP_LIST_EXPORT SearchResultView
 
   void set_is_last_result(bool is_last) { is_last_result_ = is_last; }
 
+  void SetSelected(bool selected);
+  bool selected() const { return selected_; }
+
  private:
   friend class app_list::test::SearchResultListViewTest;
 
@@ -85,6 +88,8 @@ class APP_LIST_EXPORT SearchResultView
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   void ChildPreferredSizeChanged(views::View* child) override;
   void PaintButtonContents(gfx::Canvas* canvas) override;
+  void OnFocus() override;
+  void OnBlur() override;
 
   // views::ButtonListener overrides:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
@@ -125,7 +130,13 @@ class APP_LIST_EXPORT SearchResultView
 
   std::unique_ptr<views::MenuRunner> context_menu_runner_;
 
+  // Whether this view is selected.
+  bool selected_ = false;
+
   const bool is_fullscreen_app_list_enabled_;
+
+  // Whether the app list focus is enabled.
+  const bool is_app_list_focus_enabled_;
 
   DISALLOW_COPY_AND_ASSIGN(SearchResultView);
 };

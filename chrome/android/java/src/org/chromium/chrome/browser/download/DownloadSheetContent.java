@@ -9,6 +9,7 @@ import android.view.View;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ApplicationStatus.ActivityStateListener;
+import org.chromium.base.CollectionUtil;
 import org.chromium.base.ThreadUtils;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.download.ui.DownloadHistoryItemWrapper;
@@ -19,6 +20,8 @@ import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet.BottomSheetContent;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetContentController;
 import org.chromium.chrome.browser.widget.selection.SelectableListToolbar;
+
+import java.util.List;
 
 /**
  * A {@link BottomSheetContent} holding a {@link DownloadManagerUi} for display in the BottomSheet.
@@ -78,6 +81,12 @@ public class DownloadSheetContent implements BottomSheetContent {
     }
 
     @Override
+    public List<View> getViewsForPadding() {
+        return CollectionUtil.newArrayList(
+                mDownloadManager.getRecyclerView(), mDownloadManager.getEmptyView());
+    }
+
+    @Override
     public View getToolbarView() {
         return mToolbarView;
     }
@@ -112,5 +121,10 @@ public class DownloadSheetContent implements BottomSheetContent {
     @Override
     public boolean applyDefaultTopPadding() {
         return false;
+    }
+
+    @Override
+    public void scrollToTop() {
+        mDownloadManager.scrollToTop();
     }
 }

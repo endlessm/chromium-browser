@@ -4,7 +4,6 @@
 
 #include <string>
 
-#include "ash/accessibility_types.h"
 #include "ash/magnifier/magnification_controller.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/shell.h"
@@ -74,10 +73,6 @@ void SetScreenMagnifierEnabledPref(bool enabled) {
                       enabled);
 }
 
-void SetScreenMagnifierTypePref(ash::MagnifierType type) {
-  prefs()->SetInteger(ash::prefs::kAccessibilityScreenMagnifierType, type);
-}
-
 void SetFullScreenMagnifierScalePref(double scale) {
   prefs()->SetDouble(ash::prefs::kAccessibilityScreenMagnifierScale, scale);
 }
@@ -145,7 +140,6 @@ class MockMagnificationObserver {
 
   DISALLOW_COPY_AND_ASSIGN(MockMagnificationObserver);
 };
-
 
 class MagnificationManagerTest : public InProcessBrowserTest {
  protected:
@@ -242,7 +236,6 @@ IN_PROC_BROWSER_TEST_F(MagnificationManagerTest, PRE_LoginOffToFull) {
 
   // Sets prefs to explicitly enable the magnifier.
   SetScreenMagnifierEnabledPref(true);
-  SetScreenMagnifierTypePref(ash::MAGNIFIER_FULL);
   SetFullScreenMagnifierScalePref(2.5);
 }
 
@@ -273,7 +266,6 @@ IN_PROC_BROWSER_TEST_F(MagnificationManagerTest, PRE_LoginFullToFull) {
 
   // Sets prefs to explicitly enable the magnifier.
   SetScreenMagnifierEnabledPref(true);
-  SetScreenMagnifierTypePref(ash::MAGNIFIER_FULL);
   SetFullScreenMagnifierScalePref(2.5);
 }
 
@@ -395,7 +387,6 @@ IN_PROC_BROWSER_TEST_F(MagnificationManagerTest, TypePref) {
   EXPECT_FALSE(IsMagnifierEnabled());
 
   // Sets the pref as true to enable magnifier.
-  SetScreenMagnifierTypePref(ash::MAGNIFIER_FULL);
   SetScreenMagnifierEnabledPref(true);
   // Confirms that magnifier is enabled.
   EXPECT_TRUE(IsMagnifierEnabled());

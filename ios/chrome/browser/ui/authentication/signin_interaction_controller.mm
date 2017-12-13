@@ -37,7 +37,6 @@ using signin_ui::CompletionCallback;
   signin_metrics::AccessPoint accessPoint_;
   signin_metrics::PromoAction promoAction_;
   UIViewController* presentingViewController_;
-  BOOL isPresentedOnSettings_;
   BOOL isCancelling_;
   BOOL isDismissing_;
   BOOL interactionManagerDismissalIgnored_;
@@ -49,7 +48,7 @@ using signin_ui::CompletionCallback;
   BOOL identityAdded_;
 }
 
-@property(nonatomic, weak, readonly) id<ApplicationSettingsCommands> dispatcher;
+@property(nonatomic, weak, readonly) id<ApplicationCommands> dispatcher;
 
 @end
 
@@ -64,18 +63,15 @@ using signin_ui::CompletionCallback;
 
 - (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState
             presentingViewController:(UIViewController*)presentingViewController
-               isPresentedOnSettings:(BOOL)isPresentedOnSettings
                          accessPoint:(signin_metrics::AccessPoint)accessPoint
                          promoAction:(signin_metrics::PromoAction)promoAction
-                          dispatcher:
-                              (id<ApplicationSettingsCommands>)dispatcher {
+                          dispatcher:(id<ApplicationCommands>)dispatcher {
   self = [super init];
   if (self) {
     DCHECK(browserState);
     DCHECK(presentingViewController);
     browserState_ = browserState;
     presentingViewController_ = presentingViewController;
-    isPresentedOnSettings_ = isPresentedOnSettings;
     accessPoint_ = accessPoint;
     promoAction_ = promoAction;
     dispatcher_ = dispatcher;
@@ -107,9 +103,8 @@ using signin_ui::CompletionCallback;
   isDismissing_ = NO;
 }
 
-- (void)signInWithViewController:(UIViewController*)viewController
-                        identity:(ChromeIdentity*)identity
-                      completion:(signin_ui::CompletionCallback)completion {
+- (void)signInWithIdentity:(ChromeIdentity*)identity
+                completion:(signin_ui::CompletionCallback)completion {
   signin_metrics::LogSigninAccessPointStarted(accessPoint_, promoAction_);
   completionCallback_ = [completion copy];
   ios::ChromeIdentityService* identityService =
@@ -135,16 +130,12 @@ using signin_ui::CompletionCallback;
     __weak SigninInteractionController* weakSelf = self;
     [identityInteractionManager_
         addAccountWithCompletion:^(ChromeIdentity* identity, NSError* error) {
-          [weakSelf handleIdentityAdded:identity
-                                  error:error
-                           shouldSignIn:YES
-                         viewController:viewController];
+          [weakSelf handleIdentityAdded:identity error:error shouldSignIn:YES];
         }];
   }
 }
 
-- (void)reAuthenticateWithCompletion:(CompletionCallback)completion
-                      viewController:(UIViewController*)viewController {
+- (void)reAuthenticateWithCompletion:(CompletionCallback)completion {
   signin_metrics::LogSigninAccessPointStarted(accessPoint_, promoAction_);
   completionCallback_ = [completion copy];
   AccountInfo accountInfo =
@@ -178,13 +169,11 @@ using signin_ui::CompletionCallback;
                     completion:^(ChromeIdentity* identity, NSError* error) {
                       [weakSelf handleIdentityAdded:identity
                                               error:error
-                                       shouldSignIn:YES
-                                     viewController:viewController];
+                                       shouldSignIn:YES];
                     }];
 }
 
-- (void)addAccountWithCompletion:(CompletionCallback)completion
-                  viewController:(UIViewController*)viewController {
+- (void)addAccountWithCompletion:(CompletionCallback)completion {
   completionCallback_ = [completion copy];
   identityInteractionManager_ =
       ios::GetChromeBrowserProvider()
@@ -193,10 +182,7 @@ using signin_ui::CompletionCallback;
   __weak SigninInteractionController* weakSelf = self;
   [identityInteractionManager_
       addAccountWithCompletion:^(ChromeIdentity* identity, NSError* error) {
-        [weakSelf handleIdentityAdded:identity
-                                error:error
-                         shouldSignIn:NO
-                       viewController:viewController];
+        [weakSelf handleIdentityAdded:identity error:error shouldSignIn:NO];
       }];
 }
 
@@ -204,8 +190,7 @@ using signin_ui::CompletionCallback;
 
 - (void)handleIdentityAdded:(ChromeIdentity*)identity
                       error:(NSError*)error
-               shouldSignIn:(BOOL)shouldSignIn
-             viewController:(UIViewController*)viewController {
+               shouldSignIn:(BOOL)shouldSignIn {
   if (!identityInteractionManager_)
     return;
 
@@ -222,9 +207,10 @@ using signin_ui::CompletionCallback;
     };
 
     // TODO(crbug.com/754642): Stop using TopPresentedViewControllerFrom().
-    alertCoordinator_ = ErrorCoordinator(
-        error, dismissAction,
-        top_view_controller::TopPresentedViewControllerFrom(viewController));
+    alertCoordinator_ =
+        ErrorCoordinator(error, dismissAction,
+                         top_view_controller::TopPresentedViewControllerFrom(
+                             presentingViewController_));
     [alertCoordinator_ start];
     return;
   }
@@ -281,7 +267,6 @@ using signin_ui::CompletionCallback;
                                identityAdded:(BOOL)identityAdded {
   signinViewController_ = [[ChromeSigninViewController alloc]
        initWithBrowserState:browserState_
-      isPresentedOnSettings:isPresentedOnSettings_
                 accessPoint:accessPoint_
                 promoAction:promoAction_
              signInIdentity:signInIdentity

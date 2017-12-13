@@ -13,15 +13,15 @@
 #include "cc/base/switches.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/layers/texture_layer.h"
-#include "cc/output/software_output_device.h"
 #include "cc/test/pixel_comparator.h"
 #include "cc/test/pixel_test_output_surface.h"
 #include "cc/test/pixel_test_utils.h"
 #include "cc/test/test_in_process_context_provider.h"
 #include "cc/trees/layer_tree_impl.h"
-#include "components/viz/common/quads/copy_output_request.h"
-#include "components/viz/common/quads/copy_output_result.h"
+#include "components/viz/common/frame_sinks/copy_output_request.h"
+#include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "components/viz/common/quads/texture_mailbox.h"
+#include "components/viz/service/display/software_output_device.h"
 #include "components/viz/test/paths.h"
 #include "components/viz/test/test_layer_tree_frame_sink.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
@@ -59,14 +59,14 @@ LayerTreePixelTest::CreateLayerTreeFrameSink(
       std::make_unique<viz::TestLayerTreeFrameSink>(
           compositor_context_provider, std::move(worker_context_provider),
           shared_bitmap_manager(), gpu_memory_buffer_manager(),
-          viz::RendererSettings(), ImplThreadTaskRunner(),
-          synchronous_composite, disable_display_vsync, refresh_rate);
+          renderer_settings, ImplThreadTaskRunner(), synchronous_composite,
+          disable_display_vsync, refresh_rate);
   delegating_output_surface->SetEnlargePassTextureAmount(
       enlarge_texture_amount_);
   return delegating_output_surface;
 }
 
-std::unique_ptr<OutputSurface>
+std::unique_ptr<viz::OutputSurface>
 LayerTreePixelTest::CreateDisplayOutputSurfaceOnThread(
     scoped_refptr<viz::ContextProvider> compositor_context_provider) {
   std::unique_ptr<PixelTestOutputSurface> display_output_surface;
@@ -75,7 +75,7 @@ LayerTreePixelTest::CreateDisplayOutputSurfaceOnThread(
     // mimic texture transport from the renderer process to the Display
     // compositor.
     auto display_context_provider =
-        make_scoped_refptr(new TestInProcessContextProvider(nullptr));
+        base::MakeRefCounted<TestInProcessContextProvider>(nullptr);
     display_context_provider->BindToCurrentThread();
 
     bool flipped_output_surface = false;
@@ -83,21 +83,25 @@ LayerTreePixelTest::CreateDisplayOutputSurfaceOnThread(
         std::move(display_context_provider), flipped_output_surface);
   } else {
     display_output_surface = std::make_unique<PixelTestOutputSurface>(
-        std::make_unique<SoftwareOutputDevice>());
+        std::make_unique<viz::SoftwareOutputDevice>());
   }
   return std::move(display_output_surface);
 }
 
 std::unique_ptr<viz::CopyOutputRequest>
 LayerTreePixelTest::CreateCopyOutputRequest() {
-  return viz::CopyOutputRequest::CreateBitmapRequest(base::BindOnce(
-      &LayerTreePixelTest::ReadbackResult, base::Unretained(this)));
+  return std::make_unique<viz::CopyOutputRequest>(
+      viz::CopyOutputRequest::ResultFormat::RGBA_BITMAP,
+      base::BindOnce(&LayerTreePixelTest::ReadbackResult,
+                     base::Unretained(this)));
 }
 
 void LayerTreePixelTest::ReadbackResult(
     std::unique_ptr<viz::CopyOutputResult> result) {
-  ASSERT_TRUE(result->HasBitmap());
-  result_bitmap_ = result->TakeBitmap();
+  ASSERT_FALSE(result->IsEmpty());
+  EXPECT_EQ(result->format(), viz::CopyOutputResult::Format::RGBA_BITMAP);
+  result_bitmap_ = std::make_unique<SkBitmap>(result->AsSkBitmap());
+  EXPECT_TRUE(result_bitmap_->readyToDraw());
   EndTest();
 }
 
@@ -224,12 +228,14 @@ void LayerTreePixelTest::SetupTree() {
   LayerTreeTest::SetupTree();
 }
 
-std::unique_ptr<SkBitmap> LayerTreePixelTest::CopyTextureMailboxToBitmap(
+SkBitmap LayerTreePixelTest::CopyTextureMailboxToBitmap(
     const gfx::Size& size,
     const viz::TextureMailbox& texture_mailbox) {
   DCHECK(texture_mailbox.IsTexture());
+
+  SkBitmap bitmap;
   if (!texture_mailbox.IsTexture())
-    return nullptr;
+    return bitmap;
 
   std::unique_ptr<gpu::GLInProcessContext> context =
       CreateTestInProcessContext();
@@ -268,10 +274,11 @@ std::unique_ptr<SkBitmap> LayerTreePixelTest::CopyTextureMailboxToBitmap(
   gl->DeleteFramebuffers(1, &fbo);
   gl->DeleteTextures(1, &texture_id);
 
-  std::unique_ptr<SkBitmap> bitmap(new SkBitmap);
-  bitmap->allocN32Pixels(size.width(), size.height());
+  bitmap.allocN32Pixels(size.width(), size.height());
+  // TODO(miu): Provide color space in this allocN32Pixels() call.
+  // http://crbug.com/758057
 
-  uint8_t* out_pixels = static_cast<uint8_t*>(bitmap->getPixels());
+  uint8_t* out_pixels = static_cast<uint8_t*>(bitmap.getPixels());
 
   size_t row_bytes = size.width() * 4;
   size_t total_bytes = size.height() * row_bytes;

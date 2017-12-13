@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -330,6 +331,8 @@ class RemoteAccess(object):
         ssh_cmd.append('sudo')
 
       if isinstance(cmd, basestring):
+        if 'shell' not in kwargs:
+          raise Exception('Cannot run a string command without a shell')
         ssh_cmd += [cmd]
       else:
         ssh_cmd += cmd
@@ -396,10 +399,9 @@ class RemoteAccess(object):
     """Reboot the remote device."""
     logging.info('Rebooting %s...', self.remote_host)
     old_boot_id = self._GetBootId()
-    reboot_cmd = 'reboot' if self.username == ROOT_ACCOUNT else 'sudo reboot'
     # Use ssh_error_ok=True in the remote shell invocations because the reboot
     # might kill sshd before the connection completes normally.
-    self.RemoteSh(reboot_cmd, ssh_error_ok=True)
+    self.RemoteSh(['reboot'], ssh_error_ok=True, remote_sudo=True)
     time.sleep(CHECK_INTERVAL)
     try:
       timeout_util.WaitForReturnTrue(lambda: self._CheckIfRebooted(old_boot_id),

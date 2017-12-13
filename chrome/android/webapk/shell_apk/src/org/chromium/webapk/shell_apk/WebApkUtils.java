@@ -11,16 +11,20 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
+import android.content.res.Resources;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
+import android.widget.TextView;
 
 import org.chromium.webapk.lib.common.WebApkConstants;
 import org.chromium.webapk.lib.common.WebApkMetaDataKeys;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -32,7 +36,8 @@ import java.util.Set;
  */
 public class WebApkUtils {
     public static final String SHARED_PREF_RUNTIME_HOST = "runtime_host";
-    public static final int PADDING_DP = 20;
+
+    private static final String TAG = "cr_WebApkUtils";
 
     /**
      * The package names of the channels of Chrome that support WebAPKs. The most preferred one
@@ -130,32 +135,31 @@ public class WebApkUtils {
      * scheme and host name in this case, and append orginal intent url if |loggedIntentUrlParam| is
      * set.
      */
-    public static String rewriteIntentUrlIfNecessary(String startUrl, Bundle metadata) {
-        String returnUrl = startUrl;
+    public static String rewriteIntentUrlIfNecessary(String intentStartUrl, Bundle metadata) {
         String scopeUrl = metadata.getString(WebApkMetaDataKeys.SCOPE);
-        if (!TextUtils.isEmpty(scopeUrl)) {
-            Uri parsedStartUrl = Uri.parse(startUrl);
-            Uri parsedScope = Uri.parse(scopeUrl);
+        String startUrl = metadata.getString(WebApkMetaDataKeys.START_URL);
+        String loggedIntentUrlParam =
+                metadata.getString(WebApkMetaDataKeys.LOGGED_INTENT_URL_PARAM);
 
-            if (!parsedStartUrl.getScheme().equals(parsedScope.getScheme())
-                    || !parsedStartUrl.getEncodedAuthority().equals(
-                               parsedScope.getEncodedAuthority())) {
-                Uri.Builder returnUrlBuilder =
-                        parsedStartUrl.buildUpon()
-                                .scheme(parsedScope.getScheme())
-                                .encodedAuthority(parsedScope.getEncodedAuthority());
-
-                String loggedIntentUrlParam =
-                        metadata.getString(WebApkMetaDataKeys.LOGGED_INTENT_URL_PARAM);
-                if (loggedIntentUrlParam != null && !TextUtils.isEmpty(loggedIntentUrlParam)) {
-                    String orginalUrl = Uri.encode(startUrl).toString();
-                    returnUrlBuilder.appendQueryParameter(loggedIntentUrlParam, orginalUrl);
-                }
-
-                returnUrl = returnUrlBuilder.build().toString();
-            }
+        if (TextUtils.isEmpty(scopeUrl) || TextUtils.isEmpty(loggedIntentUrlParam)) {
+            return intentStartUrl;
         }
-        return returnUrl;
+
+        if (!isUrlInScope(intentStartUrl, scopeUrl)) {
+            Uri.Builder returnUrlBuilder = Uri.parse(startUrl).buildUpon();
+            returnUrlBuilder.appendQueryParameter(loggedIntentUrlParam, intentStartUrl);
+            return returnUrlBuilder.toString();
+        }
+
+        return intentStartUrl;
+    }
+
+    private static boolean isUrlInScope(String url, String scopeUrl) {
+        Uri parsedUrl = Uri.parse(url);
+        Uri parsedScopeUrl = Uri.parse(scopeUrl);
+        return parsedUrl.getScheme().equals(parsedScopeUrl.getScheme())
+                && parsedUrl.getHost().equals(parsedScopeUrl.getHost())
+                && parsedUrl.getPath().startsWith(parsedScopeUrl.getPath());
     }
 
     /**
@@ -280,26 +284,67 @@ public class WebApkUtils {
         editor.apply();
     }
 
-    /** Converts a dp value to a px value. */
-    public static int dpToPx(Context context, int value) {
-        return Math.round(TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_DIP, value, context.getResources().getDisplayMetrics()));
-    }
-
     /**
      * Android uses padding_left under API level 17 and uses padding_start after that.
      * If we set the padding in resource file, android will create duplicated resource xml
      * with the padding to be different.
      */
-    @SuppressWarnings("deprecation")
-    public static void setPadding(
-            View view, Context context, int start, int top, int end, int bottom) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            view.setPaddingRelative(dpToPx(context, start), dpToPx(context, top),
-                    dpToPx(context, end), dpToPx(context, bottom));
+    public static void setPaddingInPixel(View view, int start, int top, int end, int bottom) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            view.setPaddingRelative(start, top, end, bottom);
         } else {
-            view.setPadding(dpToPx(context, start), dpToPx(context, top), dpToPx(context, end),
-                    dpToPx(context, bottom));
+            view.setPadding(start, top, end, bottom);
+        }
+    }
+
+    /**
+     * Imitates Chrome's @style/AlertDialogContent. We set the style via Java instead of via
+     * specifying the style in the XML to avoid having layout files in both layout-v17/ and in
+     * layout/.
+     */
+    public static void applyAlertDialogContentStyle(
+            Context context, View contentView, TextView titleView) {
+        Resources res = context.getResources();
+        titleView.setTextColor(getColor(res, R.color.black_alpha_87));
+        titleView.setTextSize(
+                TypedValue.COMPLEX_UNIT_PX, res.getDimension(R.dimen.headline_size_medium));
+        int dialogContentPadding = res.getDimensionPixelSize(R.dimen.dialog_content_padding);
+        int titleBottomPadding = res.getDimensionPixelSize(R.dimen.title_bottom_padding);
+        setPaddingInPixel(titleView, dialogContentPadding, dialogContentPadding,
+                dialogContentPadding, titleBottomPadding);
+
+        int dialogContentTopPadding = res.getDimensionPixelSize(R.dimen.dialog_content_top_padding);
+        setPaddingInPixel(contentView, dialogContentPadding, dialogContentTopPadding,
+                dialogContentPadding, dialogContentPadding);
+    }
+
+    /**
+     * @see android.content.res.Resources#getColor(int id).
+     */
+    @SuppressWarnings("deprecation")
+    public static int getColor(Resources res, int id) throws Resources.NotFoundException {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return res.getColor(id, null);
+        } else {
+            return res.getColor(id);
+        }
+    }
+
+    /** Delete the given File and (if it's a directory) everything within it. */
+    public static void deletePath(File file) {
+        if (file == null) return;
+
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deletePath(child);
+                }
+            }
+        }
+
+        if (!file.delete()) {
+            Log.e(TAG, "Failed to delete : " + file.getAbsolutePath());
         }
     }
 }

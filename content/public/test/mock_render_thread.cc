@@ -8,6 +8,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "content/common/frame_messages.h"
 #include "content/common/render_message_filter.mojom.h"
@@ -145,7 +146,7 @@ void MockRenderThread::AddFilter(IPC::MessageFilter* filter) {
   filter->OnFilterAdded(&sink());
   // Add this filter to a vector so the MockRenderThread::RemoveFilter function
   // can check if this filter is added.
-  filters_.push_back(make_scoped_refptr(filter));
+  filters_.push_back(base::WrapRefCounted(filter));
 }
 
 void MockRenderThread::RemoveFilter(IPC::MessageFilter* filter) {
@@ -225,16 +226,6 @@ int32_t MockRenderThread::GetClientId() {
   return 1;
 }
 
-scoped_refptr<base::SingleThreadTaskRunner>
-MockRenderThread::GetTimerTaskRunner() {
-  return base::ThreadTaskRunnerHandle::Get();
-}
-
-scoped_refptr<base::SingleThreadTaskRunner>
-MockRenderThread::GetLoadingTaskRunner() {
-  return base::ThreadTaskRunnerHandle::Get();
-}
-
 void MockRenderThread::SetRendererProcessType(
     blink::scheduler::RendererProcessType type) {}
 
@@ -277,8 +268,10 @@ void MockRenderThread::OnCreateWidget(int opener_id,
 // The Frame expects to be returned a valid route_id different from its own.
 void MockRenderThread::OnCreateChildFrame(
     const FrameHostMsg_CreateChildFrame_Params& params,
-    int* new_render_frame_id) {
+    int* new_render_frame_id,
+    base::UnguessableToken* devtools_frame_token) {
   *new_render_frame_id = new_frame_routing_id_++;
+  *devtools_frame_token = base::UnguessableToken::Create();
 }
 
 bool MockRenderThread::OnControlMessageReceived(const IPC::Message& msg) {

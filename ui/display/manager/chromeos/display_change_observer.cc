@@ -145,16 +145,19 @@ MultipleDisplayState DisplayChangeObserver::GetStateForDisplayIds(
   UpdateInternalDisplay(display_states);
   if (display_states.size() == 1)
     return MULTIPLE_DISPLAY_STATE_SINGLE;
+  if (display_states.size() > 2) {
+    // TODO(weidongg/607844) Remove this once multi-display mirroring is
+    // implemented.
+    return MULTIPLE_DISPLAY_STATE_MULTI_EXTENDED;
+  }
   DisplayIdList list =
       GenerateDisplayIdList(display_states.begin(), display_states.end(),
                             [](const DisplaySnapshot* display_state) {
                               return display_state->display_id();
                             });
-
-  const DisplayLayout& layout =
-      display_manager_->layout_store()->GetRegisteredDisplayLayout(list);
-  return layout.mirrored ? MULTIPLE_DISPLAY_STATE_DUAL_MIRROR
-                         : MULTIPLE_DISPLAY_STATE_DUAL_EXTENDED;
+  bool mirrored = display_manager_->layout_store()->GetMirrorMode(list);
+  return mirrored ? MULTIPLE_DISPLAY_STATE_DUAL_MIRROR
+                  : MULTIPLE_DISPLAY_STATE_MULTI_EXTENDED;
 }
 
 bool DisplayChangeObserver::GetResolutionForDisplayId(int64_t display_id,
@@ -222,7 +225,15 @@ void DisplayChangeObserver::UpdateInternalDisplay(
         DCHECK_EQ(Display::InternalDisplayId(), state->display_id());
       Display::SetInternalDisplayId(state->display_id());
 
-      if (state->native_mode()) {
+      if (state->native_mode() &&
+          (!display_manager_->IsDisplayIdValid(state->display_id()) ||
+           !state->current_mode())) {
+        // Register the internal display info if
+        // 1) If it's not already registered. It'll be treated as
+        // new display in |UpdateDisplaysWith()|.
+        // 2) If it's not connected, because the display info will not
+        // be updated in |UpdateDisplaysWith()|, which will skips the
+        // disconnected displays.
         ManagedDisplayInfo new_info =
             CreateManagedDisplayInfo(state, state->native_mode());
         display_manager_->UpdateInternalDisplay(new_info);

@@ -4,6 +4,8 @@
 
 #include "ash/shelf/shelf_layout_manager.h"
 
+#include <memory>
+
 #include "ash/accelerators/accelerator_controller.h"
 #include "ash/accelerators/accelerator_table.h"
 #include "ash/app_list/test_app_list_presenter_impl.h"
@@ -29,7 +31,6 @@
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
@@ -829,8 +830,16 @@ TEST_F(ShelfLayoutManagerTest, AutoHide) {
             GetShelfWidget()->GetWindowBoundsInScreen().y());
   EXPECT_EQ(display_bottom, display.work_area().bottom());
 
-  // Move mouse back up.
+  // Tap the system tray when shelf is shown should open the system tray menu.
+  generator.GestureTapAt(GetPrimarySystemTray()
+                             ->GetWidget()
+                             ->GetWindowBoundsInScreen()
+                             .CenterPoint());
+  EXPECT_TRUE(GetPrimarySystemTray()->HasSystemBubble());
+
+  // Move mouse back up and click to dismiss the opened system tray menu.
   generator.MoveMouseTo(0, 0);
+  generator.ClickLeftButton();
   SetState(layout_manager, SHELF_AUTO_HIDE);
   EXPECT_EQ(SHELF_AUTO_HIDE_HIDDEN, shelf->GetAutoHideState());
   layout_manager->LayoutShelf();
@@ -1656,6 +1665,7 @@ TEST_F(ShelfLayoutManagerFullscreenAppListTest,
             test_app_list_presenter.app_list_state());
 
   // Swiping up more than the close threshold but less than peeking threshold
+  // should keep the app list at PEEKING state.
   delta.set_y(ShelfLayoutManager::kAppListDragSnapToPeekingThreshold - 10);
   end = start - delta;
   generator.GestureScrollSequence(start, end, kTimeDelta, kNumScrollSteps);
@@ -1668,7 +1678,7 @@ TEST_F(ShelfLayoutManagerFullscreenAppListTest,
 
   // Swiping up more than the peeking threshold should keep the app list at
   // FULLSCREEN_ALL_APPS state.
-  Shell::Get()->DismissAppList();
+  Shell::Get()->app_list()->Dismiss();
   delta.set_y(ShelfLayoutManager::kAppListDragSnapToPeekingThreshold + 10);
   end = start - delta;
   generator.GestureScrollSequence(start, end, kTimeDelta, kNumScrollSteps);
@@ -2177,46 +2187,8 @@ TEST_F(ShelfLayoutManagerKeyboardTest, ShelfNotMoveOnKeyboardOpen) {
   layout_manager->OnKeyboardBoundsChanging(keyboard_bounds());
   layout_manager->LayoutShelf();
 
-  // Shelf posiion should not be changed.
+  // Shelf position should not be changed.
   EXPECT_EQ(orig_bounds, GetShelfWidget()->GetWindowBoundsInScreen());
-}
-
-TEST_F(ShelfLayoutManagerKeyboardTest, ShelfChangeWorkAreaInNonStickyMode) {
-  // Append the flag to cause work area change in non-sticky mode.
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  command_line->AppendSwitch(::switches::kDisableNewVirtualKeyboardBehavior);
-
-  ShelfLayoutManager* layout_manager = GetShelfLayoutManager();
-  InitKeyboardBounds();
-  keyboard::KeyboardController* kb_controller =
-      keyboard::KeyboardController::GetInstance();
-  gfx::Rect orig_work_area(
-      display::Screen::GetScreen()->GetPrimaryDisplay().work_area());
-
-  // Open keyboard in non-sticky mode.
-  kb_controller->ShowKeyboard(false);
-  layout_manager->OnKeyboardBoundsChanging(keyboard_bounds());
-  layout_manager->LayoutShelf();
-
-  // Work area should be changed.
-  EXPECT_NE(orig_work_area,
-            display::Screen::GetScreen()->GetPrimaryDisplay().work_area());
-
-  kb_controller->HideKeyboard(
-      keyboard::KeyboardController::HIDE_REASON_AUTOMATIC);
-  layout_manager->OnKeyboardBoundsChanging(gfx::Rect());
-  layout_manager->LayoutShelf();
-  EXPECT_EQ(orig_work_area,
-            display::Screen::GetScreen()->GetPrimaryDisplay().work_area());
-
-  // Open keyboard in sticky mode.
-  kb_controller->ShowKeyboard(true);
-  layout_manager->OnKeyboardBoundsChanging(keyboard_bounds());
-  layout_manager->LayoutShelf();
-
-  // Work area should be changed.
-  EXPECT_NE(orig_work_area,
-            display::Screen::GetScreen()->GetPrimaryDisplay().work_area());
 }
 
 // When kAshUseNewVKWindowBehavior flag enabled, do not change accessibility
@@ -2245,6 +2217,16 @@ TEST_F(ShelfLayoutManagerKeyboardTest,
   layout_manager->LayoutShelf();
   EXPECT_EQ(orig_work_area,
             display::Screen::GetScreen()->GetPrimaryDisplay().work_area());
+}
+
+// Change accessibility keyboard work area in sticky mode.
+TEST_F(ShelfLayoutManagerKeyboardTest, ShelfShouldChangeWorkAreaInStickyMode) {
+  ShelfLayoutManager* layout_manager = GetShelfLayoutManager();
+  InitKeyboardBounds();
+  keyboard::KeyboardController* kb_controller =
+      keyboard::KeyboardController::GetInstance();
+  gfx::Rect orig_work_area(
+      display::Screen::GetScreen()->GetPrimaryDisplay().work_area());
 
   // Open keyboard in sticky mode.
   kb_controller->ShowKeyboard(true);

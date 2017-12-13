@@ -98,11 +98,12 @@ ZeroSuggestPrefetcher::ZeroSuggestPrefetcher(Profile* profile)
   // AutocompleteInput object.
   base::string16 fake_request_source(base::ASCIIToUTF16(
       "http://www.foobarbazblah.com"));
-  controller_->Start(AutocompleteInput(
-      fake_request_source, base::string16::npos, std::string(),
-      GURL(fake_request_source), base::string16(),
-      OmniboxEventProto::INVALID_SPEC, false, false, true, true, true,
-      ChromeAutocompleteSchemeClassifier(profile)));
+  AutocompleteInput input(fake_request_source,
+                          metrics::OmniboxEventProto::OTHER,
+                          ChromeAutocompleteSchemeClassifier(profile));
+  input.set_current_url(GURL(fake_request_source));
+  input.set_from_omnibox_focus(true);
+  controller_->Start(input);
   // Delete ourselves after 10s. This is enough time to cache results or
   // give up if the results haven't been received.
   expire_timer_.Start(FROM_HERE,
@@ -157,11 +158,13 @@ void AutocompleteControllerAndroid::Start(JNIEnv* env,
   OmniboxEventProto::PageClassification page_classification =
       ClassifyPage(current_url, focused_from_fakebox);
   size_t cursor_pos = j_cursor_pos == -1 ? base::string16::npos : j_cursor_pos;
-  input_ = AutocompleteInput(
-      text, cursor_pos, desired_tld, current_url, base::string16(),
-      page_classification, prevent_inline_autocomplete, prefer_keyword,
-      allow_exact_keyword_match, want_asynchronous_matches, false,
-      ChromeAutocompleteSchemeClassifier(profile_));
+  input_ = AutocompleteInput(text, cursor_pos, desired_tld, page_classification,
+                             ChromeAutocompleteSchemeClassifier(profile_));
+  input_.set_current_url(current_url);
+  input_.set_prevent_inline_autocomplete(prevent_inline_autocomplete);
+  input_.set_prefer_keyword(prefer_keyword);
+  input_.set_allow_exact_keyword_match(allow_exact_keyword_match);
+  input_.set_want_asynchronous_matches(want_asynchronous_matches);
   autocomplete_controller_->Start(input_);
 }
 
@@ -182,6 +185,11 @@ void AutocompleteControllerAndroid::OnOmniboxFocused(
   if (!autocomplete_controller_)
     return;
 
+  // Prevents double triggering of zero suggest when OnOmniboxFocused is issued
+  // in quick succession (due to odd timing in the Android focus callbacks).
+  if (!autocomplete_controller_->done())
+    return;
+
   base::string16 url = ConvertJavaStringToUTF16(env, j_current_url);
   const GURL current_url = GURL(url);
   base::string16 omnibox_text = ConvertJavaStringToUTF16(env, j_omnibox_text);
@@ -193,10 +201,11 @@ void AutocompleteControllerAndroid::OnOmniboxFocused(
       !current_url.SchemeIs(chrome::kChromeUINativeScheme))
     omnibox_text = url;
 
-  input_ = AutocompleteInput(
-      omnibox_text, base::string16::npos, std::string(), current_url,
-      base::string16(), ClassifyPage(current_url, focused_from_fakebox), false,
-      false, true, true, true, ChromeAutocompleteSchemeClassifier(profile_));
+  input_ = AutocompleteInput(omnibox_text,
+                             ClassifyPage(current_url, focused_from_fakebox),
+                             ChromeAutocompleteSchemeClassifier(profile_));
+  input_.set_current_url(current_url);
+  input_.set_from_omnibox_focus(true);
   autocomplete_controller_->Start(input_);
 }
 
@@ -604,7 +613,8 @@ static void PrefetchZeroSuggestResults(JNIEnv* env,
   if (!profile)
     return;
 
-  if (!OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial())
+  if (!OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial(
+          profile->GetPrefs()))
     return;
 
   // ZeroSuggestPrefetcher deletes itself after it's done prefetching.

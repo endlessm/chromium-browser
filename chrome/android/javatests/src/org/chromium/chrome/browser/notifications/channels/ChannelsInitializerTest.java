@@ -60,6 +60,7 @@ public class ChannelsInitializerTest {
     public Features.Processor processor = new Features.Processor();
 
     @Before
+    @TargetApi(Build.VERSION_CODES.O)
     public void setUp() throws Exception {
         // Not initializing the browser process is safe because
         // UrlFormatter.formatUrlForSecurityDisplay() is stand-alone.
@@ -251,6 +252,25 @@ public class ChannelsInitializerTest {
     @MinAndroidSdkLevel(Build.VERSION_CODES.O)
     @TargetApi(Build.VERSION_CODES.O)
     @Feature({"Browser", "Notifications"})
+    public void testEnsureInitialized_webappActions() throws Exception {
+        mChannelsInitializer.ensureInitialized(ChannelDefinitions.CHANNEL_ID_WEBAPP_ACTIONS);
+
+        assertThat(getChannelsIgnoringDefault(), hasSize(1));
+
+        NotificationChannel channel = getChannelsIgnoringDefault().get(0);
+        assertThat(channel.getId(), is(ChannelDefinitions.CHANNEL_ID_WEBAPP_ACTIONS));
+        assertThat(channel.getName().toString(),
+                is(mContext.getString(
+                        org.chromium.chrome.R.string.notification_category_fullscreen_controls)));
+        assertThat(channel.getImportance(), is(NotificationManager.IMPORTANCE_MIN));
+        assertThat(channel.getGroup(), is(ChannelDefinitions.CHANNEL_GROUP_ID_GENERAL));
+    }
+
+    @Test
+    @SmallTest
+    @MinAndroidSdkLevel(Build.VERSION_CODES.O)
+    @TargetApi(Build.VERSION_CODES.O)
+    @Feature({"Browser", "Notifications"})
     public void testEnsureInitialized_singleOriginSiteChannel() throws Exception {
         String origin = "https://example.com";
         long creationTime = 621046800000L;
@@ -284,6 +304,7 @@ public class ChannelsInitializerTest {
      * (Android *might* add a default 'Misc' channel on our behalf, but we don't want to tie our
      * tests to its presence, as this could change).
      */
+    @TargetApi(Build.VERSION_CODES.O)
     private List<NotificationChannel> getChannelsIgnoringDefault() {
         List<NotificationChannel> channels = mNotificationManagerProxy.getNotificationChannels();
         for (Iterator<NotificationChannel> it = channels.iterator(); it.hasNext();) {

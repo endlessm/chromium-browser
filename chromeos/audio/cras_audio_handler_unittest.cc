@@ -3587,6 +3587,73 @@ TEST_P(CrasAudioHandlerTest, NoMoreAudioInputDevices) {
   EXPECT_EQ(1, test_observer_->active_input_node_changed_count());
 }
 
+// Test the case hot plugging 35mm headphone. It should always be selected as
+// active output device.
+TEST_P(CrasAudioHandlerTest, HotPlug35mmHeadphone) {
+  AudioNodeList audio_nodes;
+  AudioNode internal_speaker = GenerateAudioNode(kInternalSpeaker);
+  audio_nodes.push_back(internal_speaker);
+  SetUpCrasAudioHandler(audio_nodes);
+
+  // Verify the audio devices size.
+  AudioDeviceList audio_devices;
+  cras_audio_handler_->GetAudioDevices(&audio_devices);
+  EXPECT_EQ(1u, audio_devices.size());
+
+  // Verify internal speaker is selected as active output by default.
+  EXPECT_EQ(internal_speaker.id,
+            cras_audio_handler_->GetPrimaryActiveOutputNode());
+
+  // Hotplug the 35mm headphone.
+  audio_nodes.clear();
+  internal_speaker.active = true;
+  audio_nodes.push_back(internal_speaker);
+  AudioNode headphone = GenerateAudioNode(kHeadphone);
+  headphone.active = false;
+  headphone.plugged_time = 50000000;
+  audio_nodes.push_back(headphone);
+  ChangeAudioNodes(audio_nodes);
+
+  // Verify 35mm headphone is selected as active output.
+  cras_audio_handler_->GetAudioDevices(&audio_devices);
+  EXPECT_EQ(2u, audio_devices.size());
+  EXPECT_EQ(headphone.id, cras_audio_handler_->GetPrimaryActiveOutputNode());
+
+  // Manually select internal speaker as active output.
+  AudioDevice internal_output(internal_speaker);
+  cras_audio_handler_->SwitchToDevice(internal_output, true,
+                                      CrasAudioHandler::ACTIVATE_BY_USER);
+
+  // Verify the active output is switched to internal speaker.
+  EXPECT_EQ(internal_speaker.id,
+            cras_audio_handler_->GetPrimaryActiveOutputNode());
+  EXPECT_LT(internal_speaker.plugged_time, headphone.plugged_time);
+
+  // Unplug 35mm headphone.
+  audio_nodes.clear();
+  internal_speaker.active = true;
+  audio_nodes.push_back(internal_speaker);
+  ChangeAudioNodes(audio_nodes);
+
+  // Verify internal speaker remains as active output.
+  cras_audio_handler_->GetAudioDevices(&audio_devices);
+  EXPECT_EQ(1u, audio_devices.size());
+  EXPECT_EQ(internal_speaker.id,
+            cras_audio_handler_->GetPrimaryActiveOutputNode());
+
+  // Hotplug 35mm headphone again.
+  headphone.active = false;
+  headphone.plugged_time = 90000000;
+  audio_nodes.push_back(headphone);
+  ChangeAudioNodes(audio_nodes);
+
+  // Verify 35mm headphone is active again.
+  cras_audio_handler_->GetAudioDevices(&audio_devices);
+  EXPECT_EQ(2u, audio_devices.size());
+  EXPECT_EQ(headphone.id, cras_audio_handler_->GetPrimaryActiveOutputNode());
+  EXPECT_LT(internal_speaker.plugged_time, headphone.plugged_time);
+}
+
 // Test the case in which an HDMI output is plugged in with other higher
 // priority
 // output devices already plugged and user has manually selected an active
@@ -4088,10 +4155,48 @@ TEST_P(CrasAudioHandlerTest,
   cras_audio_handler_->GetAudioDevices(&audio_devices);
   EXPECT_EQ(init_nodes_size + 1, audio_devices.size());
 
-  // Verify the active input device is unchanged.
-  EXPECT_EQ(0, test_observer_->active_input_node_changed_count());
-  EXPECT_EQ(kUSBMicId1, cras_audio_handler_->GetPrimaryActiveInputNode());
+  // Verify the active input device is changed to usb mic 2.
+  EXPECT_EQ(1, test_observer_->active_input_node_changed_count());
+  EXPECT_EQ(kUSBMicId2, cras_audio_handler_->GetPrimaryActiveInputNode());
   EXPECT_TRUE(cras_audio_handler_->has_alternative_input());
+}
+
+TEST_P(CrasAudioHandlerTest, PlugInUSBHeadphoneAfterLastUnplugNotActive) {
+  // Set up initial audio devices.
+  AudioNodeList audio_nodes =
+      GenerateAudioNodeList({kInternalSpeaker, kHeadphone, kUSBHeadphone1});
+  SetUpCrasAudioHandler(audio_nodes);
+
+  AudioDeviceList audio_devices;
+  cras_audio_handler_->GetAudioDevices(&audio_devices);
+  EXPECT_EQ(3u, audio_devices.size());
+  // 35mm Headphone is active, but USB headphone is not.
+  EXPECT_EQ(kHeadphone->id, cras_audio_handler_->GetPrimaryActiveOutputNode());
+
+  // Unplug both 35mm headphone and USB headphone.
+  audio_nodes.clear();
+  audio_nodes.push_back(GenerateAudioNode(kInternalSpeaker));
+  ChangeAudioNodes(audio_nodes);
+  cras_audio_handler_->GetAudioDevices(&audio_devices);
+  EXPECT_EQ(1u, audio_devices.size());
+  // Internal speaker is active.
+  EXPECT_EQ(kInternalSpeaker->id,
+            cras_audio_handler_->GetPrimaryActiveOutputNode());
+
+  // Plug in USB headphone.
+  audio_nodes.clear();
+  AudioNode internal_speaker = GenerateAudioNode(kInternalSpeaker);
+  internal_speaker.active = true;
+  audio_nodes.push_back(internal_speaker);
+  AudioNode usb_headphone = GenerateAudioNode(kUSBHeadphone1);
+  usb_headphone.plugged_time = 80000000;
+  audio_nodes.push_back(usb_headphone);
+  ChangeAudioNodes(audio_nodes);
+  cras_audio_handler_->GetAudioDevices(&audio_devices);
+  EXPECT_EQ(2u, audio_devices.size());
+  // USB headphone is active.
+  EXPECT_EQ(kUSBHeadphone1->id,
+            cras_audio_handler_->GetPrimaryActiveOutputNode());
 }
 
 }  // namespace chromeos

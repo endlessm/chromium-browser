@@ -4,9 +4,13 @@
 
 #include "ash/shelf/app_list_button.h"
 
+#include <memory>
+
+#include "ash/public/cpp/config.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller.h"
 #include "ash/shelf/shelf.h"
+#include "ash/shelf/shelf_layout_manager.h"
 #include "ash/shelf/shelf_view.h"
 #include "ash/shelf/shelf_view_test_api.h"
 #include "ash/shell.h"
@@ -19,6 +23,7 @@
 #include "ui/app_list/presenter/app_list.h"
 #include "ui/app_list/presenter/test/test_app_list_presenter.h"
 #include "ui/events/event_constants.h"
+#include "ui/events/test/event_generator.h"
 
 namespace ash {
 
@@ -33,7 +38,7 @@ class AppListButtonTest : public AshTestBase {
 
   // AshTestBase:
   void SetUp() override {
-    command_line_ = base::MakeUnique<base::test::ScopedCommandLine>();
+    command_line_ = std::make_unique<base::test::ScopedCommandLine>();
     SetupCommandLine(command_line_->GetProcessCommandLine());
     AshTestBase::SetUp();
     app_list_button_ =
@@ -89,6 +94,34 @@ TEST_F(AppListButtonTest, LongPressGestureWithoutVoiceInteractionFlag) {
   SendGestureEventToSecondaryDisplay(&long_press);
   RunAllPendingInMessageLoop();
   EXPECT_EQ(0u, test_app_list_presenter.voice_session_count());
+}
+
+TEST_F(AppListButtonTest, SwipingupToOpenFullscreenAppList) {
+  // TODO: investigate failure in mash, http://crbug.com/695686.
+  if (Shell::GetAshConfig() == Config::MASH)
+    return;
+
+  Shelf* shelf = GetPrimaryShelf();
+  EXPECT_EQ(SHELF_ALIGNMENT_BOTTOM, shelf->alignment());
+
+  // Start the drag from the center of the applist button's bottom.
+  gfx::Point center_point = app_list_button()->GetAppListButtonCenterPoint();
+  gfx::Point start(center_point.x(),
+                   center_point.y() + app_list_button()->height() / 2.f);
+  views::View::ConvertPointToScreen(app_list_button(), &start);
+  // Swiping up less than peeking threshold should keep the app list at PEEKING
+  // state.
+  gfx::Point end =
+      start -
+      gfx::Vector2d(
+          0, ShelfLayoutManager::kAppListDragSnapToPeekingThreshold - 10);
+  GetEventGenerator().GestureScrollSequence(
+      start, end, base::TimeDelta::FromMilliseconds(100), 4 /* steps */);
+  RunAllPendingInMessageLoop();
+  EXPECT_EQ(1u, test_app_list_presenter.show_count());
+  EXPECT_GE(test_app_list_presenter.set_y_position_count(), 1u);
+  EXPECT_EQ(app_list::mojom::AppListState::PEEKING,
+            test_app_list_presenter.app_list_state());
 }
 
 class VoiceInteractionAppListButtonTest : public AppListButtonTest {

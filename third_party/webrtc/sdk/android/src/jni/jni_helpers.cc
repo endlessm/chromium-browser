@@ -7,7 +7,7 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#include "webrtc/sdk/android/src/jni/jni_helpers.h"
+#include "sdk/android/src/jni/jni_helpers.h"
 
 #include <asm/unistd.h>
 #include <sys/prctl.h>
@@ -15,7 +15,7 @@
 #include <unistd.h>
 #include <vector>
 
-#include "webrtc/sdk/android/src/jni/classreferenceholder.h"
+#include "sdk/android/src/jni/classreferenceholder.h"
 
 namespace webrtc {
 namespace jni {
@@ -307,6 +307,41 @@ std::string GetJavaEnumName(JNIEnv* jni,
   return JavaToStdString(jni, name);
 }
 
+std::map<std::string, std::string> JavaToStdMapStrings(JNIEnv* jni,
+                                                       jobject j_map) {
+  jclass map_class = jni->FindClass("java/util/Map");
+  jclass set_class = jni->FindClass("java/util/Set");
+  jclass iterator_class = jni->FindClass("java/util/Iterator");
+  jclass entry_class = jni->FindClass("java/util/Map$Entry");
+  jmethodID entry_set_method =
+      jni->GetMethodID(map_class, "entrySet", "()Ljava/util/Set;");
+  jmethodID iterator_method =
+      jni->GetMethodID(set_class, "iterator", "()Ljava/util/Iterator;");
+  jmethodID has_next_method =
+      jni->GetMethodID(iterator_class, "hasNext", "()Z");
+  jmethodID next_method =
+      jni->GetMethodID(iterator_class, "next", "()Ljava/lang/Object;");
+  jmethodID get_key_method =
+      jni->GetMethodID(entry_class, "getKey", "()Ljava/lang/Object;");
+  jmethodID get_value_method =
+      jni->GetMethodID(entry_class, "getValue", "()Ljava/lang/Object;");
+
+  jobject j_entry_set = jni->CallObjectMethod(j_map, entry_set_method);
+  jobject j_iterator = jni->CallObjectMethod(j_entry_set, iterator_method);
+
+  std::map<std::string, std::string> result;
+  while (jni->CallBooleanMethod(j_iterator, has_next_method)) {
+    jobject j_entry = jni->CallObjectMethod(j_iterator, next_method);
+    jstring j_key =
+        static_cast<jstring>(jni->CallObjectMethod(j_entry, get_key_method));
+    jstring j_value =
+        static_cast<jstring>(jni->CallObjectMethod(j_entry, get_value_method));
+    result[JavaToStdString(jni, j_key)] = JavaToStdString(jni, j_value);
+  }
+
+  return result;
+}
+
 jobject NewGlobalRef(JNIEnv* jni, jobject o) {
   jobject ret = jni->NewGlobalRef(o);
   CHECK_EXCEPTION(jni) << "error during NewGlobalRef";
@@ -344,6 +379,7 @@ Iterable::Iterator::Iterator(JNIEnv* jni, jobject iterable) : jni_(jni) {
   jclass iterator_class = GetObjectClass(jni, iterator_);
   has_next_id_ = GetMethodID(jni, iterator_class, "hasNext", "()Z");
   next_id_ = GetMethodID(jni, iterator_class, "next", "()Ljava/lang/Object;");
+  remove_id_ = GetMethodID(jni, iterator_class, "remove", "()V");
 
   // Start at the first element in the collection.
   ++(*this);
@@ -377,6 +413,11 @@ Iterable::Iterator& Iterable::Iterator::operator++() {
   value_ = jni_->CallObjectMethod(iterator_, next_id_);
   CHECK_EXCEPTION(jni_) << "error during CallObjectMethod";
   return *this;
+}
+
+void Iterable::Iterator::Remove() {
+  jni_->CallVoidMethod(iterator_, remove_id_);
+  CHECK_EXCEPTION(jni_) << "error during CallVoidMethod";
 }
 
 // Provides a way to compare the iterator with itself and with the end iterator.

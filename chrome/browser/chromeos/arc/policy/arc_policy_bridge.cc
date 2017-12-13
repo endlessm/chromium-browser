@@ -4,15 +4,14 @@
 
 #include "chrome/browser/chromeos/arc/policy/arc_policy_bridge.h"
 
-#include <memory>
 #include <utility>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
@@ -24,10 +23,10 @@
 #include "chrome/browser/policy/profile_policy_connector_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/common/pref_names.h"
 #include "chromeos/network/onc/onc_utils.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
+#include "components/arc/arc_prefs.h"
 #include "components/onc/onc_constants.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_namespace.h"
@@ -145,7 +144,7 @@ void AddOncCaCertsToPolicies(const policy::PolicyMap& policy_map,
   }
 
   std::unique_ptr<base::ListValue> ca_certs(
-      base::MakeUnique<base::ListValue>());
+      std::make_unique<base::ListValue>());
   for (const auto& entry : certificates) {
     const base::DictionaryValue* certificate = nullptr;
     if (!entry.GetAsDictionary(&certificate)) {
@@ -245,11 +244,11 @@ std::string GetFilteredJSONPolicies(const policy::PolicyMap& policy_map) {
 }
 
 void OnReportComplianceParseFailure(
-    const ArcPolicyBridge::ReportComplianceCallback& callback,
+    base::OnceCallback<void(const std::string&)> callback,
     const std::string& error) {
   // TODO(poromov@): Report to histogram.
   DLOG(ERROR) << "Can't parse policy compliance report";
-  callback.Run(kPolicyCompliantJson);
+  std::move(callback).Run(kPolicyCompliantJson);
 }
 
 void UpdateFirstComplianceSinceSignInTiming(
@@ -340,12 +339,6 @@ ArcPolicyBridge::~ArcPolicyBridge() {
   arc_bridge_service_->policy()->RemoveObserver(this);
 }
 
-// static
-void ArcPolicyBridge::RegisterProfilePrefs(
-    user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(prefs::kArcPolicyComplianceReported, false);
-}
-
 void ArcPolicyBridge::OverrideIsManagedForTesting(bool is_managed) {
   is_managed_ = is_managed;
 }
@@ -373,19 +366,23 @@ void ArcPolicyBridge::OnInstanceClosed() {
   initial_policies_hash_.clear();
 }
 
-void ArcPolicyBridge::GetPolicies(const GetPoliciesCallback& callback) {
+void ArcPolicyBridge::GetPolicies(GetPoliciesCallback callback) {
   VLOG(1) << "ArcPolicyBridge::GetPolicies";
-  callback.Run(GetCurrentJSONPolicies());
+  std::move(callback).Run(GetCurrentJSONPolicies());
 }
 
-void ArcPolicyBridge::ReportCompliance(
-    const std::string& request,
-    const ReportComplianceCallback& callback) {
+void ArcPolicyBridge::ReportCompliance(const std::string& request,
+                                       ReportComplianceCallback callback) {
   VLOG(1) << "ArcPolicyBridge::ReportCompliance";
+  // TODO(crbug.com/730593): Remove AdaptCallbackForRepeating() by updating
+  // the callee interface.
+  auto repeating_callback =
+      base::AdaptCallbackForRepeating(std::move(callback));
   safe_json::SafeJsonParser::Parse(
-      request, base::Bind(&ArcPolicyBridge::OnReportComplianceParseSuccess,
-                          weak_ptr_factory_.GetWeakPtr(), callback),
-      base::Bind(&OnReportComplianceParseFailure, callback));
+      request,
+      base::Bind(&ArcPolicyBridge::OnReportComplianceParseSuccess,
+                 weak_ptr_factory_.GetWeakPtr(), repeating_callback),
+      base::Bind(&OnReportComplianceParseFailure, repeating_callback));
 }
 
 void ArcPolicyBridge::OnPolicyUpdated(const policy::PolicyNamespace& ns,
@@ -425,10 +422,10 @@ std::string ArcPolicyBridge::GetCurrentJSONPolicies() const {
 }
 
 void ArcPolicyBridge::OnReportComplianceParseSuccess(
-    const ArcPolicyBridge::ReportComplianceCallback& callback,
+    base::OnceCallback<void(const std::string&)> callback,
     std::unique_ptr<base::Value> parsed_json) {
   // Always returns "compliant".
-  callback.Run(kPolicyCompliantJson);
+  std::move(callback).Run(kPolicyCompliantJson);
   Profile::FromBrowserContext(context_)->GetPrefs()->SetBoolean(
       prefs::kArcPolicyComplianceReported, true);
 

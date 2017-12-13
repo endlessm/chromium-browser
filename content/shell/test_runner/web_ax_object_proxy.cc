@@ -796,22 +796,30 @@ v8::Local<v8::Value> WebAXObjectProxy::InPageLinkTarget() {
 
 int WebAXObjectProxy::IntValue() {
   accessibility_object_.UpdateLayoutAndCheckValidity();
-  if (accessibility_object_.SupportsRangeValue())
-    return accessibility_object_.ValueForRange();
-  else if (accessibility_object_.Role() == blink::kWebAXRoleHeading)
+
+  if (accessibility_object_.SupportsRangeValue()) {
+    float value = 0.0f;
+    accessibility_object_.ValueForRange(&value);
+    return static_cast<int>(value);
+  } else if (accessibility_object_.Role() == blink::kWebAXRoleHeading) {
     return accessibility_object_.HeadingLevel();
-  else
+  } else {
     return atoi(accessibility_object_.StringValue().Utf8().data());
+  }
 }
 
 int WebAXObjectProxy::MinValue() {
   accessibility_object_.UpdateLayoutAndCheckValidity();
-  return accessibility_object_.MinValueForRange();
+  float min_value = 0.0f;
+  accessibility_object_.MinValueForRange(&min_value);
+  return min_value;
 }
 
 int WebAXObjectProxy::MaxValue() {
   accessibility_object_.UpdateLayoutAndCheckValidity();
-  return accessibility_object_.MaxValueForRange();
+  float max_value = 0.0f;
+  accessibility_object_.MaxValueForRange(&max_value);
+  return max_value;
 }
 
 std::string WebAXObjectProxy::ValueDescription() {
@@ -1465,32 +1473,32 @@ void WebAXObjectProxy::SetSelectedTextRange(int selection_start, int length) {
                                      selection_start + length);
 }
 
-void WebAXObjectProxy::SetSelection(v8::Local<v8::Value> anchor_object,
+bool WebAXObjectProxy::SetSelection(v8::Local<v8::Value> anchor_object,
                                     int anchor_offset,
                                     v8::Local<v8::Value> focus_object,
                                     int focus_offset) {
   if (anchor_object.IsEmpty() || focus_object.IsEmpty() ||
       !anchor_object->IsObject() || !focus_object->IsObject() ||
       anchor_offset < 0 || focus_offset < 0) {
-    return;
+    return false;
   }
 
   WebAXObjectProxy* web_ax_anchor = nullptr;
   if (!gin::ConvertFromV8(blink::MainThreadIsolate(), anchor_object,
                           &web_ax_anchor)) {
-    return;
+    return false;
   }
   DCHECK(web_ax_anchor);
 
   WebAXObjectProxy* web_ax_focus = nullptr;
   if (!gin::ConvertFromV8(blink::MainThreadIsolate(), focus_object,
                           &web_ax_focus)) {
-    return;
+    return false;
   }
   DCHECK(web_ax_focus);
 
   accessibility_object_.UpdateLayoutAndCheckValidity();
-  accessibility_object_.SetSelection(
+  return accessibility_object_.SetSelection(
       web_ax_anchor->accessibility_object_, anchor_offset,
       web_ax_focus->accessibility_object_, focus_offset);
 }

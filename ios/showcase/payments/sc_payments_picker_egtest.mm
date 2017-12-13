@@ -149,28 +149,7 @@ id<GREYMatcher> UIAlertViewMessageForDelegateCallWithArgument(
   [[EarlGrey
       selectElementWithMatcher:
           grey_accessibilityID(kPaymentRequestPickerSearchBarAccessibilityID)]
-      performAction:grey_typeText(@"c")];
-
-  [self assertSection:@"B" visible:NO];
-  [self assertRow:@"Belgium" selected:NO visible:NO];
-  [self assertRow:@"Brazil" selected:NO visible:NO];
-
-  [self assertSection:@"C" visible:YES];
-  [self assertRow:@"Canada" selected:NO visible:YES];
-  [self assertRow:@"Chile" selected:NO visible:YES];
-  [self assertRow:@"China" selected:YES visible:YES];
-
-  [self assertSection:@"E" visible:NO];
-  [self assertRow:@"España" selected:NO visible:NO];
-
-  [self assertSection:@"M" visible:YES];
-  [self assertRow:@"México" selected:NO visible:YES];
-
-  // Type 'hi' in the search bar. So far we have typed "chi".
-  [[EarlGrey
-      selectElementWithMatcher:
-          grey_accessibilityID(kPaymentRequestPickerSearchBarAccessibilityID)]
-      performAction:grey_typeText(@"hi")];
+      performAction:grey_typeText(@"chi")];
 
   [self assertSection:@"B" visible:NO];
   [self assertRow:@"Belgium" selected:NO visible:NO];

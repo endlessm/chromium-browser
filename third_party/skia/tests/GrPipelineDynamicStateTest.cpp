@@ -59,10 +59,9 @@ struct Vertex {
 class GrPipelineDynamicStateTestProcessor : public GrGeometryProcessor {
 public:
     GrPipelineDynamicStateTestProcessor()
-        : fVertex(this->addVertexAttrib("vertex", kVec2f_GrVertexAttribType))
-        , fColor(this->addVertexAttrib("color", kVec4ub_GrVertexAttribType)) {
-        this->initClassID<GrPipelineDynamicStateTestProcessor>();
-    }
+        : INHERITED(kGrPipelineDynamicStateTestProcessor_ClassID)
+        , fVertex(this->addVertexAttrib("vertex", kHalf2_GrVertexAttribType))
+        , fColor(this->addVertexAttrib("color", kUByte4_norm_GrVertexAttribType)) {}
 
     const char* name() const override { return "GrPipelineDynamicStateTest Processor"; }
 
@@ -92,10 +91,10 @@ class GLSLPipelineDynamicStateTestProcessor : public GrGLSLGeometryProcessor {
 
         GrGLSLVertexBuilder* v = args.fVertBuilder;
         v->codeAppendf("float2 vertex = %s;", mp.fVertex.fName);
-        gpArgs->fPositionVar.set(kVec2f_GrSLType, "vertex");
+        gpArgs->fPositionVar.set(kFloat2_GrSLType, "vertex");
 
         GrGLSLPPFragmentBuilder* f = args.fFragBuilder;
-        f->codeAppendf("%s = float4(1);", args.fOutputCoverage);
+        f->codeAppendf("%s = half4(1);", args.fOutputCoverage);
     }
 };
 
@@ -119,7 +118,8 @@ public:
 private:
     const char* name() const override { return "GrPipelineDynamicStateTestOp"; }
     FixedFunctionFlags fixedFunctionFlags() const override { return FixedFunctionFlags::kNone; }
-    RequiresDstTexture finalize(const GrCaps&, const GrAppliedClip*) override {
+    RequiresDstTexture finalize(const GrCaps&, const GrAppliedClip*,
+                                GrPixelConfigIsClamped) override {
         return RequiresDstTexture::kNo;
     }
     bool onCombineIfPossible(GrOp* other, const GrCaps& caps) override { return false; }

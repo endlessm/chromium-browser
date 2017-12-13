@@ -117,6 +117,7 @@ class APP_LIST_EXPORT SearchBoxView : public views::View,
   const char* GetClassName() const override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   void OnMouseEvent(ui::MouseEvent* event) override;
+  void OnKeyEvent(ui::KeyEvent* evetn) override;
 
   // Overridden from views::ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
@@ -136,7 +137,7 @@ class APP_LIST_EXPORT SearchBoxView : public views::View,
   void OnTabletModeChanged(bool started);
 
   // Returns background border corner radius in the given state.
-  static int GetSearchBoxBorderCornerRadiusForState(AppListModel::State state);
+  int GetSearchBoxBorderCornerRadiusForState(AppListModel::State state) const;
 
   // Returns background color for the given state.
   SkColor GetBackgroundColorForState(AppListModel::State state) const;
@@ -159,6 +160,9 @@ class APP_LIST_EXPORT SearchBoxView : public views::View,
 
   // Returns selected view in contents view.
   views::View* GetSelectedViewInContentsView() const;
+
+  bool selected() { return selected_; }
+  void SetSelected(bool selected);
 
  private:
   // Updates model text and selection model with current Textfield info.
@@ -217,9 +221,6 @@ class APP_LIST_EXPORT SearchBoxView : public views::View,
 
   void SetDefaultBorder();
 
-  bool selected() { return selected_; }
-  void SetSelected(bool selected);
-
   SearchBoxViewDelegate* delegate_;     // Not owned.
   AppListViewDelegate* view_delegate_;  // Not owned.
   AppListModel* model_ = nullptr;       // Owned by the profile-keyed service.
@@ -240,6 +241,9 @@ class APP_LIST_EXPORT SearchBoxView : public views::View,
 
   // Whether the fullscreen app list feature is enabled.
   const bool is_fullscreen_app_list_enabled_;
+
+  // Whether the app list focus is enabled.
+  const bool is_app_list_focus_enabled_;
 
   SearchBoxFocus focused_view_;  // Which element has TAB'd focus.
 

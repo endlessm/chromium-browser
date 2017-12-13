@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>
@@ -21,7 +22,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_clock.h"
 #include "base/time/clock.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -33,7 +33,6 @@
 #include "chrome/browser/permissions/permission_request_id.h"
 #include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/ui/permission_bubble/mock_permission_prompt_factory.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
@@ -153,18 +152,16 @@ class GeolocationPermissionContextTests
 PermissionRequestID GeolocationPermissionContextTests::RequestID(
     int request_id) {
   return PermissionRequestID(
-      web_contents()->GetRenderProcessHost()->GetID(),
-      web_contents()->GetMainFrame()->GetRoutingID(),
-      request_id);
+      web_contents()->GetMainFrame()->GetProcess()->GetID(),
+      web_contents()->GetMainFrame()->GetRoutingID(), request_id);
 }
 
 PermissionRequestID GeolocationPermissionContextTests::RequestIDForTab(
     int tab,
     int request_id) {
   return PermissionRequestID(
-      extra_tabs_[tab]->GetRenderProcessHost()->GetID(),
-      extra_tabs_[tab]->GetMainFrame()->GetRoutingID(),
-      request_id);
+      extra_tabs_[tab]->GetMainFrame()->GetProcess()->GetID(),
+      extra_tabs_[tab]->GetMainFrame()->GetRoutingID(), request_id);
 }
 
 void GeolocationPermissionContextTests::RequestGeolocationPermission(
@@ -176,14 +173,14 @@ void GeolocationPermissionContextTests::RequestGeolocationPermission(
       web_contents, id, requesting_frame, user_gesture,
       base::Bind(&GeolocationPermissionContextTests::PermissionResponse,
                  base::Unretained(this), id));
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
 }
 
 void GeolocationPermissionContextTests::CancelGeolocationPermission(
     content::WebContents* web_contents,
     const PermissionRequestID& id) {
   geolocation_permission_context_->CancelPermissionRequest(web_contents, id);
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
 }
 
 void GeolocationPermissionContextTests::PermissionResponse(
@@ -203,8 +200,9 @@ void GeolocationPermissionContextTests::CheckPermissionMessageSentForTab(
     int tab,
     int request_id,
     bool allowed) {
-  CheckPermissionMessageSentInternal(static_cast<MockRenderProcessHost*>(
-      extra_tabs_[tab]->GetRenderProcessHost()),
+  CheckPermissionMessageSentInternal(
+      static_cast<MockRenderProcessHost*>(
+          extra_tabs_[tab]->GetMainFrame()->GetProcess()),
       request_id, allowed);
 }
 
@@ -291,9 +289,6 @@ void GeolocationPermissionContextTests::SetupRequestManager(
   mock_permission_prompt_factories_.push_back(
       base::MakeUnique<MockPermissionPromptFactory>(
           permission_request_manager));
-
-  // Prepare the PermissionRequestManager to display a mock bubble.
-  permission_request_manager->DisplayPendingRequests();
 }
 
 #if defined(OS_ANDROID)
@@ -1112,10 +1107,6 @@ TEST_F(GeolocationPermissionContextTests, TabDestroyed) {
 
 #if defined(OS_ANDROID)
 TEST_F(GeolocationPermissionContextTests, SearchGeolocationInIncognito) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      features::kConsistentOmniboxGeolocation);
-
   GURL requesting_frame(TestSearchEngineDelegate::kDSETestUrl);
   // The DSE Geolocation setting should be used in incognito if it is BLOCK,
   // but not if it is ALLOW.

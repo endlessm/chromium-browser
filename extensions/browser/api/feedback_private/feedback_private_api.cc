@@ -16,6 +16,7 @@
 #include "base/metrics/user_metrics.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -135,22 +136,12 @@ void FeedbackPrivateAPI::RequestFeedbackForFlow(
         feedback_private::OnFeedbackRequested::kEventName, std::move(args),
         browser_context_);
 
-    if (content::IsBrowserSideNavigationEnabled()) {
-      // LoginFeedbackTest.Basic times out when this flag is enabled if we are
-      // using DispatchEventWithLazyListener(). It is a temporary solution to
-      // fix the test failure. Please track crbug.com/765289 for further
-      // investigation.
-      EventRouter::Get(browser_context_)
-          ->DispatchEventToExtension(extension_misc::kFeedbackExtensionId,
-                                     std::move(event));
-    } else {
-      // TODO(weidongg/754329): Using DispatchEventWithLazyListener() is a
-      // temporary fix to the bug. Investigate a better solution that applies to
-      // all scenarios.
-      EventRouter::Get(browser_context_)
-          ->DispatchEventWithLazyListener(extension_misc::kFeedbackExtensionId,
-                                          std::move(event));
-    }
+    // TODO(weidongg/754329): Using DispatchEventWithLazyListener() is a
+    // temporary fix to the bug. Investigate a better solution that applies to
+    // all scenarios.
+    EventRouter::Get(browser_context_)
+        ->DispatchEventWithLazyListener(extension_misc::kFeedbackExtensionId,
+                                        std::move(event));
   }
 }
 
@@ -226,7 +217,9 @@ ExtensionFunction::ResponseAction FeedbackPrivateReadLogSourceFunction::Run() {
           api_params->params, extension_id(),
           base::Bind(&FeedbackPrivateReadLogSourceFunction::OnCompleted,
                      this))) {
-    return RespondNow(Error("Unable to initiate fetch from log source."));
+    return RespondNow(Error(base::StringPrintf(
+        "Unable to initiate fetch from log source %s.",
+        feedback_private::ToString(api_params->params.source))));
   }
 
   return RespondLater();

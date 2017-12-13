@@ -46,6 +46,7 @@ import org.chromium.chrome.browser.ntp.ContextMenuManager;
 import org.chromium.chrome.browser.ntp.cards.CardsVariationParameters;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
 import org.chromium.chrome.browser.suggestions.TileView.Style;
+import org.chromium.chrome.browser.widget.displaystyle.UiConfig;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.suggestions.FakeMostVisitedSites;
 import org.chromium.testing.local.LocalRobolectricTestRunner;
@@ -61,7 +62,6 @@ import java.util.List;
 @Config(manifest = Config.NONE)
 @Features({@Features.Register(ChromeFeatureList.NTP_OFFLINE_PAGES_FEATURE_NAME),
         @Features.Register(ChromeFeatureList.CHROME_HOME),
-        @Features.Register(ChromeFeatureList.CHROME_HOME_MODERN_LAYOUT),
         @Features.Register(ChromeFeatureList.NTP_TILES_LOWER_RESOLUTION_FAVICONS)})
 public class TileGroupUnitTest {
     private static final int MAX_TILES_TO_FETCH = 4;
@@ -289,8 +289,8 @@ public class TileGroupUnitTest {
         assertThat(((TileView) layout.getChildAt(1)).getUrl(), is(URLS[1]));
     }
 
-    /** Check for https://crbug.com/703628: handle duplicated URLs by crashing. */
-    @Test(expected = IllegalStateException.class)
+    /** Check for https://crbug.com/703628: don't crash on duplicated URLs. */
+    @Test
     public void testRenderTileViewWithDuplicatedUrl() {
         SuggestionsUiDelegate uiDelegate = mock(SuggestionsUiDelegate.class);
         when(uiDelegate.getImageFetcher()).thenReturn(mock(ImageFetcher.class));
@@ -303,7 +303,7 @@ public class TileGroupUnitTest {
         // Initialise the internal list of tiles
         mMostVisitedSites.setTileSuggestions(URLS[0], URLS[1], URLS[0]);
 
-        // Render them to the layout. The duplicated URL should trigger the exception.
+        // Render them to the layout. The duplicated URL should not trigger an exception.
         tileGrid.refreshData();
     }
 
@@ -392,7 +392,7 @@ public class TileGroupUnitTest {
 
     private TileGridViewHolder setupView(TileGroup tileGroup) {
         TileGridLayout layout = new TileGridLayout(RuntimeEnvironment.application, null);
-        TileGridViewHolder tileGrid = new TileGridViewHolder(layout, 4, 2);
+        TileGridViewHolder tileGrid = new TileGridViewHolder(layout, 4, 2, mock(UiConfig.class));
         tileGrid.bindDataSource(tileGroup, mTileRenderer);
         return tileGrid;
     }
@@ -483,7 +483,7 @@ public class TileGroupUnitTest {
         private final List<LargeIconCallback> mCallbackList = new ArrayList<>();
 
         public FakeImageFetcher() {
-            super(null, null, null);
+            super(null, null, null, null);
         }
 
         @Override

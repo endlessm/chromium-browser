@@ -93,6 +93,35 @@ if (__gCrWeb && !__gCrWeb['fillPasswordForm']) {
   };
 
   /**
+   * If |form| has no submit elements and exactly 1 button that button
+   * is assumed to be a submit button. This function adds onSubmitButtonClick_
+   * as a handler for touchend event of this button. Touchend event is used as
+   * a proxy for onclick event because onclick handling might be prevented by
+   * the site JavaScript.
+   */
+  var addSubmitButtonTouchEndHandler_ = function(form) {
+    if (form.querySelector('input[type=submit]'))
+      return;
+    var buttons = form.querySelectorAll('button');
+    if (buttons.length != 1)
+      return;
+    buttons[0].addEventListener('touchend', onSubmitButtonTouchEnd_);
+   };
+
+   /**
+    * Click handler for the submit button. It sends to the host
+    * form.submitButtonClick command.
+    */
+   var onSubmitButtonTouchEnd_ = function(evt) {
+       var form = evt.currentTarget.form;
+       var formData = __gCrWeb.getPasswordFormData(form);
+       if (!formData)
+         return;
+       formData["command"] = 'passwordForm.submitButtonClick';
+       __gCrWeb.message.invokeOnHost(formData);
+    };
+
+  /**
    * Returns the password form with the given |name| as a JSON string.
    * @param {string} name The name of the form to extract.
    * @return {string} The password form.
@@ -226,7 +255,13 @@ if (__gCrWeb && !__gCrWeb['fillPasswordForm']) {
    */
   __gCrWeb['fillPasswordForm'] = function(formData, username, password,
                                           opt_normalizedOrigin) {
-    return fillPasswordFormWithData_(
+  var normalizedOrigin = opt_normalizedOrigin ||
+      __gCrWeb.common.removeQueryAndReferenceFromURL(window.location.href);
+  var origin = formData['origin'];
+  if (!__gCrWeb.common.isSameOrigin(origin, normalizedOrigin)) {
+    return false;
+  }
+  return fillPasswordFormWithData_(
         formData, username, password, window, opt_normalizedOrigin);
   };
 
@@ -272,13 +307,6 @@ if (__gCrWeb && !__gCrWeb['fillPasswordForm']) {
   var fillPasswordFormWithData_ = function(
       formData, username, password, win, opt_normalizedOrigin) {
     var doc = win.document;
-    var origin = formData['origin'];
-    var normalizedOrigin = opt_normalizedOrigin ||
-        __gCrWeb.common.removeQueryAndReferenceFromURL(win.location.href);
-    if (origin != normalizedOrigin) {
-      return false;
-    }
-
     var filled = false;
 
     __gCrWeb.findMatchingPasswordForms(formData, doc, opt_normalizedOrigin).
@@ -412,6 +440,7 @@ if (__gCrWeb && !__gCrWeb['fillPasswordForm']) {
       var formData = __gCrWeb.getPasswordFormData(forms[i]);
       if (formData) {
         formDataList.push(formData);
+        addSubmitButtonTouchEndHandler_(forms[i]);
       }
     }
 
@@ -475,7 +504,6 @@ if (__gCrWeb && !__gCrWeb['fillPasswordForm']) {
 
     return {
       'action': getCanonicalActionForForm_(formElement),
-      'method': formElement.getAttribute('method'),
       'name': __gCrWeb.common.getFormIdentifier(formElement),
       'origin': origin,
       'fields': fields,

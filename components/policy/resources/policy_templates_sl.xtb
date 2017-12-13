@@ -30,6 +30,7 @@
 
           Če je ta nastavitev onemogočena ali ni konfigurirana, se gostitelj za oddaljeno pomoč izvaja v uporabnikovem kontekstu in oddaljeni uporabniki ne morejo uporabljati oken s skrbniškimi pravicami na namizju.</translation>
 <translation id="1096105751829466145">Privzeti iskalnik</translation>
+<translation id="1099282607296956954">Omogočanje osamitve spletnega mesta za vsako spletno mesto</translation>
 <translation id="1117535567637097036">Rutine za obravnavo protokolov, nastavljene s tem pravilnikom, se ne uporabljajo pri obravnavi namer za Android.</translation>
 <translation id="1122282995569868661">Prikaže ikono v orodni vrstici za napravo <ph name="PRODUCT_NAME" /></translation>
 <translation id="1128903365609589950">Konfigurira imenik, ki ga bo <ph name="PRODUCT_NAME" /> uporabljal za shranjevanje predpomnjenih datotek na disk.
@@ -49,6 +50,12 @@
 
       Če je pravilnik nastavljen na »False«, se o stanju stikala za razvijalce ne poroča.</translation>
 <translation id="1160939557934457296">Onemogoči nadaljevanje z opozorilne strani varnega brskanja</translation>
+<translation id="1166377463685560145">Določa tiskalnike, ki jih uporabnik ne more uporabljati.
+
+      Ta pravilnik se uporablja samo, če je za <ph name="DEVICE_PRINTERS_ACCESS_MODE" /> izbrana možnost <ph name="PRINTERS_BLACKLIST" />.
+
+      Če se uporablja ta pravilnik, so uporabniku na voljo vsi tiskalniki z izjemo ID-jev, navedenih v tem pravilniku.
+      </translation>
 <translation id="1198465924256827162">Kako pogosto se pošljejo nalaganja stanja naprave (v milisekundah).
 
       Če ta pravilnik ni nastavljen, je vrednost privzete pogostosti 3 ure. Najmanjša
@@ -79,7 +86,14 @@ Vrednost prilagoditve mora biti 100 % ali več.</translation>
 
       Če je ta pravilnik onemogočen, <ph name="PRODUCT_NAME" /> ne dovoli profilov gosta.</translation>
 <translation id="1363275621236827384">Omogoči poizvedbe strežniku Quirks Server za profile strojne opreme.</translation>
+<translation id="1393485621820363363">Omogočeni tiskalniki za naprave v podjetjih</translation>
 <translation id="1397855852561539316">Privzeti URL iskalnika za predlog</translation>
+<translation id="1420281424655200442">Nadzira, kateri tiskalniki iz pravilnika <ph name="DEVICE_PRINTERS_POLICY" /> so na voljo uporabnikom.
+
+      Določa, kateri pravilnik o dostopu se uporablja za konfiguracijo tiskalnikov v velikem obsegu. Če je izbrana možnost <ph name="PRINTERS_ALLOW_ALL" />, so prikazani vsi tiskalniki. Če je izbrana možnost <ph name="PRINTERS_BLACKLIST" />, se omeji dostop do določenih tiskalnikov s pravilnikom <ph name="DEVICE_PRINTERS_BLACKLIST" />. Če je izbrana možnost <ph name="PRINTERS_WHITELIST" />, pravilnik <ph name="DEVICE_PRINTERS_WHITELIST" /> določa samo tiste tiskalnike, ki jih je mogoče izbrati.
+
+      Če ta pravilnik ni nastavljen, se predvideva uporaba pravilnika <ph name="PRINTERS_BLACKLIST" />.
+      </translation>
 <translation id="1426410128494586442">Da</translation>
 <translation id="1427655258943162134">Naslov ali URL strežnika proxy</translation>
 <translation id="1435659902881071157">Konfiguracija omrežja na ravni naprave</translation>
@@ -87,6 +101,7 @@ Vrednost prilagoditve mora biti 100 % ali več.</translation>
 <translation id="1454846751303307294">Omogoča nastavitev seznama vzorcev URL-jev, s katerimi so določena spletna mesta, ki jim ni dovoljeno izvajanje JavaScripta.
 
           Če ta pravilnik ni nastavljen, bo za vsa spletna mesta uporabljena splošna privzeta vrednost iz pravilnika »DefaultJavaScriptSetting«, kadar je ta nastavljen, ali iz uporabnikove osebne konfiguracije, kadar pravilnik »DefaultImagesSetting« ni nastavljen.</translation>
+<translation id="1456822151187621582">Windows (odjemalci s sistemom <ph name="PRODUCT_OS_NAME" />):</translation>
 <translation id="1464848559468748897">Nadzira vedenje uporabnikov v večprofilni seji v napravah s sistemom <ph name="PRODUCT_OS_NAME" />.
 
       Če je ta pravilnik nastavljen na »MultiProfileUserBehaviorUnrestricted«, je lahko uporabnik primarni ali sekundarni uporabnik v večprofilni seji.
@@ -101,6 +116,11 @@ Vrednost prilagoditve mora biti 100 % ali več.</translation>
 
       Če pravilnik ni nastavljen, se za uporabnike, ki jih upravlja podjetje, uporabi vrednost »MultiProfileUserBehaviorMustBePrimary«, za neupravljane uporabnike pa »MultiProfileUserBehaviorUnrestricted«.</translation>
 <translation id="1465619815762735808">Kliknite za predvajanje</translation>
+<translation id="1466133662354365542">Omogoči funkcijo za samodejno izpolnjevanje v brskalniku <ph name="PRODUCT_NAME" /> in uporabnikom omogoča samodejno izpolnjevanje naslova in podatkov o kreditni kartici v spletnih obrazcih s predhodno shranjenimi podatki.
+
+      Če to nastavitev onemogočite, samodejno izpolnjevanje ne bo nikoli predlagalo ali vneslo podatkov o kreditni kartici in prav tako ne bo shranilo dodatnih podatkov o kreditni kartici, ki jih uporabnik lahko pošlje med brskanjem v spletu.
+
+      Če to nastavitev omogočite ali ne nastavite vrednosti zanjo, bo uporabnik lahko nadzoroval celotno funkcijo za samodejno izpolnjevanje (vključno s kreditnimi karticami) v uporabniškem vmesniku.</translation>
 <translation id="1468307069016535757">Nastavitev privzetega stanja visokokontrastnega načina funkcij za ljudi s posebnimi potrebami na prijavnem zaslonu.
 
           Če je ta pravilnik vklopljen, bo visokokontrastni način omogočen, ko je prikazan prijavni zaslon.
@@ -142,6 +162,19 @@ Vrednost prilagoditve mora biti 100 % ali več.</translation>
 <translation id="1561424797596341174">Preglasitve pravilnika za delovne različice gostitelja za oddaljeni dostop, namenjene odpravljanju napak</translation>
 <translation id="1561967320164410511">U2F in razširitve za posamezno potrditev</translation>
 <translation id="1583248206450240930">Privzeto uporabi <ph name="PRODUCT_FRAME_NAME" /></translation>
+<translation id="1603058613431276040">Posreduje konfiguracije za tiskalnike v podjetjih, vezane na naprave.
+
+      Ta pravilnik vam omogoča, da posredujete konfiguracije tiskalnikov napravam z operacijskim sistemom <ph name="PRODUCT_OS_NAME" />. Velikost datoteke ne sme presegati 5 MB in mora biti kodirana v obliki JSON. Oblika je enaka obliki imenika NativePrinters. Ocenjuje se, da je datoteka, ki vsebuje približno 21.000 tiskalnikov, kodirana kot datoteka velikosti 5 MB. Za preverjanje celovitosti se uporablja kriptografska zgoščevalna vrednost.
+
+      Datoteka se prenese in shrani v predpomnilnik. Ob vsaki spremembi URL-ja ali zgoščevalne vrednosti se znova prenese.
+
+      Če je ta pravilnik nastavljen, <ph name="PRODUCT_OS_NAME" /> prenese datoteko s konfiguracijami tiskalnikov in omogoči, da so tiskalniki na voljo skladno s pravilniki <ph name="DEVICE_PRINTERS_ACCESS_MODE" />, <ph name="DEVICE_PRINTERS_WHITELIST" /> in <ph name="DEVICE_PRINTERS_BLACKLIST" />.
+
+      Ta pravilnik ne vpliva na to, ali lahko uporabniki konfigurirajo tiskalnike v posameznih napravah. Namenjen je kot dopolnilo konfiguracijam tiskalnikov, ki jih opravijo posamezni uporabniki.
+
+      Ta pravilnik je dodatek pravilniku <ph name="BULK_PRINTERS_POLICY" />.
+
+      Če ta pravilnik ni nastavljen, ne bo tiskalnikov za naprave in drugi pravilniki <ph name="DEVICE_PRINTERS_POLICY_PATTERN" /> bodo prezrti.</translation>
 <translation id="1608755754295374538">URL-ji, ki jim bo brez poziva dovoljen dostop do naprav za zajem zvoka</translation>
 <translation id="1617235075406854669">Omogočanje brisanja zgodovine brskalnika in prenosov</translation>
 <translation id="163200210584085447">Vzorci na tem seznamu se bodo primerjali z varnostnim
@@ -248,6 +281,12 @@ Vrednost prilagoditve mora biti 100 % ali več.</translation>
 <translation id="2030905906517501646">Privzeta ključna beseda iskalnika</translation>
 <translation id="203096360153626918">Ta pravilnika ne vpliva na aplikacije za Android. Tudi če je ta pravilnik nastavljen na <ph name="FALSE" />, bodo aplikacije lahko preklopile v celozaslonski način.</translation>
 <translation id="2043770014371753404">Onemogočeni tiskalniki v podjetjih</translation>
+<translation id="2063380907529983889">Nadzira, kateri tiskalniki iz pravilnika <ph name="BULK_PRINTERS_POLICY" /> so na voljo uporabnikom.
+
+      Določa, kateri pravilnik o dostopu se uporablja za konfiguracijo tiskalnikov v velikem obsegu. Če je izbrana možnost <ph name="PRINTERS_ALLOW_ALL" />, so prikazani vsi tiskalniki. Če je izbrana možnost <ph name="PRINTERS_BLACKLIST" />, se omeji dostop do določenih tiskalnikov s pravilnikom <ph name="BULK_PRINTERS_BLACKLIST" />. Če je izbrana možnost <ph name="PRINTERS_WHITELIST" />, pravilnik <ph name="BULK_PRINTERS_WHITELIST" /> določa samo tiste tiskalnike, ki jih je mogoče izbrati.
+
+      Če ta pravilnik ni nastavljen, se predvideva uporaba pravilnika <ph name="PRINTERS_BLACKLIST" />.
+      </translation>
 <translation id="206623763829450685">Določa, katere načine preverjanja pristnosti HTTP podpira <ph name="PRODUCT_NAME" />.
 
           Možne vrednosti so »basic«, »digest«, »ntlm« in »negotiate«. Več vrednosti ločite z vejicami.
@@ -339,6 +378,7 @@ Vrednost prilagoditve mora biti 100 % ali več.</translation>
 <translation id="2294382669900758280">Predvajanje videoposnetkov v aplikacijah za Android se ne upošteva, tudi če je ta pravilnik nastavljen na <ph name="TRUE" />.</translation>
 <translation id="2298647742290373702">Konfiguriranje privzete strani »Nov zavihek« v brskalniku <ph name="PRODUCT_NAME" />.</translation>
 <translation id="2299220924812062390">Določi seznam omogočenih vtičnikov</translation>
+<translation id="2303795211377219696">Omogočanje samodejnega izpolnjevanja za kreditne kartice</translation>
 <translation id="2309390639296060546">Privzeta nastavitev geolokacije</translation>
 <translation id="2312134445771258233">Omogoča, da nastavite strani, ki se naložijo pri zagonu.
 
@@ -509,16 +549,14 @@ napravi konfiguriran tako, da pri samodejni prijavi ni zakasnitve, naprava pa ni
 <translation id="2762164719979766599">Določa seznam lokalnih računov za napravo, ki bodo prikazani na zaslonu za prijavo.
 
       Vsak vnos na seznamu določa identifikator, ki se uporablja interno za razlikovanje med lokalnimi računi za napravo.</translation>
+<translation id="2766302473082018239">Določa tiskalnike, ki jih uporabnik lahko uporablja.
+
+      Ta pravilnik se uporablja samo, če je za pravilnik <ph name="BULK_PRINTERS_ACCESS_MODE" /> izbrana možnost <ph name="PRINTERS_WHITELIST" />.
+
+      Če se uporablja ta pravilnik, so uporabniku na voljo samo tiskalniki z ID-ji, ki se ujemajo z vrednostmi v tem pravilniku. ID-ji morajo ustrezati vnosom v datoteki, določeni v pravilniku <ph name="BULK_PRINTERS_POLICY" />.
+      </translation>
 <translation id="2769952903507981510">Nastavitev zahtevanega imena domene za dostop do oddaljenih gostiteljev</translation>
 <translation id="2787173078141616821">Poročanje podatkov o stanju Androida</translation>
-<translation id="2794520838025002425">Določa, katerih tiskalnikov uporabnik ne more uporabljati.
-
-      Ta pravilnik se uporablja samo, če je za pravilnik NativePrintersBulkAccessMode
-      izbrana možnost BlacklistRestriction.
-
-      Če se ta pravilnik uporablja, so uporabniku na voljo vsi tiskalniki z izjemo
-      ID-jev, navedenih v tem pravilniku.
-      </translation>
 <translation id="2801230735743888564">Uporabnikom dovoli igranje skrite igre z dinozavrom, ko je naprava brez internetne povezave.
 
       Če je ta pravilnik onemogočen, uporabniki ne bodo mogli igrati skrite igre z dinozavrom, ko je naprava brez internetne povezave. Če je nastavitev omogočena, bodo uporabniki lahko igrali igro. Če ta pravilnik ni nastavljen, uporabniki igre ne bodo mogli igrati v včlanjenem OS Chrome, lahko pa jo bodo igrali v drugih okoliščinah.</translation>
@@ -530,6 +568,7 @@ napravi konfiguriran tako, da pri samodejni prijavi ni zakasnitve, naprava pa ni
           Če je ta nastavitev onemogočena in izhodne povezave UDP filtrira požarni zid, bo ta računalnik dovolil samo povezave iz odjemalskih računalnikov v lokalnem omrežju.
 
           Če ta pravilnik ni nastavljen, bo nastavitev omogočena.</translation>
+<translation id="2823870601012066791">Lokacija registra sistema Windows za odjemalce s sistemom <ph name="PRODUCT_OS_NAME" />:</translation>
 <translation id="2824715612115726353">Omogoči način brez beleženja zgodovine</translation>
 <translation id="2838830882081735096">Prepoved selitve podatkov in ARC-ja</translation>
 <translation id="2844404652289407061">Omogoči razpoložljivost funkcije »Dotaknite se za iskanje« v pogledu vsebine brskalnika <ph name="PRODUCT_NAME" />.
@@ -676,7 +715,24 @@ napravi konfiguriran tako, da pri samodejni prijavi ni zakasnitve, naprava pa ni
 <translation id="332771718998993005">Določanje sporočenega imena cilja za napravo <ph name="PRODUCT_NAME" />.
 
           Če je pravilnik nastavljen na niz, ki ni prazen, je ta niz uporabljen kot ime cilja za napravo <ph name="PRODUCT_NAME" />, sicer pa je ime cilja ime naprave. Če ta pravilnik ni nastavljen, je ime cilja ime naprave in lastnik naprave (ali uporabnik v domeni, ki upravlja napravo) ga sme spremeniti. Ime je omejeno na 24 znakov dolžine.</translation>
+<translation id="3356249700768900657">
+      OPOMBA: Ta pravilnik je poskusen in lahko povzroči nedelovanje funkcije.
+      Oglejte si nastavitev pravilnika IsolateOrigins, če želite izkoristiti
+      prednosti obeh nastavitev, osamitve in omejenega vpliva za uporabnike, tako da uporabite
+      pravilnik IsolateOrigins s seznamom spletnih mest, ki jih želite osamiti. Ta nastavitev,
+      SitePerProcess, osami vsa spletna mesta.
+      Če je pravilnik omogočen, vsako spletno mesto izvaja svoj proces.
+      Če je pravilnik onemogočen, se uveljavi logika upravljanja procesov vnaprejšnje
+      osamitve spletnih mest.
+      Če pravilnik ni konfiguriran, bo uporabnik lahko spremenil to nastavitev.
+      </translation>
 <translation id="3381968327636295719">Privzeto uporabi brskalnik gostitelja</translation>
+<translation id="3395348522300156660">Določa tiskalnike, ki jih uporabnik lahko uporablja.
+
+      Ta pravilnik se uporablja samo, če je za pravilnik <ph name="DEVICE_PRINTERS_ACCESS_MODE" /> izbrana možnost <ph name="PRINTERS_WHITELIST" />.
+
+      Če se uporablja ta pravilnik, so uporabniku na voljo samo tiskalniki z ID-ji, ki se ujemajo z vrednostmi v tem pravilniku. ID-ji morajo ustrezati vnosom v datoteki, določeni v pravilniku <ph name="DEVICE_PRINTERS_POLICY" />.
+      </translation>
 <translation id="3417418267404583991">Če je ta pravilnik omogočen ali ni nastavljen, <ph name="PRODUCT_OS_NAME" /> omogoči prijave gostov. Prijave gostov so anonimne seje uporabnikov in ne zahtevajo gesla.
 
       Če je pravilnik onemogočen, <ph name="PRODUCT_OS_NAME" /> ne omogoča sej gosta.</translation>
@@ -900,6 +956,7 @@ napravi konfiguriran tako, da pri samodejni prijavi ni zakasnitve, naprava pa ni
           Vrednost pravilnika naj bo navedena v milisekundah.</translation>
 <translation id="4105989332710272578">Onemogočanje uveljavljanja pravilnika o preglednosti potrdila za seznam URL-jev</translation>
 <translation id="4121350739760194865">Onemogoči prikaz oglasov za programe na strani »Nov zavihek«.</translation>
+<translation id="4133144443101280166">Intervali zunaj delovnega časa, ko pravilniki OffHours |ignored_policy_proto_tags| niso aktivni</translation>
 <translation id="4157003184375321727">Pošiljanje podatkov o različici operacijskega sistema in vdelane programske opreme</translation>
 <translation id="4183229833636799228">Privzeta nastavitev za <ph name="FLASH_PLUGIN_NAME" /></translation>
 <translation id="4192388905594723944">URL za preverjanje žetona za preverjanje pristnosti odjemalca za oddaljeni dostop</translation>
@@ -1025,7 +1082,6 @@ Vrednost pravilnika mora vedno biti navedena v sekundah. Vrednosti so navzdol om
 <translation id="4541530620466526913">Lokalni računi za napravo</translation>
 <translation id="4555850956567117258">Omogoči oddaljeno potrditev za uporabnika</translation>
 <translation id="4557134566541205630">URL novega zavihka s povezavami privzetega iskalnika</translation>
-<translation id="4558592878156368639">Intervali zunaj delovnega časa, ko pravilniki OffHours |ignored_policies| niso aktivni.</translation>
 <translation id="4600786265870346112">Omogoči velik kazalec</translation>
 <translation id="4604931264910482931">Konfiguracija seznama blokiranih za izvorno pošiljanje sporočil</translation>
 <translation id="4617338332148204752">Preskoči preverjanje metaoznak v izdelku <ph name="PRODUCT_FRAME_NAME" /></translation>
@@ -1049,6 +1105,7 @@ Vrednost pravilnika mora vedno biti navedena v sekundah. Vrednosti so navzdol om
           Primere vzorcev si lahko ogledate na https://www.chromium.org/developers/how-tos/chrome-frame-getting-started.</translation>
 <translation id="467449052039111439">Odpri seznam URL-jev</translation>
 <translation id="4680961954980851756">Omogoči samodejno izpolnjevanje</translation>
+<translation id="4722122254122249791">Omogočanje osamitve spletnih mest za določene izvore</translation>
 <translation id="4722399051042571387">Če je nastavitev onemogočena, uporabniki ne bodo mogli nastaviti kod PIN, ki so šibke in jih je mogoče preprosto uganiti.
 
           Nekaj primerov šibkih kod PIN: kode, ki vsebujejo samo eno števko (1111), kode, pri katerih se števke povečujejo za številko 1 (1234), kode, pri katerih se števke zmanjšujejo za številko 1 (4321), in kode, ki so preveč pogoste.
@@ -1123,9 +1180,21 @@ Vrednost pravilnika mora vedno biti navedena v sekundah. Vrednosti so navzdol om
           Vrednost mora biti polje slovarjev JSON v obliki nizov. Vsak slovar mora imeti obliko { "pattern": "$URL_PATTERN", "filter" : $FILTER }, pri čemer je $URL_PATTERN vzorec nastavljanja vsebine. $FILTER omejuje, katera potrdila odjemalcev bo brskalnik izbral samodejno. Ne glede na filter bodo izbrana samo potrdila, ki se ujema z zahtevo strežnika za potrdilo. Če ima $FILTER obliko { "ISSUER": { "CN": "$ISSUER_CN" } }, so poleg tega izbrana samo potrdila odjemalcev, ki jih izda izdajatelj potrdila s pravim imenom $ISSUER_CN. Če je $FILTER prazen slovar {}, izbor potrdil odjemalcev ni dodatno omejen.
 
           Če ta pravilnik ni nastavljen, se za nobeno spletno mesto ne bo izvajal samodejni izbor.</translation>
+<translation id="4978405676361550165">Če je nastavljen pravilnik »OffHours«, so določeni pravilniki za naprave prezrti (uporaba privzetih nastavitev teh pravilnikov) med določenimi časovnimi intervali. Chrome znova uporabi pravilnike za naprave pri vsakem dogodku, ko se začne ali konča obdobje »OffHours«. Uporabnik bo obveščen in prisiljen, da se odjavi, ko bodo spremenjeni konec obdobja »OffHours« in nastavitve pravilnikov za naprave (npr. če je uporabnik prijavljen z nedovoljenim računom).</translation>
 <translation id="4980635395568992380">Vrsta podatkov:</translation>
 <translation id="4983201894483989687">Dovoli izvajanje zastarelih vtičnikov</translation>
 <translation id="4988291787868618635">Dejanje, ki naj se izvede, ko preteče časovni zamik nedejavnosti</translation>
+<translation id="5027819375434797927">
+      OPOMBA: Ta pravilnik je poskusen in lahko povzroči nedelovanje funkcije.
+      Če je pravilnik omogočen, bo vsak naveden izvor
+      s seznama, ločenega z vejicami, izvajal svoj proces. S tem bodo osamljeni
+      tudi izvori, ki jih navedejo poddomene; če na primer navedete https://example.com/,
+      bo kot del spletnega mesta https://example.com/ osamljeno tudi
+      spletno mesto https://foo.example.com/.
+      Če je pravilnik onemogočen, se uveljavi logika upravljanja procesov vnaprejšnje
+      osamitve spletnih mest.
+      Če pravilnik ni konfiguriran, bo uporabnik lahko spremenil to nastavitev.
+      </translation>
 <translation id="5047604665028708335">Omogoči dostop do spletnih mest zunaj paketov vsebine</translation>
 <translation id="5052081091120171147">Če je ta pravilnik omogočen, se zgodovina brskanja uvozi iz trenutnega privzetega brskalnika. Če je omogočen, ta pravilnik vpliva tudi na pogovorno okno za uvoz.
 
@@ -1136,7 +1205,9 @@ Vrednost pravilnika mora vedno biti navedena v sekundah. Vrednosti so navzdol om
 <translation id="5067143124345820993">Seznam odobrenih uporabnikov za prijavo</translation>
 <translation id="5068140065960598044">Pravilnik oblaka za <ph name="PRODUCT_NAME" /> preglasi pravilnik računalnika.</translation>
 <translation id="5085647276663819155">Onemogoči predogled tiskanja</translation>
+<translation id="5090209345759901501">Razširitev nastavitve za vsebino Flash na vso vsebino</translation>
 <translation id="5105313908130842249">Časovni zamik zaklepa zaslona, če se napaja iz akumulatorja</translation>
+<translation id="5108031557082757679">Onemogočeni tiskalniki za naprave v podjetjih</translation>
 <translation id="5130288486815037971">Ali so v protokolu TLS omogočene šifrirne zbirke RC4</translation>
 <translation id="5141670636904227950">Nastavitev privzete vrste lupe, omogočene na prijavnem zaslonu</translation>
 <translation id="5142301680741828703">Vedno upodobi te vzorce URL-jev v programu <ph name="PRODUCT_FRAME_NAME" /></translation>
@@ -1381,6 +1452,7 @@ Vrednost pravilnika mora vedno biti navedena v sekundah. Vrednosti so navzdol om
           Če pravilnik nastavite, ga lahko uporabniki začasno preglasijo tako, da omogočijo ali onemogočijo velik kazalec, vendar ta nastavitev ni trajna, pri čemer se privzeta nastavitev obnovi vsakič, ko je ponovno prikazan prijavni zaslon ali kadar je uporabnik eno minuto nedejaven na prijavnem zaslonu.
 
           Če pravilnika ne nastavite, je velik kazalec onemogočen, ko je prvič prikazan prijavni zaslon. Uporabniki lahko kadar koli omogočijo ali onemogočijo velik kazalec, pri čemer se njegovo stanje na prijavnem zaslonu ohrani med uporabniki.</translation>
+<translation id="5932767795525445337">Ta pravilnik je prav tako mogoče uporabiti za pripenjanje aplikacij za Android.</translation>
 <translation id="5936622343001856595">Uveljavi izvajanje poizvedb v Google Spletnem iskanju z aktiviranim Google Varnim iskanjem in uporabnikom prepreči spreminjanje te nastavitve.
 
       Če to nastavitev omogočite, je Google Varno iskanje v Iskanju Google vedno aktivno.
@@ -1410,6 +1482,53 @@ Vrednost pravilnika mora vedno biti navedena v sekundah. Vrednosti so navzdol om
 
       Če ta pravilnik ni nastavljen ali je nastavljen na »false«, ukazi za tiskanje sprožijo zaslon za predogled tiskanja.</translation>
 <translation id="6022948604095165524">Dejanje ob zagonu</translation>
+<translation id="6023030044732320798">Določa nabor pravilnikov, ki bodo posredovani izvajalniku ARC. Vrednost mora biti veljavna datoteka JSON.
+
+      S tem pravilnikom je mogoče konfigurirati, katere aplikacije za Android so samodejno nameščene v tej napravi:
+
+      {
+        "type": "object",
+        "properties": {
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "packageName": {
+                  "description": "Identifikator aplikacij za Android, npr. "com.google.android.gm" za Gmail",
+                  "type": "string"
+                },
+                "installType": {
+                  "description": "Določa način namestitve aplikacije. OPTIONAL: aplikacija ni samodejno nameščena, vendar jo uporabnik lahko namesti. Če ta pravilnik ni določen, je to privzeta vrednost. PRELOAD: aplikacija je samodejno nameščena, vendar jo uporabnik lahko odstrani. FORCE_INSTALLED: aplikacija je samodejno nameščena in uporabnik je ne more odstraniti. BLOCKED: aplikacija je blokirana in je ni mogoče namestiti. Če je bila aplikacija nameščena s prejšnjim pravilnikom, bo odstranjena.",
+                  "type": "string",
+                  "enum": [
+                    "OPTIONAL",
+                    "PRELOAD",
+                    "FORCE_INSTALLED",
+                    "BLOCKED"
+                  ]
+                },
+                "defaultPermissionPolicy": {
+                  "description": "Pravilnik za odobritev dovoljenja za aplikacije. PERMISSION_POLICY_UNSPECIFIED: pravilnik ni določen. Če za dovoljenje na kateri koli ravni ni določen noben pravilnik, potem je privzeto uporabljeno vedenje »PROMPT«. PROMPT: poziv za uporabnika, da odobri dovoljenje. GRANT: samodejno odobreno dovoljenje. DENY: samodejno zavrnjeno dovoljenje.",
+                  "type": "string",
+                  "enum": [
+                    "PERMISSION_POLICY_UNSPECIFIED",
+                    "PROMPT",
+                    "GRANT",
+                    "DENY"
+                  ]
+                },
+                "managedConfiguration": {
+                  "description": "Konfiguracijski objekt JSON za posamezno aplikacijo z naborom parov ključa (key) in vrednosti (value), npr. '"managedConfiguration": »{ "key1": value1, "key2": value2 }«. Ključi so definirani v manifestu aplikacije.",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+
+      Če želite pripeti aplikacije v zaganjalnik, si oglejte PinnedLauncherApps.</translation>
 <translation id="602728333950205286">Privzeti URL iskalnika za dinamično iskanje</translation>
 <translation id="603410445099326293">Parametri za URL predloga, ki uporablja POST</translation>
 <translation id="6036523166753287175">Omogoči prehod skozi požarni zid iz gostitelja za oddaljeni dostop</translation>
@@ -1418,6 +1537,7 @@ Vrednost pravilnika mora vedno biti navedena v sekundah. Vrednosti so navzdol om
 <translation id="6076099373507468537">Določa seznam naprav USB, za katere je dovoljena prekinitev povezave z gonilnikom jedra zaradi uporabe prek API-ja chrome.usb neposredno v spletni aplikaciji. Vnosi so pari, ki so sestavljeni iz identifikatorja proizvajalca za USB in identifikatorja izdelka ter ki omogočajo prepoznavo posamezne strojne opreme.
 
       Če ta pravilnik ni nastavljen, je seznam naprav USB, katerih povezavo je mogoče prekiniti, prazen.</translation>
+<translation id="6083631234867522991">Windows (odjemalci s sistemom Windows):</translation>
 <translation id="6093156968240188330">Omogoči oddaljenim uporabnikom uporabo oken s skrbniškimi pravicami v sejah oddaljene pomoči</translation>
 <translation id="6095999036251797924">Določi trajanje uporabnikove nedejavnosti, po preteku katere se zaslon zaklene, če se napaja iz električnega omrežja ali akumulatorja.
 
@@ -1433,7 +1553,6 @@ Vrednost pravilnika mora vedno biti navedena v sekundah. Vrednosti so navzdol om
 <translation id="6111936128861357925">Dovoli skrito igro z dinozavrom</translation>
 <translation id="6114416803310251055">zastarelo</translation>
 <translation id="6133088669883929098">Vsem spletnim mestom dovoli uporabo ustvarjanja ključev</translation>
-<translation id="6139485614509308022">Če je nastavljen pravilnik »OffHours«, so določeni pravilniki za naprave prezrti (uporabite privzete nastavitve teh pravilnikov) med določenimi časovnimi intervali. Chrome znova uporabi pravilnike za naprave pri vsakem dogodku, ko se začne ali konča obdobje »OffHours«. Uporabnik bo obveščen in prisiljen, da se odjavi, ko bodo spremenjeni konec obdobja »OffHours« in nastavitve pravilnikov za naprave (tj. če je uporabnik prijavljen z nedovoljenim računom).</translation>
 <translation id="6145799962557135888">Omogoča nastavitev seznama vzorcev URL-jev, s katerim so določena mesta, ki smejo izvajati JavaScript.
 
           Če ta pravilnik ni nastavljen, bo za vsa spletna mesta uporabljena splošna privzeta vrednost iz pravilnika »DefaultJavaScriptSetting«, kadar je ta nastavljen, ali iz uporabnikove osebne konfiguracije, kadar pravilnik »DefaultImagesSetting« ni nastavljen.</translation>
@@ -1523,6 +1642,11 @@ Vrednost pravilnika mora vedno biti navedena v sekundah. Vrednosti so navzdol om
           Če izberete, da se uporablja skript .pac za strežnik proxy, se aplikacijam za Android posreduje URL skripta.</translation>
 <translation id="6491139795995924304">Omogočanje Bluetootha v napravi</translation>
 <translation id="6520802717075138474">Uvoz iskalnikov privzetega brskalnika ob prvem zagonu</translation>
+<translation id="6525955212636890608">Če omogočite to nastavitev, se bo izvajala vsa vsebina Flash, vdelana na spletnih mestih, za katere je bilo v nastavitvah vsebine nastavljeno, da se na njih sme izvajati vsebina Flash – ne glede na to, ali je to storil uporabnik ali je bilo to izvedeno s pravilnikom podjetja –, vključno z vsebino drugega izvora ali majhno vsebino.
+
+      Če želite nadzirati, katerim spletnim mestom je dovoljeno izvajati vsebino Flash, si oglejte pravilnika »DefaultPluginsSetting«, »PluginsAllowedForUrls« in »PluginsBlockedForUrls«.
+
+      Če je ta nastavitev onemogočena ali ni nastavljena, bo vsebina Flash drugega izvora ali majhna vsebina blokirana.</translation>
 <translation id="653608967792832033">Določa trajanje uporabnikove nedejavnosti, po preteku katere se zaslon zaklene, če se napaja iz akumulatorja.
 
           Če je pravilnik nastavljen na vrednost nad nič, določa trajanje, v katerem mora biti uporabnik nedejaven in po preteku katerega <ph name="PRODUCT_OS_NAME" /> zaklene zaslon.
@@ -1778,6 +1902,7 @@ URL-ji, ki uporabljajo sheme s tega seznama, se ne bodo naložili in dostop do n
       Če ta pravilnik ni nastavljen, samodejno čiščenje uporablja privzeto vgrajeno strategijo. Trenutno je to strategija »RemoveLRUIfDormant«.</translation>
 <translation id="7336878834592315572">Ohrani piškotke za obdobje trajanja seje</translation>
 <translation id="7340034977315324840">Pošiljanje podatkov o času dejavnosti v napravi</translation>
+<translation id="7343497214039883642">Datoteka s konfiguracijami tiskalnikov v podjetjih za naprave</translation>
 <translation id="7384999953864505698">Dovoli protokol QUIC</translation>
 <translation id="7417972229667085380">Odstotek prilagoditve časovnega zamika nedejavnosti v načinu predstavitve (zastarelo)</translation>
 <translation id="7421483919690710988">Nastavi velikost predpomnilnika medija v bajtih</translation>
@@ -1787,7 +1912,6 @@ URL-ji, ki uporabljajo sheme s tega seznama, se ne bodo naložili in dostop do n
       Če ta pravilnik ni nastavljen ali je onemogočen, je funkcija <ph name="TLS_FALSE_START" /> omogočena. Če je omogočen, je funkcija <ph name="TLS_FALSE_START" /> onemogočena.</translation>
 <translation id="7433714841194914373">Omogoči Dinamično iskanje</translation>
 <translation id="7443616896860707393">Ukazni pozivi HTTP Basic Auth iz več izvorov</translation>
-<translation id="7468416082528382842">Lokacija registra sistema Windows:</translation>
 <translation id="7469554574977894907">Omogoči predloge za iskanje</translation>
 <translation id="7474249562477552702">Ali so dovoljena potrdila, podpisana z algoritmom SHA-1, ki jih izdajo lokalna sidra zaupanja</translation>
 <translation id="7485481791539008776">Pravila za izbiro privzetega tiskalnika</translation>
@@ -1921,6 +2045,39 @@ URL-ji, ki uporabljajo sheme s tega seznama, se ne bodo naložili in dostop do n
 <translation id="7841880500990419427">Najnižja različica TLS-ja za rezervno uporabo</translation>
 <translation id="7842869978353666042">Konfigurira možnosti storitve Google Drive</translation>
 <translation id="7843525027689416831">Določa zastavice, ki naj se uporabijo za <ph name="PRODUCT_NAME" />, ko se zažene. Izbrane zastavice se uporabijo samo na zaslonu za prijavo. Zastavice, nastavljene prek tega pravilnika, se ne prenesejo v uporabniške seje.</translation>
+<translation id="7844537954833753199">Konfigurira nastavitve upravljanja razširitev za brskalnik <ph name="PRODUCT_NAME" />.
+
+          Ta pravilnik nadzira več nastavitev, vključno z nastavitvami, ki jih nadzirajo morebitni obstoječi pravilniki, povezani z razširitvami. Ta pravilnik preglasi morebitne starejše pravilnike, če so nastavljeni oboji.
+
+          Ta pravilnik preslika ID razširitve ali URL za posodobitev v svojo konfiguracijo. Konfiguracija z ID-jem razširitve bo uporabljena samo za določeno razširitev. Za posebni ID <ph name="DEFAULT_SCOPE" /> je mogoče nastaviti privzeto konfiguracijo, ki se bo uporabila za vse razširitve, ki v tem pravilniku nimajo nastavljene konfiguracije po meri. Konfiguracija z URL-jem za posodobitev bo uporabljena za vse razširitve s točno določenim URL-jem za posodobitev, navedenim v manifestu te razširitve, kot je opisano na <ph name="LINK_TO_EXTENSION_DOC1" />.
+
+          Konfiguracija za posamezno razširitev (ali razširitve z istim URL-jem za posodobitev) je drug slovar, ki lahko vsebuje spodaj dokumentirana polja.
+
+          <ph name="INSTALLATION_MODE" />: Preslika v niz, ki navaja način namestitve za razširitev. Veljavni nizi so:
+          * <ph name="ALLOWED" />: Uporabniku dovoli namestitev razširitve. To je privzeto delovanje.
+          * <ph name="BLOCKED" />: Blokira namestitev razširitve.
+          * <ph name="FORCE_INSTALLED" />: Razširitev je samodejno nameščena in je uporabnik ne more odstraniti.
+          * <ph name="NORMAL_INSTALLED" />: Razširitev je samodejno nameščena, vendar jo lahko uporabnik onemogoči.
+
+          Vrednost <ph name="INSTALLTION_MODE" /> je prav tako mogoče konfigurirati za več razširitev, vključno z razširitvijo <ph name="DEFAULT_SCOPE" /> (kot privzeta nastavitev) in razširitvami z istim URL-jem za posodobitev. V tem primeru je mogoče uporabiti samo vrednosti <ph name="ALLOWED" /> in <ph name="BLOCKED" />.
+
+          Če je način nastavljen na vrednost <ph name="FORCE_INSTALLED" /> ali <ph name="NORMAL_INSTALLED" />, mora biti konfigurirana tudi vrednost <ph name="UPDATE_URL" />. URL za posodobitev, nastavljen v tem pravilniku, se uporabi samo pri začetni namestitvi; pri vseh nadaljnjih posodobitvah razširitve je uporabljen URL za posodobitev, naveden v manifestu razširitve. URL za posodobitev mora kazati na dokument XML manifesta za posodobitev, omenjenega zgoraj.
+
+          <ph name="BLOCKED_PERMISSIONS" />: Preslika v seznam nizov, ki navajajo blokirana dovoljenja za API-je za razširitev. Imena dovoljenj so enaka kot nizi dovoljenj, navedeni v manifestu razširitve, kot je opisano na <ph name="LINK_TO_EXTENSION_DOC3" />. To nastavitev je prav tako mogoče konfigurirati za razširitev <ph name="DEFAULT_SCOPE" />. Če razširitev zahteva dovoljenje s seznama blokiranih, se ne bo smela naložiti. Če razširitev vsebuje blokirano dovoljenje kot izbirno zahtevo, se bo obravnavala običajno, vendar bo pri izvajanju zahtevanje dovoljenj, ki so v sporu, samodejno zavrnjeno.
+
+          <ph name="ALLOWED_PERMISSIONS" />: Podobna vrednosti <ph name="BLOCKED_PERMISSIONS" />, razlikuje pa se po tem, da izrecno dovoljuje nekatera dovoljenja, ki jih globalni seznam blokiranih dovoljenj morda blokira, tako da je ni mogoče konfigurirati za razširitev <ph name="DEFAULT_SCOPE" />. Ta nastavitev razširitvam ne podeljuje odobrenih dovoljenj samodejno.
+
+          <ph name="MINIMUM_VERSION_REQUIRED" />: Preslika v niz z različico. Oblika niza z različico je enaka obliki niza v manifestu razširitve, kot je opisano na <ph name="LINK_TO_EXTENSION_DOC4" />. Razširitev z različico, starejšo od določene najnižje različice, bo onemogočena. To velja tudi za vsiljeno nameščene razširitve.
+
+          Te nastavitve je mogoče uporabiti samo za privzeto konfiguracijo <ph name="DEFAULT_SCOPE" />:
+
+          <ph name="INSTALL_SOURCES" />: Vsak element na tem seznamu je vzorec ujemanja v slogu razširitve (<ph name="LINK_TO_MATCH_PATTERNS" />). Uporabniki bodo lahko preprosto namestili elemente s poljubnega URL-ja, ki se ujema z elementom na tem seznamu. Mesto datoteke <ph name="EXTENSION_SUFFIX_WILDCARD" /> in strani, na kateri se prenos začne (tj. napotitelj), morajo dovoljevati vzorci s tega seznama.
+
+          <ph name="ALLOWED_TYPES" />: Ta nastavitev uvršča na seznam dovoljenih dovoljene vrste razširitev/aplikacij, ki jih je mogoče namestiti v brskalniku <ph name="PRODUCT_NAME" />. Vrednost je seznam nizov, od katerih mora biti vsak nekaj od tega: <ph name="VALID_ALLOWED_TYPES" />. Če želite več informacij o teh vrstah, si oglejte dokumentacijo za razširitve za <ph name="PRODUCT_NAME" />.
+          <ph name="BLOCKED_INSTALL_MESSAGE" />: Če uporabnik poskusi namestiti razširitev, vendar to blokira pravilnik, Spletna trgovina Chrome prikaže splošno sporočilo o napaki. Ta nastavitev omogoča, da sporočilu o napaki dodate besedilo. Z njim lahko usmerite uporabnike na oddelek za pomoč uporabnikom, pojasnite razlog za blokiranje določene razširitve ali naredite kaj drugega. Če je sporočilo o napaki daljše od 1000 znakov, bo odrezano.
+          <ph name="RUNTIME_BLOCKED_HOSTS" />: Sprejme seznam blokiranih gostiteljev, ki jih razširitev ne bo mogla uporabljati. To vključuje vstavljanje JavaScripta, spreminjanje in ogledovanje spletnih zahtev/spletnega krmarjenja ter ogledovanje in spreminjanje piškotkov. Oblika je podobna vzorcem ujemanja <ph name="LINK_TO_MATCH_PATTERNS" />, pri čemer poti ne smejo biti določene. Primer: »*://*.example.com«. Prav tako je podprta uporaba nadomestnih znakov v krovnih domenah. Primer: »*://example.*«.
+          <ph name="RUNTIME_ALLOWED_HOSTS" />: Sprejme seznam gostiteljev, ki jih razširitev lahko uporablja ne glede na to, ali so uvrščene na seznam <ph name="RUNTIME_BLOCKED_HOSTS" />. Oblika je enaka kot pri <ph name="RUNTIME_BLOCKED_HOSTS" />.
+          </translation>
 <translation id="787125417158068494">Če je pravilnik nastavljen na »SyncDisabled« ali ni konfiguriran, potrdila sistema <ph name="PRODUCT_OS_NAME" /> niso na voljo za aplikacije ARC.
 
       Če je pravilnik nastavljen na »CopyCaCerts«, so vsa potrdila overitelja potrdil, nameščena s pravilnikom ONC in za katera velja <ph name="WEB_TRUSTED_BIT" />, na voljo za aplikacije ARC.</translation>
@@ -1971,6 +2128,7 @@ URL-ji, ki uporabljajo sheme s tega seznama, se ne bodo naložili in dostop do n
       Če pravilnik ni nastavljen, naprava privzeto uporabi 24-urno obliko zapisa časa.</translation>
 <translation id="8114382167597081590">Ne uveljavi Omejenega načina v YouTubu</translation>
 <translation id="8118665053362250806">Nastavi velikost predpomnilnika predstavnostnega diska</translation>
+<translation id="8124468781472887384">Pravilnik o dostopu do konfiguracij tiskalnikov za naprave.</translation>
 <translation id="8135937294926049787">Določa trajanje uporabnike nedejavnosti, po preteku katere se zaslon izklopi, če se napaja iz električnega omrežja.
 
           Če je pravilnik nastavljen na vrednost nad nič, določa, koliko časa mora biti uporabnik nedejaven, preden <ph name="PRODUCT_OS_NAME" /> izklopi zaslon.
@@ -2003,18 +2161,6 @@ URL-ji, ki uporabljajo sheme s tega seznama, se ne bodo naložili in dostop do n
 
       Če je ta pravilnik onemogočen ali ni nastavljen, se pri prijavi uporabijo navadni profili.</translation>
 <translation id="8158758865057576716">Omogočanje ustvarjanja kopij podatkov profila izdelka <ph name="PRODUCT_NAME" /> za gostovanje.</translation>
-<translation id="8169931650834542988">Nadzira, kateri tiskalniki iz pravilnika
-      NativePrintersBulkConfiguration so na voljo uporabnikom.
-
-      Določa, kateri pravilnik o dostopu se uporablja za konfiguracijo tiskalnikov v velikem obsegu.
-      Če je izbrana možnost AllowAll, so prikazani vsi tiskalniki. Če je izbrana možnost BlacklistRestrction,
-      se omeji dostop do določenih tiskalnikov
-      s pravilnikom NativePrintersBulkBlacklist. Če je izbrana možnost WhitelistPrintersOnly,
-      pravilnik NativePrintersWhitelist določa samo tiste tiskalnike, ki jih je
-      mogoče izbrati.
-
-      Če ta pravilnik ni nastavljen, se predvideva uporaba pravilnika BlacklistRestriction.
-      </translation>
 <translation id="8170878842291747619">Omogoča integrirano storitev Google Prevajalnik v brskalniku <ph name="PRODUCT_NAME" />.
 
      Če to nastavitev omogočite, bo <ph name="PRODUCT_NAME" /> prikazal integrirano orodno vrstico z možnostjo prevoda strani za uporabnika, ko bo to primerno.
@@ -2102,18 +2248,9 @@ URL-ji, ki uporabljajo sheme s tega seznama, se ne bodo naložili in dostop do n
 <translation id="8424255554404582727">Nastavitev privzetega sukanja zaslona, ki se znova uveljavi pri vsakem vnovičnem zagonu</translation>
 <translation id="8426231401662877819">Sukanje zaslona v smeri urnega kazalca za 90 stopinj</translation>
 <translation id="8451988835943702790">Uporabi stran za nov zavihek kot domačo stran</translation>
-<translation id="8458790683633857482">Določa nabor pravilnikov, ki bodo posredovani izvajalniku ARC. Vrednost mora biti veljavna datoteka JSON.</translation>
 <translation id="8465065632133292531">Parametri za takojšnji URL, ki uporablja POST</translation>
 <translation id="847472800012384958">Nobenemu mestu ne dovoli prikaza pojavnih oken</translation>
 <translation id="8477885780684655676">TLS 1.0</translation>
-<translation id="8480767919856518465">Določa tiskalnike, ki jih uporabnik lahko uporablja.
-
-      Ta pravilnik se uporablja samo, če je za pravilnik NativePrintersBulkAccessMode
-      izbrana možnost WhitelistPrintersOnly.
-
-      Če se uporablja ta pravilnik, so uporabniku na voljo samo tiskalniki z ID-ji, ki se ujemajo z vrednostmi
-      v tem pravilniku. ID-ji morajo ustrezati
-      vnosom v datoteki, določeni v pravilniku NativePrintersBulkConfiguration.</translation>
 <translation id="8484458986062090479">Prilagodi seznam vzorcev URL-jev, ki naj jih vedno upodobi gostiteljski brskalnik.
 
           Če ta pravilnik ni nastavljen, bo za vsa spletna mesta, določena s pravilnikom »ChromeFrameRendererSettings«, uporabljen privzeti upodabljalnik.
@@ -2122,32 +2259,14 @@ URL-ji, ki uporabljajo sheme s tega seznama, se ne bodo naložili in dostop do n
 <translation id="8493645415242333585">Onemogoči shranjevanje zgodovine brskalnika</translation>
 <translation id="8499172469244085141">Privzete nastavitve (uporabniki jih lahko preglasijo)</translation>
 <translation id="8519264904050090490">URL-ji ročnih izjem za upravljanega uporabnika</translation>
+<translation id="8527932539502116028">Določa tiskalnike, ki jih uporabnik ne more uporabljati.
+
+      Ta pravilnik se uporablja samo, če je za pravilnik <ph name="BULK_PRINTERS_ACCESS_MODE" /> izbrana možnost <ph name="PRINTERS_BLACKLIST" />.
+
+      Če se uporablja ta pravilnik, so uporabniku na voljo vsi tiskalniki z izjemo ID-jev, navedenih v tem pravilniku.
+      </translation>
 <translation id="8544375438507658205">Privzeti upodabljalnik HTML-ja za <ph name="PRODUCT_FRAME_NAME" /></translation>
 <translation id="8549772397068118889">Opozori pri odpiranju spletnih mest zunaj paketov vsebine</translation>
-<translation id="8555589883248082762">Posreduje konfiguracije za tiskalnike v podjetjih.
-
-      Ta pravilnik vam omogoča, da posredujete konfiguracije tiskalnikov
-      napravam z operacijskim sistemom <ph name="PRODUCT_OS_NAME" />.
-      Velikost datoteke ne sme presegati 5 MB in mora biti kodirana v obliki JSON.
-      Oblika je enaka obliki imenika NativePrinters. Ocenjuje se,
-      da je datoteka, ki vsebuje približno 21.000 tiskalnikov, kodirana kot datoteka velikosti 5 MB.
-      Za preverjanje celovitosti se uporablja kriptografska zgoščevalna
-      vrednost.
-
-      Datoteka se prenese in shrani v predpomnilnik. Ob vsaki spremembi URL-ja ali zgoščevalne vrednosti
-      se znova prenese.
-
-      Če je ta pravilnik nastavljen,
-      <ph name="PRODUCT_OS_NAME" /> prenese
-      datoteko s konfiguracijami tiskalnikov in omogoči, da so tiskalniki na voljo
-      skladno s pravilniki NativePrintersBulkAccessMode, NativePrintersBulkWhitelist
-      in NativePrintersBulkBlacklist.
-
-      Če nastavite ta pravilnik, ga uporabniki ne bodo mogli spremeniti ali preglasiti.
-
-      Ta pravilnik ne vpliva na to, ali lahko uporabniki konfigurirajo tiskalnike
-      v posameznih napravah. Namenjen je kot dopolnilo
-      konfiguracijam tiskalnikov, ki jih opravijo posamezni uporabniki.</translation>
 <translation id="8566842294717252664">Skrivanje spletne trgovine na strani »Nov zavihek« in v zaganjalniku aplikacij</translation>
 <translation id="8587229956764455752">Omogoči ustvarjanje novih uporabniških računov</translation>
 <translation id="8614804915612153606">Onemogoči samodejno posodabljanje</translation>
@@ -2158,6 +2277,7 @@ URL-ji, ki uporabljajo sheme s tega seznama, se ne bodo naložili in dostop do n
           Če je ta možnost nastavljena na »false«, naprava za zaščito vsebine ne bo uporabljala oddaljenega potrjevanja in naprava morda ne bo mogla predvajati zaščitene vsebine.
 
           Če je ta možnost nastavljena na »true«, se lahko za zaščito vsebine uporablja oddaljeno preverjanje.</translation>
+<translation id="8650974590712548439">Lokacija registra sistema Windows za odjemalce s sistemom Windows:</translation>
 <translation id="8654286232573430130">Določa, kateri strežniki naj bodo dodani na seznam dovoljenih za vgrajeno preverjanje pristnosti. Vgrajeno preverjanje pristnosti je omogočeno samo, kadar <ph name="PRODUCT_NAME" /> prejme poziv za preverjanje pristnosti iz strežnika proxy ali strežnika, ki je na tem seznamu dovoljenih.
 
           Imena strežnikov ločite z vejicami. Nadomestni znaki (*) so dovoljeni.
@@ -2225,6 +2345,18 @@ URL-ji, ki uporabljajo sheme s tega seznama, se ne bodo naložili in dostop do n
 
           Vrednost pravilnika naj bo navedena v milisekundah. Vrednosti morajo biti manjše od časovnega zamika nedejavnosti.</translation>
 <translation id="891435090623616439">kodirano kot niz JSON; več informacij je na voljo na <ph name="COMPLEX_POLICIES_URL" /></translation>
+<translation id="8927384992072706174">Posreduje konfiguracije za tiskalnike v podjetjih.
+
+      Ta pravilnik vam omogoča, da posredujete konfiguracije tiskalnikov napravam z operacijskim sistemom <ph name="PRODUCT_OS_NAME" />. Velikost datoteke ne sme presegati 5 MB in mora biti kodirana v obliki JSON. Oblika je enaka obliki imenika NativePrinters. Ocenjuje se, da je datoteka, ki vsebuje približno 21.000 tiskalnikov, kodirana kot datoteka velikosti 5 MB. Za preverjanje celovitosti se uporablja kriptografska zgoščevalna vrednost.
+
+      Datoteka se prenese in shrani v predpomnilnik. Ob vsaki spremembi URL-ja ali zgoščevalne vrednosti se znova prenese.
+
+      Če je ta pravilnik nastavljen, <ph name="PRODUCT_OS_NAME" /> prenese datoteko s konfiguracijami tiskalnikov in omogoči, da so tiskalniki na voljo skladno s pravilniki <ph name="BULK_PRINTERS_ACCESS_MODE" />, <ph name="BULK_PRINTERS_WHITELIST" /> in <ph name="BULK_PRINTERS_BLACKLIST" />.
+
+      Če nastavite ta pravilnik, ga uporabniki ne bodo mogli spremeniti ali preglasiti.
+
+      Ta pravilnik ne vpliva na to, ali lahko uporabniki konfigurirajo tiskalnike v posameznih napravah. Namenjen je kot dopolnilo konfiguracijam tiskalnikov, ki jih opravijo posamezni uporabniki.
+      </translation>
 <translation id="8947415621777543415">Prijava lokacije naprave</translation>
 <translation id="8951350807133946005">Nastavi imenik predpomnilnika diska</translation>
 <translation id="8952317565138994125">Onemogoča sinhronizacijo podatkov v izdelku <ph name="PRODUCT_NAME" /> s storitvami sinhronizacije, ki jih gosti Google, in uporabnikom prepreči spreminjanje te nastavitve.

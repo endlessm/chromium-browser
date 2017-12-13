@@ -43,6 +43,7 @@
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
+#include "ui/views/layout/layout_provider.h"
 #include "ui/views/shadow_border.h"
 #include "ui/views/widget/widget.h"
 
@@ -126,7 +127,10 @@ class SearchBoxBackground : public views::Background {
 class SearchBoxImageButton : public views::ImageButton {
  public:
   explicit SearchBoxImageButton(views::ButtonListener* listener)
-      : ImageButton(listener), selected_(false) {}
+      : ImageButton(listener), selected_(false) {
+    if (features::IsAppListFocusEnabled())
+      SetFocusBehavior(FocusBehavior::ALWAYS);
+  }
   ~SearchBoxImageButton() override {}
 
   bool selected() { return selected_; }
@@ -173,7 +177,8 @@ class SearchBoxImageButton : public views::ImageButton {
 class SearchBoxTextfield : public views::Textfield {
  public:
   explicit SearchBoxTextfield(SearchBoxView* search_box_view)
-      : search_box_view_(search_box_view) {}
+      : search_box_view_(search_box_view),
+        is_app_list_focus_enabled_(features::IsAppListFocusEnabled()) {}
   ~SearchBoxTextfield() override = default;
 
   // Overridden from views::View:
@@ -190,8 +195,23 @@ class SearchBoxTextfield : public views::Textfield {
         ui::MENU_SOURCE_KEYBOARD);
   }
 
+  void OnFocus() override {
+    if (is_app_list_focus_enabled_)
+      search_box_view_->SetSelected(true);
+    Textfield::OnFocus();
+  }
+
+  void OnBlur() override {
+    if (is_app_list_focus_enabled_)
+      search_box_view_->SetSelected(false);
+    Textfield::OnBlur();
+  }
+
  private:
   SearchBoxView* const search_box_view_;
+
+  // Whether the app list focus is enabled.
+  const bool is_app_list_focus_enabled_;
 
   DISALLOW_COPY_AND_ASSIGN(SearchBoxTextfield);
 };
@@ -205,6 +225,7 @@ SearchBoxView::SearchBoxView(SearchBoxViewDelegate* delegate,
       search_box_(new SearchBoxTextfield(this)),
       app_list_view_(app_list_view),
       is_fullscreen_app_list_enabled_(features::IsFullscreenAppListEnabled()),
+      is_app_list_focus_enabled_(features::IsAppListFocusEnabled()),
       focused_view_(is_fullscreen_app_list_enabled_ ? FOCUS_NONE
                                                     : FOCUS_SEARCH_BOX) {
   SetPaintToLayer();
@@ -228,7 +249,8 @@ SearchBoxView::SearchBoxView(SearchBoxViewDelegate* delegate,
       views::BoxLayout::kHorizontal, gfx::Insets(0, kPadding),
       (is_fullscreen_app_list_enabled_ ? kInnerPaddingFullscreen
                                        : kInnerPadding) -
-          views::Textfield::kTextPadding);
+          views::LayoutProvider::Get()->GetDistanceMetric(
+              views::DISTANCE_TEXTFIELD_HORIZONTAL_TEXT_PADDING));
   content_container_->SetLayoutManager(box_layout_);
   box_layout_->set_cross_axis_alignment(
       views::BoxLayout::CROSS_AXIS_ALIGNMENT_CENTER);
@@ -637,6 +659,25 @@ void SearchBoxView::OnMouseEvent(ui::MouseEvent* event) {
   HandleSearchBoxEvent(event);
 }
 
+void SearchBoxView::OnKeyEvent(ui::KeyEvent* event) {
+  app_list_view_->OnKeyEvent(event);
+
+  if (event->handled() || event->type() != ui::ET_KEY_PRESSED)
+    return;
+
+  if (event->key_code() != ui::VKEY_UP && event->key_code() != ui::VKEY_DOWN)
+    return;
+
+  // If focus is in search box view, up key moves focus to the last element of
+  // contents view, while down key moves focus to the first element of contents
+  // view.
+  views::View* v = GetFocusManager()->GetNextFocusableView(
+      contents_view_, GetWidget(), event->key_code() == ui::VKEY_UP, false);
+  if (v)
+    v->RequestFocus();
+  event->SetHandled();
+}
+
 void SearchBoxView::ButtonPressed(views::Button* sender,
                                   const ui::Event& event) {
   if (back_button_ && sender == back_button_) {
@@ -682,9 +723,11 @@ void SearchBoxView::OnTabletModeChanged(bool started) {
 }
 
 int SearchBoxView::GetSearchBoxBorderCornerRadiusForState(
-    AppListModel::State state) {
-  if (state == AppListModel::STATE_SEARCH_RESULTS)
+    AppListModel::State state) const {
+  if (state == AppListModel::STATE_SEARCH_RESULTS &&
+      !app_list_view_->is_in_drag()) {
     return kSearchBoxBorderCornerRadiusSearchResult;
+  }
   return kSearchBoxBorderCornerRadiusFullscreen;
 }
 
@@ -736,6 +779,36 @@ views::View* SearchBoxView::GetSelectedViewInContentsView() const {
   return static_cast<ContentsView*>(contents_view_)->GetSelectedView();
 }
 
+void SearchBoxView::SetSelected(bool selected) {
+  if (!is_fullscreen_app_list_enabled_)
+    return;
+  if (selected_ == selected)
+    return;
+  selected_ = selected;
+  if (selected) {
+    // Set the ChromeVox focus to the search box.
+    search_box_->NotifyAccessibilityEvent(ui::AX_EVENT_SELECTION, true);
+    if (IsSearchBoxTrimmedQueryEmpty()) {
+      // This includes two situations: query is empty or query is a string of
+      // spaces. In both situations, opened search box is hidden and we need to
+      // show a ring around search box to indicate that it is selected.
+      SetBorder(views::CreateRoundedRectBorder(
+          kSearchBoxBorderWidth, kSearchBoxFocusBorderCornerRadius,
+          kSearchBoxBorderColor));
+    }
+    if (!is_app_list_focus_enabled_ && !search_box_->text().empty()) {
+      // If query is not empty (including a string of spaces), we need to select
+      // the entire text range. When app list focus flag is enabled, query is
+      // automatically selected all when search box is focused.
+      search_box_->SelectAll(false);
+    }
+  } else {
+    SetDefaultBorder();
+  }
+  Layout();
+  SchedulePaint();
+}
+
 void SearchBoxView::UpdateModel() {
   // Temporarily remove from observer to ignore notifications caused by us.
   model_->search_box()->RemoveObserver(this);
@@ -751,6 +824,10 @@ void SearchBoxView::NotifyQueryChanged() {
 
 void SearchBoxView::ContentsChanged(views::Textfield* sender,
                                     const base::string16& new_contents) {
+  if (is_app_list_focus_enabled_) {
+    // Set search box focused when query changes.
+    search_box_->RequestFocus();
+  }
   UpdateModel();
   view_delegate_->AutoLaunchCanceled();
   NotifyQueryChanged();
@@ -769,6 +846,23 @@ void SearchBoxView::ContentsChanged(views::Textfield* sender,
 
 bool SearchBoxView::HandleKeyEvent(views::Textfield* sender,
                                    const ui::KeyEvent& key_event) {
+  if (is_app_list_focus_enabled_) {
+    if (key_event.type() == ui::ET_KEY_PRESSED &&
+        key_event.key_code() == ui::VKEY_RETURN &&
+        !IsSearchBoxTrimmedQueryEmpty()) {
+      // Hitting Enter when focus is on search box opens the first result.
+      ui::KeyEvent event(key_event);
+      views::View* first_result_view =
+          static_cast<ContentsView*>(contents_view_)
+              ->search_results_page_view()
+              ->first_result_view();
+      if (first_result_view)
+        first_result_view->OnKeyEvent(&event);
+    }
+    // TODO(weidongg/766807) Remove this function when the flag is enabled by
+    // default.
+    return false;
+  }
   if (key_event.type() == ui::ET_KEY_PRESSED) {
     if (key_event.key_code() == ui::VKEY_TAB &&
         focused_view_ != FOCUS_CONTENTS_VIEW &&
@@ -1019,35 +1113,6 @@ void SearchBoxView::SetDefaultBorder() {
   SetBorder(
       views::CreateEmptyBorder(kSearchBoxBorderWidth, kSearchBoxBorderWidth,
                                kSearchBoxBorderWidth, kSearchBoxBorderWidth));
-}
-
-void SearchBoxView::SetSelected(bool selected) {
-  if (!is_fullscreen_app_list_enabled_)
-    return;
-  if (selected_ == selected)
-    return;
-  selected_ = selected;
-  if (selected) {
-    // Set the ChromeVox focus to the search box.
-    search_box_->NotifyAccessibilityEvent(ui::AX_EVENT_SELECTION, true);
-    if (IsSearchBoxTrimmedQueryEmpty()) {
-      // This includes two situations: query is empty or query is a string of
-      // spaces. In both situations, opened search box is hidden and we need to
-      // show a ring around search box to indicate that it is selected.
-      SetBorder(views::CreateRoundedRectBorder(
-          kSearchBoxBorderWidth, kSearchBoxFocusBorderCornerRadius,
-          kSearchBoxBorderColor));
-    }
-    if (!search_box_->text().empty()) {
-      // If query is not empty (including a string of spaces), we need to select
-      // the entire text range.
-      search_box_->SelectAll(false);
-    }
-  } else {
-    SetDefaultBorder();
-  }
-  Layout();
-  SchedulePaint();
 }
 
 }  // namespace app_list

@@ -2,10 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import logging
 import os
 
-from telemetry.internal.util import wpr_server
 from telemetry.internal.util import webpagereplay_go_server
 from telemetry.internal.util import ts_proxy_server
 from telemetry.util import wpr_modes
@@ -32,11 +30,9 @@ class NetworkControllerBackend(object):
     self._platform_backend = platform_backend
     self._wpr_mode = None
     self._extra_wpr_args = None
-    self._use_wpr_go = False
     self._archive_path = None
     self._make_javascript_deterministic = None
     self._forwarder = None
-    self._is_test_ca_installed = None
     self._wpr_server = None
     self._ts_proxy_server = None
     self._port_pair = None
@@ -79,7 +75,7 @@ class NetworkControllerBackend(object):
     except AttributeError:
       return None
 
-  def Open(self, wpr_mode, extra_wpr_args, use_wpr_go=False):
+  def Open(self, wpr_mode, extra_wpr_args):
     """Configure and prepare target platform for network control.
 
     This may, e.g., install test certificates and perform any needed setup
@@ -96,8 +92,6 @@ class NetworkControllerBackend(object):
     assert not self.is_open, 'Network controller is already open'
     self._wpr_mode = wpr_mode
     self._extra_wpr_args = extra_wpr_args
-    self._use_wpr_go = use_wpr_go
-    self._InstallTestCa()
 
   def Close(self):
     """Undo changes in the target platform used for network control.
@@ -107,40 +101,10 @@ class NetworkControllerBackend(object):
     self.StopReplay()
     self._StopForwarder()
     self._StopTsProxyServer()
-    self._RemoveTestCa()
     self._make_javascript_deterministic = None
     self._archive_path = None
     self._extra_wpr_args = None
-    self._use_wpr_go = False
     self._wpr_mode = None
-
-  def _InstallTestCa(self):
-    if not self._platform_backend.supports_test_ca or not self._use_wpr_go:
-      return
-    try:
-      self._platform_backend.InstallTestCa()
-      logging.info('Test certificate authority installed on target platform.')
-    except Exception: # pylint: disable=broad-except
-      logging.exception(
-          'Failed to install test certificate authority on target platform. '
-          'Browsers may fall back to ignoring certificate errors.')
-      self._RemoveTestCa()
-
-  @property
-  def is_test_ca_installed(self):
-    return self._is_test_ca_installed
-
-  def _RemoveTestCa(self):
-    if not self._is_test_ca_installed:
-      return
-    try:
-      self._platform_backend.RemoveTestCa()
-    except Exception: # pylint: disable=broad-except
-      # Best effort cleanup - show the error and continue.
-      logging.exception(
-          'Error trying to remove certificate authority from target platform.')
-    finally:
-      self._is_test_ca_installed = False
 
   def StartReplay(self, archive_path, make_javascript_deterministic=False):
     """Start web page replay from a given replay archive.
@@ -209,21 +173,12 @@ class NetworkControllerBackend(object):
   def _StartReplayServer(self):
     """Start the replay server and return the started local_ports."""
     self._StopReplayServer()  # In case it was already running.
-    if self._use_wpr_go:
-      self._wpr_server = webpagereplay_go_server.ReplayServer(
-          self._archive_path,
-          self.host_ip,
-          http_port=0,
-          https_port=0,
-          replay_options=self._ReplayCommandLineArgs())
-    else:
-      self._wpr_server = wpr_server.ReplayServer(
-          self._archive_path,
-          self.host_ip,
-          http_port=0,
-          https_port=0,
-          dns_port=None,
-          replay_options=self._ReplayCommandLineArgs())
+    self._wpr_server = webpagereplay_go_server.ReplayServer(
+        self._archive_path,
+        self.host_ip,
+        http_port=0,
+        https_port=0,
+        replay_options=self._ReplayCommandLineArgs())
     return self._wpr_server.StartServer()
 
   def _StopReplayServer(self):

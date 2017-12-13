@@ -44,20 +44,20 @@ class SearchResultTileItemListViewTest
     if (IsPlayStoreAppSearchEnabled()) {
       scoped_feature_list_.InitWithFeatures(
           {features::kEnableFullscreenAppList,
-           features::kEnablePlayStoreAppSearchDefaultOff},
+           features::kEnablePlayStoreAppSearch},
           {});
     } else {
       scoped_feature_list_.InitWithFeatures(
           {features::kEnableFullscreenAppList},
-          {features::kEnablePlayStoreAppSearchDefaultOff});
+          {features::kEnablePlayStoreAppSearch});
     }
     ASSERT_EQ(IsPlayStoreAppSearchEnabled(),
               features::IsPlayStoreAppSearchEnabled());
 
     // Sets up the views.
     textfield_ = base::MakeUnique<views::Textfield>();
-    view_ = base::MakeUnique<SearchResultTileItemListView>(textfield_.get(),
-                                                           &view_delegate_);
+    view_ = base::MakeUnique<SearchResultTileItemListView>(
+        nullptr, textfield_.get(), &view_delegate_);
     view_->SetResults(view_delegate_.GetModel()->results());
   }
 
@@ -170,7 +170,7 @@ TEST_P(SearchResultTileItemListViewTest, Basic) {
         ->child_at(first_child + i * child_step)
         ->GetAccessibleNodeData(&node_data);
     EXPECT_EQ(ui::AX_ROLE_BUTTON, node_data.role);
-    EXPECT_EQ(base::StringPrintf("PlayStoreApp %d, %d.0, Price %d",
+    EXPECT_EQ(base::StringPrintf("PlayStoreApp %d, Star rating %d.0, Price %d",
                                  i - kInstalledApps, i + 1 - kInstalledApps,
                                  i - kInstalledApps),
               node_data.GetStringAttribute(ui::AX_ATTR_NAME));

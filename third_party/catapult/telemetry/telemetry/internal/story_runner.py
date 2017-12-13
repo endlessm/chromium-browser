@@ -69,7 +69,6 @@ def AddCommandLineArgs(parser):
                     action='store_true', default=False,
                     help='Ignore @Disabled and @Enabled restrictions.')
 
-
 def ProcessCommandLineArgs(parser, args):
   story_module.StoryFilter.ProcessCommandLineArgs(parser, args)
   results_options.ProcessCommandLineArgs(parser, args)
@@ -142,7 +141,7 @@ def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
 
 
 def Run(test, story_set, finder_options, results, max_failures=None,
-        expectations=None, metadata=None):
+        expectations=None, metadata=None, max_num_values=sys.maxint):
   """Runs a given test against a given page_set with the given options.
 
   Stop execution for unexpected exceptions such as KeyboardInterrupt.
@@ -201,6 +200,12 @@ def Run(test, story_set, finder_options, results, max_failures=None,
           state.platform.WaitForBatteryTemperature(35)
           _WaitForThermalThrottlingIfNeeded(state.platform)
           _RunStoryAndProcessErrorIfNeeded(story, results, state, test)
+
+          num_values = len(results.all_page_specific_values)
+          if num_values > max_num_values:
+            msg = 'Too many values: %d > %d' % (num_values, max_num_values)
+            results.AddValue(failure.FailureValue.FromMessage(None, msg))
+
           device_info_diags = _MakeDeviceInfoDiagnostics(state)
         except exceptions.Error:
           # Catch all Telemetry errors to give the story a chance to retry.
@@ -284,14 +289,14 @@ def RunBenchmark(benchmark, finder_options):
 
   # TODO(rnephew): Remove decorators.IsBenchmarkEnabled and IsBenchmarkDisabled
   # when we have fully moved to _CanRunOnPlatform().
-  permanently_disabled = expectations.IsBenchmarkDisabled(
+  expectations_disabled = expectations.IsBenchmarkDisabled(
       possible_browser.platform, finder_options)
   temporarily_disabled = not decorators.IsBenchmarkEnabled(
       benchmark, possible_browser)
 
-  if permanently_disabled or temporarily_disabled or not can_run_on_platform:
+  if expectations_disabled or temporarily_disabled or not can_run_on_platform:
     print '%s is disabled on the selected browser' % benchmark.Name()
-    if finder_options.run_disabled_tests and not permanently_disabled:
+    if finder_options.run_disabled_tests and can_run_on_platform:
       print 'Running benchmark anyway due to: --also-run-disabled-tests'
     else:
       print 'Try --also-run-disabled-tests to force the benchmark to run.'
@@ -329,7 +334,8 @@ def RunBenchmark(benchmark, finder_options):
       benchmark.ValueCanBeAddedPredicate, benchmark_enabled=True) as results:
     try:
       Run(pt, stories, finder_options, results, benchmark.max_failures,
-          expectations=expectations, metadata=benchmark.GetMetadata())
+          expectations=expectations, metadata=benchmark.GetMetadata(),
+          max_num_values=benchmark.MAX_NUM_VALUES)
       return_code = min(254, len(results.failures))
       # We want to make sure that all expectations are linked to real stories,
       # this will log error messages if names do not match what is in the set.
@@ -352,11 +358,8 @@ def RunBenchmark(benchmark, finder_options):
 
     try:
       if finder_options.upload_results:
-        bucket = finder_options.upload_bucket
-        if bucket in cloud_storage.BUCKET_ALIASES:
-          bucket = cloud_storage.BUCKET_ALIASES[bucket]
-        results.UploadTraceFilesToCloud(bucket)
-        results.UploadProfilingFilesToCloud(bucket)
+        results.UploadTraceFilesToCloud()
+        results.UploadProfilingFilesToCloud()
     finally:
       duration = time.time() - start
       results.AddSummaryValue(scalar.ScalarValue(
@@ -456,6 +459,7 @@ def _MakeDeviceInfoDiagnostics(state):
 
   device_info_data = {
       reserved_infos.ARCHITECTURES.name: state.platform.GetArchName(),
+      reserved_infos.DEVICE_IDS.name: state.platform.GetDeviceId(),
       reserved_infos.MEMORY_AMOUNTS.name:
           state.platform.GetSystemTotalPhysicalMemory(),
       reserved_infos.OS_NAMES.name: state.platform.GetOSName(),

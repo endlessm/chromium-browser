@@ -16,7 +16,6 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_service.h"
-#include "components/pref_registry/pref_registry_syncable.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
 namespace content {
@@ -57,8 +56,6 @@ class ArcPolicyBridge : public KeyedService,
                   policy::PolicyService* policy_service);
   ~ArcPolicyBridge() override;
 
-  static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
-
   void OverrideIsManagedForTesting(bool is_managed);
 
   // InstanceHolder<mojom::PolicyInstance>::Observer overrides.
@@ -66,9 +63,9 @@ class ArcPolicyBridge : public KeyedService,
   void OnInstanceClosed() override;
 
   // PolicyHost overrides.
-  void GetPolicies(const GetPoliciesCallback& callback) override;
+  void GetPolicies(GetPoliciesCallback callback) override;
   void ReportCompliance(const std::string& request,
-                        const ReportComplianceCallback& callback) override;
+                        ReportComplianceCallback callback) override;
 
   // PolicyService::Observer overrides.
   void OnPolicyUpdated(const policy::PolicyNamespace& ns,
@@ -83,7 +80,7 @@ class ArcPolicyBridge : public KeyedService,
 
   // Called when the compliance report from ARC is parsed.
   void OnReportComplianceParseSuccess(
-      const ArcPolicyBridge::ReportComplianceCallback& callback,
+      base::OnceCallback<void(const std::string&)> callback,
       std::unique_ptr<base::Value> parsed_json);
 
   void UpdateComplianceReportMetrics(const base::DictionaryValue* report);

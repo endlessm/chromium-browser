@@ -49,6 +49,27 @@ void FakePeripheral::SetNextGATTDiscoveryResponse(uint16_t code) {
   next_discovery_response_ = code;
 }
 
+bool FakePeripheral::AllResponsesConsumed() {
+  return !next_connection_response_ && !next_discovery_response_ &&
+         std::all_of(gatt_services_.begin(), gatt_services_.end(),
+                     [](const auto& e) {
+                       FakeRemoteGattService* fake_remote_gatt_service =
+                           static_cast<FakeRemoteGattService*>(e.second.get());
+                       return fake_remote_gatt_service->AllResponsesConsumed();
+                     });
+}
+
+void FakePeripheral::SimulateGATTDisconnection() {
+  gatt_services_.clear();
+  // TODO(crbug.com/728870): Only set get_connected_ to false once system
+  // connected peripherals are supported and Web Bluetooth uses them. See issue
+  // for more details.
+  system_connected_ = false;
+  gatt_connected_ = false;
+  SetGattServicesDiscoveryComplete(false);
+  DidDisconnectGatt();
+}
+
 std::string FakePeripheral::AddFakeService(
     const device::BluetoothUUID& service_uuid) {
   // Attribute instance Ids need to be unique.

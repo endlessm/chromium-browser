@@ -60,17 +60,19 @@ ScopedJavaLocalRef<jobject> ToJavaSuggestionList(
   ScopedJavaLocalRef<jobject> result =
       Java_SnippetsBridge_createSuggestionList(env);
   for (const ContentSuggestion& suggestion : suggestions) {
+    // image_dominant_color equal to 0 encodes absence of the value. 0 is not a
+    // valid color, because the passed color cannot be fully transparent.
     ScopedJavaLocalRef<jobject> java_suggestion =
         Java_SnippetsBridge_addSuggestion(
             env, result, category.id(),
             ConvertUTF8ToJavaString(env, suggestion.id().id_within_category()),
             ConvertUTF16ToJavaString(env, suggestion.title()),
             ConvertUTF16ToJavaString(env, suggestion.publisher_name()),
-            ConvertUTF16ToJavaString(env, suggestion.snippet_text()),
             ConvertUTF8ToJavaString(env, suggestion.url().spec()),
             suggestion.publish_date().ToJavaTime(), suggestion.score(),
             suggestion.fetch_date().ToJavaTime(),
-            suggestion.is_video_suggestion());
+            suggestion.is_video_suggestion(),
+            suggestion.optional_image_dominant_color().value_or(0));
     if (suggestion.id().category().IsKnownCategory(
             KnownCategories::DOWNLOADS) &&
         suggestion.download_suggestion_extra() != nullptr) {
@@ -280,8 +282,10 @@ void NTPSnippetsBridge::Fetch(
     const JavaParamRef<jobject>& obj,
     jint j_category_id,
     const JavaParamRef<jobjectArray>& j_displayed_suggestions,
-    const JavaParamRef<jobject>& j_callback) {
-  ScopedJavaGlobalRef<jobject> callback(j_callback);
+    const JavaParamRef<jobject>& j_success_callback,
+    const JavaParamRef<jobject>& j_failure_callback) {
+  ScopedJavaGlobalRef<jobject> success_callback(j_success_callback);
+  ScopedJavaGlobalRef<jobject> failure_callback(j_failure_callback);
   std::vector<std::string> known_suggestion_ids;
   AppendJavaStringArrayToStringVector(env, j_displayed_suggestions,
                                       &known_suggestion_ids);
@@ -292,7 +296,8 @@ void NTPSnippetsBridge::Fetch(
       std::set<std::string>(known_suggestion_ids.begin(),
                             known_suggestion_ids.end()),
       base::Bind(&NTPSnippetsBridge::OnSuggestionsFetched,
-                 weak_ptr_factory_.GetWeakPtr(), callback, category));
+                 weak_ptr_factory_.GetWeakPtr(), success_callback,
+                 failure_callback, category));
 }
 
 void NTPSnippetsBridge::FetchContextualSuggestions(
@@ -415,14 +420,22 @@ void NTPSnippetsBridge::OnImageFetched(ScopedJavaGlobalRef<jobject> callback,
 }
 
 void NTPSnippetsBridge::OnSuggestionsFetched(
-    const ScopedJavaGlobalRef<jobject>& callback,
+    const ScopedJavaGlobalRef<jobject>& success_callback,
+    const ScopedJavaGlobalRef<jobject>& failure_callback,
     Category category,
     ntp_snippets::Status status,
     std::vector<ContentSuggestion> suggestions) {
   // TODO(fhorschig, dgn): Allow refetch or show notification acc. to status.
   JNIEnv* env = AttachCurrentThread();
-  RunCallbackAndroid(callback,
-                     ToJavaSuggestionList(env, category, suggestions));
+  if (status.IsSuccess()) {
+    RunCallbackAndroid(success_callback,
+        ToJavaSuggestionList(env, category, suggestions));
+  } else {
+    // The second parameter here means nothing - it was more convenient to pass
+    // a Callback (which has 1 parameter) over to the native side than a
+    // Runnable (which has no parameters). We ignore the parameter Java-side.
+    RunCallbackAndroid(failure_callback, 0);
+  }
 }
 
 void NTPSnippetsBridge::OnContextualSuggestionsFetched(

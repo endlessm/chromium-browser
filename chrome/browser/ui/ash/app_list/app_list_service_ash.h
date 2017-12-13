@@ -18,7 +18,8 @@ class AppListPresenterImpl;
 }
 
 namespace base {
-template <typename T> struct DefaultSingletonTraits;
+template <typename T>
+struct DefaultSingletonTraits;
 }
 
 class AppListControllerDelegateAsh;
@@ -39,6 +40,10 @@ class AppListServiceAsh : public AppListServiceImpl {
   // Non-ash AppListService that is responsible for handling this.
   // TODO(calamity): Ash shouldn't observe the ProfileAttributesStorage at all.
   void OnProfileWillBeRemoved(const base::FilePath& profile_path) override;
+
+  AppListPresenterService* app_list_presenter_service() {
+    return app_list_presenter_service_.get();
+  }
 
  private:
   friend struct base::DefaultSingletonTraits<AppListServiceAsh>;

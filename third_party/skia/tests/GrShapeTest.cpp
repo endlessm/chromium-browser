@@ -17,6 +17,14 @@
 #include "SkSurface.h"
 #include "SkClipOpPriv.h"
 
+uint32_t GrShape::testingOnly_getOriginalGenerationID() const {
+    return fOriginalPath.getGenerationID();
+}
+
+bool GrShape::testingOnly_isPath() const {
+    return Type::kPath == fType;
+}
+
 using Key = SkTArray<uint32_t>;
 
 static bool make_key(Key* key, const GrShape& shape) {
@@ -76,6 +84,227 @@ static bool test_bounds_by_rasterizing(const SkPath& path, const SkRect& bounds)
     free(const_cast<uint8_t*>(kZeros));
 #endif
     return true;
+}
+
+static bool can_interchange_winding_and_even_odd_fill(const GrShape& shape) {
+    SkPath path;
+    shape.asPath(&path);
+    if (shape.style().hasNonDashPathEffect()) {
+        return false;
+    }
+    const SkStrokeRec::Style strokeRecStyle = shape.style().strokeRec().getStyle();
+    return strokeRecStyle == SkStrokeRec::kStroke_Style ||
+           strokeRecStyle == SkStrokeRec::kHairline_Style ||
+           (shape.style().isSimpleFill() && path.isConvex());
+}
+
+static void check_equivalence(skiatest::Reporter* r, const GrShape& a, const GrShape& b,
+                              const Key& keyA, const Key& keyB) {
+    // GrShape only respects the input winding direction and start point for rrect shapes
+    // when there is a path effect. Thus, if there are two GrShapes representing the same rrect
+    // but one has a path effect in its style and the other doesn't then asPath() and the unstyled
+    // key will differ. GrShape will have canonicalized the direction and start point for the shape
+    // without the path effect. If *both* have path effects then they should have both preserved
+    // the direction and starting point.
+
+    // The asRRect() output params are all initialized just to silence compiler warnings about
+    // uninitialized variables.
+    SkRRect rrectA = SkRRect::MakeEmpty(), rrectB = SkRRect::MakeEmpty();
+    SkPath::Direction dirA = SkPath::kCW_Direction, dirB = SkPath::kCW_Direction;
+    unsigned startA = ~0U, startB = ~0U;
+    bool invertedA = true, invertedB = true;
+
+    bool aIsRRect = a.asRRect(&rrectA, &dirA, &startA, &invertedA);
+    bool bIsRRect = b.asRRect(&rrectB, &dirB, &startB, &invertedB);
+    bool aHasPE = a.style().hasPathEffect();
+    bool bHasPE = b.style().hasPathEffect();
+    bool allowSameRRectButDiffStartAndDir = (aIsRRect && bIsRRect) && (aHasPE != bHasPE);
+    // GrShape will close paths with simple fill style.
+    bool allowedClosednessDiff = (a.style().isSimpleFill() != b.style().isSimpleFill());
+    SkPath pathA, pathB;
+    a.asPath(&pathA);
+    b.asPath(&pathB);
+
+    // Having a dash path effect can allow 'a' but not 'b' to turn a inverse fill type into a
+    // non-inverse fill type  (or vice versa).
+    bool ignoreInversenessDifference = false;
+    if (pathA.isInverseFillType() != pathB.isInverseFillType()) {
+        const GrShape* s1 = pathA.isInverseFillType() ? &a : &b;
+        const GrShape* s2 = pathA.isInverseFillType() ? &b : &a;
+        bool canDropInverse1 = s1->style().isDashed();
+        bool canDropInverse2 = s2->style().isDashed();
+        ignoreInversenessDifference = (canDropInverse1 != canDropInverse2);
+    }
+    bool ignoreWindingVsEvenOdd = false;
+    if (SkPath::ConvertToNonInverseFillType(pathA.getFillType()) !=
+        SkPath::ConvertToNonInverseFillType(pathB.getFillType())) {
+        bool aCanChange = can_interchange_winding_and_even_odd_fill(a);
+        bool bCanChange = can_interchange_winding_and_even_odd_fill(b);
+        if (aCanChange != bCanChange) {
+            ignoreWindingVsEvenOdd = true;
+        }
+    }
+    if (allowSameRRectButDiffStartAndDir) {
+        REPORTER_ASSERT(r, rrectA == rrectB);
+        REPORTER_ASSERT(r, paths_fill_same(pathA, pathB));
+        REPORTER_ASSERT(r, ignoreInversenessDifference || invertedA == invertedB);
+    } else {
+        SkPath pA = pathA;
+        SkPath pB = pathB;
+        REPORTER_ASSERT(r, a.inverseFilled() == pA.isInverseFillType());
+        REPORTER_ASSERT(r, b.inverseFilled() == pB.isInverseFillType());
+        if (ignoreInversenessDifference) {
+            pA.setFillType(SkPath::ConvertToNonInverseFillType(pathA.getFillType()));
+            pB.setFillType(SkPath::ConvertToNonInverseFillType(pathB.getFillType()));
+        }
+        if (ignoreWindingVsEvenOdd) {
+            pA.setFillType(pA.isInverseFillType() ? SkPath::kInverseEvenOdd_FillType
+                                                  : SkPath::kEvenOdd_FillType);
+            pB.setFillType(pB.isInverseFillType() ? SkPath::kInverseEvenOdd_FillType
+                                                  : SkPath::kEvenOdd_FillType);
+        }
+        if (!ignoreInversenessDifference && !ignoreWindingVsEvenOdd) {
+            REPORTER_ASSERT(r, keyA == keyB);
+        } else {
+            REPORTER_ASSERT(r, keyA != keyB);
+        }
+        if (allowedClosednessDiff) {
+            // GrShape will close paths with simple fill style. Make the non-filled path closed
+            // so that the comparision will succeed. Make sure both are closed before comparing.
+            pA.close();
+            pB.close();
+        }
+        REPORTER_ASSERT(r, pA == pB);
+        REPORTER_ASSERT(r, aIsRRect == bIsRRect);
+        if (aIsRRect) {
+            REPORTER_ASSERT(r, rrectA == rrectB);
+            REPORTER_ASSERT(r, dirA == dirB);
+            REPORTER_ASSERT(r, startA == startB);
+            REPORTER_ASSERT(r, ignoreInversenessDifference || invertedA == invertedB);
+        }
+    }
+    REPORTER_ASSERT(r, a.isEmpty() == b.isEmpty());
+    REPORTER_ASSERT(r, allowedClosednessDiff || a.knownToBeClosed() == b.knownToBeClosed());
+    // closedness can affect convexity.
+    REPORTER_ASSERT(r, allowedClosednessDiff || a.knownToBeConvex() == b.knownToBeConvex());
+    if (a.knownToBeConvex()) {
+        REPORTER_ASSERT(r, pathA.isConvex());
+    }
+    if (b.knownToBeConvex()) {
+        REPORTER_ASSERT(r, pathB.isConvex());
+    }
+    REPORTER_ASSERT(r, a.bounds() == b.bounds());
+    REPORTER_ASSERT(r, a.segmentMask() == b.segmentMask());
+    // Init these to suppress warnings.
+    SkPoint pts[4] {{0, 0,}, {0, 0}, {0, 0}, {0, 0}} ;
+    bool invertedLine[2] {true, true};
+    REPORTER_ASSERT(r, a.asLine(pts, &invertedLine[0]) == b.asLine(pts + 2, &invertedLine[1]));
+    // mayBeInverseFilledAfterStyling() is allowed to differ if one has a arbitrary PE and the other
+    // doesn't (since the PE can set any fill type on its output path).
+    // Moreover, dash style explicitly ignores inverseness. So if one is dashed but not the other
+    // then they may disagree about inverseness.
+    if (a.style().hasNonDashPathEffect() == b.style().hasNonDashPathEffect() &&
+        a.style().isDashed() == b.style().isDashed()) {
+        REPORTER_ASSERT(r, a.mayBeInverseFilledAfterStyling() ==
+                           b.mayBeInverseFilledAfterStyling());
+    }
+    if (a.asLine(nullptr, nullptr)) {
+        REPORTER_ASSERT(r, pts[2] == pts[0] && pts[3] == pts[1]);
+        REPORTER_ASSERT(r, ignoreInversenessDifference || invertedLine[0] == invertedLine[1]);
+        REPORTER_ASSERT(r, invertedLine[0] == a.inverseFilled());
+        REPORTER_ASSERT(r, invertedLine[1] == b.inverseFilled());
+    }
+    REPORTER_ASSERT(r, ignoreInversenessDifference || a.inverseFilled() == b.inverseFilled());
+}
+
+static void check_original_path_ids(skiatest::Reporter* r, const GrShape& base, const GrShape& pe,
+                                    const GrShape& peStroke, const GrShape& full) {
+    bool baseIsPath = base.testingOnly_isPath();
+    bool peIsPath = pe.testingOnly_isPath();
+    bool peStrokeIsPath = peStroke.testingOnly_isPath();
+    bool fullIsPath = full.testingOnly_isPath();
+
+    REPORTER_ASSERT(r, peStrokeIsPath == fullIsPath);
+
+    uint32_t baseID = base.testingOnly_getOriginalGenerationID();
+    uint32_t peID = pe.testingOnly_getOriginalGenerationID();
+    uint32_t peStrokeID = peStroke.testingOnly_getOriginalGenerationID();
+    uint32_t fullID = full.testingOnly_getOriginalGenerationID();
+
+    // All empty paths have the same gen ID
+    uint32_t emptyID = SkPath().getGenerationID();
+
+    // If we started with a real path, then our genID should match that path's gen ID (and not be
+    // empty). If we started with a simple shape, our original path should have been reset.
+    REPORTER_ASSERT(r, baseIsPath == (baseID != emptyID));
+
+    // For the derived shapes, if they're simple types, their original paths should have been reset
+    REPORTER_ASSERT(r, peIsPath || (peID == emptyID));
+    REPORTER_ASSERT(r, peStrokeIsPath || (peStrokeID == emptyID));
+    REPORTER_ASSERT(r, fullIsPath || (fullID == emptyID));
+
+    if (!peIsPath) {
+        // If the path effect produces a simple shape, then there are no unbroken chains to test
+        return;
+    }
+
+    // From here on, we know that the path effect produced a shape that was a "real" path
+
+    if (baseIsPath) {
+        REPORTER_ASSERT(r, baseID == peID);
+    }
+
+    if (peStrokeIsPath) {
+        REPORTER_ASSERT(r, peID == peStrokeID);
+        REPORTER_ASSERT(r, peStrokeID == fullID);
+    }
+
+    if (baseIsPath && peStrokeIsPath) {
+        REPORTER_ASSERT(r, baseID == peStrokeID);
+        REPORTER_ASSERT(r, baseID == fullID);
+    }
+}
+
+void test_inversions(skiatest::Reporter* r, const GrShape& shape, const Key& shapeKey) {
+    GrShape preserve = GrShape::MakeFilled(shape, GrShape::FillInversion::kPreserve);
+    Key preserveKey;
+    make_key(&preserveKey, preserve);
+
+    GrShape flip = GrShape::MakeFilled(shape, GrShape::FillInversion::kFlip);
+    Key flipKey;
+    make_key(&flipKey, flip);
+
+    GrShape inverted = GrShape::MakeFilled(shape, GrShape::FillInversion::kForceInverted);
+    Key invertedKey;
+    make_key(&invertedKey, inverted);
+
+    GrShape noninverted = GrShape::MakeFilled(shape, GrShape::FillInversion::kForceNoninverted);
+    Key noninvertedKey;
+    make_key(&noninvertedKey, noninverted);
+
+    if (invertedKey.count() || noninvertedKey.count()) {
+        REPORTER_ASSERT(r, invertedKey != noninvertedKey);
+    }
+    if (shape.style().isSimpleFill()) {
+        check_equivalence(r, shape, preserve, shapeKey, preserveKey);
+    }
+    if (shape.inverseFilled()) {
+        check_equivalence(r, preserve, inverted, preserveKey, invertedKey);
+        check_equivalence(r, flip, noninverted, flipKey, noninvertedKey);
+    } else {
+        check_equivalence(r, preserve, noninverted, preserveKey, noninvertedKey);
+        check_equivalence(r, flip, inverted, flipKey, invertedKey);
+    }
+
+    GrShape doubleFlip = GrShape::MakeFilled(flip, GrShape::FillInversion::kFlip);
+    Key doubleFlipKey;
+    make_key(&doubleFlipKey, doubleFlip);
+    // It can be the case that the double flip has no key but preserve does. This happens when the
+    // original shape has an inherited style key. That gets dropped on the first inversion flip.
+    if (preserveKey.count() && !doubleFlipKey.count()) {
+        preserveKey.reset();
+    }
+    check_equivalence(r, preserve, doubleFlip, preserveKey, doubleFlipKey);
 }
 
 namespace {
@@ -175,7 +404,7 @@ public:
 
     bool fillChangesGeom() const override {
         // unclosed rects get closed. Lines get turned into empty geometry
-        return this->isUnclosedRect() || (fPath.isLine(nullptr) && !fPath.isInverseFillType());
+        return this->isUnclosedRect() || fPath.isLine(nullptr);
     }
 
     bool strokeIsConvertedToFill() const override {
@@ -320,6 +549,10 @@ private:
         make_key(&fAppliedPEThenStrokeKey, fAppliedPEThenStroke);
         make_key(&fAppliedFullKey, fAppliedFull);
 
+        // All shapes should report the same "original" path, so that path renderers can get to it
+        // if necessary.
+        check_original_path_ids(r, fBase, fAppliedPE, fAppliedPEThenStroke, fAppliedFull);
+
         // Applying the path effect and then the stroke should always be the same as applying
         // both in one go.
         REPORTER_ASSERT(r, fAppliedPEThenStrokeKey == fAppliedFullKey);
@@ -400,6 +633,9 @@ private:
                 REPORTER_ASSERT(r, fAppliedFull.style().isSimpleHairline());
             }
         }
+        test_inversions(r, fBase, fBaseKey);
+        test_inversions(r, fAppliedPE, fAppliedPEKey);
+        test_inversions(r, fAppliedFull, fAppliedFullKey);
     }
 
     GrShape fBase;
@@ -437,137 +673,6 @@ void TestCase::testExpectations(skiatest::Reporter* reporter, SelfExpectations e
             REPORTER_ASSERT(reporter, fBaseKey == fAppliedFullKey);
         }
     }
-}
-
-static bool can_interchange_winding_and_even_odd_fill(const GrShape& shape) {
-    SkPath path;
-    shape.asPath(&path);
-    if (shape.style().hasNonDashPathEffect()) {
-        return false;
-    }
-    const SkStrokeRec::Style strokeRecStyle = shape.style().strokeRec().getStyle();
-    return strokeRecStyle == SkStrokeRec::kStroke_Style ||
-           strokeRecStyle == SkStrokeRec::kHairline_Style ||
-           (shape.style().isSimpleFill() && path.isConvex());
-}
-
-static void check_equivalence(skiatest::Reporter* r, const GrShape& a, const GrShape& b,
-                              const Key& keyA, const Key& keyB) {
-    // GrShape only respects the input winding direction and start point for rrect shapes
-    // when there is a path effect. Thus, if there are two GrShapes representing the same rrect
-    // but one has a path effect in its style and the other doesn't then asPath() and the unstyled
-    // key will differ. GrShape will have canonicalized the direction and start point for the shape
-    // without the path effect. If *both* have path effects then they should have both preserved
-    // the direction and starting point.
-
-    // The asRRect() output params are all initialized just to silence compiler warnings about
-    // uninitialized variables.
-    SkRRect rrectA = SkRRect::MakeEmpty(), rrectB = SkRRect::MakeEmpty();
-    SkPath::Direction dirA = SkPath::kCW_Direction, dirB = SkPath::kCW_Direction;
-    unsigned startA = ~0U, startB = ~0U;
-    bool invertedA = true, invertedB = true;
-
-    bool aIsRRect = a.asRRect(&rrectA, &dirA, &startA, &invertedA);
-    bool bIsRRect = b.asRRect(&rrectB, &dirB, &startB, &invertedB);
-    bool aHasPE = a.style().hasPathEffect();
-    bool bHasPE = b.style().hasPathEffect();
-    bool allowSameRRectButDiffStartAndDir = (aIsRRect && bIsRRect) && (aHasPE != bHasPE);
-    // GrShape will close paths with simple fill style.
-    bool allowedClosednessDiff = (a.style().isSimpleFill() != b.style().isSimpleFill());
-    SkPath pathA, pathB;
-    a.asPath(&pathA);
-    b.asPath(&pathB);
-
-    // Having a dash path effect can allow 'a' but not 'b' to turn a inverse fill type into a
-    // non-inverse fill type  (or vice versa).
-    bool ignoreInversenessDifference = false;
-    if (pathA.isInverseFillType() != pathB.isInverseFillType()) {
-        const GrShape* s1 = pathA.isInverseFillType() ? &a : &b;
-        const GrShape* s2 = pathA.isInverseFillType() ? &b : &a;
-        bool canDropInverse1 = s1->style().isDashed();
-        bool canDropInverse2 = s2->style().isDashed();
-        ignoreInversenessDifference = (canDropInverse1 != canDropInverse2);
-    }
-    bool ignoreWindingVsEvenOdd = false;
-    if (SkPath::ConvertToNonInverseFillType(pathA.getFillType()) !=
-        SkPath::ConvertToNonInverseFillType(pathB.getFillType())) {
-        bool aCanChange = can_interchange_winding_and_even_odd_fill(a);
-        bool bCanChange = can_interchange_winding_and_even_odd_fill(b);
-        if (aCanChange != bCanChange) {
-            ignoreWindingVsEvenOdd = true;
-        }
-    }
-    if (allowSameRRectButDiffStartAndDir) {
-        REPORTER_ASSERT(r, rrectA == rrectB);
-        REPORTER_ASSERT(r, paths_fill_same(pathA, pathB));
-        REPORTER_ASSERT(r, ignoreInversenessDifference || invertedA == invertedB);
-    } else {
-        SkPath pA = pathA;
-        SkPath pB = pathB;
-        REPORTER_ASSERT(r, a.inverseFilled() == pA.isInverseFillType());
-        REPORTER_ASSERT(r, b.inverseFilled() == pB.isInverseFillType());
-        if (ignoreInversenessDifference) {
-            pA.setFillType(SkPath::ConvertToNonInverseFillType(pathA.getFillType()));
-            pB.setFillType(SkPath::ConvertToNonInverseFillType(pathB.getFillType()));
-        }
-        if (ignoreWindingVsEvenOdd) {
-            pA.setFillType(pA.isInverseFillType() ? SkPath::kInverseEvenOdd_FillType
-                                                  : SkPath::kEvenOdd_FillType);
-            pB.setFillType(pB.isInverseFillType() ? SkPath::kInverseEvenOdd_FillType
-                                                  : SkPath::kEvenOdd_FillType);
-        }
-        if (!ignoreInversenessDifference && !ignoreWindingVsEvenOdd) {
-            REPORTER_ASSERT(r, keyA == keyB);
-        } else {
-            REPORTER_ASSERT(r, keyA != keyB);
-        }
-        if (allowedClosednessDiff) {
-            // GrShape will close paths with simple fill style. Make the non-filled path closed
-            // so that the comparision will succeed. Make sure both are closed before comparing.
-            pA.close();
-            pB.close();
-        }
-        REPORTER_ASSERT(r, pA == pB);
-        REPORTER_ASSERT(r, aIsRRect == bIsRRect);
-        if (aIsRRect) {
-            REPORTER_ASSERT(r, rrectA == rrectB);
-            REPORTER_ASSERT(r, dirA == dirB);
-            REPORTER_ASSERT(r, startA == startB);
-            REPORTER_ASSERT(r, ignoreInversenessDifference || invertedA == invertedB);
-        }
-    }
-    REPORTER_ASSERT(r, a.isEmpty() == b.isEmpty());
-    REPORTER_ASSERT(r, allowedClosednessDiff || a.knownToBeClosed() == b.knownToBeClosed());
-    // closedness can affect convexity.
-    REPORTER_ASSERT(r, allowedClosednessDiff || a.knownToBeConvex() == b.knownToBeConvex());
-    if (a.knownToBeConvex()) {
-        REPORTER_ASSERT(r, pathA.isConvex());
-    }
-    if (b.knownToBeConvex()) {
-        REPORTER_ASSERT(r, pathB.isConvex());
-    }
-    REPORTER_ASSERT(r, a.bounds() == b.bounds());
-    REPORTER_ASSERT(r, a.segmentMask() == b.segmentMask());
-    // Init these to suppress warnings.
-    SkPoint pts[4] {{0, 0,}, {0, 0}, {0, 0}, {0, 0}} ;
-    bool invertedLine[2] {true, true};
-    REPORTER_ASSERT(r, a.asLine(pts, &invertedLine[0]) == b.asLine(pts + 2, &invertedLine[1]));
-    // mayBeInverseFilledAfterStyling() is allowed to differ if one has a arbitrary PE and the other
-    // doesn't (since the PE can set any fill type on its output path).
-    // Moreover, dash style explicitly ignores inverseness. So if one is dashed but not the other
-    // then they may disagree about inverseness.
-    if (a.style().hasNonDashPathEffect() == b.style().hasNonDashPathEffect() &&
-        a.style().isDashed() == b.style().isDashed()) {
-        REPORTER_ASSERT(r, a.mayBeInverseFilledAfterStyling() ==
-                           b.mayBeInverseFilledAfterStyling());
-    }
-    if (a.asLine(nullptr, nullptr)) {
-        REPORTER_ASSERT(r, pts[2] == pts[0] && pts[3] == pts[1]);
-        REPORTER_ASSERT(r, ignoreInversenessDifference || invertedLine[0] == invertedLine[1]);
-        REPORTER_ASSERT(r, invertedLine[0] == a.inverseFilled());
-        REPORTER_ASSERT(r, invertedLine[1] == b.inverseFilled());
-    }
-    REPORTER_ASSERT(r, ignoreInversenessDifference || a.inverseFilled() == b.inverseFilled());
 }
 
 void TestCase::compare(skiatest::Reporter* r, const TestCase& that,
@@ -1203,23 +1308,29 @@ void test_volatile_path(skiatest::Reporter* reporter, const Geo& geo) {
 
 void test_path_effect_makes_empty_shape(skiatest::Reporter* reporter, const Geo& geo) {
     /**
-     * This path effect returns an empty path.
+     * This path effect returns an empty path (possibly inverted)
      */
     class EmptyPathEffect : SkPathEffect {
     public:
         bool filterPath(SkPath* dst, const SkPath& src, SkStrokeRec*,
                         const SkRect* cullR) const override {
             dst->reset();
+            if (fInvert) {
+                dst->toggleInverseFillType();
+            }
             return true;
         }
         void computeFastBounds(SkRect* dst, const SkRect& src) const override {
             dst->setEmpty();
         }
-        static sk_sp<SkPathEffect> Make() { return sk_sp<SkPathEffect>(new EmptyPathEffect); }
+        static sk_sp<SkPathEffect> Make(bool invert) {
+            return sk_sp<SkPathEffect>(new EmptyPathEffect(invert));
+        }
         Factory getFactory() const override { return nullptr; }
         void toString(SkString*) const override {}
     private:
-        EmptyPathEffect() {}
+        bool fInvert;
+        EmptyPathEffect(bool invert) : fInvert(invert) {}
     };
 
     SkPath emptyPath;
@@ -1228,17 +1339,27 @@ void test_path_effect_makes_empty_shape(skiatest::Reporter* reporter, const Geo&
     make_key(&emptyKey, emptyShape);
     REPORTER_ASSERT(reporter, emptyShape.isEmpty());
 
+    emptyPath.toggleInverseFillType();
+    GrShape invertedEmptyShape(emptyPath);
+    Key invertedEmptyKey;
+    make_key(&invertedEmptyKey, invertedEmptyShape);
+    REPORTER_ASSERT(reporter, invertedEmptyShape.isEmpty());
+
+    REPORTER_ASSERT(reporter, invertedEmptyKey != emptyKey);
+
     SkPaint pe;
-    pe.setPathEffect(EmptyPathEffect::Make());
-    TestCase geoCase(geo, pe, reporter);
-    REPORTER_ASSERT(reporter, geoCase.appliedFullStyleKey() == emptyKey);
-    REPORTER_ASSERT(reporter, geoCase.appliedPathEffectKey() == emptyKey);
-    REPORTER_ASSERT(reporter, geoCase.appliedPathEffectThenStrokeKey() == emptyKey);
-    REPORTER_ASSERT(reporter, geoCase.appliedPathEffectShape().isEmpty());
-    REPORTER_ASSERT(reporter, geoCase.appliedFullStyleShape().isEmpty());
+    pe.setPathEffect(EmptyPathEffect::Make(false));
+    TestCase geoPECase(geo, pe, reporter);
+    REPORTER_ASSERT(reporter, geoPECase.appliedFullStyleKey() == emptyKey);
+    REPORTER_ASSERT(reporter, geoPECase.appliedPathEffectKey() == emptyKey);
+    REPORTER_ASSERT(reporter, geoPECase.appliedPathEffectThenStrokeKey() == emptyKey);
+    REPORTER_ASSERT(reporter, geoPECase.appliedPathEffectShape().isEmpty());
+    REPORTER_ASSERT(reporter, geoPECase.appliedFullStyleShape().isEmpty());
+    REPORTER_ASSERT(reporter, !geoPECase.appliedPathEffectShape().inverseFilled());
+    REPORTER_ASSERT(reporter, !geoPECase.appliedFullStyleShape().inverseFilled());
 
     SkPaint peStroke;
-    peStroke.setPathEffect(EmptyPathEffect::Make());
+    peStroke.setPathEffect(EmptyPathEffect::Make(false));
     peStroke.setStrokeWidth(2.f);
     peStroke.setStyle(SkPaint::kStroke_Style);
     TestCase geoPEStrokeCase(geo, peStroke, reporter);
@@ -1247,6 +1368,29 @@ void test_path_effect_makes_empty_shape(skiatest::Reporter* reporter, const Geo&
     REPORTER_ASSERT(reporter, geoPEStrokeCase.appliedPathEffectThenStrokeKey() == emptyKey);
     REPORTER_ASSERT(reporter, geoPEStrokeCase.appliedPathEffectShape().isEmpty());
     REPORTER_ASSERT(reporter, geoPEStrokeCase.appliedFullStyleShape().isEmpty());
+    REPORTER_ASSERT(reporter, !geoPEStrokeCase.appliedPathEffectShape().inverseFilled());
+    REPORTER_ASSERT(reporter, !geoPEStrokeCase.appliedFullStyleShape().inverseFilled());
+    pe.setPathEffect(EmptyPathEffect::Make(true));
+
+    TestCase geoPEInvertCase(geo, pe, reporter);
+    REPORTER_ASSERT(reporter, geoPEInvertCase.appliedFullStyleKey() == invertedEmptyKey);
+    REPORTER_ASSERT(reporter, geoPEInvertCase.appliedPathEffectKey() == invertedEmptyKey);
+    REPORTER_ASSERT(reporter, geoPEInvertCase.appliedPathEffectThenStrokeKey() == invertedEmptyKey);
+    REPORTER_ASSERT(reporter, geoPEInvertCase.appliedPathEffectShape().isEmpty());
+    REPORTER_ASSERT(reporter, geoPEInvertCase.appliedFullStyleShape().isEmpty());
+    REPORTER_ASSERT(reporter, geoPEInvertCase.appliedPathEffectShape().inverseFilled());
+    REPORTER_ASSERT(reporter, geoPEInvertCase.appliedFullStyleShape().inverseFilled());
+
+    peStroke.setPathEffect(EmptyPathEffect::Make(true));
+    TestCase geoPEInvertStrokeCase(geo, peStroke, reporter);
+    REPORTER_ASSERT(reporter, geoPEInvertStrokeCase.appliedFullStyleKey() == invertedEmptyKey);
+    REPORTER_ASSERT(reporter, geoPEInvertStrokeCase.appliedPathEffectKey() == invertedEmptyKey);
+    REPORTER_ASSERT(reporter,
+                    geoPEInvertStrokeCase.appliedPathEffectThenStrokeKey() == invertedEmptyKey);
+    REPORTER_ASSERT(reporter, geoPEInvertStrokeCase.appliedPathEffectShape().isEmpty());
+    REPORTER_ASSERT(reporter, geoPEInvertStrokeCase.appliedFullStyleShape().isEmpty());
+    REPORTER_ASSERT(reporter, geoPEInvertStrokeCase.appliedPathEffectShape().inverseFilled());
+    REPORTER_ASSERT(reporter, geoPEInvertStrokeCase.appliedFullStyleShape().inverseFilled());
 }
 
 void test_path_effect_fails(skiatest::Reporter* reporter, const Geo& geo) {
@@ -1313,37 +1457,57 @@ void test_path_effect_fails(skiatest::Reporter* reporter, const Geo& geo) {
 
 DEF_TEST(GrShape_empty_shape, reporter) {
     SkPath emptyPath;
+    SkPath invertedEmptyPath;
+    invertedEmptyPath.toggleInverseFillType();
     SkPaint fill;
     TestCase fillEmptyCase(reporter, emptyPath, fill);
     REPORTER_ASSERT(reporter, fillEmptyCase.baseShape().isEmpty());
     REPORTER_ASSERT(reporter, fillEmptyCase.appliedPathEffectShape().isEmpty());
     REPORTER_ASSERT(reporter, fillEmptyCase.appliedFullStyleShape().isEmpty());
+    REPORTER_ASSERT(reporter, !fillEmptyCase.baseShape().inverseFilled());
+    REPORTER_ASSERT(reporter, !fillEmptyCase.appliedPathEffectShape().inverseFilled());
+    REPORTER_ASSERT(reporter, !fillEmptyCase.appliedFullStyleShape().inverseFilled());
+    TestCase fillInvertedEmptyCase(reporter, invertedEmptyPath, fill);
+    REPORTER_ASSERT(reporter, fillInvertedEmptyCase.baseShape().isEmpty());
+    REPORTER_ASSERT(reporter, fillInvertedEmptyCase.appliedPathEffectShape().isEmpty());
+    REPORTER_ASSERT(reporter, fillInvertedEmptyCase.appliedFullStyleShape().isEmpty());
+    REPORTER_ASSERT(reporter, fillInvertedEmptyCase.baseShape().inverseFilled());
+    REPORTER_ASSERT(reporter, fillInvertedEmptyCase.appliedPathEffectShape().inverseFilled());
+    REPORTER_ASSERT(reporter, fillInvertedEmptyCase.appliedFullStyleShape().inverseFilled());
 
     Key emptyKey(fillEmptyCase.baseKey());
     REPORTER_ASSERT(reporter, emptyKey.count());
+    Key inverseEmptyKey(fillInvertedEmptyCase.baseKey());
+    REPORTER_ASSERT(reporter, inverseEmptyKey.count());
     TestCase::SelfExpectations expectations;
     expectations.fStrokeApplies = false;
     expectations.fPEHasEffect = false;
     // This will test whether applying style preserves emptiness
     fillEmptyCase.testExpectations(reporter, expectations);
+    fillInvertedEmptyCase.testExpectations(reporter, expectations);
 
     // Stroking an empty path should have no effect
-    SkPath emptyPath2;
     SkPaint stroke;
     stroke.setStrokeWidth(2.f);
     stroke.setStyle(SkPaint::kStroke_Style);
-    TestCase strokeEmptyCase(reporter, emptyPath2, stroke);
+    TestCase strokeEmptyCase(reporter, emptyPath, stroke);
     strokeEmptyCase.compare(reporter, fillEmptyCase, TestCase::kAllSame_ComparisonExpecation);
+    TestCase strokeInvertedEmptyCase(reporter, invertedEmptyPath, stroke);
+    strokeInvertedEmptyCase.compare(reporter, fillInvertedEmptyCase,
+                                    TestCase::kAllSame_ComparisonExpecation);
 
     // Dashing and stroking an empty path should have no effect
-    SkPath emptyPath3;
     SkPaint dashAndStroke;
     dashAndStroke.setPathEffect(make_dash());
     dashAndStroke.setStrokeWidth(2.f);
     dashAndStroke.setStyle(SkPaint::kStroke_Style);
-    TestCase dashAndStrokeEmptyCase(reporter, emptyPath3, dashAndStroke);
+    TestCase dashAndStrokeEmptyCase(reporter, emptyPath, dashAndStroke);
     dashAndStrokeEmptyCase.compare(reporter, fillEmptyCase,
                                    TestCase::kAllSame_ComparisonExpecation);
+    TestCase dashAndStrokeInvertexEmptyCase(reporter, invertedEmptyPath, dashAndStroke);
+    // Dashing ignores inverseness so this is equivalent to the non-inverted empty fill.
+    dashAndStrokeInvertexEmptyCase.compare(reporter, fillEmptyCase,
+                                           TestCase::kAllSame_ComparisonExpecation);
 
     // A shape made from an empty rrect should behave the same as an empty path.
     SkRRect emptyRRect = SkRRect::MakeRect(SkRect::MakeEmpty());
@@ -1351,12 +1515,24 @@ DEF_TEST(GrShape_empty_shape, reporter) {
     TestCase dashAndStrokeEmptyRRectCase(reporter, emptyRRect, dashAndStroke);
     dashAndStrokeEmptyRRectCase.compare(reporter, fillEmptyCase,
                                         TestCase::kAllSame_ComparisonExpecation);
+    static constexpr SkPath::Direction kDir = SkPath::kCCW_Direction;
+    static constexpr int kStart = 0;
+    TestCase dashAndStrokeEmptyInvertedRRectCase(reporter, emptyRRect, kDir, kStart, true,
+                                                 GrStyle(dashAndStroke));
+    // Dashing ignores inverseness so this is equivalent to the non-inverted empty fill.
+    dashAndStrokeEmptyInvertedRRectCase.compare(reporter, fillEmptyCase,
+                                                TestCase::kAllSame_ComparisonExpecation);
 
     // Same for a rect.
     SkRect emptyRect = SkRect::MakeEmpty();
     TestCase dashAndStrokeEmptyRectCase(reporter, emptyRect, dashAndStroke);
     dashAndStrokeEmptyRectCase.compare(reporter, fillEmptyCase,
                                        TestCase::kAllSame_ComparisonExpecation);
+    TestCase dashAndStrokeEmptyInvertedRectCase(reporter, SkRRect::MakeRect(emptyRect), kDir,
+                                                kStart, true, GrStyle(dashAndStroke));
+    // Dashing ignores inverseness so this is equivalent to the non-inverted empty fill.
+    dashAndStrokeEmptyInvertedRectCase.compare(reporter, fillEmptyCase,
+                                               TestCase::kAllSame_ComparisonExpecation);
 }
 
 // rect and oval types have rrect start indices that collapse to the same point. Here we select the
@@ -1650,6 +1826,13 @@ DEF_TEST(GrShape_lines, r) {
     TestCase fillEmpty(r, SkPath(), fill);
     fillAB.compare(r, fillEmpty, TestCase::kAllSame_ComparisonExpecation);
     REPORTER_ASSERT(r, !fillAB.baseShape().asLine(nullptr, nullptr));
+
+    SkPath path;
+    path.toggleInverseFillType();
+    TestCase fillEmptyInverted(r, path, fill);
+    TestCase fillABInverted(r, invLineAB, fill);
+    fillABInverted.compare(r, fillEmptyInverted, TestCase::kAllSame_ComparisonExpecation);
+    REPORTER_ASSERT(r, !fillABInverted.baseShape().asLine(nullptr, nullptr));
 
     TestCase strokeAB(r, lineAB, stroke);
     TestCase strokeBA(r, lineBA, stroke);

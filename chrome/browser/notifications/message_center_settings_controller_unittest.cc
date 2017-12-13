@@ -282,14 +282,7 @@ TEST_F(MessageCenterSettingsControllerTest, NotifierSortOrder) {
   std::vector<std::unique_ptr<message_center::Notifier>> notifiers;
   controller()->GetNotifierList(&notifiers);
 
-#if !defined(OS_CHROMEOS)
   EXPECT_EQ(2u, notifiers.size());
-#else
-  // ChromeOS always adds a system notifier to end of the list.
-  EXPECT_EQ(3u, notifiers.size());
-  EXPECT_EQ(ash::system_notifier::kNotifierScreenshot,
-            notifiers[2]->notifier_id.id);
-#endif
 
   EXPECT_EQ(kBarId, notifiers[0]->notifier_id.id);
   EXPECT_EQ(kFooId, notifiers[1]->notifier_id.id);
@@ -302,10 +295,6 @@ TEST_F(MessageCenterSettingsControllerTest, SetWebPageNotifierEnabled) {
   GURL origin("https://example.com/");
 
   message_center::NotifierId notifier_id(origin);
-  message_center::Notifier enabled_notifier(
-      notifier_id, base::string16(), true);
-  message_center::Notifier disabled_notifier(
-      notifier_id, base::string16(), false);
 
   ContentSetting default_setting =
       HostContentSettingsMapFactory::GetForProfile(profile)
@@ -315,7 +304,7 @@ TEST_F(MessageCenterSettingsControllerTest, SetWebPageNotifierEnabled) {
   PermissionManager* permission_manager = PermissionManager::Get(profile);
 
   // (1) Enable the permission when the default is to ask (expected to set).
-  controller()->SetNotifierEnabled(disabled_notifier, true);
+  controller()->SetNotifierEnabled(notifier_id, true);
   EXPECT_EQ(CONTENT_SETTING_ALLOW,
             permission_manager
                 ->GetPermissionStatus(CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
@@ -323,7 +312,7 @@ TEST_F(MessageCenterSettingsControllerTest, SetWebPageNotifierEnabled) {
                 .content_setting);
 
   // (2) Disable the permission when the default is to ask (expected to clear).
-  controller()->SetNotifierEnabled(enabled_notifier, false);
+  controller()->SetNotifierEnabled(notifier_id, false);
   EXPECT_EQ(CONTENT_SETTING_ASK,
             permission_manager
                 ->GetPermissionStatus(CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
@@ -336,7 +325,7 @@ TEST_F(MessageCenterSettingsControllerTest, SetWebPageNotifierEnabled) {
                                  CONTENT_SETTING_ALLOW);
 
   // (3) Disable the permission when the default is allowed (expected to set).
-  controller()->SetNotifierEnabled(enabled_notifier, false);
+  controller()->SetNotifierEnabled(notifier_id, false);
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
             permission_manager
                 ->GetPermissionStatus(CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
@@ -344,7 +333,7 @@ TEST_F(MessageCenterSettingsControllerTest, SetWebPageNotifierEnabled) {
                 .content_setting);
 
   // (4) Enable the permission when the default is allowed (expected to clear).
-  controller()->SetNotifierEnabled(disabled_notifier, true);
+  controller()->SetNotifierEnabled(notifier_id, true);
   EXPECT_EQ(CONTENT_SETTING_ALLOW,
             permission_manager
                 ->GetPermissionStatus(CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
@@ -357,7 +346,7 @@ TEST_F(MessageCenterSettingsControllerTest, SetWebPageNotifierEnabled) {
                                  CONTENT_SETTING_BLOCK);
 
   // (5) Enable the permission when the default is blocked (expected to set).
-  controller()->SetNotifierEnabled(disabled_notifier, true);
+  controller()->SetNotifierEnabled(notifier_id, true);
   EXPECT_EQ(CONTENT_SETTING_ALLOW,
             permission_manager
                 ->GetPermissionStatus(CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
@@ -365,7 +354,7 @@ TEST_F(MessageCenterSettingsControllerTest, SetWebPageNotifierEnabled) {
                 .content_setting);
 
   // (6) Disable the permission when the default is blocked (expected to clear).
-  controller()->SetNotifierEnabled(enabled_notifier, false);
+  controller()->SetNotifierEnabled(notifier_id, false);
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
             permission_manager
                 ->GetPermissionStatus(CONTENT_SETTINGS_TYPE_NOTIFICATIONS,

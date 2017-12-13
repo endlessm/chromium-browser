@@ -56,6 +56,8 @@ enum PromptTypeHistogramValue {
 // within Chrome.
 extern const base::Feature kInBrowserCleanerUIFeature;
 
+extern const char kSRTPromptTrial[];
+
 // Returns true if this Chrome is in a field trial group which shows the SRT
 // prompt.
 bool IsInSRTPromptFieldTrialGroups();
@@ -73,6 +75,9 @@ GURL GetSRTDownloadURL();
 
 // Returns the value of the incoming SRT seed.
 std::string GetIncomingSRTSeed();
+
+// Returns the group name in the SRTPrompt field trial.
+std::string GetSRTFieldTrialGroupName();
 
 // Records a value for the SRT Prompt Histogram.
 void RecordSRTPromptHistogram(SRTPromptHistogramValue value);

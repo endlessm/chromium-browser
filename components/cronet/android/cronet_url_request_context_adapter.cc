@@ -31,6 +31,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/single_thread_task_runner.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -58,7 +59,6 @@
 #include "net/proxy/proxy_config_service_android.h"
 #include "net/proxy/proxy_service.h"
 #include "net/quic/core/quic_versions.h"
-#include "net/sdch/sdch_owner.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
@@ -335,6 +335,8 @@ void CronetURLRequestContextAdapter::InitializeOnNetworkThread(
   DCHECK(!is_context_initialized_);
   DCHECK(proxy_config_service_);
 
+  base::DisallowBlocking();
+
   // TODO(mmenke):  Add method to have the builder enable SPDY.
   net::URLRequestContextBuilder context_builder;
 
@@ -417,14 +419,6 @@ void CronetURLRequestContextAdapter::InitializeOnNetworkThread(
   if (config->load_disable_cache)
     default_load_flags_ |= net::LOAD_DISABLE_CACHE;
 
-  if (config->enable_sdch) {
-    DCHECK(context_->sdch_manager());
-    sdch_owner_.reset(
-        new net::SdchOwner(context_->sdch_manager(), context_.get()));
-    if (cronet_prefs_manager_)
-      cronet_prefs_manager_->SetupSdchPersistence(sdch_owner_.get());
-  }
-
   if (config->enable_quic) {
     for (const auto& quic_hint : config->quic_hints) {
       if (quic_hint->host.empty()) {
@@ -460,7 +454,7 @@ void CronetURLRequestContextAdapter::InitializeOnNetworkThread(
           static_cast<uint16_t>(quic_hint->alternate_port));
       context_->http_server_properties()->SetQuicAlternativeService(
           quic_server, alternative_service, base::Time::Max(),
-          net::QuicVersionVector());
+          net::QuicTransportVersionVector());
     }
   }
 
@@ -522,9 +516,13 @@ void CronetURLRequestContextAdapter::Destroy(
   // Stick network_thread_ in a local, as |this| may be destroyed from the
   // network thread before delete network_thread is called.
   base::Thread* network_thread = network_thread_;
+  // Transfer ownership of |file_thread_| to local variable |file_thread|, so
+  // the underlying thread object is not deleted when |this| is destroyed.
+  base::Thread* file_thread = file_thread_.release();
   GetNetworkTaskRunner()->DeleteSoon(FROM_HERE, this);
   // Deleting thread stops it after all tasks are completed.
   delete network_thread;
+  delete file_thread;
 }
 
 net::URLRequestContext* CronetURLRequestContextAdapter::GetURLRequestContext() {
@@ -535,7 +533,7 @@ net::URLRequestContext* CronetURLRequestContextAdapter::GetURLRequestContext() {
 }
 
 void CronetURLRequestContextAdapter::PostTaskToNetworkThread(
-    const tracked_objects::Location& posted_from,
+    const base::Location& posted_from,
     const base::Closure& callback) {
   GetNetworkTaskRunner()->PostTask(
       posted_from, base::Bind(&CronetURLRequestContextAdapter::
@@ -729,8 +727,11 @@ void CronetURLRequestContextAdapter::StartNetLogToBoundedFileOnNetworkThread(
   // just pass a file path.
   base::FilePath file_path =
       base::FilePath(dir_path).AppendASCII("netlog.json");
-  if (!base::PathIsWritable(file_path)) {
-    LOG(ERROR) << "Path is not writable: " << file_path.value();
+  {
+    base::ScopedAllowBlocking allow_blocking;
+    if (!base::PathIsWritable(file_path)) {
+      LOG(ERROR) << "Path is not writable: " << file_path.value();
+    }
   }
 
   net_log_file_observer_ = net::FileNetLogObserver::CreateBounded(
@@ -783,7 +784,6 @@ static jlong CreateRequestContextConfig(
     jboolean jquic_enabled,
     const JavaParamRef<jstring>& jquic_default_user_agent_id,
     jboolean jhttp2_enabled,
-    jboolean jsdch_enabled,
     jboolean jbrotli_enabled,
     jboolean jdisable_cache,
     jint jhttp_cache_mode,
@@ -796,7 +796,7 @@ static jlong CreateRequestContextConfig(
   return reinterpret_cast<jlong>(new URLRequestContextConfig(
       jquic_enabled,
       ConvertNullableJavaStringToUTF8(env, jquic_default_user_agent_id),
-      jhttp2_enabled, jsdch_enabled, jbrotli_enabled,
+      jhttp2_enabled, jbrotli_enabled,
       static_cast<URLRequestContextConfig::HttpCacheType>(jhttp_cache_mode),
       jhttp_cache_max_size, jdisable_cache,
       ConvertNullableJavaStringToUTF8(env, jstorage_path),

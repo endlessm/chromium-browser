@@ -25,17 +25,12 @@ class V8DetachedContextAgeInGC(perf_benchmark.PerfBenchmark):
   def Name(cls):
     return 'v8.detached_context_age_in_gc'
 
-  @classmethod
-  def ShouldDisable(cls, possible_browser):
-    # http://crbug.com/685350
-    if possible_browser.platform.GetDeviceTypeName() == 'Nexus 9':
-      return True
-    return False
-
   def GetExpectations(self):
     class StoryExpectations(story.expectations.StoryExpectations):
       def SetExpectations(self):
-        pass # Nothing disabled.
+        self.DisableStory('Docs  (1 open document tab)',
+                          [story.expectations.ALL_WIN],
+                          'crbug.com/')
     return StoryExpectations()
 
 
@@ -78,12 +73,6 @@ class _Top25RuntimeStats(perf_benchmark.PerfBenchmark):
         overhead_level=cat_filter)
     tbm_options.SetTimelineBasedMetrics(['runtimeStatsMetric'])
     return tbm_options
-
-  @classmethod
-  def ShouldDisable(cls, possible_browser):
-    if possible_browser.browser_type == 'reference':
-      return True
-    return False
 
 
 @benchmark.Owner(emails=['cbruni@chromium.org'])

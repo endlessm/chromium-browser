@@ -36,8 +36,8 @@ NSString* const kEnableViewCopyPasswords = @"EnableViewCopyPasswords";
 NSString* const kFirstRunForceEnabled = @"FirstRunForceEnabled";
 NSString* const kGaiaEnvironment = @"GAIAEnvironment";
 NSString* const kOriginServerHost = @"AlternateOriginServerHost";
-NSString* const kSafariVCSignInDisabled = @"SafariVCSignInDisabled";
 NSString* const kWhatsNewPromoStatus = @"WhatsNewPromoStatus";
+NSString* const kClearApplicationGroup = @"ClearApplicationGroup";
 const base::Feature kEnableSlimNavigationManager{
     "EnableSlimNavigationManager", base::FEATURE_DISABLED_BY_DEFAULT};
 const base::Feature kEnableThirdPartyKeyboardWorkaround{
@@ -84,11 +84,6 @@ WhatsNewPromoStatus GetWhatsNewPromoStatus() {
   return static_cast<WhatsNewPromoStatus>(status);
 }
 
-bool IsAutoReloadEnabled() {
-  // TODO(crbug.com/752084): Remove this function and its associated code.
-  return false;
-}
-
 bool IsLRUSnapshotCacheEnabled() {
   // TODO(crbug.com/751553): Remove this function and its associated code.
   return NO;
@@ -133,13 +128,16 @@ bool IsPhysicalWebEnabled() {
   return false;
 }
 
-bool IsSafariVCSignInEnabled() {
-  return ![[NSUserDefaults standardUserDefaults]
-      boolForKey:kSafariVCSignInDisabled];
-}
-
 bool IsStartupCrashEnabled() {
   return [[NSUserDefaults standardUserDefaults] boolForKey:kEnableStartupCrash];
+}
+
+bool MustClearApplicationGroupSandbox() {
+  bool value =
+      [[NSUserDefaults standardUserDefaults] boolForKey:kClearApplicationGroup];
+  [[NSUserDefaults standardUserDefaults] setBool:NO
+                                          forKey:kClearApplicationGroup];
+  return value;
 }
 
 // This feature is on by default. Finch and experimental settings can be used to
@@ -165,18 +163,6 @@ bool IsSuggestionsUIEnabled() {
 
   // Check if the Finch experiment is turned on.
   return base::FeatureList::IsEnabled(kIOSNTPSuggestions);
-}
-
-bool IsSigninPromoEnabled() {
-  // Check if the experimental flag is forced on or off.
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kEnableSigninPromo))
-    return true;
-  if (command_line->HasSwitch(switches::kDisableSigninPromo))
-    return false;
-  std::string group_name = base::FieldTrialList::FindFullName("IOSSigninPromo");
-  return base::StartsWith(group_name, "Enabled",
-                          base::CompareCase::INSENSITIVE_ASCII);
 }
 
 bool IsNewFeedbackKitEnabled() {

@@ -4,8 +4,8 @@
 
 #include "ash/display/screen_orientation_controller_chromeos.h"
 
-#include "ash/ash_switches.h"
 #include "ash/public/cpp/app_types.h"
+#include "ash/public/cpp/ash_switches.h"
 #include "ash/shell.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
@@ -257,6 +257,11 @@ void ScreenOrientationController::SetLockToRotation(
   SetLockToOrientation(RotationToOrientation(rotation));
 }
 
+blink::WebScreenOrientationLockType
+ScreenOrientationController::GetCurrentOrientation() const {
+  return RotationToOrientation(current_rotation_);
+}
+
 void ScreenOrientationController::OnWindowActivated(
     ::wm::ActivationChangeObserver::ActivationReason reason,
     aura::Window* gained_active,
@@ -306,14 +311,10 @@ void ScreenOrientationController::OnDisplayConfigurationChanged() {
           display::Display::InternalDisplayId())) {
     return;
   }
-
-  // TODO(oshima): We should disable the orientation change in settings
-  // because application may not work correctly.
+  // TODO(oshima): remove current_rotation_ and always use the target rotation.
   current_rotation_ =
-      Shell::Get()
-          ->display_manager()
-          ->GetDisplayInfo(display::Display::InternalDisplayId())
-          .GetActiveRotation();
+      Shell::Get()->display_configuration_controller()->GetTargetRotation(
+          display::Display::InternalDisplayId());
 }
 
 void ScreenOrientationController::OnTabletModeStarted() {
@@ -344,6 +345,7 @@ void ScreenOrientationController::OnTabletModeEnding() {
   if (!display::Display::HasInternalDisplay())
     return;
 
+  // TODO(oshima): Remove if when current_rotation_ is removed.
   if (current_rotation_ != user_rotation_) {
     SetDisplayRotation(user_rotation_,
                        display::Display::ROTATION_SOURCE_ACCELEROMETER,
@@ -589,11 +591,6 @@ bool ScreenOrientationController::IsRotationAllowedInLockedState(
            rotation == display::Display::ROTATE_270;
   }
   return false;
-}
-
-blink::WebScreenOrientationLockType
-ScreenOrientationController::GetCurrentOrientationForTest() const {
-  return RotationToOrientation(current_rotation_);
 }
 
 bool ScreenOrientationController::CanRotateInLockedState() {

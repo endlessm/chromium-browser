@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2015 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -66,6 +67,7 @@ CONFIG_TYPE_DUMP_ORDER = (
     constants.PAYLOADS_TYPE,
     'cbuildbot',
     'unittest-stress',
+    'infra-go',
 )
 
 # In the Json, this special build config holds the default values for all
@@ -134,7 +136,6 @@ def UseBuildbucketScheduler(config):
           config.name in (constants.CQ_MASTER,
                           constants.CANARY_MASTER,
                           constants.PFQ_MASTER,
-                          constants.MNC_ANDROID_PFQ_MASTER,
                           constants.NYC_ANDROID_PFQ_MASTER,
                           constants.TOOLCHAIN_MASTTER,
                           constants.PRE_CQ_LAUNCHER_NAME))
@@ -233,7 +234,8 @@ class BuildConfig(AttrDict):
 
   Each dictionary entry is in turn a dictionary of config_param->value.
 
-  See _settings for details on known configurations, and their documentation.
+  See DefaultSettings for details on known configurations, and their
+  documentation.
   """
   def GetBotId(self, remote_trybot=False):
     """Get the 'bot id' of a particular bot.
@@ -280,7 +282,7 @@ class BuildConfig(AttrDict):
 
     Args:
       args: Dictionaries or templates to update this config with.
-      kwargs: Settings to inject; see _settings for valid values.
+      kwargs: Settings to inject; see DefaultSettings for valid values.
 
     Returns:
       self after changes are applied.
@@ -334,7 +336,7 @@ class BuildConfig(AttrDict):
 
     Args:
       args: Mapping instances to mixin.
-      kwargs: Settings to inject; see _settings for valid values.
+      kwargs: Settings to inject; see DefaultSettings for valid values.
 
     Returns:
       A new _config instance.
@@ -415,6 +417,7 @@ class ModelTestConfig(object):
 
   def __eq__(self, other):
     return self.__dict__ == other.__dict__
+
 
 class HWTestConfig(object):
   """Config object for hardware tests suites.
@@ -520,6 +523,7 @@ class HWTestConfig(object):
 
   def __eq__(self, other):
     return self.__dict__ == other.__dict__
+
 
 def DefaultSettings():
   # Enumeration of valid settings; any/all config settings must be in this.
@@ -725,13 +729,17 @@ def DefaultSettings():
       # profile information found in the chrome ebuild file.
       afdo_use=False,
 
-      # A list of the vm_tests to run by default.
+      # A list of VMTestConfig objects to run by default.
       vm_tests=[VMTestConfig(constants.SMOKE_SUITE_TEST_TYPE),
                 VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)],
 
-      # A list of all VM Tests to use if VM Tests are forced on (--vmtest
-      # command line or trybot). None means no override.
+      # A list of all VMTestConfig objects to use if VM Tests are forced on
+      # (--vmtest command line or trybot). None means no override.
       vm_tests_override=None,
+
+      # If true, in addition to upload vm test result to artifact folder, report
+      # results to other dashboard as well.
+      vm_test_report_to_dashboards=False,
 
       # The number of times to run the VMTest stage. If this is >1, then we
       # will run the stage this many times, stopping if we encounter any
@@ -741,8 +749,8 @@ def DefaultSettings():
       # A list of HWTestConfig objects to run.
       hw_tests=[],
 
-      # A list of all HW Tests to use if HW Tests are forced on (--hwtest
-      # command line or trybot). None means no override.
+      # A list of all HWTestConfig objects to use if HW Tests are forced on
+      # (--hwtest command line or trybot). None means no override.
       hw_tests_override=None,
 
       # If true, uploads artifacts for hw testing. Upload payloads for test
@@ -753,8 +761,8 @@ def DefaultSettings():
       # If true, uploads individual image tarballs.
       upload_standalone_images=True,
 
-      # Default to not run gce tests. Currently only some lakitu builders run
-      # gce tests.
+      # A list of GCETestConfig objects to use. Currently only some lakitu
+      # builders run gce tests.
       gce_tests=[],
 
       # List of patterns for portage packages for which stripped binpackages
@@ -1177,7 +1185,7 @@ class SiteConfig(dict):
     return BuildConfig(**self._defaults)
 
   def GetTemplates(self):
-    """Create the canonical default build configuration."""
+    """Get the templates of the build configs"""
     return self._templates
 
   @property
@@ -1186,7 +1194,7 @@ class SiteConfig(dict):
 
   @property
   def params(self):
-    """Create the canonical default build configuration."""
+    """Get the site-wide configuration parameters."""
     return SiteParameters(**self._site_params)
 
   #
@@ -1677,11 +1685,11 @@ def LoadConfigFromString(json_string):
   # Use standard defaults, but allow the config to override.
   defaults = DefaultSettings()
   defaults.update(config_dict.pop(DEFAULT_BUILD_CONFIG))
-  _UpdateConfig(defaults)
+  _DeserializeTestConfigs(defaults)
 
   templates = config_dict.pop('_templates', {})
   for t in templates.itervalues():
-    _UpdateConfig(t)
+    _DeserializeTestConfigs(t)
 
   site_params = DefaultSiteParameters()
   site_params.update(config_dict.pop('_site_params', {}))
@@ -1699,76 +1707,52 @@ def LoadConfigFromString(json_string):
   return result
 
 
-def _CreateVmTestConfig(jsonString):
-  """Create a VMTestConfig object from a JSON string."""
-  if isinstance(jsonString, VMTestConfig):
-    return jsonString
-  # Each VM Test is dumped as a json string embedded in json.
-  vm_test_config = json.loads(jsonString)
-  return VMTestConfig(**vm_test_config)
+def _DeserializeTestConfig(build_dict, config_key, test_class,
+                           preserve_none=False):
+  """Deserialize test config of given type inside build_dict.
 
-def _CreateModelTestConfig(jsonString):
-  """Create a ModelTestConfig object from a JSON string."""
-  if isinstance(jsonString, ModelTestConfig):
-    return jsonString
-  model_test_config = json.loads(jsonString)
-  return ModelTestConfig(**model_test_config)
+  Args:
+    build_dict: The build_dict to update (in place)
+    config_key: Key for the config inside build_dict.
+    test_class: The class to instantiate for the config.
+    preserve_none: If True, None values are preserved as is. By default, they
+        are dropped.
+  """
+  serialized_test_configs = build_dict.pop(config_key, None)
+  if serialized_test_configs is None:
+    if preserve_none:
+      build_dict[config_key] = None
+    return
 
-def _CreateHwTestConfig(jsonString):
-  """Create a HWTestConfig object from a JSON string."""
-  if isinstance(jsonString, HWTestConfig):
-    return jsonString
-  # Each HW Test is dumped as a json string embedded in json.
-  hw_test_config = json.loads(jsonString)
-  return HWTestConfig(**hw_test_config)
-
-
-def _CreateGceTestConfig(jsonString):
-  """Create a GCETestConfig object from a JSON string."""
-  if isinstance(jsonString, GCETestConfig):
-    return jsonString
-  # Each GCE Test is dumped as a json string embedded in json.
-  gce_test_config = json.loads(jsonString)
-  return GCETestConfig(**gce_test_config)
+  test_configs = []
+  for test_config_string in serialized_test_configs:
+    if isinstance(test_config_string, test_class):
+      test_config = test_config_string
+    else:
+      # Each test config is dumped as a json string embedded in json.
+      embedded_configs = json.loads(test_config_string)
+      test_config = test_class(**embedded_configs)
+    test_configs.append(test_config)
+  build_dict[config_key] = test_configs
 
 
-def _UpdateConfig(build_dict):
-  """Updates a config dictionary with recreated objects."""
-  # VM, HW and GCE test configs are serialized as strings (rather than JSON
-  # objects), so we need to turn them into real objects before they can be
-  # consumed.
-  vmtests = build_dict.pop('vm_tests', None)
-  if vmtests is not None:
-    build_dict['vm_tests'] = [_CreateVmTestConfig(vmtest) for vmtest in vmtests]
+def _DeserializeTestConfigs(build_dict):
+  """Updates a config dictionary with recreated objects.
 
-  vmtests = build_dict.pop('vm_tests_override', None)
-  if vmtests is not None:
-    build_dict['vm_tests_override'] = [
-        _CreateVmTestConfig(vmtest) for vmtest in vmtests
-    ]
-  else:
-    build_dict['vm_tests_override'] = None
+  Various test configs are serialized as strings (rather than JSON objects), so
+  we need to turn them into real objects before they can be consumed.
 
-  models = build_dict.pop('models', None)
-  if models is not None:
-    build_dict['models'] = [_CreateModelTestConfig(model) for model in models]
-
-  hwtests = build_dict.pop('hw_tests', None)
-  if hwtests is not None:
-    build_dict['hw_tests'] = [_CreateHwTestConfig(hwtest) for hwtest in hwtests]
-
-  hwtests = build_dict.pop('hw_tests_override', None)
-  if hwtests is not None:
-    build_dict['hw_tests_override'] = [
-        _CreateHwTestConfig(hwtest) for hwtest in hwtests
-    ]
-  else:
-    build_dict['hw_tests_override'] = None
-
-  gcetests = build_dict.pop('gce_tests', None)
-  if gcetests is not None:
-    build_dict['gce_tests'] = [_CreateGceTestConfig(gcetest) for gcetest in
-                               gcetests]
+  Args:
+    build_dict: The config dictionary to update (in place).
+  """
+  _DeserializeTestConfig(build_dict, 'vm_tests', VMTestConfig)
+  _DeserializeTestConfig(build_dict, 'vm_tests_override', VMTestConfig,
+                         preserve_none=True)
+  _DeserializeTestConfig(build_dict, 'models', ModelTestConfig)
+  _DeserializeTestConfig(build_dict, 'hw_tests', HWTestConfig)
+  _DeserializeTestConfig(build_dict, 'hw_tests_override', HWTestConfig,
+                         preserve_none=True)
+  _DeserializeTestConfig(build_dict, 'gce_tests', GCETestConfig)
 
 
 def _CreateBuildConfig(name, default, build_dict, templates):
@@ -1786,7 +1770,7 @@ def _CreateBuildConfig(name, default, build_dict, templates):
     result.update(templates[template])
   result.update(build_dict)
 
-  _UpdateConfig(result)
+  _DeserializeTestConfigs(result)
 
   if child_configs is not None:
     result['child_configs'] = [

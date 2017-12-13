@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "apps/launcher.h"
-#include "ash/system/palette/palette_utils.h"
+#include "ash/public/cpp/stylus_utils.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
@@ -204,9 +204,6 @@ NoteTakingAppInfos NoteTakingHelper::GetAvailableApps(Profile* profile) {
 
 std::unique_ptr<NoteTakingAppInfo> NoteTakingHelper::GetPreferredChromeAppInfo(
     Profile* profile) {
-  if (!ash::palette_utils::HasStylusInput())
-    return nullptr;
-
   std::string preferred_app_id =
       profile->GetPrefs()->GetString(prefs::kNoteTakingAppId);
   if (LooksLikeAndroidPackageName(preferred_app_id))
@@ -285,7 +282,7 @@ bool NoteTakingHelper::SetPreferredAppEnabledOnLockScreen(Profile* profile,
 bool NoteTakingHelper::IsAppAvailable(Profile* profile) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(profile);
-  return ash::palette_utils::HasStylusInput() &&
+  return ash::stylus_utils::HasStylusInput() &&
          !GetAvailableApps(profile).empty();
 }
 

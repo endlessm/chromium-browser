@@ -4,6 +4,7 @@
 
 #include "platform/scheduler/test/fake_web_task_runner.h"
 
+#include <algorithm>
 #include <deque>
 #include <utility>
 
@@ -45,16 +46,16 @@ class FakeWebTaskRunner::Data : public WTF::ThreadSafeRefCounted<Data> {
 
 class FakeWebTaskRunner::BaseTaskRunner : public base::SingleThreadTaskRunner {
  public:
-  explicit BaseTaskRunner(PassRefPtr<Data> data) : data_(std::move(data)) {}
+  explicit BaseTaskRunner(RefPtr<Data> data) : data_(std::move(data)) {}
 
-  bool PostDelayedTask(const tracked_objects::Location& from_here,
+  bool PostDelayedTask(const base::Location& from_here,
                        base::OnceClosure task,
                        base::TimeDelta delay) override {
     data_->PostTask(std::move(task), delay);
     return true;
   }
 
-  bool PostNonNestableDelayedTask(const tracked_objects::Location& from_here,
+  bool PostNonNestableDelayedTask(const base::Location& from_here,
                                   base::OnceClosure task,
                                   base::TimeDelta delay) override {
     data_->PostTask(std::move(task), delay);
@@ -68,10 +69,11 @@ class FakeWebTaskRunner::BaseTaskRunner : public base::SingleThreadTaskRunner {
 };
 
 FakeWebTaskRunner::FakeWebTaskRunner()
-    : data_(AdoptRef(new Data)), base_task_runner_(new BaseTaskRunner(data_)) {}
+    : data_(WTF::AdoptRef(new Data)),
+      base_task_runner_(new BaseTaskRunner(data_)) {}
 
 FakeWebTaskRunner::FakeWebTaskRunner(
-    PassRefPtr<Data> data,
+    RefPtr<Data> data,
     scoped_refptr<BaseTaskRunner> base_task_runner)
     : data_(std::move(data)), base_task_runner_(std::move(base_task_runner)) {}
 
@@ -94,8 +96,9 @@ double FakeWebTaskRunner::MonotonicallyIncreasingVirtualTimeSeconds() const {
   return data_->time_;
 }
 
-SingleThreadTaskRunner* FakeWebTaskRunner::ToSingleThreadTaskRunner() {
-  return base_task_runner_.get();
+scoped_refptr<base::SingleThreadTaskRunner>
+FakeWebTaskRunner::ToSingleThreadTaskRunner() {
+  return base_task_runner_;
 }
 
 void FakeWebTaskRunner::RunUntilIdle() {
@@ -121,6 +124,12 @@ void FakeWebTaskRunner::AdvanceTimeAndRun(double delta_seconds) {
 std::deque<std::pair<base::OnceClosure, double>>
 FakeWebTaskRunner::TakePendingTasksForTesting() {
   return std::move(data_->task_queue_);
+}
+
+bool FakeWebTaskRunner::PostDelayedTask(const base::Location& location,
+                                        base::OnceClosure task,
+                                        base::TimeDelta delay) {
+  return base_task_runner_->PostDelayedTask(location, std::move(task), delay);
 }
 
 }  // namespace scheduler

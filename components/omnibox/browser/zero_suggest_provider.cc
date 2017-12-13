@@ -150,8 +150,10 @@ void ZeroSuggestProvider::Start(const AutocompleteInput& input,
 
   bool can_attach_current_url =
       can_send_current_url &&
-      !OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial() &&
-      !OmniboxFieldTrial::InZeroSuggestMostVisitedFieldTrial();
+      !OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial(
+          client()->GetPrefs()) &&
+      !OmniboxFieldTrial::InZeroSuggestMostVisitedFieldTrial(
+          client()->GetPrefs());
 
   if (!can_attach_current_url &&
       !ShouldShowNonContextualZeroSuggest(input.current_url())) {
@@ -165,7 +167,8 @@ void ZeroSuggestProvider::Start(const AutocompleteInput& input,
   // suggestions, if based on local browsing history.
   MaybeUseCachedSuggestions();
 
-  if (OmniboxFieldTrial::InZeroSuggestMostVisitedFieldTrial()) {
+  if (OmniboxFieldTrial::InZeroSuggestMostVisitedFieldTrial(
+          client()->GetPrefs())) {
     most_visited_urls_.clear();
     scoped_refptr<history::TopSites> ts = client()->GetTopSites();
     if (ts) {
@@ -218,7 +221,8 @@ void ZeroSuggestProvider::Stop(bool clear_cached_results,
 }
 
 void ZeroSuggestProvider::DeleteMatch(const AutocompleteMatch& match) {
-  if (OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial()) {
+  if (OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial(
+          client()->GetPrefs())) {
     // Remove the deleted match from the cache, so it is not shown to the user
     // again. Since we cannot remove just one result, blow away the cache.
     client()->GetPrefs()->SetString(omnibox::kZeroSuggestCachedResults,
@@ -284,10 +288,13 @@ const TemplateURL* ZeroSuggestProvider::GetTemplateURL(bool is_keyword) const {
 const AutocompleteInput ZeroSuggestProvider::GetInput(bool is_keyword) const {
   // The callers of this method won't look at the AutocompleteInput's
   // |from_omnibox_focus| member, so we can set its value to false.
-  return AutocompleteInput(base::string16(), base::string16::npos,
-                           std::string(), GURL(current_query_), current_title_,
-                           current_page_classification_, true, false, false,
-                           true, false, client()->GetSchemeClassifier());
+  AutocompleteInput input(base::string16(), current_page_classification_,
+                          client()->GetSchemeClassifier());
+  input.set_current_url(GURL(current_query_));
+  input.set_current_title(current_title_);
+  input.set_prevent_inline_autocomplete(true);
+  input.set_allow_exact_keyword_match(false);
+  return input;
 }
 
 bool ZeroSuggestProvider::ShouldAppendExtraParams(
@@ -333,7 +340,8 @@ void ZeroSuggestProvider::OnURLFetchComplete(const net::URLFetcher* source) {
 bool ZeroSuggestProvider::StoreSuggestionResponse(
     const std::string& json_data,
     const base::Value& parsed_data) {
-  if (!OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial() ||
+  if (!OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial(
+          client()->GetPrefs()) ||
       json_data.empty())
     return false;
   client()->GetPrefs()->SetString(omnibox::kZeroSuggestCachedResults,
@@ -431,7 +439,8 @@ void ZeroSuggestProvider::ConvertResultsToAutocompleteMatches() {
   UMA_HISTOGRAM_COUNTS("ZeroSuggest.AllResults", num_results);
 
   // Show Most Visited results after ZeroSuggest response is received.
-  if (OmniboxFieldTrial::InZeroSuggestMostVisitedFieldTrial()) {
+  if (OmniboxFieldTrial::InZeroSuggestMostVisitedFieldTrial(
+          client()->GetPrefs())) {
     if (!current_url_match_.destination_url.is_valid())
       return;
     matches_.push_back(current_url_match_);
@@ -496,8 +505,13 @@ bool ZeroSuggestProvider::ShouldShowNonContextualZeroSuggest(
 
   // If we cannot send URLs, then only the MostVisited and Personalized
   // variations can be shown.
-  if (!OmniboxFieldTrial::InZeroSuggestMostVisitedFieldTrial() &&
-      !OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial())
+  // The const-cast allows the non-const AutocompleteProviderClient::GetPrefs()
+  // function to be called. OmniboxFieldTrial does not modify prefs, so the
+  // cast is safe in this application.
+  if (!OmniboxFieldTrial::InZeroSuggestMostVisitedFieldTrial(
+          const_cast<AutocompleteProviderClient*>(client())->GetPrefs()) &&
+      !OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial(
+          const_cast<AutocompleteProviderClient*>(client())->GetPrefs()))
     return false;
 
   // Only show zero suggest for HTTP[S] pages.
@@ -509,7 +523,8 @@ bool ZeroSuggestProvider::ShouldShowNonContextualZeroSuggest(
       (current_page_url.scheme() != url::kHttpsScheme)))
     return false;
 
-  if (OmniboxFieldTrial::InZeroSuggestMostVisitedWithoutSerpFieldTrial() &&
+  if (OmniboxFieldTrial::InZeroSuggestMostVisitedWithoutSerpFieldTrial(
+          const_cast<AutocompleteProviderClient*>(client())->GetPrefs()) &&
       client()
           ->GetTemplateURLService()
           ->IsSearchResultsPageFromDefaultSearchProvider(current_page_url))
@@ -519,7 +534,8 @@ bool ZeroSuggestProvider::ShouldShowNonContextualZeroSuggest(
 }
 
 void ZeroSuggestProvider::MaybeUseCachedSuggestions() {
-  if (!OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial())
+  if (!OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial(
+          client()->GetPrefs()))
     return;
 
   std::string json_data =

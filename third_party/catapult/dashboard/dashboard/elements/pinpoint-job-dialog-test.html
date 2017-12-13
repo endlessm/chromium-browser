@@ -37,7 +37,7 @@ tr.b.unittest.testSuite(function() {
     const page = document.createElement('pinpoint-job-dialog');
     this.addHTMLOutput(page);
 
-    page.show();
+    await page.show();
 
     let fired = false;
     page.fire = function(eventName) {
@@ -60,7 +60,7 @@ tr.b.unittest.testSuite(function() {
     const page = document.createElement('pinpoint-job-dialog');
     this.addHTMLOutput(page);
 
-    page.show();
+    await page.show();
 
     let fired = false;
     page.fire = function(eventName) {
@@ -75,6 +75,30 @@ tr.b.unittest.testSuite(function() {
     assert.isFalse(fired);
   }, testOptions);
 
+  test('show prefills info', async function() {
+    const mockResponse = {
+      'jobId': 12345
+    };
+    const page = document.createElement('pinpoint-job-dialog');
+    this.addHTMLOutput(page);
+
+    testing_common.addXhrMock(
+        '/pinpoint/new/prefill?test_path=master%2Fbot%2Fsuite%2Ffoo',
+        JSON.stringify({story_filter: 'foo'}));
+
+    page.bug_id = 123;
+    page.test_path = 'master/bot/suite/foo';
+    page.start_git_hash = '1234567890';
+    page.end_git_hash = '0987654321';
+    page.start_repository = 'chromium';
+    page.end_repository = 'chromium';
+    await page.show();
+
+    page.close();
+
+    assert.strictEqual(page.story_filter, 'foo');
+  }, testOptions);
+
   const originalAsPromise = simple_xhr.asPromise;
   const testOptionsOverwriteSimpleXhr = {
     tearDown() {
@@ -82,7 +106,7 @@ tr.b.unittest.testSuite(function() {
     }
   };
 
-  test('onCreateJob validate params', async function() {
+  test('onCreateJob validate params performance', async function() {
     const mockResponse = {
       'jobId': 12345
     };
@@ -91,12 +115,12 @@ tr.b.unittest.testSuite(function() {
 
     page.bug_id = 123;
     page.test_path = 'master/bot/suite/foo';
-    page.test = 'Test';
-    page.start_git_hash = '1234567890';
-    page.end_git_hash = '0987654321';
+    page.start_commit = '1234567890';
+    page.end_commit = '0987654321';
     page.start_repository = 'chromium';
     page.end_repository = 'chromium';
-    page.show();
+    await page.show();
+    page.story_filter = 'foo';
 
     let params;
     simple_xhr.asPromise = function(_, p) {
@@ -111,11 +135,50 @@ tr.b.unittest.testSuite(function() {
 
     assert.strictEqual(params.bug_id, 123);
     assert.strictEqual(params.test_path, 'master/bot/suite/foo');
-    assert.strictEqual(params.test, 'Test');
-    assert.strictEqual(params.start_git_hash, '1234567890');
-    assert.strictEqual(params.end_git_hash, '0987654321');
+    assert.strictEqual(params.start_commit, '1234567890');
+    assert.strictEqual(params.end_commit, '0987654321');
     assert.strictEqual(params.start_repository, 'chromium');
     assert.strictEqual(params.end_repository, 'chromium');
+    assert.strictEqual(params.story_filter, 'foo');
+    assert.strictEqual(params.bisect_mode, 'performance');
+  }, testOptionsOverwriteSimpleXhr);
+
+  test('onCreateJob validate params functional', async function() {
+    const mockResponse = {
+      'jobId': 12345
+    };
+    const page = document.createElement('pinpoint-job-dialog');
+    this.addHTMLOutput(page);
+
+    page.bug_id = 123;
+    page.test_path = 'master/bot/suite/foo';
+    page.start_commit = '1234567890';
+    page.end_commit = '0987654321';
+    page.start_repository = 'chromium';
+    page.end_repository = 'chromium';
+    await page.show();
+    page.story_filter = 'foo';
+    page.$.functional.click();
+
+    let params;
+    simple_xhr.asPromise = function(_, p) {
+      params = p;
+      return new Promise(function(resolve, reject) {
+        resolve({jobId: 12345});
+      });
+    };
+
+    await page.onCreateJob();
+    page.close();
+
+    assert.strictEqual(params.bug_id, 123);
+    assert.strictEqual(params.test_path, 'master/bot/suite/foo');
+    assert.strictEqual(params.start_commit, '1234567890');
+    assert.strictEqual(params.end_commit, '0987654321');
+    assert.strictEqual(params.start_repository, 'chromium');
+    assert.strictEqual(params.end_repository, 'chromium');
+    assert.strictEqual(params.story_filter, 'foo');
+    assert.strictEqual(params.bisect_mode, 'functional');
   }, testOptionsOverwriteSimpleXhr);
 });
 </script>

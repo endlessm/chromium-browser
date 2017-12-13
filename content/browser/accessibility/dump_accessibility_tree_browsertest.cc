@@ -421,6 +421,11 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
   RunAriaTest(FILE_PATH_LITERAL("aria-describedby.html"));
 }
 
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
+                       AccessibilityAriaDescribedByUpdates) {
+  RunAriaTest(FILE_PATH_LITERAL("aria-describedby-updates.html"));
+}
+
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityAriaDetails) {
   RunAriaTest(FILE_PATH_LITERAL("aria-details.html"));
 }
@@ -532,6 +537,11 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityAriaLabel) {
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
                        AccessibilityAriaLabelledByHeading) {
   RunAriaTest(FILE_PATH_LITERAL("aria-labelledby-heading.html"));
+}
+
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
+                       AccessibilityAriaLabelledByUpdates) {
+  RunAriaTest(FILE_PATH_LITERAL("aria-labelledby-updates.html"));
 }
 
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityAriaLevel) {
@@ -1140,13 +1150,28 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
   RunHtmlTest(FILE_PATH_LITERAL("iframe-cross-process.html"));
 }
 
+// Flaky on Mac and Win
+#if defined(OS_WIN) || defined(OS_MACOSX)
+#define MAYBE_AccessibilityIframeCoordinates \
+  DISABLED_AccessibilityIframeCoordinates
+#else
+#define MAYBE_AccessibilityIframeCoordinates AccessibilityIframeCoordinates
+#endif
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
-                       AccessibilityIframeCoordinates) {
+                       MAYBE_AccessibilityIframeCoordinates) {
   RunHtmlTest(FILE_PATH_LITERAL("iframe-coordinates.html"));
 }
 
+// Flaky on Mac and Win
+#if defined(OS_WIN) || defined(OS_MACOSX)
+#define MAYBE_AccessibilityIframeCoordinatesCrossProcess \
+  DISABLED_AccessibilityIframeCoordinatesCrossProcess
+#else
+#define MAYBE_AccessibilityIframeCoordinatesCrossProcess \
+  AccessibilityIframeCoordinatesCrossProcess
+#endif
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
-                       AccessibilityIframeCoordinatesCrossProcess) {
+                       MAYBE_AccessibilityIframeCoordinatesCrossProcess) {
   RunHtmlTest(FILE_PATH_LITERAL("iframe-coordinates-cross-process.html"));
 }
 
@@ -1172,17 +1197,18 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
 }
 
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
-                       AccessibilityIframeTransformNested) {
+                       DISABLED_AccessibilityIframeTransformNested) {
   RunHtmlTest(FILE_PATH_LITERAL("iframe-transform-nested.html"));
 }
 
-IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
-                       AccessibilityIframeTransformNestedCrossProcess) {
+IN_PROC_BROWSER_TEST_F(
+    DumpAccessibilityTreeTest,
+    DISABLED_AccessibilityIframeTransformNestedCrossProcess) {
   RunHtmlTest(FILE_PATH_LITERAL("iframe-transform-nested-cross-process.html"));
 }
 
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
-                       AccessibilityIframeTransformScrolled) {
+                       DISABLED_AccessibilityIframeTransformScrolled) {
   RunHtmlTest(FILE_PATH_LITERAL("iframe-transform-scrolled.html"));
 }
 
@@ -1381,6 +1407,10 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityLabel) {
   RunHtmlTest(FILE_PATH_LITERAL("label.html"));
 }
 
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityLabelUpdates) {
+  RunHtmlTest(FILE_PATH_LITERAL("label-updates.html"));
+}
+
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityLandmark) {
   RunHtmlTest(FILE_PATH_LITERAL("landmark.html"));
 }
@@ -1480,6 +1510,16 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityObject) {
   RunHtmlTest(FILE_PATH_LITERAL("object.html"));
 }
 
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
+                       DISABLED_AccessibilityOffscreen) {
+  RunHtmlTest(FILE_PATH_LITERAL("offscreen.html"));
+}
+
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
+                       DISABLED_AccessibilityOffscreenScroll) {
+  RunHtmlTest(FILE_PATH_LITERAL("offscreen-scroll.html"));
+}
+
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityOptgroup) {
   RunHtmlTest(FILE_PATH_LITERAL("optgroup.html"));
 }
@@ -1514,6 +1554,10 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityQ) {
   RunHtmlTest(FILE_PATH_LITERAL("q.html"));
 }
 
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityReplaceData) {
+  RunHtmlTest(FILE_PATH_LITERAL("replace-data.html"));
+}
+
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityRuby) {
   RunHtmlTest(FILE_PATH_LITERAL("ruby.html"));
 }
@@ -1546,6 +1590,10 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilitySpan) {
   RunHtmlTest(FILE_PATH_LITERAL("span.html"));
 }
 
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilitySpanLineBreak) {
+  RunHtmlTest(FILE_PATH_LITERAL("span-line-break.html"));
+}
+
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityStrong) {
   RunHtmlTest(FILE_PATH_LITERAL("strong.html"));
 }
@@ -1572,6 +1620,11 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilitySvg) {
 
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityTableSimple) {
   RunHtmlTest(FILE_PATH_LITERAL("table-simple.html"));
+}
+
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
+                       AccessibilityTableThColHeader) {
+  RunHtmlTest(FILE_PATH_LITERAL("table-th-colheader.html"));
 }
 
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
@@ -1638,6 +1691,11 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, DISABLED_AccessibilityVideo) {
 
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest, AccessibilityWbr) {
   RunHtmlTest(FILE_PATH_LITERAL("wbr.html"));
+}
+
+IN_PROC_BROWSER_TEST_F(DumpAccessibilityTreeTest,
+                       DISABLED_AccessibilityWindowCropsItems) {
+  RunHtmlTest(FILE_PATH_LITERAL("window-crops-items.html"));
 }
 
 }  // namespace content

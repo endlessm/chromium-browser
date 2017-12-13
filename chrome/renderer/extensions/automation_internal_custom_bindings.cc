@@ -67,14 +67,14 @@ v8::Local<v8::Object> RectToV8Object(v8::Isolate* isolate,
 // Adjust the bounding box of a node from local to global coordinates,
 // walking up the parent hierarchy to offset by frame offsets and
 // scroll offsets.
-static gfx::Rect ComputeGlobalNodeBounds(
-    TreeCache* cache,
-    ui::AXNode* node,
-    gfx::RectF local_bounds = gfx::RectF()) {
+static gfx::Rect ComputeGlobalNodeBounds(TreeCache* cache,
+                                         ui::AXNode* node,
+                                         gfx::RectF local_bounds = gfx::RectF(),
+                                         bool* offscreen = nullptr) {
   gfx::RectF bounds = local_bounds;
 
   while (node) {
-    bounds = cache->tree.RelativeToTreeBounds(node, bounds);
+    bounds = cache->tree.RelativeToTreeBounds(node, bounds, offscreen);
 
     TreeCache* previous_cache = cache;
     ui::AXNode* parent = cache->owner->GetParent(cache->tree.root(), &cache);
@@ -811,18 +811,23 @@ void AutomationInternalCustomBindings::GetSchemaAdditions(
   v8::Isolate* isolate = GetIsolate();
 
   gin::DataObjectBuilder name_from_type(isolate);
-  for (int i = ui::AX_NAME_FROM_NONE; i <= ui::AX_NAME_FROM_LAST; ++i)
-    name_from_type.Set(i, ui::ToString(static_cast<ui::AXNameFrom>(i)));
+  for (int i = ui::AX_NAME_FROM_NONE; i <= ui::AX_NAME_FROM_LAST; ++i) {
+    name_from_type.Set(
+        i, base::StringPiece(ui::ToString(static_cast<ui::AXNameFrom>(i))));
+  }
 
   gin::DataObjectBuilder restriction(isolate);
-  for (int i = ui::AX_RESTRICTION_NONE; i <= ui::AX_RESTRICTION_LAST; ++i)
-    restriction.Set(i, ui::ToString(static_cast<ui::AXRestriction>(i)));
+  for (int i = ui::AX_RESTRICTION_NONE; i <= ui::AX_RESTRICTION_LAST; ++i) {
+    restriction.Set(
+        i, base::StringPiece(ui::ToString(static_cast<ui::AXRestriction>(i))));
+  }
 
   gin::DataObjectBuilder description_from_type(isolate);
   for (int i = ui::AX_DESCRIPTION_FROM_NONE; i <= ui::AX_DESCRIPTION_FROM_LAST;
        ++i) {
     description_from_type.Set(
-        i, ui::ToString(static_cast<ui::AXDescriptionFrom>(i)));
+        i,
+        base::StringPiece(ui::ToString(static_cast<ui::AXDescriptionFrom>(i))));
   }
 
   args.GetReturnValue().Set(
@@ -1015,7 +1020,12 @@ void AutomationInternalCustomBindings::GetState(
        focused_cache == cache && focused_node == node) ||
       cache->tree.data().focus_id == node->id();
   if (focused)
-    state.Set("focused", true);
+    state.Set(ToString(api::automation::STATE_TYPE_FOCUSED), true);
+
+  bool offscreen = false;
+  ComputeGlobalNodeBounds(cache, node, gfx::RectF(), &offscreen);
+  if (offscreen)
+    state.Set(ToString(api::automation::STATE_TYPE_OFFSCREEN), true);
 
   args.GetReturnValue().Set(state.Build());
 }

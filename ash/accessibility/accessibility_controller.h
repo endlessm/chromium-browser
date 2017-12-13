@@ -16,6 +16,10 @@ class PrefChangeRegistrar;
 class PrefRegistrySimple;
 class PrefService;
 
+namespace service_manager {
+class Connector;
+}
+
 namespace ash {
 
 // The controller for accessibility features in ash. Features can be enabled
@@ -23,7 +27,7 @@ namespace ash {
 // Uses preferences to communicate with chrome to support mash.
 class ASH_EXPORT AccessibilityController : public SessionObserver {
  public:
-  AccessibilityController();
+  explicit AccessibilityController(service_manager::Connector* connector);
   ~AccessibilityController() override;
 
   // See Shell::RegisterProfilePrefs().
@@ -31,6 +35,9 @@ class ASH_EXPORT AccessibilityController : public SessionObserver {
 
   void SetLargeCursorEnabled(bool enabled);
   bool IsLargeCursorEnabled() const;
+
+  void SetHighContrastEnabled(bool enabled);
+  bool IsHighContrastEnabled() const;
 
   // Returns true if an accessibility feature is enabled that requires cursor
   // compositing.
@@ -47,16 +54,19 @@ class ASH_EXPORT AccessibilityController : public SessionObserver {
   // initial settings.
   void ObservePrefs(PrefService* prefs);
 
-  // Before login returns the signin screen profile prefs. After login returns
-  // the active user profile prefs.
+  // Returns |pref_service_for_test_| if not null, otherwise return
+  // SessionController::GetActivePrefService().
   PrefService* GetActivePrefService() const;
 
   void UpdateLargeCursorFromPref();
+  void UpdateHighContrastFromPref();
 
+  service_manager::Connector* connector_ = nullptr;
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
 
   bool large_cursor_enabled_ = false;
   int large_cursor_size_in_dip_ = kDefaultLargeCursorSize;
+  bool high_contrast_enabled_ = false;
 
   PrefService* pref_service_for_test_ = nullptr;
 

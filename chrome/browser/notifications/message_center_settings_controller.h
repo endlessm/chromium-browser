@@ -15,22 +15,18 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "build/build_config.h"
-#include "chrome/browser/notifications/notifier_source.h"
+#include "chrome/browser/notifications/notifier_controller.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/ui/app_icon_loader.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/favicon_base/favicon_types.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/notification_source.h"
 #include "ui/message_center/notifier_settings.h"
 
 #if defined(OS_CHROMEOS)
 #include "components/user_manager/user_manager.h"
 #endif
 
-class NotifierSource;
+class NotifierController;
 
 namespace message_center {
 class ProfileNotifierGroup;
@@ -40,12 +36,11 @@ class ProfileNotifierGroup;
 // storage.
 class MessageCenterSettingsController
     : public message_center::NotifierSettingsProvider,
-      public content::NotificationObserver,
       public ProfileAttributesStorage::Observer,
 #if defined(OS_CHROMEOS)
       public user_manager::UserManager::UserSessionStateObserver,
 #endif
-      public NotifierSource::Observer {
+      public NotifierController::Observer {
  public:
   explicit MessageCenterSettingsController(
       ProfileAttributesStorage& profile_attributes_storage);
@@ -63,7 +58,7 @@ class MessageCenterSettingsController
   const message_center::NotifierGroup& GetActiveNotifierGroup() const override;
   void GetNotifierList(std::vector<std::unique_ptr<message_center::Notifier>>*
                            notifiers) override;
-  void SetNotifierEnabled(const message_center::Notifier& notifier,
+  void SetNotifierEnabled(const message_center::NotifierId& notifier_id,
                           bool enabled) override;
   void OnNotifierSettingsClosing() override;
   bool NotifierHasAdvancedSettings(
@@ -78,11 +73,6 @@ class MessageCenterSettingsController
 #endif
 
  private:
-  // Overridden from content::NotificationObserver.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
-
   // Overridden from ProfileAttributesStorage::Observer.
   void OnProfileAdded(const base::FilePath& profile_path) override;
   void OnProfileWasRemoved(const base::FilePath& profile_path,
@@ -91,7 +81,7 @@ class MessageCenterSettingsController
       const base::string16& old_profile_name) override;
   void OnProfileAuthInfoChanged(const base::FilePath& profile_path) override;
 
-  // Overridden from NotifierSource::Observer.
+  // Overridden from NotifierController::Observer.
   void OnIconImageUpdated(const message_center::NotifierId&,
                           const gfx::Image&) override;
   void OnNotifierEnabledChanged(const message_center::NotifierId&,
@@ -122,12 +112,10 @@ class MessageCenterSettingsController
 
   // Notifier source for each notifier type.
   std::map<message_center::NotifierId::NotifierType,
-           std::unique_ptr<NotifierSource>>
+           std::unique_ptr<NotifierController>>
       sources_;
 
   size_t current_notifier_group_;
-
-  content::NotificationRegistrar registrar_;
 
   ProfileAttributesStorage& profile_attributes_storage_;
 

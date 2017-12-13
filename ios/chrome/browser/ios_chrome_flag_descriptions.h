@@ -24,6 +24,10 @@ extern const char kCaptivePortalDescription[];
 extern const char kContextualSearch[];
 extern const char kContextualSearchDescription[];
 
+// Title and description for the flag to enable History batch filtering.
+extern const char kHistoryBatchUpdatesFilterName[];
+extern const char kHistoryBatchUpdatesFilterDescription[];
+
 // Title and description for the flag to enable feature_engagement::Tracker
 // demo mode.
 extern const char kInProductHelpDemoModeName[];
@@ -61,6 +65,15 @@ extern const char kOmniboxUIHideSuggestionUrlTrivialSubdomainsDescription[];
 // Title and description for the flag to enable Physical Web in the omnibox.
 extern const char kPhysicalWeb[];
 extern const char kPhysicalWebDescription[];
+
+// Title and description for the flag to have the toolbar respect the safe area.
+extern const char kSafeAreaCompatibleToolbarName[];
+extern const char kSafeAreaCompatibleToolbarDescription[];
+
+// Title and description for the flag to enable the TabSwitcher to present the
+// BVC.
+extern const char kTabSwitcherPresentsBVCName[];
+extern const char kTabSwitcherPresentsBVCDescription[];
 
 // Title and description for the flag to enable the ddljson Doodle API.
 extern const char kUseDdljsonApiName[];

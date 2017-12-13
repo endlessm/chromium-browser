@@ -9,10 +9,10 @@ import android.graphics.Bitmap;
 import android.os.SystemClock;
 
 import org.chromium.base.Callback;
+import org.chromium.base.DiscardableReferencePool;
 import org.chromium.base.Promise;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.browser.NativePageHost;
-import org.chromium.chrome.browser.download.ui.ThumbnailProvider;
 import org.chromium.chrome.browser.favicon.FaviconHelper;
 import org.chromium.chrome.browser.favicon.LargeIconBridge;
 import org.chromium.chrome.browser.ntp.cards.CardsVariationParameters;
@@ -21,6 +21,7 @@ import org.chromium.chrome.browser.ntp.snippets.SnippetArticle;
 import org.chromium.chrome.browser.ntp.snippets.SnippetsConfig;
 import org.chromium.chrome.browser.ntp.snippets.SuggestionsSource;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.widget.ThumbnailProvider;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -60,13 +61,16 @@ public class ImageFetcher {
 
     private final SuggestionsSource mSuggestionsSource;
     private final Profile mProfile;
+    private final DiscardableReferencePool mReferencePool;
     private ThumbnailProvider mThumbnailProvider;
     private FaviconHelper mFaviconHelper;
     private LargeIconBridge mLargeIconBridge;
 
-    public ImageFetcher(SuggestionsSource suggestionsSource, Profile profile, NativePageHost host) {
+    public ImageFetcher(SuggestionsSource suggestionsSource, Profile profile,
+            DiscardableReferencePool referencePool, NativePageHost host) {
         mSuggestionsSource = suggestionsSource;
         mProfile = profile;
+        mReferencePool = referencePool;
         mUseFaviconService = CardsVariationParameters.isFaviconServiceEnabled();
         mHost = host;
     }
@@ -298,8 +302,8 @@ public class ImageFetcher {
      */
     private ThumbnailProvider getThumbnailProvider() {
         if (mThumbnailProvider == null) {
-            mThumbnailProvider =
-                    SuggestionsDependencyFactory.getInstance().createThumbnailProvider();
+            mThumbnailProvider = SuggestionsDependencyFactory.getInstance().createThumbnailProvider(
+                    mReferencePool);
         }
         return mThumbnailProvider;
     }

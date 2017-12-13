@@ -68,7 +68,6 @@ import org.chromium.base.library_loader.NativeLibraries;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.components.autofill.AutofillProvider;
 import org.chromium.content.browser.input.LGEmailActionModeWorkaround;
-import org.chromium.content_public.browser.SmartSelectionToggle;
 import org.chromium.net.NetworkChangeNotifier;
 
 import java.io.File;
@@ -249,31 +248,31 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
 
         final PackageInfo packageInfo = WebViewFactory.getLoadedPackageInfo();
 
-        // Load glue-layer support library.
-        System.loadLibrary("webviewchromium_plat_support");
-
-        // Use shared preference to check for package downgrade.
-        // Since N, getSharedPreferences creates the preference dir if it doesn't exist,
-        // causing a disk write.
         StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
         try {
+            // Load glue-layer support library.
+            System.loadLibrary("webviewchromium_plat_support");
+
+            // Use shared preference to check for package downgrade.
+            // Since N, getSharedPreferences creates the preference dir if it doesn't exist,
+            // causing a disk write.
             mWebViewPrefs = ContextUtils.getApplicationContext().getSharedPreferences(
                     CHROMIUM_PREFS_NAME, Context.MODE_PRIVATE);
+            int lastVersion = mWebViewPrefs.getInt(VERSION_CODE_PREF, 0);
+            int currentVersion = packageInfo.versionCode;
+            if (!versionCodeGE(currentVersion, lastVersion)) {
+                // The WebView package has been downgraded since we last ran in this application.
+                // Delete the WebView data directory's contents.
+                String dataDir = PathUtils.getDataDirectory();
+                Log.i(TAG, "WebView package downgraded from " + lastVersion
+                        + " to " + currentVersion + "; deleting contents of " + dataDir);
+                deleteContents(new File(dataDir));
+            }
+            if (lastVersion != currentVersion) {
+                mWebViewPrefs.edit().putInt(VERSION_CODE_PREF, currentVersion).apply();
+            }
         } finally {
             StrictMode.setThreadPolicy(oldPolicy);
-        }
-        int lastVersion = mWebViewPrefs.getInt(VERSION_CODE_PREF, 0);
-        int currentVersion = packageInfo.versionCode;
-        if (!versionCodeGE(currentVersion, lastVersion)) {
-            // The WebView package has been downgraded since we last ran in this application.
-            // Delete the WebView data directory's contents.
-            String dataDir = PathUtils.getDataDirectory();
-            Log.i(TAG, "WebView package downgraded from " + lastVersion + " to " + currentVersion
-                            + "; deleting contents of " + dataDir);
-            deleteContents(new File(dataDir));
-        }
-        if (lastVersion != currentVersion) {
-            mWebViewPrefs.edit().putInt(VERSION_CODE_PREF, currentVersion).apply();
         }
 
         mShouldDisableThreadChecking =
@@ -413,7 +412,6 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         PathService.override(PathService.DIR_MODULE, "/system/lib/");
         PathService.override(DIR_RESOURCE_PAKS_ANDROID, "/system/framework/webview/paks");
 
-        SmartSelectionToggle.setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O);
         // Make sure that ResourceProvider is initialized before starting the browser process.
         final PackageInfo webViewPackageInfo = WebViewFactory.getLoadedPackageInfo();
         final String webViewPackageName = webViewPackageInfo.packageName;
@@ -576,13 +574,15 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
                      */
                     // TODO(ntfschr): add @Override once next android SDK rolls
                     public void initSafeBrowsing(Context context, ValueCallback<Boolean> callback) {
-                        AwContentsStatics.initSafeBrowsing(context, callback);
+                        AwContentsStatics.initSafeBrowsing(
+                                context, CallbackConverter.fromValueCallback(callback));
                     }
 
                     // TODO(ntfschr): add @Override once next android SDK rolls
                     public void setSafeBrowsingWhitelist(
                             List<String> urls, ValueCallback<Boolean> callback) {
-                        AwContentsStatics.setSafeBrowsingWhitelist(urls, callback);
+                        AwContentsStatics.setSafeBrowsingWhitelist(
+                                urls, CallbackConverter.fromValueCallback(callback));
                     }
 
                     /**

@@ -11,6 +11,7 @@
 #include <Security/Security.h>
 
 #include <algorithm>
+#include <memory>
 #include <string>
 
 #include "base/bind.h"
@@ -19,7 +20,6 @@
 #include "base/logging.h"
 #include "base/mac/mac_logging.h"
 #include "base/mac/scoped_cftyperef.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/synchronization/lock.h"
 #include "base/task_runner_util.h"
@@ -120,9 +120,13 @@ bool IsIssuedByInKeychain(const std::vector<std::string>& valid_issuers,
     intermediates.push_back(sec_cert);
   }
 
+  // Allow UTF-8 inside PrintableStrings in client certificates. See
+  // crbug.com/770323.
+  X509Certificate::UnsafeCreateOptions options;
+  options.printable_string_is_utf8 = true;
   scoped_refptr<X509Certificate> new_cert(
-      x509_util::CreateX509CertificateFromSecCertificate(os_cert.get(),
-                                                         intermediates));
+      x509_util::CreateX509CertificateFromSecCertificate(
+          os_cert.get(), intermediates, options));
   CFRelease(cert_chain);  // Also frees |intermediates|.
 
   if (!new_cert || !new_cert->IsIssuedByEncoded(valid_issuers))
@@ -298,9 +302,13 @@ ClientCertIdentityList GetClientCertsOnBackgroundThread(
     if (!SupportsSSLClientAuth(cert_handle.get()))
       continue;
 
+    // Allow UTF-8 inside PrintableStrings in client certificates. See
+    // crbug.com/770323.
+    X509Certificate::UnsafeCreateOptions options;
+    options.printable_string_is_utf8 = true;
     scoped_refptr<X509Certificate> cert(
         x509_util::CreateX509CertificateFromSecCertificate(
-            cert_handle.get(), std::vector<SecCertificateRef>()));
+            cert_handle.get(), std::vector<SecCertificateRef>(), options));
     if (!cert)
       continue;
 

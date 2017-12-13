@@ -60,8 +60,8 @@
 
 #if BUILDFLAG(ENABLE_BACKGROUND)
 #include "chrome/browser/background/background_mode_manager.h"
-#include "chrome/browser/lifetime/keep_alive_types.h"
-#include "chrome/browser/lifetime/scoped_keep_alive.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
+#include "components/keep_alive_registry/scoped_keep_alive.h"
 #endif
 
 using instance_id::InstanceID;
@@ -261,9 +261,9 @@ void PushMessagingServiceImpl::OnMessage(const std::string& app_id,
   }
 
   if (!in_flight_keep_alive_) {
-    in_flight_keep_alive_.reset(
-        new ScopedKeepAlive(KeepAliveOrigin::IN_FLIGHT_PUSH_MESSAGE,
-                            KeepAliveRestartOption::DISABLED));
+    in_flight_keep_alive_ = std::make_unique<ScopedKeepAlive>(
+        KeepAliveOrigin::IN_FLIGHT_PUSH_MESSAGE,
+        KeepAliveRestartOption::DISABLED);
   }
 #endif
 

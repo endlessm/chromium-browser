@@ -130,10 +130,6 @@ class PermissionUmaUtil {
                                   PermissionRequestGestureType gesture_type,
                                   const GURL& requesting_origin,
                                   Profile* profile);
-  static void PermissionIgnored(ContentSettingsType permission,
-                                PermissionRequestGestureType gesture_type,
-                                const GURL& requesting_origin,
-                                Profile* profile);
   static void PermissionRevoked(ContentSettingsType permission,
                                 PermissionSourceUI source_ui,
                                 const GURL& revoked_origin,
@@ -193,6 +189,8 @@ class PermissionUmaUtil {
       ContentSettingsType permission,
       bool toggle_enabled);
 
+  static void RecordWithBatteryBucket(const std::string& histogram);
+
   // Permission Action Reporting data is only sent in official, Chrome branded
   // builds. This function allows this to be overridden for testing.
   static void FakeOfficialBuildForTest();
@@ -219,6 +217,9 @@ class PermissionUmaUtil {
   static void RecordPromptDecided(
       const std::vector<PermissionRequest*>& requests,
       bool accepted);
+
+  static void PermissionIgnored(const std::vector<PermissionRequest*>& requests,
+                                const content::WebContents* web_contents);
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(PermissionUmaUtil);
 };

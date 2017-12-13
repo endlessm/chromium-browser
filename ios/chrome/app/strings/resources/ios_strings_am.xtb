@@ -20,7 +20,6 @@
 <translation id="1254117744268754948">አቃፊ ይምረጡ</translation>
 <translation id="1265739287306757398">እንዴት እንደሆነ ይወቁ</translation>
 <translation id="1272079795634619415">አቁም</translation>
-<translation id="129553762522093515">በቅርብ ጊዜ የተዘጉ</translation>
 <translation id="1323735185997015385">ሰርዝ</translation>
 <translation id="132683371494960526">የቀድሞ አቃፊውን ለመለወጥ ሁለቴ መታ ያድርጉ።</translation>
 <translation id="1340643665687018190">ምናሌን ዝጋ</translation>
@@ -48,7 +47,6 @@
 <translation id="1690731385917361335">ምንም ንጥሎች የሉም</translation>
 <translation id="1700629756560807968"><ph name="NUMBER_OF_SELECTED_BOOKMARKS" /> ተመርጧል</translation>
 <translation id="1740468249224277719">ለመጫን ሁለቴ ነካ ያድርጉ።</translation>
-<translation id="1749561566933687563">የእርስዎን ዕልባቶች ያስምሩ</translation>
 <translation id="1752547299766512813">የይለፍ ቃላትን አስቀምጥ</translation>
 <translation id="1753905327828125965">በይበልጥ የተጎበኙ</translation>
 <translation id="1809939268435598390">አቃፊ ሰርዝ</translation>
@@ -80,6 +78,7 @@
 <translation id="2381405137052800939">መሠረታዊ ነገሮች</translation>
 <translation id="2386793615875593361">1 ተመርጧል</translation>
 <translation id="2435457462613246316">የይለፍ ቃል አሳይ</translation>
+<translation id="2529021024822217800">ሁሉንም ክፈት</translation>
 <translation id="2572712655377361602">አንድ የመሣሪያ መመሪያ የፎቶዎችዎን መዳረሻ አግዷል</translation>
 <translation id="2584132361465095047">መለያ አክል…</translation>
 <translation id="2593774076813182497">ይህ ገጽ ሊታተም አይችልም።</translation>
@@ -129,7 +128,6 @@
 <translation id="3324193307694657476">አድራሻ 2</translation>
 <translation id="3329904751041170572">ከአገልጋዩ ጋር መገናኘት አልቻለም።</translation>
 <translation id="3335947283844343239">የተዘጋውን ትር ዳግም ክፈት</translation>
-<translation id="3387752218061326363">ታሪክ ወደ መለያ ከገቡ መሣሪያዎችዎ በማሳየት ላይ። <ph name="BEGIN_LINK" />ተጨማሪ ለመረዳት<ph name="END_LINK" /></translation>
 <translation id="3393920035788932672">ብቅ-ባዮች ተፈቅደዋል</translation>
 <translation id="3414292259312108062">Chrome ይህንን በእርስዎ በ<ph name="BEGIN_LINK" />Google የተቀመጡ የይለፍ ቃሎች<ph name="END_LINK" /> ያከማቸው እና እራስዎ ማስታወስ እንዳያስፈልግዎት በራስ-ሰር ይሞላልዎታል።</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> ደቂቃዎች</translation>
@@ -181,6 +179,7 @@
 <translation id="4342284590510997375">አዲስ</translation>
 <translation id="434816576838749873">የኢሜይል መተግበሪያ ምረጥ</translation>
 <translation id="4359125752503270327">ይህ ገጽ በሌላ መተግበሪያ ውስጥ ይከፈታል።</translation>
+<translation id="4370827530403103842">ስምረት እየሠራ አይደለም። ለማስተካከል መታ ያድርጉ።</translation>
 <translation id="4375040482473363939">የQR ኮድ ፍለጋ</translation>
 <translation id="4378154925671717803">ስልክ</translation>
 <translation id="441868831736628555">የግላዊነት ማሳወቂያ</translation>
@@ -188,6 +187,7 @@
 <translation id="4508750114462689118">የመግቢያ ማስተዋወቂያን ዝጋ</translation>
 <translation id="4526249700380860531"><ph name="BEGIN_LINK" />passwords.google.com<ph name="END_LINK" /> ላይ የተቀመጡ የይለፍ ቃሎችን ይመልከቱ እና ያስተዳድሩ</translation>
 <translation id="4536418791685807335">እንደገና ወደ መለያ ለመግባት ይሞክሩ።</translation>
+<translation id="457386861538956877">ተጨማሪ...</translation>
 <translation id="461440297010471931">በGoogle መፈለግ</translation>
 <translation id="4620246317052452550">እርስዎ ያነበቧቸው ገጾች</translation>
 <translation id="4636930964841734540">መረጃ</translation>
@@ -309,6 +309,7 @@ Handoff እንዲሁም በSettings ውስጥ ባለው የGeneral ክፍል ላ
 <translation id="6785453220513215166">የብልሽት ሪፖርት በመላክ ላይ...</translation>
 <translation id="679325081238418596">የእርስዎን ዕልባቶች፣ ታሪክ፣ የይለፍ ቃላት እና ሌሎች ቅንብሮች በሁሉም መሣሪያዎችዎ ላይ ያግኙ።</translation>
 <translation id="6797885426782475225">የድምፅ ፍለጋ</translation>
+<translation id="6807889908376551050">ሁሉንም አሳይ...</translation>
 <translation id="681368974849482173">ንጥል ተፈጥሯል</translation>
 <translation id="6896758677409633944">ቅዳ</translation>
 <translation id="6903907808598579934">ስምረትን አብራ</translation>
@@ -319,7 +320,6 @@ Handoff እንዲሁም በSettings ውስጥ ባለው የGeneral ክፍል ላ
 <translation id="7031882061095297553">አሥምር ወደ</translation>
 <translation id="7062545763355031412">ይቀበሉ እና መለያዎችን ይቀይሩ</translation>
 <translation id="7108338896283013870">ደብቅ</translation>
-<translation id="7131892264600713844">ታሪክን ከዚህ መሣሪያ በማሳየት ላይ። <ph name="BEGIN_LINK" />የበለጠ ለመረዳት።<ph name="END_LINK" /></translation>
 <translation id="7133798577887235672">ሙሉ ስም</translation>
 <translation id="7136892417564438900">ካሜራ አይገኝም</translation>
 <translation id="7159472599653637159">የተንቀሳቃሽ ስልክ ጣቢያ ጠይቅ</translation>
@@ -356,7 +356,6 @@ Handoff እንዲሁም በSettings ውስጥ ባለው የGeneral ክፍል ላ
 <translation id="7769602470925380267">ተቀበልና ዘግተህ ውጣ</translation>
 <translation id="7772032839648071052">የይለፍ ሐረግ ያረጋግጡ</translation>
 <translation id="780301667611848630">አይ፣ አመሰግናለሁ</translation>
-<translation id="7851858861565204677">ሌሎች መሣሪያዎች</translation>
 <translation id="7859704718976024901">የአሰሳ ታሪክ</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7947953824732555851">ተቀበል እና ግባ</translation>
@@ -382,6 +381,7 @@ Handoff እንዲሁም በSettings ውስጥ ባለው የGeneral ክፍል ላ
 <translation id="8458397775385147834">1 ንጥል ተሰርዟል</translation>
 <translation id="8487700953926739672">ከመስመር ውጪ ይገኛል</translation>
 <translation id="8503813439785031346">የተጣቃሚ ስም</translation>
+<translation id="850600235656508448">ማንነት በማያሳውቅ ሁነታ ይክፈቱ</translation>
 <translation id="8517375800490286174">የክፍት ምንጭ ፍቃዶች</translation>
 <translation id="8524799873541103884">ከ<ph name="NUMBER_OF_OPEN_TABS" /> <ph name="INCOGNITO" /> ትሮች ውስጥ ከ<ph name="FIRST_VISIBLE_TAB" /> እስከ <ph name="LAST_VISIBLE_TAB" /> ያሉት</translation>
 <translation id="8532105204136943229">ጊዜው የሚያልፍበት ዓመት</translation>
@@ -400,6 +400,7 @@ Handoff እንዲሁም በSettings ውስጥ ባለው የGeneral ክፍል ላ
 <translation id="8775144690796719618">ልክ ያልሆነ ዩአርኤል</translation>
 <translation id="8820817407110198400">ዕልባቶች</translation>
 <translation id="8840513115188359703">ከእርስዎ የGoogle መለያ ዘግተው እንዲወጡ አይደረጉም።</translation>
+<translation id="8870413625673593573">በቅርብ ጊዜ የተዘጉ</translation>
 <translation id="8881801611828450202">ይህን ምስል በ<ph name="SEARCH_ENGINE" /> ውስጥ ፈልግ</translation>
 <translation id="8904976895050290827">Chrome ሥምረት</translation>
 <translation id="895541991026785598">ችግር ሪፖርት ያድርጉ</translation>

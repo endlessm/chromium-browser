@@ -10,33 +10,11 @@
 
 #include <memory>
 
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/sdk/android/src/jni/jni_helpers.h"
-#include "webrtc/system_wrappers/include/logcat_trace_context.h"
-#include "webrtc/system_wrappers/include/trace.h"
+#include "rtc_base/logging.h"
+#include "sdk/android/src/jni/jni_helpers.h"
 
 namespace webrtc {
 namespace jni {
-
-JNI_FUNCTION_DECLARATION(void,
-                         Logging_nativeEnableTracing,
-                         JNIEnv* jni,
-                         jclass,
-                         jstring j_path,
-                         jint nativeLevels) {
-  std::string path = JavaToStdString(jni, j_path);
-  if (nativeLevels != kTraceNone) {
-    Trace::set_level_filter(nativeLevels);
-    if (path != "logcat:") {
-      RTC_CHECK_EQ(0, Trace::SetTraceFile(path.c_str(), false))
-          << "SetTraceFile failed";
-    } else {
-      // Intentionally leak this to avoid needing to reason about its lifecycle.
-      // It keeps no state and functions only as a dispatch point.
-      static LogcatTraceContext* g_trace_callback = new LogcatTraceContext();
-    }
-  }
-}
 
 JNI_FUNCTION_DECLARATION(void,
                          Logging_nativeEnableLogToDebugOutput,

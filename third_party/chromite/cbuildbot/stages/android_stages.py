@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2016 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -17,7 +18,6 @@ from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
 from chromite.lib import gs
 from chromite.lib import osutils
-from chromite.lib import portage_util
 from chromite.lib import results_lib
 
 
@@ -41,7 +41,6 @@ class UprevAndroidStage(generic_stages.BuilderStage,
                         generic_stages.ArchivingStageMixin):
   """Stage that uprevs Android container if needed."""
 
-  @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     # This stage runs only in builders where |android_rev| config is set,
     # namely Android PFQ and pre-flight-branch builders.
@@ -155,7 +154,6 @@ class AndroidMetadataStage(generic_stages.BuilderStage,
 
     return (versions, branches)
 
-  @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     versions, branches = self._UpdateBoardDictsForAndroidBuildInfo()
 
@@ -208,7 +206,6 @@ class DownloadAndroidDebugSymbolsStage(generic_stages.BoardSpecificBuilderStage,
   Downloaded archive will be picked up by DebugSymbolsStage.
   """
 
-  @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     if not config_lib.IsCanaryType(self._run.config.build_type):
       logging.info('This stage runs only in release builders.')
@@ -228,19 +225,18 @@ class DownloadAndroidDebugSymbolsStage(generic_stages.BoardSpecificBuilderStage,
         'Downloading symbols of Android %s (%s)...',
         android_version, android_build_branch)
 
-    board_use_flags = portage_util.GetBoardUseFlags(self._current_board)
-    arch = None
-    for arch_use_flag, arch in constants.ARC_USE_FLAG_TO_ARCH.items():
-      if arch_use_flag in board_use_flags:
-        break
-    if not arch:
-      raise AssertionError(
-          'Could not determine the arch of %s.' % self._current_board)
+    arch = self._run.DetermineAndroidABI(self._current_board)
 
-    symbols_file_url = constants.ANDROID_SYMBOLS_URL_TEMPLATE % {
-        'branch': android_build_branch,
-        'arch': arch,
-        'version': android_version}
+    if 'master-arc' in android_build_branch:
+      symbols_file_url = constants.ANDROID_SYMBOLS_BERTHA_URL_TEMPLATE % {
+          'branch': android_build_branch,
+          'arch': arch,
+          'version': android_version}
+    else:
+      symbols_file_url = constants.ANDROID_SYMBOLS_URL_TEMPLATE % {
+          'branch': android_build_branch,
+          'arch': arch,
+          'version': android_version}
     symbols_file = os.path.join(self.archive_path,
                                 constants.ANDROID_SYMBOLS_FILE)
     gs_context = gs.GSContext()

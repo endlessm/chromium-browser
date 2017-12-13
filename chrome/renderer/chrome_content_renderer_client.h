@@ -17,6 +17,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/strings/string16.h"
 #include "chrome/renderer/media/chrome_key_systems_provider.h"
+#include "components/nacl/common/features.h"
 #include "components/rappor/public/interfaces/rappor_recorder.mojom.h"
 #include "components/safe_browsing/common/safe_browsing.mojom.h"
 #include "components/spellcheck/spellcheck_build_features.h"
@@ -141,7 +142,7 @@ class ChromeContentRendererClient : public content::ContentRendererClient {
                       bool has_played_media_before,
                       const base::Closure& closure) override;
   bool RunIdleHandlerWhenWidgetsHidden() override;
-  bool AllowStoppingTimersWhenProcessBackgrounded() override;
+  bool AllowStoppingWhenProcessBackgrounded() override;
   bool AllowPopup() override;
   bool ShouldFork(blink::WebLocalFrame* frame,
                   const GURL& url,
@@ -197,6 +198,7 @@ class ChromeContentRendererClient : public content::ContentRendererClient {
   void RunScriptsAtDocumentStart(content::RenderFrame* render_frame) override;
   void RunScriptsAtDocumentEnd(content::RenderFrame* render_frame) override;
   void RunScriptsAtDocumentIdle(content::RenderFrame* render_frame) override;
+  void SetRuntimeFeaturesDefaultsBeforeBlinkInitialization() override;
   void DidInitializeServiceWorkerContextOnWorkerThread(
       v8::Local<v8::Context> context,
       int64_t service_worker_version_id,
@@ -211,6 +213,10 @@ class ChromeContentRendererClient : public content::ContentRendererClient {
   GURL OverrideFlashEmbedWithHTML(const GURL& url) override;
   std::unique_ptr<base::TaskScheduler::InitParams> GetTaskSchedulerInitParams()
       override;
+  bool OverrideLegacySymantecCertConsoleMessage(
+      const GURL& url,
+      base::Time cert_validity_start,
+      std::string* console_messsage) override;
 
 #if BUILDFLAG(ENABLE_SPELLCHECK)
   // Sets a new |spellcheck|. Used for testing only.
@@ -252,7 +258,7 @@ class ChromeContentRendererClient : public content::ContentRendererClient {
   // which the RendererMain function was entered.
   base::TimeTicks main_entry_time_;
 
-#if !defined(DISABLE_NACL)
+#if BUILDFLAG(ENABLE_NACL)
   // Determines if a NaCl app is allowed, and modifies params to pass the app's
   // permissions to the trusted NaCl plugin.
   static bool IsNaClAllowed(const GURL& manifest_url,

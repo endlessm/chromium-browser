@@ -106,7 +106,9 @@ def nanobench_flags(api, bot):
     # Bench instanced rendering on a limited number of platforms
     inst_config = gl_prefix + 'inst'
     if 'PixelC' in bot or 'NVIDIA_Shield' in bot or 'MacMini7.1' in bot:
-      configs.extend([inst_config, inst_config + sample_count])
+      configs.append(inst_config)
+      if sample_count:
+        configs.append(inst_config + sample_count)
 
     if 'CommandBuffer' in bot:
       configs = ['commandbuffer']
@@ -125,6 +127,11 @@ def nanobench_flags(api, bot):
 
   args.append('--config')
   args.extend(configs)
+
+  # By default, we test with GPU threading enabled. Leave PixelC devices
+  # running without threads, just to get some coverage of that code path.
+  if 'PixelC' in bot:
+    args.extend(['--gpuThreads', '0'])
 
   if 'Valgrind' in bot:
     # Don't care about Valgrind performance.
@@ -155,10 +162,6 @@ def nanobench_flags(api, bot):
     match.append('~GLInstancedArraysBench') # skia:4714
   if 'IntelIris540' in bot and 'ANGLE' in bot:
     match.append('~tile_image_filter_tiled_64')  # skia:6082
-  if 'IntelHD615' in bot and 'ANGLE' in bot and 'Release' in bot:
-    # skia:6980
-    match.append('~hardstop_')
-    match.append('~GM_radial_gradient3')
   if ('Vulkan' in bot and ('IntelIris540' in bot or 'IntelIris640' in bot) and
       'Win' in bot):
     # skia:6398
@@ -186,18 +189,9 @@ def nanobench_flags(api, bot):
     verbose = True
   if 'Vulkan' in bot and 'NexusPlayer' in bot:
     match.append('~blendmode_') # skia:6691
-  if 'ANGLE' in bot and 'Radeon' in bot and 'Release' in bot:
-    # skia:6534
-    match.append('~shapes_mixed_10000_32x33')
-    match.append('~shapes_oval_10000_32x32')
-    match.append('~shapes_oval_10000_32x33')
-    match.append('~shapes_rect_100_500x500')
-    match.append('~shapes_rrect_10000_32x32')
-  if 'ANGLE' in bot and 'GTX960' in bot and 'Release' in bot:
-    # skia:6534
-    match.append('~shapes_mixed_10000_32x33')
-    match.append('~shapes_rect_100_500x500')
-    match.append('~shapes_rrect_10000_32x32')
+  if 'float_cast_overflow' in bot and 'CPU' in bot:
+    # skia:4632
+    match.append('~^floor2int_undef$')
 
   # We do not need or want to benchmark the decodes of incomplete images.
   # In fact, in nanobench we assert that the full image decode succeeds.
@@ -304,38 +298,13 @@ def perf_steps(api):
       if not k in keys_blacklist:
         args.extend([k, api.vars.builder_cfg[k]])
 
-  env = {}
-  if 'Ubuntu16' in api.vars.builder_name:
-    # The vulkan in this asset name simply means that the graphics driver
-    # supports Vulkan. It is also the driver used for GL code.
-    dri_path = api.vars.slave_dir.join('linux_vulkan_intel_driver_release')
-    if 'Debug' in api.vars.builder_name:
-      dri_path = api.vars.slave_dir.join('linux_vulkan_intel_driver_debug')
-
-    if 'Vulkan' in api.vars.builder_name:
-      sdk_path = api.vars.slave_dir.join('linux_vulkan_sdk', 'bin')
-      lib_path = api.vars.slave_dir.join('linux_vulkan_sdk', 'lib')
-      env.update({
-        'PATH':'%%(PATH)s:%s' % sdk_path,
-        'LD_LIBRARY_PATH': '%s:%s' % (lib_path, dri_path),
-        'LIBGL_DRIVERS_PATH': dri_path,
-        'VK_ICD_FILENAMES':'%s' % dri_path.join('intel_icd.x86_64.json'),
-      })
-    else:
-      # Even the non-vulkan NUC jobs could benefit from the newer drivers.
-      env.update({
-        'LD_LIBRARY_PATH': dri_path,
-        'LIBGL_DRIVERS_PATH': dri_path,
-      })
-
   # See skia:2789.
   extra_config_parts = api.vars.builder_cfg.get('extra_config', '').split('_')
   if 'AbandonGpuContext' in extra_config_parts:
     args.extend(['--abandonGpuContext'])
 
-  with api.env(env):
-    api.run(api.flavor.step, target, cmd=args,
-            abort_on_failure=False)
+  api.run(api.flavor.step, target, cmd=args,
+          abort_on_failure=False)
 
   # Copy results to swarming out dir.
   if api.vars.upload_perf_results:
@@ -370,26 +339,28 @@ TEST_BUILDERS = [
   'Perf-Android-Clang-Nexus7-GPU-Tegra3-arm-Release-Android',
   'Perf-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Release-Android',
   'Perf-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Release-Android_Vulkan',
-  'Perf-Android-Clang-PixelC-GPU-TegraX1-arm64-Release-Android',
+  'Perf-Android-Clang-PixelC-GPU-TegraX1-arm64-Release-Android_Skpbench',
   'Perf-ChromeOS-Clang-Chromebook_C100p-GPU-MaliT764-arm-Release',
   'Perf-Chromecast-GCC-Chorizo-CPU-Cortex_A7-arm-Debug',
   'Perf-Chromecast-GCC-Chorizo-GPU-Cortex_A7-arm-Release',
+  'Perf-Debian9-Clang-GCE-CPU-AVX2-x86_64-Debug-UBSAN_float_cast_overflow',
+  'Perf-Debian9-Clang-GCE-CPU-AVX2-x86_64-Release',
   'Perf-Mac-Clang-MacMini7.1-CPU-AVX-x86_64-Release',
-  'Perf-Mac-Clang-MacMini7.1-GPU-IntelIris5100-x86_64-Debug-CommandBuffer',
-  'Perf-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Release',
-  'Perf-Ubuntu-GCC-ShuttleA-GPU-GTX550Ti-x86_64-Release-Valgrind',
-  ('Perf-Ubuntu-GCC-ShuttleA-GPU-GTX550Ti-x86_64-Release-Valgrind' +
-  '_AbandonGpuContext'),
+  'Perf-Mac-Clang-MacMini7.1-GPU-IntelIris5100-x86_64-Release',
+  'Perf-Mac-Clang-MacMini7.1-GPU-IntelIris5100-x86_64-Release-CommandBuffer',
   'Perf-Ubuntu16-Clang-NUC6i5SYK-GPU-IntelIris540-x86_64-Debug-Vulkan',
   'Perf-Ubuntu16-Clang-NUC6i5SYK-GPU-IntelIris540-x86_64-Release',
+  ('Perf-Ubuntu17-GCC-Golo-GPU-QuadroP400-x86_64-Release'
+   '-Valgrind_AbandonGpuContext_SK_CPU_LIMIT_SSE41'),
+  ('Perf-Ubuntu17-GCC-Golo-GPU-QuadroP400-x86_64-Release'
+   '-Valgrind_SK_CPU_LIMIT_SSE41'),
+  'Perf-Win10-Clang-NUC6i5SYK-GPU-IntelIris540-x86_64-Release-Vulkan',
   'Perf-Win10-MSVC-AlphaR2-GPU-RadeonR9M470X-x86_64-Release-ANGLE',
   'Perf-Win10-MSVC-NUC6i5SYK-GPU-IntelIris540-x86_64-Release-ANGLE',
-  'Perf-Win10-MSVC-NUC6i5SYK-GPU-IntelIris540-x86_64-Release-Vulkan',
   'Perf-Win10-MSVC-ShuttleC-GPU-GTX960-x86_64-Release-ANGLE',
-  'Perf-Win10-MSVC-SurfacePro2017-GPU-IntelHD615-x86_64-Release-ANGLE',
-  'Perf-Win2k8-MSVC-GCE-CPU-AVX2-x86_64-Debug',
-  'Perf-Win2k8-MSVC-GCE-CPU-AVX2-x86_64-Release',
-  'Perf-iOS-Clang-iPadMini4-GPU-GX6450-arm-Release'
+  'Perf-Win2016-MSVC-GCE-CPU-AVX2-x86_64-Debug',
+  'Perf-Win2016-MSVC-GCE-CPU-AVX2-x86_64-Release',
+  'Perf-iOS-Clang-iPadPro-GPU-GT7800-arm64-Release',
 ]
 
 
@@ -429,7 +400,7 @@ def GenTests(api):
 
     yield test
 
-  builder = 'Perf-Win10-MSVC-ShuttleB-GPU-IntelHD4600-x86_64-Release'
+  builder = 'Perf-Win10-Clang-NUCD34010WYKH-GPU-IntelHD4400-x86_64-Release'
   yield (
     api.test('trybot') +
     api.properties(buildername=builder,
@@ -454,7 +425,7 @@ def GenTests(api):
     )
   )
 
-  builder = 'Perf-Android-Clang-NexusPlayer-CPU-SSE4-x86-Debug-Android'
+  builder = 'Perf-Android-Clang-NexusPlayer-CPU-Moorefield-x86-Debug-Android'
   yield (
     api.test('failed_push') +
     api.properties(buildername=builder,

@@ -22,6 +22,7 @@
 #include "components/autofill/core/browser/country_combobox_model.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "components/autofill/core/browser/phone_number_i18n.h"
 #include "components/payments/core/payment_request_data_util.h"
 #include "components/strings/grit/components_strings.h"
 #include "ios/chrome/browser/payments/payment_request.h"
@@ -41,8 +42,8 @@
   std::unique_ptr<RegionDataLoader> _regionDataLoader;
 }
 
-// The PaymentRequest object owning an instance of web::PaymentRequest as
-// provided by the page invoking the Payment Request API. This is a weak
+// The PaymentRequest object owning an instance of payments::WebPaymentRequest
+// as provided by the page invoking the Payment Request API. This is a weak
 // pointer and should outlive this class.
 @property(nonatomic, assign) payments::PaymentRequest* paymentRequest;
 
@@ -136,10 +137,9 @@
 
 - (void)formatValueForEditorField:(EditorField*)field {
   if (field.autofillUIType == AutofillUITypeProfileHomePhoneWholeNumber) {
-    field.value =
-        base::SysUTF8ToNSString(payments::data_util::FormatPhoneForDisplay(
-            base::SysNSStringToUTF8(field.value),
-            base::SysNSStringToUTF8(self.selectedCountryCode)));
+    field.value = base::SysUTF8ToNSString(autofill::i18n::FormatPhoneForDisplay(
+        base::SysNSStringToUTF8(field.value),
+        base::SysNSStringToUTF8(self.selectedCountryCode)));
   }
 }
 
@@ -175,7 +175,15 @@
   // Notify the view controller asynchronously to allow for the view to update.
   __weak AddressEditMediator* weakSelf = self;
   dispatch_async(dispatch_get_main_queue(), ^{
-    [weakSelf.consumer setOptions:@[ [regions allKeys] ]
+    NSMutableArray<NSString*>* values =
+        [[NSMutableArray alloc] initWithArray:[regions allKeys]];
+    // If the field contains no value, insert an empty value at the beginning
+    // of the list of options, as the first option is selected when the UI
+    // opens. Otherwise, it would be impossible for the user to select the first
+    // option without selecting another option first.
+    if (!weakSelf.regionField.value)
+      [values insertObject:@"" atIndex:0];
+    [weakSelf.consumer setOptions:@[ values ]
                    forEditorField:weakSelf.regionField];
   });
 }
@@ -342,7 +350,7 @@
     NSString* value =
         self.address
             ? base::SysUTF16ToNSString(
-                  payments::data_util::GetFormattedPhoneNumberForDisplay(
+                  autofill::i18n::GetFormattedPhoneNumberForDisplay(
                       *self.address, _paymentRequest->GetApplicationLocale()))
             : nil;
     field = [[EditorField alloc]

@@ -4,7 +4,8 @@
 
 #include "chrome/browser/notifications/notification_display_service.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "base/strings/nullable_string16.h"
 #include "chrome/browser/notifications/non_persistent_notification_handler.h"
 #include "chrome/browser/notifications/notification_common.h"
@@ -19,13 +20,13 @@
 NotificationDisplayService::NotificationDisplayService(Profile* profile)
     : profile_(profile) {
   AddNotificationHandler(NotificationCommon::NON_PERSISTENT,
-                         base::MakeUnique<NonPersistentNotificationHandler>());
+                         std::make_unique<NonPersistentNotificationHandler>());
   AddNotificationHandler(NotificationCommon::PERSISTENT,
-                         base::MakeUnique<PersistentNotificationHandler>());
+                         std::make_unique<PersistentNotificationHandler>());
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   AddNotificationHandler(
       NotificationCommon::EXTENSION,
-      base::MakeUnique<extensions::ExtensionNotificationHandler>());
+      std::make_unique<extensions::ExtensionNotificationHandler>());
 #endif
 }
 
@@ -39,12 +40,19 @@ void NotificationDisplayService::AddNotificationHandler(
   notification_handlers_[notification_type] = std::move(handler);
 }
 
+void NotificationDisplayService::RemoveNotificationHandler(
+    NotificationCommon::Type notification_type) {
+  auto iter = notification_handlers_.find(notification_type);
+  DCHECK(iter != notification_handlers_.end());
+  notification_handlers_.erase(iter);
+}
+
 NotificationHandler* NotificationDisplayService::GetNotificationHandler(
     NotificationCommon::Type notification_type) {
-  DCHECK(notification_handlers_.find(notification_type) !=
-         notification_handlers_.end())
-      << notification_type << " is not registered.";
-  return notification_handlers_[notification_type].get();
+  auto found = notification_handlers_.find(notification_type);
+  if (found != notification_handlers_.end())
+    return found->second.get();
+  return nullptr;
 }
 
 void NotificationDisplayService::ProcessNotificationOperation(
@@ -52,9 +60,9 @@ void NotificationDisplayService::ProcessNotificationOperation(
     NotificationCommon::Type notification_type,
     const std::string& origin,
     const std::string& notification_id,
-    int action_index,
-    const base::NullableString16& reply,
-    bool by_user) {
+    const base::Optional<int>& action_index,
+    const base::Optional<base::string16>& reply,
+    const base::Optional<bool>& by_user) {
   NotificationHandler* handler = GetNotificationHandler(notification_type);
   DCHECK(handler);
   if (!handler) {
@@ -66,7 +74,8 @@ void NotificationDisplayService::ProcessNotificationOperation(
       handler->OnClick(profile_, origin, notification_id, action_index, reply);
       break;
     case NotificationCommon::CLOSE:
-      handler->OnClose(profile_, origin, notification_id, by_user);
+      DCHECK(by_user.has_value());
+      handler->OnClose(profile_, origin, notification_id, by_user.value());
       break;
     case NotificationCommon::SETTINGS:
       handler->OpenSettings(profile_);

@@ -120,11 +120,18 @@ public class WebRtcAudioTrack {
         // This priming will avoid an immediate underrun, but is not required.
         // TODO(henrika): initial tests have shown that priming is not required.
         audioTrack.play();
-        assertTrue(audioTrack.getPlayState() == AudioTrack.PLAYSTATE_PLAYING);
       } catch (IllegalStateException e) {
         reportWebRtcAudioTrackStartError("AudioTrack.play failed: " + e.getMessage());
         releaseAudioResources();
         return;
+      }
+      // We have seen reports that AudioTrack.play() can sometimes start in a
+      // paued mode (e.g. when application is in background mode).
+      // TODO(henrika): consider calling reportWebRtcAudioTrackStartError()
+      // and release audio resources here as well. For now, let the thread start
+      // and hope that the audio session can be restored later.
+      if (audioTrack.getPlayState() != AudioTrack.PLAYSTATE_PLAYING) {
+        Logging.w(TAG, "AudioTrack failed to enter playing state.");
       }
 
       // Fixed size in bytes of each 10ms block of audio data that we ask for
@@ -173,12 +180,14 @@ public class WebRtcAudioTrack {
       // Stops playing the audio data. Since the instance was created in
       // MODE_STREAM mode, audio will stop playing after the last buffer that
       // was written has been played.
-      final AudioTrack at = audioTrack;
-      if (at != null) {
+      if (audioTrack != null) {
         Logging.d(TAG, "Stopping the audio track...");
-        at.stop();
-        Logging.d(TAG, "The audio track has now been stopped.");
-        at.flush();
+        try {
+          audioTrack.stop();
+          Logging.d(TAG, "The audio track has now been stopped.");
+        } catch (IllegalStateException e) {
+          Logging.e(TAG, "AudioTrack.stop failed: " + e.getMessage());
+        }
       }
     }
 
@@ -258,9 +267,8 @@ public class WebRtcAudioTrack {
             sampleRate, channelConfig, minBufferSizeInBytes);
       } else {
         // Use default constructor for API levels below 21.
-        // Note that, this constructor will be deprecated in API level O (25).
-        audioTrack = new AudioTrack(AudioManager.STREAM_VOICE_CALL, sampleRate, channelConfig,
-            AudioFormat.ENCODING_PCM_16BIT, minBufferSizeInBytes, AudioTrack.MODE_STREAM);
+        audioTrack =
+            createAudioTrackOnLowerThanLollipop(sampleRate, channelConfig, minBufferSizeInBytes);
       }
     } catch (IllegalArgumentException e) {
       reportWebRtcAudioTrackInitError(e.getMessage());
@@ -360,8 +368,8 @@ public class WebRtcAudioTrack {
   // It allows certain platforms or routing policies to use this information for more
   // refined volume or routing decisions.
   @TargetApi(21)
-  private AudioTrack createAudioTrackOnLollipopOrHigher(
-    int sampleRateInHz, int channelConfig, int bufferSizeInBytes) {
+  private static AudioTrack createAudioTrackOnLollipopOrHigher(
+      int sampleRateInHz, int channelConfig, int bufferSizeInBytes) {
     Logging.d(TAG, "createAudioTrackOnLollipopOrHigher");
     // TODO(henrika): use setPerformanceMode(int) with PERFORMANCE_MODE_LOW_LATENCY to control
     // performance when Android O is supported. Add some logging in the mean time.
@@ -388,6 +396,13 @@ public class WebRtcAudioTrack {
         bufferSizeInBytes,
         AudioTrack.MODE_STREAM,
         AudioManager.AUDIO_SESSION_ID_GENERATE);
+  }
+
+  @SuppressWarnings("deprecation") // Deprecated in API level 25.
+  private static AudioTrack createAudioTrackOnLowerThanLollipop(
+      int sampleRateInHz, int channelConfig, int bufferSizeInBytes) {
+    return new AudioTrack(AudioManager.STREAM_VOICE_CALL, sampleRateInHz, channelConfig,
+        AudioFormat.ENCODING_PCM_16BIT, bufferSizeInBytes, AudioTrack.MODE_STREAM);
   }
 
   @TargetApi(24)

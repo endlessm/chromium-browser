@@ -12,6 +12,7 @@ import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.TextView;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ObserverList;
@@ -57,6 +58,7 @@ public class BookmarkManager implements BookmarkDelegate, SearchDelegate {
     private BasicNativePage mNativePage;
     private SelectableListLayout<BookmarkId> mSelectableListLayout;
     private RecyclerView mRecyclerView;
+    private TextView mEmptyView;
     private BookmarkItemsAdapter mAdapter;
     private BookmarkActionBar mToolbar;
     private SelectionDelegate<BookmarkId> mSelectionDelegate;
@@ -139,7 +141,7 @@ public class BookmarkManager implements BookmarkDelegate, SearchDelegate {
         SelectableListLayout<BookmarkId> selectableList =
                 (SelectableListLayout<BookmarkId>) mMainView.findViewById(R.id.selectable_list);
         mSelectableListLayout = selectableList;
-        mSelectableListLayout.initializeEmptyView(
+        mEmptyView = mSelectableListLayout.initializeEmptyView(
                 VectorDrawableCompat.create(
                         mActivity.getResources(), R.drawable.bookmark_big, mActivity.getTheme()),
                 R.string.bookmarks_folder_empty, R.string.bookmark_no_result);
@@ -151,8 +153,8 @@ public class BookmarkManager implements BookmarkDelegate, SearchDelegate {
         mToolbar = (BookmarkActionBar) mSelectableListLayout.initializeToolbar(
                 R.layout.bookmark_action_bar, mSelectionDelegate, 0, null, R.id.normal_menu_group,
                 R.id.selection_mode_menu_group,
-                FeatureUtilities.isChromeHomeModernEnabled() ? R.color.modern_toolbar_bg
-                                                             : R.color.modern_primary_color,
+                FeatureUtilities.isChromeHomeEnabled() ? R.color.modern_toolbar_bg
+                                                       : R.color.modern_primary_color,
                 null, true);
         mToolbar.initializeSearchView(
                 this, R.string.bookmark_action_bar_search, R.id.search_menu_id);
@@ -164,9 +166,7 @@ public class BookmarkManager implements BookmarkDelegate, SearchDelegate {
         initializeToLoadingState();
         mBookmarkModel.runAfterBookmarkModelLoaded(mModelLoadedRunnable);
 
-        // Load partner bookmarks explicitly. We load partner bookmarks in the deferred startup
-        // code, but that might be executed much later. Especially on L, showing loading
-        // progress bar blocks that so it won't be loaded. http://crbug.com/429383
+        // Load partner bookmarks explicitly.
         PartnerBookmarksShim.kickOffReading(activity);
 
         mLargeIconBridge = new LargeIconBridge(Profile.getLastUsedProfile().getOriginalProfile());
@@ -236,6 +236,20 @@ public class BookmarkManager implements BookmarkDelegate, SearchDelegate {
 
     public View getView() {
         return mMainView;
+    }
+
+    /**
+     * @return The {@link RecyclerView} that contains the list of bookmarks.
+     */
+    public RecyclerView getRecyclerView() {
+        return mRecyclerView;
+    }
+
+    /**
+     * @return The {@link TextView} that's displayed when there are no bookmarks to display.
+     */
+    public TextView getEmptyView() {
+        return mEmptyView;
     }
 
     /**
@@ -460,5 +474,12 @@ public class BookmarkManager implements BookmarkDelegate, SearchDelegate {
     @VisibleForTesting
     public BookmarkActionBar getToolbarForTests() {
         return mToolbar;
+    }
+
+    /**
+     * Called to scroll to the top of the bookmarks list.
+     */
+    public void scrollToTop() {
+        mRecyclerView.smoothScrollToPosition(0);
     }
 }

@@ -71,13 +71,23 @@ void TrayAction::UpdateLockScreenNoteState(mojom::TrayActionState state) {
     NotifyLockScreenNoteStateChanged();
 }
 
-void TrayAction::RequestNewLockScreenNote() {
+void TrayAction::RequestNewLockScreenNote(mojom::LockScreenNoteOrigin origin) {
   if (GetLockScreenNoteState() != mojom::TrayActionState::kAvailable)
     return;
 
   // An action state can be kAvailable only if |tray_action_client_| is set.
   DCHECK(tray_action_client_);
-  tray_action_client_->RequestNewLockScreenNote();
+  tray_action_client_->RequestNewLockScreenNote(origin);
+}
+
+void TrayAction::CloseLockScreenNote(mojom::CloseLockScreenNoteReason reason) {
+  if (tray_action_client_)
+    tray_action_client_->CloseLockScreenNote(reason);
+}
+
+void TrayAction::FlushMojoForTesting() {
+  if (tray_action_client_)
+    tray_action_client_.FlushForTesting();
 }
 
 void TrayAction::NotifyLockScreenNoteStateChanged() {

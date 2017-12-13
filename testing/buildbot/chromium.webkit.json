@@ -478,49 +478,11 @@
             {
               "gpu": "8086:0a2e",
               "hidpi": "0",
-              "os": "Mac-10.12.5"
+              "os": "Mac-10.12.6"
             }
           ],
           "shards": 2
         }
-      }
-    ],
-    "scripts": [
-      {
-        "name": "webkit_lint",
-        "script": "webkit_lint.py"
-      },
-      {
-        "name": "webkit_python_tests",
-        "script": "webkit_python_tests.py"
-      }
-    ]
-  },
-  "WebKit Mac10.9": {
-    "gtest_tests": [
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "blink_heap_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "blink_platform_unittests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "webkit_unit_tests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "wtf_unittests"
       }
     ],
     "scripts": [

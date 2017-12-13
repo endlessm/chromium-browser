@@ -25,6 +25,7 @@
 #include "components/url_formatter/url_formatter.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_fetcher.h"
+#include "ui/base/device_form_factor.h"
 #include "url/url_constants.h"
 
 namespace {
@@ -277,11 +278,19 @@ SearchSuggestionParser::NavigationResult::CalculateAndClassifyMatchContents(
       URLPrefix::BestURLPrefix(formatted_url_, input_text);
   size_t match_start = (prefix == NULL) ?
       formatted_url_.find(input_text) : prefix->prefix.length();
-  bool trim_http = !AutocompleteInput::HasHTTPScheme(input_text) &&
-                   (!prefix || (match_start != 0));
-  base::string16 match_contents = url_formatter::FormatUrl(
-      url_, AutocompleteMatch::GetFormatTypes(!trim_http, false, false),
-      net::UnescapeRule::SPACES, nullptr, nullptr, &match_start);
+
+  bool match_in_scheme = false;
+  bool match_in_subdomain = false;
+  bool match_after_host = false;
+  AutocompleteMatch::GetMatchComponents(
+      GURL(formatted_url_), {{match_start, match_start + input_text.length()}},
+      &match_in_scheme, &match_in_subdomain, &match_after_host);
+  auto format_types = AutocompleteMatch::GetFormatTypes(
+      match_in_scheme, match_in_subdomain, match_after_host);
+
+  base::string16 match_contents =
+      url_formatter::FormatUrl(url_, format_types, net::UnescapeRule::SPACES,
+                               nullptr, nullptr, &match_start);
   // If the first match in the untrimmed string was inside a scheme that we
   // trimmed, look for a subsequent match.
   if (match_start == base::string16::npos)
@@ -505,13 +514,19 @@ bool SearchSuggestionParser::ParseSuggestResults(
             input.text()));
       }
     } else {
-      // TODO(dschuyler) If the "= " is no longer sent from the back-end
-      // then this may be removed.
-      if ((match_type == AutocompleteMatchType::CALCULATOR) &&
-          !suggestion.compare(0, 2, base::UTF8ToUTF16("= ")))
-        suggestion.erase(0, 2);
-
       base::string16 match_contents = suggestion;
+      if ((match_type == AutocompleteMatchType::CALCULATOR) &&
+          !suggestion.compare(0, 2, base::UTF8ToUTF16("= "))) {
+        // Calculator results include a "= " prefix but we don't want to include
+        // this in the search terms.
+        suggestion.erase(0, 2);
+        // Additionally, on larger (non-phone) form factors, we don't want to
+        // display it in the suggestion contents either, because those devices
+        // display a suggestion type icon that looks like a '='.
+        if (ui::GetDeviceFormFactor() != ui::DEVICE_FORM_FACTOR_PHONE)
+          match_contents.erase(0, 2);
+      }
+
       base::string16 match_contents_prefix;
       base::string16 annotation;
       base::string16 answer_contents;

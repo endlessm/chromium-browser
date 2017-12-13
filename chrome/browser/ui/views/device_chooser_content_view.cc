@@ -92,6 +92,11 @@ DeviceChooserContentView::~DeviceChooserContentView() {
   table_view_->SetModel(nullptr);
 }
 
+gfx::Size DeviceChooserContentView::GetMinimumSize() const {
+  // Let the dialog shrink when its parent is smaller than the preferred size.
+  return gfx::Size();
+}
+
 void DeviceChooserContentView::Layout() {
   gfx::Rect rect(GetContentsBounds());
   table_parent_->SetBoundsRect(rect);
@@ -165,7 +170,7 @@ gfx::ImageSkia DeviceChooserContentView::GetIcon(int row) {
   DCHECK_GE(level, 0);
   DCHECK_LT(level, static_cast<int>(arraysize(kSignalStrengthLevelImageIds)));
 
-  return *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
+  return *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
       kSignalStrengthLevelImageIds[level]);
 }
 

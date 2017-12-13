@@ -56,9 +56,10 @@ std::unique_ptr<views::StyledLabel> CreateLegalMessageLineLabel(
 }  // namespace
 
 SaveCardBubbleViews::SaveCardBubbleViews(views::View* anchor_view,
+                                         const gfx::Point& anchor_point,
                                          content::WebContents* web_contents,
                                          SaveCardBubbleController* controller)
-    : LocationBarBubbleDelegateView(anchor_view, web_contents),
+    : LocationBarBubbleDelegateView(anchor_view, anchor_point, web_contents),
       controller_(controller) {
   DCHECK(controller);
   views::BubbleDialogDelegateView::CreateBubble(this);
@@ -322,7 +323,7 @@ std::unique_ptr<views::View> SaveCardBubbleViews::CreateMainContentView() {
   const CreditCard& card = controller_->GetCard();
   views::ImageView* card_type_icon = new views::ImageView();
   card_type_icon->SetImage(
-      ResourceBundle::GetSharedInstance()
+      ui::ResourceBundle::GetSharedInstance()
           .GetImageNamed(CreditCard::IconResourceId(card.network()))
           .AsImageSkia());
   card_type_icon->SetTooltipText(card.NetworkForDisplay());

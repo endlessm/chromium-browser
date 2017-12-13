@@ -73,7 +73,7 @@ class RunTestFullTest(_RunTestTest):
 
     # Call RunTest.Start() to create an Execution.
     quest = run_test.RunTest(_SWARMING_DIMENSIONS, _SWARMING_EXTRA_ARGS)
-    execution = quest.Start('input isolate hash')
+    execution = quest.Start('change_1', 'input isolate hash')
 
     swarming_task_result.assert_not_called()
     swarming_tasks_new.assert_not_called()
@@ -83,7 +83,7 @@ class RunTestFullTest(_RunTestTest):
     execution.Poll()
 
     swarming_task_result.assert_not_called()
-    swarming_tasks_new.assert_called_once()
+    self.assertEqual(swarming_tasks_new.call_count, 1)
     self.assertNewTaskHasDimensions(swarming_tasks_new)
     self.assertFalse(execution.completed)
     self.assertFalse(execution.failed)
@@ -106,26 +106,34 @@ class RunTestFullTest(_RunTestTest):
 
     self.assertTrue(execution.completed)
     self.assertFalse(execution.failed)
-    self.assertEqual(execution.result_values, (None,))
+    self.assertEqual(execution.result_values, ())
     self.assertEqual(execution.result_arguments,
-                     {'isolate_hashes': ('output isolate hash',)})
+                     {'isolate_hash': 'output isolate hash'})
     self.assertEqual(
         {
-            'bot_ids': ['bot id'],
-            'input_isolate_hash': 'input isolate hash',
-            'task_ids': ['task id'],
-            'result_arguments': {'isolate_hashes': ('output isolate hash',)},
-            'result_values': (None,),
+            'completed': True,
+            'exception': None,
+            'details': {
+                'bot_id': 'bot id',
+                'task_id': 'task id',
+            },
+            'result_arguments': {'isolate_hash': 'output isolate hash'},
+            'result_values': (),
         },
         execution.AsDict())
 
-
-    # Start a second Execution to check bot_id handling. We get a bot_id from
-    # Swarming from the first Execution and reuse it in subsequent Executions.
-    execution = quest.Start('input isolate hash')
+    # Start a second Execution on another Change. It should use the bot_id
+    # from the first execution.
+    execution = quest.Start('change_2', 'input isolate hash')
     execution.Poll()
 
     self.assertNewTaskHasBotId(swarming_tasks_new)
+
+    # Start an Execution on the same Change. It should use a new bot_id.
+    execution = quest.Start('change_2', 'input isolate hash')
+    execution.Poll()
+
+    self.assertNewTaskHasDimensions(swarming_tasks_new)
 
 
 @mock.patch('dashboard.services.swarming_service.Tasks.New')
@@ -137,15 +145,13 @@ class SwarmingTaskStatusTest(_RunTestTest):
     swarming_tasks_new.return_value = {'task_id': 'task id'}
 
     quest = run_test.RunTest(_SWARMING_DIMENSIONS, _SWARMING_EXTRA_ARGS)
-    execution = quest.Start('input isolate hash')
+    execution = quest.Start(None, 'input isolate hash')
     execution.Poll()
     execution.Poll()
 
     self.assertTrue(execution.completed)
     self.assertTrue(execution.failed)
-    self.assertEqual(len(execution.result_values), 1)
-    self.assertIsInstance(execution.result_values[0], basestring)
-    last_exception_line = execution.result_values[0].splitlines()[-1]
+    last_exception_line = execution.exception.splitlines()[-1]
     self.assertTrue(last_exception_line.startswith('SwarmingTaskError'))
 
   def testTestError(self, swarming_task_result, swarming_tasks_new):
@@ -158,15 +164,13 @@ class SwarmingTaskStatusTest(_RunTestTest):
     swarming_tasks_new.return_value = {'task_id': 'task id'}
 
     quest = run_test.RunTest(_SWARMING_DIMENSIONS, _SWARMING_EXTRA_ARGS)
-    execution = quest.Start('isolate_hash')
+    execution = quest.Start(None, 'isolate_hash')
     execution.Poll()
     execution.Poll()
 
     self.assertTrue(execution.completed)
     self.assertTrue(execution.failed)
-    self.assertEqual(len(execution.result_values), 1)
-    self.assertIsInstance(execution.result_values[0], basestring)
-    last_exception_line = execution.result_values[0].splitlines()[-1]
+    last_exception_line = execution.exception.splitlines()[-1]
     self.assertTrue(last_exception_line.startswith('SwarmingTestError'))
 
 
@@ -184,7 +188,7 @@ class BotIdHandlingTest(_RunTestTest):
     swarming_task_result.return_value = {'state': 'EXPIRED'}
 
     quest = run_test.RunTest(_SWARMING_DIMENSIONS, _SWARMING_EXTRA_ARGS)
-    execution = quest.Start('input isolate hash')
+    execution = quest.Start('change_1', 'input isolate hash')
     execution.Poll()
     execution.Poll()
 
@@ -195,14 +199,12 @@ class BotIdHandlingTest(_RunTestTest):
         'outputs_ref': {'isolated': 'output isolate hash'},
         'state': 'COMPLETED',
     }
-    execution = quest.Start('input isolate hash')
+    execution = quest.Start('change_2', 'input isolate hash')
     execution.Poll()
 
     self.assertTrue(execution.completed)
     self.assertTrue(execution.failed)
-    self.assertEqual(len(execution.result_values), 1)
-    self.assertIsInstance(execution.result_values[0], basestring)
-    last_exception_line = execution.result_values[0].splitlines()[-1]
+    last_exception_line = execution.exception.splitlines()[-1]
     self.assertTrue(last_exception_line.startswith('RunTestError'))
 
   def testSimultaneousExecutions(self, swarming_task_result,
@@ -210,8 +212,8 @@ class BotIdHandlingTest(_RunTestTest):
     # Executions after the first must wait for the first execution to get a bot
     # ID. To preserve device affinity, they must use the same bot.
     quest = run_test.RunTest(_SWARMING_DIMENSIONS, _SWARMING_EXTRA_ARGS)
-    execution_1 = quest.Start('input isolate hash')
-    execution_2 = quest.Start('input isolate hash')
+    execution_1 = quest.Start('change_1', 'input isolate hash')
+    execution_2 = quest.Start('change_2', 'input isolate hash')
 
     swarming_tasks_new.return_value = {'task_id': 'task id'}
     swarming_task_result.return_value = {'state': 'PENDING'}

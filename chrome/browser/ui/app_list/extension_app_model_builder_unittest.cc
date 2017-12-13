@@ -171,7 +171,7 @@ TEST_F(ExtensionAppModelBuilderTest, HideWebStore) {
 
 TEST_F(ExtensionAppModelBuilderTest, DisableAndEnable) {
   service_->DisableExtension(kHostedAppId,
-                             extensions::disable_reason::DISABLE_NONE);
+                             extensions::disable_reason::DISABLE_USER_ACTION);
   EXPECT_EQ(std::string(kDefaultApps), GetModelContent(model_.get()));
 
   service_->EnableExtension(kHostedAppId);
@@ -190,12 +190,10 @@ TEST_F(ExtensionAppModelBuilderTest, Uninstall) {
 }
 
 TEST_F(ExtensionAppModelBuilderTest, UninstallTerminatedApp) {
-  const extensions::Extension* app =
-      registry()->GetInstalledExtension(kPackagedApp2Id);
-  ASSERT_TRUE(app != NULL);
+  ASSERT_NE(nullptr, registry()->GetInstalledExtension(kPackagedApp2Id));
 
   // Simulate an app termination.
-  service_->TrackTerminatedExtensionForTest(app);
+  service_->TerminateExtension(kPackagedApp2Id);
 
   service_->UninstallExtension(kPackagedApp2Id,
                                extensions::UNINSTALL_REASON_FOR_TESTING,

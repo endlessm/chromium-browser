@@ -172,9 +172,6 @@ class PageInfoBubbleView : public content::WebContentsObserver,
   // The security summary for the current page.
   base::string16 summary_text_;
 
-  // The separator between the header and the site settings view.
-  views::Separator* separator_;
-
   // The view that contains the certificate, cookie, and permissions sections.
   views::View* site_settings_view_;
 

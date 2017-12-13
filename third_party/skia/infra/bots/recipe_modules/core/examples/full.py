@@ -15,7 +15,7 @@ def RunSteps(api):
 
 
 def GenTests(api):
-  buildername = 'Build-Win-MSVC-x86_64-Release-Vulkan'
+  buildername = 'Build-Win-Clang-x86_64-Release-Vulkan'
   yield (
       api.test('test') +
       api.properties(buildername=buildername,
@@ -47,7 +47,7 @@ def GenTests(api):
       )
     )
 
-  buildername = 'Build-Ubuntu-GCC-x86_64-Release-PDFium'
+  buildername = 'Build-Debian9-GCC-x86_64-Release-PDFium'
   yield (
       api.test('pdfium_trybot') +
       api.properties(
@@ -69,7 +69,7 @@ def GenTests(api):
       )
   )
 
-  buildername = 'Build-Ubuntu-GCC-x86_64-Release-Flutter_Android'
+  buildername = 'Build-Debian9-GCC-x86_64-Release-Flutter_Android'
   yield (
       api.test('flutter_trybot') +
       api.properties(
@@ -102,7 +102,7 @@ def GenTests(api):
       api.path.exists(api.path['start_dir'].join('skp_output'))
   )
 
-  buildername = 'Build-Ubuntu-GCC-x86_64-Release'
+  buildername = 'Build-Debian9-GCC-x86_64-Release'
   yield (
       api.test('cross_repo_trybot') +
       api.properties(

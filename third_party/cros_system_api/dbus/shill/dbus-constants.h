@@ -27,12 +27,9 @@ const char kConnectFunction[] = "Connect";
 const char kDisconnectFunction[] = "Disconnect";
 const char kRequestScanFunction[] = "RequestScan";
 const char kGetServiceFunction[] = "GetService";
-const char kGetWifiServiceFunction[] = "GetWifiService";
-const char kGetVPNServiceFunction[] = "GetVPNService";
 const char kRemoveServiceFunction[] = "Remove";
 const char kEnableTechnologyFunction[] = "EnableTechnology";
 const char kDisableTechnologyFunction[] = "DisableTechnology";
-const char kAddIPConfigFunction[] = "AddIPConfig";
 const char kRemoveConfigFunction[] = "Remove";
 const char kGetEntryFunction[] = "GetEntry";
 const char kDeleteEntryFunction[] = "DeleteEntry";
@@ -178,8 +175,6 @@ const char kForceWakeToScanTimerProperty[] = "ForceWakeToScanTimer";
 const char kInterfaceProperty[] = "Interface";
 const char kSelectedServiceProperty[] = "SelectedService";
 const char kIPConfigsProperty[] = "IPConfigs";
-// TODO(crbug.com/749161): remove this after switching
-const char kMACAddressRandomizationProperty[] = "MACAddressRandomization";
 const char kMACAddressRandomizationSupportedProperty[] =
     "MACAddressRandomizationSupported";
 const char kMACAddressRandomizationEnabledProperty[] =

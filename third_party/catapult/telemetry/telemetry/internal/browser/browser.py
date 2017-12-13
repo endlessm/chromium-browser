@@ -103,7 +103,7 @@ class Browser(app.App):
       # tab is always tab 0, which will be the first one that isn't hidden
       if self._tabs[i].EvaluateJavaScript('!document.hidden'):
         return self._tabs[i]
-    raise Exception("No foreground tab found")
+    raise exceptions.TabMissingError("No foreground tab found")
 
   @property
   @decorators.Cache
@@ -350,7 +350,8 @@ class Browser(app.App):
     return self._browser_backend.DumpMemory(timeout=timeout)
 
   @property
-  def supports_java_heap_garbage_collection(self):
+  def supports_java_heap_garbage_collection( # pylint: disable=invalid-name
+      self):
     return hasattr(self._browser_backend, 'ForceJavaHeapGarbageCollection')
 
   def ForceJavaHeapGarbageCollection(self):
@@ -358,7 +359,9 @@ class Browser(app.App):
     return self._browser_backend.ForceJavaHeapGarbageCollection()
 
   @property
+  # pylint: disable=invalid-name
   def supports_overriding_memory_pressure_notifications(self):
+    # pylint: enable=invalid-name
     return (
         self._browser_backend.supports_overriding_memory_pressure_notifications)
 

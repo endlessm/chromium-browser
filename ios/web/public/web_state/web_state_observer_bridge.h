@@ -9,7 +9,6 @@
 
 #include <string>
 
-#import "base/ios/weak_nsobject.h"
 #include "base/macros.h"
 #include "ios/web/public/web_state/web_state_observer.h"
 
@@ -17,6 +16,12 @@
 // web::WebStateObserver, wrap in a web::WebStateObserverBridge.
 @protocol CRWWebStateObserver<NSObject>
 @optional
+
+// Invoked by WebStateObserverBridge::WasShown.
+- (void)webStateWasShown:(web::WebState*)webState;
+
+// Invoked by WebStateObserverBridge::WasHidden.
+- (void)webStateWasHidden:(web::WebState*)webState;
 
 // Invoked by WebStateObserverBridge::NavigationItemsPruned.
 - (void)webState:(web::WebState*)webState
@@ -103,6 +108,8 @@ class WebStateObserverBridge : public web::WebStateObserver {
   ~WebStateObserverBridge() override;
 
   // web::WebStateObserver methods.
+  void WasShown() override;
+  void WasHidden() override;
   void NavigationItemsPruned(size_t pruned_item_count) override;
   void NavigationItemCommitted(
       const LoadCommittedDetails& load_details) override;
@@ -129,7 +136,7 @@ class WebStateObserverBridge : public web::WebStateObserver {
   void DidStopLoading() override;
 
  private:
-  __unsafe_unretained id<CRWWebStateObserver> observer_;
+  __weak id<CRWWebStateObserver> observer_ = nil;
   DISALLOW_COPY_AND_ASSIGN(WebStateObserverBridge);
 };
 

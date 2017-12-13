@@ -94,7 +94,7 @@ public class VrShellNavigationTest {
                 mVrTestRule.getActivity().getActivityTab(), new Runnable() {
                     @Override
                     public void run() {
-                        mVrTestFramework.runJavaScriptOrFail(
+                        VrTestFramework.runJavaScriptOrFail(
                                 "window.location.href = '" + getUrl(to) + "';",
                                 POLL_TIMEOUT_SHORT_MS, mVrTestFramework.getFirstTabWebContents());
                     }
@@ -104,7 +104,7 @@ public class VrShellNavigationTest {
     private void enterFullscreenOrFail(ContentViewCore cvc)
             throws InterruptedException, TimeoutException {
         DOMUtils.clickNode(cvc, "fullscreen");
-        mVrTestFramework.waitOnJavaScriptStep(cvc.getWebContents());
+        VrTestFramework.waitOnJavaScriptStep(cvc.getWebContents());
         Assert.assertTrue(DOMUtils.isFullscreen(cvc.getWebContents()));
     }
 
@@ -123,7 +123,7 @@ public class VrShellNavigationTest {
 
     /**
      * Tests navigation from a 2D to a 2D page. Also tests that this navigation is
-     * properly added to Chrome's history.
+     * properly added to Chrome's history and is usable.
      */
     @Test
     @MediumTest
@@ -136,7 +136,6 @@ public class VrShellNavigationTest {
                 PresentationMode.NON_PRESENTING, FullscreenMode.NON_FULLSCREENED);
 
         // Test that the navigations were added to history
-        VrTransitionUtils.forceExitVr();
         mVrTestRule.loadUrl("chrome://history", PAGE_LOAD_TIMEOUT_S);
         HistoryPage historyPage =
                 (HistoryPage) mVrTestRule.getActivity().getActivityTab().getNativePage();
@@ -150,6 +149,13 @@ public class VrShellNavigationTest {
                 itemViews.get(1).getItem().getUrl());
         Assert.assertEquals("Second navigation is correct", getUrl(Page.PAGE_2D),
                 itemViews.get(0).getItem().getUrl());
+
+        // Test that clicking on history items in VR works
+        itemViews.get(0).onClick();
+        ChromeTabUtils.waitForTabPageLoaded(
+                mVrTestRule.getActivity().getActivityTab(), getUrl(Page.PAGE_2D));
+        assertState(mVrTestFramework.getFirstTabWebContents(), Page.PAGE_2D,
+                PresentationMode.NON_PRESENTING, FullscreenMode.NON_FULLSCREENED);
     }
 
     /**

@@ -30,6 +30,7 @@
 #include "core/frame/Settings.h"
 #include "core/html/HTMLIFrameElement.h"
 #include "core/layout/HitTestResult.h"
+#include "core/layout/LayoutCounter.h"
 #include "core/layout/LayoutEmbeddedContent.h"
 #include "core/layout/LayoutGeometryMap.h"
 #include "core/layout/ViewFragmentationContext.h"
@@ -45,12 +46,12 @@
 #include "core/paint/compositing/PaintLayerCompositor.h"
 #include "core/svg/SVGDocumentExtensions.h"
 #include "platform/Histogram.h"
-#include "platform/RuntimeEnabledFeatures.h"
 #include "platform/geometry/FloatQuad.h"
 #include "platform/geometry/TransformState.h"
 #include "platform/graphics/paint/PaintController.h"
 #include "platform/instrumentation/tracing/TraceEvent.h"
 #include "platform/instrumentation/tracing/TracedValue.h"
+#include "platform/runtime_enabled_features.h"
 #include "platform/wtf/PtrUtil.h"
 #include "public/platform/Platform.h"
 
@@ -601,13 +602,13 @@ LayoutSize LayoutView::OffsetForFixedPosition(
 void LayoutView::AbsoluteRects(Vector<IntRect>& rects,
                                const LayoutPoint& accumulated_offset) const {
   rects.push_back(
-      PixelSnappedIntRect(accumulated_offset, LayoutSize(Layer()->size())));
+      PixelSnappedIntRect(accumulated_offset, LayoutSize(Layer()->Size())));
 }
 
 void LayoutView::AbsoluteQuads(Vector<FloatQuad>& quads,
                                MapCoordinatesFlags mode) const {
   quads.push_back(LocalToAbsoluteQuad(
-      FloatRect(FloatPoint(), FloatSize(Layer()->size())), mode));
+      FloatRect(FloatPoint(), FloatSize(Layer()->Size())), mode));
 }
 
 void LayoutView::ClearSelection() {
@@ -670,7 +671,7 @@ void LayoutView::CalculateScrollbarModes(ScrollbarMode& h_mode,
   Document& document = GetDocument();
   if (Node* body = document.body()) {
     // Framesets can't scroll.
-    if (isHTMLFrameSetElement(body) && body->GetLayoutObject())
+    if (IsHTMLFrameSetElement(body) && body->GetLayoutObject())
       RETURN_SCROLLBAR_MODE(kScrollbarAlwaysOff);
   }
 
@@ -847,7 +848,7 @@ void LayoutView::SetIsInWindow(bool is_in_window) {
 IntervalArena* LayoutView::GetIntervalArena() {
   if (!interval_arena_)
     interval_arena_ = IntervalArena::Create();
-  return interval_arena_.Get();
+  return interval_arena_.get();
 }
 
 bool LayoutView::BackgroundIsKnownToBeOpaqueInRect(const LayoutRect&) const {
@@ -927,30 +928,20 @@ bool LayoutView::PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const {
   return LayoutBlockFlow::PaintedOutputOfObjectHasNoEffectRegardlessOfSize();
 }
 
-void LayoutView::StyleWillChange(StyleDifference diff,
-                                 const ComputedStyle& new_style) {
-  LayoutBlockFlow::StyleWillChange(diff, new_style);
+void LayoutView::UpdateCounters() {
+  if (!needs_counter_update_)
+    return;
 
-  // TODO(rune@opera.com): Ideally, StyleWillChange for LayoutBlockFlow should
-  // have been able to do the invalidation, but there is an early return in
-  // LayoutObject::StyleDidChange which returns if parent_ is nullptr.
+  needs_counter_update_ = false;
+  if (!HasLayoutCounters())
+    return;
 
-  if (const ComputedStyle* old_style = Style()) {
-    // TODO(rune@opera.com): Consider checking diff.NeedsFullPaintInvalidation()
-    // instead. That will currently lead to more invalidation rectangles. For
-    // instance for computed overflow changes that would otherwise be
-    // invalidated by root and body changes. Also zoom related changes will
-    // cause extra invalidation rectangles to be recorded in paint/invalidation
-    // layout tests.
-    if (!old_style->BackgroundVisuallyEqual(new_style)) {
-      // Paint invalidation of background propagated from root or body elements
-      // to viewport.
-      SetShouldDoFullPaintInvalidation();
-      if (old_style->HasEntirelyFixedBackground() !=
-          new_style.HasEntirelyFixedBackground()) {
-        Compositor()->SetNeedsUpdateFixedBackground();
-      }
-    }
+  for (LayoutObject* layout_object = this; layout_object;
+       layout_object = layout_object->NextInPreOrder()) {
+    if (!layout_object->IsCounter())
+      continue;
+
+    ToLayoutCounter(layout_object)->UpdateCounter();
   }
 }
 

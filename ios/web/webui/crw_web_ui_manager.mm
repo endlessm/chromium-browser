@@ -79,7 +79,7 @@ const char kScriptCommandPrefix[] = "webui";
     _webState = webState;
     _webStateObserverBridge.reset(
         new web::WebStateObserverBridge(webState, self));
-    base::WeakNSObject<CRWWebUIManager> weakSelf(self);
+    __weak CRWWebUIManager* weakSelf = self;
     _webState->AddScriptCommandCallback(
         base::BindBlockArc(
             ^bool(const base::DictionaryValue& message, const GURL&, bool) {
@@ -94,24 +94,22 @@ const char kScriptCommandPrefix[] = "webui";
   [self resetWebState];
 }
 
-#pragma mark - CRWWebStateObserver Methods
-
-- (void)webState:(web::WebState*)webState
-    didStartNavigation:(web::NavigationContext*)navigation {
-  DCHECK(webState == _webState);
+- (void)loadWebUIForURL:(const GURL&)URL {
   // If URL is not an application specific URL, ignore the navigation.
-  GURL URL(navigation->GetUrl());
-  if (!web::GetWebClient()->IsAppSpecificURL(URL))
+  GURL URLCopy(URL);
+  if (!web::GetWebClient()->IsAppSpecificURL(URLCopy))
     return;
 
-  base::WeakNSObject<CRWWebUIManager> weakSelf(self);
-  [self loadWebUIPageForURL:URL completionHandler:^(NSString* HTML) {
+  __weak CRWWebUIManager* weakSelf = self;
+  [self loadWebUIPageForURL:URLCopy completionHandler:^(NSString* HTML) {
     web::WebStateImpl* webState = [weakSelf webState];
     if (webState) {
-      webState->LoadWebUIHtml(base::SysNSStringToUTF16(HTML), URL);
+      webState->LoadWebUIHtml(base::SysNSStringToUTF16(HTML), URLCopy);
     }
   }];
 }
+
+#pragma mark - CRWWebStateObserver Methods
 
 - (void)webState:(web::WebState*)webState didLoadPageWithSuccess:(BOOL)success {
   DCHECK_EQ(webState, _webState);
@@ -149,7 +147,7 @@ const char kScriptCommandPrefix[] = "webui";
 
 - (void)fetchResourceWithURL:(const GURL&)URL
            completionHandler:(void (^)(NSData*))completionHandler {
-  base::WeakNSObject<CRWWebUIManager> weakSelf(self);
+  __weak CRWWebUIManager* weakSelf = self;
   web::URLFetcherBlockAdapterCompletion fetcherCompletion =
       ^(NSData* data, web::URLFetcherBlockAdapter* fetcher) {
         completionHandler(data);

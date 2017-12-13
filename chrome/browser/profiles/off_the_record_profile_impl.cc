@@ -17,6 +17,8 @@
 #include "base/threading/sequenced_worker_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/background/background_contents_service_factory.h"
+#include "chrome/browser/background_fetch/background_fetch_delegate_factory.h"
+#include "chrome/browser/background_fetch/background_fetch_delegate_impl.h"
 #include "chrome/browser/background_sync/background_sync_controller_factory.h"
 #include "chrome/browser/background_sync/background_sync_controller_impl.h"
 #include "chrome/browser/browser_process.h"
@@ -450,6 +452,11 @@ content::PermissionManager* OffTheRecordProfileImpl::GetPermissionManager() {
   return PermissionManagerFactory::GetForProfile(this);
 }
 
+content::BackgroundFetchDelegate*
+OffTheRecordProfileImpl::GetBackgroundFetchDelegate() {
+  return BackgroundFetchDelegateFactory::GetForProfile(this);
+}
+
 content::BackgroundSyncController*
 OffTheRecordProfileImpl::GetBackgroundSyncController() {
   return BackgroundSyncControllerFactory::GetForProfile(this);
@@ -517,11 +524,6 @@ chrome_browser_net::Predictor* OffTheRecordProfileImpl::GetNetworkPredictor() {
   // We do not store information about websites visited in OTR profiles which
   // is necessary for a Predictor, so we do not have a Predictor at all.
   return NULL;
-}
-
-DevToolsNetworkControllerHandle*
-OffTheRecordProfileImpl::GetDevToolsNetworkControllerHandle() {
-  return io_data_->GetDevToolsNetworkControllerHandle();
 }
 
 void OffTheRecordProfileImpl::ClearNetworkingHistorySince(

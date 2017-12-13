@@ -16,8 +16,8 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/notifications/application_notifier_source.h"
-#include "chrome/browser/notifications/web_page_notifier_source.h"
+#include "chrome/browser/notifications/extension_notifier_controller.h"
+#include "chrome/browser/notifications/web_page_notifier_controller.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
@@ -26,12 +26,11 @@
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/event_router.h"
 #include "ui/gfx/image/image.h"
-#include "ui/message_center/message_center_style.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/browser/notifications/arc_application_notifier_source_chromeos.h"
-#include "chrome/browser/notifications/system_component_notifier_source_chromeos.h"
+#include "chrome/browser/notifications/arc_application_notifier_controller_chromeos.h"
 #endif
 
 using message_center::Notifier;
@@ -58,7 +57,8 @@ class ProfileNotifierGroup : public message_center::NotifierGroup {
 ProfileNotifierGroup::ProfileNotifierGroup(const base::string16& display_name,
                                            const base::string16& login_info,
                                            const base::FilePath& profile_path)
-    : message_center::NotifierGroup(display_name, login_info), profile_(NULL) {
+    : message_center::NotifierGroup(display_name, login_info),
+      profile_(nullptr) {
   // Try to get the profile
   profile_ =
       g_browser_process->profile_manager()->GetProfileByPath(profile_path);
@@ -101,41 +101,22 @@ MessageCenterSettingsController::MessageCenterSettingsController(
     : current_notifier_group_(0),
       profile_attributes_storage_(profile_attributes_storage),
       weak_factory_(this) {
-  // The following events all represent changes that may need to be reflected in
-  // the profile selector context menu, so listen for them all.  We'll just
-  // rebuild the list when we get any of them.
-  registrar_.Add(this,
-                 chrome::NOTIFICATION_PROFILE_CREATED,
-                 content::NotificationService::AllBrowserContextsAndSources());
-  registrar_.Add(this,
-                 chrome::NOTIFICATION_PROFILE_ADDED,
-                 content::NotificationService::AllBrowserContextsAndSources());
-  registrar_.Add(this,
-                 chrome::NOTIFICATION_PROFILE_DESTROYED,
-                 content::NotificationService::AllBrowserContextsAndSources());
   profile_attributes_storage_.AddObserver(this);
   RebuildNotifierGroups(false);
 
+  sources_.insert(
+      std::make_pair(NotifierId::APPLICATION,
+                     std::make_unique<ExtensionNotifierController>(this)));
   sources_.insert(std::make_pair(
-      NotifierId::APPLICATION,
-      std::unique_ptr<NotifierSource>(new ApplicationNotifierSource(this))));
-  sources_.insert(std::make_pair(
-      NotifierId::WEB_PAGE,
-      std::unique_ptr<NotifierSource>(new WebPageNotifiereSource(this))));
+      NotifierId::WEB_PAGE, std::make_unique<WebPageNotifierController>(this)));
 
 #if defined(OS_CHROMEOS)
   // UserManager may not exist in some tests.
   if (user_manager::UserManager::IsInitialized())
     user_manager::UserManager::Get()->AddSessionStateObserver(this);
-  // For system components.
-  sources_.insert(
-      std::make_pair(NotifierId::SYSTEM_COMPONENT,
-                     std::unique_ptr<NotifierSource>(
-                         new SystemComponentNotifierSourceChromeOS(this))));
-  sources_.insert(
-      std::make_pair(NotifierId::ARC_APPLICATION,
-                     std::unique_ptr<NotifierSource>(
-                         new arc::ArcApplicationNotifierSourceChromeOS(this))));
+  sources_.insert(std::make_pair(
+      NotifierId::ARC_APPLICATION,
+      std::make_unique<arc::ArcApplicationNotifierControllerChromeOS>(this)));
 #endif
 }
 
@@ -206,24 +187,28 @@ void MessageCenterSettingsController::GetNotifierList(
 
   UErrorCode error = U_ZERO_ERROR;
   std::unique_ptr<icu::Collator> collator(icu::Collator::createInstance(error));
-  NotifierComparator comparator(U_SUCCESS(error) ? collator.get() : NULL);
+  NotifierComparator comparator(U_SUCCESS(error) ? collator.get() : nullptr);
 
   std::sort(notifiers->begin(), notifiers->end(), comparator);
 }
 
 void MessageCenterSettingsController::SetNotifierEnabled(
-    const Notifier& notifier,
+    const NotifierId& notifier_id,
     bool enabled) {
+  // TODO(estade): This is wrong: the notifier may be disabled for the wrong
+  // profile.
+  if (notifier_groups_.empty())
+    RebuildNotifierGroups(false);
+
   DCHECK_LT(current_notifier_group_, notifier_groups_.size());
   Profile* profile = notifier_groups_[current_notifier_group_]->profile();
 
-  if (!sources_.count(notifier.notifier_id.type)) {
+  if (!sources_.count(notifier_id.type)) {
     NOTREACHED();
     return;
   }
 
-  sources_[notifier.notifier_id.type]->SetNotifierEnabled(profile, notifier,
-                                                          enabled);
+  sources_[notifier_id.type]->SetNotifierEnabled(profile, notifier_id, enabled);
 }
 
 void MessageCenterSettingsController::OnNotifierSettingsClosing() {
@@ -266,12 +251,12 @@ void MessageCenterSettingsController::OnNotifierAdvancedSettingsRequested(
   Profile* profile = notifier_groups_[current_notifier_group_]->profile();
 
   extensions::EventRouter* event_router = extensions::EventRouter::Get(profile);
-  std::unique_ptr<base::ListValue> args(new base::ListValue());
+  auto args = std::make_unique<base::ListValue>();
 
-  std::unique_ptr<extensions::Event> event(new extensions::Event(
+  auto event = std::make_unique<extensions::Event>(
       extensions::events::NOTIFICATIONS_ON_SHOW_SETTINGS,
       extensions::api::notifications::OnShowSettings::kEventName,
-      std::move(args)));
+      std::move(args));
   event_router->DispatchEventToExtension(extension_id, std::move(event));
 }
 
@@ -282,34 +267,23 @@ void MessageCenterSettingsController::ActiveUserChanged(
 }
 #endif
 
-void MessageCenterSettingsController::Observe(
-    int type,
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  // GetOffTheRecordProfile() may create a new off-the-record profile, but that
-  // doesn't need to rebuild the groups.
-  if (type == chrome::NOTIFICATION_PROFILE_CREATED &&
-      content::Source<Profile>(source).ptr()->IsOffTheRecord()) {
-    return;
-  }
-
-  RebuildNotifierGroups(true);
-}
-
 void MessageCenterSettingsController::OnProfileAdded(
     const base::FilePath& profile_path) {
   RebuildNotifierGroups(true);
 }
+
 void MessageCenterSettingsController::OnProfileWasRemoved(
     const base::FilePath& profile_path,
     const base::string16& profile_name) {
   RebuildNotifierGroups(true);
 }
+
 void MessageCenterSettingsController::OnProfileNameChanged(
     const base::FilePath& profile_path,
     const base::string16& old_profile_name) {
   RebuildNotifierGroups(true);
 }
+
 void MessageCenterSettingsController::OnProfileAuthInfoChanged(
     const base::FilePath& profile_path) {
   RebuildNotifierGroups(true);
@@ -351,9 +325,8 @@ void MessageCenterSettingsController::CreateNotifierGroupForGuestLogin() {
       chromeos::ProfileHelper::Get()->GetProfileByUserUnsafe(user);
   DCHECK(profile);
 
-  std::unique_ptr<message_center::ProfileNotifierGroup> group(
-      new message_center::ProfileNotifierGroup(
-          user->GetDisplayName(), user->GetDisplayName(), profile));
+  auto group = std::make_unique<message_center::ProfileNotifierGroup>(
+      user->GetDisplayName(), user->GetDisplayName(), profile);
 
   notifier_groups_.push_back(std::move(group));
   DispatchNotifierGroupChanged();
@@ -367,10 +340,9 @@ void MessageCenterSettingsController::RebuildNotifierGroups(bool notify) {
   std::vector<ProfileAttributesEntry*> entries =
       profile_attributes_storage_.GetAllProfilesAttributesSortedByName();
   for (auto* entry : entries) {
-    std::unique_ptr<message_center::ProfileNotifierGroup> group(
-        new message_center::ProfileNotifierGroup(
-            entry->GetName(), entry->GetUserName(), entry->GetPath()));
-    if (group->profile() == NULL)
+    auto group = std::make_unique<message_center::ProfileNotifierGroup>(
+        entry->GetName(), entry->GetUserName(), entry->GetPath());
+    if (!group->profile())
       continue;
 
 #if defined(OS_CHROMEOS)

@@ -853,11 +853,45 @@ message DeviceOffHoursProto {
   // Timezone in the same format as SystemTimezoneProto.timezone.
   // If timezone isn't set then "GMT" will be used
   optional string timezone = 2;
-  // List of policies which settings are ignored during OffHours mode.
-  // List contains policy names from ChromeDeviceSettingsProto
-  // (i.e. "device_policy_refresh_rate")
+  // List of policy proto tags which settings are ignored during OffHours
+  // mode. List contains policy proto tags from ChromeDeviceSettingsProto
+  // (i.e. proto tag = 1 means device_policy_refresh_rate policy).
+  // Proto tags are used because they are consistent identifiers.
   // During OffHoursMode default settings of ignored policies are used.
-  repeated string ignored_policies = 3;
+  repeated int32 ignored_policy_proto_tags = 3;
+}
+// The url and hash that specified in JSON format that can be used to retrieve
+// the device-level printers configuration file.
+message DeviceNativePrintersProto {
+  // External policy blob encoded as JSON.
+  optional string external_policy = 1;
+}
+
+// The policy which determines the type of access restriction that is applied to
+// the devicel-level printers list.
+message DeviceNativePrintersAccessModeProto {
+  enum AccessMode {
+    ACCESS_MODE_BLACKLIST = 0;  // Use NatvePrintersBlacklistProto.
+    ACCESS_MODE_WHITELIST = 1;  // Use NaviePrintersWhitelistProto.
+    ACCESS_MODE_ALL = 2;        // Allow access to all specified printers.
+  }
+
+  // The type of access which is applied to the device-level printer list.
+  optional AccessMode access_mode = 1;
+}
+
+// A collection of ids defining the printers which are explicitly disallowed for
+// the device.
+message DeviceNativePrintersBlacklistProto {
+  // A collection of ids for which are explicitly disallowed.
+  repeated string blacklist = 1;
+}
+
+// A collection of ids defining the printers which are explicitly allowed for
+// the device.
+message DeviceNativePrintersWhitelistProto {
+  // A collection of ids for the list of printers which are accessible.
+  repeated string whitelist = 1;
 }
 
 // Settings to control the behavior of the TPM firmware update functionality.
@@ -930,5 +964,12 @@ message ChromeDeviceSettingsProto {
       device_second_factor_authentication = 52;
   optional CastReceiverNameProto cast_receiver_name = 53;
   optional DeviceOffHoursProto device_off_hours = 54;
+  optional DeviceNativePrintersProto native_device_printers = 55;
+  optional DeviceNativePrintersAccessModeProto
+      native_device_printers_access_mode = 56;
+  optional DeviceNativePrintersBlacklistProto native_device_printers_blacklist =
+      57;
+  optional DeviceNativePrintersWhitelistProto native_device_printers_whitelist =
+      58;
   optional TPMFirmwareUpdateSettingsProto tpm_firmware_update_settings = 59;
 }

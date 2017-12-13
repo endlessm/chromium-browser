@@ -28,7 +28,6 @@
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/bookmarks/bookmark_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -42,6 +41,7 @@
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/browser_sync/profile_sync_service.h"
 #include "components/dom_distiller/core/dom_distiller_switches.h"
+#include "components/feature_engagement/features.h"
 #include "components/prefs/pref_service.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/signin/core/common/signin_pref_names.h"
@@ -67,12 +67,9 @@
 #include "content/public/browser/gpu_data_manager.h"
 #endif
 
-#if defined(USE_ASH)
-#include "ash/accelerators/accelerator_commands_classic.h"  // nogncheck
-#include "chrome/browser/ui/ash/ash_util.h"  // nogncheck
-#endif
-
 #if defined(OS_CHROMEOS)
+#include "ash/accelerators/accelerator_commands_classic.h"  // mash-ok
+#include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_context_menu.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager.h"
 #include "chrome/browser/ui/browser_commands_chromeos.h"
@@ -82,7 +79,9 @@
 #include "ui/base/ime/linux/text_edit_key_bindings_delegate_auralinux.h"
 #endif
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_MACOSX)
+#if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
+#include "chrome/browser/feature_engagement/bookmark/bookmark_tracker.h"
+#include "chrome/browser/feature_engagement/bookmark/bookmark_tracker_factory.h"
 #include "chrome/browser/feature_engagement/new_tab/new_tab_tracker.h"
 #include "chrome/browser/feature_engagement/new_tab/new_tab_tracker_factory.h"
 #endif
@@ -326,16 +325,20 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
       base::RecordAction(base::UserMetricsAction("CloseWindowByKey"));
       CloseWindow(browser_);
       break;
-    case IDC_NEW_TAB:
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_MACOSX)
+    case IDC_NEW_TAB: {
+      NewTab(browser_);
+#if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
       // This is not in NewTab() to avoid tracking programmatic creation of new
       // tabs by extensions.
-      feature_engagement::NewTabTrackerFactory::GetInstance()
-          ->GetForProfile(profile())
-          ->OnNewTabOpened();
+      auto* new_tab_tracker =
+          feature_engagement::NewTabTrackerFactory::GetInstance()
+              ->GetForProfile(profile());
+
+      new_tab_tracker->OnNewTabOpened();
+      new_tab_tracker->CloseBubble();
 #endif
-      NewTab(browser_);
       break;
+    }
     case IDC_CLOSE_TAB:
       base::RecordAction(base::UserMetricsAction("CloseTabByKey"));
       CloseTab(browser_);
@@ -412,9 +415,19 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
       SavePage(browser_);
       break;
     case IDC_BOOKMARK_PAGE:
+#if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+      feature_engagement::BookmarkTrackerFactory::GetInstance()
+          ->GetForProfile(profile())
+          ->OnBookmarkAdded();
+#endif
       BookmarkCurrentPageAllowingExtensionOverrides(browser_);
       break;
     case IDC_BOOKMARK_ALL_TABS:
+#if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+      feature_engagement::BookmarkTrackerFactory::GetInstance()
+          ->GetForProfile(profile())
+          ->OnBookmarkAdded();
+#endif
       BookmarkAllTabs(browser_);
       break;
     case IDC_VIEW_SOURCE:
@@ -744,10 +757,8 @@ void BrowserCommandController::InitCommandState() {
   UpdateTabRestoreCommandState();
   command_updater_.UpdateCommandEnabled(IDC_EXIT, true);
   command_updater_.UpdateCommandEnabled(IDC_DEBUG_FRAME_TOGGLE, true);
-#if defined(USE_ASH)
-  command_updater_.UpdateCommandEnabled(IDC_MINIMIZE_WINDOW, true);
-#endif
 #if defined(OS_CHROMEOS)
+  command_updater_.UpdateCommandEnabled(IDC_MINIMIZE_WINDOW, true);
   command_updater_.UpdateCommandEnabled(IDC_VISIT_DESKTOP_OF_LRU_USER_2, true);
   command_updater_.UpdateCommandEnabled(IDC_VISIT_DESKTOP_OF_LRU_USER_3, true);
 #endif

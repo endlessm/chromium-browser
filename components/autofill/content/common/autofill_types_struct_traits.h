@@ -191,6 +191,10 @@ struct StructTraits<autofill::mojom::FormDataDataView, autofill::FormData> {
 
   static const GURL& action(const autofill::FormData& r) { return r.action; }
 
+  static const GURL& main_frame_origin(const autofill::FormData& r) {
+    return r.main_frame_origin;
+  }
+
   static bool is_form_tag(const autofill::FormData& r) { return r.is_form_tag; }
 
   static bool is_formless_checkout(const autofill::FormData& r) {
@@ -400,6 +404,15 @@ struct StructTraits<autofill::mojom::PasswordFormDataView,
   static const std::vector<autofill::PossibleUsernamePair>&
   other_possible_usernames(const autofill::PasswordForm& r) {
     return r.other_possible_usernames;
+  }
+
+  static const std::vector<base::string16>& all_possible_passwords(
+      const autofill::PasswordForm& r) {
+    return r.all_possible_passwords;
+  }
+
+  static bool form_has_autofilled_value(const autofill::PasswordForm& r) {
+    return r.form_has_autofilled_value;
   }
 
   static const base::string16& password_element(

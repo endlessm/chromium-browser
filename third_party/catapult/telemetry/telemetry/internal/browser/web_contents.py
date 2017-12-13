@@ -10,6 +10,16 @@ from py_trace_event import trace_event
 
 DEFAULT_WEB_CONTENTS_TIMEOUT = 90
 
+class ServiceWorkerState(object):
+  # These strings should exactly match strings used in
+  # wait_for_serviceworker_registration.js
+  # The page did not call register().
+  NOT_REGISTERED = 'not registered'
+  # The page called register(), but there is not an activated service worker.
+  INSTALLING = 'installing'
+  # The page called register(), and has an activated service worker.
+  ACTIVATED = 'activated'
+
 # TODO(achuith, dtu, nduca): Add unit tests specifically for WebContents,
 # independent of Tab.
 class WebContents(object):
@@ -24,6 +34,11 @@ class WebContents(object):
         os.path.dirname(__file__),
         'network_quiescence.js')) as f:
       self._quiescence_js = f.read()
+
+    with open(os.path.join(
+        os.path.dirname(__file__),
+        'wait_for_serviceworker_registration.js')) as f:
+      self._wait_for_serviceworker_js = f.read()
 
     with open(os.path.join(
         os.path.dirname(__file__),
@@ -121,6 +136,38 @@ class WebContents(object):
         '{{ @script }}; window.__telemetry_testHasReachedNetworkQuiescence()',
         script=self._quiescence_js)
 
+  def _GetServiceWorkerState(self):
+    """Returns service worker registration state.
+
+    Returns:
+      ServiceWorkerState if service worker registration state is not unexpected.
+    Raises:
+      exceptions.EvaluateException
+      exceptions.Error: See EvaluateJavaScript() for a detailed list of
+      possible exceptions.
+    """
+    state = self.EvaluateJavaScript(
+        '{{ @script }}; window.__telemetry_getServiceWorkerState()',
+        script=self._wait_for_serviceworker_js)
+    if state in {ServiceWorkerState.NOT_REGISTERED,
+                 ServiceWorkerState.INSTALLING, ServiceWorkerState.ACTIVATED}:
+      return state
+    else:
+      raise exceptions.EvaluateException(state)
+
+  def IsServiceWorkerActivatedOrNotRegistered(self):
+    """Returns whether service worker is ready or not.
+
+    Returns:
+      True if the page registered a service worker and has an activated service
+      worker. Also returns true if the page does not register service worker.
+    Raises:
+      exceptions.Error: See EvaluateJavaScript() for a detailed list of
+      possible exceptions.
+    """
+    return self._GetServiceWorkerState() in {ServiceWorkerState.NOT_REGISTERED,
+                                             ServiceWorkerState.ACTIVATED}
+
   def ExecuteJavaScript(self, *args, **kwargs):
     """Executes a given JavaScript statement. Does not return the result.
 
@@ -192,7 +239,17 @@ class WebContents(object):
     return self._inspector_backend.WaitForJavaScriptCondition(*args, **kwargs)
 
   def EnableAllContexts(self):
-    """Enable all contexts in a page. Returns the number of available contexts.
+    """Enable all contexts in a page. Returns all activated context ids.
+
+    It's worth noting that this method may not reflect the state of the
+    browser in real time: some of the returned contexts may no longer exist, or
+    new contexts may have been activated.
+
+    Returns:
+      A list of frame context ids. Each |context_id| can be used for
+      executing Javascript in the corresponding iframe through
+      tab.ExecuteJavaScript(..., context_id=context_id) and
+      tab.EvaluateJavaScript(..., context_id=context_id).
 
     Raises:
       exceptions.WebSocketDisconnected
@@ -229,7 +286,8 @@ class WebContents(object):
     if not script_to_evaluate_on_commit:
       script_to_evaluate_on_commit = ''
     script_to_evaluate_on_commit = (
-        self._quiescence_js + ';' + script_to_evaluate_on_commit)
+        self._quiescence_js + self._wait_for_serviceworker_js +
+        script_to_evaluate_on_commit)
     self._inspector_backend.Navigate(url, script_to_evaluate_on_commit, timeout)
 
   def IsAlive(self):
@@ -254,47 +312,49 @@ class WebContents(object):
     self.ExecuteJavaScript('window.chrome && chrome.benchmarking &&'
                            'chrome.benchmarking.closeConnections()')
 
-  def SynthesizeScrollGesture(self, x=100, y=800, xDistance=0, yDistance=-500,
-                              xOverscroll=None, yOverscroll=None,
-                              preventFling=None, speed=None,
-                              gestureSourceType=None, repeatCount=None,
-                              repeatDelayMs=None, interactionMarkerName=None,
-                              timeout=60):
+  def SynthesizeScrollGesture(
+      self, x=100, y=800, x_distance=0, y_distance=-500,
+      x_overscroll=None, y_overscroll=None,
+      prevent_fling=None, speed=None,
+      gesture_source_type=None, repeat_count=None,
+      repeat_delay_ms=None, interaction_marker_name=None,
+      timeout=60):
     """Runs an inspector command that causes a repeatable browser driven scroll.
 
     Args:
       x: X coordinate of the start of the gesture in CSS pixels.
       y: Y coordinate of the start of the gesture in CSS pixels.
-      xDistance: Distance to scroll along the X axis (positive to scroll left).
-      yDistance: Ddistance to scroll along the Y axis (positive to scroll up).
-      xOverscroll: Number of additional pixels to scroll back along the X axis.
-      xOverscroll: Number of additional pixels to scroll back along the Y axis.
-      preventFling: Prevents a fling gesture.
+      x_distance: Distance to scroll along the X axis (positive to scroll left).
+      y_distance: Ddistance to scroll along the Y axis (positive to scroll up).
+      x_overscroll: Number of additional pixels to scroll back along the X axis.
+      y_overscroll: Number of additional pixels to scroll back along the Y axis.
+      prevent_fling: Prevents a fling gesture.
       speed: Swipe speed in pixels per second.
-      gestureSourceType: Which type of input events to be generated.
+      gesture_source_type: Which type of input events to be generated.
       repeatCount: Number of additional repeats beyond the first scroll.
-      repeatDelayMs: Number of milliseconds delay between each repeat.
-      interactionMarkerName: The name of the interaction markers to generate.
+      repeat_delay_ms: Number of milliseconds delay between each repeat.
+      interaction_marker_name: The name of the interaction markers to generate.
 
     Raises:
       py_utils.TimeoutException
       exceptions.DevtoolsTargetCrashException
     """
     return self._inspector_backend.SynthesizeScrollGesture(
-        x=x, y=y, xDistance=xDistance, yDistance=yDistance,
-        xOverscroll=xOverscroll, yOverscroll=yOverscroll,
-        preventFling=preventFling, speed=speed,
-        gestureSourceType=gestureSourceType, repeatCount=repeatCount,
-        repeatDelayMs=repeatDelayMs,
-        interactionMarkerName=interactionMarkerName,
+        x=x, y=y, x_distance=x_distance, y_distance=y_distance,
+        x_overscroll=x_overscroll, y_overscroll=y_overscroll,
+        prevent_fling=prevent_fling, speed=speed,
+        gesture_source_type=gesture_source_type, repeat_count=repeat_count,
+        repeat_delay_ms=repeat_delay_ms,
+        interaction_marker_name=interaction_marker_name,
         timeout=timeout)
 
-  def DispatchKeyEvent(self, keyEventType='char', modifiers=None,
-                       timestamp=None, text=None, unmodifiedText=None,
-                       keyIdentifier=None, domCode=None, domKey=None,
-                       windowsVirtualKeyCode=None, nativeVirtualKeyCode=None,
-                       autoRepeat=None, isKeypad=None, isSystemKey=None,
-                       timeout=60):
+  def DispatchKeyEvent(
+      self, key_event_type='char', modifiers=None,
+      timestamp=None, text=None, unmodified_text=None,
+      key_identifier=None, dom_code=None, dom_key=None,
+      windows_virtual_key_code=None, native_virtual_key_code=None,
+      auto_repeat=None, is_keypad=None, is_system_key=None,
+      timeout=60):
     """Dispatches a key event to the page.
 
     Args:
@@ -306,26 +366,27 @@ class WebContents(object):
           seconds since January 1, 1970 (default: current time).
       text: Text as generated by processing a virtual key code with a keyboard
           layout. Not needed for for keyUp and rawKeyDown events (default: '').
-      unmodifiedText: Text that would have been generated by the keyboard if no
+      unmodified_text: Text that would have been generated by the keyboard if no
           modifiers were pressed (except for shift). Useful for shortcut
           (accelerator) key handling (default: "").
-      keyIdentifier: Unique key identifier (e.g., 'U+0041') (default: '').
-      windowsVirtualKeyCode: Windows virtual key code (default: 0).
-      nativeVirtualKeyCode: Native virtual key code (default: 0).
-      autoRepeat: Whether the event was generated from auto repeat (default:
+      key_identifier: Unique key identifier (e.g., 'U+0041') (default: '').
+      windows_virtual_key_code: Windows virtual key code (default: 0).
+      native_virtual_key_code: Native virtual key code (default: 0).
+      auto_repeat: Whether the event was generated from auto repeat (default:
           False).
-      isKeypad: Whether the event was generated from the keypad (default:
+      is_keypad: Whether the event was generated from the keypad (default:
           False).
-      isSystemKey: Whether the event was a system key event (default: False).
+      is_system_key: Whether the event was a system key event (default: False).
 
     Raises:
       py_utils.TimeoutException
       exceptions.DevtoolsTargetCrashException
     """
     return self._inspector_backend.DispatchKeyEvent(
-        keyEventType=keyEventType, modifiers=modifiers, timestamp=timestamp,
-        text=text, unmodifiedText=unmodifiedText, keyIdentifier=keyIdentifier,
-        domCode=domCode, domKey=domKey,
-        windowsVirtualKeyCode=windowsVirtualKeyCode,
-        nativeVirtualKeyCode=nativeVirtualKeyCode, autoRepeat=autoRepeat,
-        isKeypad=isKeypad, isSystemKey=isSystemKey, timeout=timeout)
+        key_event_type=key_event_type, modifiers=modifiers, timestamp=timestamp,
+        text=text, unmodified_text=unmodified_text,
+        key_identifier=key_identifier, dom_code=dom_code, dom_key=dom_key,
+        windows_virtual_key_code=windows_virtual_key_code,
+        native_virtual_key_code=native_virtual_key_code,
+        auto_repeat=auto_repeat, is_keypad=is_keypad,
+        is_system_key=is_system_key, timeout=timeout)

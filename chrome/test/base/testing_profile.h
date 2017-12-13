@@ -244,6 +244,7 @@ class TestingProfile : public Profile {
   content::PushMessagingService* GetPushMessagingService() override;
   content::SSLHostStateDelegate* GetSSLHostStateDelegate() override;
   content::PermissionManager* GetPermissionManager() override;
+  content::BackgroundFetchDelegate* GetBackgroundFetchDelegate() override;
   content::BackgroundSyncController* GetBackgroundSyncController() override;
   content::BrowsingDataRemoverDelegate* GetBrowsingDataRemoverDelegate()
       override;
@@ -334,8 +335,6 @@ class TestingProfile : public Profile {
   void BlockUntilHistoryProcessesPendingRequests();
 
   chrome_browser_net::Predictor* GetNetworkPredictor() override;
-  DevToolsNetworkControllerHandle* GetDevToolsNetworkControllerHandle()
-      override;
   void ClearNetworkingHistorySince(base::Time time,
                                    const base::Closure& completion) override;
   GURL GetHomePage() override;

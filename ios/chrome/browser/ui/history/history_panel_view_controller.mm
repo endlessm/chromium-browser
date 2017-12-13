@@ -151,6 +151,10 @@ CGFloat kShadowOpacity = 0.2f;
   [_appBar headerViewController].headerView.trackingScrollView =
       [_historyCollectionController collectionView];
   [_appBar addSubviewsToParent];
+  // Prevent the touch events on appBar from being forwarded to the
+  // collectionView.  See https://crbug.com/773580
+  [_appBar.headerViewController.headerView
+      stopForwardingTouchEventsForView:_appBar.navigationBar];
 
   // Add navigation bar buttons.
   _leftBarButtonItem =
@@ -314,6 +318,10 @@ CGFloat kShadowOpacity = 0.2f;
 }
 
 - (void)openPrivacySettings {
+  // Ignore the button tap if view controller presenting.
+  if ([self presentedViewController]) {
+    return;
+  }
   [self exitSearchMode];
   base::RecordAction(
       base::UserMetricsAction("HistoryPage_InitClearBrowsingData"));
@@ -321,6 +329,10 @@ CGFloat kShadowOpacity = 0.2f;
 }
 
 - (void)enterEditingMode {
+  // Ignore the button tap if view controller presenting.
+  if ([self presentedViewController]) {
+    return;
+  }
   [_historyCollectionController setEditing:YES];
   [_clearBrowsingBar setEditing:YES];
   if (_historyCollectionController.searching) {
@@ -395,7 +407,7 @@ CGFloat kShadowOpacity = 0.2f;
   // The search button should only be enabled if there are history entries to
   // search, and if history is not in edit mode.
   self.navigationItem.leftBarButtonItem.enabled =
-      [_historyCollectionController hasHistoryEntries] &&
+      ![_historyCollectionController isEmpty] &&
       ![_historyCollectionController isEditing];
 }
 
@@ -403,8 +415,7 @@ CGFloat kShadowOpacity = 0.2f;
   _clearBrowsingBar.editing = _historyCollectionController.editing;
   _clearBrowsingBar.deleteButtonEnabled =
       [_historyCollectionController hasSelectedEntries];
-  _clearBrowsingBar.editButtonEnabled =
-      [_historyCollectionController hasHistoryEntries];
+  _clearBrowsingBar.editButtonEnabled = ![_historyCollectionController isEmpty];
 }
 
 #pragma mark - UIResponder

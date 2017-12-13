@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2017 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -5,6 +6,8 @@
 """Tests the `cros chroot` command."""
 
 from __future__ import print_function
+
+import mock
 
 from chromite.cli import command_unittest
 from chromite.lib import cros_build_lib
@@ -37,7 +40,8 @@ class TryjobTestParsing(TryjobTest):
   def setUp(self):
     self.expected = {
         'remote': True,
-        'branch': None,
+        'swarming': False,
+        'branch': 'master',
         'production': False,
         'yes': False,
         'list': False,
@@ -49,7 +53,7 @@ class TryjobTestParsing(TryjobTest):
         'build_configs': ['lumpy-paladin'],
     }
 
-  def testMinimalParsing(self):
+  def testMinimalParsingLocal(self):
     """Tests flow for an interactive session."""
     self.SetupCommandMock(['lumpy-paladin'])
     options = self.cmd_mock.inst.options
@@ -74,7 +78,45 @@ class TryjobTestParsing(TryjobTest):
 
     self.expected.update({
         'remote': False,
-        'branch': None,
+        'swarming': False,
+        'branch': 'master',
+        'yes': True,
+        'list': True,
+        'list_all': True,
+        'gerrit_patches': ['123', '*123', '123..456'],
+        'local_patches': ['chromiumos/chromite:tryjob', 'other:other'],
+        'passthrough': [
+            '--latest-toolchain', '--nochromesdk',
+            '--hwtest', '--notests', '--novmtests', '--noimagetests',
+            '--timeout', '5', '--sanity-check-build',
+        ],
+        'passthrough_raw': ['--cbuild-arg', 'bar'],
+        'build_configs': ['lumpy-paladin', 'lumpy-release'],
+    })
+
+    self.assertDictContainsSubset(self.expected, vars(options))
+
+  def testComplexParsingRemote(self):
+    """Tests flow for an interactive session."""
+    self.SetupCommandMock([
+        '--swarming',
+        '--yes',
+        '--latest-toolchain', '--nochromesdk',
+        '--hwtest', '--notests', '--novmtests', '--noimagetests',
+        '--buildroot', '/buildroot',
+        '--timeout', '5', '--sanity-check-build',
+        '--gerrit-patches', '123', '-g', '*123', '-g', '123..456',
+        '--local-patches', 'chromiumos/chromite:tryjob', '-p', 'other:other',
+        '--pass-through=--cbuild-arg', '--pass-through', 'bar',
+        '--list', '--all',
+        'lumpy-paladin', 'lumpy-release',
+    ])
+    options = self.cmd_mock.inst.options
+
+    self.expected.update({
+        'remote': True,
+        'swarming': True,
+        'branch': 'master',
         'yes': True,
         'list': True,
         'list_all': True,
@@ -124,13 +166,30 @@ class TryjobTestVerifyOptions(TryjobTest):
         'amd64-generic-paladin',
     ])
 
-  def testComplex(self):
+  def testComplexLocal(self):
     """Test option verification with complex mix of options."""
     self.SetupCommandMock([
         '--yes',
         '--latest-toolchain', '--nochromesdk',
         '--hwtest', '--notests', '--novmtests', '--noimagetests',
         '--local', '--buildroot', '/buildroot',
+        '--timeout', '5', '--sanity-check-build',
+        '--gerrit-patches', '123', '-g', '*123', '-g', '123..456',
+        '--committer-email', 'foo@bar',
+        '--version', '1.2.3', '--channel', 'chan',
+        '--pass-through=--cbuild-arg', '--pass-through=bar',
+        'lumpy-paladin', 'lumpy-release',
+    ])
+    self.cmd_mock.inst.VerifyOptions()
+
+  def testComplexRemote(self):
+    """Test option verification with complex mix of options."""
+    self.SetupCommandMock([
+        '--remote', '--swarming',
+        '--yes',
+        '--latest-toolchain', '--nochromesdk',
+        '--hwtest', '--notests', '--novmtests', '--noimagetests',
+        '--buildroot', '/buildroot',
         '--timeout', '5', '--sanity-check-build',
         '--gerrit-patches', '123', '-g', '*123', '-g', '123..456',
         '--committer-email', 'foo@bar',
@@ -187,6 +246,16 @@ class TryjobTestVerifyOptions(TryjobTest):
     ])
     self.cmd_mock.inst.VerifyOptions()
 
+  def testLocalSwarmingError(self):
+    """Test option using yes to force an unknown config, no patches."""
+    self.SetupCommandMock([
+        '--yes',
+        '--local', '--swarming',
+        'amd64-generic-paladin',
+    ])
+    with self.assertRaises(cros_build_lib.DieSystemExit):
+      self.cmd_mock.inst.VerifyOptions()
+
 
 class TryjobTestCbuildbotArgs(TryjobTest):
   """Test cros_tryjob.CbuildbotArgs."""
@@ -204,43 +273,97 @@ class TryjobTestCbuildbotArgs(TryjobTest):
     result = self.helperOptionsToCbuildbotArgs([
         'foo-build'])
     self.assertEqual(result, [
-        '--remote-trybot'])
+        '--remote-trybot', '-b', 'master',
+    ])
 
-  def testCbuildbotArgsSimple(self):
+  def testCbuildbotArgsSimpleRemote(self):
     result = self.helperOptionsToCbuildbotArgs([
         '-g', '123', 'foo-build',
     ])
     self.assertEqual(result, [
-        '--remote-trybot', '-g', '123',
+        '--remote-trybot', '-b', 'master', '-g', '123',
     ])
 
-  def testCbuildbotArgsComplex(self):
+  def testCbuildbotArgsSimpleLocal(self):
+    result = self.helperOptionsToCbuildbotArgs([
+        '--local', '-g', '123', 'foo-build',
+    ])
+    self.assertEqual(result, [
+        '--buildroot', mock.ANY,
+        '--no-buildbot-tags', '--debug',
+        '-b', 'master',
+        '-g', '123',
+    ])
+
+  def testCbuildbotArgsComplexRemote(self):
     result = self.helperOptionsToCbuildbotArgs([
         '--yes',
         '--latest-toolchain', '--nochromesdk',
         '--hwtest', '--notests', '--novmtests', '--noimagetests',
-        '--local', '--buildroot', '/buildroot',
+        '--buildroot', '/buildroot',
         '--timeout', '5', '--sanity-check-build',
         '--gerrit-patches', '123', '-g', '*123', '-g', '123..456',
         '--committer-email', 'foo@bar',
+        '--branch', 'source_branch',
         '--version', '1.2.3', '--channel', 'chan',
+        '--branch-name', 'test_branch', '--rename-to', 'new_branch',
+        '--delete-branch', '--force-create', '--skip-remote-push',
         '--pass-through=--cbuild-arg', '--pass-through=bar',
         'lumpy-paladin', 'lumpy-release',
     ])
     self.assertEqual(result, [
-        '--remote-trybot',
+        '--remote-trybot', '-b', 'source_branch',
         '-g', '123', '-g', '*123', '-g', '123..456',
         '--latest-toolchain', '--nochromesdk',
         '--hwtest', '--notests', '--novmtests', '--noimagetests',
         '--timeout', '5', '--sanity-check-build',
         '--version', '1.2.3', '--channel', 'chan',
+        '--branch-name', 'test_branch', '--rename-to', 'new_branch',
+        '--delete-branch', '--force-create', '--skip-remote-push',
         '--cbuild-arg', 'bar'
     ])
 
-  def testCbuildbotArgsProduction(self):
+  def testCbuildbotArgsComplexLocal(self):
+    result = self.helperOptionsToCbuildbotArgs([
+        '--local', '--yes',
+        '--latest-toolchain', '--nochromesdk',
+        '--hwtest', '--notests', '--novmtests', '--noimagetests',
+        '--buildroot', '/buildroot',
+        '--timeout', '5', '--sanity-check-build',
+        '--gerrit-patches', '123', '-g', '*123', '-g', '123..456',
+        '--committer-email', 'foo@bar',
+        '--branch', 'source_branch',
+        '--version', '1.2.3', '--channel', 'chan',
+        '--branch-name', 'test_branch', '--rename-to', 'new_branch',
+        '--delete-branch', '--force-create', '--skip-remote-push',
+        '--pass-through=--cbuild-arg', '--pass-through=bar',
+        'lumpy-paladin', 'lumpy-release',
+    ])
+    self.assertEqual(result, [
+        '--buildroot', '/buildroot', '--no-buildbot-tags', '--debug',
+        '-b', 'source_branch',
+        '-g', '123', '-g', '*123', '-g', '123..456',
+        '--latest-toolchain', '--nochromesdk',
+        '--hwtest', '--notests', '--novmtests', '--noimagetests',
+        '--timeout', '5', '--sanity-check-build',
+        '--version', '1.2.3', '--channel', 'chan',
+        '--branch-name', 'test_branch', '--rename-to', 'new_branch',
+        '--delete-branch', '--force-create', '--skip-remote-push',
+        '--cbuild-arg', 'bar'
+    ])
+
+  def testCbuildbotArgsProductionRemote(self):
     result = self.helperOptionsToCbuildbotArgs([
         '--production', 'foo-build',
     ])
     self.assertEqual(result, [
-        '--buildbot',
+        '--buildbot', '-b', 'master',
+    ])
+
+  def testCbuildbotArgsProductionLocal(self):
+    result = self.helperOptionsToCbuildbotArgs([
+        '--local', '--production', 'foo-build',
+    ])
+    self.assertEqual(result, [
+        '--buildroot', mock.ANY, '--no-buildbot-tags', '-b', 'master',
     ])

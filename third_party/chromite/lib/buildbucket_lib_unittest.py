@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2016 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -26,7 +27,7 @@ class BuildbucketClientTest(cros_test_lib.MockTestCase):
     self.PatchObject(buildbucket_lib.BuildbucketClient,
                      '_GetHost',
                      return_value=buildbucket_lib.BUILDBUCKET_TEST_HOST)
-    self.client = buildbucket_lib.BuildbucketClient()
+    self.client = buildbucket_lib.BuildbucketClient(mock.Mock(), None)
 
   def testPutBuildRequest(self):
     """Test PutBuildRequest."""
@@ -422,7 +423,7 @@ class BuildbucketLibTest(cros_test_lib.MockTestCase):
               ('config_1', 'bb_id_2', 1),
               ('config_2', 'bb_id_3', 2)]
     metadata.ExtendKeyListWithList(
-        constants.METADATA_SCHEDULED_SLAVES, slaves)
+        constants.METADATA_SCHEDULED_IMPORTANT_SLAVES, slaves)
 
     buildbucket_info_dict = buildbucket_lib.GetBuildInfoDict(metadata)
     self.assertEqual(buildbucket_info_dict['config_1'].retry, 1)
@@ -443,7 +444,7 @@ class BuildbucketLibTest(cros_test_lib.MockTestCase):
               ('config_1', 'bb_id_2', 1),
               ('config_2', 'bb_id_3', 2)]
     metadata.ExtendKeyListWithList(
-        constants.METADATA_SCHEDULED_SLAVES, slaves)
+        constants.METADATA_SCHEDULED_IMPORTANT_SLAVES, slaves)
 
     buildbucket_ids = buildbucket_lib.GetBuildbucketIds(metadata)
     self.assertTrue('bb_id_2' in buildbucket_ids)

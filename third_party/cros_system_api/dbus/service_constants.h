@@ -15,6 +15,7 @@
 #include "cros-disks/dbus-constants.h"
 #include "cryptohome/dbus-constants.h"
 #include "debugd/dbus-constants.h"
+#include "hammerd/dbus-constants.h"
 #include "login_manager/dbus-constants.h"
 #include "lorgnette/dbus-constants.h"
 #include "permission_broker/dbus-constants.h"
@@ -123,6 +124,14 @@ const char kLivenessServiceInterface[] =
     "org.chromium.LivenessServiceInterface";
 const char kLivenessServiceCheckLivenessMethod[] = "CheckLiveness";
 
+const char kComponentUpdaterServiceName[] =
+    "org.chromium.ComponentUpdaterService";
+const char kComponentUpdaterServicePath[] =
+    "/org/chromium/ComponentUpdaterService";
+const char kComponentUpdaterServiceInterface[] =
+    "org.chromium.ComponentUpdaterService";
+const char kComponentUpdaterServiceLoadComponentMethod[] = "LoadComponent";
+
 const char kKioskAppServiceName[] = "org.chromium.KioskAppService";
 const char kKioskAppServicePath[] = "/org/chromium/KioskAppService";
 const char kKioskAppServiceInterface[] =
@@ -139,6 +148,18 @@ const char kDisplayServiceSetPowerMethod[] = "SetPower";
 const char kDisplayServiceSetSoftwareDimmingMethod[] = "SetSoftwareDimming";
 const char kDisplayServiceTakeOwnershipMethod[] = "TakeOwnership";
 const char kDisplayServiceReleaseOwnershipMethod[] = "ReleaseOwnership";
+
+constexpr char kVirtualFileRequestServiceName[] =
+    "org.chromium.VirtualFileRequestService";
+constexpr char kVirtualFileRequestServicePath[] =
+    "/org/chromium/VirtualFileRequestService";
+constexpr char kVirtualFileRequestServiceInterface[] =
+    "org.chromium.VirtualFileRequestService";
+// Methods
+constexpr char kVirtualFileRequestServiceHandleReadRequestMethod[] =
+    "HandleReadRequest";
+constexpr char kVirtualFileRequestServiceHandleIdReleasedMethod[] =
+    "HandleIdReleased";
 
 }  // namespace chromeos
 
@@ -1028,5 +1049,16 @@ constexpr char kMidisInterfaceName[] = "org.chromium.Midis";
 // Methods
 constexpr char kBootstrapMojoConnectionMethod[] = "BootstrapMojoConnection";
 }  // namespace midis
+
+namespace virtual_file_provider {
+constexpr char kVirtualFileProviderServiceName[] =
+    "org.chromium.VirtualFileProvider";
+constexpr char kVirtualFileProviderServicePath[] =
+    "/org/chromium/VirtualFileProvider";
+constexpr char kVirtualFileProviderInterface[] =
+    "org.chromium.VirtualFileProvider";
+// Methods
+constexpr char kOpenFileMethod[] = "OpenFile";
+}  // namespace virtual_file_provider
 
 #endif  // SYSTEM_API_DBUS_SERVICE_CONSTANTS_H_

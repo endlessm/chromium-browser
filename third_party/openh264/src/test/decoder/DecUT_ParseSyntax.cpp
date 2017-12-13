@@ -58,7 +58,7 @@ DECODING_STATE DecodeFrame (const unsigned char* kpSrc,
   return dsErrorFree;
 }
 
-void UninitDecoder (PWelsDecoderContext pCtx) {
+void UninitDecoder (PWelsDecoderContext& pCtx) {
   if (NULL == pCtx)
     return;
 
@@ -132,11 +132,13 @@ class DecoderParseSyntaxTest : public ::testing::Test {
   //Uninit members
   void Uninit();
   //Decoder real bitstream
-// void DecoderBs (const char* sFileName);
-  //Parse real bitstream
   void DecodeBs (const char* sFileName);
+  //Parse real bitstream
+  void ParseBs (const char* sFileName);
   //Scalinglist
   void TestScalingList();
+  //specific bitstream test
+  void TestSpecificBs();
   //Do whole tests here
   void DecoderParseSyntaxTestAll();
 
@@ -164,7 +166,7 @@ int32_t DecoderParseSyntaxTest::Init() {
   m_sDecParam.uiTargetDqLayer = rand() % 100;
   m_sDecParam.eEcActiveIdc = (ERROR_CON_IDC)7;
   m_sDecParam.sVideoProperty.size = sizeof (SVideoProperty);
-  m_sDecParam.sVideoProperty.eVideoBsType = (VIDEO_BITSTREAM_TYPE) (rand() % 3);
+  m_sDecParam.sVideoProperty.eVideoBsType = (VIDEO_BITSTREAM_TYPE) (rand() % 2);
   m_sDecParam.bParseOnly = false;
 
   m_pData[0] = m_pData[1] = m_pData[2] = NULL;
@@ -250,6 +252,66 @@ void DecoderParseSyntaxTest::DecodeBs (const char* sFileName) {
 
 
 }
+void DecoderParseSyntaxTest::ParseBs (const char* sFileName) {
+
+  uint8_t* pBuf = NULL;
+  int32_t iBufPos = 0;
+  int32_t iFileSize;
+  int32_t i = 0;
+  int32_t iSliceSize;
+  int32_t iSliceIndex = 0;
+  int32_t iEndOfStreamFlag = 0;
+  FILE* pH264File;
+  uint8_t uiStartCode[4] = { 0, 0, 0, 1 };
+  int iRet;
+
+#if defined(ANDROID_NDK)
+  std::string filename = std::string ("/sdcard/") + sFileName;
+  ASSERT_TRUE ((pH264File = fopen (filename.c_str(), "rb")) != NULL);
+#else
+  ASSERT_TRUE ((pH264File = fopen (sFileName, "rb")) != NULL);
+#endif
+  fseek (pH264File, 0L, SEEK_END);
+  iFileSize = (int32_t)ftell (pH264File);
+  fseek (pH264File, 0L, SEEK_SET);
+  pBuf = new uint8_t[iFileSize + 4];
+  ASSERT_EQ (fread (pBuf, 1, iFileSize, pH264File), (unsigned int)iFileSize);
+  memcpy (pBuf + iFileSize, &uiStartCode[0], 4); //confirmed_safe_unsafe_usage
+  while (true) {
+    if (iBufPos >= iFileSize) {
+      iEndOfStreamFlag = true;
+      if (iEndOfStreamFlag)
+        m_pDec->SetOption (DECODER_OPTION_END_OF_STREAM, (void*)&iEndOfStreamFlag);
+      break;
+    }
+    for (i = 0; i < iFileSize; i++) {
+      if ((pBuf[iBufPos + i] == 0 && pBuf[iBufPos + i + 1] == 0 && pBuf[iBufPos + i + 2] == 0 && pBuf[iBufPos + i + 3] == 1
+           && i > 0)) {
+        break;
+      }
+    }
+    iSliceSize = i;
+    memset (&m_sParserBsInfo, 0, sizeof (SParserBsInfo));
+    iRet = m_pDec->DecodeParser (pBuf + iBufPos, iSliceSize, &m_sParserBsInfo);
+    EXPECT_TRUE (iRet == dsErrorFree || iRet == dsFramePending);
+    iRet = m_pDec->DecodeParser (NULL, 0, &m_sParserBsInfo);
+    EXPECT_TRUE (iRet == dsErrorFree || iRet == dsFramePending);
+    iBufPos += iSliceSize;
+    ++iSliceIndex;
+    if (iSliceIndex == 4)
+      break;
+  }
+
+  fclose (pH264File);
+  if (pBuf) {
+    delete[] pBuf;
+    pBuf = NULL;
+  }
+
+
+}
+
+
 void DecoderParseSyntaxTest::TestScalingList() {
   uint8_t iScalingList[6][16] = {
     {17, 17, 16, 16, 17, 16, 15, 15, 16, 15, 15, 15, 16, 15, 15, 15 },
@@ -259,17 +321,25 @@ void DecoderParseSyntaxTest::TestScalingList() {
     {10, 14, 20, 24, 14, 20, 24, 27, 20, 24, 27, 30, 24, 27, 30, 34 },
     { 9, 13, 18, 21, 13, 18, 21, 24, 18, 21, 24, 27, 21, 24, 27, 27 }
   };
-  uint8_t iScalingListPPS[6][16];
-  memset (iScalingListPPS, 0, 6 * 16 * sizeof (uint8_t));
+  uint8_t iScalingListPPS[6][16] = {
+    { 17, 17, 16, 16, 17, 16, 15, 15, 16, 15, 15, 15, 16, 15, 15, 15 },
+    { 6, 12, 19, 26, 12, 19, 26, 31, 19, 26, 31, 35, 26, 31, 35, 39 },
+    { 6, 12, 19, 26, 12, 19, 26, 31, 19, 26, 31, 35, 26, 31, 35, 40 },
+    { 17, 17, 16, 16, 17, 16, 15, 15, 16, 15, 15, 15, 16, 15, 15, 14 },
+    { 10, 14, 20, 24, 14, 20, 24, 27, 20, 24, 27, 30, 24, 27, 30, 34 },
+    { 9, 13, 18, 21, 13, 18, 21, 24, 18, 21, 24, 27, 21, 24, 27, 27 }
+  };
+  uint8_t iScalingListZero[6][16];
+  memset (iScalingListZero, 0, 6 * 16 * sizeof (uint8_t));
   //Scalinglist matrix not written into sps or pps
   int32_t iRet = ERR_NONE;
   iRet = Init();
   ASSERT_EQ (iRet, ERR_NONE);
   DecodeBs ("res/BA_MW_D.264");
   ASSERT_TRUE (m_pCtx->sSpsBuffer[0].bSeqScalingMatrixPresentFlag == false);
-  EXPECT_EQ (0, memcmp (iScalingListPPS, m_pCtx->sSpsBuffer[0].iScalingList4x4, 6 * 16 * sizeof (uint8_t)));
+  EXPECT_EQ (0, memcmp (iScalingListZero, m_pCtx->sSpsBuffer[0].iScalingList4x4, 6 * 16 * sizeof (uint8_t)));
   ASSERT_TRUE (m_pCtx->sPpsBuffer[0].bPicScalingMatrixPresentFlag == false);
-  EXPECT_EQ (0, memcmp (iScalingListPPS, m_pCtx->sPpsBuffer[0].iScalingList4x4, 6 * 16 * sizeof (uint8_t)));
+  EXPECT_EQ (0, memcmp (iScalingListZero, m_pCtx->sPpsBuffer[0].iScalingList4x4, 6 * 16 * sizeof (uint8_t)));
   Uninit();
   //Scalinglist value just written into sps and pps
   iRet = Init();
@@ -280,16 +350,29 @@ void DecoderParseSyntaxTest::TestScalingList() {
     EXPECT_EQ (0, memcmp (iScalingList[i], m_pCtx->sSpsBuffer[0].iScalingList4x4[i], 16 * sizeof (uint8_t)));
   }
 
-  ASSERT_TRUE (m_pCtx->sPpsBuffer[0].bPicScalingMatrixPresentFlag == false);
-  EXPECT_EQ (0, memcmp (iScalingListPPS, m_pCtx->sPpsBuffer[0].iScalingList4x4, 6 * 16 * sizeof (uint8_t)));
+  ASSERT_TRUE (m_pCtx->sPpsBuffer[0].bPicScalingMatrixPresentFlag == true);
+  for (int i = 0; i < 6; i++) {
+    EXPECT_EQ (0, memcmp (iScalingListPPS[i], m_pCtx->sPpsBuffer[0].iScalingList4x4[i], 16 * sizeof (uint8_t)));
+  }
   Uninit();
 }
 
+void DecoderParseSyntaxTest::TestSpecificBs() {
+  int32_t iRet = ERR_NONE;
+  Uninit();
+  m_sDecParam.bParseOnly = true;
+  m_sDecParam.eEcActiveIdc = ERROR_CON_DISABLE;
+  iRet = m_pDec->Initialize (&m_sDecParam);
+  ASSERT_EQ (iRet, ERR_NONE);
+  ParseBs ("res/jm_1080p_allslice.264");
+  m_pDec->Uninitialize();
+  //Uninit();
+}
 //TEST here for whole tests
 TEST_F (DecoderParseSyntaxTest, DecoderParseSyntaxTestAll) {
 
   TestScalingList();
-
+  TestSpecificBs();
 }
 
 

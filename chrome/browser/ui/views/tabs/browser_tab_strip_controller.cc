@@ -29,6 +29,7 @@
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "components/feature_engagement/features.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
 #include "components/omnibox/browser/autocomplete_match.h"
@@ -50,7 +51,7 @@
 #include "ui/views/widget/widget.h"
 #include "url/origin.h"
 
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_MACOSX)
+#if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
 #include "chrome/browser/feature_engagement/new_tab/new_tab_tracker.h"
 #include "chrome/browser/feature_engagement/new_tab/new_tab_tracker_factory.h"
 #endif
@@ -80,7 +81,7 @@ TabRendererData::NetworkState TabContentsNetworkState(
 bool DetermineTabStripLayoutStacked(PrefService* prefs, bool* adjust_layout) {
   *adjust_layout = false;
   // For ash, always allow entering stacked mode.
-#if defined(USE_ASH)
+#if defined(OS_CHROMEOS)
   *adjust_layout = true;
   return prefs->GetBoolean(prefs::kTabStripStackedLayout);
 #else
@@ -362,12 +363,14 @@ bool BrowserTabStripController::IsCompatibleWith(TabStrip* other) const {
 }
 
 void BrowserTabStripController::CreateNewTab() {
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_MACOSX)
-  feature_engagement::NewTabTrackerFactory::GetInstance()
-      ->GetForProfile(browser_view_->browser()->profile())
-      ->OnNewTabOpened();
-#endif
   model_->delegate()->AddTabAt(GURL(), -1, true);
+#if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
+  auto* new_tab_tracker =
+      feature_engagement::NewTabTrackerFactory::GetInstance()->GetForProfile(
+          browser_view_->browser()->profile());
+  new_tab_tracker->OnNewTabOpened();
+  new_tab_tracker->CloseBubble();
+#endif
 }
 
 void BrowserTabStripController::CreateNewTabWithLocation(

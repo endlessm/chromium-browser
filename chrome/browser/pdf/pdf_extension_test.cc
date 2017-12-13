@@ -48,6 +48,7 @@
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/plugin_service.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
@@ -523,7 +524,8 @@ IN_PROC_BROWSER_TEST_F(PDFExtensionTest, LinkPermissions) {
   GURL invalid_link_url("chrome://settings");
 
   GURL unfiltered_valid_link_url(valid_link_url);
-  content::RenderProcessHost* rph = guest_contents->GetRenderProcessHost();
+  content::RenderProcessHost* rph =
+      guest_contents->GetMainFrame()->GetProcess();
   rph->FilterURL(true, &valid_link_url);
   rph->FilterURL(true, &invalid_link_url);
 
@@ -1309,6 +1311,20 @@ IN_PROC_BROWSER_TEST_F(PDFExtensionClipboardTest, CombinedShiftArrowPresses) {
     CheckSelectionClipboard("L");
   }
   SendCopyCommandAndCheckCopyPasteClipboard("L");
+}
+
+// Verifies that an <embed> of size zero will still instantiate a guest and post
+// message to the <embed> is correctly forwarded to the extension. This is for
+// catching future regression in docs/ and slides/ pages (see
+// https://crbug.com/763812).
+IN_PROC_BROWSER_TEST_F(PDFExtensionTest, PostMessageForZeroSizedEmbed) {
+  content::DOMMessageQueue queue;
+  GURL url(embedded_test_server()->GetURL(
+      "/pdf/post_message_zero_sized_embed.html"));
+  ui_test_utils::NavigateToURL(browser(), url);
+  std::string message;
+  EXPECT_TRUE(queue.WaitForMessage(&message));
+  EXPECT_EQ("\"POST_MESSAGE_OK\"", message);
 }
 
 #if defined(OS_MACOSX)

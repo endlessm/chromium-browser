@@ -20,7 +20,6 @@
 <translation id="1254117744268754948">Seleccionar carpeta</translation>
 <translation id="1265739287306757398">Más información</translation>
 <translation id="1272079795634619415">Interrumpir</translation>
-<translation id="129553762522093515">Cerrado recientemente</translation>
 <translation id="1323735185997015385">Eliminar</translation>
 <translation id="132683371494960526">Toca dos veces para cambiar la carpeta principal.</translation>
 <translation id="1340643665687018190">Cerrar el menú</translation>
@@ -48,7 +47,6 @@ Por ejemplo, algunos sitios web pueden responder a la solicitud mostrándote anu
 <translation id="1690731385917361335">No hay elementos</translation>
 <translation id="1700629756560807968"><ph name="NUMBER_OF_SELECTED_BOOKMARKS" /> seleccionados</translation>
 <translation id="1740468249224277719">Toca dos veces para instalar.</translation>
-<translation id="1749561566933687563">Sincronizar marcadores</translation>
 <translation id="1752547299766512813">Guardar contraseñas</translation>
 <translation id="1753905327828125965">Más visitado</translation>
 <translation id="1809939268435598390">Eliminar carpeta</translation>
@@ -70,16 +68,17 @@ Por ejemplo, algunos sitios web pueden responder a la solicitud mostrándote anu
 <translation id="213900355088104901">Para navegar en privado, abre una pestaña de incógnito</translation>
 <translation id="2149973817440762519">Editar marcador</translation>
 <translation id="2230173723195178503">Página web cargada</translation>
-<translation id="2256128224215992540">Sugerencias de búsqueda y sitios</translation>
+<translation id="2256128224215992540">Sugerencias de búsqueda y sitios web</translation>
 <translation id="2267753748892043616">Añadir cuenta</translation>
 <translation id="2273327106802955778">Menú más</translation>
 <translation id="2320166752086256636">Ocultar teclado</translation>
 <translation id="2351097562818989364">Se han restablecido tus ajustes de traducción.</translation>
 <translation id="2354750644801399986">No realizar seguimiento</translation>
 <translation id="2359808026110333948">Continuar</translation>
-<translation id="2381405137052800939">Básica</translation>
+<translation id="2381405137052800939">Configuración básica</translation>
 <translation id="2386793615875593361">1 foto seleccionada</translation>
 <translation id="2435457462613246316">Mostrar contraseña</translation>
+<translation id="2529021024822217800">Abrir todos</translation>
 <translation id="2572712655377361602">Una política de dispositivos ha bloqueado el acceso a tus fotos</translation>
 <translation id="2584132361465095047">Añadir cuenta…</translation>
 <translation id="2593774076813182497">Esta página no se puede imprimir.</translation>
@@ -129,7 +128,6 @@ Por ejemplo, algunos sitios web pueden responder a la solicitud mostrándote anu
 <translation id="3324193307694657476">Dirección 2</translation>
 <translation id="3329904751041170572">No se ha podido establecer conexión con el servidor.</translation>
 <translation id="3335947283844343239">Volver a abrir pestaña cerrada</translation>
-<translation id="3387752218061326363">Mostrando historial de dispositivos en los que has iniciado sesión. <ph name="BEGIN_LINK" />Más información<ph name="END_LINK" />.</translation>
 <translation id="3393920035788932672">Pop-ups permitidos</translation>
 <translation id="3414292259312108062">Chrome almacenará esta contraseña en las <ph name="BEGIN_LINK" />contraseñas guardadas de Google<ph name="END_LINK" /> y utilizará la función Autocompletar para que no tengas que memorizarla.</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> min</translation>
@@ -181,6 +179,7 @@ Para ajustar el término de búsqueda, mantén pulsado el texto para seleccionar
 <translation id="4342284590510997375">Nuevo</translation>
 <translation id="434816576838749873">Elegir aplicación de correo electrónico</translation>
 <translation id="4359125752503270327">Esta página se abrirá en otra aplicación.</translation>
+<translation id="4370827530403103842">La sincronización no funciona. Toca para solucionarlo.</translation>
 <translation id="4375040482473363939">Búsqueda mediante códigos QR</translation>
 <translation id="4378154925671717803">Teléfono</translation>
 <translation id="441868831736628555">Aviso de privacidad</translation>
@@ -188,6 +187,7 @@ Para ajustar el término de búsqueda, mantén pulsado el texto para seleccionar
 <translation id="4508750114462689118">Cierra el inicio de sesión en la promoción</translation>
 <translation id="4526249700380860531">Consulta y administra contraseñas guardadas en la página <ph name="BEGIN_LINK" />passwords.google.com<ph name="END_LINK" /></translation>
 <translation id="4536418791685807335">Prueba a iniciar sesión de nuevo.</translation>
+<translation id="457386861538956877">Más...</translation>
 <translation id="461440297010471931">Buscar con Google</translation>
 <translation id="4620246317052452550">Páginas que has leído</translation>
 <translation id="4636930964841734540">Información</translation>
@@ -309,6 +309,7 @@ Tus datos se cifraron con tu frase de contraseña de sincronización el <ph name
 <translation id="6785453220513215166">Enviando informe sobre fallos...</translation>
 <translation id="679325081238418596">Accede a tus marcadores, a tu historial, a tus contraseñas y a otros ajustes desde todos tus dispositivos</translation>
 <translation id="6797885426782475225">Búsqueda por voz</translation>
+<translation id="6807889908376551050">Mostrar todo...</translation>
 <translation id="681368974849482173">Elemento creado</translation>
 <translation id="6896758677409633944">Copiar</translation>
 <translation id="6903907808598579934">Activar sincronización</translation>
@@ -319,7 +320,6 @@ Tus datos se cifraron con tu frase de contraseña de sincronización el <ph name
 <translation id="7031882061095297553">Sincronizar con</translation>
 <translation id="7062545763355031412">Aceptar y cambiar de cuenta</translation>
 <translation id="7108338896283013870">Ocultar</translation>
-<translation id="7131892264600713844">Mostrando historial de este dispositivo. <ph name="BEGIN_LINK" />Más información<ph name="END_LINK" />.</translation>
 <translation id="7133798577887235672">Nombre completo</translation>
 <translation id="7136892417564438900">La cámara no está disponible</translation>
 <translation id="7159472599653637159">Solicitar sitio web móvil</translation>
@@ -356,7 +356,6 @@ Tus datos se cifraron con tu frase de contraseña de sincronización el <ph name
 <translation id="7769602470925380267">Aceptar y cerrar sesión</translation>
 <translation id="7772032839648071052">Repite la contraseña</translation>
 <translation id="780301667611848630">No, gracias</translation>
-<translation id="7851858861565204677">Otros dispositivos</translation>
 <translation id="7859704718976024901">Historial de navegación</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7947953824732555851">Aceptar y acceder</translation>
@@ -382,6 +381,7 @@ Tus datos se cifraron con tu frase de contraseña de sincronización el <ph name
 <translation id="8458397775385147834">1 elemento eliminado</translation>
 <translation id="8487700953926739672">Disponible sin conexión</translation>
 <translation id="8503813439785031346">Nombre de usuario</translation>
+<translation id="850600235656508448">Abrir en modo incógnito</translation>
 <translation id="8517375800490286174">Licencias de código abierto</translation>
 <translation id="8524799873541103884">Pestañas de <ph name="INCOGNITO" />: de <ph name="FIRST_VISIBLE_TAB" /> a <ph name="LAST_VISIBLE_TAB" /> de <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8532105204136943229">Año de caducidad</translation>
@@ -400,6 +400,7 @@ Tus datos se cifraron con tu frase de contraseña de sincronización el <ph name
 <translation id="8775144690796719618">La URL no es válida</translation>
 <translation id="8820817407110198400">Marcadores</translation>
 <translation id="8840513115188359703">No se cerrará la sesión en tu cuenta de Google.</translation>
+<translation id="8870413625673593573">Cerrado recientemente</translation>
 <translation id="8881801611828450202">Buscar esta imagen en <ph name="SEARCH_ENGINE" /></translation>
 <translation id="8904976895050290827">Sincronización de Chrome</translation>
 <translation id="895541991026785598">Notificar un error</translation>

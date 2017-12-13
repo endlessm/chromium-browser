@@ -16,7 +16,7 @@
 #include "chrome/test/base/testing_profile.h"
 #include "components/signin/core/browser/fake_signin_manager.h"
 
-#if defined(USE_ASH)
+#if defined(OS_CHROMEOS)
 #include "ash/shell.h"
 #endif
 
@@ -49,11 +49,11 @@ std::unique_ptr<KeyedService> BuildSigninManagerFake(
 
 }  // namespace
 
-ChromeRenderViewHostTestHarness::ChromeRenderViewHostTestHarness() {
-}
+ChromeRenderViewHostTestHarness::ChromeRenderViewHostTestHarness(
+    int thread_bundle_options)
+    : content::RenderViewHostTestHarness(thread_bundle_options) {}
 
-ChromeRenderViewHostTestHarness::~ChromeRenderViewHostTestHarness() {
-}
+ChromeRenderViewHostTestHarness::~ChromeRenderViewHostTestHarness() = default;
 
 TestingProfile* ChromeRenderViewHostTestHarness::profile() {
   return static_cast<TestingProfile*>(browser_context());
@@ -61,7 +61,7 @@ TestingProfile* ChromeRenderViewHostTestHarness::profile() {
 
 void ChromeRenderViewHostTestHarness::TearDown() {
   RenderViewHostTestHarness::TearDown();
-#if defined(USE_ASH)
+#if defined(OS_CHROMEOS)
   ash::Shell::DeleteInstance();
 #endif
 }

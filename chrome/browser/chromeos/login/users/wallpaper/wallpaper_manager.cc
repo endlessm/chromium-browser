@@ -13,6 +13,7 @@
 #include "ash/public/interfaces/constants.mojom.h"
 #include "ash/shell.h"
 #include "ash/wallpaper/wallpaper_controller.h"
+#include "ash/wallpaper/wallpaper_window_state_manager.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
@@ -36,7 +37,6 @@
 #include "chrome/browser/chromeos/extensions/wallpaper_manager_util.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/users/avatar/user_image_loader.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_window_state_manager.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
@@ -128,8 +128,8 @@ base::FilePath GetCustomizedWallpaperDefaultRescaledFileName(
 bool ShouldUseCustomizedDefaultWallpaper() {
   PrefService* pref_service = g_browser_process->local_state();
 
-  return !(pref_service->FindPreference(
-      prefs::kCustomizationDefaultWallpaperURL)->IsDefaultValue());
+  return !pref_service->FindPreference(
+      prefs::kCustomizationDefaultWallpaperURL)->IsDefaultValue();
 }
 
 // Returns index of the first public session user found in |users|
@@ -138,8 +138,7 @@ int FindPublicSession(const user_manager::UserList& users) {
   int index = -1;
   int i = 0;
   for (user_manager::UserList::const_iterator it = users.begin();
-       it != users.end();
-       ++it, ++i) {
+       it != users.end(); ++it, ++i) {
     if ((*it)->GetType() == user_manager::USER_TYPE_PUBLIC_ACCOUNT) {
       index = i;
       break;
@@ -254,8 +253,8 @@ bool CheckDeviceWallpaperMatchHash(const base::FilePath& device_wallpaper_file,
 // PendingWallpaper is owned by WallpaperManager, but reference to this object
 // is passed to other threads by PostTask() calls, therefore it is
 // RefCountedThreadSafe.
-class WallpaperManager::PendingWallpaper :
-    public base::RefCountedThreadSafe<PendingWallpaper> {
+class WallpaperManager::PendingWallpaper
+    : public base::RefCountedThreadSafe<PendingWallpaper> {
  public:
   // Do LoadWallpaper() - image not found in cache.
   PendingWallpaper(const base::TimeDelta delay, const AccountId& account_id)
@@ -265,8 +264,7 @@ class WallpaperManager::PendingWallpaper :
             base::Bind(&WallpaperManager::PendingWallpaper::OnWallpaperSet,
                        this))) {
     timer.Start(
-        FROM_HERE,
-        delay,
+        FROM_HERE, delay,
         base::Bind(&WallpaperManager::PendingWallpaper::ProcessRequest, this));
   }
 
@@ -403,7 +401,7 @@ class WallpaperManager::PendingWallpaper :
 WallpaperManager::~WallpaperManager() {
   show_user_name_on_signin_subscription_.reset();
   device_wallpaper_image_subscription_.reset();
-  user_manager::UserManager::Get()->RemoveSessionStateObserver(this);
+  user_manager::UserManager::Get()->RemoveObserver(this);
   weak_factory_.InvalidateWeakPtrs();
 }
 
@@ -669,12 +667,8 @@ void WallpaperManager::SetCustomWallpaper(
       base::FilePath(wallpaper_files_id.id()).Append(file).value();
   // User's custom wallpaper path is determined by relative path and the
   // appropriate wallpaper resolution in GetCustomWallpaperInternal.
-  WallpaperInfo info = {
-      relative_path,
-      layout,
-      type,
-      base::Time::Now().LocalMidnight()
-  };
+  WallpaperInfo info = {relative_path, layout, type,
+                        base::Time::Now().LocalMidnight()};
   SetUserWallpaperInfo(account_id, info, is_persistent);
   if (update_wallpaper) {
     GetPendingWallpaper(account_id, false)->ResetSetWallpaperImage(image, info);
@@ -770,7 +764,8 @@ void WallpaperManager::SetUserWallpaperInfo(const AccountId& account_id,
                                         wallpaper::kUsersWallpaperInfo);
 
   auto wallpaper_info_dict = base::MakeUnique<base::DictionaryValue>();
-  wallpaper_info_dict->SetString(kNewWallpaperDateNodeName,
+  wallpaper_info_dict->SetString(
+      kNewWallpaperDateNodeName,
       base::Int64ToString(info.date.ToInternalValue()));
   wallpaper_info_dict->SetString(kNewWallpaperLocationNodeName, info.location);
   wallpaper_info_dict->SetInteger(kNewWallpaperLayoutNodeName, info.layout);
@@ -924,7 +919,7 @@ void WallpaperManager::OnWindowActivated(ActivationReason reason,
   ash::ShelfID shelf_id =
       ash::ShelfID::Deserialize(gained_active->GetProperty(ash::kShelfIDKey));
   if (shelf_id.app_id == arc_wallpapers_app_id) {
-    chromeos::WallpaperWindowStateManager::MinimizeInactiveWindows(
+    ash::WallpaperWindowStateManager::MinimizeInactiveWindows(
         user_manager::UserManager::Get()->GetActiveUser()->username_hash());
     DCHECK(!ash_util::IsRunningInMash() && ash::Shell::Get());
     activation_client_observer_.Remove(ash::Shell::Get()->activation_client());
@@ -934,7 +929,7 @@ void WallpaperManager::OnWindowActivated(ActivationReason reason,
 
 void WallpaperManager::OnWindowDestroying(aura::Window* window) {
   window_observer_.Remove(window);
-  chromeos::WallpaperWindowStateManager::RestoreWindows(
+  ash::WallpaperWindowStateManager::RestoreWindows(
       user_manager::UserManager::Get()->GetActiveUser()->username_hash());
 }
 
@@ -962,7 +957,7 @@ WallpaperManager::WallpaperManager()
       {base::MayBlock(), base::TaskPriority::USER_BLOCKING,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN});
 
-  user_manager::UserManager::Get()->AddSessionStateObserver(this);
+  user_manager::UserManager::Get()->AddObserver(this);
 
   content::ServiceManagerConnection* connection =
       content::ServiceManagerConnection::GetForProcess();
@@ -995,8 +990,7 @@ void WallpaperManager::RemovePendingWallpaperFromList(
     PendingWallpaper* pending) {
   DCHECK(loading_.size() > 0);
   for (WallpaperManager::PendingList::iterator i = loading_.begin();
-       i != loading_.end();
-       ++i) {
+       i != loading_.end(); ++i) {
     if (i->get() == pending) {
       loading_.erase(i);
       break;
@@ -1381,8 +1375,8 @@ bool WallpaperManager::SetDeviceWallpaperIfApplicable(
   return false;
 }
 
-void WallpaperManager::UserChangedChildStatus(user_manager::User* user) {
-  SetUserWallpaperNow(user->GetAccountId());
+void WallpaperManager::OnChildStatusChanged(const user_manager::User& user) {
+  SetUserWallpaperNow(user.GetAccountId());
 }
 
 void WallpaperManager::SetDefaultWallpaperPathsFromCommandLine(

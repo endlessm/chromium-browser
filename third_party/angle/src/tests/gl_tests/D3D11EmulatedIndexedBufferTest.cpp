@@ -31,8 +31,8 @@ class D3D11EmulatedIndexedBufferTest : public ANGLETest
         ANGLETest::SetUp();
         ASSERT_EQ(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, GetParam().getRenderer());
 
-        gl::Context *context = reinterpret_cast<gl::Context *>(getEGLWindow()->getContext());
-        rx::Context11 *context11 = rx::GetImplAs<rx::Context11>(context);
+        mContext                 = reinterpret_cast<gl::Context *>(getEGLWindow()->getContext());
+        rx::Context11 *context11 = rx::GetImplAs<rx::Context11>(mContext);
         mRenderer                = context11->getRenderer();
 
         mSourceBuffer      = new rx::Buffer11(mBufferState, mRenderer);
@@ -112,7 +112,7 @@ class D3D11EmulatedIndexedBufferTest : public ANGLETest
     void emulateAndCompare(rx::SourceIndexData *srcData)
     {
         auto bufferOrError =
-            mSourceBuffer->getEmulatedIndexedBuffer(srcData, mTranslatedAttribute, 0);
+            mSourceBuffer->getEmulatedIndexedBuffer(mContext, srcData, mTranslatedAttribute, 0);
         ASSERT_FALSE(bufferOrError.isError());
         ID3D11Buffer *emulatedBuffer = bufferOrError.getResult();
         ASSERT_TRUE(emulatedBuffer != nullptr);
@@ -120,6 +120,7 @@ class D3D11EmulatedIndexedBufferTest : public ANGLETest
     }
 
   protected:
+    gl::Context *mContext;
     rx::Buffer11 *mSourceBuffer;
     rx::Renderer11 *mRenderer;
     rx::TranslatedAttribute mTranslatedAttribute;
@@ -166,7 +167,9 @@ TEST_P(D3D11EmulatedIndexedBufferTest, TestSourceBufferRemainsUntouchedAfterExpa
     // Copy the original source buffer before any expand calls have been made
     gl::BufferState cleanSourceState;
     rx::Buffer11 *cleanSourceBuffer = new rx::Buffer11(cleanSourceState, mRenderer);
-    cleanSourceBuffer->copySubData(nullptr, mSourceBuffer, 0, 0, mSourceBuffer->getSize());
+    ASSERT_FALSE(
+        cleanSourceBuffer->copySubData(nullptr, mSourceBuffer, 0, 0, mSourceBuffer->getSize())
+            .isError());
 
     // Do a basic exanded and compare test.
     rx::SourceIndexData srcData = {nullptr, muintIndices.data(),
@@ -177,10 +180,10 @@ TEST_P(D3D11EmulatedIndexedBufferTest, TestSourceBufferRemainsUntouchedAfterExpa
     const uint8_t *sourceBufferMem = nullptr;
     const uint8_t *cleanBufferMem = nullptr;
 
-    gl::Error error = mSourceBuffer->getData(&sourceBufferMem);
+    gl::Error error = mSourceBuffer->getData(mContext, &sourceBufferMem);
     ASSERT_FALSE(error.isError());
 
-    error = cleanSourceBuffer->getData(&cleanBufferMem);
+    error = cleanSourceBuffer->getData(mContext, &cleanBufferMem);
     ASSERT_FALSE(error.isError());
 
     int result = memcmp(sourceBufferMem, cleanBufferMem, cleanSourceBuffer->getSize());

@@ -261,12 +261,7 @@
       "gm",
       "image",
       "colorImage",
-      "svg",
       "--blacklist",
-      "~8888",
-      "svg",
-      "_",
-      "svgparse_",
       "_",
       "image",
       "gen_platf",
@@ -495,6 +490,10 @@
       "gm",
       "_",
       "makecolorspace",
+      "pic-8888",
+      "gm",
+      "_",
+      "encode-platform",
       "serialize-8888",
       "gm",
       "_",
@@ -558,7 +557,8 @@
       "tiles_rt-8888",
       "gm",
       "_",
-      "complexclip4_aa"
+      "complexclip4_aa",
+      "--verbose"
     ],
     "env": {
       "BUILDTYPE": "Release",

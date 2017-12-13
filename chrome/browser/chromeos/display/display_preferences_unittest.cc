@@ -50,6 +50,7 @@ const char kPositionKey[] = "position";
 const char kOffsetKey[] = "offset";
 const char kPlacementDisplayIdKey[] = "placement.display_id";
 const char kPlacementParentDisplayIdKey[] = "placement.parent_display_id";
+const char kTouchCalibrationMap[] = "touch_calibration_map";
 const char kTouchCalibrationWidth[] = "touch_calibration_width";
 const char kTouchCalibrationHeight[] = "touch_calibration_height";
 const char kTouchCalibrationPointPairs[] = "touch_calibration_point_pairs";
@@ -77,7 +78,8 @@ class DisplayPreferencesTest : public ash::AshTestBase {
     ash::AshTestBase::SetUp();
     RegisterDisplayLocalStatePrefs(local_state_.registry());
     TestingBrowserProcess::GetGlobal()->SetLocalState(&local_state_);
-    observer_.reset(new DisplayConfigurationObserver());
+    observer_ = std::make_unique<DisplayConfigurationObserver>();
+    observer_->OnDisplaysInitialized();
   }
 
   void TearDown() override {
@@ -119,29 +121,41 @@ class DisplayPreferencesTest : public ash::AshTestBase {
 
     base::DictionaryValue* pref_data = update.Get();
     std::unique_ptr<base::Value> layout_value(new base::DictionaryValue());
-    if (pref_data->HasKey(name)) {
-      base::Value* value = nullptr;
-      if (pref_data->Get(name, &value) && value != nullptr)
-        layout_value.reset(value->DeepCopy());
-    }
+    base::Value* value = nullptr;
+    if (pref_data->Get(name, &value) && value != nullptr)
+      layout_value.reset(value->DeepCopy());
     if (display::DisplayLayoutToJson(display_layout, layout_value.get()))
       pref_data->Set(name, std::move(layout_value));
   }
 
+  bool GetDisplayPropertyFromList(const display::DisplayIdList& list,
+                                  const std::string& key,
+                                  base::Value** out_value) {
+    std::string name = display::DisplayIdListToString(list);
+
+    DictionaryPrefUpdate update(&local_state_, prefs::kSecondaryDisplays);
+    base::DictionaryValue* pref_data = update.Get();
+
+    base::Value* layout_value = pref_data->FindPath({name});
+    if (layout_value) {
+      return static_cast<base::DictionaryValue*>(layout_value)
+          ->Get(key, out_value);
+    }
+    return false;
+  }
+
   void StoreDisplayPropertyForList(const display::DisplayIdList& list,
-                                   std::string key,
+                                   const std::string& key,
                                    std::unique_ptr<base::Value> value) {
     std::string name = display::DisplayIdListToString(list);
 
     DictionaryPrefUpdate update(&local_state_, prefs::kSecondaryDisplays);
     base::DictionaryValue* pref_data = update.Get();
 
-    if (pref_data->HasKey(name)) {
-      base::Value* layout_value = nullptr;
-      pref_data->Get(name, &layout_value);
-      if (layout_value)
-        static_cast<base::DictionaryValue*>(layout_value)
-            ->Set(key, std::move(value));
+    base::Value* layout_value = pref_data->FindPath({name});
+    if (layout_value) {
+      static_cast<base::DictionaryValue*>(layout_value)
+          ->Set(key, std::move(value));
     } else {
       std::unique_ptr<base::DictionaryValue> layout_value(
           new base::DictionaryValue());
@@ -200,7 +214,7 @@ class DisplayPreferencesTest : public ash::AshTestBase {
   MockUserManager* mock_user_manager_;  // Not owned.
   ScopedUserManagerEnabler user_manager_enabler_;
   TestingPrefServiceSimple local_state_;
-  std::unique_ptr<DisplayConfigurationObserver> observer_;
+  std::unique_ptr<ash::WindowTreeHostManager::Observer> observer_;
 
   DISALLOW_COPY_AND_ASSIGN(DisplayPreferencesTest);
 };
@@ -288,13 +302,26 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
                    .SetDisplayUIScale(id2, 1.25f));
 
   // Set touch calibration data for display |id2|.
-  display::TouchCalibrationData::CalibrationPointPairQuad point_pair_quad = {
+  constexpr uint32_t touch_device_identifier_1 = 1234;
+  display::TouchCalibrationData::CalibrationPointPairQuad point_pair_quad_1 = {
       {std::make_pair(gfx::Point(10, 10), gfx::Point(11, 12)),
        std::make_pair(gfx::Point(190, 10), gfx::Point(195, 8)),
        std::make_pair(gfx::Point(10, 90), gfx::Point(12, 94)),
        std::make_pair(gfx::Point(190, 90), gfx::Point(189, 88))}};
-  gfx::Size touch_size(200, 150);
-  display_manager()->SetTouchCalibrationData(id2, point_pair_quad, touch_size);
+  gfx::Size touch_size_1(200, 150);
+
+  constexpr uint32_t touch_device_identifier_2 = 2345;
+  display::TouchCalibrationData::CalibrationPointPairQuad point_pair_quad_2 = {
+      {std::make_pair(gfx::Point(10, 10), gfx::Point(11, 12)),
+       std::make_pair(gfx::Point(190, 10), gfx::Point(195, 8)),
+       std::make_pair(gfx::Point(10, 90), gfx::Point(12, 94)),
+       std::make_pair(gfx::Point(190, 90), gfx::Point(189, 88))}};
+  gfx::Size touch_size_2(150, 150);
+
+  display_manager()->SetTouchCalibrationData(
+      id2, point_pair_quad_1, touch_size_1, touch_device_identifier_1);
+  display_manager()->SetTouchCalibrationData(
+      id2, point_pair_quad_2, touch_size_2, touch_device_identifier_2);
 
   const base::DictionaryValue* displays =
       local_state()->GetDictionary(prefs::kSecondaryDisplays);
@@ -344,9 +371,9 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   EXPECT_EQ(13, right);
 
   std::string touch_str;
-  EXPECT_FALSE(property->GetString(kTouchCalibrationPointPairs, &touch_str));
-  EXPECT_FALSE(property->GetInteger(kTouchCalibrationWidth, &width));
-  EXPECT_FALSE(property->GetInteger(kTouchCalibrationHeight, &height));
+  const base::DictionaryValue* map_dictionary;
+  const base::DictionaryValue* data_dict;
+  EXPECT_FALSE(property->GetDictionary(kTouchCalibrationMap, &map_dictionary));
 
   EXPECT_TRUE(properties->GetDictionary(base::Int64ToString(id2), &property));
   EXPECT_TRUE(property->GetInteger("rotation", &rotation));
@@ -361,22 +388,48 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
 
   display::TouchCalibrationData::CalibrationPointPairQuad stored_pair_quad;
 
-  EXPECT_TRUE(property->GetString(kTouchCalibrationPointPairs, &touch_str));
+  EXPECT_TRUE(property->GetDictionary(kTouchCalibrationMap, &map_dictionary));
+  EXPECT_TRUE(map_dictionary->GetDictionary(
+      base::UintToString(touch_device_identifier_1), &data_dict));
+  EXPECT_TRUE(data_dict->GetString(kTouchCalibrationPointPairs, &touch_str));
   EXPECT_TRUE(ParseTouchCalibrationStringForTest(touch_str, &stored_pair_quad));
 
-  for (std::size_t row = 0; row < point_pair_quad.size(); row++) {
-    EXPECT_EQ(point_pair_quad[row].first.x(), stored_pair_quad[row].first.x());
-    EXPECT_EQ(point_pair_quad[row].first.y(), stored_pair_quad[row].first.y());
-    EXPECT_EQ(point_pair_quad[row].second.x(),
+  for (std::size_t row = 0; row < point_pair_quad_1.size(); row++) {
+    EXPECT_EQ(point_pair_quad_1[row].first.x(),
+              stored_pair_quad[row].first.x());
+    EXPECT_EQ(point_pair_quad_1[row].first.y(),
+              stored_pair_quad[row].first.y());
+    EXPECT_EQ(point_pair_quad_1[row].second.x(),
               stored_pair_quad[row].second.x());
-    EXPECT_EQ(point_pair_quad[row].second.y(),
+    EXPECT_EQ(point_pair_quad_1[row].second.y(),
               stored_pair_quad[row].second.y());
   }
   width = height = 0;
-  EXPECT_TRUE(property->GetInteger(kTouchCalibrationWidth, &width));
-  EXPECT_TRUE(property->GetInteger(kTouchCalibrationHeight, &height));
-  EXPECT_EQ(width, touch_size.width());
-  EXPECT_EQ(height, touch_size.height());
+  EXPECT_TRUE(data_dict->GetInteger(kTouchCalibrationWidth, &width));
+  EXPECT_TRUE(data_dict->GetInteger(kTouchCalibrationHeight, &height));
+  EXPECT_EQ(width, touch_size_1.width());
+  EXPECT_EQ(height, touch_size_1.height());
+
+  EXPECT_TRUE(map_dictionary->GetDictionary(
+      base::UintToString(touch_device_identifier_2), &data_dict));
+  EXPECT_TRUE(data_dict->GetString(kTouchCalibrationPointPairs, &touch_str));
+  EXPECT_TRUE(ParseTouchCalibrationStringForTest(touch_str, &stored_pair_quad));
+
+  for (std::size_t row = 0; row < point_pair_quad_2.size(); row++) {
+    EXPECT_EQ(point_pair_quad_2[row].first.x(),
+              stored_pair_quad[row].first.x());
+    EXPECT_EQ(point_pair_quad_2[row].first.y(),
+              stored_pair_quad[row].first.y());
+    EXPECT_EQ(point_pair_quad_2[row].second.x(),
+              stored_pair_quad[row].second.x());
+    EXPECT_EQ(point_pair_quad_2[row].second.y(),
+              stored_pair_quad[row].second.y());
+  }
+  width = height = 0;
+  EXPECT_TRUE(data_dict->GetInteger(kTouchCalibrationWidth, &width));
+  EXPECT_TRUE(data_dict->GetInteger(kTouchCalibrationHeight, &height));
+  EXPECT_EQ(width, touch_size_2.width());
+  EXPECT_EQ(height, touch_size_2.height());
 
   // Resolution is saved only when the resolution is set
   // by DisplayManager::SetDisplayMode
@@ -478,7 +531,7 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   // Set new display's selected resolution.
   display_manager()->RegisterDisplayProperty(
       id2 + 1, display::Display::ROTATE_0, 1.0f, nullptr, gfx::Size(500, 400),
-      1.0f, nullptr);
+      1.0f, nullptr /* touch_calibration_data_map */);
 
   UpdateDisplay("200x200*2, 600x500#600x500|500x400");
 
@@ -504,7 +557,7 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   // Set yet another new display's selected resolution.
   display_manager()->RegisterDisplayProperty(
       id2 + 1, display::Display::ROTATE_0, 1.0f, nullptr, gfx::Size(500, 400),
-      1.0f, nullptr);
+      1.0f, nullptr /* touch_calibration_data_map */);
   // Disconnect 2nd display first to generate new id for external display.
   UpdateDisplay("200x200*2");
   UpdateDisplay("200x200*2, 500x400#600x500|500x400%60.0f");
@@ -567,8 +620,8 @@ TEST_F(DisplayPreferencesTest, PreventStore) {
   // Once the notification is removed, the specified resolution will be stored
   // by SetDisplayMode.
   ash::Shell::Get()->display_manager()->SetDisplayMode(
-      id, make_scoped_refptr(new display::ManagedDisplayMode(
-              gfx::Size(300, 200), 60.0f, false, true)));
+      id, base::MakeRefCounted<display::ManagedDisplayMode>(
+              gfx::Size(300, 200), 60.0f, false, true));
   UpdateDisplay("300x200#500x400|400x300|300x200");
 
   property = nullptr;
@@ -1096,6 +1149,52 @@ TEST_F(DisplayPreferencesTest, RestoreThreeDisplays) {
             display_manager()->GetDisplayForId(list[1]).bounds());
   EXPECT_EQ(gfx::Rect(-100, 200, 300, 300),
             display_manager()->GetDisplayForId(list[2]).bounds());
+}
+
+TEST_F(DisplayPreferencesTest, MirrorWhenEnterTableMode) {
+  display::Display::SetInternalDisplayId(
+      display::Screen::GetScreen()->GetPrimaryDisplay().id());
+  LoggedInAsUser();
+  UpdateDisplay("800x600,1200x800");
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
+  ash::TabletModeController* controller =
+      ash::Shell::Get()->tablet_mode_controller();
+  controller->EnableTabletModeWindowManager(true);
+  ASSERT_TRUE(controller->IsTabletModeWindowManagerEnabled());
+  EXPECT_TRUE(display_manager()->IsInMirrorMode());
+
+  // Make sure the mirror mode is not saved in the preference.
+  display::DisplayIdList list = display_manager()->GetCurrentDisplayIdList();
+  ASSERT_EQ(2u, list.size());
+  base::Value* value;
+  EXPECT_TRUE(GetDisplayPropertyFromList(list, "mirrored", &value));
+  bool mirrored;
+  EXPECT_TRUE(value->GetAsBoolean(&mirrored));
+  EXPECT_FALSE(mirrored);
+
+  // Exiting the tablet mode should exit mirror mode.
+  controller->EnableTabletModeWindowManager(false);
+  ASSERT_FALSE(controller->IsTabletModeWindowManagerEnabled());
+  EXPECT_FALSE(display_manager()->IsInMirrorMode());
+}
+
+TEST_F(DisplayPreferencesTest, AlreadyMirrorWhenEnterTableMode) {
+  display::Display::SetInternalDisplayId(
+      display::Screen::GetScreen()->GetPrimaryDisplay().id());
+  LoggedInAsUser();
+  UpdateDisplay("800x600,1200x800");
+  display_manager()->SetMirrorMode(true);
+  EXPECT_TRUE(display_manager()->IsInMirrorMode());
+  ash::TabletModeController* controller =
+      ash::Shell::Get()->tablet_mode_controller();
+  controller->EnableTabletModeWindowManager(true);
+  ASSERT_TRUE(controller->IsTabletModeWindowManagerEnabled());
+  EXPECT_TRUE(display_manager()->IsInMirrorMode());
+
+  // Exiting the tablet mode should stay in mirror mode.
+  controller->EnableTabletModeWindowManager(false);
+  ASSERT_FALSE(controller->IsTabletModeWindowManagerEnabled());
+  EXPECT_TRUE(display_manager()->IsInMirrorMode());
 }
 
 }  // namespace chromeos

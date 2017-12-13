@@ -6,8 +6,7 @@
 
 #include <stddef.h>
 
-#include <deque>
-
+#include "base/containers/circular_deque.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_value_converter.h"
 #include "base/json/json_writer.h"
@@ -251,7 +250,7 @@ class FileManagerTestListener : public content::NotificationObserver {
   }
 
  private:
-  std::deque<Message> messages_;
+  base::circular_deque<Message> messages_;
   content::NotificationRegistrar registrar_;
 };
 
@@ -395,7 +394,7 @@ class DriveTestVolume : public TestVolume {
         drive::util::GetDriveMyDriveRootPath().Append(path).DirName(),
         google_apis::test_util::CreateCopyResultCallback(&error,
                                                          &parent_entry));
-    content::RunAllBlockingPoolTasksUntilIdle();
+    content::RunAllTasksUntilIdle();
     ASSERT_EQ(drive::FILE_ERROR_OK, error);
     ASSERT_TRUE(parent_entry);
 

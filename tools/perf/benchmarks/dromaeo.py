@@ -208,5 +208,5 @@ class DromaeoDomCoreTraverse(_DromaeoBenchmark):
   def GetExpectations(self):
     class StoryExpectations(story.expectations.StoryExpectations):
       def SetExpectations(self):
-        pass # http://dromaeo.com?dom-traverse not disabled.
+        self.DisableBenchmark([story.expectations.ALL_WIN], 'crbug.com/763263')
     return StoryExpectations()

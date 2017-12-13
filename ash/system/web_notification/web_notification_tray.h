@@ -99,7 +99,6 @@ class ASH_EXPORT WebNotificationTray
   bool ShowPopups() override;
   void HidePopups() override;
   bool ShowNotifierSettings() override;
-  bool IsContextMenuEnabled() const override;
   message_center::MessageCenterTray* GetMessageCenterTray() override;
 
   // Overridden from ui::SimpleMenuModel::Delegate.
@@ -120,6 +119,7 @@ class ASH_EXPORT WebNotificationTray
   FRIEND_TEST_ALL_PREFIXES(WebNotificationTrayTest, PopupShownOnBothDisplays);
   FRIEND_TEST_ALL_PREFIXES(WebNotificationTrayTest, PopupAndSystemTray);
   FRIEND_TEST_ALL_PREFIXES(WebNotificationTrayTest, PopupAndAutoHideShelf);
+  FRIEND_TEST_ALL_PREFIXES(WebNotificationTrayTest, VisibleSmallIcon);
 
   void UpdateTrayContent();
 
@@ -161,7 +161,8 @@ class ASH_EXPORT WebNotificationTray
   scoped_refptr<gfx::AnimationContainer> animation_container_ =
       new gfx::AnimationContainer();
 
-  std::unordered_map<std::string, WebNotificationImage*> visible_small_icons_;
+  std::unordered_map<std::string, std::unique_ptr<WebNotificationImage>>
+      visible_small_icons_;
 
   bool show_message_center_on_unlock_;
 

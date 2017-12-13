@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <map>
+#include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -41,11 +43,11 @@
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/browser/threat_details.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/db/database_manager.h"
+#include "components/safe_browsing/db/test_database_manager.h"
+#include "components/safe_browsing/db/util.h"
+#include "components/safe_browsing/db/v4_protocol_manager_util.h"
 #include "components/safe_browsing/web_ui/constants.h"
-#include "components/safe_browsing_db/database_manager.h"
-#include "components/safe_browsing_db/test_database_manager.h"
-#include "components/safe_browsing_db/util.h"
-#include "components/safe_browsing_db/v4_protocol_manager_util.h"
 #include "components/security_interstitials/content/security_interstitial_controller_client.h"
 #include "components/security_interstitials/core/controller_client.h"
 #include "components/security_interstitials/core/metrics_helper.h"
@@ -328,7 +330,8 @@ class TestSafeBrowsingBlockingPageFactory
         web_contents->GetBrowserContext()->IsOffTheRecord(),
         IsExtendedReportingEnabled(*prefs), IsScout(*prefs),
         is_proceed_anyway_disabled,
-        true,  // should_open_links_in_new_tab
+        true,   // should_open_links_in_new_tab
+        false,  // check_can_go_back_to_safety
         "cpn_safe_browsing" /* help_center_article_link */);
     return new TestSafeBrowsingBlockingPage(delegate, web_contents,
                                             main_frame_url, unsafe_resources,
@@ -496,7 +499,7 @@ class SafeBrowsingBlockingPageBrowserTest
         browser()->tab_strip_model()->GetActiveWebContents();
     // We use InterstitialPage::GetInterstitialPage(tab) instead of
     // tab->GetInterstitialPage() because the tab doesn't have a pointer
-    // to its interstital page until it gets a command from the renderer
+    // to its interstitial page until it gets a command from the renderer
     // that it has indeed displayed it -- and this sometimes happens after
     // NavigateToURL returns.
     SafeBrowsingBlockingPage* interstitial_page =
@@ -586,8 +589,9 @@ class SafeBrowsingBlockingPageBrowserTest
   }
 
   bool WaitForReady(Browser* browser) {
-    InterstitialPage* interstitial = InterstitialPage::GetInterstitialPage(
-        browser->tab_strip_model()->GetActiveWebContents());
+    WebContents* contents = browser->tab_strip_model()->GetActiveWebContents();
+    content::WaitForInterstitialAttach(contents);
+    InterstitialPage* interstitial = contents->GetInterstitialPage();
     if (!interstitial)
       return false;
     return content::WaitForRenderFrameReady(interstitial->GetMainFrame());
@@ -960,7 +964,7 @@ IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest,
     EXPECT_EQ(net::URLRequestMockHTTPJob::GetMockUrl(kMaliciousIframe).spec(),
               report.url());
     std::vector<ClientSafeBrowsingReportRequest::Resource> resources;
-    for (auto resource: report.resources()) {
+    for (auto resource : report.resources()) {
       resources.push_back(resource);
     }
     // Sort resources based on their urls.
@@ -1176,10 +1180,8 @@ IN_PROC_BROWSER_TEST_P(SafeBrowsingBlockingPageBrowserTest,
   // Checkbox should be showing.
   EXPECT_EQ(VISIBLE, GetVisibility("extended-reporting-opt-in"));
 
-  // TODO(crbug.com/666172): Security indicator should be showing.
-  // Call |ExpectSecurityIndicatorDowngrade(tab, 0u);| here once the bug is
-  // fixed.
-
+  // Security indicator should be showing.
+  ExpectSecurityIndicatorDowngrade(tab, 0u);
   // Check navigation entry state.
   ASSERT_TRUE(controller.GetVisibleEntry());
   EXPECT_EQ(url, controller.GetVisibleEntry()->GetURL());
@@ -1671,7 +1673,7 @@ class SafeBrowsingBlockingPageIDNTest
     resource.threat_type = testing::get<1>(GetParam());
     resource.web_contents_getter =
         security_interstitials::UnsafeResource::GetWebContentsGetter(
-            contents->GetRenderProcessHost()->GetID(),
+            contents->GetMainFrame()->GetProcess()->GetID(),
             contents->GetMainFrame()->GetRoutingID());
     resource.threat_source = safe_browsing::ThreatSource::LOCAL_PVER3;
 

@@ -51,6 +51,12 @@
         <item name="android:windowBackground">@android:color/white</item>
     </style>
 
+    <style name="FirstRunTheme" parent="DialogWhenLarge">
+    </style>
+
+    <style name="TabbedModeFirstRunTheme" parent="TabbedModeTheme">
+    </style>
+
     <!-- The theme to use when starting Chrome in VR mode.-->
     <style name="VrSupportTheme" parent="MainTheme">
        <!-- Android shows a preview window to give the user immediate feedback that the
@@ -284,6 +290,28 @@
             @drawable/distilled_page_prefs_button_bg
         </item>
     </style>
+    <style name="OverflowMenuHeaderLayout">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">@color/modern_light_grey</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingStart">16dp</item>
+    </style>
+        <!-- Top and bottom padding is used to achieve layout that best matches
+         UX spec. While the text matches @style/BlankHint2, text size and color
+         are set explicitly. When shown in the overflow menu, the header
+         is inflated using the OverflowMenuTheme. The theme's textAppearance
+         will override any textAppearance set on this element. -->
+    <style name="OverflowMenuHeaderText">
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_gravity">center_vertical</item>
+        <item name="android:paddingTop">9dp</item>
+        <item name="android:paddingBottom">9dp</item>
+        <item name="android:textColor">@color/black_alpha_54</item>
+        <item name="android:textSize">@dimen/text_size_medium</item>
+    </style>
 
     <!-- Button bar styles -->
     <style name="ButtonBarTopSpacerLight">
@@ -339,6 +367,9 @@
         <item name="android:windowIsFloating">true</item>
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowNoTitle">true</item>
+    </style>
+    <style name="PromoDialogNormalText" parent="@style/BlackBody">
+        <item name="android:lineSpacingMultiplier">1.3</item>
     </style>
 
     <!-- Cast and media playback notifications -->
@@ -463,13 +494,11 @@
         <item name="android:paddingStart">53dp</item>
         <item name="android:paddingEnd">53dp</item>
     </style>
-    <style name="ContextualSearchTextView">
+    <style name="ContextualSearchTextView" parent="@style/BlackTitle1">
         <item name="android:layout_height">match_parent</item>
         <item name="android:ellipsize">end</item>
         <item name="android:includeFontPadding">false</item>
         <item name="android:singleLine">true</item>
-        <item name="android:textColor">#000</item>
-        <item name="android:textSize">@dimen/text_size_large</item>
     </style>
     <style name="ContextualSearchContextTextView">
         <item name="android:layout_width">0dp</item>
@@ -558,7 +587,6 @@
         <item name="android:layout_width">match_parent</item>
     </style>
     <style name="ModernToolbar" parent="Widget.AppCompat.Toolbar">
-        <item name="android:background">@color/modern_toolbar_bg</item>
         <item name="titleTextAppearance">@style/BlackHeadline1</item>
         <item name="windowActionBarOverlay">true</item>
     </style>
@@ -674,17 +702,6 @@
         <item name="android:singleLine">true</item>
         <item name="android:textAppearance">@style/BlackDenseListText2</item>
     </style>
-    <style name="DownloadFileSizeStyle">
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_alignParentBottom">true</item>
-        <item name="android:layout_alignParentEnd">true</item>
-        <item name="android:layout_marginTop">0dp</item>
-        <item name="android:paddingEnd">16dp</item>
-        <item name="android:textAlignment">viewEnd</item>
-        <item name="android:textColor">@color/google_grey_600</item>
-        <item name="android:singleLine">true</item>
-    </style>
     <style name="DownloadIconView" parent="@style/ListItemStartIcon">
         <item name="android:background">@color/light_active_color</item>
     </style>
@@ -739,18 +756,19 @@
         <item name="android:background">@drawable/content_card_modern_background</item>
         <item name="android:foreground">@drawable/button_borderless_compat</item>
     </style>
-    <style name="SuggestionCardTitleModern" parent="BlackTitle1">
+    <style name="SuggestionCardTitleModern" parent="BlackBodyDefault">
         <item name="android:ellipsize">end</item>
-        <item name="leading">22dp</item>
+        <item name="leading">16sp</item>
     </style>
     <style name="SuggestionCardBodyModern" parent="BlackBody">
         <item name="android:layout_marginTop">8dp</item>
         <item name="android:ellipsize">end</item>
-        <item name="leading">20dp</item>
+        <item name="leading">16sp</item>
     </style>
-    <style name="SuggestionCardActionModern" parent="ButtonCompatBorderless">
+    <style name="SuggestionCardAction" parent="ButtonCompatBorderless">
         <item name="android:textAppearance">@style/BlueButtonText2</item>
-        <item name="android:layout_marginTop">16dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
 
         <!-- Negative marginEnd to balance the padding from the parent (SuggestionCardModern).
              Buttons are supposed to have 8dp margin while we have a 16dp margin at the parent

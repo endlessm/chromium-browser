@@ -25,19 +25,24 @@ namespace {
 class TestOp : public GrMeshDrawOp {
 public:
     DEFINE_OP_CLASS_ID
-    const char* name() const override { return "TestOp"; }
-
     static std::unique_ptr<GrDrawOp> Make(std::unique_ptr<GrFragmentProcessor> fp) {
         return std::unique_ptr<GrDrawOp>(new TestOp(std::move(fp)));
     }
 
+    const char* name() const override { return "TestOp"; }
+
+    void visitProxies(const VisitProxyFunc& func) const override {
+        fProcessors.visitProxies(func);
+    }
+
     FixedFunctionFlags fixedFunctionFlags() const override { return FixedFunctionFlags::kNone; }
 
-    RequiresDstTexture finalize(const GrCaps& caps, const GrAppliedClip* clip) override {
+    RequiresDstTexture finalize(const GrCaps& caps, const GrAppliedClip* clip,
+                                GrPixelConfigIsClamped dstIsClamped) override {
         static constexpr GrProcessorAnalysisColor kUnknownColor;
         GrColor overrideColor;
         fProcessors.finalize(kUnknownColor, GrProcessorAnalysisCoverage::kNone, clip, false, caps,
-                             &overrideColor);
+                             dstIsClamped, &overrideColor);
         return RequiresDstTexture::kNo;
     }
 
@@ -92,8 +97,8 @@ private:
     TestFP(const SkTArray<sk_sp<GrTextureProxy>>& proxies,
            const SkTArray<sk_sp<GrBuffer>>& buffers,
            const SkTArray<Image>& images)
-            : INHERITED(kNone_OptimizationFlags), fSamplers(4), fBuffers(4), fImages(4) {
-        this->initClassID<TestFP>();
+            : INHERITED(kTestFP_ClassID, kNone_OptimizationFlags), fSamplers(4), fBuffers(4),
+                        fImages(4) {
         for (const auto& proxy : proxies) {
             this->addTextureSampler(&fSamplers.emplace_back(proxy));
         }
@@ -108,14 +113,14 @@ private:
     }
 
     TestFP(std::unique_ptr<GrFragmentProcessor> child)
-            : INHERITED(kNone_OptimizationFlags), fSamplers(4), fBuffers(4), fImages(4) {
-        this->initClassID<TestFP>();
+            : INHERITED(kTestFP_ClassID, kNone_OptimizationFlags), fSamplers(4), fBuffers(4),
+                        fImages(4) {
         this->registerChildProcessor(std::move(child));
     }
 
     explicit TestFP(const TestFP& that)
-            : INHERITED(that.optimizationFlags()), fSamplers(4), fBuffers(4), fImages(4) {
-        this->initClassID<TestFP>();
+            : INHERITED(kTestFP_ClassID, that.optimizationFlags()), fSamplers(4), fBuffers(4),
+                        fImages(4) {
         for (int i = 0; i < that.fSamplers.count(); ++i) {
             fSamplers.emplace_back(that.fSamplers[i]);
             this->addTextureSampler(&fSamplers.back());

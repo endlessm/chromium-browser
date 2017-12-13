@@ -61,6 +61,7 @@
 #include "ppapi/features/features.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/resources/grit/ui_resources.h"
@@ -278,7 +279,6 @@ void ContentSettingSingleRadioGroup::SetRadioGroup() {
     {CONTENT_SETTINGS_TYPE_COOKIES, IDS_BLOCKED_COOKIES_UNBLOCK},
     {CONTENT_SETTINGS_TYPE_IMAGES, IDS_BLOCKED_IMAGES_UNBLOCK},
     {CONTENT_SETTINGS_TYPE_JAVASCRIPT, IDS_BLOCKED_JAVASCRIPT_UNBLOCK},
-    {CONTENT_SETTINGS_TYPE_PLUGINS, IDS_BLOCKED_PLUGINS_UNBLOCK_ALL},
     {CONTENT_SETTINGS_TYPE_POPUPS, IDS_BLOCKED_POPUPS_UNBLOCK},
     {CONTENT_SETTINGS_TYPE_PPAPI_BROKER, IDS_BLOCKED_PPAPI_BROKER_UNBLOCK},
   };
@@ -305,7 +305,6 @@ void ContentSettingSingleRadioGroup::SetRadioGroup() {
     {CONTENT_SETTINGS_TYPE_COOKIES, IDS_BLOCKED_COOKIES_NO_ACTION},
     {CONTENT_SETTINGS_TYPE_IMAGES, IDS_BLOCKED_IMAGES_NO_ACTION},
     {CONTENT_SETTINGS_TYPE_JAVASCRIPT, IDS_BLOCKED_JAVASCRIPT_NO_ACTION},
-    {CONTENT_SETTINGS_TYPE_PLUGINS, IDS_BLOCKED_PLUGINS_NO_ACTION},
     {CONTENT_SETTINGS_TYPE_POPUPS, IDS_BLOCKED_POPUPS_NO_ACTION},
     {CONTENT_SETTINGS_TYPE_PPAPI_BROKER, IDS_BLOCKED_PPAPI_BROKER_NO_ACTION},
   };
@@ -457,7 +456,7 @@ ContentSettingPluginBubbleModel::ContentSettingPluginBubbleModel(
 
   // If the setting is not managed by the user, hide the "Manage" button.
   if (info.source != SETTING_SOURCE_USER)
-    set_manage_text(base::string16());
+    set_manage_text_style(ContentSettingBubbleModel::ManageTextStyle::kNone);
 
   // The user cannot manually run Flash on the BLOCK setting when either holds:
   //  - The setting is from Policy. User cannot override admin intent.
@@ -475,22 +474,6 @@ ContentSettingPluginBubbleModel::ContentSettingPluginBubbleModel(
         web_contents &&
         TabSpecificContentSettings::FromWebContents(web_contents)
             ->load_plugins_link_enabled());
-  }
-
-  // Build blocked plugin list.
-  if (web_contents) {
-    TabSpecificContentSettings* content_settings =
-        TabSpecificContentSettings::FromWebContents(web_contents);
-
-    const std::vector<base::string16>& blocked_plugins =
-        content_settings->blocked_plugin_names();
-    for (const base::string16& blocked_plugin : blocked_plugins) {
-      ListItem plugin_item(
-          ui::ResourceBundle::GetSharedInstance().GetImageNamed(
-              IDR_BLOCKED_PLUGINS),
-          blocked_plugin, false, 0);
-      AddListItem(plugin_item);
-    }
   }
 
   set_show_learn_more(true);
@@ -609,8 +592,17 @@ ContentSettingPopupBubbleModel::CreateListItem(int32_t id, const GURL& url) {
   else
     title = base::UTF8ToUTF16(url.spec());
 
-  return ListItem(ui::ResourceBundle::GetSharedInstance().GetImageNamed(
-                      IDR_DEFAULT_FAVICON),
+  const bool use_md = ui::MaterialDesignController::IsSecondaryUiMaterial();
+  if (use_md) {
+    // Format the title to inlude the unicode single dot bullet code-point
+    // \u2022 and two spaces.
+    title = l10n_util::GetStringFUTF16(IDS_LIST_BULLET, title);
+  }
+
+  return ListItem(use_md
+                      ? gfx::Image()
+                      : ui::ResourceBundle::GetSharedInstance().GetImageNamed(
+                            IDR_DEFAULT_FAVICON),
                   title, true, id);
 }
 
@@ -666,6 +658,7 @@ ContentSettingMediaStreamBubbleModel::ContentSettingMediaStreamBubbleModel(
   DCHECK(CameraAccessed() || MicrophoneAccessed());
 
   SetTitle();
+  SetMessage();
   SetRadioGroup();
   SetMediaMenus();
   SetManageText();
@@ -715,21 +708,52 @@ bool ContentSettingMediaStreamBubbleModel::CameraAccessed() const {
   return (state_ & TabSpecificContentSettings::CAMERA_ACCESSED) != 0;
 }
 
+bool ContentSettingMediaStreamBubbleModel::MicrophoneBlocked() const {
+  return (state_ & TabSpecificContentSettings::MICROPHONE_BLOCKED) != 0;
+}
+
+bool ContentSettingMediaStreamBubbleModel::CameraBlocked() const {
+  return (state_ & TabSpecificContentSettings::CAMERA_BLOCKED) != 0;
+}
+
 void ContentSettingMediaStreamBubbleModel::SetTitle() {
   DCHECK(CameraAccessed() || MicrophoneAccessed());
   int title_id = 0;
-  if (state_ & TabSpecificContentSettings::MICROPHONE_BLOCKED) {
-    title_id = (state_ & TabSpecificContentSettings::CAMERA_BLOCKED) ?
-        IDS_MICROPHONE_CAMERA_BLOCKED : IDS_MICROPHONE_BLOCKED;
-  } else if (state_ & TabSpecificContentSettings::CAMERA_BLOCKED) {
-    title_id = IDS_CAMERA_BLOCKED;
-  } else if (MicrophoneAccessed()) {
-    title_id = CameraAccessed() ? IDS_MICROPHONE_CAMERA_ALLOWED
-                                : IDS_MICROPHONE_ACCESSED;
-  } else if (CameraAccessed()) {
-    title_id = IDS_CAMERA_ACCESSED;
-  }
+  if (MicrophoneBlocked() && CameraBlocked())
+    title_id = IDS_MICROPHONE_CAMERA_BLOCKED_TITLE;
+  else if (MicrophoneBlocked())
+    title_id = IDS_MICROPHONE_BLOCKED_TITLE;
+  else if (CameraBlocked())
+    title_id = IDS_CAMERA_BLOCKED_TITLE;
+  else if (MicrophoneAccessed() && CameraAccessed())
+    title_id = IDS_MICROPHONE_CAMERA_ALLOWED_TITLE;
+  else if (MicrophoneAccessed())
+    title_id = IDS_MICROPHONE_ACCESSED_TITLE;
+  else if (CameraAccessed())
+    title_id = IDS_CAMERA_ACCESSED_TITLE;
+  else
+    NOTREACHED();
   set_title(l10n_util::GetStringUTF16(title_id));
+}
+
+void ContentSettingMediaStreamBubbleModel::SetMessage() {
+  DCHECK(CameraAccessed() || MicrophoneAccessed());
+  int message_id = 0;
+  if (MicrophoneBlocked() && CameraBlocked())
+    message_id = IDS_MICROPHONE_CAMERA_BLOCKED;
+  else if (MicrophoneBlocked())
+    message_id = IDS_MICROPHONE_BLOCKED;
+  else if (CameraBlocked())
+    message_id = IDS_CAMERA_BLOCKED;
+  else if (MicrophoneAccessed() && CameraAccessed())
+    message_id = IDS_MICROPHONE_CAMERA_ALLOWED;
+  else if (MicrophoneAccessed())
+    message_id = IDS_MICROPHONE_ACCESSED;
+  else if (CameraAccessed())
+    message_id = IDS_CAMERA_ACCESSED;
+  else
+    NOTREACHED();
+  set_message(l10n_util::GetStringUTF16(message_id));
 }
 
 void ContentSettingMediaStreamBubbleModel::SetRadioGroup() {
@@ -1050,6 +1074,10 @@ class ContentSettingMixedScriptBubbleModel
   ~ContentSettingMixedScriptBubbleModel() override {}
 
  private:
+  void SetManageText();
+
+  // ContentSettingBubbleModel:
+  void OnLearnMoreClicked() override;
   void OnCustomLinkClicked() override;
 
   DISALLOW_COPY_AND_ASSIGN(ContentSettingMixedScriptBubbleModel);
@@ -1067,6 +1095,16 @@ ContentSettingMixedScriptBubbleModel::ContentSettingMixedScriptBubbleModel(
   content_settings::RecordMixedScriptAction(
       content_settings::MIXED_SCRIPT_ACTION_DISPLAYED_BUBBLE);
   set_custom_link_enabled(true);
+  set_show_learn_more(true);
+  SetManageText();
+}
+
+void ContentSettingMixedScriptBubbleModel::OnLearnMoreClicked() {
+  if (delegate())
+    delegate()->ShowLearnMorePage(content_type());
+
+  content_settings::RecordMixedScriptAction(
+      content_settings::MIXED_SCRIPT_ACTION_CLICKED_LEARN_MORE);
 }
 
 void ContentSettingMixedScriptBubbleModel::OnCustomLinkClicked() {
@@ -1090,6 +1128,11 @@ void ContentSettingMixedScriptBubbleModel::OnCustomLinkClicked() {
   rappor::SampleDomainAndRegistryFromGURL(
       rappor_service(), "ContentSettings.MixedScript.UserClickedAllow",
       web_contents()->GetLastCommittedURL());
+}
+
+// Don't set any manage text since none is displayed.
+void ContentSettingMixedScriptBubbleModel::SetManageText() {
+  set_manage_text_style(ContentSettingBubbleModel::ManageTextStyle::kNone);
 }
 
 // ContentSettingRPHBubbleModel ------------------------------------------------
@@ -1275,7 +1318,7 @@ void ContentSettingSubresourceFilterBubbleModel::SetManageText() {
           subresource_filter::kSafeBrowsingSubresourceFilterExperimentalUI)
           ? IDS_ALWAYS_ALLOW_ADS
           : IDS_ALLOW_ADS));
-  set_show_manage_text_as_checkbox(true);
+  set_manage_text_style(ContentSettingBubbleModel::ManageTextStyle::kCheckbox);
 }
 
 void ContentSettingSubresourceFilterBubbleModel::SetMessage() {

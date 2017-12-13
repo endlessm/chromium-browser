@@ -7,6 +7,8 @@ found in the LICENSE file.
 
 <link rel="import" href="/dashboard/pinpoint/elements/base-style.html">
 <link rel="import" href="/dashboard/pinpoint/elements/change-info.html">
+<link rel="import" href="/dashboard/pinpoint/elements/execution-status.html">
+<link rel="import" href="/dashboard/pinpoint/elements/values-histogram.html">
 
 <dom-module id="job-page-change-table">
   <template>
@@ -20,59 +22,37 @@ found in the LICENSE file.
         flex: 1;
         margin: 0 0.5em;
       }
-
-      th {
-        text-align: right;
-        width: 8em;
-      }
     </style>
 
-    <template is="dom-if" if="[[isShowing(index)]]">
-      <change-info change=[[change]]></change-info>
+    <template is="dom-if" if="[[isShowing(changeIndex)]]">
 
       <div class="columns">
         <div class="column">
+          <h2>Commit</h2>
+          <change-info change="[[change(changeIndex)]]"></change-info>
+        </div>
+
+        <div class="column">
           <h2>[[buildTitle]]</h2>
-          <table>
-            <tr>
-              <th>Status
-              <td>[[buildStatus]]
-            <tr>
-              <th>Buildbucket
-              <td><a href="https://buildbucket/[[buildbucketIds]]" target="_blank">[[buildbucketIds]]</a>
-            <tr>
-              <th>Test Isolate
-              <td><a href="https://isolateserver.appspot.com/browse?hash=[[inputIsolateHashes]]" target="_blank">[[inputIsolateHashes]]</a>
-          </table>
+          <execution-status attempts="[[attempts]]" attempt-index="{{attemptIndex}}" quest-index="0"></execution-status>
         </div>
 
-        <div class="column">
-          <template is="dom-if" if="[[runTitle]]">
+        <template is="dom-if" if="[[runTitle]]">
+          <div class="column">
             <h2>[[runTitle]]</h2>
-            <table>
-              <tr>
-                <th>Status
-                <td>[[runStatus]]
-              <tr>
-                <th>Swarming Task
-                <td><a href="https://chromium-swarm.appspot.com/user/task/[[taskIds]]" target="_blank">[[taskIds]]</a>
-              <tr>
-                <th>Output Isolate
-                <td><a href="https://isolateserver.appspot.com/browse?hash=[[outputIsolateHashes]]" target="_blank">[[outputIsolateHashes]]</a>
-            </table>
-          </template>
-        </div>
+            <execution-status attempts="[[attempts]]" attempt-index="{{attemptIndex}}" quest-index="1"></execution-status>
+          </div>
+        </template>
 
-        <div class="column">
-          <template is="dom-if" if="[[testTitle]]">
+        <template is="dom-if" if="[[testTitle]]">
+          <div class="column">
             <h2>[[testTitle]]</h2>
-            <table>
-              <tr>
-                <th>Values
-                <td>[[formatValues(resultValues)]]
-            </table>
-          </template>
-        </div>
+            <execution-status attempts="[[attempts]]" attempt-index="{{attemptIndex}}" quest-index="2"></execution-status>
+            <template is="dom-if" if="[[resultValues.length]]">
+              <values-histogram values="[[resultValues]]"></values-histogram>
+            </template>
+          </div>
+        </template>
       </div>
     </template>
   </template>
@@ -83,60 +63,45 @@ found in the LICENSE file.
       is: 'job-page-change-table',
 
       properties: {
-        index: {
+        job: {
           type: Object,
-          observer: '_indexChanged'
         },
 
-        change: {
+        attempts: {
           type: Object,
+        },
+
+        attemptIndex: {
+          type: Number,
+        },
+
+        changeIndex: {
+          type: Number,
+          observer: '_changeIndexChanged'
         },
       },
 
-      getStatus(values) {
-        if (values.filter(x => x == 0).length == values.length) {
-          return 'Passed';
-        }
-
-        return 'Failed?';
+      change(changeIndex) {
+        return this.job.changes[changeIndex];
       },
 
-      _indexChanged() {
-        if (this.index == -1) {
+      _changeIndexChanged() {
+        if (this.changeIndex === null) {
           return;
         }
 
-        this.buildTitle = this.jobInfo.quests[0];
-        this.runTitle = this.jobInfo.quests[1];
-        this.testTitle = this.jobInfo.quests[2];
+        // TODO: Do this with data binding instead.
+        this.buildTitle = this.job.quests[0];
+        this.runTitle = this.job.quests[1];
+        this.testTitle = this.job.quests[2];
 
-        this.buildStatus = this.jobInfo.getStatusString(this.index, 0);
-        this.runStatus = this.jobInfo.getStatusString(this.index, 1);
+        this.attempts = this.job.attempts[this.changeIndex];
 
-        this.buildbucketIds = this.jobInfo.getAttemptData(
-            this.index, 0, 'build');
-
-        // Task ID is actually an array of arrays of ids, so flatten it for
-        // viewing purposes.
-        const taskIds = this.jobInfo.getAttemptData(
-            this.index, 1, 'task_ids');
-        this.taskIds = [].concat.apply([], taskIds);
-
-        this.inputIsolateHashes = this.jobInfo.getAttemptData(
-            this.index, 1, 'input_isolate_hash');
-        this.outputIsolateHashes = this.jobInfo.getAttemptData(
-            this.index, 1, 'isolate_hashes');
-        this.resultValues = this.jobInfo.resultValues[this.index][2];
-
-        this.change = this.jobInfo.changes[this.index];
+        this.resultValues = this.job.result_values[this.changeIndex][2];
       },
 
-      formatValues(values) {
-        return values.map(value => value.toPrecision(4)).join(', ');
-      },
-
-      isShowing(index) {
-        return index >= 0;
+      isShowing(changeIndex) {
+        return changeIndex !== null;
       }
     });
   </script>

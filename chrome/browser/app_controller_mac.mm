@@ -40,8 +40,6 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chrome/browser/lifetime/keep_alive_types.h"
-#include "chrome/browser/lifetime/scoped_keep_alive.h"
 #include "chrome/browser/mac/mac_startup_profiler.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
@@ -74,6 +72,7 @@
 #import "chrome/browser/ui/cocoa/history_menu_bridge.h"
 #include "chrome/browser/ui/cocoa/last_active_browser_cocoa.h"
 #import "chrome/browser/ui/cocoa/profiles/profile_menu_controller.h"
+#import "chrome/browser/ui/cocoa/share_menu_controller.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/startup/startup_browser_creator_impl.h"
@@ -93,6 +92,8 @@
 #include "components/browser_sync/profile_sync_service.h"
 #include "components/handoff/handoff_manager.h"
 #include "components/handoff/handoff_utility.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
+#include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/prefs/pref_service.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/signin/core/browser/signin_manager.h"
@@ -411,6 +412,13 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
     NSMenuItem* customizeItem = [viewMenu itemWithTag:IDC_CUSTOMIZE_TOUCH_BAR];
     if (customizeItem)
       [viewMenu removeItem:customizeItem];
+  }
+
+  // In |applicationWillFinishLaunching| because FeatureList isn't
+  // available at init time.
+  if (base::FeatureList::IsEnabled(features::kMacSystemShareMenu)) {
+    // Initialize the share menu.
+    [self initShareMenu];
   }
 }
 
@@ -1259,6 +1267,28 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
 
   profileMenuController_.reset(
       [[ProfileMenuController alloc] initWithMainMenuItem:profileMenu]);
+}
+
+- (void)initShareMenu {
+  shareMenuController_.reset([[ShareMenuController alloc] init]);
+  NSMenu* mainMenu = [NSApp mainMenu];
+  NSMenu* fileMenu = [[mainMenu itemWithTag:IDC_FILE_MENU] submenu];
+  NSString* shareMenuTitle = l10n_util::GetNSString(IDS_SHARE_MAC);
+  base::scoped_nsobject<NSMenuItem> shareMenuItem([[NSMenuItem alloc]
+      initWithTitle:shareMenuTitle
+             action:NULL
+      keyEquivalent:@""]);
+  base::scoped_nsobject<NSMenu> shareSubmenu(
+      [[NSMenu alloc] initWithTitle:shareMenuTitle]);
+  [shareSubmenu setDelegate:shareMenuController_];
+  [shareMenuItem setSubmenu:shareSubmenu];
+  // Replace "Email Page Location" with Share.
+  // TODO(crbug.com/770804): Remove this code and update the XIB when
+  // the share menu launches.
+  NSInteger index = [fileMenu indexOfItemWithTag:IDC_EMAIL_PAGE_LOCATION];
+  DCHECK(index != -1);
+  [fileMenu removeItemAtIndex:index];
+  [fileMenu insertItem:shareMenuItem atIndex:index];
 }
 
 // The Confirm to Quit preference is atypical in that the preference lives in

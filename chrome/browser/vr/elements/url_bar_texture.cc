@@ -10,6 +10,7 @@
 #include "cc/paint/skia_paint_canvas.h"
 #include "chrome/browser/vr/color_scheme.h"
 #include "chrome/browser/vr/elements/render_text_wrapper.h"
+#include "chrome/browser/vr/elements/vector_icon.h"
 #include "components/url_formatter/url_formatter.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/gfx/canvas.h"
@@ -28,7 +29,7 @@ static constexpr float kWidth = 0.672;
 static constexpr float kHeight = 0.088;
 static constexpr float kFontHeight = 0.027;
 static constexpr float kBackButtonWidth = kHeight;
-static constexpr float kBackIconHeight = 0.0375;
+static constexpr float kBackIconSize = 0.0375;
 static constexpr float kBackIconOffset = 0.005;
 static constexpr float kFieldSpacing = 0.014;
 static constexpr float kSecurityIconSize = 0.03;
@@ -78,7 +79,7 @@ void SetEmphasis(RenderTextWrapper* render_text,
   }
 }
 
-gfx::PointF percentToMeters(const gfx::PointF& percent) {
+gfx::PointF PercentToMeters(const gfx::PointF& percent) {
   return gfx::PointF(percent.x() * kWidth, percent.y() * kHeight);
 }
 
@@ -99,9 +100,10 @@ void UrlBarTexture::SetToolbarState(const ToolbarState& state) {
 }
 
 void UrlBarTexture::SetHistoryButtonsEnabled(bool can_go_back) {
-  if (can_go_back != can_go_back_)
-    set_dirty();
+  if (can_go_back == can_go_back_)
+    return;
   can_go_back_ = can_go_back;
+  set_dirty();
 }
 
 float UrlBarTexture::ToPixels(float meters) const {
@@ -113,20 +115,20 @@ float UrlBarTexture::ToMeters(float pixels) const {
 }
 
 bool UrlBarTexture::HitsBackButton(const gfx::PointF& position) const {
-  const gfx::PointF& meters = percentToMeters(position);
-  return back_button_hit_region_.Contains(meters) &&
-         !HitsTransparentRegion(meters, true);
+  const gfx::PointF& meters = PercentToMeters(position);
+  const gfx::RectF region(0, 0, kBackButtonWidth, kHeight);
+  return region.Contains(meters) && !HitsTransparentRegion(meters, true);
 }
 
 bool UrlBarTexture::HitsUrlBar(const gfx::PointF& position) const {
-  const gfx::PointF& meters = percentToMeters(position);
+  const gfx::PointF& meters = PercentToMeters(position);
   gfx::RectF rect(gfx::PointF(kBackButtonWidth, 0),
                   gfx::SizeF(kWidth - kBackButtonWidth, kHeight));
   return rect.Contains(meters) && !HitsTransparentRegion(meters, false);
 }
 
 bool UrlBarTexture::HitsSecurityRegion(const gfx::PointF& position) const {
-  return security_hit_region_.Contains(percentToMeters(position));
+  return security_hit_region_.Contains(PercentToMeters(position));
 }
 
 bool UrlBarTexture::HitsTransparentRegion(const gfx::PointF& meters,
@@ -152,15 +154,12 @@ void UrlBarTexture::SetBackButtonPressed(bool pressed) {
   back_pressed_ = pressed;
 }
 
-SkColor UrlBarTexture::GetLeftCornerColor() const {
-  SkColor color = color_scheme().element_background;
-  if (can_go_back_) {
-    if (back_pressed_)
-      color = color_scheme().element_background_down;
-    else if (back_hovered_)
-      color = color_scheme().element_background_hover;
-  }
-  return color;
+SkColor UrlBarTexture::BackButtonColor() const {
+  if (can_go_back_ && back_pressed_)
+    return color_scheme().element_background_down;
+  if (can_go_back_ && back_hovered_)
+    return color_scheme().element_background_hover;
+  return color_scheme().element_background;
 }
 
 void UrlBarTexture::OnSetMode() {
@@ -176,88 +175,66 @@ void UrlBarTexture::Draw(SkCanvas* canvas, const gfx::Size& texture_size) {
   rendered_url_text_rect_ = gfx::Rect();
   rendered_security_text_ = base::string16();
   rendered_security_text_rect_ = gfx::Rect();
+  security_hit_region_.SetRect(0, 0, 0, 0);
 
-  canvas->save();
-  canvas->scale(size_.width() / kWidth, size_.width() / kWidth);
+  float height = ToPixels(kHeight);
+  float width = ToPixels(kWidth);
 
   // Make a gfx canvas to support utility drawing methods.
   cc::SkiaPaintCanvas paint_canvas(canvas);
   gfx::Canvas gfx_canvas(&paint_canvas, 1.0f);
 
-  // Left rounded corner of URL bar.
+  // Back button region.
   SkRRect round_rect;
-  SkVector rounded_corner = {kHeight / 2, kHeight / 2};
+  SkVector rounded_corner = {height / 2, height / 2};
   SkVector left_corners[4] = {rounded_corner, {0, 0}, {0, 0}, rounded_corner};
-  round_rect.setRectRadii({0, 0, kHeight, kHeight}, left_corners);
+  round_rect.setRectRadii({0, 0, height, height}, left_corners);
   SkPaint paint;
-  paint.setColor(GetLeftCornerColor());
+  paint.setColor(BackButtonColor());
   canvas->drawRRect(round_rect, paint);
 
-  // URL area.
+  // Back button icon.
+  DrawVectorIcon(
+      &gfx_canvas, vector_icons::kBackArrowIcon, ToPixels(kBackIconSize),
+      {ToPixels(kBackButtonWidth / 2 + kBackIconOffset - kBackIconSize / 2),
+       ToPixels(kHeight - kBackIconSize) / 2},
+      can_go_back_ ? color_scheme().element_foreground
+                   : color_scheme().disabled);
+
+  // Security indicator and URL area.
   paint.setColor(color_scheme().element_background);
-
   SkVector right_corners[4] = {{0, 0}, rounded_corner, rounded_corner, {0, 0}};
-  round_rect.setRectRadii({kHeight, 0, kWidth, kHeight}, right_corners);
+  round_rect.setRectRadii({height, 0, width, height}, right_corners);
   canvas->drawRRect(round_rect, paint);
-
-  back_button_hit_region_.SetRect(0, 0, 0, 0);
-  security_hit_region_.SetRect(0, 0, 0, 0);
-
-  // Keep track of a left edge as we selectively render components of the URL
-  // bar left-to-right.
-  float left_edge = 0;
 
   // Back button / URL separator vertical line.
   paint.setColor(color_scheme().separator);
-  canvas->drawRect(
-      SkRect::MakeXYWH(kBackButtonWidth, 0, kSeparatorWidth, kHeight), paint);
+  canvas->drawRect(SkRect::MakeXYWH(ToPixels(kBackButtonWidth), 0,
+                                    ToPixels(kSeparatorWidth), height),
+                   paint);
 
-  // Back button icon.
-  canvas->save();
-  canvas->translate(kBackButtonWidth / 2 + kBackIconOffset, kHeight / 2);
-  canvas->translate(-kBackIconHeight / 2, -kBackIconHeight / 2);
-  float icon_scale = kBackIconHeight /
-                     GetDefaultSizeOfVectorIcon(vector_icons::kBackArrowIcon);
-  canvas->scale(icon_scale, icon_scale);
-  PaintVectorIcon(&gfx_canvas, vector_icons::kBackArrowIcon,
-                  can_go_back_ ? color_scheme().element_foreground
-                               : color_scheme().disabled);
-  canvas->restore();
-
-  back_button_hit_region_.SetRect(left_edge, 0, left_edge + kBackButtonWidth,
-                                  kHeight);
-  left_edge += kBackButtonWidth + kSeparatorWidth;
+  // Keep track of horizontal position as elements are added left to right.
+  float left_edge = kBackButtonWidth + kSeparatorWidth + kFieldSpacing;
 
   // Site security state icon.
-  left_edge += kFieldSpacing;
   if ((state_.security_level != security_state::NONE || state_.offline_page) &&
       state_.vector_icon != nullptr && state_.should_display_url) {
     gfx::RectF icon_region(left_edge, kHeight / 2 - kSecurityIconSize / 2,
                            kSecurityIconSize, kSecurityIconSize);
-    canvas->save();
-    canvas->translate(icon_region.x(), icon_region.y());
-    const gfx::VectorIcon& icon = *state_.vector_icon;
-    float icon_scale = kSecurityIconSize / GetDefaultSizeOfVectorIcon(icon);
-    canvas->scale(icon_scale, icon_scale);
-    PaintVectorIcon(&gfx_canvas, icon,
-                    GetSecurityChipColor(state_.security_level,
-                                         state_.offline_page, color_scheme()));
-    canvas->restore();
-
+    DrawVectorIcon(&gfx_canvas, *state_.vector_icon,
+                   ToPixels(kSecurityIconSize),
+                   {ToPixels(icon_region.x()), ToPixels(icon_region.y())},
+                   GetSecurityChipColor(state_.security_level,
+                                        state_.offline_page, color_scheme()));
     security_hit_region_ = icon_region;
     left_edge += kSecurityIconSize + kFieldSpacing;
   }
 
-  canvas->restore();
-
+  // Possibly draw security chip text (eg. "Not secure") next to the icon.
   // The security chip text consumes a significant percentage of URL bar text
   // space, so it is currently disabled (see crbug.com/734206). The offline
   // state is an exception, and must be shown (see crbug.com/735770).
-  bool draw_security_chip = state_.offline_page;
-
-  // Possibly draw security chip text (eg. "Not secure") next to the security
-  // icon.
-  if (draw_security_chip && state_.should_display_url) {
+  if (state_.offline_page && state_.should_display_url) {
     float chip_max_width = kWidth - left_edge - kUrlRightMargin;
     gfx::Rect text_bounds(ToPixels(left_edge), 0, ToPixels(chip_max_width),
                           ToPixels(kHeight));
@@ -272,8 +249,7 @@ void UrlBarTexture::Draw(SkCanvas* canvas, const gfx::Size& texture_size) {
     if (!GetFontList(pixel_font_height, chip_text, &font_list))
       failure_callback_.Run(UiUnsupportedMode::kUnhandledCodePoint);
 
-    std::unique_ptr<gfx::RenderText> render_text(
-        gfx::RenderText::CreateInstance());
+    std::unique_ptr<gfx::RenderText> render_text(CreateRenderText());
     render_text->SetFontList(font_list);
     render_text->SetColor(chip_color);
     render_text->SetHorizontalAlignment(gfx::ALIGN_LEFT);
@@ -335,8 +311,7 @@ void UrlBarTexture::RenderUrl(const gfx::Size& texture_size,
   if (!GetFontList(pixel_font_height, text, &font_list))
     failure_callback_.Run(UiUnsupportedMode::kUnhandledCodePoint);
 
-  std::unique_ptr<gfx::RenderText> render_text(
-      gfx::RenderText::CreateInstance());
+  std::unique_ptr<gfx::RenderText> render_text(CreateRenderText());
   render_text->SetFontList(font_list);
   render_text->SetColor(SK_ColorBLACK);
   render_text->SetHorizontalAlignment(gfx::ALIGN_LEFT);

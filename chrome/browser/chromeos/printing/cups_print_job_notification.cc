@@ -10,6 +10,7 @@
 
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/printing/cups_print_job.h"
 #include "chrome/browser/chromeos/printing/cups_print_job_manager.h"
@@ -22,7 +23,10 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/resources/grit/ui_chromeos_resources.h"
 #include "ui/message_center/message_center.h"
+#include "ui/message_center/notification_delegate.h"
 #include "ui/message_center/notification_types.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/public/cpp/message_center_switches.h"
 
 namespace chromeos {
 
@@ -31,7 +35,8 @@ namespace {
 const char kCupsPrintJobNotificationId[] =
     "chrome://settings/printing/cups-print-job-notification";
 
-class CupsPrintJobNotificationDelegate : public NotificationDelegate {
+class CupsPrintJobNotificationDelegate
+    : public message_center::NotificationDelegate {
  public:
   explicit CupsPrintJobNotificationDelegate(CupsPrintJobNotification* item)
       : item_(item) {}
@@ -47,8 +52,6 @@ class CupsPrintJobNotificationDelegate : public NotificationDelegate {
   void ButtonClick(int button_index) override {
     item_->ClickOnNotificationButton(button_index);
   }
-
-  std::string id() const override { return item_->GetNotificationId(); }
 
  private:
   ~CupsPrintJobNotificationDelegate() override {}
@@ -67,21 +70,21 @@ CupsPrintJobNotification::CupsPrintJobNotification(
     : notification_manager_(manager),
       notification_id_(print_job->GetUniqueId()),
       print_job_(print_job),
-      delegate_(new CupsPrintJobNotificationDelegate(this)),
       profile_(profile) {
   // Create a notification for the print job. The title, body, icon and buttons
   // of the notification will be updated in UpdateNotification().
-  notification_.reset(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE,
+  notification_ = base::MakeUnique<Notification>(
+      message_center::NOTIFICATION_TYPE_SIMPLE, notification_id_,
       base::string16(),  // title
       base::string16(),  // body
       gfx::Image(),      // icon
       message_center::NotifierId(message_center::NotifierId::SYSTEM_COMPONENT,
                                  kCupsPrintJobNotificationId),
-      base::string16(),  // display_source
+      l10n_util::GetStringUTF16(IDS_PRINT_JOB_NOTIFICATION_DISPLAY_SOURCE),
       GURL(kCupsPrintJobNotificationId),
       notification_id_,  // tag
-      message_center::RichNotificationData(), delegate_.get()));
+      message_center::RichNotificationData(),
+      new CupsPrintJobNotificationDelegate(this));
   UpdateNotification();
 }
 
@@ -97,7 +100,7 @@ void CupsPrintJobNotification::OnPrintJobStatusUpdated() {
 
 void CupsPrintJobNotification::CloseNotificationByUser() {
   closed_in_middle_ = true;
-  g_browser_process->message_center()->RemoveNotification(GetNotificationId(),
+  g_browser_process->message_center()->RemoveNotification(notification_id_,
                                                           true /* by_user */);
   if (!print_job_ ||
       print_job_->state() == CupsPrintJob::State::STATE_SUSPENDED) {
@@ -122,8 +125,8 @@ void CupsPrintJobNotification::ClickOnNotificationButton(int button_index) {
       print_job_ = nullptr;
 
       // Clean up the notification.
-      g_browser_process->notification_ui_manager()->CancelById(
-          GetNotificationId(), profile_id);
+      g_browser_process->notification_ui_manager()->CancelById(notification_id_,
+                                                               profile_id);
       cancelled_by_user_ = true;
       notification_manager_->OnPrintJobNotificationRemoved(this);
       break;
@@ -136,10 +139,6 @@ void CupsPrintJobNotification::ClickOnNotificationButton(int button_index) {
     case ButtonCommand::GET_HELP:
       break;
   }
-}
-
-const std::string& CupsPrintJobNotification::GetNotificationId() {
-  return notification_id_;
 }
 
 void CupsPrintJobNotification::UpdateNotification() {
@@ -169,8 +168,8 @@ void CupsPrintJobNotification::UpdateNotification() {
     closed_in_middle_ = false;
     // In order to make sure it pop up, we should delete it before readding it.
     const ProfileID profile_id = NotificationUIManager::GetProfileID(profile_);
-    g_browser_process->notification_ui_manager()->CancelById(
-        GetNotificationId(), profile_id);
+    g_browser_process->notification_ui_manager()->CancelById(notification_id_,
+                                                             profile_id);
     g_browser_process->notification_ui_manager()->Add(*notification_, profile_);
   }
 
@@ -210,26 +209,57 @@ void CupsPrintJobNotification::UpdateNotificationTitle() {
 }
 
 void CupsPrintJobNotification::UpdateNotificationIcon() {
-  ResourceBundle& bundle = ResourceBundle::GetSharedInstance();
-  switch (print_job_->state()) {
-    case CupsPrintJob::State::STATE_WAITING:
-    case CupsPrintJob::State::STATE_STARTED:
-    case CupsPrintJob::State::STATE_PAGE_DONE:
-    case CupsPrintJob::State::STATE_SUSPENDED:
-    case CupsPrintJob::State::STATE_RESUMED:
-      notification_->set_icon(
-          bundle.GetImageNamed(IDR_PRINT_NOTIFICATION_PRINTING));
-      break;
-    case CupsPrintJob::State::STATE_DOCUMENT_DONE:
-      notification_->set_icon(
-          bundle.GetImageNamed(IDR_PRINT_NOTIFICATION_DONE));
-      break;
-    case CupsPrintJob::State::STATE_CANCELLED:
-    case CupsPrintJob::State::STATE_ERROR:
-      notification_->set_icon(
-          bundle.GetImageNamed(IDR_PRINT_NOTIFICATION_ERROR));
-    case CupsPrintJob::State::STATE_NONE:
-      break;
+  if (message_center::IsNewStyleNotificationEnabled()) {
+    switch (print_job_->state()) {
+      case CupsPrintJob::State::STATE_WAITING:
+      case CupsPrintJob::State::STATE_STARTED:
+      case CupsPrintJob::State::STATE_PAGE_DONE:
+      case CupsPrintJob::State::STATE_SUSPENDED:
+      case CupsPrintJob::State::STATE_RESUMED:
+        notification_->set_accent_color(
+            message_center::kSystemNotificationColorNormal);
+        notification_->set_vector_small_image(kNotificationPrintingIcon);
+        break;
+      case CupsPrintJob::State::STATE_DOCUMENT_DONE:
+        notification_->set_accent_color(
+            message_center::kSystemNotificationColorNormal);
+        notification_->set_vector_small_image(kNotificationPrintingDoneIcon);
+        break;
+      case CupsPrintJob::State::STATE_CANCELLED:
+      case CupsPrintJob::State::STATE_ERROR:
+        notification_->set_accent_color(
+            message_center::kSystemNotificationColorWarning);
+        notification_->set_vector_small_image(kNotificationPrintingWarningIcon);
+      case CupsPrintJob::State::STATE_NONE:
+        break;
+    }
+    if (print_job_->state() != CupsPrintJob::State::STATE_NONE) {
+      notification_->set_small_image(gfx::Image(CreateVectorIcon(
+          notification_->vector_small_image(),
+          message_center::kSmallImageSizeMD, notification_->accent_color())));
+    }
+  } else {
+    ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
+    switch (print_job_->state()) {
+      case CupsPrintJob::State::STATE_WAITING:
+      case CupsPrintJob::State::STATE_STARTED:
+      case CupsPrintJob::State::STATE_PAGE_DONE:
+      case CupsPrintJob::State::STATE_SUSPENDED:
+      case CupsPrintJob::State::STATE_RESUMED:
+        notification_->set_icon(
+            bundle.GetImageNamed(IDR_PRINT_NOTIFICATION_PRINTING));
+        break;
+      case CupsPrintJob::State::STATE_DOCUMENT_DONE:
+        notification_->set_icon(
+            bundle.GetImageNamed(IDR_PRINT_NOTIFICATION_DONE));
+        break;
+      case CupsPrintJob::State::STATE_CANCELLED:
+      case CupsPrintJob::State::STATE_ERROR:
+        notification_->set_icon(
+            bundle.GetImageNamed(IDR_PRINT_NOTIFICATION_ERROR));
+      case CupsPrintJob::State::STATE_NONE:
+        break;
+    }
   }
 }
 
@@ -324,7 +354,7 @@ base::string16 CupsPrintJobNotification::GetButtonLabel(
 }
 
 gfx::Image CupsPrintJobNotification::GetButtonIcon(ButtonCommand button) const {
-  ResourceBundle& bundle = ResourceBundle::GetSharedInstance();
+  ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
   gfx::Image icon;
   switch (button) {
     case ButtonCommand::CANCEL_PRINTING:

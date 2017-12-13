@@ -181,7 +181,7 @@ void PluginFinder::Init() {
 // static
 base::DictionaryValue* PluginFinder::LoadBuiltInPluginList() {
   base::StringPiece json_resource(
-      ResourceBundle::GetSharedInstance().GetRawDataResource(
+      ui::ResourceBundle::GetSharedInstance().GetRawDataResource(
           IDR_PLUGIN_DB_JSON));
   std::string error_str;
   int error_code = base::JSONReader::JSON_NO_ERROR;
@@ -225,7 +225,7 @@ base::DictionaryValue* PluginFinder::LoadBuiltInPluginList() {
     return nullptr;
   }
 
-  if (value->GetType() != base::Value::Type::DICTIONARY) {
+  if (value->type() != base::Value::Type::DICTIONARY) {
     // JSONReader::JSON_PARSE_ERROR_COUNT is used for the case where the JSON
     // value has the wrong type.
     RecordBuiltInPluginListError(PluginListError::SCHEMA_ERROR);

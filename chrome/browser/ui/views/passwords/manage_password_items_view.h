@@ -20,11 +20,12 @@ class Label;
 class ManagePasswordsBubbleModel;
 
 // Standalone functions for creating username and password views.
-std::unique_ptr<views::Label> GenerateUsernameLabel(
+std::unique_ptr<views::Label> CreateUsernameLabel(
     const autofill::PasswordForm& form);
-std::unique_ptr<views::Label> GeneratePasswordLabel(
-    const autofill::PasswordForm& form);
-std::unique_ptr<views::Textfield> GenerateUsernameEditable(
+std::unique_ptr<views::Label> CreatePasswordLabel(
+    const autofill::PasswordForm& form,
+    bool is_password_visible);
+std::unique_ptr<views::Textfield> CreateUsernameEditable(
     const autofill::PasswordForm& form);
 
 // A custom view of individual credentials. The view is represented as a table
@@ -33,7 +34,8 @@ class ManagePasswordItemsView : public views::View {
  public:
   ManagePasswordItemsView(
       ManagePasswordsBubbleModel* manage_passwords_bubble_model,
-      const std::vector<autofill::PasswordForm>* password_forms);
+      const std::vector<autofill::PasswordForm>* password_forms,
+      int bubble_width);
 
  private:
   class PasswordFormRow;
@@ -49,6 +51,7 @@ class ManagePasswordItemsView : public views::View {
 
   std::vector<std::unique_ptr<PasswordFormRow>> password_forms_rows_;
   ManagePasswordsBubbleModel* model_;
+  const int bubble_width_;
 
   DISALLOW_COPY_AND_ASSIGN(ManagePasswordItemsView);
 };

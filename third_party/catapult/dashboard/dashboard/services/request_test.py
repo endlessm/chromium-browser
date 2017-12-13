@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import httplib
+import socket
 import unittest
 
 import mock
@@ -36,6 +37,12 @@ class SuccessTest(_RequestTest):
     self._request.assert_called_once_with('https://example.com', method='GET')
     self.assertEqual(response, 'response')
 
+  def testRequestJsonWithPrefix(self):
+    self._request.return_value = ({'status': '200'}, ')]}\'\n"response"')
+    response = request.RequestJson('https://example.com')
+    self._request.assert_called_once_with('https://example.com', method='GET')
+    self.assertEqual(response, 'response')
+
   def testRequestWithBodyAndParameters(self):
     self._request.return_value = ({'status': '200'}, 'response')
     response = request.Request('https://example.com', 'POST', body='a string',
@@ -48,6 +55,13 @@ class SuccessTest(_RequestTest):
 
 
 class FailureAndRetryTest(_RequestTest):
+
+  def _TestRetry(self):
+    response = request.Request('https://example.com')
+
+    self._request.assert_called_with('https://example.com', method='GET')
+    self.assertEqual(self._request.call_count, 2)
+    self.assertEqual(response, 'response')
 
   def testHttpErrorCode(self):
     self._request.return_value = ({'status': '500'}, '')
@@ -63,21 +77,25 @@ class FailureAndRetryTest(_RequestTest):
     self._request.assert_called_with('https://example.com', method='GET')
     self.assertEqual(self._request.call_count, 2)
 
+  def testSocketError(self):
+    self._request.side_effect = socket.error
+    with self.assertRaises(socket.error):
+      request.Request('https://example.com')
+    self._request.assert_called_with('https://example.com', method='GET')
+    self.assertEqual(self._request.call_count, 2)
+
   def testHttpErrorCodeSuccessOnRetry(self):
     failure_return_value = ({'status': '500'}, '')
     success_return_value = ({'status': '200'}, 'response')
     self._request.side_effect = failure_return_value, success_return_value
-    response = request.Request('https://example.com')
-
-    self._request.assert_called_with('https://example.com', method='GET')
-    self.assertEqual(self._request.call_count, 2)
-    self.assertEqual(response, 'response')
+    self._TestRetry()
 
   def testHttpExceptionSuccessOnRetry(self):
     return_value = ({'status': '200'}, 'response')
     self._request.side_effect = httplib.HTTPException, return_value
-    response = request.Request('https://example.com')
+    self._TestRetry()
 
-    self._request.assert_called_with('https://example.com', method='GET')
-    self.assertEqual(self._request.call_count, 2)
-    self.assertEqual(response, 'response')
+  def testSocketErrorSuccessOnRetry(self):
+    return_value = ({'status': '200'}, 'response')
+    self._request.side_effect = socket.error, return_value
+    self._TestRetry()

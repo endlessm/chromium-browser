@@ -18,6 +18,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/payments/payment_request_unittest_base.h"
 #include "ios/chrome/browser/payments/payment_request_util.h"
 #include "ios/chrome/browser/payments/test_payment_request.h"
 #import "ios/chrome/browser/ui/collection_view/cells/collection_view_detail_item.h"
@@ -26,7 +27,6 @@
 #import "ios/chrome/browser/ui/payments/cells/payment_method_item.h"
 #import "ios/chrome/browser/ui/payments/cells/payments_text_item.h"
 #import "ios/chrome/browser/ui/payments/cells/price_item.h"
-#import "ios/chrome/browser/ui/payments/payment_request_unittest_base.h"
 #include "testing/platform_test.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -159,7 +159,7 @@ TEST_F(PaymentRequestMediatorTest, TestPaymentSummaryItem) {
   EXPECT_EQ(nil, payment_summary_item.notification);
 
   // Remove the display items.
-  web::PaymentRequest web_payment_request =
+  payments::WebPaymentRequest web_payment_request =
       payment_request()->web_payment_request();
   web_payment_request.details.display_items.clear();
   payment_request()->UpdatePaymentDetails(web_payment_request.details);
@@ -216,8 +216,10 @@ TEST_F(PaymentRequestMediatorTest, TestShippingAddressItem) {
   EXPECT_TRUE([add_shipping_address_item.text
       isEqualToString:l10n_util::GetNSString(
                           IDS_PAYMENTS_SHIPPING_ADDRESS_LABEL)]);
-  EXPECT_EQ(nil, add_shipping_address_item.detailText);
-  EXPECT_EQ(MDCCollectionViewCellAccessoryDisclosureIndicator,
+  EXPECT_TRUE([add_shipping_address_item.detailText
+      isEqualToString:[l10n_util::GetNSString(IDS_CHOOSE)
+                          uppercaseStringWithLocale:[NSLocale currentLocale]]]);
+  EXPECT_EQ(MDCCollectionViewCellAccessoryNone,
             add_shipping_address_item.accessoryType);
 
   // Remove the shipping profiles.
@@ -258,8 +260,10 @@ TEST_F(PaymentRequestMediatorTest, TestShippingOptionItem) {
   EXPECT_TRUE([add_shipping_option_item.text
       isEqualToString:l10n_util::GetNSString(
                           IDS_PAYMENTS_SHIPPING_OPTION_LABEL)]);
-  EXPECT_EQ(nil, add_shipping_option_item.detailText);
-  EXPECT_EQ(MDCCollectionViewCellAccessoryDisclosureIndicator,
+  EXPECT_TRUE([add_shipping_option_item.detailText
+      isEqualToString:[l10n_util::GetNSString(IDS_CHOOSE)
+                          uppercaseStringWithLocale:[NSLocale currentLocale]]]);
+  EXPECT_EQ(MDCCollectionViewCellAccessoryNone,
             add_shipping_option_item.accessoryType);
 }
 
@@ -301,8 +305,10 @@ TEST_F(PaymentRequestMediatorTest, TestPaymentMethodItem) {
   EXPECT_TRUE([add_payment_method_item.text
       isEqualToString:l10n_util::GetNSString(
                           IDS_PAYMENT_REQUEST_PAYMENT_METHOD_SECTION_NAME)]);
-  EXPECT_EQ(nil, add_payment_method_item.detailText);
-  EXPECT_EQ(MDCCollectionViewCellAccessoryDisclosureIndicator,
+  EXPECT_TRUE([add_payment_method_item.detailText
+      isEqualToString:[l10n_util::GetNSString(IDS_CHOOSE)
+                          uppercaseStringWithLocale:[NSLocale currentLocale]]]);
+  EXPECT_EQ(MDCCollectionViewCellAccessoryNone,
             add_payment_method_item.accessoryType);
 
   // Remove the payment methods.
@@ -390,8 +396,10 @@ TEST_F(PaymentRequestMediatorTest, TestContactInfoItem) {
   EXPECT_TRUE([add_contact_info_item.text
       isEqualToString:l10n_util::GetNSString(
                           IDS_PAYMENTS_CONTACT_DETAILS_LABEL)]);
-  EXPECT_EQ(nil, add_contact_info_item.detailText);
-  EXPECT_EQ(MDCCollectionViewCellAccessoryDisclosureIndicator,
+  EXPECT_TRUE([add_contact_info_item.detailText
+      isEqualToString:[l10n_util::GetNSString(IDS_CHOOSE)
+                          uppercaseStringWithLocale:[NSLocale currentLocale]]]);
+  EXPECT_EQ(MDCCollectionViewCellAccessoryNone,
             add_contact_info_item.accessoryType);
 
   // Remove the contact profiles.

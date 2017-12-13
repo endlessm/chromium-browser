@@ -65,7 +65,9 @@ BookmarkAppConfirmationView::BookmarkAppConfirmationView(
       open_as_window_checkbox_(nullptr),
       title_tf_(nullptr) {
   const ChromeLayoutProvider* layout_provider = ChromeLayoutProvider::Get();
-  views::GridLayout* layout = views::GridLayout::CreatePanel(this);
+  set_margins(layout_provider->GetDialogInsetsForContentType(views::CONTROL,
+                                                             views::CONTROL));
+  views::GridLayout* layout = views::GridLayout::CreateAndInstall(this);
   const int column_set_id = 0;
 
   views::ColumnSet* column_set = layout->AddColumnSet(column_set_id);
@@ -126,13 +128,7 @@ ui::ModalType BookmarkAppConfirmationView::GetModalType() const {
 }
 
 base::string16 BookmarkAppConfirmationView::GetWindowTitle() const {
-#if defined(USE_ASH)
-  int ids = IDS_ADD_TO_SHELF_BUBBLE_TITLE;
-#else
-  int ids = IDS_ADD_TO_DESKTOP_BUBBLE_TITLE;
-#endif
-
-  return l10n_util::GetStringUTF16(ids);
+  return l10n_util::GetStringUTF16(IDS_ADD_TO_OS_LAUNCH_SURFACE_BUBBLE_TITLE);
 }
 
 bool BookmarkAppConfirmationView::ShouldShowCloseButton() const {

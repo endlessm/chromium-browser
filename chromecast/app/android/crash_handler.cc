@@ -13,14 +13,14 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
-#include "breakpad/src/client/linux/handler/exception_handler.h"
-#include "breakpad/src/client/linux/handler/minidump_descriptor.h"
 #include "chromecast/app/android/cast_crash_reporter_client_android.h"
 #include "chromecast/base/version.h"
 #include "components/crash/content/app/breakpad_linux.h"
 #include "components/crash/content/app/crash_reporter_client.h"
 #include "content/public/common/content_switches.h"
 #include "jni/CastCrashHandler_jni.h"
+#include "third_party/breakpad/breakpad/src/client/linux/handler/exception_handler.h"
+#include "third_party/breakpad/breakpad/src/client/linux/handler/minidump_descriptor.h"
 
 namespace {
 
@@ -90,8 +90,22 @@ void CrashHandler::InitializeUploader() {
   JNIEnv* env = base::android::AttachCurrentThread();
   base::android::ScopedJavaLocalRef<jstring> crash_dump_path_java =
       base::android::ConvertUTF8ToJavaString(env, crash_dump_path_.value());
-  Java_CastCrashHandler_initializeUploader(env, crash_dump_path_java,
-                                           UploadCrashToStaging());
+  base::android::ScopedJavaLocalRef<jstring> uuid_java =
+      base::android::ConvertUTF8ToJavaString(env, "");
+  Java_CastCrashHandler_initializeUploader(env, crash_dump_path_java, uuid_java,
+                                           UploadCrashToStaging(), true);
+}
+
+// static
+void CrashHandler::UploadDumps(const base::FilePath& crash_dump_path,
+                               std::string uuid) {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  base::android::ScopedJavaLocalRef<jstring> crash_dump_path_java =
+      base::android::ConvertUTF8ToJavaString(env, crash_dump_path.value());
+  base::android::ScopedJavaLocalRef<jstring> uuid_java =
+      base::android::ConvertUTF8ToJavaString(env, uuid);
+  Java_CastCrashHandler_initializeUploader(env, crash_dump_path_java, uuid_java,
+                                           UploadCrashToStaging(), false);
 }
 
 }  // namespace chromecast

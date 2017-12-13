@@ -15,13 +15,10 @@
 #include "chromeos/system/version_loader.h"
 
 class NightLightClient;
+class TabletModeClient;
 
 namespace lock_screen_apps {
 class StateController;
-}
-
-namespace session_manager {
-class SessionManager;
 }
 
 namespace arc {
@@ -39,7 +36,6 @@ class IdleActionWarningObserver;
 class LowDiskNotification;
 class NetworkPrefStateObserver;
 class NetworkThrottlingObserver;
-class PeripheralBatteryNotifier;
 class PowerPrefs;
 class RendererFreezer;
 class ShutdownPolicyForwarder;
@@ -50,6 +46,7 @@ class ExternalLoader;
 }
 
 namespace internal {
+class ChromeLauncherControllerInitializer;
 class DBusServices;
 class SystemTokenCertDBInitializer;
 }
@@ -81,7 +78,6 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
   std::unique_ptr<default_app_order::ExternalLoader> app_order_loader_;
   std::unique_ptr<NetworkPrefStateObserver> network_pref_state_observer_;
   std::unique_ptr<ExtensionVolumeObserver> extension_volume_observer_;
-  std::unique_ptr<PeripheralBatteryNotifier> peripheral_battery_notifier_;
   std::unique_ptr<PowerPrefs> power_prefs_;
   std::unique_ptr<IdleActionWarningObserver> idle_action_warning_observer_;
   std::unique_ptr<DataPromoNotification> data_promo_notification_;
@@ -94,7 +90,8 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
   std::unique_ptr<internal::SystemTokenCertDBInitializer>
       system_token_certdb_initializer_;
 
-  std::unique_ptr<session_manager::SessionManager> session_manager_;
+  std::unique_ptr<internal::ChromeLauncherControllerInitializer>
+      chrome_launcher_controller_initializer_;
 
   std::unique_ptr<ShutdownPolicyForwarder> shutdown_policy_forwarder_;
 
@@ -110,6 +107,7 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
 
   std::unique_ptr<memory::MemoryKillsMonitor::Handle> memory_kills_monitor_;
 
+  std::unique_ptr<TabletModeClient> tablet_mode_client_;
   std::unique_ptr<lock_screen_apps::StateController>
       lock_screen_apps_state_controller_;
 

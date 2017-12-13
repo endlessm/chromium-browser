@@ -169,6 +169,10 @@ histogram.addSample(number, {name: diagnostic})
 
    ![](/docs/images/how-to-write-metrics-related-histogram-breakdown.png)
 
+ * [RelatedNameMap](/tracing/tracing/value/diagnostics/related_name_map.html):
+   This maps from short keys to Histogram name. These are correlated with
+   Breakdowns. They are visualized as HTML links in Breakdowns.
+
 
 ### Other Diagnostics
 
@@ -246,6 +250,14 @@ any of these metadata diagnostics.
 Consumers can rely on the presence of Telemetry metadata for results produced by
 Telemetry.
 If present, they may contain a single value or multiple values.
+
+If uploading to the ChromePerf dashboard, the following diagnostics are required
+to be shared by all Histograms, and must all contain exactly one value:
+
+ * bots
+ * benchmarks
+ * chromiumCommitPositions
+ * masters
 
 
 ## Consumers of Histograms

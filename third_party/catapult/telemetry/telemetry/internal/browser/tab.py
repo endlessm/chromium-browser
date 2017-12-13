@@ -67,6 +67,10 @@ class Tab(web_contents.WebContents):
                                              'event_listener_count']]))
     return dom_counters
 
+  def PrepareForLeakDetection(self):
+    self._inspector_backend.PrepareForLeakDetection(
+        timeout=DEFAULT_TAB_TIMEOUT)
+
   def Activate(self):
     """Brings this tab to the foreground asynchronously.
 
@@ -268,3 +272,24 @@ class Tab(web_contents.WebContents):
     """)
     if force:
       self.Navigate('about:blank')
+
+  def ClearDataForOrigin(self, url, timeout=DEFAULT_TAB_TIMEOUT):
+    """Clears storage data for the origin of url.
+
+    With assigning 'all' to params.storageTypes, Storage.clearDataForOrigin
+    clears all storage of app cache, cookies, file systems, indexed db,
+    local storage, shader cache, web sql, service workers and cache storage.
+    See StorageHandler::ClearDataForOrigin() for more details.
+
+    Raises:
+      exceptions.StoryActionError
+    """
+    return self._inspector_backend.ClearDataForOrigin(url, timeout)
+
+  def StopAllServiceWorkers(self, timeout=DEFAULT_TAB_TIMEOUT):
+    """Stops all service workers.
+
+    Raises:
+      exceptions.StoryActionError
+    """
+    return self._inspector_backend.StopAllServiceWorkers(timeout)

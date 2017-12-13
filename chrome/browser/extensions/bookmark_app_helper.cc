@@ -47,12 +47,10 @@
 #include "content/public/common/content_switches.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
-#include "extensions/browser/image_loader.h"
 #include "extensions/browser/notification_types.h"
 #include "extensions/browser/pref_names.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/manifest_handlers/icons_handler.h"
 #include "extensions/common/url_pattern.h"
 #include "net/base/load_flags.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
@@ -69,7 +67,6 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/image/image_family.h"
 
 #if defined(OS_MACOSX)
 #include "chrome/browser/web_applications/web_app_mac.h"
@@ -80,9 +77,10 @@
 #include "base/win/shortcut.h"
 #endif  // defined(OS_WIN)
 
-#if defined(USE_ASH)
+#if defined(OS_CHROMEOS)
+// gn check complains on Linux Ozone.
 #include "ash/public/cpp/shelf_model.h"  // nogncheck
-#include "ash/shell.h"                   // nogncheck
+#include "ash/shell.h"
 #endif
 
 namespace {
@@ -144,22 +142,6 @@ class GeneratedIconImageSource : public gfx::CanvasImageSource {
 
   DISALLOW_COPY_AND_ASSIGN(GeneratedIconImageSource);
 };
-
-void OnIconsLoaded(
-    WebApplicationInfo web_app_info,
-    const base::Callback<void(const WebApplicationInfo&)> callback,
-    gfx::ImageFamily image_family) {
-  for (gfx::ImageFamily::const_iterator it = image_family.begin();
-       it != image_family.end();
-       ++it) {
-    WebApplicationInfo::IconInfo icon_info;
-    icon_info.data = *it->ToSkBitmap();
-    icon_info.width = icon_info.data.width();
-    icon_info.height = icon_info.data.height();
-    web_app_info.icons.push_back(icon_info);
-  }
-  callback.Run(web_app_info);
-}
 
 std::set<int> SizesToGenerate() {
   // Generate container icons from smaller icons.
@@ -593,16 +575,19 @@ void BookmarkAppHelper::Create(const CreateBookmarkAppCallback& callback) {
 
 void BookmarkAppHelper::CreateFromAppBanner(
     const CreateBookmarkAppCallback& callback,
+    const GURL& manifest_url,
     const content::Manifest& manifest) {
   DCHECK(!manifest.short_name.is_null() || !manifest.name.is_null());
   DCHECK(manifest.start_url.is_valid());
 
   callback_ = callback;
-  OnDidGetManifest(GURL(), manifest);
+  OnDidGetManifest(manifest_url, manifest);
 }
 
 void BookmarkAppHelper::OnDidGetManifest(const GURL& manifest_url,
                                          const content::Manifest& manifest) {
+  DCHECK(manifest_url.is_valid() || manifest.IsEmpty());
+
   if (contents_->IsBeingDestroyed())
     return;
 
@@ -632,6 +617,11 @@ void BookmarkAppHelper::OnDidGetManifest(const GURL& manifest_url,
       new FaviconDownloader(contents_, web_app_info_icon_urls,
                             base::Bind(&BookmarkAppHelper::OnIconsDownloaded,
                                        weak_factory_.GetWeakPtr())));
+
+  // If the manifest specified icons, don't use the page icons.
+  if (!manifest.icons.empty())
+    favicon_downloader_->SkipPageFavicons();
+
   favicon_downloader_->Start();
 }
 
@@ -742,15 +732,15 @@ void BookmarkAppHelper::FinishInstallation(const Extension* extension) {
     return;
   }
 
-#if !defined(USE_ASH)
+#if !defined(OS_CHROMEOS)
   // Pin the app to the relevant launcher depending on the OS.
   Profile* current_profile = profile_->GetOriginalProfile();
-#endif  // !defined(USE_ASH)
+#endif  // !defined(OS_CHROMEOS)
 
 // On Mac, shortcuts are automatically created for hosted apps when they are
 // installed, so there is no need to create them again.
 #if !defined(OS_MACOSX)
-#if !defined(USE_ASH)
+#if !defined(OS_CHROMEOS)
   web_app::ShortcutLocations creation_locations;
 #if defined(OS_LINUX) || defined(OS_WIN)
   creation_locations.on_desktop = true;
@@ -764,7 +754,7 @@ void BookmarkAppHelper::FinishInstallation(const Extension* extension) {
                            creation_locations, current_profile, extension);
 #else
   ash::Shell::Get()->shelf_model()->PinAppWithID(extension->id());
-#endif  // !defined(USE_ASH)
+#endif  // !defined(OS_CHROMEOS)
 #endif  // !defined(OS_MACOSX)
 
 #if defined(OS_MACOSX)
@@ -810,37 +800,6 @@ void CreateOrUpdateBookmarkApp(ExtensionService* service,
   scoped_refptr<BookmarkAppInstaller> installer(
       new BookmarkAppInstaller(service, *web_app_info));
   installer->Run();
-}
-
-void GetWebApplicationInfoFromApp(
-    content::BrowserContext* browser_context,
-    const extensions::Extension* extension,
-    const base::Callback<void(const WebApplicationInfo&)> callback) {
-  if (!extension->from_bookmark()) {
-    callback.Run(WebApplicationInfo());
-    return;
-  }
-
-  WebApplicationInfo web_app_info;
-  web_app_info.app_url = AppLaunchInfo::GetLaunchWebURL(extension);
-  web_app_info.title = base::UTF8ToUTF16(extension->non_localized_name());
-  web_app_info.description = base::UTF8ToUTF16(extension->description());
-  web_app_info.scope = GetScopeURLFromBookmarkApp(extension);
-
-  const ExtensionIconSet& icon_set = extensions::IconsInfo::GetIcons(extension);
-  std::vector<extensions::ImageLoader::ImageRepresentation> info_list;
-  for (const auto& iter : icon_set.map()) {
-    extensions::ExtensionResource resource =
-        extension->GetResource(iter.second);
-    if (!resource.empty()) {
-      info_list.push_back(extensions::ImageLoader::ImageRepresentation(
-          resource, extensions::ImageLoader::ImageRepresentation::ALWAYS_RESIZE,
-          gfx::Size(iter.first, iter.first), ui::SCALE_FACTOR_100P));
-    }
-  }
-
-  extensions::ImageLoader::Get(browser_context)->LoadImageFamilyAsync(
-      extension, info_list, base::Bind(&OnIconsLoaded, web_app_info, callback));
 }
 
 bool IsValidBookmarkAppUrl(const GURL& url) {

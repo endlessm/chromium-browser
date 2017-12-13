@@ -20,7 +20,6 @@
 <translation id="1254117744268754948">Выбор папки</translation>
 <translation id="1265739287306757398">Подробнее</translation>
 <translation id="1272079795634619415">Остановить</translation>
-<translation id="129553762522093515">Недавно закрытые</translation>
 <translation id="1323735185997015385">Удалить</translation>
 <translation id="132683371494960526">Чтобы изменить родительскую папку, нажмите дважды.</translation>
 <translation id="1340643665687018190">Закрыть меню</translation>
@@ -48,7 +47,6 @@
 <translation id="1690731385917361335">Закладок нет</translation>
 <translation id="1700629756560807968">Выбрано закладок: <ph name="NUMBER_OF_SELECTED_BOOKMARKS" /></translation>
 <translation id="1740468249224277719">Нажмите дважды, чтобы установить</translation>
-<translation id="1749561566933687563">Синхронизируйте закладки</translation>
 <translation id="1752547299766512813">Сохр. пароли</translation>
 <translation id="1753905327828125965">Наиболее посещаемые</translation>
 <translation id="1809939268435598390">Удалить папку</translation>
@@ -80,6 +78,7 @@
 <translation id="2381405137052800939">Основные</translation>
 <translation id="2386793615875593361">Выбрана 1 фотография</translation>
 <translation id="2435457462613246316">Показать пароль</translation>
+<translation id="2529021024822217800">Открыть все</translation>
 <translation id="2572712655377361602">Политика устройства блокирует доступ к фотографиям</translation>
 <translation id="2584132361465095047">Добавить аккаунт</translation>
 <translation id="2593774076813182497">Невозможно напечатать</translation>
@@ -129,7 +128,6 @@
 <translation id="3324193307694657476">Адрес, строка 2</translation>
 <translation id="3329904751041170572">Не удалось установить соединение с сервером.</translation>
 <translation id="3335947283844343239">Открыть закрытую вкладку</translation>
-<translation id="3387752218061326363">Показана история со всех устройств, на которых используется этот аккаунт. <ph name="BEGIN_LINK" />Подробнее…<ph name="END_LINK" /></translation>
 <translation id="3393920035788932672">Вспл. окна разрешены</translation>
 <translation id="3414292259312108062">Этот пароль будет добавлен в <ph name="BEGIN_LINK" />список сохраненных паролей<ph name="END_LINK" />, чтобы Chrome мог автоматически вводить его в соответствующие поля.</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> мин.</translation>
@@ -181,6 +179,7 @@
 <translation id="4342284590510997375">Новое</translation>
 <translation id="434816576838749873">Выберите почтовый клиент</translation>
 <translation id="4359125752503270327">Страница откроется в другом приложении.</translation>
+<translation id="4370827530403103842">Синхронизация не работает. Нажмите, чтобы исправить.</translation>
 <translation id="4375040482473363939">Поиск по QR-коду</translation>
 <translation id="4378154925671717803">Телефон</translation>
 <translation id="441868831736628555">Примечание о конфиденциальности</translation>
@@ -188,6 +187,7 @@
 <translation id="4508750114462689118">Закрыть сообщение о входе</translation>
 <translation id="4526249700380860531">Просматривайте сохраненные пароли и управляйте ими на странице <ph name="BEGIN_LINK" />passwords.google.com<ph name="END_LINK" /></translation>
 <translation id="4536418791685807335">Войдите в аккаунт снова.</translation>
+<translation id="457386861538956877">Ещё...</translation>
 <translation id="461440297010471931">Поиск с помощью Google</translation>
 <translation id="4620246317052452550">Прочитанные</translation>
 <translation id="4636930964841734540">Информация</translation>
@@ -309,6 +309,7 @@
 <translation id="6785453220513215166">Отправка отчета об ошибке…</translation>
 <translation id="679325081238418596">Вы сможете работать с одними и теми же закладками, историей, паролями и другими настройками на любом устройстве</translation>
 <translation id="6797885426782475225">Голосовой поиск</translation>
+<translation id="6807889908376551050">Показать все…</translation>
 <translation id="681368974849482173">Сохранено</translation>
 <translation id="6896758677409633944">Копировать</translation>
 <translation id="6903907808598579934">Включить</translation>
@@ -319,7 +320,6 @@
 <translation id="7031882061095297553">Выберите аккаунт</translation>
 <translation id="7062545763355031412">Принять и переключиться</translation>
 <translation id="7108338896283013870">Скрыть</translation>
-<translation id="7131892264600713844">Показана история только с этого устройства. <ph name="BEGIN_LINK" />Подробнее…<ph name="END_LINK" /></translation>
 <translation id="7133798577887235672">Полное имя</translation>
 <translation id="7136892417564438900">Камера недоступна</translation>
 <translation id="7159472599653637159">Мобильная версия</translation>
@@ -356,7 +356,6 @@
 <translation id="7769602470925380267">Принять и выйти</translation>
 <translation id="7772032839648071052">Подтвердите кодовую фразу</translation>
 <translation id="780301667611848630">Спасибо, не надо</translation>
-<translation id="7851858861565204677">Другие устройства</translation>
 <translation id="7859704718976024901">История просмотра веб-страниц</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7947953824732555851">Принять и войти</translation>
@@ -382,6 +381,7 @@
 <translation id="8458397775385147834">Удалено закладок: 1</translation>
 <translation id="8487700953926739672">Доступно в автономном режиме</translation>
 <translation id="8503813439785031346">Имя пользователя</translation>
+<translation id="850600235656508448">Открыть в режиме инкогнито</translation>
 <translation id="8517375800490286174">Лицензии открытого ПО</translation>
 <translation id="8524799873541103884"><ph name="INCOGNITO" />, вкладки между <ph name="FIRST_VISIBLE_TAB" /> и <ph name="LAST_VISIBLE_TAB" />, всего <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8532105204136943229">Год</translation>
@@ -400,6 +400,7 @@
 <translation id="8775144690796719618">Недействительный URL</translation>
 <translation id="8820817407110198400">Закладки</translation>
 <translation id="8840513115188359703">Вы останетесь в аккаунте Google.</translation>
+<translation id="8870413625673593573">Недавно закрытые</translation>
 <translation id="8881801611828450202">Найти это изображение в <ph name="SEARCH_ENGINE" /></translation>
 <translation id="8904976895050290827">Синхронизация Chrome</translation>
 <translation id="895541991026785598">Сообщить о проблеме</translation>

@@ -31,8 +31,10 @@ TestWebState::TestWebState()
     : browser_state_(nullptr),
       web_usage_enabled_(false),
       is_loading_(false),
+      is_visible_(false),
       is_crashed_(false),
       is_evicted_(false),
+      has_opener_(false),
       trust_level_(kAbsolute),
       content_is_html_(true) {}
 
@@ -74,11 +76,13 @@ UIView* TestWebState::GetView() {
 }
 
 void TestWebState::WasShown() {
+  is_visible_ = true;
   for (auto& observer : observers_)
     observer.WasShown();
 }
 
 void TestWebState::WasHidden() {
+  is_visible_ = false;
   for (auto& observer : observers_)
     observer.WasHidden();
 }
@@ -186,6 +190,10 @@ double TestWebState::GetLoadingProgress() const {
   return 0.0;
 }
 
+bool TestWebState::IsVisible() const {
+  return is_visible_;
+}
+
 bool TestWebState::IsCrashed() const {
   return is_crashed_;
 }
@@ -265,7 +273,11 @@ WebStateInterfaceProvider* TestWebState::GetWebStateInterfaceProvider() {
 }
 
 bool TestWebState::HasOpener() const {
-  return false;
+  return has_opener_;
+}
+
+void TestWebState::SetHasOpener(bool has_opener) {
+  has_opener_ = has_opener;
 }
 
 void TestWebState::TakeSnapshot(const SnapshotCallback& callback,

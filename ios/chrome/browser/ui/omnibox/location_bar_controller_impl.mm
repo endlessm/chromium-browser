@@ -20,13 +20,14 @@
 #include "ios/chrome/browser/chrome_url_constants.h"
 #include "ios/chrome/browser/experimental_flags.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
+#include "ios/chrome/browser/ui/omnibox/location_bar_delegate.h"
+#include "ios/chrome/browser/ui/omnibox/omnibox_popup_view_ios.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_text_field_ios.h"
 #include "ios/chrome/browser/ui/omnibox/omnibox_view_ios.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/chrome/grit/ios_theme_resources.h"
-#include "ios/shared/chrome/browser/ui/omnibox/location_bar_delegate.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
 #include "ios/web/public/navigation_item.h"
 #include "ios/web/public/navigation_manager.h"
@@ -142,15 +143,9 @@ bool IsCurrentPageOffline(web::WebState* webState) {
 LocationBarControllerImpl::LocationBarControllerImpl(
     OmniboxTextFieldIOS* field,
     ios::ChromeBrowserState* browser_state,
-    id<PreloadProvider> preloader,
-    id<OmniboxPopupPositioner> positioner,
     id<LocationBarDelegate> delegate,
     id<BrowserCommands> dispatcher)
-    : edit_view_(base::MakeUnique<OmniboxViewIOS>(field,
-                                                  this,
-                                                  browser_state,
-                                                  preloader,
-                                                  positioner)),
+    : edit_view_(base::MakeUnique<OmniboxViewIOS>(field, this, browser_state)),
       field_(field),
       delegate_(delegate),
       dispatcher_(dispatcher) {
@@ -162,6 +157,19 @@ LocationBarControllerImpl::LocationBarControllerImpl(
 }
 
 LocationBarControllerImpl::~LocationBarControllerImpl() {}
+
+std::unique_ptr<OmniboxPopupViewIOS> LocationBarControllerImpl::CreatePopupView(
+    id<OmniboxPopupPositioner> positioner) {
+  std::unique_ptr<OmniboxPopupViewIOS> popup_view =
+      base::MakeUnique<OmniboxPopupViewIOS>(edit_view_->browser_state(),
+                                            edit_view_->model(),
+                                            edit_view_.get(), positioner);
+
+  edit_view_->model()->set_popup_model(popup_view->model());
+  edit_view_->SetPopupProvider(popup_view.get());
+
+  return popup_view;
+}
 
 void LocationBarControllerImpl::HideKeyboardAndEndEditing() {
   edit_view_->HideKeyboardAndEndEditing();

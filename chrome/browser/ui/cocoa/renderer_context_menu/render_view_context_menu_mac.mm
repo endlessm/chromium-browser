@@ -12,8 +12,8 @@
 #import "base/mac/scoped_sending_event.h"
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
+#import "base/message_loop/message_pump_mac.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/tracked_objects.h"
 #include "chrome/app/chrome_command_ids.h"
 #import "chrome/browser/mac/nsprocessinfo_additions.h"
 #include "chrome/grit/generated_resources.h"
@@ -225,6 +225,9 @@ void RenderViewContextMenuMac::Show() {
     base::MessageLoop::ScopedNestableTaskAllower allow(
         base::MessageLoop::current());
 
+    // Ensure the UI can update while the menu is fading out.
+    base::ScopedPumpMessagesInPrivateModes pump_private;
+
     // One of the events that could be pumped is |window.close()|.
     // User-initiated event-tracking loops protect against this by
     // setting flags in -[CrApplication sendEvent:], but since
@@ -232,15 +235,10 @@ void RenderViewContextMenuMac::Show() {
     // be done manually.
     base::mac::ScopedSendingEvent sendingEventScoper;
 
-    // Use task stopwatch to exclude the loop run time from the current task, if
-    // any.
-    tracked_objects::TaskStopwatch stopwatch;
-    stopwatch.Start();
     // Show the menu.
     [NSMenu popUpContextMenu:[menu_controller_ menu]
                    withEvent:clickEvent
                      forView:parent_view_];
-    stopwatch.Stop();
   }
 }
 

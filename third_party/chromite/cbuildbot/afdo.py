@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2014 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -9,7 +10,9 @@ For a description of AFDO see gcc.gnu.org/wiki/AutoFDO.
 
 from __future__ import print_function
 
+import bisect
 import datetime
+import glob
 import os
 import re
 
@@ -55,6 +58,12 @@ AFDO_ALLOWED_STALE_DAYS = 14
 # How old can the AFDO data be? (in difference of builds).
 AFDO_ALLOWED_STALE_BUILDS = 7
 
+# How old can the Kernel AFDO data be? (in days).
+KERNEL_ALLOWED_STALE_DAYS = 28
+
+# How old can the Kernel AFDO data be before sheriff got noticed? (in days).
+KERNEL_WARN_STALE_DAYS = 14
+
 # Set of boards that can generate the AFDO profile (can generate 'perf'
 # data with LBR events). Currently, it needs to be a device that has
 # at least 4GB of memory.
@@ -73,6 +82,18 @@ AFDO_ARCH_GENERATORS = {'amd64': 'amd64',
 AFDO_ALERT_RECIPIENTS = [
     'chromeos-toolchain-sheriff@grotations.appspotmail.com']
 
+KERNEL_PROFILE_URL = 'gs://chromeos-prebuilt/afdo-job/cwp/kernel/'
+KERNEL_PROFILE_LS_PATTERN = '*/*.gcov.xz'
+KERNEL_PROFILE_NAME_PATTERN = (
+    r'([0-9]+\.[0-9]+)/R([0-9]+)-([0-9]+)\.([0-9]+)-([0-9]+)\.gcov\.xz')
+KERNEL_PROFILE_MATCH_PATTERN = (
+    r'^AFDO_PROFILE_VERSION="R[0-9]+-[0-9]+\.[0-9]+-[0-9]+"$')
+KERNEL_PROFILE_WRITE_PATTERN = 'AFDO_PROFILE_VERSION="R%d-%d.%d-%d"'
+KERNEL_EBUILD_ROOT = os.path.join(
+    constants.SOURCE_ROOT,
+    'src/third_party/chromiumos-overlay/sys-kernel'
+)
+
 
 class MissingAFDOData(failures_lib.StepFailure):
   """Exception thrown when necessary AFDO data is missing."""
@@ -80,6 +101,14 @@ class MissingAFDOData(failures_lib.StepFailure):
 
 class MissingAFDOMarkers(failures_lib.StepFailure):
   """Exception thrown when necessary ebuild markers for AFDO are missing."""
+
+
+class UnknownKernelVersion(failures_lib.StepFailure):
+  """Exception thrown when the Kernel version can't be inferred."""
+
+
+class NoValidProfileFound(failures_lib.StepFailure):
+  """Exception thrown when there is no valid profile found."""
 
 
 def CompressAFDOFile(to_compress, buildroot):
@@ -261,6 +290,44 @@ def PatchChromeEbuildAFDOFile(ebuild_file, arch_profiles):
   os.rename(modified_ebuild, original_ebuild)
 
 
+def UpdateManifest(ebuild_file, ebuild_prog='ebuild'):
+  """Regenerate the Manifest file.
+
+  Args:
+    ebuild_file: path to the ebuild file
+    ebuild_prog: the ebuild command; can be board specific
+  """
+  ebuild_gs_dir = None
+  # If using the GS test location, pass this location to the
+  # chrome ebuild.
+  if _gsurls['base'] == _gsurls['test']:
+    ebuild_gs_dir = {'AFDO_GS_DIRECTORY': _gsurls['test']}
+  gen_manifest_cmd = [ebuild_prog, ebuild_file, 'manifest', '--force']
+  cros_build_lib.RunCommand(gen_manifest_cmd, enter_chroot=True,
+                            extra_env=ebuild_gs_dir, print_cmd=True)
+
+
+def CommitIfChanged(ebuild_dir, message):
+  """If there are changes to ebuild or Manifest, commit them.
+
+  Args:
+    ebuild_dir: the path to the directory of ebuild in the chroot
+    message: commit message
+  """
+  # Check if anything changed compared to the previous version.
+  modifications = git.RunGit(ebuild_dir,
+                             ['status', '--porcelain', '-uno'],
+                             capture_output=True, print_cmd=True).output
+  if not modifications:
+    logging.info('AFDO info for the ebuilds did not change. '
+                 'Nothing to commit')
+    return
+
+  git.RunGit(ebuild_dir,
+             ['commit', '-a', '-m', message],
+             print_cmd=True)
+
+
 def UpdateChromeEbuildAFDOFile(board, arch_profiles):
   """Update chrome ebuild with the dictionary of {arch: afdo_file} pairs.
 
@@ -297,36 +364,10 @@ def UpdateChromeEbuildAFDOFile(board, arch_profiles):
                              'chromeos-chrome-9999.ebuild')
   PatchChromeEbuildAFDOFile(ebuild_9999, arch_profiles)
 
-  # Regenerate the Manifest file.
-  ebuild_gs_dir = None
-  # If using the GS test location, pass this location to the
-  # chrome ebuild.
-  if _gsurls['base'] == _gsurls['test']:
-    ebuild_gs_dir = {'AFDO_GS_DIRECTORY': _gsurls['test']}
-  gen_manifest_cmd = [ebuild_prog, ebuild_file, 'manifest', '--force']
-  cros_build_lib.RunCommand(gen_manifest_cmd, enter_chroot=True,
-                            extra_env=ebuild_gs_dir, print_cmd=True)
+  UpdateManifest(ebuild_9999, ebuild_prog)
 
   ebuild_dir = path_util.FromChrootPath(os.path.dirname(ebuild_file))
-  git.RunGit(ebuild_dir, ['add', 'Manifest'])
-
-  # Check if anything changed compared to the previous version.
-  mod_files = ['Manifest', os.path.basename(ebuild_file),
-               os.path.basename(ebuild_9999)]
-  modifications = git.RunGit(ebuild_dir,
-                             ['status', '--porcelain', '--'] + mod_files,
-                             capture_output=True, print_cmd=True).output
-  if not modifications:
-    logging.info('AFDO info for the Chrome ebuild did not change. '
-                 'Nothing to commit')
-    return
-
-  # If there are changes to ebuild or Manifest, commit them.
-  commit_msg = ('"Set {arch: afdo_file} pairs %s and updated Manifest"'
-                % arch_profiles)
-  git.RunGit(ebuild_dir,
-             ['commit', '-m', commit_msg, '--'] + mod_files,
-             print_cmd=True)
+  CommitIfChanged(ebuild_dir, 'Update profiles and manifests for Chrome.')
 
 
 def VerifyLatestAFDOFile(afdo_release_spec, buildroot, gs_context):
@@ -344,8 +385,10 @@ def VerifyLatestAFDOFile(afdo_release_spec, buildroot, gs_context):
     gs_context: GS context to retrieve data.
 
   Returns:
-    The name of the AFDO profile file if a suitable one was found.
-    None otherwise.
+    The first return value is the name of the AFDO profile file found. None
+    otherwise.
+    The second return value indicates whether the profile found is expired or
+    not. False when no profile is found.
   """
   latest_afdo_url = _gsurls['latest_chrome_afdo'] % afdo_release_spec
 
@@ -353,8 +396,8 @@ def VerifyLatestAFDOFile(afdo_release_spec, buildroot, gs_context):
   try:
     latest_detail = gs_context.List(latest_afdo_url, details=True)
   except gs.GSNoSuchKey:
-    logging.info('Could not find latest AFDO info file %s' % latest_afdo_url)
-    return None
+    logging.info('Could not find latest AFDO info file %s', latest_afdo_url)
+    return None, False
 
   # Then get the name of the latest valid AFDO profile file.
   local_dir = AFDO_BUILDROOT_LOCAL % {'build_root': buildroot}
@@ -372,11 +415,11 @@ def VerifyLatestAFDOFile(afdo_release_spec, buildroot, gs_context):
   allowed_stale_days = datetime.timedelta(days=AFDO_ALLOWED_STALE_DAYS)
   if ((curr_date - mod_date) > allowed_stale_days and
       (curr_build - cand_build) > AFDO_ALLOWED_STALE_BUILDS):
-    logging.info('Found latest AFDO info file %s but it is too old' %
+    logging.info('Found latest AFDO info file %s but it is too old',
                  latest_afdo_url)
-    return None
+    return cand, True
 
-  return cand
+  return cand, False
 
 
 def GetLatestAFDOFile(cpv, arch, buildroot, gs_context):
@@ -404,9 +447,15 @@ def GetLatestAFDOFile(cpv, arch, buildroot, gs_context):
                        'arch': generator_arch,
                        'release': current_release,
                        'build': current_build}
-  afdo_file = VerifyLatestAFDOFile(afdo_release_spec, buildroot, gs_context)
-  if afdo_file:
+  afdo_file, expired = VerifyLatestAFDOFile(afdo_release_spec, buildroot,
+                                            gs_context)
+  if afdo_file and not expired:
     return afdo_file
+
+  # The profile found in current release is too old. This clearly is a sign of
+  # problem. Therefore, don't try to find another one in previous branch.
+  if expired:
+    return None
 
   # Could not find suitable AFDO file for the current release.
   # Let's see if there is one from the previous release.
@@ -415,7 +464,11 @@ def GetLatestAFDOFile(cpv, arch, buildroot, gs_context):
                        'arch': generator_arch,
                        'release': previous_release,
                        'build': current_build}
-  return VerifyLatestAFDOFile(prev_release_spec, buildroot, gs_context)
+  afdo_file, expired = VerifyLatestAFDOFile(prev_release_spec, buildroot,
+                                            gs_context)
+  if expired:
+    return None
+  return afdo_file
 
 
 def GenerateAFDOData(cpv, arch, board, buildroot, gs_context):
@@ -544,3 +597,104 @@ def InitGSUrls(board, reset=False):
   _gsurls['latest_chrome_afdo'] = _gsurls['base'] + LATEST_CHROME_AFDO_FILE
   _gsurls['chrome_debug_bin'] = '%s%s.debug.bz2' % (_gsurls['base'],
                                                     CHROME_ARCH_VERSION)
+
+
+def FindLatestProfile(target, versions):
+  """Find latest profile that is usable by the target.
+
+  Args:
+    target: the target version
+    versions: a list of versions
+
+  Returns:
+    latest profile that is older than the target
+  """
+  cand = bisect.bisect(versions, target) - 1
+  if cand >= 0:
+    return versions[cand]
+  return None
+
+
+def PatchKernelEbuild(filename, version):
+  """Update the AFDO_PROFILE_VERSION string in the given kernel ebuild file.
+
+  Args:
+    filename: name of the ebuild
+    version: e.g., [61, 9752, 0, 0]
+  """
+  contents = []
+  for line in osutils.ReadFile(filename).splitlines():
+    if re.match(KERNEL_PROFILE_MATCH_PATTERN, line):
+      contents.append(KERNEL_PROFILE_WRITE_PATTERN % tuple(version) + '\n')
+    else:
+      contents.append(line + '\n')
+  osutils.WriteFile(filename, contents, atomic=True)
+
+
+def GetAvailableKernelProfiles():
+  """Get available profiles on specified gsurl.
+
+  Returns:
+    a dictionary that maps kernel version, e.g. "4_4" to a list of
+    [major Chrome OS version, minor, timestamp]. E.g,
+    [62, 9901, 21, 1506581147]
+  """
+
+  gs_context = gs.GSContext()
+  gs_ls_url = os.path.join(KERNEL_PROFILE_URL, KERNEL_PROFILE_LS_PATTERN)
+  gs_match_url = os.path.join(KERNEL_PROFILE_URL, KERNEL_PROFILE_NAME_PATTERN)
+  try:
+    res = gs_context.List(gs_ls_url)
+  except gs.GSNoSuchKey:
+    logging.info('gs files not found: %s', gs_ls_url)
+    return {}
+
+  matches = filter(None, [re.match(gs_match_url, p.url) for p in res])
+  versions = {}
+  for m in matches:
+    versions.setdefault(m.group(1), []).append(map(int, m.groups()[1:]))
+  for v in versions:
+    versions[v].sort()
+  return versions
+
+
+def FindKernelEbuilds():
+  """Find all ebuilds that specify AFDO_PROFILE_VERSION.
+
+  The only assumption is that the ebuild files are named as the match pattern
+  in kver(). If it fails to recognize the ebuild filename, an error will be
+  thrown.
+
+  equery is not used because that would require enumerating the boards, which
+  is no easier than enumerating the kernel versions or ebuilds.
+
+  Returns:
+    a list of (ebuilds, kernel rev)
+  """
+  def kver(ebuild):
+    matched = re.match(r'.*/chromeos-kernel-([0-9]+_[0-9]+)-.+\.ebuild$',
+                       ebuild)
+    if matched:
+      return matched.group(1).replace('_', '.')
+    raise UnknownKernelVersion(
+        'Kernel version cannot be inferred from ebuild filename "%s".' % ebuild)
+
+  for fn in glob.glob(os.path.join(KERNEL_EBUILD_ROOT, '*', '*.ebuild')):
+    for line in osutils.ReadFile(fn).splitlines():
+      if re.match(KERNEL_PROFILE_MATCH_PATTERN, line):
+        yield (fn, kver(fn))
+        break
+
+
+def ProfileAge(profile_version):
+  """Tell the age of profile_version in days.
+
+  Args:
+    profile_version: [chrome milestone, cros major, cros minor, timestamp]
+                     e.g., [61, 9752, 0, 1500000000]
+
+  Returns:
+    Age of profile_version in days.
+  """
+  return (datetime.datetime.now() -
+          datetime.datetime.fromtimestamp(profile_version[3])).days

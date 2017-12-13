@@ -38,7 +38,8 @@ public:
         return FixedFunctionFlags::kNone;
     }
 
-    RequiresDstTexture finalize(const GrCaps& caps, const GrAppliedClip* clip) override {
+    RequiresDstTexture finalize(const GrCaps&, const GrAppliedClip*,\
+                                GrPixelConfigIsClamped) override {
         return RequiresDstTexture::kNo;
     }
 
@@ -52,14 +53,14 @@ private:
     void onPrepareDraws(Target* target) override {
         class GP : public GrGeometryProcessor {
         public:
-            GP(int numAttribs) {
-                this->initClassID<GP>();
+            GP(int numAttribs)
+            : INHERITED(kGP_ClassID) {
                 SkASSERT(numAttribs > 1);
                 for (auto i = 0; i < numAttribs; ++i) {
                     fAttribNames.push_back().printf("attr%d", i);
                 }
                 for (auto i = 0; i < numAttribs; ++i) {
-                    this->addVertexAttrib(fAttribNames[i].c_str(), kVec2f_GrVertexAttribType);
+                    this->addVertexAttrib(fAttribNames[i].c_str(), kFloat2_GrVertexAttribType);
                 }
             }
             const char* name() const override { return "Dummy GP"; }
@@ -72,8 +73,8 @@ private:
                         args.fVaryingHandler->emitAttributes(gp);
                         this->writeOutputPosition(args.fVertBuilder, gpArgs, gp.getAttrib(0).fName);
                         GrGLSLPPFragmentBuilder* fragBuilder = args.fFragBuilder;
-                        fragBuilder->codeAppendf("%s = float4(1);", args.fOutputColor);
-                        fragBuilder->codeAppendf("%s = float4(1);", args.fOutputCoverage);
+                        fragBuilder->codeAppendf("%s = half4(1);", args.fOutputColor);
+                        fragBuilder->codeAppendf("%s = half4(1);", args.fOutputCoverage);
                     }
                     void setData(const GrGLSLProgramDataManager& pdman,
                                  const GrPrimitiveProcessor& primProc,
@@ -88,6 +89,8 @@ private:
 
         private:
             SkTArray<SkString> fAttribNames;
+
+            typedef GrGeometryProcessor INHERITED;
         };
         sk_sp<GrGeometryProcessor> gp(new GP(fNumAttribs));
         QuadHelper helper;

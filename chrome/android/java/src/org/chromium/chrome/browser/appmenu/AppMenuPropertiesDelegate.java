@@ -78,7 +78,7 @@ public class AppMenuPropertiesDelegate {
         } else {
             boolean isBottomSheetNtpMenu = mActivity.getBottomSheet() != null
                     && mActivity.getBottomSheet().isShowingNewTab();
-            return !isBottomSheetNtpMenu && !isOverview;
+            return !isBottomSheetNtpMenu && !isOverview && mActivity.getActivityTab() != null;
         }
     }
 
@@ -328,6 +328,7 @@ public class AppMenuPropertiesDelegate {
      */
     public void onMenuDismissed() {
         mReloadMenuItem = null;
+        mAppMenuIconRowFooter = null;
     }
 
     // Set enabled to be |enable| for all MenuItems with |id| in |menu|.

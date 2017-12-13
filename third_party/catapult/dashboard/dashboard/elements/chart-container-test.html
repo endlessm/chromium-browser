@@ -72,7 +72,8 @@ tr.b.unittest.testSuite(function() {
     return new Promise(function(resolve) {
       function check() {
         assert.lengthOf(chart.warnings, 1);
-        assert.notEqual(-1, chart.warnings[0].indexOf('Graph out of date!'));
+        assert.notEqual(-1, chart.warnings[0].value.indexOf(
+            'Graph out of date!'));
         resolve();
       }
       requestAnimationFrame(check);
@@ -103,6 +104,33 @@ tr.b.unittest.testSuite(function() {
     assert.strictEqual(chart.seriesGroupList[0].tests[1].displayName,
         'http___dromaeo.com?dom-attr');
   }, testOptions);
+
+  let originalUriGetQueryString;
+  const testOptionsUri = {
+    setUp() {
+      originalUriGetQueryString = uri.getQueryString;
+    },
+    tearDown() {
+      testing_common.clearXhrMock();
+      testing_common.clearFixture();
+      uri.getQueryString = originalUriGetQueryString;
+    }
+  };
+
+  test('showTooltip uses uri bug_id', function() {
+    uri.getQueryString = function() { return '?bug_id=123'; };
+
+    testing_common.mockChartJson(
+        dromaeoCharts, dromaeoCharts.graphSelectedJson);
+    testing_common.mockChartJson(
+        sunspiderCharts, sunspiderCharts.graphSelectedJson);
+    const chart = createChart();
+    this.addHTMLOutput(chart);
+    chart.addSeriesGroup(dromaeoCharts.graphParams);
+    chart.addSeriesGroup(sunspiderCharts.graphParams);
+    chart.showTooltip(0, 0);
+    assert.strictEqual(chart.$.tooltip.bugId, '123');
+  }, testOptionsUri);
 
   test('populateTestPicker', function() {
     testing_common.mockChartJson(dromaeoCharts);

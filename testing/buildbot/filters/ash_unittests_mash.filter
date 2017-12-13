@@ -6,6 +6,7 @@
 -FullscreenAppListPresenterDelegateTest.HalfToPeekingByClickOrTap/0
 -FullscreenAppListPresenterDelegateTest.HalfToPeekingByClickOrTap/1
 -FullscreenAppListPresenterDelegateTest.KeyPressEnablesSearchBox
+-FullscreenAppListPresenterDelegateTest.LongUpwardDragInFullscreenShouldNotClose/1
 -FullscreenAppListPresenterDelegateTest.TabletModeTextStateTransitions
 -FullscreenAppListPresenterDelegateTest.PeekingToFullscreenWhenTabletModeIsActive
 -FullscreenAppListPresenterDelegateTest.SideShelfAlignmentTextStateTransitions
@@ -27,6 +28,7 @@
 -CursorWindowControllerTest.DSF
 -CursorWindowControllerTest.MoveToDifferentDisplay
 -CursorWindowControllerTest.VisibilityTest
+# TODO: decide if this needs to be ported. http://crbug.com/695566.
 -DIPTest.WorkArea
 -DisplayManagerFontTest.TextSubpixelPositioningWithDsf125External
 -DisplayManagerFontTest.TextSubpixelPositioningWithDsf125Internal
@@ -216,10 +218,6 @@
 -PartialScreenshotControllerTest.TouchMousePointerHoverIgnoredWithPointerEvents
 -PartialScreenshotControllerTest.TwoFingerTouch
 -PartialScreenshotControllerTest.VisibilityTest
--PointerWatcherAdapterClassicTest.MouseEvents
--PointerWatcherAdapterClassicTest.TouchEvents
--PointerWatcherdapterClassicTest.Mousevents
--PointerWatcherdapterClassicTest.Touchvents
 -ResizeShadowAndCursorTest.MaximizeRestore
 -ResizeShadowAndCursorTest.Minimize
 -ResizeShadowAndCursorTest.MouseDrag
@@ -287,6 +285,9 @@
 -SystemGestureEventFilterTest.WindowsWithMaxSizeDontSnap
 -ToastManagerTest.NullMessageHasNoDismissButton
 -ToplevelWindowEventHandlerTest.GestureDragCaptureLoss
+-TouchCalibratorControllerTest.CustomCalibration
+-TouchCalibratorControllerTest.CustomCalibrationInvalidTouchId
+-TouchCalibratorControllerTest.TouchDeviceIdIsSet
 -TouchHudDebugTest.DualDisplays
 -TouchHudDebugTest.Headless
 -TouchHudDebugTest.MirrorDisplays
@@ -335,12 +336,13 @@
 -WindowTreeHostManagerTest.UpdateMouseLocationAfterDisplayChange_PrimaryDisconnected
 -WindowTreeHostManagerTest.UpdateMouseLocationAfterDisplayChange_SwapPrimary
 -WindowTreeHostManagerTest.UpdateMouseocationfterisplayChange
-# TODO: fix this. It fails because a container used in the test has more
-# children in mash.
-# http://crbug.com/764577.
--WorkspaceLayoutManagerBackdropTest.BackdropForSplitScreenTest
--WorkspaceLayoutManagerKeyboardTest2.ChangeWorkAreaInNonStickyMode
--WorkspaceLayoutManagerKeyboardTest2.IgnoreWorkAreaChangeinNonStickyMode
+-WorkspaceLayoutManagerKeyboardTest.ChildWindowFocused
+-WorkspaceLayoutManagerKeyboardTest.AdjustWindowForA11yKeyboard
+-WorkspaceLayoutManagerKeyboardTest.IgnoreKeyboardBoundsChange
+-WorkspaceLayoutManagerKeyboardTest.IgnoreWorkAreaChangeinNonStickyMode
+# TODO: fix this. It might fail because GL_OES_texture_npot is not supported.
+# http://crbug.com/775067.
+-WorkspaceLayoutManagerBackdropTest.BackdropTest
 # TODO: fix these. They fail because DeviceDataManager isn't created.
 # http://crbug.com/734812.
 -TrayIMETest.HidesOnA11yEnabled
@@ -366,3 +368,10 @@
 -TrayTilesTest.ButtonStatesAddingUser
 -TrayTilesTest.ButtonStatesLockScreen
 -TrayTilesTest.ButtonStatesSupervisedUserFlow
+
+
+# The following are specific to classic ash and don't need to be ported.
+-PointerWatcherAdapterClassicTest.MouseEvents
+-PointerWatcherAdapterClassicTest.TouchEvents
+-PointerWatcherdapterClassicTest.Mousevents
+-PointerWatcherdapterClassicTest.Touchvents

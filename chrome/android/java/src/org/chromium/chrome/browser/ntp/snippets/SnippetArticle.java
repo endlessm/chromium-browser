@@ -4,6 +4,7 @@
 package org.chromium.chrome.browser.ntp.snippets;
 
 import android.graphics.drawable.Drawable;
+import android.support.annotation.ColorInt;
 import android.support.annotation.Nullable;
 
 import org.chromium.base.DiscardableReferencePool.DiscardableReference;
@@ -26,9 +27,6 @@ public class SnippetArticle implements OfflinableSuggestion {
 
     /** The canonical publisher name (e.g., New York Times). */
     public final String mPublisher;
-
-    /** The snippet preview text. */
-    public final String mPreviewText;
 
     /** The URL of this article. This may be an AMP url. */
     public final String mUrl;
@@ -56,6 +54,9 @@ public class SnippetArticle implements OfflinableSuggestion {
 
     /** The thumbnail, fetched lazily when the RecyclerView wants to show the snippet. */
     private DiscardableReference<Drawable> mThumbnail;
+
+    /** The thumbnail dominant color. */
+    private @ColorInt Integer mThumbnailDominantColor;
 
     /** Stores whether impression of this article has been tracked already. */
     private boolean mImpressionTracked;
@@ -85,18 +86,18 @@ public class SnippetArticle implements OfflinableSuggestion {
      * Creates a SnippetArticleListItem object that will hold the data.
      */
     public SnippetArticle(int category, String idWithinCategory, String title, String publisher,
-            String previewText, String url, long publishTimestamp, float score, long fetchTimestamp,
-            boolean isVideoSuggestion) {
+            String url, long publishTimestamp, float score, long fetchTimestamp,
+            boolean isVideoSuggestion, @ColorInt Integer thumbnailDominantColor) {
         mCategory = category;
         mIdWithinCategory = idWithinCategory;
         mTitle = title;
         mPublisher = publisher;
-        mPreviewText = previewText;
         mUrl = url;
         mPublishTimestampMilliseconds = publishTimestamp;
         mScore = score;
         mFetchTimestampMilliseconds = fetchTimestamp;
         mIsVideoSuggestion = isVideoSuggestion;
+        mThumbnailDominantColor = thumbnailDominantColor;
     }
 
     @Override
@@ -121,6 +122,15 @@ public class SnippetArticle implements OfflinableSuggestion {
     /** Sets the thumbnail bitmap for this article. */
     public void setThumbnail(DiscardableReference<Drawable> thumbnail) {
         mThumbnail = thumbnail;
+    }
+
+    /**
+     * Returns this article's thumbnail dominant color. Can return {@code null} if there is none.
+     */
+    @Nullable
+    @ColorInt
+    public Integer getThumbnailDominantColor() {
+        return mThumbnailDominantColor;
     }
 
     /** Returns whether to track an impression for this article. */

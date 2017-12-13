@@ -10,7 +10,6 @@
 #include "ash/ash_constants.h"
 #include "ash/drag_drop/drag_image_view.h"
 #include "ash/metrics/user_metrics_recorder.h"
-#include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shelf_item_delegate.h"
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/scoped_root_window_for_new_windows.h"
@@ -32,7 +31,6 @@
 #include "ash/wm/root_window_finder.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/auto_reset.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/app_list/app_list_features.h"
@@ -70,13 +68,10 @@ const float kReservedNonPanelIconProportion = 0.67f;
 const int kRipOffDistance = 48;
 
 // The rip off drag and drop proxy image should get scaled by this factor.
-const float kDragAndDropProxyScale = 1.5f;
+const float kDragAndDropProxyScale = 1.2f;
 
 // The opacity represents that this partially disappeared item will get removed.
 const float kDraggedImageOpacity = 0.5f;
-
-// The time threshold before an item may be dragged by touch events.
-const int kTouchDragTimeThresholdMs = 300;
 
 namespace {
 
@@ -473,33 +468,19 @@ void ShelfView::ButtonPressed(views::Button* sender,
       break;
   }
 
-  // Notify the item of its selection; handle the result in AfterItemSelected.
-  const ShelfItem& item = model_->items()[last_pressed_index_];
-  const int64_t display_id = GetDisplayIdForView(this);
-
   // Run AfterItemSelected directly if the item has no delegate (ie. in tests).
+  const ShelfItem& item = model_->items()[last_pressed_index_];
   if (!model_->GetShelfItemDelegate(item.id)) {
     AfterItemSelected(item, sender, ui::Event::Clone(event), ink_drop,
                       SHELF_ACTION_NONE, base::nullopt);
     return;
   }
 
-  // Mash requires conversion of mouse and touch events to pointer events.
-  std::unique_ptr<ui::Event> pointer_event;
-  if (Shell::GetAshConfig() == Config::MASH &&
-      ui::PointerEvent::CanConvertFrom(event)) {
-    if (event.IsMouseEvent())
-      pointer_event = base::MakeUnique<ui::PointerEvent>(*event.AsMouseEvent());
-    else if (event.IsTouchEvent())
-      pointer_event = base::MakeUnique<ui::PointerEvent>(*event.AsTouchEvent());
-    else
-      NOTREACHED() << "Need conversion of event to pointer event.";
-  }
-  const ui::Event* event_to_pass = pointer_event ? pointer_event.get() : &event;
+  // Notify the item of its selection; handle the result in AfterItemSelected.
   model_->GetShelfItemDelegate(item.id)->ItemSelected(
-      ui::Event::Clone(*event_to_pass), display_id, LAUNCH_FROM_UNKNOWN,
+      ui::Event::Clone(event), GetDisplayIdForView(this), LAUNCH_FROM_UNKNOWN,
       base::Bind(&ShelfView::AfterItemSelected, weak_factory_.GetWeakPtr(),
-                 item, sender, base::Passed(ui::Event::Clone(*event_to_pass)),
+                 item, sender, base::Passed(ui::Event::Clone(event)),
                  ink_drop));
 }
 
@@ -527,7 +508,7 @@ void ShelfView::CreateDragIconProxy(
   drag_replaced_view_ = replaced_view;
   aura::Window* root_window =
       drag_replaced_view_->GetWidget()->GetNativeWindow()->GetRootWindow();
-  drag_image_ = base::MakeUnique<DragImageView>(
+  drag_image_ = std::make_unique<DragImageView>(
       root_window, ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE);
   drag_image_->SetImage(icon);
   gfx::Size size = drag_image_->GetPreferredSize();
@@ -541,6 +522,29 @@ void ShelfView::CreateDragIconProxy(
   drag_image_->SetWidgetVisible(true);
 }
 
+void ShelfView::CreateDragIconProxyByLocationWithNoAnimation(
+    const gfx::Point& origin_in_screen_coordinates,
+    const gfx::ImageSkia& icon,
+    views::View* replaced_view,
+    float scale_factor) {
+  drag_replaced_view_ = replaced_view;
+  aura::Window* root_window =
+      drag_replaced_view_->GetWidget()->GetNativeWindow()->GetRootWindow();
+  drag_image_ = std::make_unique<DragImageView>(
+      root_window, ui::DragDropTypes::DRAG_EVENT_SOURCE_MOUSE);
+  drag_image_->SetImage(icon);
+  gfx::Size size = drag_image_->GetPreferredSize();
+  size.set_width(size.width() * scale_factor);
+  size.set_height(size.height() * scale_factor);
+  gfx::Rect drag_image_bounds(origin_in_screen_coordinates, size);
+  drag_image_->SetBoundsInScreen(drag_image_bounds);
+
+  // Turn off the default visibility animation.
+  drag_image_->GetWidget()->SetVisibilityAnimationTransition(
+      views::Widget::ANIMATE_NONE);
+  drag_image_->SetWidgetVisible(true);
+}
+
 void ShelfView::UpdateDragIconProxy(
     const gfx::Point& location_in_screen_coordinates) {
   // TODO(jennyz): Investigate why drag_image_ becomes null at this point per
@@ -549,6 +553,16 @@ void ShelfView::UpdateDragIconProxy(
     drag_image_->SetScreenPosition(location_in_screen_coordinates -
                                    drag_image_offset_);
   }
+}
+
+void ShelfView::UpdateDragIconProxyByLocation(
+    const gfx::Point& origin_in_screen_coordinates) {
+  if (drag_image_)
+    drag_image_->SetScreenPosition(origin_in_screen_coordinates);
+}
+
+bool ShelfView::IsDraggedView(const ShelfButton* view) const {
+  return drag_view_ == view;
 }
 
 void ShelfView::DestroyDragIconProxy() {
@@ -675,6 +689,9 @@ void ShelfView::PointerPressedOnButton(views::View* view,
   if (drag_view_)
     return;
 
+  if (IsShowingMenu())
+    launcher_menu_runner_->Cancel();
+
   int index = view_model_->GetIndexOfView(view);
   if (index == -1 || view_model_->view_size() <= 1)
     return;  // View is being deleted, ignore request.
@@ -686,9 +703,6 @@ void ShelfView::PointerPressedOnButton(views::View* view,
   // the call in ShelfView::ButtonPressed(...).
   is_repost_event_on_same_item_ =
       IsRepostEvent(event) && (last_pressed_index_ == index);
-
-  if (pointer == TOUCH)
-    touch_press_time_ = base::TimeTicks::Now();
 
   CHECK_EQ(ShelfButton::kViewClassName, view->GetClassName());
   drag_view_ = static_cast<ShelfButton*>(view);
@@ -1600,13 +1614,15 @@ void ShelfView::ShelfItemAdded(int model_index) {
 void ShelfView::ShelfItemRemoved(int model_index, const ShelfItem& old_item) {
   if (old_item.id == context_menu_id_)
     launcher_menu_runner_->Cancel();
+
+  views::View* view = view_model_->view_at(model_index);
+  view_model_->Remove(model_index);
+
   {
     base::AutoReset<bool> cancelling_drag(&cancelling_drag_model_changed_,
                                           true);
-    model_index = CancelDrag(model_index);
+    CancelDrag(-1);
   }
-  views::View* view = view_model_->view_at(model_index);
-  view_model_->Remove(model_index);
 
   // When the overflow bubble is visible, the overflow range needs to be set
   // before CalculateIdealBounds() gets called. Otherwise CalculateIdealBounds()
@@ -1698,6 +1714,7 @@ void ShelfView::ShelfItemMoved(int start_index, int target_index) {
 }
 
 void ShelfView::ShelfItemDelegateChanged(const ShelfID& id,
+                                         ShelfItemDelegate* old_delegate,
                                          ShelfItemDelegate* delegate) {}
 
 void ShelfView::AfterItemSelected(
@@ -1716,7 +1733,7 @@ void ShelfView::AfterItemSelected(
       // Show the app menu with 2 or more items, if no window was created.
       ink_drop->AnimateToState(views::InkDropState::ACTIVATED);
       context_menu_id_ = item.id;
-      ShowMenu(base::MakeUnique<ShelfApplicationMenuModel>(
+      ShowMenu(std::make_unique<ShelfApplicationMenuModel>(
                    item.title, std::move(*menu_items),
                    model_->GetShelfItemDelegate(item.id)),
                sender, gfx::Point(), false,
@@ -1725,22 +1742,21 @@ void ShelfView::AfterItemSelected(
       ink_drop->AnimateToState(views::InkDropState::ACTION_TRIGGERED);
     }
   }
-  // The menu clears |scoped_root_window_for_new_windows_| in OnMenuClosed.
-  if (!IsShowingMenu())
-    scoped_root_window_for_new_windows_.reset();
+  scoped_root_window_for_new_windows_.reset();
 }
 
 void ShelfView::AfterGetContextMenuItems(
     const ShelfID& shelf_id,
     const gfx::Point& point,
+    views::View* source,
     ui::MenuSourceType source_type,
     std::vector<mojom::MenuItemPtr> menu_items) {
   context_menu_id_ = shelf_id;
   const int64_t display_id = GetDisplayIdForView(this);
-  ShowMenu(base::MakeUnique<ShelfContextMenuModel>(
+  ShowMenu(std::make_unique<ShelfContextMenuModel>(
                std::move(menu_items), model_->GetShelfItemDelegate(shelf_id),
                display_id),
-           nullptr /* source */, point, true /* context_menu */, source_type,
+           source, point, true /* context_menu */, source_type,
            nullptr /* ink_drop */);
 }
 
@@ -1778,7 +1794,7 @@ void ShelfView::ShowContextMenuForView(views::View* source,
   const ShelfItem* item = ShelfItemForView(source);
   if (!item || !model_->GetShelfItemDelegate(item->id)) {
     context_menu_id_ = ShelfID();
-    ShowMenu(base::MakeUnique<ShelfContextMenuModel>(
+    ShowMenu(std::make_unique<ShelfContextMenuModel>(
                  std::vector<mojom::MenuItemPtr>(), nullptr, display_id),
              source, context_menu_point, true, source_type, nullptr);
     return;
@@ -1786,9 +1802,9 @@ void ShelfView::ShowContextMenuForView(views::View* source,
 
   // Get any custom entries; show the context menu in AfterGetContextMenuItems.
   model_->GetShelfItemDelegate(item->id)->GetContextMenuItems(
-      display_id,
-      base::Bind(&ShelfView::AfterGetContextMenuItems,
-                 weak_factory_.GetWeakPtr(), item->id, point, source_type));
+      display_id, base::Bind(&ShelfView::AfterGetContextMenuItems,
+                             weak_factory_.GetWeakPtr(), item->id,
+                             context_menu_point, source, source_type));
 }
 
 void ShelfView::ShowMenu(std::unique_ptr<ui::MenuModel> menu_model,
@@ -1807,13 +1823,16 @@ void ShelfView::ShowMenu(std::unique_ptr<ui::MenuModel> menu_model,
   if (context_menu)
     run_types |=
         views::MenuRunner::CONTEXT_MENU | views::MenuRunner::FIXED_ANCHOR;
+
+  // Only selected shelf items with context menu opened can be dragged.
+  const ShelfItem* item = ShelfItemForView(source);
+  if (context_menu && item && item->type != TYPE_APP_LIST &&
+      source_type == ui::MenuSourceType::MENU_SOURCE_TOUCH) {
+    run_types |= views::MenuRunner::SEND_GESTURE_EVENTS_TO_OWNER;
+  }
+
   launcher_menu_runner_.reset(
       new views::MenuRunner(menu_model_adapter_->CreateMenu(), run_types));
-
-  // Place new windows on the same display as the button that spawned the menu.
-  aura::Window* window = GetWidget()->GetNativeWindow();
-  scoped_root_window_for_new_windows_.reset(
-      new ScopedRootWindowForNewWindows(window->GetRootWindow()));
 
   views::MenuAnchorPosition menu_alignment = views::MENU_ANCHOR_TOPLEFT;
   gfx::Rect anchor = gfx::Rect(click_point, gfx::Size());
@@ -1823,6 +1842,7 @@ void ShelfView::ShowMenu(std::unique_ptr<ui::MenuModel> menu_model,
     // Application lists use a bubble.
     // It is possible to invoke the menu while it is sliding into view. To cover
     // that case, the screen coordinates are offsetted by the animation delta.
+    aura::Window* window = GetWidget()->GetNativeWindow();
     anchor = source->GetBoundsInScreen() +
              (window->GetTargetBounds().origin() - window->bounds().origin());
 
@@ -1860,10 +1880,6 @@ void ShelfView::ShowMenu(std::unique_ptr<ui::MenuModel> menu_model,
 void ShelfView::OnMenuClosed(views::InkDrop* ink_drop) {
   context_menu_id_ = ShelfID();
 
-  // Hide the hide overflow bubble after showing a context menu for its items.
-  if (owner_overflow_bubble_)
-    owner_overflow_bubble_->Hide();
-
   closing_event_time_ = launcher_menu_runner_->closing_event_time();
 
   if (ink_drop)
@@ -1872,7 +1888,6 @@ void ShelfView::OnMenuClosed(views::InkDrop* ink_drop) {
   launcher_menu_runner_.reset();
   menu_model_adapter_.reset();
   menu_model_.reset();
-  scoped_root_window_for_new_windows_.reset();
 
   // Auto-hide or alignment might have changed, but only for this shelf.
   shelf_->UpdateVisibilityState();
@@ -1941,14 +1956,6 @@ bool ShelfView::CanPrepareForDrag(Pointer pointer,
   // Dragging only begins once the pointer has travelled a minimum distance.
   if ((std::abs(event.x() - drag_origin_.x()) < kMinimumDragDistance) &&
       (std::abs(event.y() - drag_origin_.y()) < kMinimumDragDistance)) {
-    return false;
-  }
-
-  // Touch dragging only begins after a delay from the press event. This
-  // prevents accidental dragging on swipe or scroll gestures.
-  if (pointer == TOUCH &&
-      (base::TimeTicks::Now() - touch_press_time_) <
-          base::TimeDelta::FromMilliseconds(kTouchDragTimeThresholdMs)) {
     return false;
   }
 

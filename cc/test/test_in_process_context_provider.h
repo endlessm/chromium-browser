@@ -14,6 +14,7 @@
 #include "cc/test/test_image_factory.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "components/viz/test/test_gpu_memory_buffer_manager.h"
+#include "gpu/config/gpu_feature_info.h"
 
 class GrContext;
 
@@ -46,9 +47,13 @@ class TestInProcessContextProvider : public viz::ContextProvider {
   viz::ContextCacheController* CacheController() override;
   void InvalidateGrContext(uint32_t state) override;
   base::Lock* GetLock() override;
-  gpu::Capabilities ContextCapabilities() override;
+  const gpu::Capabilities& ContextCapabilities() const override;
+  const gpu::GpuFeatureInfo& GetGpuFeatureInfo() const override;
   void SetLostContextCallback(
       const LostContextCallback& lost_context_callback) override;
+  void SetSupportTextureNorm16(bool support) {
+    capabilities_texture_norm16_ = support;
+  }
 
  protected:
   friend class base::RefCountedThreadSafe<TestInProcessContextProvider>;
@@ -61,6 +66,9 @@ class TestInProcessContextProvider : public viz::ContextProvider {
   std::unique_ptr<skia_bindings::GrContextForGLES2Interface> gr_context_;
   std::unique_ptr<viz::ContextCacheController> cache_controller_;
   base::Lock context_lock_;
+  bool capabilities_texture_norm16_ = false;
+  gpu::Capabilities capabilities_;
+  gpu::GpuFeatureInfo gpu_feature_info_;
 };
 
 }  // namespace cc

@@ -24,6 +24,7 @@
 #include "components/payments/core/payment_details.h"
 #include "components/payments/core/payment_request_data_util.h"
 #include "components/payments/core/payment_shipping_option.h"
+#include "components/payments/core/web_payment_request.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "ios/chrome/browser/application_context.h"
@@ -32,7 +33,6 @@
 #import "ios/chrome/browser/payments/ios_payment_instrument.h"
 #import "ios/chrome/browser/payments/payment_request_util.h"
 #include "ios/chrome/browser/signin/signin_manager_factory.h"
-#include "ios/web/public/payments/payment_request.h"
 #include "ios/web/public/web_state/web_state.h"
 #include "third_party/libaddressinput/chromium/chrome_metadata_source.h"
 #include "third_party/libaddressinput/src/cpp/include/libaddressinput/source.h"
@@ -60,7 +60,7 @@ std::unique_ptr<::i18n::addressinput::Storage> GetAddressInputStorage() {
 namespace payments {
 
 PaymentRequest::PaymentRequest(
-    const web::PaymentRequest& web_payment_request,
+    const payments::WebPaymentRequest& web_payment_request,
     ios::ChromeBrowserState* browser_state,
     web::WebState* web_state,
     autofill::PersonalDataManager* personal_data_manager,
@@ -171,7 +171,7 @@ void PaymentRequest::DoFullCardRequest(
                                 resultDelegate:result_delegate];
 }
 
-AddressNormalizer* PaymentRequest::GetAddressNormalizer() {
+autofill::AddressNormalizer* PaymentRequest::GetAddressNormalizer() {
   return &address_normalizer_;
 }
 
@@ -245,7 +245,8 @@ CurrencyFormatter* PaymentRequest::GetOrCreateCurrencyFormatter() {
   return currency_formatter_.get();
 }
 
-AddressNormalizationManager* PaymentRequest::GetAddressNormalizationManager() {
+autofill::AddressNormalizationManager*
+PaymentRequest::GetAddressNormalizationManager() {
   return &address_normalization_manager_;
 }
 
@@ -394,10 +395,11 @@ void PaymentRequest::ParsePaymentMethodData() {
     }
   }
 
-  // TODO(crbug.com/709036): Validate method data.
+  std::set<std::string> payment_method_identifiers_set;
   data_util::ParseSupportedMethods(
       web_payment_request_.method_data, &supported_card_networks_,
-      &basic_card_specified_networks_, &url_payment_method_identifiers_);
+      &basic_card_specified_networks_, &url_payment_method_identifiers_,
+      &payment_method_identifiers_set);
   supported_card_networks_set_.insert(supported_card_networks_.begin(),
                                       supported_card_networks_.end());
 

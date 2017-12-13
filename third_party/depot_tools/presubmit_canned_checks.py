@@ -100,7 +100,7 @@ def CheckAuthorizedAuthor(input_api, output_api):
     return [output_api.PresubmitPromptWarning(
         ('%s is not in AUTHORS file. If you are a new contributor, please visit'
         '\n'
-        'http://www.chromium.org/developers/contributing-code and read the '
+        'https://www.chromium.org/developers/contributing-code and read the '
         '"Legal" section\n'
         'If you are a chromite, verify the contributor signed the CLA.') %
         author)]
@@ -1088,20 +1088,26 @@ def PanProjectChecks(input_api, output_api,
 
 def CheckPatchFormatted(input_api, output_api, check_js=False):
   import git_cl
-  cmd = ['cl', 'format', '--dry-run', '--presubmit']
+  cmd = ['-C', input_api.change.RepositoryRoot(),
+         'cl', 'format', '--dry-run', '--presubmit']
   if check_js:
     cmd.append('--js')
-  cmd.append(input_api.PresubmitLocalPath())
-
+  presubmit_subdir = input_api.os_path.relpath(
+      input_api.PresubmitLocalPath(), input_api.change.RepositoryRoot())
+  if presubmit_subdir.startswith('..') or presubmit_subdir == '.':
+    presubmit_subdir = ''
+  # If the PRESUBMIT.py is in a parent repository, then format the entire
+  # subrepository. Otherwise, format only the code in the directory that
+  # contains the PRESUBMIT.py.
+  if presubmit_subdir:
+    cmd.append(input_api.PresubmitLocalPath())
   code, _ = git_cl.RunGitWithCode(cmd, suppress_stderr=True)
   if code == 2:
     short_path = input_api.basename(input_api.PresubmitLocalPath())
-    full_path = input_api.os_path.relpath(input_api.PresubmitLocalPath(),
-                                          input_api.change.RepositoryRoot())
     return [output_api.PresubmitPromptWarning(
       'The %s directory requires source formatting. '
-      'Please run git cl format %s%s' %
-      (short_path, '--js ' if check_js else '', full_path))]
+      'Please run: git cl format %s%s' %
+      (short_path, '--js ' if check_js else '', presubmit_subdir))]
   # As this is just a warning, ignore all other errors if the user
   # happens to have a broken clang-format, doesn't use git, etc etc.
   return []
@@ -1125,3 +1131,57 @@ def CheckGNFormatted(input_api, output_api):
   # It's just a warning, so ignore other types of failures assuming they'll be
   # caught elsewhere.
   return warnings
+
+
+def CheckCIPDManifest(input_api, output_api, path=None, content=None):
+  """Verifies that a CIPD ensure file manifest is valid against all platforms.
+
+  Exactly one of "path" or "content" must be provided. An assertion will occur
+  if neither or both are provided.
+
+  Args:
+    path (str): If provided, the filesystem path to the manifest to verify.
+    content (str): If provided, the raw content of the manifest to veirfy.
+  """
+  cipd_bin = 'cipd' if not input_api.is_windows else 'cipd.bat'
+  cmd = [cipd_bin, 'ensure-file-verify']
+  kwargs = {}
+
+  if input_api.is_windows:
+    # Needs to be able to resolve "cipd.bat".
+    kwargs['shell'] = True
+
+  if input_api.verbose:
+    cmd += ['-log-level', 'debug']
+
+  if path:
+    assert content is None, 'Cannot provide both "path" and "content".'
+    cmd += ['-ensure-file', path]
+  elif content:
+    assert path is None, 'Cannot provide both "path" and "content".'
+    cmd += ['-ensure-file=-']
+    kwargs['stdin'] = content
+  else:
+    raise Exception('Exactly one of "path" or "content" must be provided.')
+
+  return input_api.Command(
+      'Check CIPD manifest',
+      cmd,
+      kwargs,
+      output_api.PresubmitError)
+
+
+def CheckCIPDPackages(input_api, output_api, platforms, packages):
+  """Verifies that all named CIPD packages can be resolved against all supplied
+  platforms.
+
+  Args:
+    platforms (list): List of CIPD platforms to verify.
+    packages (dict): Mapping of package name to version.
+  """
+  manifest = []
+  for p in platforms:
+    manifest.append('$VerifiedPlatform %s' % (p,))
+  for k, v in packages.iteritems():
+    manifest.append('%s %s' % (k, v))
+  return CheckCIPDManifest(input_api, output_api, content='\n'.join(manifest))

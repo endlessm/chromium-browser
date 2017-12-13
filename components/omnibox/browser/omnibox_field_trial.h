@@ -13,14 +13,23 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "components/metrics/proto/omnibox_event.pb.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
+
+class PrefService;
 
 namespace base {
 struct Feature;
 class TimeDelta;
 }
+
+#if defined(OS_ANDROID)
+namespace user_prefs {
+class PrefRegistrySyncable;
+}
+#endif
 
 namespace omnibox {
 
@@ -30,6 +39,7 @@ extern const base::Feature kOmniboxTailSuggestions;
 extern const base::Feature kEnableClipboardProvider;
 extern const base::Feature kAndroidFakeboxDemotion;
 extern const base::Feature kAndroidFakeboxDemotionOnPhones;
+extern const base::Feature kAndroidChromeHomePersonalizedSuggestions;
 extern const base::Feature kSearchProviderWarmUpOnFocus;
 extern const base::Feature kSearchProviderContextAllowHttpsUrls;
 extern const base::Feature kZeroSuggestRedirectToChrome;
@@ -38,9 +48,10 @@ extern const base::Feature kDisplayTitleForCurrentUrl;
 extern const base::Feature kUIExperimentElideSuggestionUrlAfterHost;
 extern const base::Feature kUIExperimentHideSuggestionUrlScheme;
 extern const base::Feature kUIExperimentHideSuggestionUrlTrivialSubdomains;
-extern const base::Feature kUIExperimentShowSuggestionFavicons;
 extern const base::Feature kUIExperimentMaxAutocompleteMatches;
 extern const base::Feature kUIExperimentNarrowDropdown;
+extern const base::Feature kUIExperimentShowSuggestionFavicons;
+extern const base::Feature kUIExperimentSwapTitleAndUrl;
 extern const base::Feature kUIExperimentVerticalLayout;
 extern const base::Feature kUIExperimentVerticalMargin;
 extern const base::Feature kSpeculativeServiceWorkerStartOnQueryInput;
@@ -144,6 +155,10 @@ class OmniboxFieldTrial {
     EMPHASIZE_NEVER = 3
   };
 
+#if defined(OS_ANDROID)
+  static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
+#endif
+
   // ---------------------------------------------------------
   // For any experiment that's part of the bundled omnibox field trial.
 
@@ -183,20 +198,16 @@ class OmniboxFieldTrial {
   // Returns whether the user is in a ZeroSuggest field trial, which shows
   // most visited URLs. This is true for both "MostVisited" and
   // "MostVisitedWithoutSERP" trials.
-  static bool InZeroSuggestMostVisitedFieldTrial();
+  static bool InZeroSuggestMostVisitedFieldTrial(PrefService* prefs);
 
   // Returns whether the user is in ZeroSuggest field trial showing most
   // visited URLs except it doesn't show suggestions on Google search result
   // pages.
-  static bool InZeroSuggestMostVisitedWithoutSerpFieldTrial();
-
-  // Returns whether the user is in a ZeroSuggest field trial and URL-based
-  // suggestions can continue to appear after the user has started typing.
-  static bool InZeroSuggestAfterTypingFieldTrial();
+  static bool InZeroSuggestMostVisitedWithoutSerpFieldTrial(PrefService* prefs);
 
   // Returns whether the user is in a ZeroSuggest field trial, but should
   // show recently searched-for queries instead.
-  static bool InZeroSuggestPersonalizedFieldTrial();
+  static bool InZeroSuggestPersonalizedFieldTrial(PrefService* prefs);
 
   // ---------------------------------------------------------
   // For the Zero Suggest Redirect to Chrome field trial.
@@ -448,7 +459,6 @@ class OmniboxFieldTrial {
   static const char kHQPAllowMatchInSchemeRule[];
   static const char kZeroSuggestRule[];
   static const char kZeroSuggestVariantRule[];
-  static const char kSuggestVariantRule[];
   static const char kDisableResultsCachingRule[];
   static const char kMeasureSuggestPollingDelayFromLastKeystrokeRule[];
   static const char kSuggestPollingDelayMsRule[];
@@ -522,6 +532,12 @@ class OmniboxFieldTrial {
   static std::string GetValueForRuleInContext(
       const std::string& rule,
       metrics::OmniboxEventProto::PageClassification page_classification);
+
+#if defined(OS_ANDROID)
+  // Checks whether Chrome Home personalized omnibox suggestions on focus are
+  // enabled.
+  static bool InChromeHomePersonalizedZeroSuggest(PrefService* pref);
+#endif
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(OmniboxFieldTrial);
 };

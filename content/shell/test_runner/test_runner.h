@@ -7,14 +7,16 @@
 
 #include <stdint.h>
 
-#include <deque>
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
+#include "base/strings/string16.h"
 #include "content/shell/test_runner/layout_test_runtime_flags.h"
 #include "content/shell/test_runner/test_runner_export.h"
 #include "content/shell/test_runner/web_test_runner.h"
@@ -25,10 +27,6 @@
 
 class GURL;
 class SkBitmap;
-
-namespace base {
-class NullableString16;
-}
 
 namespace blink {
 class WebContentSettingsClient;
@@ -105,8 +103,6 @@ class TestRunner : public WebTestRunner {
   void SetFocus(blink::WebView* web_view, bool focus) override;
 
   // Methods used by WebViewTestClient and WebFrameTestClient.
-  void OnNavigationBegin(blink::WebFrame* frame);
-  void OnNavigationEnd() { will_navigate_ = false; }
   std::string GetAcceptLanguages() const;
   bool shouldStayOnPageAfterHandlingBeforeUnload() const;
   MockScreenOrientationClient* getMockScreenOrientationClient();
@@ -210,7 +206,7 @@ class TestRunner : public WebTestRunner {
    private:
     void ProcessWork();
 
-    std::deque<WorkItem*> queue_;
+    base::circular_deque<WorkItem*> queue_;
     bool frozen_;
     TestRunner* controller_;
 
@@ -532,9 +528,10 @@ class TestRunner : public WebTestRunner {
   void SetMIDIAccessorResult(midi::mojom::Result result);
 
   // Simulates a click on a Web Notification.
-  void SimulateWebNotificationClick(const std::string& title,
-                                    int action_index,
-                                    const base::NullableString16& reply);
+  void SimulateWebNotificationClick(
+      const std::string& title,
+      const base::Optional<int>& action_index,
+      const base::Optional<base::string16>& reply);
 
   // Simulates closing a Web Notification.
   void SimulateWebNotificationClose(const std::string& title, bool by_user);
@@ -626,12 +623,6 @@ class TestRunner : public WebTestRunner {
   std::unique_ptr<MockContentSettingsClient> mock_content_settings_client_;
 
   bool use_mock_theme_;
-
-  // This is true in the period between the start of a navigation and when the
-  // provisional load for that navigation is started. Note that when
-  // browser-side navigation is enabled there is an arbitrary gap between these
-  // two events.
-  bool will_navigate_;
 
   std::unique_ptr<MockCredentialManagerClient> credential_manager_client_;
   std::unique_ptr<MockScreenOrientationClient> mock_screen_orientation_client_;

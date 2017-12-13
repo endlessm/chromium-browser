@@ -56,6 +56,10 @@ namespace chrome_browser_net {
 class DnsProbeService;
 }
 
+namespace content {
+class URLRequestContextBuilderMojo;
+}
+
 namespace data_usage {
 class DataUseAggregator;
 }
@@ -79,7 +83,6 @@ class ProxyConfigService;
 class RTTAndThroughputEstimatesObserver;
 class SSLConfigService;
 class URLRequestContext;
-class URLRequestContextBuilderMojo;
 class URLRequestContextGetter;
 
 namespace ct {
@@ -154,9 +157,6 @@ class IOThread : public content::BrowserThreadDelegate {
     // main frame load fails with a DNS error in order to provide more useful
     // information to the renderer so it can show a more specific error page.
     std::unique_ptr<chrome_browser_net::DnsProbeService> dns_probe_service;
-
-    // Enables Brotli Content-Encoding support
-    bool enable_brotli;
   };
 
   // |net_log| must either outlive the IOThread or be NULL.
@@ -223,7 +223,7 @@ class IOThread : public content::BrowserThreadDelegate {
   // |proxy_config_service| and sets a number of proxy-related options based on
   // prefs, policies, and the command line.
   void SetUpProxyConfigService(
-      net::URLRequestContextBuilderMojo* builder,
+      content::URLRequestContextBuilderMojo* builder,
       std::unique_ptr<net::ProxyConfigService> proxy_config_service) const;
 
  private:
@@ -304,7 +304,7 @@ class IOThread : public content::BrowserThreadDelegate {
 #if defined(OS_ANDROID)
   StringPrefMember auth_android_negotiate_account_type_;
 #endif
-#if defined(OS_POSIX) && !defined(OS_ANDROID)
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   // No PrefMember for the GSSAPI library name, since changing it after startup
   // requires unloading the existing GSSAPI library, which could cause all sorts
   // of problems for, for example, active Negotiate transactions.

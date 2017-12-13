@@ -23,7 +23,6 @@ import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.ChromeTabbedActivity2;
 import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.util.IntentUtils;
 
 import java.lang.ref.WeakReference;
@@ -115,6 +114,15 @@ public class MultiWindowUtils implements ActivityStateListener {
             Intent intent, Activity activity, Class<? extends Activity> targetActivity) {
         intent.setClass(activity, targetActivity);
         intent.addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
+
+        // Remove LAUNCH_ADJACENT flag if we want to start CTA, but it's already running.
+        // If arleady running CTA was started via .Main activity alias, starting it again with
+        // LAUNCH_ADJACENT will create another CTA instance with just a single tab. There doesn't
+        // seem to be a reliable way to check if an activity was started via an alias, so we're
+        // removing the flag if any CTA instance is running. See crbug.com/771516 for details.
+        if (targetActivity.equals(ChromeTabbedActivity.class) && isPrimaryTabbedActivityRunning()) {
+            intent.setFlags(intent.getFlags() & ~Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
+        }
 
         // Let Chrome know that this intent is from Chrome, so that it does not close the app when
         // the user presses 'back' button.
@@ -234,6 +242,11 @@ public class MultiWindowUtils implements ActivityStateListener {
         for (AppTask task : appTasks) {
             if (task.getTaskInfo() == null || task.getTaskInfo().baseActivity == null) continue;
             String baseActivity = task.getTaskInfo().baseActivity.getClassName();
+
+            if (TextUtils.equals(baseActivity, ChromeTabbedActivity.MAIN_LAUNCHER_ACTIVITY_NAME)) {
+                baseActivity = ChromeTabbedActivity.class.getName();
+            }
+
             if (TextUtils.equals(baseActivity, className)) return true;
         }
         return false;
@@ -267,21 +280,32 @@ public class MultiWindowUtils implements ActivityStateListener {
     }
 
     /**
-     * @param activity The {@link Activity} to check.
-     * @return Whether or not {@code activity} should run in pre-N Samsung multi-instance mode.
+     * @return Whether ChromeTabbedActivity (exact activity, not a subclass of) is currently
+     *         running.
      */
-    public boolean shouldRunInLegacyMultiInstanceMode(ChromeLauncherActivity activity) {
+    private static boolean isPrimaryTabbedActivityRunning() {
+        for (WeakReference<Activity> reference : ApplicationStatus.getRunningActivities()) {
+            Activity activity = reference.get();
+            if (activity == null) continue;
+            if (activity.getClass().equals(ChromeTabbedActivity.class)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * @return Whether or not activity should run in pre-N Samsung multi-instance mode.
+     */
+    public boolean shouldRunInLegacyMultiInstanceMode(Activity activity, Intent intent) {
         return Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP
-                && TextUtils.equals(activity.getIntent().getAction(), Intent.ACTION_MAIN)
-                && isLegacyMultiWindow(activity)
-                && activity.isChromeBrowserActivityRunning();
+                && TextUtils.equals(intent.getAction(), Intent.ACTION_MAIN)
+                && isLegacyMultiWindow(activity) && isPrimaryTabbedActivityRunning();
     }
 
     /**
      * Makes |intent| able to support multi-instance in pre-N Samsung multi-window mode.
      */
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
-    public void makeLegacyMultiInstanceIntent(ChromeLauncherActivity activity, Intent intent) {
+    public void makeLegacyMultiInstanceIntent(Activity activity, Intent intent) {
         if (isLegacyMultiWindow(activity)) {
             if (TextUtils.equals(ChromeTabbedActivity.class.getName(),
                     intent.getComponent().getClassName())) {

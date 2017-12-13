@@ -35,7 +35,7 @@
 #endif  // defined(OS_CHROMEOS)
 
 #if defined(SAFE_BROWSING_DB_LOCAL)
-#include "components/safe_browsing/password_protection/password_protection_service.h"
+#include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
 #endif
 
 DEFINE_WEB_CONTENTS_USER_DATA_KEY(SecurityStateTabHelper);
@@ -145,6 +145,15 @@ void SecurityStateTabHelper::DidFinishNavigation(
         "warning has been added to the URL bar. For more information, see "
         "https://goo.gl/y8SRRv.");
   }
+  if (net::IsCertStatusError(security_info.cert_status) &&
+      !net::IsCertStatusMinorError(security_info.cert_status)) {
+    // Record each time a user visits a site after having clicked through a
+    // certificate warning interstitial. This is used as a baseline for
+    // interstitial.ssl.did_user_revoke_decision2 in order to determine how
+    // many times the re-enable warnings button is clicked, as a fraction of
+    // the number of times it was available.
+    UMA_HISTOGRAM_BOOLEAN("interstitial.ssl.visited_site_after_warning", true);
+  }
 }
 
 void SecurityStateTabHelper::WebContentsDestroyed() {
@@ -190,7 +199,6 @@ SecurityStateTabHelper::GetMaliciousContentStatus() const {
         break;
       case safe_browsing::SB_THREAT_TYPE_URL_PHISHING:
       case safe_browsing::SB_THREAT_TYPE_URL_CLIENT_SIDE_PHISHING:
-      case safe_browsing::SB_THREAT_TYPE_URL_PASSWORD_PROTECTION_PHISHING:
         return security_state::MALICIOUS_CONTENT_STATUS_SOCIAL_ENGINEERING;
       case safe_browsing::SB_THREAT_TYPE_URL_MALWARE:
       case safe_browsing::SB_THREAT_TYPE_URL_CLIENT_SIDE_MALWARE:
@@ -200,14 +208,20 @@ SecurityStateTabHelper::GetMaliciousContentStatus() const {
       case safe_browsing::SB_THREAT_TYPE_PASSWORD_REUSE:
 #if defined(SAFE_BROWSING_DB_LOCAL)
         if (base::FeatureList::IsEnabled(
-                safe_browsing::kGoogleBrandedPhishingWarning) &&
-            sb_service->GetPasswordProtectionService(
-                Profile::FromBrowserContext(
-                    web_contents()->GetBrowserContext()))) {
-          return security_state::MALICIOUS_CONTENT_STATUS_PASSWORD_REUSE;
+                safe_browsing::kGoogleBrandedPhishingWarning)) {
+          if (safe_browsing::ChromePasswordProtectionService::
+                  ShouldShowChangePasswordSettingUI(Profile::FromBrowserContext(
+                      web_contents()->GetBrowserContext()))) {
+            return security_state::MALICIOUS_CONTENT_STATUS_PASSWORD_REUSE;
+          }
+          // If user has already changed Gaia password, returns the regular
+          // social engineering content status.
+          return security_state::MALICIOUS_CONTENT_STATUS_SOCIAL_ENGINEERING;
         }
         break;
 #endif
+      case safe_browsing::
+          DEPRECATED_SB_THREAT_TYPE_URL_PASSWORD_PROTECTION_PHISHING:
       case safe_browsing::SB_THREAT_TYPE_URL_BINARY_MALWARE:
       case safe_browsing::SB_THREAT_TYPE_EXTENSION:
       case safe_browsing::SB_THREAT_TYPE_BLACKLISTED_RESOURCE:

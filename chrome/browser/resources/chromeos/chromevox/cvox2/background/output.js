@@ -110,11 +110,13 @@ Output.SPACE = ' ';
  * @const {Object<{msgId: string,
  *                 earconId: (string|undefined),
  *                 inherits: (string|undefined),
- *                 outputContextFirst: (boolean|undefined)}>}
+ *                 outputContextFirst: (boolean|undefined),
+ *                 ignoreAncestry: (boolean|undefined)}>}
  * msgId: the message id of the role.
  * earconId: an optional earcon to play when encountering the role.
  * inherits: inherits rules from this role.
  * outputContextFirst: where to place the context output.
+ * ignoreAncestry: ignores ancestry (context) output for this role.
  * @private
  */
 Output.ROLE_INFO_ = {
@@ -132,7 +134,8 @@ Output.ROLE_INFO_ = {
   contentInfo: {msgId: 'role_contentinfo', inherits: 'abstractContainer'},
   date: {msgId: 'input_type_date', inherits: 'abstractContainer'},
   definition: {msgId: 'role_definition', inherits: 'abstractContainer'},
-  dialog: {msgId: 'role_dialog', outputContextFirst: true},
+  dialog:
+      {msgId: 'role_dialog', outputContextFirst: true, ignoreAncestry: true},
   directory: {msgId: 'role_directory', inherits: 'abstractContainer'},
   document: {msgId: 'role_document', inherits: 'abstractContainer'},
   form: {msgId: 'role_form', inherits: 'abstractContainer'},
@@ -146,6 +149,7 @@ Output.ROLE_INFO_ = {
   },
   inputTime: {msgId: 'input_type_time', inherits: 'abstractContainer'},
   link: {msgId: 'role_link', earconId: 'LINK'},
+  list: {msgId: 'role_list'},
   listBox: {msgId: 'role_listbox', earconId: 'LISTBOX'},
   listBoxOption: {msgId: 'role_listitem', earconId: 'LIST_ITEM'},
   listItem: {msgId: 'role_listitem', earconId: 'LIST_ITEM'},
@@ -157,7 +161,7 @@ Output.ROLE_INFO_ = {
     msgId: 'role_marquee',
   },
   math: {msgId: 'role_math', inherits: 'abstractContainer'},
-  menu: {msgId: 'role_menu', outputContextFirst: true},
+  menu: {msgId: 'role_menu', outputContextFirst: true, ignoreAncestry: true},
   menuBar: {
     msgId: 'role_menubar',
   },
@@ -173,9 +177,7 @@ Output.ROLE_INFO_ = {
       {msgId: 'role_progress_indicator', inherits: 'abstractRange'},
   popUpButton: {msgId: 'role_button', earconId: 'POP_UP_BUTTON'},
   radioButton: {msgId: 'role_radio'},
-  radioGroup: {
-    msgId: 'role_radiogroup',
-  },
+  radioGroup: {msgId: 'role_radiogroup', inherits: 'abstractContainer'},
   rootWebArea: {outputContextFirst: true},
   row: {msgId: 'role_row', inherits: 'abstractContainer'},
   rowHeader: {msgId: 'role_rowheader', inherits: 'cell'},
@@ -196,10 +198,11 @@ Output.ROLE_INFO_ = {
   textField: {msgId: 'input_type_text', earconId: 'EDITABLE_TEXT'},
   time: {msgId: 'tag_time', inherits: 'abstractContainer'},
   timer: {msgId: 'role_timer'},
-  toolbar: {msgId: 'role_toolbar'},
+  toolbar: {msgId: 'role_toolbar', ignoreAncestry: true},
   toggleButton: {msgId: 'role_button', inherits: 'checkBox'},
   tree: {msgId: 'role_tree'},
-  treeItem: {msgId: 'role_treeitem'}
+  treeItem: {msgId: 'role_treeitem'},
+  window: {ignoreAncestry: true}
 };
 
 /**
@@ -378,14 +381,10 @@ Output.RULES = {
           $restriction $description`
     },
     listBoxOption: {
-      speak: `$name $role @describe_index($indexInParent, $parentChildCount)
+      speak: `$name $role @describe_index($posInSet, $setSize)
           $description $state $restriction`
     },
-    listItem: {
-      enter: `$name= $role $state $description`,
-      speak: `$nameOrDescendants $earcon(LIST_ITEM) $role $state
-          $restriction $description`
-    },
+    listItem: {enter: `$name= $role $state $description`},
     listMarker: {speak: `$name`},
     menu: {
       enter: `$name $role`,
@@ -394,23 +393,23 @@ Output.RULES = {
     },
     menuItem: {
       speak: `$name $role $if($haspopup, @has_submenu)
-          @describe_index($indexInParent, $parentChildCount)
+          @describe_index($posInSet, $setSize)
           $description $state $restriction`
     },
     menuItemCheckBox: {
       speak: `$if($checked, $earcon(CHECK_ON), $earcon(CHECK_OFF))
           $name $role $checked $state $restriction $description
-          @describe_index($indexInParent, $parentChildCount)`
+          @describe_index($posInSet, $setSize)`
     },
     menuItemRadio: {
       speak: `$if($checked, $earcon(CHECK_ON), $earcon(CHECK_OFF))
           $if($checked, @describe_radio_selected($name),
           @describe_radio_unselected($name)) $state $restriction
-          $description @describe_index($indexInParent, $parentChildCount) `
+          $description @describe_index($posInSet, $setSize) `
     },
     menuListOption: {
       speak: `$name @role_menuitem
-          @describe_index($indexInParent, $parentChildCount) $state
+          @describe_index($posInSet, $setSize) $state
           $restriction $description`
     },
     paragraph: {speak: `$descendants`},
@@ -424,7 +423,6 @@ Output.RULES = {
           @describe_radio_unselected($name)) $description $state
           $restriction`
     },
-    radioGroup: {enter: `$name $role $restriction $description`},
     rootWebArea: {enter: `$name`, speak: `$if($name, $name, $docUrl)`},
     region: {speak: `$state $nameOrTextContent $description`},
     row: {enter: `$node(tableRowHeader)`},
@@ -467,11 +465,11 @@ Output.RULES = {
     },
     treeItem: {
       enter: `$role $expanded $collapsed $restriction
-          @describe_index($indexInParent, $parentChildCount)
+          @describe_index($posInSet, $setSize)
           @describe_depth($hierarchicalLevel)`,
       speak: `$name
           $role $description $state $restriction
-          @describe_index($indexInParent, $parentChildCount)
+          @describe_index($posInSet, $setSize)
           @describe_depth($hierarchicalLevel)`
     },
     window: {
@@ -486,7 +484,7 @@ Output.RULES = {
     'default': {
       speak: `$value $name
           $find({"state": {"selected": true, "invisible": false}},
-          @describe_index($indexInParent, $parentChildCount)) `
+          @describe_index($posInSet, $setSize)) `
     }
   },
   alert: {
@@ -1039,7 +1037,8 @@ Output.prototype = {
           this.append_(buff, node.name || '', options);
         } else if (token == 'nameOrDescendants') {
           options.annotation.push(token);
-          if (node.name)
+          if (node.name &&
+              node.nameFrom != chrome.automation.NameFromType.CONTENTS)
             this.append_(buff, node.name || '', options);
           else
             this.format_(node, '$descendants', buff);
@@ -1215,6 +1214,16 @@ Output.prototype = {
             options.annotation.push(new Output.SelectionSpan(
                 buff.length, buff.length + msg.length));
           this.append_(buff, msg, options);
+        } else if (token == 'posInSet') {
+          if (node.posInSet !== undefined)
+            this.append_(buff, String(node.posInSet));
+          else
+            this.format_(node, '$indexInParent', buff);
+        } else if (token == 'setSize') {
+          if (node.setSize !== undefined)
+            this.append_(buff, String(node.setSize));
+          else
+            this.format_(node, '$parentChildCount', buff);
         } else if (tree.firstChild) {
           // Custom functions.
           if (token == 'if') {
@@ -1366,6 +1375,16 @@ Output.prototype = {
       return buff;
     }.bind(this);
 
+    var lca = null;
+    if (!this.outputContextFirst_) {
+      if (range.start.node != range.end.node) {
+        lca = AutomationUtil.getLeastCommonAncestor(
+            range.end.node, range.start.node);
+      }
+
+      prevNode = lca || prevNode;
+    }
+
     var unit = range.isInlineText() ? cursors.Unit.TEXT : cursors.Unit.NODE;
     while (cursor.node && range.end.node &&
            AutomationUtil.getDirection(cursor.node, range.end.node) ==
@@ -1379,6 +1398,18 @@ Output.prototype = {
       if (cursor.node == prevNode)
         break;
     }
+
+    // Finally, add on ancestry announcements, if needed.
+    if (!this.outputContextFirst_) {
+      // No lca; the range was already fully described.
+      if (lca == null || !prevRange.start.node)
+        return;
+
+      // Since the lca itself needs to be part of the ancestry output, use its
+      // first child as a target.
+      var target = lca.firstChild || lca;
+      this.ancestry_(target, prevRange.start.node, type, rangeBuff);
+    }
   },
 
   /**
@@ -1389,6 +1420,11 @@ Output.prototype = {
    * @private
    */
   ancestry_: function(node, prevNode, type, buff) {
+    if (Output.ROLE_INFO_[node.role] &&
+        Output.ROLE_INFO_[node.role].ignoreAncestry) {
+      return;
+    }
+
     // Expects |ancestors| to be ordered from root down to leaf. Outputs in
     // reverse; place context first nodes at the end.
     function byContextFirst(ancestors) {

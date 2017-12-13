@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2017 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -74,6 +75,9 @@ class TestGomaLogUploader(cros_test_lib.MockTempDirTestCase):
           ['x-goog-meta-builderinfo:' + expect_builderinfo]),
          ('gs://chrome-goma-log/2017/04/26/dummy-host-name',
           'compiler_proxy.host.log.INFO.20170426-120000.000000.gz',
+          ['x-goog-meta-builderinfo:' + expect_builderinfo]),
+         ('gs://chrome-goma-log/2017/04/26/dummy-host-name',
+          'gomacc.host.log.INFO.20170426-120100.000000.tar.gz',
           ['x-goog-meta-builderinfo:' + expect_builderinfo]),
         ])
 

@@ -28,8 +28,7 @@ class WebFaviconDriver : public web::WebStateObserver,
 
   static void CreateForWebState(web::WebState* web_state,
                                 FaviconService* favicon_service,
-                                history::HistoryService* history_service,
-                                bookmarks::BookmarkModel* bookmark_model);
+                                history::HistoryService* history_service);
 
   // FaviconDriver implementation.
   void FetchFavicon(const GURL& page_url, bool is_same_document) override;
@@ -56,10 +55,12 @@ class WebFaviconDriver : public web::WebStateObserver,
 
   WebFaviconDriver(web::WebState* web_state,
                    FaviconService* favicon_service,
-                   history::HistoryService* history_service,
-                   bookmarks::BookmarkModel* bookmark_model);
+                   history::HistoryService* history_service);
 
   // web::WebStateObserver implementation.
+  void NavigationItemCommitted(
+      const web::LoadCommittedDetails& load_details) override;
+  void DidFinishNavigation(web::NavigationContext* navigation_context) override;
   void FaviconUrlUpdated(
       const std::vector<web::FaviconURL>& candidates) override;
 

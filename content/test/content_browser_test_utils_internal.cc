@@ -11,6 +11,7 @@
 #include <set>
 #include <vector>
 
+#include "base/containers/stack.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/test_timeouts.h"
@@ -21,6 +22,7 @@
 #include "content/browser/frame_host/render_frame_host_delegate.h"
 #include "content/browser/frame_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/delegated_frame_host.h"
+#include "content/common/frame_messages.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
@@ -29,6 +31,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/test_frame_navigation_observer.h"
+#include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_javascript_dialog_manager.h"
 #include "net/url_request/url_request.h"
@@ -68,7 +71,7 @@ std::string FrameTreeVisualizer::DepictFrameTree(FrameTreeNode* root) {
   // Traversal 1: Assign names to current frames. This ensures that the first
   // call to the pretty-printer will result in a naming of the site instances
   // that feels natural and stable.
-  std::stack<FrameTreeNode*> to_explore;
+  base::stack<FrameTreeNode*> to_explore;
   for (to_explore.push(root); !to_explore.empty();) {
     FrameTreeNode* node = to_explore.top();
     to_explore.pop();
@@ -349,6 +352,54 @@ void UrlCommitObserver::DidFinishNavigation(
       navigation_handle->GetURL() == url_ &&
       navigation_handle->GetFrameTreeNodeId() == frame_tree_node_id_) {
     run_loop_.Quit();
+  }
+}
+
+FrameRectChangedMessageFilter::FrameRectChangedMessageFilter()
+    : content::BrowserMessageFilter(FrameMsgStart),
+      message_loop_runner_(new content::MessageLoopRunner),
+      frame_rect_received_(false) {}
+
+bool FrameRectChangedMessageFilter::OnMessageReceived(
+    const IPC::Message& message) {
+  IPC_BEGIN_MESSAGE_MAP(FrameRectChangedMessageFilter, message)
+    IPC_MESSAGE_HANDLER(FrameHostMsg_FrameRectChanged, OnFrameRectChanged)
+  IPC_END_MESSAGE_MAP()
+  return false;
+}
+
+gfx::Rect FrameRectChangedMessageFilter::last_rect() const {
+  return last_rect_;
+}
+
+void FrameRectChangedMessageFilter::Wait() {
+  message_loop_runner_->Run();
+}
+
+void FrameRectChangedMessageFilter::Reset() {
+  last_rect_ = gfx::Rect();
+  message_loop_runner_ = new content::MessageLoopRunner;
+  frame_rect_received_ = false;
+}
+
+FrameRectChangedMessageFilter::~FrameRectChangedMessageFilter() {}
+
+void FrameRectChangedMessageFilter::OnFrameRectChanged(
+    const gfx::Rect& rect,
+    const viz::LocalSurfaceId& local_surface_id) {
+  content::BrowserThread::PostTask(
+      content::BrowserThread::UI, FROM_HERE,
+      base::BindOnce(&FrameRectChangedMessageFilter::OnFrameRectChangedOnUI,
+                     this, rect, local_surface_id));
+}
+
+void FrameRectChangedMessageFilter::OnFrameRectChangedOnUI(
+    const gfx::Rect& rect,
+    const viz::LocalSurfaceId& local_surface_id) {
+  last_rect_ = rect;
+  if (!frame_rect_received_) {
+    frame_rect_received_ = true;
+    message_loop_runner_->Quit();
   }
 }
 

@@ -10,7 +10,7 @@ package org.chromium.chrome.browser;
  */
 public abstract class ChromeSwitches {
     // Switches used from Java.  Please continue switch style used Chrome where
-    // options-have-hypens and are_not_split_with_underscores.
+    // options-have-hyphens and are_not_split_with_underscores.
 
     /** Mimic a low end device */
     public static final String ENABLE_ACCESSIBILITY_TAB_SWITCHER =
@@ -163,6 +163,9 @@ public abstract class ChromeSwitches {
      */
     public static final String ALWAYS_EXTRACT_WEBAPK_RUNTIME_DEX_ON_STARTUP =
             "always-extract-webapk-dex-on-startup";
+
+    /** Treats all WebAPKs as valid - useful only for local testing. */
+    public static final String SKIP_WEBAPK_VERIFICATION = "skip-webapk-verification";
 
     /**
      * Forces a check for whether the WebAPK's Web Manifest has changed each time that a WebAPK is

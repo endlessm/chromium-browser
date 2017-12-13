@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -364,15 +365,23 @@ class EBuildRevWorkonTest(cros_test_lib.MockTempDirTestCase):
   # loop.
   _mock_ebuild = ['EAPI=2\n',
                   'CROS_WORKON_COMMIT=old_id\n',
+                  'CROS_WORKON_PROJECT=test_package\n',
                   'KEYWORDS="~x86 ~arm ~amd64"\n',
                   'src_unpack(){}\n']
   _mock_ebuild_multi = ['EAPI=2\n',
                         'CROS_WORKON_COMMIT=("old_id1","old_id2")\n',
                         'KEYWORDS="~x86 ~arm ~amd64"\n',
                         'src_unpack(){}\n']
+  _mock_ebuild_subdir = ['EAPI=5\n',
+                         'CROS_WORKON_COMMIT=old_id\n',
+                         'CROS_WORKON_PROJECT=test_package\n',
+                         'CROS_WORKON_SUBDIRS_TO_REV=( files )\n'
+                         'KEYWORDS="~x86 ~arm ~amd64"\n',
+                         'src_unpack(){}\n']
   _revved_ebuild = ('EAPI=2\n'
                     'CROS_WORKON_COMMIT="my_id"\n'
                     'CROS_WORKON_TREE="treehash"\n'
+                    'CROS_WORKON_PROJECT=test_package\n'
                     'KEYWORDS="x86 arm amd64"\n'
                     'src_unpack(){}\n')
   _revved_ebuild_multi = ('EAPI=2\n'
@@ -380,6 +389,13 @@ class EBuildRevWorkonTest(cros_test_lib.MockTempDirTestCase):
                           'CROS_WORKON_TREE=("treehash1" "treehash2")\n'
                           'KEYWORDS="x86 arm amd64"\n'
                           'src_unpack(){}\n')
+  _revved_ebuild_subdir = ('EAPI=5\n'
+                           'CROS_WORKON_COMMIT="my_id"\n'
+                           'CROS_WORKON_TREE="treehash"\n'
+                           'CROS_WORKON_PROJECT=test_package\n'
+                           'CROS_WORKON_SUBDIRS_TO_REV=( files )\n'
+                           'KEYWORDS="x86 arm amd64"\n'
+                           'src_unpack(){}\n')
 
   def setUp(self):
     self.overlay = os.path.join(self.tempdir, 'overlay')
@@ -389,6 +405,7 @@ class EBuildRevWorkonTest(cros_test_lib.MockTempDirTestCase):
     self.m_ebuild = StubEBuild(ebuild_path)
     self.revved_ebuild_path = package_name + '-r2.ebuild'
     self._m_file = cStringIO.StringIO()
+    self.git_files_changed = []
 
   def createRevWorkOnMocks(self, ebuild_content, rev, multi=False):
     """Creates a mock environment to run RevWorkOnEBuild.
@@ -408,6 +425,12 @@ class EBuildRevWorkonTest(cros_test_lib.MockTempDirTestCase):
 
     def _RunGit(cwd, cmd):
       """Mock function for portage_util.EBuild._RunGit"""
+      if cmd[0] == 'log':
+        file_list = cmd[cmd.index('--') + 1:]
+        # Return a dummy file if we have changes in any of the listed files.
+        if set(self.git_files_changed).intersection(file_list):
+          return 'file'
+        return ''
       self.assertEqual(cwd, self.overlay)
       self.assertTrue(rev, msg='git should not be run when not revving')
       if cmd[0] == 'add':
@@ -448,6 +471,85 @@ class EBuildRevWorkonTest(cros_test_lib.MockTempDirTestCase):
     result, revved_ebuild = self.RevWorkOnEBuild(self.tempdir, MANIFEST)
     self.assertEqual(result, 'category/test_package-0.0.1-r2')
     self.assertEqual(self._revved_ebuild, revved_ebuild)
+    self.assertExists(self.revved_ebuild_path)
+
+  def testRevUnchangedEBuildSubdirsNoChange(self):
+    """Test Uprev of a single-project ebuild with CROS_WORKON_SUBDIRS_TO_REV.
+
+    No files changed in git, so this should not uprev.
+    """
+    self.createRevWorkOnMocks(self._mock_ebuild_subdir, rev=False)
+    self.m_ebuild.cros_workon_vars = portage_util.EBuild.GetCrosWorkonVars(
+        self.m_ebuild.ebuild_path, 'test-package')
+    result, revved_ebuild = self.RevWorkOnEBuild(self.tempdir, MANIFEST,
+                                                 enforce_subdir_rev=True)
+    self.assertIsNone(result)
+    self.assertEqual('', revved_ebuild)
+    self.assertNotExists(self.revved_ebuild_path)
+
+  def testRevUnchangedEBuildSubdirsChange(self):
+    """Test Uprev of a single-project ebuild with CROS_WORKON_SUBDIRS_TO_REV.
+
+    The 'files' directory is changed in in git, and this directory is mentioned
+    in CROS_WORKON_SUBDIRS_TO_REV, so this should uprev.
+    """
+    self.git_files_changed = ['files']
+    self.createRevWorkOnMocks(self._mock_ebuild_subdir, rev=True)
+    self.m_ebuild.cros_workon_vars = portage_util.EBuild.GetCrosWorkonVars(
+        self.m_ebuild.ebuild_path, 'test-package')
+    result, revved_ebuild = self.RevWorkOnEBuild(self.tempdir, MANIFEST,
+                                                 enforce_subdir_rev=True)
+    self.assertEqual(result, 'category/test_package-0.0.1-r2')
+    self.assertEqual(self._revved_ebuild_subdir, revved_ebuild)
+    self.assertExists(self.revved_ebuild_path)
+
+  def testRevUnchangedEBuildOtherSubdirChange(self):
+    """Uprev an other subdir with no CROS_WORKON_SUBDIRS_TO_REV.
+
+    The 'other' directory is changed in git, but there is no
+    CROS_WORKON_SUBDIRS_TO_REV in the build, so any change causes an uprev.
+    """
+    self.git_files_changed = ['other']
+    self.createRevWorkOnMocks(self._mock_ebuild, rev=True)
+    self.m_ebuild.cros_workon_vars = portage_util.EBuild.GetCrosWorkonVars(
+        self.m_ebuild.ebuild_path, 'test-package')
+    result, revved_ebuild = self.RevWorkOnEBuild(self.tempdir, MANIFEST,
+                                                 enforce_subdir_rev=True)
+    self.assertEqual(result, 'category/test_package-0.0.1-r2')
+    self.assertEqual(self._revved_ebuild, revved_ebuild)
+    self.assertExists(self.revved_ebuild_path)
+
+  def testNoRevUnchangedEBuildOtherSubdirChange(self):
+    """Uprev an other subdir with no CROS_WORKON_SUBDIRS_TO_REV.
+
+    The 'other' directory is changed in git, but CROS_WORKON_SUBDIRS_TO_REV
+    is empty , so this should not uprev.
+    """
+    self.git_files_changed = ['other']
+    self.createRevWorkOnMocks(self._mock_ebuild_subdir, rev=False)
+    self.m_ebuild.cros_workon_vars = portage_util.EBuild.GetCrosWorkonVars(
+        self.m_ebuild.ebuild_path, 'test-package')
+    result, revved_ebuild = self.RevWorkOnEBuild(self.tempdir, MANIFEST,
+                                                 enforce_subdir_rev=True)
+    self.assertEqual(result, None)
+    self.assertEqual('', revved_ebuild)
+    self.assertNotExists(self.revved_ebuild_path)
+
+  def testRevChangedEBuildNoSubdirChange(self):
+    """Uprev a changed ebuild with CROS_WORKON_SUBDIRS_TO_REV.
+
+    Any change to the 9999 ebuild should cause an uprev, even if
+    CROS_WORKON_SUBDIRS_TO_REV is set and no files in that list are changed in
+    git.
+    """
+    self.git_files_changed = ['*9999.ebuild']
+    self.createRevWorkOnMocks(self._mock_ebuild_subdir, rev=True)
+    self.m_ebuild.cros_workon_vars = portage_util.EBuild.GetCrosWorkonVars(
+        self.m_ebuild.ebuild_path, 'test-package')
+    result, revved_ebuild = self.RevWorkOnEBuild(self.tempdir, MANIFEST,
+                                                 enforce_subdir_rev=True)
+    self.assertEqual(result, 'category/test_package-0.0.1-r2')
+    self.assertEqual(self._revved_ebuild_subdir, revved_ebuild)
     self.assertExists(self.revved_ebuild_path)
 
   def testRevWorkOnMultiEBuild(self):

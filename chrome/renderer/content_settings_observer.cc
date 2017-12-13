@@ -7,6 +7,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/common/client_hints.mojom.h"
+#include "chrome/common/client_hints/client_hints.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/ssl_insecure_content.h"
 #include "components/content_settings/core/common/content_settings.h"
@@ -485,6 +486,16 @@ void ContentSettingsObserver::PersistClientHints(
   render_frame()->GetRemoteAssociatedInterfaces()->GetInterface(&host_observer);
   host_observer->PersistClientHints(primary_origin, std::move(client_hints),
                                     duration);
+}
+
+void ContentSettingsObserver::GetAllowedClientHintsFromSource(
+    const blink::WebURL& url,
+    blink::WebEnabledClientHints* client_hints) const {
+  if (!content_setting_rules_)
+    return;
+
+  client_hints::GetAllowedClientHintsFromSource(
+      url, content_setting_rules_->client_hints_rules, client_hints);
 }
 
 void ContentSettingsObserver::DidNotAllowPlugins() {

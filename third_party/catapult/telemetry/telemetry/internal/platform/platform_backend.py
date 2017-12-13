@@ -184,6 +184,9 @@ class PlatformBackend(object):
   def GetOSName(self):
     raise NotImplementedError()
 
+  def GetDeviceId(self):
+    return None
+
   def GetOSVersionName(self):
     raise NotImplementedError()
 
@@ -261,19 +264,6 @@ class PlatformBackend(object):
           (Said another way, the number of bits to right-shift the MSR value.)
       length: The number of bits to read. MSRs are 64 bits, even on 32-bit CPUs.
     """
-    raise NotImplementedError()
-
-  @property
-  def supports_test_ca(self):
-    """Indicates whether the platform supports installing test CA."""
-    return False
-
-  def InstallTestCa(self):
-    """Install a test CA on the platform."""
-    raise NotImplementedError()
-
-  def RemoveTestCa(self):
-    """Remove a previously installed test CA from the platform."""
     raise NotImplementedError()
 
   def CanTakeScreenshot(self):

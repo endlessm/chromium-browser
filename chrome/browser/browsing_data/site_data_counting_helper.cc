@@ -50,7 +50,7 @@ void SiteDataCountingHelper::CountAndDestroySelfWhenFinished() {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       base::BindOnce(&SiteDataCountingHelper::GetCookiesOnIOThread,
-                     base::Unretained(this), make_scoped_refptr(rq_context)));
+                     base::Unretained(this), base::WrapRefCounted(rq_context)));
 
   storage::QuotaManager* quota_manager = partition->GetQuotaManager();
   if (quota_manager) {
@@ -79,11 +79,7 @@ void SiteDataCountingHelper::CountAndDestroySelfWhenFinished() {
         base::Bind(&SiteDataCountingHelper::GetLocalStorageUsageInfoCallback,
                    base::Unretained(this), special_storage_policy);
     dom_storage->GetLocalStorageUsage(local_callback);
-    tasks_ += 1;
-    auto session_callback =
-        base::Bind(&SiteDataCountingHelper::GetSessionStorageUsageInfoCallback,
-                   base::Unretained(this), special_storage_policy);
-    dom_storage->GetSessionStorageUsage(session_callback);
+    // TODO(772337): Enable session storage counting when deletion is fixed.
   }
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -111,7 +107,7 @@ void SiteDataCountingHelper::CountAndDestroySelfWhenFinished() {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       base::BindOnce(&SiteDataCountingHelper::GetChannelIDsOnIOThread,
-                     base::Unretained(this), make_scoped_refptr(rq_context)));
+                     base::Unretained(this), base::WrapRefCounted(rq_context)));
 }
 
 void SiteDataCountingHelper::GetOriginsFromHostContentSettignsMap(
@@ -236,7 +232,8 @@ void SiteDataCountingHelper::Done(const std::vector<GURL>& origins) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(tasks_ > 0);
   for (const GURL& origin : origins) {
-    unique_origins_.insert(origin);
+    if (BrowsingDataHelper::HasWebScheme(origin))
+      unique_origins_.insert(origin);
   }
   if (--tasks_ > 0)
     return;

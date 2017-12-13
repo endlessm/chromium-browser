@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2014 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -70,6 +71,7 @@ SPECIAL_TESTS = {
     'cli/cros/cros_debug_unittest': INSIDE,
     'cli/cros/cros_payload_unittest': INSIDE,
     'cli/cros/lint_unittest': INSIDE,
+    'cli/cros/lint_autotest_unittest': INSIDE,
     'cli/deploy_unittest': INSIDE,
     'lib/alerts_unittest': INSIDE,
     'lib/androidbuild_unittest': INSIDE,
@@ -92,7 +94,12 @@ SPECIAL_TESTS = {
 
     # Tests that need to run outside the chroot.
     'lib/cgroups_unittest': OUTSIDE,
-    'scripts/cros_sdk_unittest': OUTSIDE,
+
+    # Running cros_sdk_unittest through run_tests is triggering
+    # a hang inside lvm.
+    # TODO(crbug.com/764335): Change this back to OUTSIDE once
+    # the lvm hang is resolved.
+    'scripts/cros_sdk_unittest': SKIP,
 
     # Tests that take >2 minutes to run.  All the slow tests are
     # disabled atm though ...
@@ -113,6 +120,8 @@ SLOW_TESTS = {
     'lib/cgroups_unittest': SKIP,
     # cros_sdk_unittest runs cros_sdk a lot, so is slow.
     'scripts/cros_sdk_unittest': SKIP,
+    # This involves multiprocess timeout testing.
+    'lib/workqueue/tasks_unittest': SKIP,
 }
 
 

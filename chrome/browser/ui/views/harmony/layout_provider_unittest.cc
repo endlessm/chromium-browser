@@ -40,8 +40,11 @@ class LayoutProviderTest : public testing::Test {
  protected:
   static void SetUpTestCase() {
     // The expected case is to have DirectWrite enabled; the fallback gives
-    // different font heights. But the tests should pass either way.
-    gfx::win::MaybeInitializeDirectWrite();
+    // different font heights. However, only use DirectWrite on Windows 10 and
+    // later, since it's known to have flaky results on Windows 7. See
+    // http://crbug.com/759870.
+    if (base::win::GetVersion() >= base::win::VERSION_WIN10)
+      gfx::win::MaybeInitializeDirectWrite();
   }
 #endif
 
@@ -54,7 +57,7 @@ class LayoutProviderTest : public testing::Test {
 // changed by mistake.
 // Disabled since this relies on machine configuration. http://crbug.com/701241.
 TEST_F(LayoutProviderTest, DISABLED_LegacyFontSizeConstants) {
-  ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
   gfx::FontList label_font = rb.GetFontListWithDelta(ui::kLabelFontSizeDelta);
 
   EXPECT_EQ(12, label_font.GetFontSize());
@@ -108,13 +111,13 @@ TEST_F(LayoutProviderTest, DISABLED_LegacyFontSizeConstants) {
   EXPECT_EQ(8, title_font.GetExpectedTextWidth(1));
 #endif
 
-  gfx::FontList small_font = rb.GetFontList(ResourceBundle::SmallFont);
-  gfx::FontList base_font = rb.GetFontList(ResourceBundle::BaseFont);
-  gfx::FontList bold_font = rb.GetFontList(ResourceBundle::BoldFont);
-  gfx::FontList medium_font = rb.GetFontList(ResourceBundle::MediumFont);
+  gfx::FontList small_font = rb.GetFontList(ui::ResourceBundle::SmallFont);
+  gfx::FontList base_font = rb.GetFontList(ui::ResourceBundle::BaseFont);
+  gfx::FontList bold_font = rb.GetFontList(ui::ResourceBundle::BoldFont);
+  gfx::FontList medium_font = rb.GetFontList(ui::ResourceBundle::MediumFont);
   gfx::FontList medium_bold_font =
-      rb.GetFontList(ResourceBundle::MediumBoldFont);
-  gfx::FontList large_font = rb.GetFontList(ResourceBundle::LargeFont);
+      rb.GetFontList(ui::ResourceBundle::MediumBoldFont);
+  gfx::FontList large_font = rb.GetFontList(ui::ResourceBundle::LargeFont);
 
 #if defined(OS_MACOSX)
   EXPECT_EQ(12, small_font.GetFontSize());
@@ -160,7 +163,7 @@ TEST_F(LayoutProviderTest, DISABLED_RequestFontBySize) {
   constexpr gfx::Font::Weight kButtonWeight = gfx::Font::Weight::MEDIUM;
 #endif
 
-  ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
 
   gfx::FontList headline_font = rb.GetFontListWithDelta(kHeadline - kBase);
   gfx::FontList title_font = rb.GetFontListWithDelta(kTitle - kBase);
@@ -328,11 +331,6 @@ TEST_F(LayoutProviderTest, TypographyLineHeight) {
 // Harmony spec. This test will only run if it detects that the current machine
 // has the default OS configuration.
 TEST_F(LayoutProviderTest, ExplicitTypographyLineHeight) {
-#if defined(OS_WIN)
-  // Flaky on Windows 7. See http://crbug.com/759870.
-  if (base::win::GetVersion() == base::win::VERSION_WIN7)
-    return;
-#endif
   ui::test::MaterialDesignControllerTestAPI md_test_api(
       ui::MaterialDesignController::MATERIAL_NORMAL);
   md_test_api.SetSecondaryUiMaterial(true);

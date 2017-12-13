@@ -20,7 +20,6 @@
 #include "base/synchronization/lock.h"
 #include "build/build_config.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
-#include "chrome/browser/devtools/devtools_network_controller_handle.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/storage_partition_descriptor.h"
@@ -66,6 +65,10 @@ class CookieSettings;
 
 namespace data_reduction_proxy {
 class DataReductionProxyIOData;
+}
+
+namespace domain_reliability {
+class DomainReliabilityMonitor;
 }
 
 namespace extensions {
@@ -186,10 +189,6 @@ class ProfileIOData {
 
   IntegerPrefMember* network_prediction_options() const {
     return &network_prediction_options_;
-  }
-
-  DevToolsNetworkControllerHandle* network_controller_handle() const {
-    return &network_controller_handle_;
   }
 
 #if defined(OS_CHROMEOS)
@@ -621,11 +620,15 @@ class ProfileIOData {
   mutable std::unique_ptr<ExtensionCookieNotifier> extension_cookie_notifier_;
 #endif
 
-  mutable DevToolsNetworkControllerHandle network_controller_handle_;
-
   mutable std::unique_ptr<certificate_transparency::TreeStateTracker>
       ct_tree_tracker_;
   mutable base::Closure ct_tree_tracker_unregistration_;
+
+  // Owned by the ChromeNetworkDelegate, which is owned (possibly with one or
+  // more layers of LayeredNetworkDelegate) by the URLRequestContext, which is
+  // owned by main_network_context_.
+  mutable domain_reliability::DomainReliabilityMonitor*
+      domain_reliability_monitor_unowned_;
 
   const Profile::ProfileType profile_type_;
 

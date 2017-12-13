@@ -8,11 +8,7 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
-#include "chrome/browser/notifications/extension_welcome_notification.h"
-#include "chrome/browser/notifications/extension_welcome_notification_factory.h"
-#include "chrome/browser/notifications/fullscreen_notification_blocker.h"
 #include "chrome/browser/notifications/message_center_settings_controller.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/profile_notification.h"
@@ -24,12 +20,13 @@
 #include "extensions/common/extension_set.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/message_center/message_center_style.h"
 #include "ui/message_center/message_center_tray.h"
 #include "ui/message_center/message_center_types.h"
 #include "ui/message_center/notifier_settings.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
 
 #if !defined(OS_CHROMEOS)
+#include "chrome/browser/notifications/fullscreen_notification_blocker.h"
 #include "chrome/browser/notifications/screen_lock_notification_blocker.h"
 #endif
 
@@ -47,10 +44,10 @@ MessageCenterNotificationManager::MessageCenterNotificationManager(
 
 #if !defined(OS_CHROMEOS)
   blockers_.push_back(
-      base::MakeUnique<ScreenLockNotificationBlocker>(message_center));
-#endif
+      std::make_unique<ScreenLockNotificationBlocker>(message_center));
   blockers_.push_back(
-      base::MakeUnique<FullscreenNotificationBlocker>(message_center));
+      std::make_unique<FullscreenNotificationBlocker>(message_center));
+#endif
 
 #if defined(OS_WIN) || defined(OS_MACOSX) \
   || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
@@ -80,11 +77,8 @@ void MessageCenterNotificationManager::Add(const Notification& notification,
     return;
 
   std::unique_ptr<ProfileNotification> profile_notification_ptr =
-      base::MakeUnique<ProfileNotification>(profile, notification);
+      std::make_unique<ProfileNotification>(profile, notification);
   ProfileNotification* profile_notification = profile_notification_ptr.get();
-
-  ExtensionWelcomeNotificationFactory::GetForBrowserContext(profile)->
-      ShowWelcomeNotificationIfNecessary(profile_notification->notification());
 
   // WARNING: You MUST use AddProfileNotification or update the message center
   // via the notification within a ProfileNotification object or the profile ID
@@ -93,7 +87,7 @@ void MessageCenterNotificationManager::Add(const Notification& notification,
   AddProfileNotification(std::move(profile_notification_ptr));
 
   message_center_->AddNotification(
-      base::MakeUnique<message_center::Notification>(
+      std::make_unique<message_center::Notification>(
           profile_notification->notification()));
 }
 
@@ -123,7 +117,7 @@ bool MessageCenterNotificationManager::Update(const Notification& notification,
       // Add/remove notification in the local list but just update the same
       // one in MessageCenter.
       std::unique_ptr<ProfileNotification> new_notification =
-          base::MakeUnique<ProfileNotification>(profile, notification);
+          std::make_unique<ProfileNotification>(profile, notification);
       const Notification& notification = new_notification->notification();
       // Delete the old one after the new one is created to ensure we don't run
       // out of KeepAlives.
@@ -142,7 +136,7 @@ bool MessageCenterNotificationManager::Update(const Notification& notification,
       // center via the notification within a ProfileNotification object or the
       // profile ID will not be correctly set for ChromeOS.
       message_center_->UpdateNotification(
-          old_id, base::MakeUnique<message_center::Notification>(notification));
+          old_id, std::make_unique<message_center::Notification>(notification));
 
       return true;
     }
@@ -184,28 +178,12 @@ bool MessageCenterNotificationManager::CancelById(
   return true;
 }
 
-std::set<std::string>
-MessageCenterNotificationManager::GetAllIdsByProfileAndSourceOrigin(
-    ProfileID profile_id,
-    const GURL& source) {
-  std::set<std::string> delegate_ids;
-  for (const auto& pair : profile_notifications_) {
-    const Notification& notification = pair.second->notification();
-    if (pair.second->profile_id() == profile_id &&
-        notification.origin_url() == source) {
-      delegate_ids.insert(notification.delegate_id());
-    }
-  }
-
-  return delegate_ids;
-}
-
 std::set<std::string> MessageCenterNotificationManager::GetAllIdsByProfile(
     ProfileID profile_id) {
   std::set<std::string> delegate_ids;
   for (const auto& pair : profile_notifications_) {
     if (pair.second->profile_id() == profile_id)
-      delegate_ids.insert(pair.second->notification().delegate_id());
+      delegate_ids.insert(pair.second->original_id());
   }
 
   return delegate_ids;

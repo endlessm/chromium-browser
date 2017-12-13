@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2017 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -10,11 +11,10 @@ WATERFALL_INFRA = 'chromeos.infra'
 WATERFALL_TRYBOT = 'chromiumos.tryserver'
 WATERFALL_RELEASE = 'chromeos_release'
 WATERFALL_BRANCH = 'chromeos.branch'
-# These waterfalls are not yet using cidb.
 WATERFALL_CHROMIUM = 'chromiumos.chromium'
 WATERFALL_CHROME = 'chromeos.chrome'
-WATERFALL_BRILLO = 'internal.client.brillo'
-WATERFALL_WEAVE = 'internal.client.weave'
+# Used for all swarming builds.
+WATERFALL_SWARMING = 'chromeos.swarming'
 
 # These waterfalls should send email reports regardless of cidb connection.
 EMAIL_WATERFALLS = (
@@ -22,19 +22,8 @@ EMAIL_WATERFALLS = (
     WATERFALL_EXTERNAL,
     WATERFALL_RELEASE,
     WATERFALL_BRANCH,
-    WATERFALL_BRILLO,
-    WATERFALL_WEAVE,
+    WATERFALL_SWARMING,
 )
-
-CIDB_KNOWN_WATERFALLS = (WATERFALL_INTERNAL,
-                         WATERFALL_EXTERNAL,
-                         WATERFALL_TRYBOT,
-                         WATERFALL_RELEASE,
-                         WATERFALL_BRANCH,
-                         WATERFALL_CHROMIUM,
-                         WATERFALL_CHROME,)
-
-ALL_WATERFALLS = CIDB_KNOWN_WATERFALLS
 
 # URLs to the various waterfalls.
 BUILD_DASHBOARD = 'http://build.chromium.org/p/chromiumos'
@@ -75,7 +64,6 @@ SOM_SEVERITY_CHROMIUM_INFORMATIONAL_FAILURE = 1005
 SOM_BUILDS = {
     SOM_TREE: [
         (WATERFALL_INTERNAL, 'master-paladin', SOM_SEVERITY_CQ_FAILURE),
-        (WATERFALL_INTERNAL, 'master-android-pfq', SOM_SEVERITY_PFQ_FAILURE),
         (WATERFALL_INTERNAL, 'master-nyc-android-pfq',
          SOM_SEVERITY_PFQ_FAILURE),
         (WATERFALL_INTERNAL, 'master-release', SOM_SEVERITY_CANARY_FAILURE),

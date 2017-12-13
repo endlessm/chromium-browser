@@ -269,7 +269,10 @@ class BranchMapper(object):
 
     # The subject of the most recent commit on the branch.
     if self.show_subject:
-      line.append(run('log', '-n1', '--format=%s', branch, '--'))
+      if branch:
+        line.append(run('log', '-n1', '--format=%s', branch, '--'))
+      else:
+        line.append('')
 
     self.output.append(line)
 
@@ -304,7 +307,8 @@ def main(argv):
 
   parser = argparse.ArgumentParser()
   parser.add_argument('-v', action='count',
-                      help='Display branch hash and Rietveld URL')
+                      help=('Pass once to show tracking info; '
+                           'twice for hash and review url'))
   parser.add_argument('--no-color', action='store_true', dest='nocolor',
                       help='Turn off colors.')
   parser.add_argument(

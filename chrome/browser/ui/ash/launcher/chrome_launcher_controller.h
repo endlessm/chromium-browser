@@ -244,6 +244,9 @@ class ChromeLauncherController
 
   void SetProfileForTest(Profile* profile);
 
+  // Flush responses to ash::mojom::ShelfObserver messages.
+  void FlushForTesting();
+
   // Helpers that call through to corresponding ShelfModel functions.
   void PinAppWithID(const std::string& app_id);
   bool IsAppPinned(const std::string& app_id);
@@ -327,8 +330,8 @@ class ChromeLauncherController
       int index,
       ash::ShelfItemType shelf_item_type);
 
-  // Initialize the Chrome browser shortcut ShelfItem.
-  void InitBrowserShortcutItem();
+  // Create the Chrome browser shortcut ShelfItem.
+  void CreateBrowserShortcutLauncherItem();
 
   // Check if the given |web_contents| is in incognito mode.
   bool IsIncognito(const content::WebContents* web_contents) const;
@@ -362,6 +365,7 @@ class ChromeLauncherController
   void ShelfItemMoved(int start_index, int target_index) override;
   void ShelfItemChanged(int index, const ash::ShelfItem& old_item) override;
   void ShelfItemDelegateChanged(const ash::ShelfID& id,
+                                ash::ShelfItemDelegate* old_delegate,
                                 ash::ShelfItemDelegate* delegate) override;
 
   // AppSyncUIStateObserver:

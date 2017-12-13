@@ -14,7 +14,9 @@
 #include "cc/animation/transform_operations.h"
 #include "chrome/browser/vr/animation_player.h"
 #include "chrome/browser/vr/color_scheme.h"
+#include "chrome/browser/vr/databinding/binding_base.h"
 #include "chrome/browser/vr/elements/draw_phase.h"
+#include "chrome/browser/vr/elements/ui_element_iterator.h"
 #include "chrome/browser/vr/elements/ui_element_name.h"
 #include "chrome/browser/vr/target_property.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -61,15 +63,27 @@ class UiElement : public cc::AnimationTarget {
     kScaleIndex = 2,
   };
 
+  enum UpdatePhase {
+    kDirty = 0,
+    kUpdatedAnimations,
+    kUpdatedBindings,
+    kUpdatedComputedOpacity,
+    kUpdatedTexturesAndSizes,
+    kUpdatedLayout,
+    kUpdatedWorldSpaceTransform,
+    kClean = kUpdatedWorldSpaceTransform,
+  };
+
   virtual void PrepareToDraw();
 
-  void Animate(const base::TimeTicks& time);
+  virtual void OnBeginFrame(const base::TimeTicks& time,
+                            const gfx::Vector3dF& head_direction);
 
   // Indicates whether the element should be tested for cursor input.
   bool IsHitTestable() const;
 
   virtual void Render(UiElementRenderer* renderer,
-                      const gfx::Transform& view_proj_matrix) const;
+                      const gfx::Transform& model_view_proj_matrix) const;
 
   virtual void Initialize();
 
@@ -105,6 +119,7 @@ class UiElement : public cc::AnimationTarget {
   bool IsVisible() const;
   // For convenience, sets opacity to |opacity_when_visible_|.
   virtual void SetVisible(bool visible);
+  void SetVisibleImmediately(bool visible);
 
   void set_opacity_when_visible(float opacity) {
     opacity_when_visible_ = opacity;
@@ -119,22 +134,10 @@ class UiElement : public cc::AnimationTarget {
   bool hit_testable() const { return hit_testable_; }
   void set_hit_testable(bool hit_testable) { hit_testable_ = hit_testable; }
 
-  bool viewport_aware() const { return viewport_aware_; }
-  void set_viewport_aware(bool viewport_aware) {
-    viewport_aware_ = viewport_aware;
-  }
-  bool computed_viewport_aware() const { return computed_viewport_aware_; }
-  void set_computed_viewport_aware(bool computed_lock) {
-    computed_viewport_aware_ = computed_lock;
-  }
-
-  bool is_overlay() const { return is_overlay_; }
-  void set_is_overlay(bool is_overlay) { is_overlay_ = is_overlay; }
-
   bool scrollable() const { return scrollable_; }
   void set_scrollable(bool scrollable) { scrollable_ = scrollable; }
 
-  gfx::SizeF size() const { return size_; }
+  gfx::SizeF size() const;
   void SetSize(float width, float hight);
 
   // It is assumed that operations is of size 4 with a component for layout
@@ -150,7 +153,11 @@ class UiElement : public cc::AnimationTarget {
   void SetRotate(float x, float y, float z, float radians);
   void SetScale(float x, float y, float z);
 
-  AnimationPlayer& animation_player() { return animation_player_; }
+  // Returns the target value of the animation if the corresponding property is
+  // being animated, or the current value otherwise.
+  gfx::SizeF GetTargetSize() const;
+  cc::TransformOperations GetTargetTransform() const;
+  float GetTargetOpacity() const;
 
   float opacity() const { return opacity_; }
   virtual void SetOpacity(float opacity);
@@ -160,7 +167,7 @@ class UiElement : public cc::AnimationTarget {
     corner_radius_ = corner_radius;
   }
 
-  float computed_opacity() const { return computed_opacity_; }
+  float computed_opacity() const;
   void set_computed_opacity(float computed_opacity) {
     computed_opacity_ = computed_opacity;
   }
@@ -187,9 +194,7 @@ class UiElement : public cc::AnimationTarget {
   void SetMode(ColorScheme::Mode mode);
   ColorScheme::Mode mode() const { return mode_; }
 
-  const gfx::Transform& world_space_transform() const {
-    return world_space_transform_;
-  }
+  const gfx::Transform& world_space_transform() const;
   void set_world_space_transform(const gfx::Transform& transform) {
     world_space_transform_ = transform;
   }
@@ -199,6 +204,13 @@ class UiElement : public cc::AnimationTarget {
   void AddChild(std::unique_ptr<UiElement> child);
   void RemoveChild(UiElement* child);
   UiElement* parent() { return parent_; }
+  const UiElement* parent() const { return parent_; }
+
+  void AddBinding(std::unique_ptr<BindingBase> binding);
+  const std::vector<std::unique_ptr<BindingBase>>& bindings() {
+    return bindings_;
+  }
+  void UpdateBindings();
 
   gfx::Point3F GetCenter() const;
   gfx::Vector3dF GetNormal() const;
@@ -244,24 +256,44 @@ class UiElement : public cc::AnimationTarget {
 
   virtual gfx::Transform LocalTransform() const;
 
-  // Handles positioning adjustment for element which may reposition itself
-  // automatically under certain circumstances. For example, viewport aware
-  // element needs to reposition itself when the element is too far to the left
-  // or right where the head is pointing.
-  virtual void AdjustRotationForHeadPose(const gfx::Vector3dF& look_at);
-
-  void UpdateInheritedProperties();
+  void UpdateComputedOpacityRecursive();
+  void UpdateWorldSpaceTransformRecursive();
 
   std::vector<std::unique_ptr<UiElement>>& children() { return children_; }
   const std::vector<std::unique_ptr<UiElement>>& children() const {
     return children_;
   }
 
+  typedef ForwardUiElementIterator iterator;
+  typedef ConstForwardUiElementIterator const_iterator;
+  typedef ReverseUiElementIterator reverse_iterator;
+  typedef ConstReverseUiElementIterator const_reverse_iterator;
+
+  iterator begin() { return iterator(this); }
+  iterator end() { return iterator(nullptr); }
+  const_iterator begin() const { return const_iterator(this); }
+  const_iterator end() const { return const_iterator(nullptr); }
+
+  reverse_iterator rbegin() { return reverse_iterator(this); }
+  reverse_iterator rend() { return reverse_iterator(nullptr); }
+  const_reverse_iterator rbegin() const { return const_reverse_iterator(this); }
+  const_reverse_iterator rend() const {
+    return const_reverse_iterator(nullptr);
+  }
+
+  void set_update_phase(UpdatePhase phase) { phase_ = phase; }
+
  protected:
   virtual void OnSetMode();
-  virtual void OnUpdatedInheritedProperties();
+  virtual void OnUpdatedWorldSpaceTransform();
+
+  AnimationPlayer& animation_player() { return animation_player_; }
 
   base::TimeTicks last_frame_time() const { return last_frame_time_; }
+
+  // This is to be used only during the texture / size updated phase (i.e., to
+  // change your size based on your old size).
+  gfx::SizeF stale_size() const;
 
  private:
   // Valid IDs are non-negative.
@@ -269,17 +301,6 @@ class UiElement : public cc::AnimationTarget {
 
   // If false, the reticle will not hit the element, even if visible.
   bool hit_testable_ = true;
-
-  // If true, the element will reposition itself to viewport if neccessary.
-  // TODO(bshe): We might be able to remove this state.
-  bool viewport_aware_ = false;
-
-  // The computed viewport aware, incorporating from parent objects.
-  bool computed_viewport_aware_ = false;
-
-  // If true, then this element will be drawn in the world viewport, but above
-  // all other elements.
-  bool is_overlay_ = false;
 
   // A signal to the input routing machinery that this element accepts scrolls.
   bool scrollable_ = false;
@@ -341,6 +362,10 @@ class UiElement : public cc::AnimationTarget {
 
   UiElement* parent_ = nullptr;
   std::vector<std::unique_ptr<UiElement>> children_;
+
+  std::vector<std::unique_ptr<BindingBase>> bindings_;
+
+  UpdatePhase phase_ = kClean;
 
   DISALLOW_COPY_AND_ASSIGN(UiElement);
 };

@@ -7,7 +7,6 @@
 
 #import <UIKit/UIKit.h>
 
-#import "ios/web/net/crw_request_tracker_delegate.h"
 #import "ios/web/public/web_state/js/crw_js_injection_evaluator.h"
 #import "ios/web/public/web_state/ui/crw_web_delegate.h"
 #include "ios/web/public/web_state/url_verification_constants.h"
@@ -102,6 +101,10 @@ class WebStateImpl;
 
 // YES if the web process backing WebView is believed to currently be crashed.
 @property(nonatomic, assign, getter=isWebProcessCrashed) BOOL webProcessCrashed;
+
+// Whether the WebController is visible. Returns YES after wasShown call and
+// NO after wasHidden() call.
+@property(nonatomic, assign, getter=isVisible) BOOL visible;
 
 // Designated initializer. Initializes web controller with |webState|. The
 // calling code must retain the ownership of |webState|.

@@ -4,7 +4,13 @@
 
 """A common base class for pages that are used to edit configs."""
 
+import json
+
+from google.appengine.api import app_identity
+from google.appengine.api import mail
 from google.appengine.api import taskqueue
+from google.appengine.api import users
+from google.appengine.ext import ndb
 
 from dashboard import list_tests
 from dashboard.common import request_handler
@@ -21,6 +27,24 @@ _TASK_QUEUE_NAME = 'edit-sheriffs-queue'
 # may be executed before the sheriff is saved, so this is a workaround for that.
 # See http://crbug.com/621499
 _TASK_QUEUE_COUNTDOWN = 60
+
+_NOTIFICATION_EMAIL_BODY = """
+The configuration of %(hostname)s was changed by %(user)s.
+
+Key: %(key)s
+
+Added test paths:
+%(added_test_paths)s
+
+Removed test paths:
+%(removed_test_paths)s
+"""
+
+# TODO(qyearsley): Make this customizable by storing the value in datastore.
+# Make sure to send a notification to both old and new address if this value
+# gets changed.
+_NOTIFICATION_ADDRESS = 'chrome-performance-monitoring-alerts@google.com'
+_SENDER_ADDRESS = 'gasper-alerts@google.com'
 
 
 class EditConfigHandler(request_handler.RequestHandler):
@@ -104,6 +128,29 @@ class EditConfigHandler(request_handler.RequestHandler):
     added_test_paths, removed_test_paths = _ChangeTestPatterns(
         old_patterns, new_patterns)
     self._RenderResults(entity, added_test_paths, removed_test_paths)
+    self._SendNotificationEmail(entity, added_test_paths, removed_test_paths)
+
+  def _SendNotificationEmail(
+      self, entity, added_test_paths, removed_test_paths):
+    user_email = users.get_current_user().email()
+    subject = 'Added or updated %s: %s by %s' % (
+        self._model_class.__name__, entity.key.string_id(), user_email)
+    email_body = _NOTIFICATION_EMAIL_BODY % {
+        'key': entity.key.string_id(),
+        'added_test_paths': json.dumps(
+            list(added_test_paths), indent=2, sort_keys=True,
+            separators=(',', ': ')),
+        'removed_test_paths': json.dumps(
+            list(removed_test_paths), indent=2, sort_keys=True,
+            separators=(',', ': ')),
+        'hostname': app_identity.get_default_version_hostname(),
+        'user': user_email,
+    }
+    mail.send_mail(
+        sender=_SENDER_ADDRESS,
+        to=_NOTIFICATION_ADDRESS,
+        subject=subject,
+        body=email_body)
 
   def _UpdateFromRequestParameters(self, entity):
     """Updates the given entity based on query parameters.
@@ -162,6 +209,7 @@ def _IsValidTestPathPattern(test_path_pattern):
   return len(test_path_pattern.split('/')) >= 3
 
 
+@ndb.synctasklet
 def _ChangeTestPatterns(old_patterns, new_patterns):
   """Updates tests that are different between old_patterns and new_patterns.
 
@@ -183,10 +231,14 @@ def _ChangeTestPatterns(old_patterns, new_patterns):
     are in the old set but not the new.
   """
   added_patterns, removed_patterns = _ComputeDeltas(old_patterns, new_patterns)
-  added_test_paths = _AllTestPathsMatchingPatterns(added_patterns)
-  removed_test_paths = _AllTestPathsMatchingPatterns(removed_patterns)
+
+  added_test_paths, removed_test_paths = yield (
+      _AllTestPathsMatchingPatterns(added_patterns),
+      _AllTestPathsMatchingPatterns(removed_patterns))
+
   _AddTestsToPutToTaskQueue(added_test_paths + removed_test_paths)
-  return _RemoveOverlapping(added_test_paths, removed_test_paths)
+
+  raise ndb.Return(_RemoveOverlapping(added_test_paths, removed_test_paths))
 
 
 def _ComputeDeltas(old_items, new_items):
@@ -209,12 +261,18 @@ def _RemoveOverlapping(added_items, removed_items):
   return added - removed, removed - added
 
 
+@ndb.tasklet
 def _AllTestPathsMatchingPatterns(patterns_list):
   """Returns a list of all test paths matching the given list of patterns."""
+  matching_patterns_futures = [
+      list_tests.GetTestsMatchingPatternAsync(p) for p in patterns_list]
+
   test_paths = set()
-  for pattern in patterns_list:
-    test_paths |= set(list_tests.GetTestsMatchingPattern(pattern))
-  return sorted(test_paths)
+  for i in xrange(len(patterns_list)):
+    matching_patterns = yield matching_patterns_futures[i]
+    test_paths |= set(matching_patterns)
+
+  raise ndb.Return(sorted(test_paths))
 
 
 def _AddTestsToPutToTaskQueue(test_paths):
@@ -226,11 +284,15 @@ def _AddTestsToPutToTaskQueue(test_paths):
   Args:
     test_paths: List of test paths of tests to be re-put.
   """
+  futures = []
+  queue = taskqueue.Queue(_TASK_QUEUE_NAME)
   for start_index in range(0, len(test_paths), _MAX_TESTS_TO_PUT_AT_ONCE):
     group = test_paths[start_index:start_index + _MAX_TESTS_TO_PUT_AT_ONCE]
     urlsafe_keys = [utils.TestKey(t).urlsafe() for t in group]
-    taskqueue.add(
+    t = taskqueue.Task(
         url='/put_entities_task',
         params={'keys': ','.join(urlsafe_keys)},
-        queue_name=_TASK_QUEUE_NAME,
         countdown=_TASK_QUEUE_COUNTDOWN)
+    futures.append(queue.add_async(t))
+  for f in futures:
+    f.get_result()

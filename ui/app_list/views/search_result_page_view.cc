@@ -23,6 +23,7 @@
 #include "ui/views/background.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/scrollbar/overlay_scroll_bar.h"
+#include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/shadow_border.h"
@@ -75,6 +76,15 @@ class ZeroWidthVerticalScrollBar : public views::OverlayScrollBar {
 
   // OverlayScrollBar overrides:
   int GetThickness() const override { return 0; }
+
+  bool OnKeyPressed(const ui::KeyEvent& event) override {
+    if (!features::IsAppListFocusEnabled())
+      return OverlayScrollBar::OnKeyPressed(event);
+
+    // Arrow keys should be handled by FocusManager to move focus. When a search
+    // result is focued, it will be set visible in scroll view.
+    return false;
+  }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ZeroWidthVerticalScrollBar);
@@ -143,6 +153,7 @@ class SearchResultPageView::HorizontalSeparator : public views::View {
 SearchResultPageView::SearchResultPageView()
     : selected_index_(0),
       is_fullscreen_app_list_enabled_(features::IsFullscreenAppListEnabled()),
+      is_app_list_focus_enabled_(features::IsAppListFocusEnabled()),
       contents_view_(new views::View) {
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
@@ -176,6 +187,7 @@ SearchResultPageView::SearchResultPageView()
     // Leaves a placeholder area for the search box and the separator below it.
     scroller->SetBorder(views::CreateEmptyBorder(
         gfx::Insets(kSearchBoxHeight + kSeparatorThickness, 0, 0, 0)));
+    scroller->set_draw_overflow_indicator(false);
   }
   scroller->SetContents(contents_view_);
   // Setting clip height is necessary to make ScrollView take into account its
@@ -213,6 +225,33 @@ void SearchResultPageView::AddSearchResultContainerView(
 }
 
 bool SearchResultPageView::OnKeyPressed(const ui::KeyEvent& event) {
+  if (is_app_list_focus_enabled_) {
+    views::View* next_focusable_view = nullptr;
+    if (event.key_code() == ui::VKEY_UP) {
+      next_focusable_view = GetFocusManager()->GetNextFocusableView(
+          GetFocusManager()->GetFocusedView(), GetWidget(), true, false);
+    } else if (event.key_code() == ui::VKEY_DOWN) {
+      next_focusable_view = GetFocusManager()->GetNextFocusableView(
+          GetFocusManager()->GetFocusedView(), GetWidget(), false, false);
+    }
+
+    if (next_focusable_view && !Contains(next_focusable_view)) {
+      // Hitting up key when focus is on first search result or hitting down
+      // key when focus is on last search result should move focus onto search
+      // box.
+      AppListPage::contents_view()
+          ->GetSearchBoxView()
+          ->search_box()
+          ->RequestFocus();
+      return true;
+    }
+
+    // Return false to let FocusManager to handle default focus move by key
+    // events.
+    return false;
+  }
+  // TODO(weidongg/766807) Remove everything below when the flag is enabled by
+  // default.
   if (HasSelection() &&
       result_container_views_.at(selected_index_)->OnKeyPressed(event)) {
     return true;
@@ -303,28 +342,7 @@ bool SearchResultPageView::IsValidSelectionIndex(int index) {
   return index >= 0 && index < static_cast<int>(result_container_views_.size());
 }
 
-void SearchResultPageView::OnSearchResultContainerResultsChanged() {
-  DCHECK(!result_container_views_.empty());
-  if (is_fullscreen_app_list_enabled_)
-    DCHECK(result_container_views_.size() == separators_.size() + 1);
-
-  // Only sort and layout the containers when they have all updated.
-  for (SearchResultContainerView* view : result_container_views_) {
-    if (view->UpdateScheduled()) {
-      return;
-    }
-  }
-
-  SearchResultContainerView* old_selection =
-      HasSelection() ? result_container_views_[selected_index_] : nullptr;
-
-  // Truncate the currently selected container's selection if necessary. If
-  // there are no results, the selection will be cleared below.
-  if (old_selection && old_selection->num_results() > 0 &&
-      old_selection->selected_index() >= old_selection->num_results()) {
-    old_selection->SetSelectedIndex(old_selection->num_results() - 1);
-  }
-
+void SearchResultPageView::ReorderSearchResultContainers() {
   // Sort the result container views by their score.
   std::sort(result_container_views_.begin(), result_container_views_.end(),
             [](const SearchResultContainerView* a,
@@ -358,6 +376,47 @@ void SearchResultPageView::OnSearchResultContainerResultsChanged() {
   }
 
   Layout();
+}
+
+void SearchResultPageView::OnSearchResultContainerResultsChanged() {
+  DCHECK(!result_container_views_.empty());
+  if (is_fullscreen_app_list_enabled_)
+    DCHECK(result_container_views_.size() == separators_.size() + 1);
+
+  // Only sort and layout the containers when they have all updated.
+  for (SearchResultContainerView* view : result_container_views_) {
+    if (view->UpdateScheduled()) {
+      return;
+    }
+  }
+
+  if (is_app_list_focus_enabled_) {
+    if (result_container_views_.empty())
+      return;
+    // Set the first result (if it exists) selected when search results are
+    // updated. Note that the focus is not set on the first result to prevent
+    // frequent focus switch between search box and first result during typing
+    // query.
+    SearchResultContainerView* old_first_container_view =
+        result_container_views_[0];
+    ReorderSearchResultContainers();
+    old_first_container_view->SetFirstResultSelected(false);
+    first_result_view_ =
+        result_container_views_[0]->SetFirstResultSelected(true);
+    return;
+  }
+
+  SearchResultContainerView* old_selection =
+      HasSelection() ? result_container_views_[selected_index_] : nullptr;
+
+  // Truncate the currently selected container's selection if necessary. If
+  // there are no results, the selection will be cleared below.
+  if (old_selection && old_selection->num_results() > 0 &&
+      old_selection->selected_index() >= old_selection->num_results()) {
+    old_selection->SetSelectedIndex(old_selection->num_results() - 1);
+  }
+
+  ReorderSearchResultContainers();
 
   SearchResultContainerView* new_selection = nullptr;
   if (HasSelection() &&
@@ -420,8 +479,8 @@ void SearchResultPageView::OnAnimationUpdated(double progress,
         color,
         gfx::Tween::LinearIntValueBetween(
             progress,
-            SearchBoxView::GetSearchBoxBorderCornerRadiusForState(from_state),
-            SearchBoxView::GetSearchBoxBorderCornerRadiusForState(to_state))));
+            search_box->GetSearchBoxBorderCornerRadiusForState(from_state),
+            search_box->GetSearchBoxBorderCornerRadiusForState(to_state))));
   }
 
   gfx::Rect onscreen_bounds(

@@ -1594,7 +1594,8 @@ class TestGitCl(TestCase):
          'remote: Processing changes: new: 1, done\n'
          'remote:\n'
          'remote: New Changes:\n'
-         'remote:   https://chromium-review.googlesource.com/123456 XXX.\n'
+         'remote:   https://chromium-review.googlesource.com/#/c/foo/+/123456 '
+             'XXX\n'
          'remote:\n'
          'To https://chromium.googlesource.com/yyy/zzz\n'
          ' * [new branch]      hhhh -> refs/for/refs/heads/master\n')),
@@ -1616,9 +1617,24 @@ class TestGitCl(TestCase):
     ]
     if tbr:
       calls += [
+        (('GetChangeDetail', 'chromium-review.googlesource.com', '123456',
+          ['LABELS']), {
+             'labels': {
+                 'Code-Review': {
+                     'default_value': 0,
+                     'all': [],
+                     'values': {
+                         '+2': 'lgtm, approved',
+                         '+1': 'lgtm, but someone else must approve',
+                         ' 0': 'No score',
+                         '-1': 'Don\'t submit as-is',
+                     }
+                 }
+              }
+          }),
         (('SetReview', 'chromium-review.googlesource.com',
           123456 if squash else None, 'Self-approving for TBR',
-          {'Code-Review': 1}, None), ''),
+          {'Code-Review': 2}, None), ''),
       ]
     calls += cls._git_post_upload_calls()
     return calls
@@ -1742,10 +1758,9 @@ class TestGitCl(TestCase):
         [],
         'desc\nTBR=reviewer@example.com\nBUG=\nR=another@example.com\n'
         'CC=more@example.com,people@example.com\n\n'
-        'Change-Id: 123456789\n',
+        'Change-Id: 123456789',
         ['reviewer@example.com', 'another@example.com'],
-        squash=False,
-        squash_mode='override_nosquash',
+        expected_upstream_ref='origin/master',
         cc=['more@example.com', 'people@example.com'],
         tbr='reviewer@example.com')
 
@@ -2016,11 +2031,6 @@ class TestGitCl(TestCase):
     self.mock(git_common, 'is_dirty_git_tree', lambda x: True)
     self.assertNotEqual(git_cl.main(['patch', '123456']), 0)
 
-  def test_diff_when_dirty(self):
-    # Do 'git cl diff' when local tree is dirty
-    self.mock(git_common, 'is_dirty_git_tree', lambda x: True)
-    self.assertNotEqual(git_cl.main(['diff']), 0)
-
   @staticmethod
   def _get_gerrit_codereview_server_calls(branch, value=None,
                                           git_short_host='host',
@@ -2058,8 +2068,6 @@ class TestGitCl(TestCase):
 
     if new_branch:
       self.calls = [((['git', 'new-branch', 'master'],), ''),]
-    else:
-      self.calls = [((['git', 'symbolic-ref', 'HEAD'],), 'master')]
 
     if default_codereview:
       if not force_codereview:
@@ -2257,7 +2265,6 @@ class TestGitCl(TestCase):
     self.mock(git_cl.gerrit_util, 'GetChangeDetail', notExists)
 
     self.calls = [
-      ((['git', 'symbolic-ref', 'HEAD'],), 'master'),
       ((['git', 'symbolic-ref', 'HEAD'],), 'master'),
       ((['git', 'config', 'branch.master.rietveldissue'],), CERR1),
       ((['git', 'config', 'branch.master.gerritissue'],), CERR1),

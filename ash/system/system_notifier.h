@@ -27,7 +27,6 @@ ASH_EXPORT extern const char kNotifierDisplayResolutionChange[];
 ASH_EXPORT extern const char kNotifierDisplayError[];
 ASH_EXPORT extern const char kNotifierDualRole[];
 ASH_EXPORT extern const char kNotifierFingerprintUnlock[];
-ASH_EXPORT extern const char kNotifierHats[];
 ASH_EXPORT extern const char kNotifierLocale[];
 ASH_EXPORT extern const char kNotifierMultiProfileFirstRun[];
 ASH_EXPORT extern const char kNotifierNetwork[];
@@ -57,7 +56,7 @@ ASH_EXPORT bool IsAshSystemNotifier(
     const message_center::NotifierId& notifier_id);
 
 // Utility function to call Notification::CreateSystemNotification when
-// MessageCenter::IsNewStyleNotificationEnabled() is true, and otherwise call
+// IsNewStyleNotificationEnabled() is true, and otherwise call
 // Notification constructor directly.
 // When IsNewStyleNotificationEnabled() is true, |icon| will be ignored.
 // When IsNewStyleNotificationEnabled() is false, |small_image| and |color_type|

@@ -15,7 +15,6 @@
 namespace {
 
 // Field trial strings.
-const char kSRTPromptTrial[] = "SRTPromptFieldTrial";
 const char kSRTCanaryGroup[] = "SRTCanary";
 const char kSRTPromptOffGroup[] = "Off";
 const char kSRTPromptSeedParam[] = "Seed";
@@ -40,6 +39,8 @@ const char kCanarySRTDownloadURL[] =
 }  // namespace
 
 namespace safe_browsing {
+
+const char kSRTPromptTrial[] = "SRTPromptFieldTrial";
 
 const base::Feature kInBrowserCleanerUIFeature{
     "InBrowserCleanerUI", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -104,6 +105,10 @@ GURL GetSRTDownloadURL() {
 std::string GetIncomingSRTSeed() {
   return variations::GetVariationParamValue(kSRTPromptTrial,
                                             kSRTPromptSeedParam);
+}
+
+std::string GetSRTFieldTrialGroupName() {
+  return base::FieldTrialList::FindFullName(kSRTPromptTrial);
 }
 
 void RecordSRTPromptHistogram(SRTPromptHistogramValue value) {

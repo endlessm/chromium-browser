@@ -2,11 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef ASH_LOGIN_UI_CONTENTS_VIEW_H_
-#define ASH_LOGIN_UI_CONTENTS_VIEW_H_
+#ifndef ASH_LOGIN_UI_LOCK_CONTENTS_VIEW_H_
+#define ASH_LOGIN_UI_LOCK_CONTENTS_VIEW_H_
+
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "ash/ash_export.h"
+#include "ash/login/lock_screen_apps_focus_observer.h"
 #include "ash/login/ui/login_data_dispatcher.h"
+#include "ash/login/ui/non_accessible_view.h"
+#include "ash/system/system_tray_focus_observer.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/scoped_observer.h"
@@ -22,14 +29,22 @@ class ScrollView;
 namespace ash {
 
 class LoginAuthUserView;
+class LoginBubble;
 class LoginUserView;
+class NoteActionLaunchButton;
+
+namespace mojom {
+enum class TrayActionState;
+}
 
 // LockContentsView hosts the root view for the lock screen. All other lock
 // screen views are embedded within this one. LockContentsView is per-display,
 // but it is always shown on the primary display. There is only one instance
 // at a time.
-class ASH_EXPORT LockContentsView : public views::View,
+class ASH_EXPORT LockContentsView : public NonAccessibleView,
+                                    public LockScreenAppsFocusObserver,
                                     public LoginDataDispatcher::Observer,
+                                    public SystemTrayFocusObserver,
                                     public display::DisplayObserver {
  public:
   // TestApi is used for tests to get internal implementation details.
@@ -41,22 +56,33 @@ class ASH_EXPORT LockContentsView : public views::View,
     LoginAuthUserView* primary_auth() const;
     LoginAuthUserView* opt_secondary_auth() const;
     const std::vector<LoginUserView*>& user_views() const;
+    views::View* note_action() const;
 
    private:
     LockContentsView* const view_;
   };
 
-  explicit LockContentsView(LoginDataDispatcher* data_dispatcher);
+  LockContentsView(mojom::TrayActionState initial_note_action_state,
+                   LoginDataDispatcher* data_dispatcher);
   ~LockContentsView() override;
 
   // views::View:
   void Layout() override;
   void AddedToWidget() override;
+  void OnFocus() override;
+  void AboutToRequestFocusFromTabTraversal(bool reverse) override;
+
+  // LockScreenAppsFocusObserver:
+  void OnFocusLeavingLockScreenApps(bool reverse) override;
 
   // LoginDataDispatcher::Observer:
   void OnUsersChanged(
-      const std::vector<ash::mojom::UserInfoPtr>& users) override;
+      const std::vector<mojom::LoginUserInfoPtr>& users) override;
   void OnPinEnabledForUserChanged(const AccountId& user, bool enabled) override;
+  void OnLockScreenNoteStateChanged(mojom::TrayActionState state) override;
+
+  // SystemTrayFocusObserver:
+  void OnFocusLeavingSystemTray(bool reverse) override;
 
   // display::DisplayObserver:
   void OnDisplayMetricsChanged(const display::Display& display,
@@ -72,15 +98,18 @@ class ASH_EXPORT LockContentsView : public views::View,
 
   using OnRotate = base::RepeatingCallback<void(bool landscape)>;
 
+  // Focus the next/previous widget.
+  void FocusNextWidget(bool reverse);
+
   // 1-2 users.
   void CreateLowDensityLayout(
-      const std::vector<ash::mojom::UserInfoPtr>& users);
+      const std::vector<mojom::LoginUserInfoPtr>& users);
   // 3-6 users.
   void CreateMediumDensityLayout(
-      const std::vector<ash::mojom::UserInfoPtr>& users);
+      const std::vector<mojom::LoginUserInfoPtr>& users);
   // 7+ users.
   void CreateHighDensityLayout(
-      const std::vector<ash::mojom::UserInfoPtr>& users);
+      const std::vector<mojom::LoginUserInfoPtr>& users);
 
   // Lay out the entire view. This is called when the view is attached to a
   // widget and when the screen is rotated.
@@ -115,6 +144,15 @@ class ASH_EXPORT LockContentsView : public views::View,
   // the actual user may change.
   void SwapToAuthUser(int user_index);
 
+  // Called after the auth user change has taken place.
+  void OnAuthUserChanged();
+
+  // Get the LoginAuthUserView of the current auth user.
+  LoginAuthUserView* CurrentAuthUserView();
+
+  // Opens an error bubble to indicate authentication failure.
+  void ShowErrorMessage();
+
   std::vector<UserState> users_;
 
   LoginDataDispatcher* const data_dispatcher_;  // Unowned.
@@ -125,8 +163,17 @@ class ASH_EXPORT LockContentsView : public views::View,
   // All non-auth users; |primary_auth_| and |secondary_auth_| are not contained
   // in this list.
   std::vector<LoginUserView*> user_views_;
-  views::ScrollView* scroller_;
-  views::BoxLayout* root_layout_;
+  views::ScrollView* scroller_ = nullptr;
+
+  // View for launching a note taking action handler from the lock screen.
+  // This is placed on the top right of the screen without affecting layout
+  // of other views.
+  NoteActionLaunchButton* note_action_ = nullptr;
+
+  // Contains authentication user and the additional user views.
+  NonAccessibleView* main_view_ = nullptr;
+  // Layout used for |main_view_|.
+  views::BoxLayout* main_layout_ = nullptr;
 
   // Actions that should be executed when rotation changes. A full layout pass
   // is performed after all actions are executed.
@@ -134,9 +181,16 @@ class ASH_EXPORT LockContentsView : public views::View,
 
   ScopedObserver<display::Screen, display::DisplayObserver> display_observer_;
 
+  std::unique_ptr<LoginBubble> error_bubble_;
+  int unlock_attempt_ = 0;
+
+  // Whether a lock screen app is currently active (i.e. lock screen note action
+  // state is reported as kActive by the data dispatcher).
+  bool lock_screen_apps_active_ = false;
+
   DISALLOW_COPY_AND_ASSIGN(LockContentsView);
 };
 
 }  // namespace ash
 
-#endif  // ASH_LOGIN_UI_CONTENTS_VIEW_H_
+#endif  // ASH_LOGIN_UI_LOCK_CONTENTS_VIEW_H_

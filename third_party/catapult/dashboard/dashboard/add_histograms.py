@@ -36,6 +36,7 @@ SUITE_LEVEL_SPARSE_DIAGNOSTIC_NAMES = set([
 ])
 
 HISTOGRAM_LEVEL_SPARSE_DIAGNOSTIC_NAMES = set([
+    reserved_infos.DEVICE_IDS.name,
     reserved_infos.GPUS.name,
     reserved_infos.MEMORY_AMOUNTS.name,
     reserved_infos.PRODUCT_VERSIONS.name,
@@ -206,6 +207,10 @@ def ComputeTestPath(guid, histograms):
   hist = histograms.LookupHistogram(guid)
   suite_path = '%s/%s/%s' % _GetMasterBotBenchmarkFromHistogram(hist)
   path = '%s/%s' % (suite_path, hist.name)
+
+  tir_label = histogram.GetTIRLabelFromHistogram(hist)
+  if tir_label:
+    path += '/' + tir_label
 
   story_name = hist.diagnostics.get(reserved_infos.STORIES.name)
   if story_name and len(story_name) == 1:

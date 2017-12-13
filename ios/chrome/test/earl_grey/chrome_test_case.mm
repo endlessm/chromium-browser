@@ -179,6 +179,7 @@ const CFTimeInterval kDrainTimeout = 5;
   _tearDownHandler = nil;
 
   chrome_test_util::ResetSigninPromoPreferences();
+  chrome_test_util::ResetMockAuthentication();
   chrome_test_util::OpenNewTab();
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
 }
@@ -263,11 +264,6 @@ const CFTimeInterval kDrainTimeout = 5;
 }
 
 + (void)enableMockAuthentication {
-  // Enable sign-in promo for all tests.
-  // TODO(crbug.com/739910): Remove this line when the sign-in promo is enabled
-  // by default.
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kEnableSigninPromo);
   chrome_test_util::SetUpMockAuthentication();
   chrome_test_util::SetUpMockAccountReconcilor();
   chrome_test_util::SetUpFakeSyncServer();

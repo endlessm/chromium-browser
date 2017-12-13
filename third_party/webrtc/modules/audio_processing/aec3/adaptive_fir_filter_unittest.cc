@@ -8,28 +8,28 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_processing/aec3/adaptive_fir_filter.h"
+#include "modules/audio_processing/aec3/adaptive_fir_filter.h"
 
 #include <math.h>
 #include <algorithm>
 #include <numeric>
 #include <string>
-#include "webrtc/typedefs.h"
+#include "typedefs.h"  // NOLINT(build/include)
 #if defined(WEBRTC_ARCH_X86_FAMILY)
 #include <emmintrin.h>
 #endif
-#include "webrtc/modules/audio_processing/aec3/aec3_fft.h"
-#include "webrtc/modules/audio_processing/aec3/aec_state.h"
-#include "webrtc/modules/audio_processing/aec3/cascaded_biquad_filter.h"
-#include "webrtc/modules/audio_processing/aec3/render_signal_analyzer.h"
-#include "webrtc/modules/audio_processing/aec3/shadow_filter_update_gain.h"
-#include "webrtc/modules/audio_processing/logging/apm_data_dumper.h"
-#include "webrtc/modules/audio_processing/test/echo_canceller_test_tools.h"
-#include "webrtc/rtc_base/arraysize.h"
-#include "webrtc/rtc_base/random.h"
-#include "webrtc/rtc_base/safe_minmax.h"
-#include "webrtc/system_wrappers/include/cpu_features_wrapper.h"
-#include "webrtc/test/gtest.h"
+#include "modules/audio_processing/aec3/aec3_fft.h"
+#include "modules/audio_processing/aec3/aec_state.h"
+#include "modules/audio_processing/aec3/cascaded_biquad_filter.h"
+#include "modules/audio_processing/aec3/render_signal_analyzer.h"
+#include "modules/audio_processing/aec3/shadow_filter_update_gain.h"
+#include "modules/audio_processing/logging/apm_data_dumper.h"
+#include "modules/audio_processing/test/echo_canceller_test_tools.h"
+#include "rtc_base/arraysize.h"
+#include "rtc_base/random.h"
+#include "rtc_base/safe_minmax.h"
+#include "system_wrappers/include/cpu_features_wrapper.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 namespace aec3 {
@@ -365,8 +365,9 @@ TEST(AdaptiveFirFilter, FilterAndAdapt) {
       filter.Adapt(render_buffer, G);
       aec_state.HandleEchoPathChange(EchoPathVariability(false, false));
       aec_state.Update(filter.FilterFrequencyResponse(),
-                       filter.FilterImpulseResponse(), rtc::Optional<size_t>(),
-                       render_buffer, E2_main, Y2, x[0], s, false);
+                       filter.FilterImpulseResponse(), true,
+                       rtc::Optional<size_t>(), render_buffer, E2_main, Y2,
+                       x[0], s, false);
     }
     // Verify that the filter is able to perform well.
     EXPECT_LT(1000 * std::inner_product(e.begin(), e.end(), e.begin(), 0.f),

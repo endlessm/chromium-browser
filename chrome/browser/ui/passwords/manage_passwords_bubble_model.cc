@@ -294,6 +294,9 @@ ManagePasswordsBubbleModel::ManagePasswordsBubbleModel(
         interaction_stats.dismissal_count = stats->dismissal_count;
       }
     }
+    hide_eye_icon_ = delegate_->BubbleIsManualFallbackForSaving()
+                         ? pending_password_.form_has_autofilled_value
+                         : display_reason == USER_ACTION;
     UpdatePendingStateTitle();
   } else if (state_ == password_manager::ui::CONFIRMATION_STATE) {
     title_ =
@@ -335,6 +338,9 @@ ManagePasswordsBubbleModel::ManagePasswordsBubbleModel(
         display_disposition = metrics_util::MANUAL_MANAGE_PASSWORDS;
         break;
       case password_manager::ui::CONFIRMATION_STATE:
+        display_disposition =
+            metrics_util::MANUAL_GENERATED_PASSWORD_CONFIRMATION;
+        break;
       case password_manager::ui::CREDENTIAL_REQUEST_STATE:
       case password_manager::ui::AUTO_SIGNIN_STATE:
       case password_manager::ui::CHROME_SIGN_IN_PROMO_STATE:
@@ -395,16 +401,12 @@ void ManagePasswordsBubbleModel::OnNeverForThisSiteClicked() {
   delegate_->NeverSavePassword();
 }
 
-void ManagePasswordsBubbleModel::OnUsernameEdited(base::string16 new_username) {
+void ManagePasswordsBubbleModel::OnCredentialEdited(
+    base::string16 new_username,
+    base::string16 new_password) {
   DCHECK_EQ(password_manager::ui::PENDING_PASSWORD_STATE, state_);
-  if (pending_password_.username_value != new_username) {
-    if (delegate_ && delegate_->GetPasswordFormMetricsRecorder()) {
-      delegate_->GetPasswordFormMetricsRecorder()->RecordDetailedUserAction(
-          password_manager::PasswordFormMetricsRecorder::DetailedUserAction::
-              kEditedUsernameInBubble);
-    }
-  }
   pending_password_.username_value = std::move(new_username);
+  pending_password_.password_value = std::move(new_password);
 }
 
 void ManagePasswordsBubbleModel::OnSaveClicked() {
@@ -413,7 +415,8 @@ void ManagePasswordsBubbleModel::OnSaveClicked() {
   interaction_keeper_->set_update_password_submission_event(
       GetUpdateDismissalReason(UPDATE_CLICKED));
   CleanStatisticsForSite(GetProfile(), origin_);
-  delegate_->SavePassword(pending_password_.username_value);
+  delegate_->SavePassword(pending_password_.username_value,
+                          pending_password_.password_value);
 }
 
 void ManagePasswordsBubbleModel::OnNopeUpdateClicked() {

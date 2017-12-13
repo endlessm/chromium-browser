@@ -145,6 +145,10 @@ Profile* ExtensionBrowserTest::profile() {
   return profile_;
 }
 
+bool ExtensionBrowserTest::ShouldEnableContentVerification() {
+  return false;
+}
+
 // static
 const Extension* ExtensionBrowserTest::GetExtensionByPath(
     const extensions::ExtensionSet& extensions,
@@ -172,6 +176,11 @@ void ExtensionBrowserTest::SetUpCommandLine(base::CommandLine* command_line) {
   // We don't want any warning bubbles for, e.g., unpacked extensions.
   ExtensionMessageBubbleFactory::set_override_for_tests(
       ExtensionMessageBubbleFactory::OVERRIDE_DISABLED);
+
+  if (!ShouldEnableContentVerification()) {
+    ignore_content_verification_.reset(
+        new extensions::ScopedIgnoreContentVerifierForTest());
+  }
 
 #if defined(OS_CHROMEOS)
   if (set_chromeos_user_) {

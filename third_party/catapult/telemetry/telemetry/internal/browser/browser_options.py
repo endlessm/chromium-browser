@@ -49,9 +49,6 @@ class BrowserFinderOptions(optparse.Values):
 
     self.no_performance_mode = False
 
-    # Whether to use the new Golang implementation of web page replay.
-    self.use_wpr_go = False
-
   def __repr__(self):
     return str(sorted(self.__dict__.items()))
 
@@ -79,12 +76,6 @@ class BrowserFinderOptions(optparse.Values):
         dest='chrome_root',
         help='Where to look for chrome builds. '
              'Defaults to searching parent dirs by default.')
-    group.add_option(
-        '--use-wpr-go',
-        dest='use_wpr_go',
-        action='store_true',
-        help='use the format of the new Golang implementation of '
-        'web page replay.')
     group.add_option(
         '--chromium-output-directory',
         dest='chromium_output_dir',
@@ -298,11 +289,13 @@ class BrowserOptions(object):
     self.disable_background_networking = True
     self.browser_user_agent_type = None
 
+    # pylint: disable=invalid-name
     self.clear_sytem_cache_for_browser_and_profile_on_start = False
     self.startup_url = 'about:blank'
 
     # Background pages of built-in component extensions can interfere with
     # performance measurements.
+    # pylint: disable=invalid-name
     self.disable_component_extensions_with_background_pages = True
     # Disable default apps.
     self.disable_default_apps = True
@@ -323,6 +316,11 @@ class BrowserOptions(object):
     # Whether to take screen shot for failed page & put them in telemetry's
     # profiling results.
     self.take_screenshot_for_failed_page = False
+
+    # TODO(crbug.com/760319): This is a hack to temporarily disable modal
+    # permission prompts on Android. Remove after implementing a longer term
+    # solution.
+    self.block_modal_permission_prompts = True
 
   def __repr__(self):
     # This works around the infinite loop caused by the introduction of a

@@ -7,18 +7,20 @@
 #include <utility>
 
 #include "base/files/file_util.h"
+#include "base/optional.h"
 #include "base/path_service.h"
+#include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
+#include "base/strings/string_tokenizer.h"
+#include "base/sys_info.h"
 #include "base/task_scheduler/post_task.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/component_updater/component_installer_errors.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/image_loader_client.h"
 #include "components/component_updater/component_updater_paths.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/browser/browser_thread.h"
-
-#if defined(OS_CHROMEOS)
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/image_loader_client.h"
-#endif  // defined(OS_CHROMEOS)
 
 // ConfigMap list-initialization expression for all downloadable
 // Chrome OS components.
@@ -40,18 +42,15 @@ using content::BrowserThread;
 
 namespace component_updater {
 
-#if defined(OS_CHROMEOS)
 using ConfigMap = std::map<std::string, std::map<std::string, std::string>>;
 
-void LogRegistrationResult(const std::string& name,
-                           chromeos::DBusMethodCallStatus call_status,
-                           bool result) {
+void LogRegistrationResult(base::Optional<bool> result) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (call_status != chromeos::DBUS_METHOD_CALL_SUCCESS) {
+  if (!result.has_value()) {
     DVLOG(1) << "Call to imageloader service failed.";
     return;
   }
-  if (!result) {
+  if (!result.value()) {
     DVLOG(1) << "Component registration failed";
     return;
   }
@@ -63,10 +62,9 @@ void ImageLoaderRegistration(const std::string& version,
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   chromeos::ImageLoaderClient* loader =
       chromeos::DBusThreadManager::Get()->GetImageLoaderClient();
-
   if (loader) {
     loader->RegisterComponent(name, version, install_dir.value(),
-                              base::Bind(&LogRegistrationResult, name));
+                              base::BindOnce(&LogRegistrationResult));
   } else {
     DVLOG(1) << "Failed to get ImageLoaderClient object.";
   }
@@ -78,7 +76,7 @@ ComponentConfig::ComponentConfig(const std::string& name,
     : name(name), env_version(env_version), sha2hashstr(sha2hashstr) {}
 ComponentConfig::~ComponentConfig() {}
 
-CrOSComponentInstallerTraits::CrOSComponentInstallerTraits(
+CrOSComponentInstallerPolicy::CrOSComponentInstallerPolicy(
     const ComponentConfig& config)
     : name(config.name), env_version(config.env_version) {
   if (config.sha2hashstr.length() != 64)
@@ -90,17 +88,17 @@ CrOSComponentInstallerTraits::CrOSComponentInstallerTraits(
   }
 }
 
-bool CrOSComponentInstallerTraits::SupportsGroupPolicyEnabledComponentUpdates()
+bool CrOSComponentInstallerPolicy::SupportsGroupPolicyEnabledComponentUpdates()
     const {
   return true;
 }
 
-bool CrOSComponentInstallerTraits::RequiresNetworkEncryption() const {
+bool CrOSComponentInstallerPolicy::RequiresNetworkEncryption() const {
   return true;
 }
 
 update_client::CrxInstaller::Result
-CrOSComponentInstallerTraits::OnCustomInstall(
+CrOSComponentInstallerPolicy::OnCustomInstall(
     const base::DictionaryValue& manifest,
     const base::FilePath& install_dir) {
   std::string version;
@@ -113,7 +111,7 @@ CrOSComponentInstallerTraits::OnCustomInstall(
   return update_client::CrxInstaller::Result(update_client::InstallError::NONE);
 }
 
-void CrOSComponentInstallerTraits::ComponentReady(
+void CrOSComponentInstallerPolicy::ComponentReady(
     const base::Version& version,
     const base::FilePath& path,
     std::unique_ptr<base::DictionaryValue> manifest) {
@@ -125,37 +123,37 @@ void CrOSComponentInstallerTraits::ComponentReady(
   }
 }
 
-bool CrOSComponentInstallerTraits::VerifyInstallation(
+bool CrOSComponentInstallerPolicy::VerifyInstallation(
     const base::DictionaryValue& manifest,
     const base::FilePath& install_dir) const {
   return true;
 }
 
-base::FilePath CrOSComponentInstallerTraits::GetRelativeInstallDir() const {
+base::FilePath CrOSComponentInstallerPolicy::GetRelativeInstallDir() const {
   return base::FilePath(name);
 }
 
-void CrOSComponentInstallerTraits::GetHash(std::vector<uint8_t>* hash) const {
+void CrOSComponentInstallerPolicy::GetHash(std::vector<uint8_t>* hash) const {
   hash->assign(kSha2Hash_, kSha2Hash_ + arraysize(kSha2Hash_));
 }
 
-std::string CrOSComponentInstallerTraits::GetName() const {
+std::string CrOSComponentInstallerPolicy::GetName() const {
   return name;
 }
 
 update_client::InstallerAttributes
-CrOSComponentInstallerTraits::GetInstallerAttributes() const {
+CrOSComponentInstallerPolicy::GetInstallerAttributes() const {
   update_client::InstallerAttributes attrs;
   attrs["_env_version"] = env_version;
   return attrs;
 }
 
-std::vector<std::string> CrOSComponentInstallerTraits::GetMimeTypes() const {
+std::vector<std::string> CrOSComponentInstallerPolicy::GetMimeTypes() const {
   std::vector<std::string> mime_types;
   return mime_types;
 }
 
-bool CrOSComponentInstallerTraits::IsCompatible(
+bool CrOSComponentInstallerPolicy::IsCompatible(
     const std::string& env_version_str,
     const std::string& min_env_version_str) {
   base::Version env_version(env_version_str);
@@ -170,13 +168,9 @@ bool CrOSComponentInstallerTraits::IsCompatible(
 // point.
 static void LoadResult(
     const base::Callback<void(const std::string&)>& load_callback,
-    chromeos::DBusMethodCallStatus call_status,
-    const std::string& result) {
-  PostTask(
-      FROM_HERE,
-      base::BindOnce(
-          load_callback,
-          call_status != chromeos::DBUS_METHOD_CALL_SUCCESS ? "" : result));
+    base::Optional<std::string> result) {
+  PostTask(FROM_HERE,
+           base::BindOnce(load_callback, result.value_or(std::string())));
 }
 
 // Internal function to load a component.
@@ -215,12 +209,11 @@ static void RegisterComponent(ComponentUpdateService* cus,
                               const ComponentConfig& config,
                               const base::Closure& register_callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  std::unique_ptr<ComponentInstallerTraits> traits(
-      new CrOSComponentInstallerTraits(config));
+  std::unique_ptr<ComponentInstallerPolicy> policy(
+      new CrOSComponentInstallerPolicy(config));
   // |cus| will take ownership of |installer| during
   // installer->Register(cus).
-  DefaultComponentInstaller* installer =
-      new DefaultComponentInstaller(std::move(traits));
+  ComponentInstaller* installer = new ComponentInstaller(std::move(policy));
   installer->Register(cus, register_callback);
 }
 
@@ -245,9 +238,44 @@ void CrOSComponent::InstallComponent(
                                base::Bind(InstallResult, name, load_callback)));
 }
 
+static void OperatingSystemVersionNumbers(const std::string& os_version_,
+                                          int32_t* major_version,
+                                          int32_t* minor_version) {
+  // Since this file is only compiled for Chrome OS and this functionality is
+  // only availble on Chrome OS. The version returned by OperatingSystemVersion
+  // is Chrome OS version:
+  //
+  //        3.18.0-16235-ge6545a7cd77b
+  //
+  // The first part (delimited by -) is extracted as kernel version:
+  //
+  //        3.18.0-16235-ge6545a7cd77b -> 3.18.0
+  //        3.14.0                     -> 3.14.0
+  std::string os_version = os_version_.substr(0, os_version_.find('-'));
+  base::StringTokenizer tokenizer(os_version, ".");
+  if (tokenizer.GetNext()) {
+    base::StringToInt(
+        base::StringPiece(tokenizer.token_begin(), tokenizer.token_end()),
+        major_version);
+  }
+  if (tokenizer.GetNext()) {
+    base::StringToInt(
+        base::StringPiece(tokenizer.token_begin(), tokenizer.token_end()),
+        minor_version);
+  }
+}
+
 void CrOSComponent::LoadComponent(
     const std::string& name,
     const base::Callback<void(const std::string&)>& load_callback) {
+  // Block component updater for kernel 3.8, 3.10
+  const std::string os_version = base::SysInfo::OperatingSystemVersion();
+  int32_t major_version = 0, minor_version = 0;
+  OperatingSystemVersionNumbers(os_version, &major_version, &minor_version);
+  if (major_version == 3 && (minor_version == 8 || minor_version == 10)) {
+    return;
+  }
+
   if (!g_browser_process->platform_part()->IsCompatibleCrOSComponent(name)) {
     // A compatible component is not installed, start installation process.
     auto* const cus = g_browser_process->component_updater();
@@ -287,7 +315,5 @@ void CrOSComponent::RegisterComponents(
     RegisterComponent(updater, config, base::Closure());
   }
 }
-
-#endif  // defined(OS_CHROMEOS
 
 }  // namespace component_updater

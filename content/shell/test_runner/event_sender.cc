@@ -2078,6 +2078,10 @@ void EventSender::BeginDragWithFiles(const std::vector<std::string>& files) {
 }
 
 void EventSender::AddTouchPoint(float x, float y, gin::Arguments* args) {
+  if (touch_points_.size() == WebTouchEvent::kTouchesLengthCap) {
+    args->ThrowError();
+    return;
+  }
   WebTouchPoint touch_point;
   touch_point.pointer_type = WebPointerProperties::PointerType::kTouch;
   touch_point.state = WebTouchPoint::kStatePressed;
@@ -2278,8 +2282,8 @@ void EventSender::SendCurrentTouchEvent(WebInputEvent::Type type,
                                         gin::Arguments* args) {
   uint32_t unique_touch_event_id = GetUniqueTouchEventId(args);
 
-  DCHECK_GT(static_cast<unsigned>(WebTouchEvent::kTouchesLengthCap),
-            touch_points_.size());
+  DCHECK_LE(touch_points_.size(),
+            static_cast<unsigned>(WebTouchEvent::kTouchesLengthCap));
   if (force_layout_on_events_)
     widget()->UpdateAllLifecyclePhases();
 
@@ -2339,19 +2343,11 @@ void EventSender::GestureEvent(WebInputEvent::Type type, gin::Arguments* args) {
 
   switch (type) {
     case WebInputEvent::kGestureScrollUpdate: {
-      bool preventPropagation = false;
-      if (!args->PeekNext().IsEmpty()) {
-        if (!args->GetNext(&preventPropagation)) {
-          args->ThrowError();
-          return;
-        }
-      }
       if (!GetScrollUnits(args, &event.data.scroll_update.delta_units))
         return;
 
       event.data.scroll_update.delta_x = static_cast<float>(x);
       event.data.scroll_update.delta_y = static_cast<float>(y);
-      event.data.scroll_update.prevent_propagation = preventPropagation;
       event.x = current_gesture_location_.x;
       event.y = current_gesture_location_.y;
       current_gesture_location_.x =

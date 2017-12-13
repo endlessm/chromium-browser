@@ -58,8 +58,9 @@ Polymer({
   listeners: {
     'discard-image': 'onDiscardImage_',
     'image-activate': 'onImageActivate_',
-    'photo-flipped': 'onPhotoFlipped_',
+    'focus-action': 'onFocusAction_',
     'photo-taken': 'onPhotoTaken_',
+    'switch-mode': 'onSwitchMode_',
   },
 
   /** @private {?settings.ChangePictureBrowserProxy} */
@@ -193,6 +194,11 @@ Polymer({
     this.selectImage_(event.detail);
   },
 
+  /** Focus the action button in the picture pane. */
+  onFocusAction_: function() {
+    /** CrPicturePaneElement */ (this.$.picturePane).focusActionButton();
+  },
+
   /**
    * @param {!{detail: !{photoDataUrl: string}}} event
    * @private
@@ -209,11 +215,10 @@ Polymer({
    * @param {!{detail: boolean}} event
    * @private
    */
-  onPhotoFlipped_: function(event) {
-    var flipped = event.detail;
-    var flipMessageId = flipped ? 'photoFlippedAccessibleText' :
-                                  'photoFlippedBackAccessibleText';
-    announceAccessibleMessage(loadTimeData.getString(flipMessageId));
+  onSwitchMode_: function(event) {
+    var videomode = event.detail;
+    announceAccessibleMessage(this.i18n(
+        videomode ? 'videoModeAccessibleText' : 'photoModeAccessibleText'));
   },
 
   /** @private */

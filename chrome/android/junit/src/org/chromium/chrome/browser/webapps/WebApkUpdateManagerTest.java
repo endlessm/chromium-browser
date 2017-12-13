@@ -27,6 +27,7 @@ import org.robolectric.shadows.ShadowBitmap;
 
 import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
+import org.chromium.base.PathUtils;
 import org.chromium.blink_public.platform.WebDisplayMode;
 import org.chromium.chrome.browser.DisableHistogramsRule;
 import org.chromium.chrome.browser.ShortcutHelper;
@@ -63,7 +64,7 @@ public class WebApkUpdateManagerTest {
     private static final String PRIMARY_ICON_MURMUR2_HASH = "3";
     private static final String BADGE_ICON_URL = "/badge.png";
     private static final String BADGE_ICON_MURMUR2_HASH = "4";
-    private static final int DISPLAY_MODE = WebDisplayMode.UNDEFINED;
+    private static final @WebDisplayMode int DISPLAY_MODE = WebDisplayMode.UNDEFINED;
     private static final int ORIENTATION = ScreenOrientationValues.DEFAULT;
     private static final long THEME_COLOR = 1L;
     private static final long BACKGROUND_COLOR = 2L;
@@ -102,6 +103,7 @@ public class WebApkUpdateManagerTest {
     }
 
     private static class TestWebApkUpdateManager extends WebApkUpdateManager {
+        private WebappDataStorage mStorage;
         private TestWebApkUpdateDataFetcher mFetcher;
         private boolean mUpdateRequested;
         private String mUpdateName;
@@ -110,6 +112,7 @@ public class WebApkUpdateManagerTest {
 
         public TestWebApkUpdateManager(WebappDataStorage storage) {
             super(null, storage);
+            mStorage = storage;
         }
 
         /**
@@ -144,14 +147,15 @@ public class WebApkUpdateManagerTest {
         }
 
         @Override
-        protected void buildProtoAndScheduleUpdate(WebApkInfo info, String primaryIconUrl,
+        protected void buildUpdateRequestAndSchedule(WebApkInfo info, String primaryIconUrl,
                 String badgeIconUrl, boolean isManifestStale) {
             mUpdateName = info.name();
-            scheduleUpdate(info, new byte[0]);
+            String updateRequestPath = mStorage.createAndSetUpdateRequestFilePath(info);
+            scheduleUpdate(updateRequestPath);
         }
 
         @Override
-        protected void updateAsyncImpl(WebApkInfo info, byte[] serializedProto) {
+        protected void updateAsyncImpl(String updateRequestPath) {
             mUpdateRequested = true;
         }
 
@@ -187,7 +191,7 @@ public class WebApkUpdateManagerTest {
         public Bitmap primaryIcon;
         public String badgeIconUrl;
         public Bitmap badgeIcon;
-        public int displayMode;
+        public @WebDisplayMode int displayMode;
         public int orientation;
         public long themeColor;
         public long backgroundColor;
@@ -336,6 +340,7 @@ public class WebApkUpdateManagerTest {
     @Before
     public void setUp() {
         ContextUtils.initApplicationContextForTests(RuntimeEnvironment.application);
+        PathUtils.setPrivateDataDirectorySuffix("chrome");
         CommandLine.init(null);
 
         registerWebApk(WEBAPK_PACKAGE_NAME, defaultManifestData(), CURRENT_SHELL_APK_VERSION);
@@ -369,8 +374,7 @@ public class WebApkUpdateManagerTest {
             assertTrue(updateManager.updateCheckStarted());
         }
 
-        // Chrome is killed. Neither
-        // {@link WebApkUpdateManager#OnGotManifestData()} is not called.
+        // Chrome is killed. {@link WebApkUpdateManager#OnGotManifestData()} is not called.
 
         {
             // Relaunching the WebAPK should do an is-update-needed check.
@@ -486,7 +490,7 @@ public class WebApkUpdateManagerTest {
         assertTrue(updateManager.updateRequested());
         assertEquals(NAME, updateManager.requestedUpdateName());
 
-        // Check that the {@link ManifestUpgradeDetector} has been destroyed. This prevents
+        // Check that the {@link WebApkUpdateDataFetcher} has been destroyed. This prevents
         // {@link #onGotManifestData()} from getting called.
         assertTrue(updateManager.destroyedFetcher());
     }
@@ -519,8 +523,6 @@ public class WebApkUpdateManagerTest {
      * - The user eventually navigates to a page pointing to a Web Manifest with the correct URL.
      * AND
      * - The Web Manifest has changed.
-     *
-     * This scenario can occur if the WebAPK's start_url is a Javascript redirect.
      */
     @Test
     public void testStartUrlRedirectsToPageWithUpdatedWebManifest() {
@@ -531,13 +533,15 @@ public class WebApkUpdateManagerTest {
         updateIfNeeded(updateManager);
         assertTrue(updateManager.updateCheckStarted());
 
-        // start_url does not have a Web Manifest. No update should be requested.
+        // start_url does not have a Web Manifest. {@link #onGotManifestData} is called as a result
+        // of update manager timing out. No update should be requested.
+        updateManager.onGotManifestData(null, null, null);
         assertFalse(updateManager.updateRequested());
-        // {@link ManifestUpgradeDetector} should still be alive so that it can get
+        // {@link WebApkUpdateDataFetcher} should still be alive so that it can get
         // {@link #onGotManifestData} when page with the Web Manifest finishes loading.
         assertFalse(updateManager.destroyedFetcher());
 
-        // start_url redirects to page with Web Manifest.
+        // User eventually navigates to page with Web Manifest.
 
         ManifestData manifestData = defaultManifestData();
         manifestData.name = DIFFERENT_NAME;
@@ -563,10 +567,13 @@ public class WebApkUpdateManagerTest {
         TestWebApkUpdateManager updateManager =
                 new TestWebApkUpdateManager(getStorage(WEBAPK_PACKAGE_NAME));
         updateIfNeeded(updateManager);
+
+        // Update manager times out.
+        updateManager.onGotManifestData(null, null, null);
         onGotManifestData(updateManager, defaultManifestData());
         assertFalse(updateManager.updateRequested());
 
-        // We got the Web Manifest. The {@link ManifestUpgradeDetector} should be destroyed to stop
+        // We got the Web Manifest. The {@link WebApkUpdateDataFetcher} should be destroyed to stop
         // it from fetching the Web Manifest for subsequent page loads.
         assertTrue(updateManager.destroyedFetcher());
     }

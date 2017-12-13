@@ -62,6 +62,10 @@ void UiTexture::SetMode(ColorScheme::Mode mode) {
   OnSetMode();
 }
 
+void UiTexture::OnInitialized() {
+  set_dirty();
+}
+
 void UiTexture::OnSetMode() {}
 
 const ColorScheme& UiTexture::color_scheme() const {
@@ -89,8 +93,8 @@ std::vector<std::unique_ptr<gfx::RenderText>> UiTexture::PrepareDrawStringRect(
     int height = 0;
     int line_height = 0;
     for (size_t i = 0; i < strings.size(); i++) {
-      std::unique_ptr<gfx::RenderText> render_text =
-          CreateRenderText(strings[i], font_list, color, text_alignment);
+      std::unique_ptr<gfx::RenderText> render_text = CreateConfiguredRenderText(
+          strings[i], font_list, color, text_alignment);
 
       if (i == 0) {
         // Measure line and center text vertically.
@@ -114,7 +118,7 @@ std::vector<std::unique_ptr<gfx::RenderText>> UiTexture::PrepareDrawStringRect(
 
   } else {
     std::unique_ptr<gfx::RenderText> render_text =
-        CreateRenderText(text, font_list, color, text_alignment);
+        CreateConfiguredRenderText(text, font_list, color, text_alignment);
     if (bounds->width() != 0)
       render_text->SetElideBehavior(gfx::TRUNCATE);
     else
@@ -134,13 +138,22 @@ std::vector<std::unique_ptr<gfx::RenderText>> UiTexture::PrepareDrawStringRect(
   return lines;
 }
 
-std::unique_ptr<gfx::RenderText> UiTexture::CreateRenderText(
+std::unique_ptr<gfx::RenderText> UiTexture::CreateRenderText() {
+  std::unique_ptr<gfx::RenderText> render_text(
+      gfx::RenderText::CreateInstance());
+
+  // Subpixel rendering is counterproductive when drawing VR textures.
+  render_text->set_subpixel_rendering_suppressed(true);
+
+  return render_text;
+}
+
+std::unique_ptr<gfx::RenderText> UiTexture::CreateConfiguredRenderText(
     const base::string16& text,
     const gfx::FontList& font_list,
     SkColor color,
     UiTexture::TextAlignment text_alignment) {
-  std::unique_ptr<gfx::RenderText> render_text(
-      gfx::RenderText::CreateInstance());
+  std::unique_ptr<gfx::RenderText> render_text(CreateRenderText());
   render_text->SetText(text);
   render_text->SetFontList(font_list);
   render_text->SetColor(color);

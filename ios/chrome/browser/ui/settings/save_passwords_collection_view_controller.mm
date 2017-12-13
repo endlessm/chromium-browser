@@ -78,7 +78,7 @@ class SavePasswordsConsumer : public PasswordStoreConsumer {
       std::vector<std::unique_ptr<autofill::PasswordForm>> results) override;
 
  private:
-  __unsafe_unretained SavePasswordsCollectionViewController* delegate_;  // weak
+  __weak SavePasswordsCollectionViewController* delegate_ = nil;
   DISALLOW_COPY_AND_ASSIGN(SavePasswordsConsumer);
 };
 
@@ -173,6 +173,8 @@ void SavePasswordsConsumer::OnGetPasswordStoreResults(
     [passwordManagerEnabled_ setObserver:self];
     [self getLoginsFromPasswordStore];
     [self updateEditButton];
+    // TODO(crbug.com/764578): -loadModel should not be called from
+    // initializer. Consider moving the other calls on instance methods as well.
     [self loadModel];
   }
   return self;

@@ -8,6 +8,7 @@
 #import <UIKit/UIKit.h>
 #include <set>
 
+@protocol ApplicationCommands;
 class GURL;
 
 namespace bookmarks {
@@ -23,6 +24,7 @@ class PrefRegistrySyncable;
 }  // namespace user_prefs
 
 @class BookmarkTableView;
+@class MDCFlexibleHeaderView;
 
 // Delegate to handle actions on the table.
 @protocol BookmarkTableViewDelegate<NSObject>
@@ -42,15 +44,36 @@ class PrefRegistrySyncable;
 // Returns true if a bookmarks promo cell should be shown.
 - (BOOL)bookmarkTableViewShouldShowPromoCell:(BookmarkTableView*)view;
 
-// Shows a sign-in view controller.
-- (void)bookmarkTableViewShowSignIn:(BookmarkTableView*)view;
-
 // Dismisses the promo.
 - (void)bookmarkTableViewDismissPromo:(BookmarkTableView*)view;
+
+// Tells the delegate that nodes were selected in edit mode.
+- (void)bookmarkTableView:(BookmarkTableView*)view
+        selectedEditNodes:
+            (const std::set<const bookmarks::BookmarkNode*>&)nodes;
+
+// Tells the delegate to show context menu for the given |node|.
+- (void)bookmarkTableView:(BookmarkTableView*)view
+    showContextMenuForNode:(const bookmarks::BookmarkNode*)node;
+
+// Tells the delegate that |node| was moved to a new |position|.
+- (void)bookmarkTableView:(BookmarkTableView*)view
+              didMoveNode:(const bookmarks::BookmarkNode*)node
+               toPosition:(int)position;
+
+// Tells the delegate to refresh the context bar.
+- (void)bookmarkTableViewRefreshContextBar:(BookmarkTableView*)view;
 
 @end
 
 @interface BookmarkTableView : UIView
+// If the table is in edit mode.
+@property(nonatomic, assign) BOOL editing;
+// The UITableView to show bookmarks.
+@property(nonatomic, strong, readonly) UITableView* tableView;
+// Header view to display the shadow below the app bar. It must be tracking the
+// |tableView|.
+@property(nonatomic, weak) MDCFlexibleHeaderView* headerView;
 
 // Shows all sub-folders and sub-urls of a folder node (that is set as the root
 // node) in a UITableView. Note: This class intentionally does not try to
@@ -59,7 +82,9 @@ class PrefRegistrySyncable;
 - (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState
                             delegate:(id<BookmarkTableViewDelegate>)delegate
                             rootNode:(const bookmarks::BookmarkNode*)rootNode
-                               frame:(CGRect)frame NS_DESIGNATED_INITIALIZER;
+                               frame:(CGRect)frame
+                          dispatcher:(id<ApplicationCommands>)dispatcher
+    NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)initWithFrame:(CGRect)frame NS_UNAVAILABLE;
 - (instancetype)initWithFrame:(CGRect)frame
@@ -73,6 +98,30 @@ class PrefRegistrySyncable;
 
 // Called when something outside the view causes the promo state to change.
 - (void)promoStateChangedAnimated:(BOOL)animated;
+
+// Called when adding a new folder
+- (void)addNewFolder;
+
+// Returns the currently selected edit nodes.
+- (const std::set<const bookmarks::BookmarkNode*>&)editNodes;
+
+// Returns a vector of edit nodes.
+- (std::vector<const bookmarks::BookmarkNode*>)getEditNodesInVector;
+
+// Returns if current root node has bookmarks or folders.
+- (BOOL)hasBookmarksOrFolders;
+
+// Returns if current root node allows new folder to be created on it.
+- (BOOL)allowsNewFolder;
+
+// Returns the row position that is visible.
+- (CGFloat)contentPosition;
+
+// Scrolls the table view to the desired row position.
+- (void)setContentPosition:(CGFloat)position;
+
+// Called when back or done button of navigation bar is tapped.
+- (void)navigateAway;
 
 @end
 

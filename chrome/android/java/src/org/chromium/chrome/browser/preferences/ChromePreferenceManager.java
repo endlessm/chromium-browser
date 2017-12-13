@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.preferences;
 
 import android.content.SharedPreferences;
+import android.os.StrictMode;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.annotations.SuppressFBWarnings;
@@ -44,10 +45,16 @@ public class ChromePreferenceManager {
             "contextual_search_current_week_number";
     private static final String HERB_FLAVOR_KEY = "herb_flavor";
     private static final String CHROME_HOME_ENABLED_KEY = "chrome_home_enabled";
+    private static final String CHROME_HOME_USER_ENABLED_KEY = "chrome_home_user_enabled";
+    private static final String CHROME_HOME_OPT_OUT_SNACKBAR_SHOWN =
+            "chrome_home_opt_out_snackbar_shown";
 
     private static final String CHROME_DEFAULT_BROWSER = "applink.chrome_default_browser";
 
     private static final String CONTENT_SUGGESTIONS_SHOWN_KEY = "content_suggestions_shown";
+
+    private static final String SETTINGS_PERSONALIZED_SIGNIN_PROMO_DISMISSED =
+            "settings_personalized_signin_promo_dismissed";
 
     // TODO(crbug.com/757892): Remove this preference key once the personalized signin promos
     // launch completely.
@@ -60,6 +67,8 @@ public class ChromePreferenceManager {
     private static final String FAILURE_UPLOAD_SUFFIX = "_crash_failure_upload";
 
     private static final String OMNIBOX_PLACEHOLDER_GROUP = "omnibox-placeholder-group";
+
+    public static final String CHROME_HOME_SHARED_PREFERENCES_KEY = "chrome_home_enabled_date";
 
     private static ChromePreferenceManager sPrefs;
 
@@ -355,6 +364,16 @@ public class ChromePreferenceManager {
         writeBoolean(CHROME_DEFAULT_BROWSER, isDefault);
     }
 
+    /** Set whether the user dismissed the personalized sign in promo from the Settings. */
+    public void setSettingsPersonalizedSigninPromoDismissed(boolean isPromoDismissed) {
+        writeBoolean(SETTINGS_PERSONALIZED_SIGNIN_PROMO_DISMISSED, isPromoDismissed);
+    }
+
+    /** Checks if the user dismissed the personalized sign in promo from the Settings. */
+    public boolean getSettingsPersonalizedSigninPromoDismissed() {
+        return mSharedPreferences.getBoolean(SETTINGS_PERSONALIZED_SIGNIN_PROMO_DISMISSED, false);
+    }
+
     /** Checks if the user dismissed the generic sign in promo from the new tab page. */
     public boolean getNewTabPageGenericSigninPromoDismissed() {
         return mSharedPreferences.getBoolean(NTP_GENERIC_SIGNIN_PROMO_DISMISSED, false);
@@ -409,6 +428,50 @@ public class ChromePreferenceManager {
      */
     public boolean isChromeHomeEnabled() {
         return mSharedPreferences.getBoolean(CHROME_HOME_ENABLED_KEY, false);
+    }
+
+    /**
+     * Set whether or not Chrome Home is enabled by the user.
+     * @param isEnabled If Chrome Home is enabled by the user.
+     */
+    public void setChromeHomeUserEnabled(boolean isEnabled) {
+        writeBoolean(CHROME_HOME_USER_ENABLED_KEY, isEnabled);
+    }
+
+    /**
+     * Get whether or not Chrome Home is enabled by the user.
+     * @return True if Chrome Home is enabled by the user.
+     */
+    public boolean isChromeHomeUserEnabled() {
+        return mSharedPreferences.getBoolean(CHROME_HOME_USER_ENABLED_KEY, false);
+    }
+
+    /**
+     * @return Whether or not the user has set their Chrome Home preference.
+     */
+    public boolean isChromeHomeUserPreferenceSet() {
+        return mSharedPreferences.contains(CHROME_HOME_USER_ENABLED_KEY);
+    }
+
+    /**
+     * Remove the Chrome Home user preference.
+     */
+    public void clearChromeHomeUserPreference() {
+        mSharedPreferences.edit().remove(CHROME_HOME_USER_ENABLED_KEY).apply();
+    }
+
+    /**
+     * Mark that the Chrome Home opt-out snackbar has been shown.
+     */
+    public void setChromeHomeOptOutSnackbarShown() {
+        writeBoolean(CHROME_HOME_OPT_OUT_SNACKBAR_SHOWN, true);
+    }
+
+    /**
+     * @return Whether the Chrome Home opt-out snackbar has been shown.
+     */
+    public boolean getChromeHomeOptOutSnackbarShown() {
+        return mSharedPreferences.getBoolean(CHROME_HOME_OPT_OUT_SNACKBAR_SHOWN, false);
     }
 
     /** Marks that the content suggestions surface has been shown. */
@@ -479,5 +542,29 @@ public class ChromePreferenceManager {
         SharedPreferences.Editor ed = mSharedPreferences.edit();
         ed.putBoolean(key, value);
         ed.apply();
+    }
+
+    /**
+     * Logs the most recent date that Chrome Home was enabled.
+     * Removes the entry if Chrome Home is disabled.
+     *
+     * @param isChromeHomeEnabled Whether or not Chrome Home is currently enabled.
+     */
+    public static void setChromeHomeEnabledDate(boolean isChromeHomeEnabled) {
+        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
+        try {
+            SharedPreferences sharedPreferences = ContextUtils.getAppSharedPreferences();
+            long earliestLoggedDate =
+                    sharedPreferences.getLong(CHROME_HOME_SHARED_PREFERENCES_KEY, 0L);
+            if (isChromeHomeEnabled && earliestLoggedDate == 0L) {
+                sharedPreferences.edit()
+                        .putLong(CHROME_HOME_SHARED_PREFERENCES_KEY, System.currentTimeMillis())
+                        .apply();
+            } else if (!isChromeHomeEnabled && earliestLoggedDate != 0L) {
+                sharedPreferences.edit().remove(CHROME_HOME_SHARED_PREFERENCES_KEY).apply();
+            }
+        } finally {
+            StrictMode.setThreadPolicy(oldPolicy);
+        }
     }
 }

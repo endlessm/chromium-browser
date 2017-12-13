@@ -16,6 +16,7 @@
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/cancelable_task_tracker.h"
+#include "components/favicon/ios/web_favicon_driver.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "components/sessions/core/session_id.h"
 #include "components/sessions/core/tab_restore_service.h"
@@ -59,7 +60,6 @@
 #import "ios/web/public/serializable_user_data_manager.h"
 #include "ios/web/public/web_state/session_certificate_policy_cache.h"
 #include "ios/web/public/web_thread.h"
-#import "ios/web/web_state/ui/crw_web_controller.h"
 #include "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -696,6 +696,11 @@ void CleanCertificatePolicyCache(
           visible_item->GetVirtualURL() == GURL(kChromeUINewTabURL))) {
       PagePlaceholderTabHelper::FromWebState(webState)
           ->AddPlaceholderForNextNavigation();
+    }
+
+    if (visible_item && visible_item->GetVirtualURL().is_valid()) {
+      favicon::WebFaviconDriver::FromWebState(webState)->FetchFavicon(
+          visible_item->GetVirtualURL(), /*is_same_document=*/false);
     }
 
     // Restore the CertificatePolicyCache (note that webState is invalid after

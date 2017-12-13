@@ -153,18 +153,16 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
 
   // The ActiveSessionsCallback is used for the RetrieveActiveSessions()
   // method. It receives |sessions| argument where the keys are cryptohome_ids
-  // for all users that are currently active and |success| argument which
-  // indicates whether or not the request succeded.
+  // for all users that are currently active.
   using ActiveSessionsCallback =
-      base::Callback<void(const ActiveSessionsMap& sessions, bool success)>;
+      DBusMethodCallback<ActiveSessionsMap /* sessions */>;
 
   // Enumerates active user sessions. Usually Chrome naturally keeps track of
   // active users when they are added into current session. When Chrome is
   // restarted after crash by session_manager it only receives cryptohome id and
   // user_id_hash for one user. This method is used to retrieve list of all
   // active users.
-  virtual void RetrieveActiveSessions(
-      const ActiveSessionsCallback& callback) = 0;
+  virtual void RetrieveActiveSessions(ActiveSessionsCallback callback) = 0;
 
   // Used for RetrieveDevicePolicy, RetrievePolicyForUser and
   // RetrieveDeviceLocalAccountPolicy. Takes a serialized protocol buffer as
@@ -185,7 +183,7 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // This may only be called in situations where blocking the UI thread is
   // considered acceptable (e.g. restarting the browser after a crash or after
   // a flag change).
-  // TODO: Get rid of blocking calls (crbug.com/160522).
+  // TODO(crbug.com/160522): Get rid of blocking calls.
   virtual RetrievePolicyResponseType BlockingRetrieveDevicePolicy(
       std::string* policy_out) = 0;
 
@@ -202,7 +200,7 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // This may only be called in situations where blocking the UI thread is
   // considered acceptable (e.g. restarting the browser after a crash or after
   // a flag change).
-  // TODO: Get rid of blocking calls (crbug.com/160522).
+  // TODO(crbug.com/160522): Get rid of blocking calls.
   virtual RetrievePolicyResponseType BlockingRetrievePolicyForUser(
       const cryptohome::Identification& cryptohome_id,
       std::string* policy_out) = 0;
@@ -225,7 +223,7 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // This may only be called in situations where blocking the UI thread is
   // considered acceptable (e.g. restarting the browser after a crash or after
   // a flag change).
-  // TODO: Get rid of blocking calls (crbug.com/160522).
+  // TODO(crbug.com/165022): Get rid of blocking calls.
   virtual RetrievePolicyResponseType BlockingRetrieveDeviceLocalAccountPolicy(
       const std::string& account_id,
       std::string* policy_out) = 0;
@@ -280,17 +278,6 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // Used for several ARC methods.  Takes a boolean indicating whether the
   // operation was successful or not.
   using ArcCallback = base::Callback<void(bool success)>;
-
-  // Used for GetArcStartTime. Takes a boolean indicating whether the
-  // operation was successful or not and the ticks of ARC start time if it
-  // is successful.
-  using GetArcStartTimeCallback =
-      base::Callback<void(bool success, base::TimeTicks ticks)>;
-
-  // Asynchronously checks if starting the ARC instance is available.
-  // The result of the operation is reported through |callback|.
-  // If the operation fails, it is reported as unavailable.
-  virtual void CheckArcAvailability(const ArcCallback& callback) = 0;
 
   // Asynchronously starts the ARC instance for the user whose cryptohome is
   // located by |cryptohome_id|.  Flag |disable_boot_completed_broadcast|
@@ -347,9 +334,10 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   virtual void EmitArcBooted(const cryptohome::Identification& cryptohome_id,
                              const ArcCallback& callback) = 0;
 
-  // Asynchronously retrieves the timestamp which ARC instance is invoked or
-  // returns false if there is no ARC instance or ARC is not available.
-  virtual void GetArcStartTime(const GetArcStartTimeCallback& callback) = 0;
+  // Asynchronously retrieves the timestamp which ARC instance is invoked.
+  // Returns nullopt if there is no ARC instance or ARC is not available.
+  virtual void GetArcStartTime(
+      DBusMethodCallback<base::TimeTicks> callback) = 0;
 
   // Asynchronously removes all ARC user data for the user whose cryptohome is
   // located by |cryptohome_id|. Upon completion, invokes |callback| with the

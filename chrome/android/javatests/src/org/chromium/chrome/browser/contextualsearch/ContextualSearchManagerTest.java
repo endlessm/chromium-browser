@@ -5,6 +5,8 @@
 package org.chromium.chrome.browser.contextualsearch;
 
 import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE;
+import static org.chromium.chrome.browser.multiwindow.MultiWindowTestHelper.waitForSecondChromeTabbedActivity;
+import static org.chromium.chrome.browser.multiwindow.MultiWindowTestHelper.waitForTabs;
 import static org.chromium.content.browser.test.util.CriteriaHelper.DEFAULT_POLLING_INTERVAL;
 
 import android.app.Activity;
@@ -15,6 +17,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Point;
+import android.os.Build;
 import android.os.SystemClock;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
@@ -38,6 +41,7 @@ import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.FlakyTest;
+import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
@@ -45,6 +49,7 @@ import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
+import org.chromium.chrome.browser.ChromeTabbedActivity2;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayContentDelegate;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayContentProgressObserver;
 import org.chromium.chrome.browser.compositor.bottombar.OverlayPanel.PanelState;
@@ -79,8 +84,10 @@ import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
 import org.chromium.content.browser.test.util.KeyUtils;
 import org.chromium.content.browser.test.util.TouchCommon;
+import org.chromium.content_public.browser.SelectionClient;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.base.PageTransition;
+import org.chromium.ui.test.util.UiDisableIf;
 import org.chromium.ui.test.util.UiRestriction;
 import org.chromium.ui.touch_selection.SelectionEventType;
 
@@ -228,6 +235,13 @@ public class ContextualSearchManagerTest {
                 FirstRunStatus.setFirstRunFlowComplete(false);
             }
         });
+    }
+
+    /**
+     * @return The {@link ContextualSearchPanel}.
+     */
+    ContextualSearchPanel getPanel() {
+        return mPanel;
     }
 
     /**
@@ -663,8 +677,8 @@ public class ContextualSearchManagerTest {
      */
     private void assertContainsParameters(String searchTerm, String alternateTerm) {
         Assert.assertTrue(mFakeServer.getSearchTermRequested() == null
-                || mFakeServer.getLoadedUrl().contains(searchTerm)
-                        && mFakeServer.getLoadedUrl().contains(alternateTerm));
+                || (mFakeServer.getLoadedUrl().contains(searchTerm)
+                           && mFakeServer.getLoadedUrl().contains(alternateTerm)));
     }
 
     /**
@@ -824,7 +838,7 @@ public class ContextualSearchManagerTest {
                 if (mPanel == null) return false;
                 updateFailureReason("Panel did not enter " + state + " state. "
                         + "Instead, the current state is " + mPanel.getPanelState() + ".");
-                return mPanel.getPanelState() == state;
+                return mPanel.getPanelState() == state && !mPanel.isHeightAnimationRunning();
             }
         }, TEST_TIMEOUT, DEFAULT_POLLING_INTERVAL);
     }
@@ -1283,6 +1297,7 @@ public class ContextualSearchManagerTest {
     @SmallTest
     @Feature({"ContextualSearch"})
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    @DisableIf.Build(supported_abis_includes = "arm64-v8a", message = "crbug.com/765403")
     public void testSwipeExpand() throws InterruptedException, TimeoutException {
         assertNoSearchesLoaded();
         clickWordNode("intelligence");
@@ -1859,6 +1874,7 @@ public class ContextualSearchManagerTest {
     @Test
     @SmallTest
     @Feature({"ContextualSearch"})
+    @DisableIf.Build(supported_abis_includes = "arm64-v8a", message = "crbug.com/765403")
     public void testSearchTermResolutionError() throws InterruptedException, TimeoutException {
         clickWordNode("states");
         assertSearchTermRequested();
@@ -2234,9 +2250,10 @@ public class ContextualSearchManagerTest {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                mManager.onSelectionEvent(
+                SelectionClient selectionClient = mManager.getContextualSearchSelectionClient();
+                selectionClient.onSelectionEvent(
                         SelectionEventType.SELECTION_HANDLE_DRAG_STARTED, 333, 450);
-                mManager.onSelectionEvent(
+                selectionClient.onSelectionEvent(
                         SelectionEventType.SELECTION_HANDLE_DRAG_STOPPED, 303, 450);
             }
         });
@@ -2835,6 +2852,7 @@ public class ContextualSearchManagerTest {
     @Test
     @SmallTest
     @Feature({"ContextualSearch"})
+    @DisableIf.Device(type = {UiDisableIf.PHONE}) // Flaking on phones crbug.com/765796
     public void testPanelDismissedOnToggleFullscreen()
             throws InterruptedException, TimeoutException {
         // Simulate a tap and assert that the panel peeks.
@@ -2903,10 +2921,11 @@ public class ContextualSearchManagerTest {
      * Tests that Contextual Search is fully disabled when offline.
      */
     @Test
-    @SmallTest
-    @Feature({"ContextualSearch"})
-    // NOTE: Remove the flag so we will run just this test with onLine detection enabled.
-    @CommandLineFlags.Remove(ContextualSearchFieldTrial.ONLINE_DETECTION_DISABLED)
+    @DisabledTest(message = "https://crbug.com/761946")
+    // @SmallTest
+    // @Feature({"ContextualSearch"})
+    // // NOTE: Remove the flag so we will run just this test with onLine detection enabled.
+    // @CommandLineFlags.Remove(ContextualSearchFieldTrial.ONLINE_DETECTION_DISABLED)
     public void testNetworkDisconnectedDeactivatesSearch()
             throws InterruptedException, TimeoutException {
         setOnlineStatusAndReload(false);
@@ -2932,6 +2951,8 @@ public class ContextualSearchManagerTest {
     @SmallTest
     @Feature({"ContextualSearch"})
     public void testQuickActionCaptionAndImage() throws InterruptedException, TimeoutException {
+        mPanel.getAnimationHandler().enableTestingMode();
+
         // Simulate a tap to show the Bar, then set the quick action data.
         simulateTapSearch("search");
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
@@ -2939,8 +2960,6 @@ public class ContextualSearchManagerTest {
             public void run() {
                 mPanel.onSearchTermResolved("search", null, "tel:555-555-5555",
                         QuickActionCategory.PHONE);
-                // Finish all running animations.
-                mPanel.onUpdateAnimation(System.currentTimeMillis(), true);
             }
         });
 
@@ -3141,5 +3160,39 @@ public class ContextualSearchManagerTest {
         Assert.assertFalse(
                 "Find Toolbar should no longer be shown once Contextual Search Panel appeared",
                 findToolbar.isShown());
+    }
+
+    /**
+     * Tests Tab reparenting.  When a tab moves from one activity to another the
+     * ContextualSearchTabHelper should detect the change and handle gestures for it too.  This
+     * happens with multiwindow modes.
+     */
+    @Test
+    @SmallTest
+    @Feature({"ContextualSearch"})
+    @CommandLineFlags.Add(ChromeSwitches.DISABLE_TAB_MERGING_FOR_TESTING)
+    @MinAndroidSdkLevel(Build.VERSION_CODES.N)
+    public void testTabReparenting() throws InterruptedException, TimeoutException {
+        // Move our "tap_test" tab to another activity.
+        final ChromeActivity ca = mActivityTestRule.getActivity();
+        int testTabId = ca.getActivityTab().getId();
+        MenuUtils.invokeCustomMenuActionSync(InstrumentationRegistry.getInstrumentation(), ca,
+                R.id.move_to_other_window_menu_id);
+
+        // Wait for the second activity to start up and be ready for interaction.
+        final ChromeTabbedActivity2 activity2 = waitForSecondChromeTabbedActivity();
+        waitForTabs("CTA2", activity2, 1, testTabId);
+
+        // Tap on a word and wait for the selection to be established.
+        DOMUtils.clickNode(activity2.getActivityTab().getContentViewCore(), "search");
+        CriteriaHelper.pollUiThread(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                String selection = activity2.getContextualSearchManager()
+                                           .getSelectionController()
+                                           .getSelectedText();
+                return selection != null && selection.equals("Search");
+            }
+        });
     }
 }

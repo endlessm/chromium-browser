@@ -70,8 +70,6 @@ class BrowserWindow;
 class FindBarController;
 class Profile;
 class ScopedKeepAlive;
-class SearchDelegate;
-class SearchModel;
 class StatusBubble;
 class TabStripModel;
 class TabStripModelDelegate;
@@ -97,7 +95,6 @@ class WindowController;
 
 namespace gfx {
 class Image;
-class Point;
 }
 
 namespace ui {
@@ -220,10 +217,6 @@ class Browser : public TabStripModelObserver,
   explicit Browser(const CreateParams& params);
   ~Browser() override;
 
-  // Returns the Browser that contains the specified WebContents. May return
-  // null if no Browser has that WebContents as a tab.
-  static Browser* FromWebContents(content::WebContents* web_contents);
-
   // Set overrides for the initial window bounds and maximized state.
   void set_override_bounds(const gfx::Rect& bounds) {
     override_bounds_ = bounds;
@@ -269,13 +262,6 @@ class Browser : public TabStripModelObserver,
   chrome::BrowserCommandController* command_controller() {
     return command_controller_.get();
   }
-  SearchModel* search_model() { return search_model_.get(); }
-  const SearchModel* search_model() const {
-      return search_model_.get();
-  }
-  SearchDelegate* search_delegate() {
-    return search_delegate_.get();
-  }
   const SessionID& session_id() const { return session_id_; }
   BrowserContentSettingBubbleModelDelegate*
       content_setting_bubble_model_delegate() {
@@ -317,15 +303,18 @@ class Browser : public TabStripModelObserver,
   gfx::Image GetCurrentPageIcon() const;
 
   // Gets the title of the window based on the selected tab's title.
-  // Disables additional formatting when |include_app_name| is false.
+  // Disables additional formatting when |include_app_name| is false or if the
+  // window is an app window.
   base::string16 GetWindowTitleForCurrentTab(bool include_app_name) const;
 
   // Gets the window title of the tab at |index|.
-  // Disables additional formatting when |include_app_name| is false.
+  // Disables additional formatting when |include_app_name| is false or if the
+  // window is an app window.
   base::string16 GetWindowTitleForTab(bool include_app_name, int index) const;
 
   // Gets the window title from the provided WebContents.
-  // Disables additional formatting when |include_app_name| is false.
+  // Disables additional formatting when |include_app_name| is false or if the
+  // window is an app window.
   base::string16 GetWindowTitleFromWebContents(
       bool include_app_name,
       content::WebContents* contents) const;
@@ -609,7 +598,6 @@ class Browser : public TabStripModelObserver,
   bool IsPopupOrPanel(const content::WebContents* source) const override;
   void UpdateTargetURL(content::WebContents* source, const GURL& url) override;
   void ContentsMouseEvent(content::WebContents* source,
-                          const gfx::Point& location,
                           bool motion,
                           bool exited) override;
   void ContentsZoomChange(bool zoom_in) override;
@@ -921,13 +909,6 @@ class Browser : public TabStripModelObserver,
   // The model for the toolbar view.
   std::unique_ptr<ToolbarModel> toolbar_model_;
 
-  // The model for the "active" search state.  There are per-tab search models
-  // as well.  When a tab is active its model is kept in sync with this one.
-  // When a new tab is activated its model state is propagated to this active
-  // model.  This way, observers only have to attach to this single model for
-  // updates, and don't have to worry about active tab changes directly.
-  std::unique_ptr<SearchModel> search_model_;
-
   // UI update coalescing and handling ////////////////////////////////////////
 
   typedef std::map<const content::WebContents*, int> UpdateMap;
@@ -984,10 +965,6 @@ class Browser : public TabStripModelObserver,
 
   // Helper which implements the ToolbarModelDelegate interface.
   std::unique_ptr<BrowserToolbarModelDelegate> toolbar_model_delegate_;
-
-  // A delegate that handles the details of updating the "active"
-  // |search_model_| state with the tab's state.
-  std::unique_ptr<SearchDelegate> search_delegate_;
 
   // Helper which implements the LiveTabContext interface.
   std::unique_ptr<BrowserLiveTabContext> live_tab_context_;

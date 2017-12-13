@@ -68,21 +68,19 @@ void SadTabTabHelper::CreateForWebState(web::WebState* web_state,
   }
 }
 
-void SadTabTabHelper::WasShown() {
-  is_visible_ = true;
+void SadTabTabHelper::SetDelegate(id<SadTabTabHelperDelegate> delegate) {
+  delegate_ = delegate;
+}
 
+void SadTabTabHelper::WasShown() {
   if (requires_reload_on_becoming_visible_) {
     ReloadTab();
     requires_reload_on_becoming_visible_ = false;
   }
 }
 
-void SadTabTabHelper::WasHidden() {
-  is_visible_ = false;
-}
-
 void SadTabTabHelper::RenderProcessGone() {
-  if (!is_visible_) {
+  if (!web_state()->IsVisible()) {
     requires_reload_on_becoming_visible_ = true;
     return;
   }
@@ -120,7 +118,7 @@ void SadTabTabHelper::PresentSadTab(const GURL& url_causing_failure) {
       (url_causing_failure.EqualsIgnoringRef(last_failed_url_) &&
        seconds_since_last_failure < repeat_failure_interval_);
 
-  [delegate_ sadTabHelper:this
+  [delegate_ sadTabTabHelper:this
       presentSadTabForRepeatedFailure:repeated_failure];
 
   last_failed_url_ = url_causing_failure;
@@ -136,7 +134,7 @@ void SadTabTabHelper::ReloadTab() {
 void SadTabTabHelper::OnAppDidBecomeActive() {
   if (!requires_reload_on_becoming_active_)
     return;
-  if (is_visible_) {
+  if (web_state()->IsVisible()) {
     ReloadTab();
   } else {
     requires_reload_on_becoming_visible_ = true;

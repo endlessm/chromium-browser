@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -175,7 +176,8 @@ class GmailServer(MailServer):
       payload = {'raw': base64.urlsafe_b64encode(message.as_string())}
       service.users().messages().send(userId='me', body=payload).execute()
       return True
-    except (apiclient_errors.HttpError, httplib.HTTPException) as error:
+    except (apiclient_errors.HttpError, httplib.HTTPException,
+            client.Error) as error:
       logging.warning('Could not send email: %s', error)
       return False
 

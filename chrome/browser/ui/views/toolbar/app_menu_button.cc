@@ -21,7 +21,6 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/app_menu_model.h"
 #include "chrome/browser/ui/views/extensions/browser_action_drag_data.h"
-#include "chrome/browser/ui/views/feature_promos/incognito_window_promo_bubble_view.h"
 #include "chrome/browser/ui/views/toolbar/app_menu.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
@@ -66,6 +65,16 @@ void AppMenuButton::SetSeverity(AppMenuIconController::IconType type,
   type_ = type;
   severity_ = severity;
   UpdateIcon(animate);
+}
+
+void AppMenuButton::SetIsProminent(bool is_prominent) {
+  if (is_prominent) {
+    SetBackground(views::CreateSolidBackground(GetNativeTheme()->GetSystemColor(
+        ui::NativeTheme::kColorId_ProminentButtonColor)));
+  } else {
+    SetBackground(nullptr);
+  }
+  SchedulePaint();
 }
 
 void AppMenuButton::ShowMenu(bool for_drop) {
@@ -132,7 +141,7 @@ void AppMenuButton::Layout() {
   if (new_icon_) {
     new_icon_->SetBoundsRect(GetContentsBounds());
     ink_drop_container()->SetBoundsRect(GetLocalBounds());
-    image()->SetBoundsRect(GetLocalBounds());
+    image()->SetBoundsRect(GetContentsBounds());
     return;
   }
 
@@ -230,18 +239,6 @@ void AppMenuButton::AnimateIconIfPossible() {
   new_icon_->Animate(views::AnimatedIconView::END);
 }
 
-void AppMenuButton::ShowPromo() {
-  // Owned by its native widget. Will be destroyed when its widget is destroyed.
-  IncognitoWindowPromoBubbleView* incognito_window_promo =
-      IncognitoWindowPromoBubbleView::CreateOwned(this);
-  views::Widget* widget = incognito_window_promo->GetWidget();
-  if (!incognito_window_promo_observer_.IsObserving(widget)) {
-    incognito_window_promo_observer_.Add(widget);
-    AnimateInkDrop(views::InkDropState::ACTIVATED, nullptr);
-    AppMenuButton::SchedulePaint();
-  }
-}
-
 const char* AppMenuButton::GetClassName() const {
   return "AppMenuButton";
 }
@@ -305,12 +302,4 @@ void AppMenuButton::OnDragExited() {
 
 int AppMenuButton::OnPerformDrop(const ui::DropTargetEvent& event) {
   return ui::DragDropTypes::DRAG_MOVE;
-}
-
-void AppMenuButton::OnWidgetDestroying(views::Widget* widget) {
-  if (incognito_window_promo_observer_.IsObserving(widget)) {
-    incognito_window_promo_observer_.Remove(widget);
-    AnimateInkDrop(views::InkDropState::DEACTIVATED, nullptr);
-    AppMenuButton::SchedulePaint();
-  }
 }

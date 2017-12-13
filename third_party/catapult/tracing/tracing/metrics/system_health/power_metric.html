@@ -104,8 +104,7 @@ tr.exportTo('tr.metrics.sh', function() {
       const samples = tr.metrics.sh.collectLoadingMetricsForRenderer(
           rendererHelper).firstInteractiveSamples;
       for (const sample of samples) {
-        const info = tr.b.getOnlyElement(
-            sample.diagnostics['Navigation infos']);
+        const info = tr.b.getOnlyElement(sample.diagnostics.infos);
         intervals.push(tr.b.math.Range.fromExplicitRange(
             info.start, info.interactive));
       }
@@ -245,24 +244,12 @@ tr.exportTo('tr.metrics.sh', function() {
    */
   function* getLoadingIntervals_(model, chromeBounds) {
     const ttiIntervals = getNavigationTTIIntervals_(model);
-    let lastLoadTime = undefined;
     for (const ttiInterval of ttiIntervals) {
       yield {
         bounds: ttiInterval,
         name: 'load',
         description: 'page loads',
         perSecond: false
-      };
-      lastLoadTime = lastLoadTime === undefined ? ttiInterval.max :
-          Math.max(lastLoadTime, ttiInterval.max);
-    }
-    if (lastLoadTime !== undefined) {
-      yield {
-        bounds: tr.b.math.Range.fromExplicitRange(
-            lastLoadTime, chromeBounds.max),
-        name: 'after_load',
-        description: 'period after load',
-        perSecond: true
       };
     }
   }

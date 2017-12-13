@@ -7,9 +7,6 @@
 #include <string>
 
 #include "ash/public/cpp/shelf_model.h"
-#include "ash/shell.h"
-#include "ash/strings/grit/ash_strings.h"
-#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
@@ -17,6 +14,7 @@
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_util.h"
 #include "chrome/browser/ui/ash/launcher/extension_launcher_context_menu.h"
+#include "chrome/browser/ui/ash/tablet_mode_client.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/display/types/display_constants.h"
 
@@ -70,8 +68,10 @@ bool LauncherContextMenu::IsCommandIdEnabled(int command_id) const {
 void LauncherContextMenu::ExecuteCommand(int command_id, int event_flags) {
   switch (static_cast<MenuItem>(command_id)) {
     case MENU_OPEN_NEW:
-      controller_->LaunchApp(item_.id, ash::LAUNCH_FROM_UNKNOWN, ui::EF_NONE,
-                             display_id_);
+      // Use a copy of the id to avoid crashes, as this menu's owner will be
+      // destroyed if LaunchApp replaces the ShelfItemDelegate instance.
+      controller_->LaunchApp(ash::ShelfID(item_.id), ash::LAUNCH_FROM_UNKNOWN,
+                             ui::EF_NONE, display_id_);
       break;
     case MENU_CLOSE:
       if (item_.type == ash::TYPE_DIALOG) {
@@ -84,11 +84,7 @@ void LauncherContextMenu::ExecuteCommand(int command_id, int event_flags) {
         controller_->Close(item_.id);
       }
       base::RecordAction(base::UserMetricsAction("CloseFromContextMenu"));
-      // TODO(mash): Support this tablet mode check.
-      if (ash::Shell::HasInstance() &&
-          ash::Shell::Get()
-              ->tablet_mode_controller()
-              ->IsTabletModeWindowManagerEnabled()) {
+      if (TabletModeClient::Get()->tablet_mode_enabled()) {
         base::RecordAction(
             base::UserMetricsAction("Tablet_WindowCloseFromContextMenu"));
       }

@@ -23,7 +23,6 @@
 #include "components/ntp_snippets/features.h"
 #include "components/ntp_snippets/pref_names.h"
 #include "components/ntp_snippets/pref_util.h"
-#include "components/offline_pages/core/offline_page_model_query.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/variations/variations_associated_data.h"
@@ -139,15 +138,8 @@ bool CompareDownloadsMostRecentlyPublishedFirst(const DownloadItem* left,
 bool IsClientIdForOfflinePageDownload(
     offline_pages::ClientPolicyController* policy_controller,
     const offline_pages::ClientId& client_id) {
-  return policy_controller->IsSupportedByDownload(client_id.name_space);
-}
-
-std::unique_ptr<OfflinePageModelQuery> BuildOfflinePageDownloadsQuery(
-    offline_pages::OfflinePageModel* model) {
-  OfflinePageModelQueryBuilder builder;
-  builder.RequireSupportedByDownload(
-      OfflinePageModelQuery::Requirement::INCLUDE_MATCHING);
-  return builder.Build(model->GetPolicyController());
+  return policy_controller->IsSupportedByDownload(client_id.name_space) &&
+         !policy_controller->IsSuggested(client_id.name_space);
 }
 
 }  // namespace
@@ -289,13 +281,10 @@ void DownloadSuggestionsProvider::GetDismissedSuggestionsForDebugging(
     // Offline pages which are not related to downloads are also queried here,
     // so that they can be returned if they happen to be dismissed (e.g. due to
     // a bug).
-    OfflinePageModelQueryBuilder query_builder;
-    offline_page_model_->GetPagesMatchingQuery(
-        query_builder.Build(offline_page_model_->GetPolicyController()),
-        base::Bind(&DownloadSuggestionsProvider::
-                       GetPagesMatchingQueryCallbackForGetDismissedSuggestions,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   base::Passed(std::move(callback))));
+    offline_page_model_->GetAllPages(base::Bind(
+        &DownloadSuggestionsProvider::
+            GetPagesMatchingQueryCallbackForGetDismissedSuggestions,
+        weak_ptr_factory_.GetWeakPtr(), base::Passed(std::move(callback))));
   } else {
     GetPagesMatchingQueryCallbackForGetDismissedSuggestions(
         std::move(callback), std::vector<OfflinePageItem>());
@@ -496,8 +485,7 @@ void DownloadSuggestionsProvider::AsynchronouslyFetchOfflinePagesDownloads(
 
   // If Offline Page model is not loaded yet, it will process our query once it
   // has finished loading.
-  offline_page_model_->GetPagesMatchingQuery(
-      BuildOfflinePageDownloadsQuery(offline_page_model_),
+  offline_page_model_->GetPagesSupportedByDownloads(
       base::Bind(&DownloadSuggestionsProvider::UpdateOfflinePagesCache,
                  weak_ptr_factory_.GetWeakPtr(), notify));
 }
@@ -748,7 +736,9 @@ void DownloadSuggestionsProvider::UpdateOfflinePagesCache(
       retained_dismissed_ids.insert(id_within_category);
     } else {
       if (!IsDownloadOutdated(GetOfflinePagePublishedTime(item),
-                              item.last_access_time)) {
+                              item.last_access_time) &&
+          IsClientIdForOfflinePageDownload(
+              offline_page_model_->GetPolicyController(), item.client_id)) {
         items.push_back(&item);
       }
     }

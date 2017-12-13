@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -107,6 +108,10 @@ class AttrTimeoutError(RunAttributesError):
 
 class NoAndroidBranchError(Exception):
   """For when Android branch cannot be determined."""
+
+
+class NoAndroidABIError(Exception):
+  """For when Android ABI cannot be determined."""
 
 
 class NoAndroidVersionError(Exception):
@@ -811,14 +816,39 @@ class _BuilderRunBase(object):
           'Android branch could not be determined for %s (no package?)' % board)
     ebuild_path = portage_util.FindEbuildForBoardPackage(android_package, board)
     host_ebuild_path = path_util.FromChrootPath(ebuild_path)
-    ebuild_content = osutils.SourceEnvironment(host_ebuild_path, ['ARM_TARGET'])
     # We assume all targets pull from the same branch and that we always
-    # have an ARM_TARGET.
-    if 'ARM_TARGET' in ebuild_content:
-      return re.search(r'(.*?)-linux-cheets',
-                       ebuild_content['ARM_TARGET']).group(1)
+    # have an ARM_TARGET or an AOSP_X86_USERDEBUG_TARGET.
+    targets = ['ARM_TARGET', 'AOSP_X86_USERDEBUG_TARGET']
+    ebuild_content = osutils.SourceEnvironment(host_ebuild_path, targets)
+    for target in targets:
+      if target in ebuild_content:
+        branch = re.search(r'(.*?)-linux-', ebuild_content[target])
+        if branch is not None:
+          return branch.group(1)
     raise NoAndroidBranchError(
         'Android branch could not be determined for %s (ebuild empty?)' % board)
+
+  def DetermineAndroidABI(self, board):
+    """Returns the Android ABI in use by the active container ebuild."""
+    try:
+      android_package = self.DetermineAndroidPackage(board)
+    except cros_build_lib.RunCommandError:
+      raise NoAndroidABIError(
+          'Android ABI could not be determined for %s' % board)
+    if not android_package:
+      raise NoAndroidABIError(
+          'Android ABI could not be determined for %s (no package?)' % board)
+
+    use_flags = portage_util.GetInstalledPackageUseFlags(
+        'sys-devel/arc-build', board)
+    if 'abi_x86_64' in use_flags.get('sys-devel/arc-build', []):
+      return 'x86_64'
+    elif 'abi_x86_32' in use_flags.get('sys-devel/arc-build', []):
+      return 'x86'
+    else:
+      # ARM only supports 32-bit so it does not have abi_x86_{32,64} set. But it
+      # is also the last possible ABI, so returning by default.
+      return 'arm'
 
   def DetermineAndroidPackage(self, board):
     """Returns the active Android container package in use by the board."""
@@ -894,10 +924,16 @@ class _RealBuilderRun(object):
 
   __slots__ = _BuilderRunBase.__slots__ + (
       '_run_base',  # The _BuilderRunBase object where most functionality is.
-      '_config',    # Config to use for dynamically overriding self.config.
+      '_config',    # BuildConfig to use for dynamically overriding self.config.
   )
 
   def __init__(self, run_base, build_config):
+    """_RealBuilderRun constructor.
+
+    Args:
+      run_base: _BuilderRunBase object.
+      build_config: BuildConfig object.
+    """
     self._run_base = run_base
     self._config = build_config
 

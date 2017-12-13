@@ -6,13 +6,17 @@
 #define ASH_LOGIN_UI_LOGIN_PASSWORD_VIEW_H_
 
 #include "ash/ash_export.h"
+#include "ash/public/interfaces/login_user_info.mojom.h"
 #include "base/strings/string16.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/textfield/textfield_controller.h"
 #include "ui/views/view.h"
 
 namespace views {
+class Button;
 class ButtonListener;
-class Textfield;
+class ImageButton;
+class Separator;
 }  // namespace views
 
 namespace ash {
@@ -27,7 +31,8 @@ namespace ash {
 //   * * * * * *   =>
 //  ------------------
 class ASH_EXPORT LoginPasswordView : public views::View,
-                                     public views::ButtonListener {
+                                     public views::ButtonListener,
+                                     public views::TextfieldController {
  public:
   // TestApi is used for tests to get internal implementation details.
   class ASH_EXPORT TestApi {
@@ -44,11 +49,27 @@ class ASH_EXPORT LoginPasswordView : public views::View,
 
   using OnPasswordSubmit =
       base::RepeatingCallback<void(const base::string16& password)>;
+  using OnPasswordTextChanged = base::RepeatingCallback<void(bool)>;
+
+  // Must call |Init| after construction.
+  LoginPasswordView();
+  ~LoginPasswordView() override;
 
   // |on_submit| is called when the user hits enter or pressed the submit arrow.
-  // Must not be null.
-  explicit LoginPasswordView(const OnPasswordSubmit& on_submit);
-  ~LoginPasswordView() override;
+  // |on_password_text_changed| is called when the text in the password field
+  // changes.
+  void Init(const OnPasswordSubmit& on_submit,
+            const OnPasswordTextChanged& on_password_text_changed);
+
+  // Updates accessibility information for |user|.
+  void UpdateForUser(const mojom::LoginUserInfoPtr& user);
+
+  // Enable or disable focus on the child elements (ie, password field and
+  // submit button).
+  void SetFocusEnabledForChildViews(bool enable);
+
+  // Clear all currently entered text.
+  void Clear();
 
   // Add the given numeric value to the textfield.
   void AppendNumber(int value);
@@ -59,6 +80,10 @@ class ASH_EXPORT LoginPasswordView : public views::View,
   // Dispatch a submit event.
   void Submit();
 
+  // Set password field placeholder. The password view cannot set the text by
+  // itself because it doesn't know which auth methods are enabled.
+  void SetPlaceholderText(const base::string16& placeholder_text);
+
   // views::View:
   const char* GetClassName() const override;
   gfx::Size CalculatePreferredSize() const override;
@@ -68,6 +93,10 @@ class ASH_EXPORT LoginPasswordView : public views::View,
   // views::ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
+  // views::TextfieldController:
+  void ContentsChanged(views::Textfield* sender,
+                       const base::string16& new_contents) override;
+
  private:
   friend class TestApi;
 
@@ -76,8 +105,10 @@ class ASH_EXPORT LoginPasswordView : public views::View,
   void SubmitPassword();
 
   OnPasswordSubmit on_submit_;
-  views::Textfield* textfield_;
-  views::View* submit_button_;
+  OnPasswordTextChanged on_password_text_changed_;
+  views::Textfield* textfield_ = nullptr;
+  views::ImageButton* submit_button_ = nullptr;
+  views::Separator* separator_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(LoginPasswordView);
 };

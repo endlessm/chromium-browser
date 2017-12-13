@@ -57,8 +57,26 @@ public class VideoFrame {
    * Interface for I420 buffers.
    */
   public interface I420Buffer extends Buffer {
+    /**
+     * Returns a direct ByteBuffer containing Y-plane data. The buffer capacity is at least
+     * getStrideY() * getHeight() bytes. The position of the returned buffer is ignored and must
+     * be 0. Callers may mutate the ByteBuffer (eg. through relative-read operations), so
+     * implementations must return a new ByteBuffer or slice for each call.
+     */
     ByteBuffer getDataY();
+    /**
+     * Returns a direct ByteBuffer containing U-plane data. The buffer capacity is at least
+     * getStrideU() * ((getHeight() + 1) / 2) bytes. The position of the returned buffer is ignored
+     * and must be 0. Callers may mutate the ByteBuffer (eg. through relative-read operations), so
+     * implementations must return a new ByteBuffer or slice for each call.
+     */
     ByteBuffer getDataU();
+    /**
+     * Returns a direct ByteBuffer containing V-plane data. The buffer capacity is at least
+     * getStrideV() * ((getHeight() + 1) / 2) bytes. The position of the returned buffer is ignored
+     * and must be 0. Callers may mutate the ByteBuffer (eg. through relative-read operations), so
+     * implementations must return a new ByteBuffer or slice for each call.
+     */
     ByteBuffer getDataV();
 
     int getStrideY();
@@ -155,17 +173,12 @@ public class VideoFrame {
       dataV.position(cropX / 2 + cropY / 2 * buffer.getStrideV());
 
       buffer.retain();
-      return new I420BufferImpl(buffer.getWidth(), buffer.getHeight(), dataY.slice(),
+      return JavaI420Buffer.wrap(buffer.getWidth(), buffer.getHeight(), dataY.slice(),
           buffer.getStrideY(), dataU.slice(), buffer.getStrideU(), dataV.slice(),
-          buffer.getStrideV(), new Runnable() {
-            @Override
-            public void run() {
-              buffer.release();
-            }
-          });
+          buffer.getStrideV(), buffer::release);
     }
 
-    I420BufferImpl newBuffer = I420BufferImpl.allocate(scaleWidth, scaleHeight);
+    JavaI420Buffer newBuffer = JavaI420Buffer.allocate(scaleWidth, scaleHeight);
     nativeCropAndScaleI420(buffer.getDataY(), buffer.getStrideY(), buffer.getDataU(),
         buffer.getStrideU(), buffer.getDataV(), buffer.getStrideV(), cropX, cropY, cropWidth,
         cropHeight, newBuffer.getDataY(), newBuffer.getStrideY(), newBuffer.getDataU(),

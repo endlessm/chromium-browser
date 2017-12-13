@@ -232,10 +232,6 @@ def _downloader_worker_thread(thread_num, q, force, base_url,
     if os.path.exists(output_filename) and not force:
       if not extract or os.path.exists(extract_dir):
         if get_sha1(output_filename) == input_sha1_sum:
-          if verbose:
-            out_q.put(
-                '%d> File %s exists and SHA1 matches. Skipping.' % (
-                    thread_num, output_filename))
           continue
     # Check if file exists.
     file_url = '%s/%s' % (base_url, input_sha1_sum)
@@ -326,13 +322,21 @@ def _downloader_worker_thread(thread_num, q, force, base_url,
         st = os.stat(output_filename)
         os.chmod(output_filename, st.st_mode | stat.S_IEXEC)
 
-def printer_worker(output_queue):
-  while True:
-    line = output_queue.get()
-    # Its plausible we want to print empty lines.
-    if line is None:
-      break
-    print line
+
+class PrinterThread(threading.Thread):
+  def __init__(self, output_queue):
+    super(PrinterThread, self).__init__()
+    self.output_queue = output_queue
+    self.did_print_anything = False
+
+  def run(self):
+    while True:
+      line = self.output_queue.get()
+      # It's plausible we want to print empty lines: Explicit `is None`.
+      if line is None:
+        break
+      self.did_print_anything = True
+      print line
 
 
 def download_from_google_storage(
@@ -353,7 +357,7 @@ def download_from_google_storage(
     t.daemon = True
     t.start()
     all_threads.append(t)
-  printer_thread = threading.Thread(target=printer_worker, args=[stdout_queue])
+  printer_thread = PrinterThread(stdout_queue)
   printer_thread.daemon = True
   printer_thread.start()
 
@@ -376,10 +380,9 @@ def download_from_google_storage(
     max_ret_code = max(ret_code, max_ret_code)
     if message:
       print >> sys.stderr, message
-  if verbose and not max_ret_code:
-    print 'Success!'
 
-  if verbose:
+  # Only print summary if any work was done.
+  if printer_thread.did_print_anything:
     print 'Downloading %d files took %1f second(s)' % (
         work_queue_size, time.time() - download_start)
   return max_ret_code
@@ -485,6 +488,7 @@ def main(args):
   else:
     parser.error('gsutil not found in %s, bad depot_tools checkout?' %
                  GSUTIL_DEFAULT_PATH)
+  gsutil.check_call('version')  # Call this once to ensure it exists.
 
   # Passing in -g/--config will run our copy of GSUtil, then quit.
   if options.config:

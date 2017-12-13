@@ -8,12 +8,12 @@
 #include <string>
 
 #include "base/android/scoped_java_ref.h"
-#include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/banners/app_banner_manager.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "url/gurl.h"
 
 namespace banners {
 
@@ -70,14 +70,9 @@ class AppBannerManagerAndroid
   void RequestAppBanner(const GURL& validated_url, bool is_debug_mode) override;
 
  protected:
-  // Return the ideal badge icon size.
-  int GetIdealBadgeIconSizeInPx();
-
   // AppBannerManager overrides.
   std::string GetAppIdentifier() override;
   std::string GetBannerType() override;
-  int GetIdealPrimaryIconSizeInPx() override;
-  int GetMinimumPrimaryIconSizeInPx() override;
   bool IsWebAppInstalled(content::BrowserContext* browser_context,
                          const GURL& start_url,
                          const GURL& manifest_url) override;
@@ -94,22 +89,19 @@ class AppBannerManagerAndroid
   // Creates the Java-side AppBannerManager.
   void CreateJavaBannerManager();
 
-  // Returns true if |platform| and |id| are valid for querying the Play Store.
-  bool CheckPlatformAndId(const std::string& platform,
-                          const std::string& id);
-
   // Returns the query value for |name| in |url|, e.g. example.com?name=value.
   std::string ExtractQueryValueForName(const GURL& url,
                                        const std::string& name);
 
-  // Returns true if |platform|, |url|, and |id| are consistent and can be used
-  // to query the Play Store for a native app. The query may not necessarily
-  // succeed (e.g. |id| doesn't map to anything), but if this method returns
-  // true, only a native app banner may be shown, and the web app banner flow
-  // will not be run.
-  bool CanHandleNonWebApp(const std::string& platform,
-                          const GURL& url,
-                          const std::string& id);
+  // Returns NO_ERROR_DETECTED if |platform|, |url|, and |id| are consistent and
+  // can be used to query the Play Store for a native app. Otherwise returns the
+  // error which prevents querying from taking place. The query may not
+  // necessarily succeed (e.g. |id| doesn't map to anything), but if this method
+  // returns NO_ERROR_DETECTED, only a native app banner may be shown, and the
+  // web app banner flow will not be run.
+  InstallableStatusCode QueryNativeApp(const std::string& platform,
+                                       const GURL& url,
+                                       const std::string& id);
 
   // The URL of the badge icon.
   GURL badge_icon_url_;

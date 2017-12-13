@@ -16,7 +16,7 @@
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
-#include "chrome/browser/chromeos/policy/device_off_hours_controller.h"
+#include "chrome/browser/chromeos/policy/off_hours/off_hours_proto_parser.h"
 #include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/tpm_firmware_update.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -879,7 +879,7 @@ void DecodeGenericPolicies(const em::ChromeDeviceSettingsProto& policy,
 
   if (policy.has_device_off_hours()) {
     auto off_hours_policy =
-        off_hours::ConvertPolicyProtoToValue(policy.device_off_hours());
+        off_hours::ConvertOffHoursProtoToValue(policy.device_off_hours());
     if (off_hours_policy)
       policies->Set(key::kDeviceOffHours, POLICY_LEVEL_MANDATORY,
                     POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
@@ -892,6 +892,56 @@ void DecodeGenericPolicies(const em::ChromeDeviceSettingsProto& policy,
       policies->Set(key::kCastReceiverName, POLICY_LEVEL_MANDATORY,
                     POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
                     base::MakeUnique<base::Value>(container.name()), nullptr);
+  }
+
+  if (policy.has_native_device_printers()) {
+    const em::DeviceNativePrintersProto& container(
+        policy.native_device_printers());
+    if (container.has_external_policy()) {
+      std::unique_ptr<base::DictionaryValue> dict_val =
+          base::DictionaryValue::From(
+              base::JSONReader::Read(container.external_policy()));
+      policies->Set(key::kDeviceNativePrinters, POLICY_LEVEL_MANDATORY,
+                    POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
+                    std::move(dict_val), nullptr);
+    }
+  }
+
+  if (policy.has_native_device_printers_access_mode()) {
+    const em::DeviceNativePrintersAccessModeProto& container(
+        policy.native_device_printers_access_mode());
+    if (container.has_access_mode()) {
+      policies->Set(key::kDeviceNativePrintersAccessMode,
+                    POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
+                    POLICY_SOURCE_CLOUD,
+                    DecodeIntegerValue(container.access_mode()), nullptr);
+    }
+  }
+
+  if (policy.has_native_device_printers_blacklist()) {
+    const em::DeviceNativePrintersBlacklistProto& container(
+        policy.native_device_printers_blacklist());
+    std::unique_ptr<base::ListValue> blacklist =
+        base::MakeUnique<base::ListValue>();
+    for (const auto& entry : container.blacklist())
+      blacklist->AppendString(entry);
+
+    policies->Set(key::kDeviceNativePrintersBlacklist, POLICY_LEVEL_MANDATORY,
+                  POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
+                  std::move(blacklist), nullptr);
+  }
+
+  if (policy.has_native_device_printers_whitelist()) {
+    const em::DeviceNativePrintersWhitelistProto& container(
+        policy.native_device_printers_whitelist());
+    std::unique_ptr<base::ListValue> whitelist =
+        base::MakeUnique<base::ListValue>();
+    for (const auto& entry : container.whitelist())
+      whitelist->AppendString(entry);
+
+    policies->Set(key::kDeviceNativePrintersWhitelist, POLICY_LEVEL_MANDATORY,
+                  POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
+                  std::move(whitelist), nullptr);
   }
 
   if (policy.has_tpm_firmware_update_settings()) {

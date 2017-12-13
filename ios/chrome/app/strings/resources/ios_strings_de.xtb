@@ -20,7 +20,6 @@
 <translation id="1254117744268754948">Ordner wählen</translation>
 <translation id="1265739287306757398">Weitere Informationen</translation>
 <translation id="1272079795634619415">Stopp</translation>
-<translation id="129553762522093515">Kürzlich geschlossen</translation>
 <translation id="1323735185997015385">Löschen</translation>
 <translation id="132683371494960526">Doppeltippen Sie hier, um den übergeordneten Ordner zu ändern.</translation>
 <translation id="1340643665687018190">Menü schließen</translation>
@@ -48,7 +47,6 @@ Einige Websites reagieren möglicherweise auf die Anfrage, indem sie Anzeigen ei
 <translation id="1690731385917361335">Keine Elemente</translation>
 <translation id="1700629756560807968"><ph name="NUMBER_OF_SELECTED_BOOKMARKS" /> ausgewählt</translation>
 <translation id="1740468249224277719">Doppeltippen Sie hier, um die Installation zu starten.</translation>
-<translation id="1749561566933687563">Lesezeichen synchronisieren</translation>
 <translation id="1752547299766512813">Gespeicherte Passwörter</translation>
 <translation id="1753905327828125965">Meistbesucht</translation>
 <translation id="1809939268435598390">Ordner löschen</translation>
@@ -80,6 +78,7 @@ Einige Websites reagieren möglicherweise auf die Anfrage, indem sie Anzeigen ei
 <translation id="2381405137052800939">Grundeinstellungen</translation>
 <translation id="2386793615875593361">1 ausgewählt</translation>
 <translation id="2435457462613246316">Passwort anzeigen</translation>
+<translation id="2529021024822217800">Alle öffnen</translation>
 <translation id="2572712655377361602">Eine Geräterichtlinie hat den Zugriff auf Ihre Fotos blockiert</translation>
 <translation id="2584132361465095047">Konto hinzufügen...</translation>
 <translation id="2593774076813182497">Drucken der Seite nicht möglich</translation>
@@ -129,7 +128,6 @@ Einige Websites reagieren möglicherweise auf die Anfrage, indem sie Anzeigen ei
 <translation id="3324193307694657476">Adresse 2</translation>
 <translation id="3329904751041170572">Verbindung zum Server konnte nicht hergestellt werden.</translation>
 <translation id="3335947283844343239">Geschlossenen Tab wieder öffnen</translation>
-<translation id="3387752218061326363">Der Verlauf für alle Geräte, auf denen Sie angemeldet sind, wird angezeigt. <ph name="BEGIN_LINK" />Weitere Informationen.<ph name="END_LINK" /></translation>
 <translation id="3393920035788932672">Pop-ups erlaubt</translation>
 <translation id="3414292259312108062">Chrome speichert dieses Passwort in Ihren <ph name="BEGIN_LINK" />in Google gespeicherten Passwörtern<ph name="END_LINK" /> und fügt es automatisch für Sie ein. Sie müssen es sich also nicht merken.</translation>
 <translation id="3445288400492335833"><ph name="MINUTES" /> Min.</translation>
@@ -181,6 +179,7 @@ Zur Anpassung des Suchbegriffs drücken Sie einige Sekunden lang auf den entspre
 <translation id="4342284590510997375">Neu</translation>
 <translation id="434816576838749873">E-Mail-App auswählen</translation>
 <translation id="4359125752503270327">Diese Seite wird in einer anderen Anwendung geöffnet.</translation>
+<translation id="4370827530403103842">Synchronisierung funktioniert nicht. Tippen zum Reparieren.</translation>
 <translation id="4375040482473363939">QR-Code-Suche</translation>
 <translation id="4378154925671717803">Telefon</translation>
 <translation id="441868831736628555">Datenschutzhinweise</translation>
@@ -188,6 +187,7 @@ Zur Anpassung des Suchbegriffs drücken Sie einige Sekunden lang auf den entspre
 <translation id="4508750114462689118">Anmeldeangebot schließen</translation>
 <translation id="4526249700380860531">Unter <ph name="BEGIN_LINK" />passwords.google.com<ph name="END_LINK" /> gespeicherte Passwörter aufrufen und verwalten</translation>
 <translation id="4536418791685807335">Melden Sie sich noch einmal an.</translation>
+<translation id="457386861538956877">Mehr...</translation>
 <translation id="461440297010471931">Mit Google suchen</translation>
 <translation id="4620246317052452550">Seiten, die Sie gelesen haben</translation>
 <translation id="4636930964841734540">Info</translation>
@@ -309,6 +309,7 @@ Ihre Daten wurden am <ph name="TIME" /> mit Ihrer Synchronisierungspassphrase ve
 <translation id="6785453220513215166">Absturzbericht wird gesendet…</translation>
 <translation id="679325081238418596">Rufen Sie Ihre Lesezeichen, Ihren Verlauf, Ihre Passwörter und andere Einstellungen auf allen Ihren Geräten ab</translation>
 <translation id="6797885426782475225">Sprachsuche</translation>
+<translation id="6807889908376551050">Alle anzeigen...</translation>
 <translation id="681368974849482173">Element erstellt</translation>
 <translation id="6896758677409633944">Kopieren</translation>
 <translation id="6903907808598579934">Synchronisierung aktivieren</translation>
@@ -319,7 +320,6 @@ Ihre Daten wurden am <ph name="TIME" /> mit Ihrer Synchronisierungspassphrase ve
 <translation id="7031882061095297553">Synchronisieren mit</translation>
 <translation id="7062545763355031412">Akzeptieren und Konto wechseln</translation>
 <translation id="7108338896283013870">Ausblenden</translation>
-<translation id="7131892264600713844">Der Verlauf für dieses Gerät wird angezeigt. <ph name="BEGIN_LINK" />Weitere Informationen.<ph name="END_LINK" /></translation>
 <translation id="7133798577887235672">Voller Name</translation>
 <translation id="7136892417564438900">Kamera ist nicht verfügbar</translation>
 <translation id="7159472599653637159">Mobile Version anfordern</translation>
@@ -356,7 +356,6 @@ Ihre Daten wurden am <ph name="TIME" /> mit Ihrer Synchronisierungspassphrase ve
 <translation id="7769602470925380267">Akzeptieren und abmelden</translation>
 <translation id="7772032839648071052">Passphrase bestätigen</translation>
 <translation id="780301667611848630">Kein Interesse</translation>
-<translation id="7851858861565204677">Andere Geräte</translation>
 <translation id="7859704718976024901">Browserverlauf</translation>
 <translation id="7938254975914653459">FaceTime</translation>
 <translation id="7947953824732555851">Akzeptieren und anmelden</translation>
@@ -382,6 +381,7 @@ Ihre Daten wurden am <ph name="TIME" /> mit Ihrer Synchronisierungspassphrase ve
 <translation id="8458397775385147834">1 Lesezeichen gelöscht</translation>
 <translation id="8487700953926739672">Offline verfügbar</translation>
 <translation id="8503813439785031346">Nutzername</translation>
+<translation id="850600235656508448">Im Inkognitomodus öffnen</translation>
 <translation id="8517375800490286174">Open-Source-Lizenzen</translation>
 <translation id="8524799873541103884"><ph name="INCOGNITO" />-Tabs <ph name="FIRST_VISIBLE_TAB" /> bis <ph name="LAST_VISIBLE_TAB" /> von <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8532105204136943229">Ablaufjahr</translation>
@@ -400,6 +400,7 @@ Ihre Daten wurden am <ph name="TIME" /> mit Ihrer Synchronisierungspassphrase ve
 <translation id="8775144690796719618">Ungültige URL</translation>
 <translation id="8820817407110198400">Lesezeichen</translation>
 <translation id="8840513115188359703">Sie werden nicht von Ihrem Google-Konto abgemeldet.</translation>
+<translation id="8870413625673593573">Kürzlich geschlossen</translation>
 <translation id="8881801611828450202">In <ph name="SEARCH_ENGINE" /> nach dem Bild suchen</translation>
 <translation id="8904976895050290827">Google Chrome Sync</translation>
 <translation id="895541991026785598">Problem melden</translation>

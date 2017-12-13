@@ -9,7 +9,8 @@
 #include "ash/accelerators/accelerator_commands.h"
 #include "ash/accelerators/accelerator_controller_delegate.h"
 #include "ash/accelerators/debug_commands.h"
-#include "ash/accessibility_delegate.h"
+#include "ash/accessibility/accessibility_controller.h"
+#include "ash/accessibility/accessibility_delegate.h"
 #include "ash/accessibility_types.h"
 #include "ash/display/display_configuration_controller.h"
 #include "ash/focus_cycler.h"
@@ -50,11 +51,13 @@
 #include "ash/wm/wm_event.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
+#include "base/optional.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager_client.h"
+#include "components/user_manager/user_type.h"
 #include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/presenter/app_list.h"
 #include "ui/base/accelerators/accelerator.h"
@@ -73,16 +76,16 @@
 #include "ui/message_center/message_center.h"
 
 namespace ash {
+
+const char kHighContrastToggleAccelNotificationId[] =
+    "chrome://settings/accessibility/highcontrast";
+
 namespace {
 
 using base::UserMetricsAction;
 using chromeos::input_method::InputMethodManager;
 using message_center::Notification;
 using message_center::SystemNotificationWarningLevel;
-
-// Identifier for the high contrast toggle accelerator notification.
-const char kHighContrastToggleAccelNotificationId[] =
-    "chrome://settings/accessibility/highcontrast";
 
 // Toast id and duration for voice interaction shortcuts
 const char kSecondaryUserToastId[] = "voice_interaction_secondary_user";
@@ -260,7 +263,12 @@ void HandleToggleMirrorMode() {
 }
 
 bool CanHandleNewIncognitoWindow() {
-  return Shell::Get()->shell_delegate()->IsIncognitoAllowed();
+  // Guest mode does not use incognito windows. The browser may have other
+  // restrictions on incognito mode (e.g. enterprise policy) but those are rare.
+  // For non-guest mode, consume the key and defer the decision to the browser.
+  base::Optional<user_manager::UserType> user_type =
+      Shell::Get()->session_controller()->GetUserType();
+  return user_type && *user_type != user_manager::USER_TYPE_GUEST;
 }
 
 void HandleNewIncognitoWindow() {
@@ -365,7 +373,7 @@ void HandleRotateActiveWindow() {
       ui::LayerAnimator::REPLACE_QUEUED_ANIMATIONS);
   active_window->layer()->GetAnimator()->StartAnimation(
       new ui::LayerAnimationSequence(
-          base::MakeUnique<WindowRotation>(360, active_window->layer())));
+          std::make_unique<WindowRotation>(360, active_window->layer())));
 }
 
 void HandleShowKeyboardOverlay() {
@@ -462,7 +470,12 @@ bool CanHandleToggleAppList(const ui::Accelerator& accelerator,
 void HandleToggleAppList(const ui::Accelerator& accelerator) {
   if (accelerator.key_code() == ui::VKEY_LWIN)
     base::RecordAction(UserMetricsAction("Accel_Search_LWin"));
-  Shell::Get()->ToggleAppList(app_list::kSearchKey);
+
+  Shell::Get()->app_list()->ToggleAppList(
+      display::Screen::GetScreen()
+          ->GetDisplayNearestWindow(Shell::GetRootWindowForNewWindows())
+          .id(),
+      app_list::kSearchKey);
 }
 
 void HandleToggleFullscreen(const ui::Accelerator& accelerator) {
@@ -643,8 +656,7 @@ void HandleSuspend() {
 }
 
 bool CanHandleCycleUser() {
-  return Shell::Get()->shell_delegate()->IsMultiProfilesEnabled() &&
-         Shell::Get()->session_controller()->NumberOfLoggedInUsers() > 1;
+  return Shell::Get()->session_controller()->NumberOfLoggedInUsers() > 1;
 }
 
 void HandleCycleUser(CycleUserDirection direction) {
@@ -717,28 +729,37 @@ void HandleToggleCapsLock() {
 void HandleToggleHighContrast() {
   base::RecordAction(UserMetricsAction("Accel_Toggle_High_Contrast"));
 
-  // Show a notification so the user knows that this accelerator toggled
-  // high contrast mode, and that they can press it again to toggle back.
-  // The message center automatically only shows this once per session.
-  std::unique_ptr<Notification> notification =
-      system_notifier::CreateSystemNotification(
-          message_center::NOTIFICATION_TYPE_SIMPLE,
-          kHighContrastToggleAccelNotificationId,
-          l10n_util::GetStringUTF16(IDS_HIGH_CONTRAST_ACCEL_TITLE),
-          l10n_util::GetStringUTF16(IDS_HIGH_CONTRAST_ACCEL_MSG),
-          gfx::Image(
-              CreateVectorIcon(kSystemMenuAccessibilityIcon, SK_ColorBLACK)),
-          base::string16() /* display source */, GURL(),
-          message_center::NotifierId(
-              message_center::NotifierId::SYSTEM_COMPONENT,
-              system_notifier::kNotifierAccessibility),
-          message_center::RichNotificationData(), nullptr,
-          kNotificationAccessibilityIcon,
-          SystemNotificationWarningLevel::NORMAL);
-  message_center::MessageCenter::Get()->AddNotification(
-      std::move(notification));
+  AccessibilityController* controller =
+      Shell::Get()->accessibility_controller();
+  bool will_be_enabled = !controller->IsHighContrastEnabled();
 
-  Shell::Get()->accessibility_delegate()->ToggleHighContrast();
+  if (will_be_enabled) {
+    // Show a notification so the user knows that this accelerator toggled
+    // high contrast mode, and that they can press it again to toggle back.
+    // The message center automatically only shows this once per session.
+    std::unique_ptr<Notification> notification =
+        system_notifier::CreateSystemNotification(
+            message_center::NOTIFICATION_TYPE_SIMPLE,
+            kHighContrastToggleAccelNotificationId,
+            l10n_util::GetStringUTF16(IDS_HIGH_CONTRAST_ACCEL_TITLE),
+            l10n_util::GetStringUTF16(IDS_HIGH_CONTRAST_ACCEL_MSG),
+            gfx::Image(
+                CreateVectorIcon(kSystemMenuAccessibilityIcon, SK_ColorBLACK)),
+            base::string16() /* display source */, GURL(),
+            message_center::NotifierId(
+                message_center::NotifierId::SYSTEM_COMPONENT,
+                system_notifier::kNotifierAccessibility),
+            message_center::RichNotificationData(), nullptr,
+            kNotificationAccessibilityIcon,
+            SystemNotificationWarningLevel::NORMAL);
+    message_center::MessageCenter::Get()->AddNotification(
+        std::move(notification));
+  } else {
+    message_center::MessageCenter::Get()->RemoveNotification(
+        kHighContrastToggleAccelNotificationId, false /* by_user */);
+  }
+
+  controller->SetHighContrastEnabled(will_be_enabled);
 }
 
 void HandleToggleSpokenFeedback() {

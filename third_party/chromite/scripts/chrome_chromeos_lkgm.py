@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2017 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -97,18 +98,6 @@ class ChromeLGTMCommitter(object):
       raise LKGMNotCommitted(
           'Could not create git commit with new LKGM: %r' % e)
 
-  def UploadNewLKGM(self):
-    """Uploads the change to gerrit."""
-    try:
-      # RUn 'git cl upload' with --bypass-hooks to skip running scripts that are
-      # not part of the shallow checkout, -f to skip editing the CL message,
-      # --send-mail to mark the CL as ready, and --tbrs to +1 the CL.
-      git.RunGit(self._checkout_dir, ['cl', 'upload', '-m', self._commit_msg,
-                                      '--bypass-hooks', '-f', '--send-mail',
-                                      '--tbrs=chrome-os-gardeners@google.com'])
-    except cros_build_lib.RunCommandError as e:
-      raise LKGMNotCommitted('Could not submit LKGM: upload failed: %r' % e)
-
   def _TryLandNewLKGM(self):
     """Fetches latest, rebases the CL, and lands the rebased CL."""
     git.RunGit(self._checkout_dir, ['fetch', 'origin', 'master'])
@@ -173,7 +162,6 @@ def main(argv):
                                   dryrun=args.dryrun)
   committer.CheckoutChromeLKGM()
   committer.CommitNewLKGM()
-  committer.UploadNewLKGM()
   committer.LandNewLKGM()
 
   return 0

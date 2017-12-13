@@ -18,8 +18,6 @@
 #include "base/test/histogram_tester.h"
 #include "base/test/mock_callback.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "chrome/browser/media/router/event_page_request_manager.h"
-#include "chrome/browser/media/router/event_page_request_manager_factory.h"
 #include "chrome/browser/media/router/media_router_factory.h"
 #include "chrome/browser/media/router/mock_media_router.h"
 #include "chrome/browser/media/router/mojo/media_router_mojo_metrics.h"
@@ -88,14 +86,18 @@ IssueInfo CreateIssueInfo(const std::string& title) {
 
 // Creates a media route whose ID is |kRouteId|.
 MediaRoute CreateMediaRoute() {
-  return MediaRoute(kRouteId, MediaSource(kSource), kSinkId, kDescription, true,
-                    std::string(), true);
+  MediaRoute route(kRouteId, MediaSource(kSource), kSinkId, kDescription, true,
+                   std::string(), true);
+  route.set_controller_type(RouteControllerType::kGeneric);
+  return route;
 }
 
 // Creates a media route whose ID is |kRouteId2|.
 MediaRoute CreateMediaRoute2() {
-  return MediaRoute(kRouteId2, MediaSource(kSource), kSinkId, kDescription,
-                    true, std::string(), true);
+  MediaRoute route(kRouteId2, MediaSource(kSource), kSinkId, kDescription, true,
+                   std::string(), true);
+  route.set_controller_type(RouteControllerType::kGeneric);
+  return route;
 }
 
 void OnCreateMediaRouteController(
@@ -501,8 +503,8 @@ TEST_F(MediaRouterMojoImplTest, TerminateRouteFails) {
 }
 
 TEST_F(MediaRouterMojoImplTest, HandleIssue) {
-  MockIssuesObserver issue_observer1(router());
-  MockIssuesObserver issue_observer2(router());
+  MockIssuesObserver issue_observer1(router()->GetIssueManager());
+  MockIssuesObserver issue_observer2(router()->GetIssueManager());
   issue_observer1.Init();
   issue_observer2.Init();
 
@@ -521,17 +523,6 @@ TEST_F(MediaRouterMojoImplTest, HandleIssue) {
   ASSERT_EQ(issue_from_observer1.id(), issue_from_observer2.id());
   EXPECT_EQ(issue_info, issue_from_observer1.info());
   EXPECT_EQ(issue_info, issue_from_observer2.info());
-
-  EXPECT_TRUE(Mock::VerifyAndClearExpectations(&issue_observer1));
-  EXPECT_TRUE(Mock::VerifyAndClearExpectations(&issue_observer2));
-
-  EXPECT_CALL(issue_observer1, OnIssuesCleared());
-  EXPECT_CALL(issue_observer2, OnIssuesCleared());
-
-  router()->ClearIssue(issue_from_observer1.id());
-
-  EXPECT_TRUE(Mock::VerifyAndClearExpectations(&issue_observer1));
-  EXPECT_TRUE(Mock::VerifyAndClearExpectations(&issue_observer2));
 }
 
 TEST_F(MediaRouterMojoImplTest, RegisterAndUnregisterMediaSinksObserver) {
@@ -984,6 +975,10 @@ TEST_F(MediaRouterMojoImplTest, GetRouteController) {
   TestCreateMediaRouteController();
 }
 
+TEST_F(MediaRouterMojoImplTest, GetHangoutsRouteController) {
+  TestCreateHangoutsMediaRouteController();
+}
+
 TEST_F(MediaRouterMojoImplTest, GetRouteControllerMultipleTimes) {
   router()->OnRoutesUpdated({CreateMediaRoute(), CreateMediaRoute2()},
                             std::string(), std::vector<std::string>());
@@ -1025,6 +1020,8 @@ TEST_F(MediaRouterMojoImplTest, GetRouteControllerAfterInvalidation) {
 
   scoped_refptr<MediaRouteController> route_controller =
       router()->GetRouteController(kRouteId);
+  EXPECT_TRUE(route_controller);
+
   // Invalidate the MediaRouteController.
   route_controller = nullptr;
   // Call again with the same route ID. Since we've invalidated the

@@ -18,14 +18,15 @@ ContentElement::ContentElement(ContentInputDelegate* delegate)
 
 ContentElement::~ContentElement() = default;
 
-void ContentElement::Render(UiElementRenderer* renderer,
-                            const gfx::Transform& view_proj_matrix) const {
+void ContentElement::Render(
+    UiElementRenderer* renderer,
+    const gfx::Transform& model_view_proj_matrix) const {
   if (!texture_id_)
     return;
   gfx::RectF copy_rect(0, 0, 1, 1);
-  renderer->DrawTexturedQuad(
-      texture_id_, UiElementRenderer::kTextureLocationExternal,
-      view_proj_matrix, copy_rect, opacity(), size(), corner_radius());
+  renderer->DrawTexturedQuad(texture_id_, texture_location_,
+                             model_view_proj_matrix, copy_rect,
+                             computed_opacity(), size(), corner_radius());
 }
 
 void ContentElement::OnHoverEnter(const gfx::PointF& position) {
@@ -72,6 +73,12 @@ void ContentElement::OnScrollEnd(
     std::unique_ptr<blink::WebGestureEvent> gesture,
     const gfx::PointF& position) {
   delegate_->OnContentScrollEnd(std::move(gesture), position);
+}
+
+void ContentElement::SetTexture(unsigned int texture_id,
+                                UiElementRenderer::TextureLocation location) {
+  texture_id_ = texture_id;
+  texture_location_ = location;
 }
 
 }  // namespace vr

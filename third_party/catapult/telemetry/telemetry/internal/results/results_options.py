@@ -13,13 +13,10 @@ from py_utils import cloud_storage  # pylint: disable=import-error
 from telemetry.core import util
 from telemetry.internal.results import chart_json_output_formatter
 from telemetry.internal.results import csv_output_formatter
-from telemetry.internal.results import csv_pivot_table_output_formatter
 from telemetry.internal.results import gtest_progress_reporter
 from telemetry.internal.results import histogram_set_json_output_formatter
 from telemetry.internal.results import html_output_formatter
 from telemetry.internal.results import json_3_output_formatter
-from telemetry.internal.results import json_output_formatter
-from telemetry.internal.results import legacy_html_output_formatter
 from telemetry.internal.results import page_test_results
 from telemetry.internal.results import progress_reporter
 
@@ -28,27 +25,23 @@ from telemetry.internal.results import progress_reporter
 _OUTPUT_FORMAT_CHOICES = (
     'chartjson',
     'csv',
-    'csv-pivot-table',
     'gtest',
     'histograms',
     'html',
-    'json',
     'json-test-results',
-    'legacy-html',
     'none',
     )
+
+_DEFAULT_OUTPUT_FORMAT = 'html'
 
 
 # Filenames to use for given output formats.
 _OUTPUT_FILENAME_LOOKUP = {
     'chartjson': 'results-chart.json',
     'csv': 'results.csv',
-    'csv-pivot-table': 'results-pivot-table.csv',
     'histograms': 'histograms.json',
     'html': 'results.html',
-    'json': 'results.json',
     'json-test-results': 'test-results.json',
-    'legacy-html': 'legacy-results.html'
 }
 
 
@@ -76,7 +69,7 @@ def AddResultsOptions(parser):
       '--output-trace-tag',
       default='',
       help='Append a tag to the key of each result trace. Use '
-      'with html, csv-pivot-table output formats.')
+      'with html output formats.')
   group.add_option(
       '--reset-results', action='store_true', help='Delete all stored results.')
   group.add_option(
@@ -127,7 +120,7 @@ def _GetOutputStream(output_format, output_dir):
   output_file = os.path.join(output_dir, _OUTPUT_FILENAME_LOOKUP[output_format])
 
   # TODO(eakuefner): Factor this hack out after we rewrite HTMLOutputFormatter.
-  if output_format in ['html', 'legacy-html', 'csv']:
+  if output_format in ['html', 'csv']:
     open(output_file, 'a').close() # Create file if it doesn't exist.
     return codecs.open(output_file, mode='r+', encoding='utf-8')
   else:
@@ -150,7 +143,7 @@ def CreateResults(benchmark_metadata, options,
     options: Contains the options specified in AddResultsOptions.
   """
   if not options.output_formats:
-    options.output_formats = [_OUTPUT_FORMAT_CHOICES[0]]
+    options.output_formats = [_DEFAULT_OUTPUT_FORMAT]
 
   upload_bucket = None
   if options.upload_results:
@@ -164,17 +157,10 @@ def CreateResults(benchmark_metadata, options,
       continue
 
     output_stream = _GetOutputStream(output_format, options.output_dir)
-    if output_format == 'csv-pivot-table':
-      output_formatters.append(
-          csv_pivot_table_output_formatter.CsvPivotTableOutputFormatter(
-              output_stream, trace_tag=options.output_trace_tag))
-    elif output_format == 'html':
+    if output_format == 'html':
       output_formatters.append(html_output_formatter.HtmlOutputFormatter(
           output_stream, benchmark_metadata, options.reset_results,
           upload_bucket))
-    elif output_format == 'json':
-      output_formatters.append(json_output_formatter.JsonOutputFormatter(
-          output_stream, benchmark_metadata))
     elif output_format == 'json-test-results':
       output_formatters.append(json_3_output_formatter.JsonOutputFormatter(
           output_stream))
@@ -190,11 +176,6 @@ def CreateResults(benchmark_metadata, options,
       output_formatters.append(
           histogram_set_json_output_formatter.HistogramSetJsonOutputFormatter(
               output_stream, benchmark_metadata, options.reset_results))
-    elif output_format == 'legacy-html':
-      output_formatters.append(
-          legacy_html_output_formatter.LegacyHtmlOutputFormatter(
-              output_stream, benchmark_metadata, options.reset_results,
-              options.browser_type, options.results_label))
     else:
       # Should never be reached. The parser enforces the choices.
       raise Exception('Invalid --output-format "%s". Valid choices are: %s'
@@ -212,7 +193,8 @@ def CreateResults(benchmark_metadata, options,
       output_formatters=output_formatters, progress_reporter=reporter,
       output_dir=options.output_dir,
       value_can_be_added_predicate=value_can_be_added_predicate,
-      benchmark_enabled=benchmark_enabled)
+      benchmark_enabled=benchmark_enabled,
+      upload_bucket=upload_bucket)
 
   results.telemetry_info.benchmark_name = benchmark_metadata.name
   results.telemetry_info.benchmark_start_epoch = time.time()

@@ -24,7 +24,7 @@ class X509Certificate;
 }
 
 namespace safe_browsing {
-class PasswordProtectionService;
+class ChromePasswordProtectionService;
 }
 
 class ChromeSSLHostStateDelegate;
@@ -90,6 +90,14 @@ class PageInfo : public TabSpecificContentSettings::SiteDataObserver,
     SITE_IDENTITY_STATUS_SOCIAL_ENGINEERING,
     SITE_IDENTITY_STATUS_UNWANTED_SOFTWARE,
     SITE_IDENTITY_STATUS_PASSWORD_REUSE,
+  };
+
+  // Events for UMA. Do not reorder or change! Exposed in header so enum is
+  // accessible from test.
+  enum SSLCertificateDecisionsDidRevoke {
+    USER_CERT_DECISIONS_NOT_REVOKED = 0,
+    USER_CERT_DECISIONS_REVOKED = 1,
+    END_OF_SSL_CERTIFICATE_DECISIONS_DID_REVOKE_ENUM
   };
 
   // UMA statistics for PageInfo. Do not reorder or remove existing
@@ -176,6 +184,8 @@ class PageInfo : public TabSpecificContentSettings::SiteDataObserver,
   void OnSiteDataAccessed() override;
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(PageInfoTest, NonFactoryDefaultPermissionsShown);
+
   // Initializes the |PageInfo|.
   void Init(const GURL& url, const security_state::SecurityInfo& security_info);
 
@@ -256,7 +266,7 @@ class PageInfo : public TabSpecificContentSettings::SiteDataObserver,
 
 #if defined(SAFE_BROWSING_DB_LOCAL)
   // Used to handle changing password, and whitelisting site.
-  safe_browsing::PasswordProtectionService* password_protection_service_;
+  safe_browsing::ChromePasswordProtectionService* password_protection_service_;
 #endif
 
   // Set when the user ignored the password reuse modal warning dialog. When

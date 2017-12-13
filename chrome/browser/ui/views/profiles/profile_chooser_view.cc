@@ -39,6 +39,7 @@
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/user_manager.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
+#include "chrome/browser/ui/views/harmony/chrome_typography.h"
 #include "chrome/browser/ui/views/profiles/signin_view_controller_delegate_views.h"
 #include "chrome/browser/ui/views/profiles/user_manager_view.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
@@ -124,8 +125,7 @@ bool IsProfileChooser(profiles::BubbleViewMode mode) {
 // Creates a GridLayout with a single column. This ensures that all the child
 // views added get auto-expanded to fill the full width of the bubble.
 views::GridLayout* CreateSingleColumnLayout(views::View* view, int width) {
-  views::GridLayout* layout = new views::GridLayout(view);
-  view->SetLayoutManager(layout);
+  views::GridLayout* layout = views::GridLayout::CreateAndInstall(view);
 
   views::ColumnSet* columns = layout->AddColumnSet(0);
   columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 0,
@@ -434,12 +434,9 @@ class TitleCard : public views::View {
     back_button_ = CreateBackButton(listener);
     *back_button = back_button_;
 
-    title_label_ = new views::Label(message);
+    title_label_ =
+        new views::Label(message, views::style::CONTEXT_DIALOG_TITLE);
     title_label_->SetHorizontalAlignment(gfx::ALIGN_CENTER);
-    ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
-    const gfx::FontList& medium_font_list =
-        rb->GetFontList(ui::ResourceBundle::MediumFont);
-    title_label_->SetFontList(medium_font_list);
 
     AddChildView(back_button_);
     AddChildView(title_label_);
@@ -452,8 +449,8 @@ class TitleCard : public views::View {
                                          TitleCard* title_card,
                                          int width) {
     views::View* titled_view = new views::View();
-    views::GridLayout* layout = new views::GridLayout(titled_view);
-    titled_view->SetLayoutManager(layout);
+    views::GridLayout* layout =
+        views::GridLayout::CreateAndInstall(titled_view);
 
     ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
     const gfx::Insets dialog_insets =
@@ -1114,8 +1111,8 @@ views::View* ProfileChooserView::CreateCurrentProfileView(
   // Container for the profile photo and avatar/user name.
   BackgroundColorHoverButton* current_profile_card =
       new BackgroundColorHoverButton(this, base::string16());
-  views::GridLayout* grid_layout = new views::GridLayout(current_profile_card);
-  current_profile_card->SetLayoutManager(grid_layout);
+  views::GridLayout* grid_layout =
+      views::GridLayout::CreateAndInstall(current_profile_card);
   views::ColumnSet* columns = grid_layout->AddColumnSet(0);
   // BackgroundColorHoverButton has already accounted for the left and right
   // margins.
@@ -1350,12 +1347,10 @@ views::View* ProfileChooserView::CreateSupervisedUserDisclaimerView() {
                                            kMenuEdgeMargin, horizontal_margin));
 
   views::Label* disclaimer = new views::Label(
-      avatar_menu_->GetSupervisedUserInformation());
+      avatar_menu_->GetSupervisedUserInformation(), CONTEXT_DEPRECATED_SMALL);
   disclaimer->SetMultiLine(true);
   disclaimer->SetAllowCharacterBreak(true);
   disclaimer->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
-  disclaimer->SetFontList(rb->GetFontList(ui::ResourceBundle::SmallFont));
   layout->StartRow(1, 0);
   layout->AddView(disclaimer);
 
@@ -1495,9 +1490,6 @@ views::View* ProfileChooserView::CreateAccountRemovalView() {
 
   // Adds main text.
   layout->StartRowWithPadding(1, 0, 0, unrelated_vertical_spacing);
-  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
-  const gfx::FontList& small_font_list =
-      rb->GetFontList(ui::ResourceBundle::SmallFont);
 
   if (is_primary_account) {
     std::string email = signin_ui_util::GetDisplayEmail(browser_->profile(),
@@ -1513,14 +1505,14 @@ views::View* ProfileChooserView::CreateAccountRemovalView() {
     primary_account_removal_label->AddStyleRange(
         gfx::Range(offsets[1], offsets[1] + settings_text.size()),
         views::StyledLabel::RangeStyleInfo::CreateForLink());
-    primary_account_removal_label->SetBaseFontList(small_font_list);
+    primary_account_removal_label->SetTextContext(CONTEXT_DEPRECATED_SMALL);
     layout->AddView(primary_account_removal_label);
   } else {
     views::Label* content_label = new views::Label(
-        l10n_util::GetStringUTF16(IDS_PROFILES_ACCOUNT_REMOVAL_TEXT));
+        l10n_util::GetStringUTF16(IDS_PROFILES_ACCOUNT_REMOVAL_TEXT),
+        CONTEXT_DEPRECATED_SMALL);
     content_label->SetMultiLine(true);
     content_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-    content_label->SetFontList(small_font_list);
     layout->AddView(content_label);
   }
 
@@ -1562,17 +1554,14 @@ views::View* ProfileChooserView::CreateSwitchUserView() {
 
   // Adds main text.
   layout->StartRowWithPadding(1, 1, 0, unrelated_vertical_spacing);
-  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
-  const gfx::FontList& small_font_list =
-      rb->GetFontList(ui::ResourceBundle::SmallFont);
   const AvatarMenu::Item& avatar_item =
       avatar_menu_->GetItemAt(avatar_menu_->GetActiveProfileIndex());
-  views::Label* content_label = new views::Label(
-      l10n_util::GetStringFUTF16(
-          IDS_PROFILES_NOT_YOU_CONTENT_TEXT, avatar_item.name));
+  views::Label* content_label =
+      new views::Label(l10n_util::GetStringFUTF16(
+                           IDS_PROFILES_NOT_YOU_CONTENT_TEXT, avatar_item.name),
+                       CONTEXT_DEPRECATED_SMALL);
   content_label->SetMultiLine(true);
   content_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  content_label->SetFontList(small_font_list);
   layout->AddView(content_label);
 
   // Adds "Add person" button.

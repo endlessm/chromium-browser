@@ -46,9 +46,10 @@ class ManagePasswordsBubbleModel {
   // by the user.
   void OnNeverForThisSiteClicked();
 
-  // Called by the view code when username is corrected using the edit button
-  // in PendingView.
-  void OnUsernameEdited(base::string16 new_username);
+  // Called by the view code when username or password is corrected using
+  // the username correction or password selection features in PendingView.
+  void OnCredentialEdited(base::string16 new_username,
+                          base::string16 new_password);
 
   // Called by the view code when the save button is clicked by the user.
   void OnSaveClicked();
@@ -111,6 +112,12 @@ class ManagePasswordsBubbleModel {
     return title_brand_link_range_;
   }
 
+#if defined(UNIT_TEST)
+  void set_hide_eye_icon(bool hide) { hide_eye_icon_ = hide; }
+#endif
+
+  bool hide_eye_icon() const { return hide_eye_icon_; }
+
   Profile* GetProfile() const;
   content::WebContents* GetWebContents() const;
 
@@ -158,6 +165,9 @@ class ManagePasswordsBubbleModel {
 
   // A bridge to ManagePasswordsUIController instance.
   base::WeakPtr<PasswordsModelDelegate> delegate_;
+
+  // True iff the eye icon should be hidden for privacy reasons.
+  bool hide_eye_icon_;
 
   DISALLOW_COPY_AND_ASSIGN(ManagePasswordsBubbleModel);
 };

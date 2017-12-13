@@ -4,7 +4,6 @@
 
 import json
 import mock
-import unittest
 
 import webapp2
 import webtest
@@ -46,7 +45,7 @@ class GitilesTest(testing_common.TestCase):
         'git_hash_1': 'abc'
     }
 
-    response = self.testapp.post('/api/gitiles', params)
+    response = self.testapp.get('/api/gitiles', params)
     result = json.loads(response.body)
     self.assertIn('error', result)
 
@@ -58,7 +57,7 @@ class GitilesTest(testing_common.TestCase):
         'git_hash_1': 'abc'
     }
 
-    response = self.testapp.post('/api/gitiles', params)
+    response = self.testapp.get('/api/gitiles', params)
     result = json.loads(response.body)
     self.assertIn('error', result)
 
@@ -71,7 +70,7 @@ class GitilesTest(testing_common.TestCase):
         'git_not_hash': 'abc'
     }
 
-    response = self.testapp.post('/api/gitiles', params)
+    response = self.testapp.get('/api/gitiles', params)
     result = json.loads(response.body)
     self.assertIn('error', result)
 
@@ -84,7 +83,7 @@ class GitilesTest(testing_common.TestCase):
         'git_hash': 'abc'
     }
 
-    response = self.testapp.post('/api/gitiles', params)
+    response = self.testapp.get('/api/gitiles', params)
     result = json.loads(response.body)
     self.assertEqual({'foo': 'bar'}, result)
 
@@ -97,7 +96,7 @@ class GitilesTest(testing_common.TestCase):
         'git_hash_1': 'abc'
     }
 
-    response = self.testapp.post('/api/gitiles', params)
+    response = self.testapp.get('/api/gitiles', params)
     result = json.loads(response.body)
     self.assertEqual({'foo': 'bar'}, result)
 
@@ -111,10 +110,6 @@ class GitilesTest(testing_common.TestCase):
         'git_hash_2': 'def',
     }
 
-    response = self.testapp.post('/api/gitiles', params)
+    response = self.testapp.get('/api/gitiles', params)
     result = json.loads(response.body)
     self.assertEqual({'foo': 'bar'}, result)
-
-
-if __name__ == '__main__':
-  unittest.main()

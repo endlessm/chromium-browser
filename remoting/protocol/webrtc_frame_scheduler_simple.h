@@ -7,8 +7,7 @@
 
 #include "remoting/protocol/webrtc_frame_scheduler.h"
 
-#include <queue>
-
+#include "base/containers/queue.h"
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
 #include "remoting/base/leaky_bucket.h"
@@ -56,7 +55,7 @@ class WebrtcFrameSchedulerSimple : public VideoChannelStateObserver,
    private:
     void UpdateTargetBitrate();
 
-    std::queue<std::pair<base::TimeTicks, int>> bandwidth_samples_;
+    base::queue<std::pair<base::TimeTicks, int>> bandwidth_samples_;
     int bandwidth_samples_sum_ = 0;
 
     int minimum_bitrate_ = 0;
@@ -72,13 +71,15 @@ class WebrtcFrameSchedulerSimple : public VideoChannelStateObserver,
   // Set to true after the first key frame is requested.
   bool encoder_ready_ = false;
 
-  // Set to false until the first frame frame was captured successfully.
-  bool captured_first_frame_ = false;
-
   // Set to true when a key frame was requested.
   bool key_frame_request_ = false;
 
   base::TimeTicks last_capture_started_time_;
+
+  // Set in OnFrameCaptured() whenever a (non-null) frame (possibly with an
+  // empty updated region) is sent to the encoder. Empty frames are still sent,
+  // but at a throttled rate.
+  base::TimeTicks latest_frame_encode_start_time_;
 
   LeakyBucket pacing_bucket_;
 

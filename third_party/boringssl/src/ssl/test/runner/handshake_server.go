@@ -281,7 +281,7 @@ func (hs *serverHandshakeState) readClientHello() error {
 	}
 
 	if config.Bugs.ExpectNoTLS12Session {
-		if len(hs.clientHello.sessionId) > 0 && c.wireVersion != tls13ExperimentVersion {
+		if len(hs.clientHello.sessionId) > 0 && !isResumptionExperiment(c.wireVersion) {
 			return fmt.Errorf("tls: client offered an unexpected session ID")
 		}
 		if len(hs.clientHello.sessionTicket) > 0 {
@@ -573,11 +573,7 @@ ResendHelloRetryRequest:
 	if sendHelloRetryRequest {
 		oldClientHelloBytes := hs.clientHello.marshal()
 		hs.writeServerHash(helloRetryRequest.marshal())
-		if c.vers == tls13RecordTypeExperimentVersion {
-			c.writeRecord(recordTypePlaintextHandshake, helloRetryRequest.marshal())
-		} else {
-			c.writeRecord(recordTypeHandshake, helloRetryRequest.marshal())
-		}
+		c.writeRecord(recordTypeHandshake, helloRetryRequest.marshal())
 		c.flushHandshake()
 
 		if hs.clientHello.hasEarlyData {
@@ -668,7 +664,7 @@ ResendHelloRetryRequest:
 		}
 		if encryptedExtensions.extensions.hasEarlyData {
 			earlyTrafficSecret := hs.finishedHash.deriveSecret(earlyTrafficLabel)
-			c.in.useTrafficSecret(c.vers, hs.suite, earlyTrafficSecret, clientWrite)
+			c.in.useTrafficSecret(c.wireVersion, hs.suite, earlyTrafficSecret, clientWrite)
 
 			for _, expectedMsg := range config.Bugs.ExpectEarlyData {
 				if err := c.readRecord(recordTypeApplicationData); err != nil {
@@ -755,21 +751,17 @@ ResendHelloRetryRequest:
 		toWrite = append(toWrite, typeEncryptedExtensions)
 		c.writeRecord(recordTypeHandshake, toWrite)
 	} else {
-		if c.vers == tls13RecordTypeExperimentVersion {
-			c.writeRecord(recordTypePlaintextHandshake, hs.hello.marshal())
-		} else {
-			c.writeRecord(recordTypeHandshake, hs.hello.marshal())
-		}
+		c.writeRecord(recordTypeHandshake, hs.hello.marshal())
 	}
 	c.flushHandshake()
 
-	if c.wireVersion == tls13ExperimentVersion {
+	if isResumptionExperiment(c.wireVersion) {
 		c.writeRecord(recordTypeChangeCipherSpec, []byte{1})
 	}
 
 	// Switch to handshake traffic keys.
 	serverHandshakeTrafficSecret := hs.finishedHash.deriveSecret(serverHandshakeTrafficLabel)
-	c.out.useTrafficSecret(c.vers, hs.suite, serverHandshakeTrafficSecret, serverWrite)
+	c.out.useTrafficSecret(c.wireVersion, hs.suite, serverHandshakeTrafficSecret, serverWrite)
 	// Derive handshake traffic read key, but don't switch yet.
 	clientHandshakeTrafficSecret := hs.finishedHash.deriveSecret(clientHandshakeTrafficLabel)
 
@@ -910,7 +902,7 @@ ResendHelloRetryRequest:
 
 	// Switch to application data keys on write. In particular, any alerts
 	// from the client certificate are sent over these keys.
-	c.out.useTrafficSecret(c.vers, hs.suite, serverTrafficSecret, serverWrite)
+	c.out.useTrafficSecret(c.wireVersion, hs.suite, serverTrafficSecret, serverWrite)
 
 	// Send 0.5-RTT messages.
 	for _, halfRTTMsg := range config.Bugs.SendHalfRTTData {
@@ -929,14 +921,14 @@ ResendHelloRetryRequest:
 		}
 	}
 
-	if c.wireVersion == tls13ExperimentVersion && !c.skipEarlyData {
+	if isResumptionClientCCSExperiment(c.wireVersion) && !c.skipEarlyData {
 		if err := c.readRecord(recordTypeChangeCipherSpec); err != nil {
 			return err
 		}
 	}
 
 	// Switch input stream to handshake traffic keys.
-	c.in.useTrafficSecret(c.vers, hs.suite, clientHandshakeTrafficSecret, clientWrite)
+	c.in.useTrafficSecret(c.wireVersion, hs.suite, clientHandshakeTrafficSecret, clientWrite)
 
 	// If we requested a client certificate, then the client must send a
 	// certificate message, even if it's empty.
@@ -1040,7 +1032,7 @@ ResendHelloRetryRequest:
 	hs.writeClientHash(clientFinished.marshal())
 
 	// Switch to application data keys on read.
-	c.in.useTrafficSecret(c.vers, hs.suite, clientTrafficSecret, clientWrite)
+	c.in.useTrafficSecret(c.wireVersion, hs.suite, clientTrafficSecret, clientWrite)
 
 	c.cipherSuite = hs.suite
 	c.resumptionSecret = hs.finishedHash.deriveSecret(resumptionLabel)
@@ -1089,9 +1081,6 @@ func (hs *serverHandshakeState) processClientHello() (isResume bool, err error) 
 		copy(hs.hello.random[len(hs.hello.random)-8:], downgradeTLS12)
 	}
 
-	if len(hs.clientHello.sessionId) > 0 && c.config.Bugs.ExpectEmptyClientHelloSessionID {
-		return false, errors.New("tls: expected empty session ID from client")
-	}
 	if len(hs.clientHello.sessionId) == 0 && c.config.Bugs.ExpectClientHelloSessionID {
 		return false, errors.New("tls: expected non-empty session ID from client")
 	}
@@ -1306,6 +1295,10 @@ func (hs *serverHandshakeState) processClientExtensions(serverExtensions *server
 
 	if c.config.Bugs.SendSupportedPointFormats != nil {
 		serverExtensions.supportedPoints = c.config.Bugs.SendSupportedPointFormats
+	}
+
+	if c.config.Bugs.SendServerSupportedCurves {
+		serverExtensions.supportedCurves = c.config.curvePreferences()
 	}
 
 	if !hs.clientHello.hasGREASEExtension && config.Bugs.ExpectGREASE {
@@ -1697,8 +1690,8 @@ func (hs *serverHandshakeState) establishKeys() error {
 		serverCipher = hs.suite.aead(c.vers, serverKey, serverIV)
 	}
 
-	c.in.prepareCipherSpec(c.vers, clientCipher, clientHash)
-	c.out.prepareCipherSpec(c.vers, serverCipher, serverHash)
+	c.in.prepareCipherSpec(c.wireVersion, clientCipher, clientHash)
+	c.out.prepareCipherSpec(c.wireVersion, serverCipher, serverHash)
 
 	return nil
 }
@@ -1935,7 +1928,7 @@ func verifyChannelIDMessage(channelIDMsg *channelIDMsg, channelIDHash []byte) (*
 	if !elliptic.P256().IsOnCurve(x, y) {
 		return nil, errors.New("tls: invalid channel ID public key")
 	}
-	channelID := &ecdsa.PublicKey{elliptic.P256(), x, y}
+	channelID := &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}
 	if !ecdsa.Verify(channelID, channelIDHash, r, s) {
 		return nil, errors.New("tls: invalid channel ID signature")
 	}

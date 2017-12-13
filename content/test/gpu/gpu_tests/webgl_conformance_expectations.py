@@ -112,9 +112,6 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     self.Fail('conformance/offscreencanvas/offscreencanvas-resize.html',
         bug=709484)
 
-    self.Fail('conformance/glsl/misc/uninitialized-local-global-variables.html',
-        bug=1966) # angle bug ID
-
     # This test needs to be rewritten to measure its expected
     # performance; it's currently too flaky even on release bots.
     self.Skip('conformance/rendering/texture-switch-performance.html',
@@ -198,6 +195,10 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     # Win / AMD / Passthrough command decoder / D3D11
     self.Flaky('conformance/textures/misc/copytexsubimage2d-subrects.html',
         ['win', 'amd', 'passthrough', 'd3d11'], bug=685232)
+    self.Flaky('conformance/textures/misc/texture-sub-image-cube-maps.html',
+        ['win7', 'amd', 'passthrough', 'd3d11', 'debug'], bug=772037)
+    self.Flaky('conformance/extensions/oes-texture-half-float.html',
+        ['win7', 'amd', 'passthrough', 'd3d11', 'release'], bug=772037)
 
     # Win / NVIDIA / Passthrough command decoder / D3D11
     self.Flaky('conformance/extensions/oes-texture-half-float-with-video.html',
@@ -252,10 +253,6 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     self.Flaky('conformance/textures/image_bitmap_from_video/' +
         'tex-2d-rgba-rgba-unsigned_short_4_4_4_4.html',
         ['win10', ('nvidia', 0x1cb3)], bug=728670)
-
-    # Win10 / Intel failures
-    self.Fail('conformance/rendering/clear-after-copyTexImage2D.html',
-        ['win10', 'intel'], bug=737002)
 
     # Win7 / Intel failures
     self.Fail('conformance/textures/misc/' +
@@ -423,6 +420,8 @@ class WebGLConformanceExpectations(GpuTestExpectations):
         ['mac', ('nvidia', 0xfe9), 'no_passthrough'], bug=635081)
     self.Fail('conformance/textures/misc/tex-input-validation.html',
         ['mac', ('nvidia', 0xfe9)], bug=635081)
+    self.Fail('conformance/glsl/bugs/init-array-with-loop.html',
+        ['mac', ('nvidia', 0xfe9)], bug=784817)
 
     # Linux failures
     self.Fail('conformance/extensions/webgl-compressed-texture-astc.html',
@@ -645,6 +644,8 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     self.Fail('WebglExtension_EXT_sRGB',
         ['android',
          ('qualcomm', 'Adreno (TM) 420'), ('qualcomm', 'Adreno (TM) 430')])
+    self.Fail('conformance/glsl/misc/uninitialized-local-global-variables.html',
+        ['android', ('qualcomm', 'Adreno (TM) 420')], bug=2046) # angle bug ID
 
     # Nexus 9
     self.Fail('deqp/data/gles2/shaders/functions.html',
@@ -653,11 +654,6 @@ class WebGLConformanceExpectations(GpuTestExpectations):
         ['android', 'nvidia'], bug=606096)
     self.Fail('WebglExtension_WEBGL_compressed_texture_atc',
         ['android', ('nvidia', 'NVIDIA Tegra')])
-
-    # Pixel C
-    self.Fail('conformance/glsl/bugs/constant-precision-qualifier.html',
-        ['android', 'android-chromium',
-         ('nvidia', 'NVIDIA Tegra')], bug=624621)
 
     # Nexus 9 and Shield TV (NVIDIA GPUs currently on the waterfall)
     self.Fail('conformance/ogles/GL/array/array_001_to_006.html',

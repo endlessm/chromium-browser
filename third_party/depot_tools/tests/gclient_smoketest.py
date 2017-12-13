@@ -10,6 +10,7 @@ Shell out 'gclient' and run basic conformance tests.
 This test assumes GClientSmokeBase.URL_BASE is valid.
 """
 
+import json
 import logging
 import os
 import re
@@ -199,6 +200,7 @@ class GClientSmoke(GClientSmokeBase):
           '    "managed"     : True,\n'
           '    "custom_deps" : {\n'
           '    },\n'
+          '    "custom_vars": {},\n'
           '  },\n'
           ']\n'
           'cache_dir = None\n') % self.git_base)
@@ -211,6 +213,7 @@ class GClientSmoke(GClientSmokeBase):
           '    "managed"     : True,\n'
           '    "custom_deps" : {\n'
           '    },\n'
+          '    "custom_vars": {},\n'
           '  },\n'
           ']\n'
           'cache_dir = None\n') % self.git_base)
@@ -223,6 +226,7 @@ class GClientSmoke(GClientSmokeBase):
           '    "managed"     : True,\n'
          '    "custom_deps" : {\n'
          '    },\n'
+         '    "custom_vars": {},\n'
          '  },\n'
          ']\n'
          'cache_dir = None\n')
@@ -235,9 +239,25 @@ class GClientSmoke(GClientSmokeBase):
          '    "managed"     : True,\n'
          '    "custom_deps" : {\n'
          '    },\n'
+         '    "custom_vars": {},\n'
          '  },\n'
          ']\n'
          'cache_dir = None\n')
+
+    test(['config', self.git_base + 'src/',
+          '--custom-var', 'bool_var=True',
+          '--custom-var', 'str_var="abc"'],
+         ('solutions = [\n'
+          '  { "name"        : "src",\n'
+          '    "url"         : "%ssrc",\n'
+          '    "deps_file"   : "DEPS",\n'
+          '    "managed"     : True,\n'
+          '    "custom_deps" : {\n'
+          '    },\n'
+          '    "custom_vars": {\'bool_var\': True, \'str_var\': \'abc\'},\n'
+          '  },\n'
+          ']\n'
+          'cache_dir = None\n') % self.git_base)
 
     test(['config', '--spec', '["blah blah"]'], '["blah blah"]')
 
@@ -323,9 +343,14 @@ class GClientSmokeGIT(GClientSmokeBase):
                                 ('repo_3@1', 'src/repo2/repo3'),
                                 ('repo_4@2', 'src/repo4'))
     tree['src/git_hooked2'] = 'git_hooked2'
-    tree['src/gclient.args'] = '\n'.join([
+    tree['src/repo2/gclient.args'] = '\n'.join([
         '# Generated from \'DEPS\'',
-        'DummyVariable = "repo"',
+        'false_var = false',
+        'false_str_var = false',
+        'true_var = true',
+        'true_str_var = true',
+        'str_var = "abc"',
+        'cond_var = false',
     ])
     self.assertTree(tree)
     # Test incremental sync: delete-unversioned_trees isn't there.
@@ -339,9 +364,14 @@ class GClientSmokeGIT(GClientSmokeBase):
                                 ('repo_4@2', 'src/repo4'))
     tree['src/git_hooked1'] = 'git_hooked1'
     tree['src/git_hooked2'] = 'git_hooked2'
-    tree['src/gclient.args'] = '\n'.join([
+    tree['src/repo2/gclient.args'] = '\n'.join([
         '# Generated from \'DEPS\'',
-        'DummyVariable = "repo"',
+        'false_var = false',
+        'false_str_var = false',
+        'true_var = true',
+        'true_str_var = true',
+        'str_var = "abc"',
+        'cond_var = false',
     ])
     self.assertTree(tree)
 
@@ -376,9 +406,14 @@ class GClientSmokeGIT(GClientSmokeBase):
                                 ('repo_2@2', 'src/repo2'),
                                 ('repo_3@1', 'src/repo2/repo3'),
                                 ('repo_4@2', 'src/repo4'))
-    tree['src/gclient.args'] = '\n'.join([
+    tree['src/repo2/gclient.args'] = '\n'.join([
         '# Generated from \'DEPS\'',
-        'DummyVariable = "repo"',
+        'false_var = false',
+        'false_str_var = false',
+        'true_var = true',
+        'true_str_var = true',
+        'str_var = "abc"',
+        'cond_var = false',
     ])
     self.assertTree(tree)
 
@@ -416,9 +451,14 @@ class GClientSmokeGIT(GClientSmokeBase):
                                 ('repo_3@1', 'src/repo2/repo3'),
                                 ('repo_4@2', 'src/repo4'))
     tree['src/git_hooked2'] = 'git_hooked2'
-    tree['src/gclient.args'] = '\n'.join([
+    tree['src/repo2/gclient.args'] = '\n'.join([
         '# Generated from \'DEPS\'',
-        'DummyVariable = "repo"',
+        'false_var = false',
+        'false_str_var = false',
+        'true_var = true',
+        'true_str_var = true',
+        'str_var = "abc"',
+        'cond_var = false',
     ])
     self.assertTree(tree)
     # Test incremental sync: delete-unversioned_trees isn't there.
@@ -433,11 +473,46 @@ class GClientSmokeGIT(GClientSmokeBase):
                                 ('repo_4@2', 'src/repo4'))
     tree['src/git_hooked1'] = 'git_hooked1'
     tree['src/git_hooked2'] = 'git_hooked2'
-    tree['src/gclient.args'] = '\n'.join([
+    tree['src/repo2/gclient.args'] = '\n'.join([
         '# Generated from \'DEPS\'',
-        'DummyVariable = "repo"',
+        'false_var = false',
+        'false_str_var = false',
+        'true_var = true',
+        'true_str_var = true',
+        'str_var = "abc"',
+        'cond_var = false',
     ])
     self.assertTree(tree)
+
+  def testSyncFetch(self):
+    if not self.enabled:
+      return
+    self.gclient(['config', self.git_base + 'repo_13', '--name', 'src'])
+    _out, _err, rc = self.gclient(['sync', '-v', '-v', '-v'])
+    self.assertEquals(0, rc)
+
+  def testSyncFetchUpdate(self):
+    if not self.enabled:
+      return
+    self.gclient(['config', self.git_base + 'repo_13', '--name', 'src'])
+
+    # Sync to an earlier revision first, one that doesn't refer to
+    # non-standard refs.
+    _out, _err, rc = self.gclient(
+        ['sync', '-v', '-v', '-v', '--revision', self.githash('repo_13', 1)])
+    self.assertEquals(0, rc)
+
+    # Make sure update that pulls a non-standard ref works.
+    _out, _err, rc = self.gclient(['sync', '-v', '-v', '-v'])
+    self.assertEquals(0, rc)
+
+  def testSyncDirect(self):
+    if not self.enabled:
+      return
+    self.gclient(['config', self.git_base + 'repo_12', '--name', 'src'])
+    _out, _err, rc = self.gclient(
+        ['sync', '-v', '-v', '-v', '--revision', 'refs/changes/1212'])
+    self.assertEquals(0, rc)
 
   def testRunHooks(self):
     if not self.enabled:
@@ -584,8 +659,9 @@ class GClientSmokeGIT(GClientSmokeBase):
 
     self.maxDiff = None
     self.assertEqual([
-        'gclient_gn_args_file = "src/gclient.args"',
-        'gclient_gn_args = [\'DummyVariable\']',
+        'gclient_gn_args_file = "src/repo2/gclient.args"',
+        'gclient_gn_args = [\'false_var\', \'false_str_var\', \'true_var\', '
+            '\'true_str_var\', \'str_var\', \'cond_var\']',
         'allowed_hosts = [',
         '  "git://127.0.0.1:20000/git/",',
         ']',
@@ -605,13 +681,13 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  "src/repo2": {',
         '    "url": "{git_base}repo_2@%s",' % (
                  self.githash('repo_2', 1)[:7]),
-        '    "condition": "True",',
+        '    "condition": \'True\',',
         '  },',
         '',
         '  # src -> src/repo4',
         '  "src/repo4": {',
         '    "url": "/repo_4",',
-        '    "condition": "False",',
+        '    "condition": \'False\',',
         '  },',
         '',
         '  # src -> src/repo8',
@@ -662,6 +738,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  # src',
         '  {',
         '    "pattern": ".",',
+        '    "condition": \'True\',',
         '    "cwd": ".",',
         '    "action": [',
         '        "python",',
@@ -707,6 +784,15 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  "DummyVariable": \'repo\',',
         '',
         '  # src',
+        '  "cond_var": \'false_str_var and true_var\',',
+        '',
+        '  # src',
+        '  "false_str_var": \'False\',',
+        '',
+        '  # src',
+        '  "false_var": False,',
+        '',
+        '  # src',
         '  "git_base": \'git://127.0.0.1:20000/git/\',',
         '',
         '  # src',
@@ -715,8 +801,20 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  # src',
         '  "repo5_var": \'/repo_5\',',
         '',
+        '  # src',
+        '  "str_var": \'abc\',',
+        '',
+        '  # src',
+        '  "true_str_var": \'True\',',
+        '',
+        '  # src',
+        '  "true_var": True,',
+        '',
         '}',
         '',
+        '# git://127.0.0.1:20000/git/repo_2@%s, DEPS' % (
+                 self.githash('repo_2', 1)[:7]),
+        '# git://127.0.0.1:20000/git/repo_8, DEPS'
     ], deps_contents.splitlines())
 
   def testFlattenPinAllDeps(self):
@@ -727,7 +825,7 @@ class GClientSmokeGIT(GClientSmokeBase):
     self.assertFalse(os.path.exists(output_deps))
 
     self.gclient(['config', self.git_base + 'repo_6', '--name', 'src'])
-    self.gclient(['sync'])
+    self.gclient(['sync', '--process-all-deps'])
     self.gclient(['flatten', '-v', '-v', '-v', '--output-deps', output_deps,
                   '--pin-all-deps'])
 
@@ -735,8 +833,9 @@ class GClientSmokeGIT(GClientSmokeBase):
       deps_contents = f.read()
 
     self.assertEqual([
-        'gclient_gn_args_file = "src/gclient.args"',
-        'gclient_gn_args = [\'DummyVariable\']',
+        'gclient_gn_args_file = "src/repo2/gclient.args"',
+        'gclient_gn_args = [\'false_var\', \'false_str_var\', \'true_var\', '
+            '\'true_str_var\', \'str_var\', \'cond_var\']',
         'allowed_hosts = [',
         '  "git://127.0.0.1:20000/git/",',
         ']',
@@ -756,14 +855,14 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  # src -> src/repo2',
         '  "src/repo2": {',
         '    "url": "{git_base}repo_2@%s",' % (
-                 self.githash('repo_2', 1)[:7]),
-        '    "condition": "True",',
+                 self.githash('repo_2', 1)),
+        '    "condition": \'True\',',
         '  },',
         '',
         '  # src -> src/repo4',
         '  "src/repo4": {',
-        '    "url": "/repo_4",',
-        '    "condition": "False",',
+        '    "url": "/repo_4@%s",' % (self.githash('repo_4', 2)),
+        '    "condition": \'False\',',
         '  },',
         '',
         '  # src -> src/repo8',
@@ -777,12 +876,12 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  "mac": {',
         '    # src -> src/mac_repo',
         '    "src/mac_repo": {',
-        '      "url": "{repo5_var}",',
+        '      "url": "{repo5_var}@%s",' % (self.githash('repo_5', 3)),
         '    },',
         '',
         '    # src -> src/repo8 -> src/recursed_os_repo',
         '    "src/recursed_os_repo": {',
-        '      "url": "/repo_5",',
+        '      "url": "/repo_5@%s",' % (self.githash('repo_5', 3)),
         '    },',
         '',
         '  },',
@@ -790,12 +889,12 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  "unix": {',
         '    # src -> src/repo8 -> src/recursed_os_repo',
         '    "src/recursed_os_repo": {',
-        '      "url": "/repo_5",',
+        '      "url": "/repo_5@%s",' % (self.githash('repo_5', 3)),
         '    },',
         '',
         '    # src -> src/unix_repo',
         '    "src/unix_repo": {',
-        '      "url": "{repo5_var}",',
+        '      "url": "{repo5_var}@%s",' % (self.githash('repo_5', 3)),
         '    },',
         '',
         '  },',
@@ -803,7 +902,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  "win": {',
         '    # src -> src/win_repo',
         '    "src/win_repo": {',
-        '      "url": "{repo5_var}",',
+        '      "url": "{repo5_var}@%s",' % (self.githash('repo_5', 3)),
         '    },',
         '',
         '  },',
@@ -814,6 +913,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  # src',
         '  {',
         '    "pattern": ".",',
+        '    "condition": \'True\',',
         '    "cwd": ".",',
         '    "action": [',
         '        "python",',
@@ -859,6 +959,15 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  "DummyVariable": \'repo\',',
         '',
         '  # src',
+        '  "cond_var": \'false_str_var and true_var\',',
+        '',
+        '  # src',
+        '  "false_str_var": \'False\',',
+        '',
+        '  # src',
+        '  "false_var": False,',
+        '',
+        '  # src',
         '  "git_base": \'git://127.0.0.1:20000/git/\',',
         '',
         '  # src',
@@ -867,8 +976,21 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  # src',
         '  "repo5_var": \'/repo_5\',',
         '',
+        '  # src',
+        '  "str_var": \'abc\',',
+        '',
+        '  # src',
+        '  "true_str_var": \'True\',',
+        '',
+        '  # src',
+        '  "true_var": True,',
+        '',
         '}',
         '',
+        '# git://127.0.0.1:20000/git/repo_2@%s, DEPS' % (
+            self.githash('repo_2', 1)),
+        '# git://127.0.0.1:20000/git/repo_8@%s, DEPS' % (
+            self.githash('repo_8', 1)),
     ], deps_contents.splitlines())
 
   def testFlattenRecursedeps(self):
@@ -878,9 +1000,14 @@ class GClientSmokeGIT(GClientSmokeBase):
     output_deps = os.path.join(self.root_dir, 'DEPS.flattened')
     self.assertFalse(os.path.exists(output_deps))
 
+    output_deps_files = os.path.join(self.root_dir, 'DEPS.files')
+    self.assertFalse(os.path.exists(output_deps_files))
+
     self.gclient(['config', self.git_base + 'repo_10', '--name', 'src'])
-    self.gclient(['sync'])
-    self.gclient(['flatten', '-v', '-v', '-v', '--output-deps', output_deps])
+    self.gclient(['sync', '--process-all-deps'])
+    self.gclient(['flatten', '-v', '-v', '-v',
+                  '--output-deps', output_deps,
+                  '--output-deps-files', output_deps_files])
 
     with open(output_deps) as f:
       deps_contents = f.read()
@@ -923,10 +1050,33 @@ class GClientSmokeGIT(GClientSmokeBase):
         '',
         '  },',
         '',
+        '  "ios": {',
+        '    # src -> src/repo11',
+        '    "src/repo11": {',
+        '      "url": "/repo_11",',
+        '    },',
+        '',
+        '    # src -> src/repo11 -> src/repo12',
+        '    "src/repo12": {',
+        '      "url": "/repo_12",',
+        '    },',
+        '',
+        '  },',
+        '',
         '  "mac": {',
         '    # src -> src/repo9 -> src/repo8 -> src/recursed_os_repo',
         '    "src/recursed_os_repo": {',
         '      "url": "/repo_5",',
+        '    },',
+        '',
+        '    # src -> src/repo11',
+        '    "src/repo11": {',
+        '      "url": "/repo_11",',
+        '    },',
+        '',
+        '    # src -> src/repo11 -> src/repo12',
+        '    "src/repo12": {',
+        '      "url": "/repo_12",',
         '    },',
         '',
         '  },',
@@ -941,7 +1091,19 @@ class GClientSmokeGIT(GClientSmokeBase):
         '',
         '}',
         '',
+        '# git://127.0.0.1:20000/git/repo_11, DEPS',
+        '# git://127.0.0.1:20000/git/repo_8, DEPS',
+        '# git://127.0.0.1:20000/git/repo_9, DEPS',
     ], deps_contents.splitlines())
+
+    with open(output_deps_files) as f:
+      deps_files_contents = json.load(f)
+
+    self.assertEqual([
+      {'url': 'git://127.0.0.1:20000/git/repo_11', 'deps_file': 'DEPS'},
+      {'url': 'git://127.0.0.1:20000/git/repo_8', 'deps_file': 'DEPS'},
+      {'url': 'git://127.0.0.1:20000/git/repo_9', 'deps_file': 'DEPS'},
+    ], deps_files_contents)
 
 
 class GClientSmokeGITMutates(GClientSmokeBase):

@@ -20,7 +20,7 @@
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/timer/timer.h"
@@ -148,17 +148,7 @@ void AppListButton::OnGestureEvent(ui::GestureEvent* event) {
   switch (event->type()) {
     case ui::ET_GESTURE_SCROLL_BEGIN:
       AnimateInkDrop(views::InkDropState::HIDDEN, event);
-      shelf_view_->PointerPressedOnButton(this, ShelfView::TOUCH, *event);
-      event->SetHandled();
-      return;
-    case ui::ET_GESTURE_SCROLL_UPDATE:
-      shelf_view_->PointerDraggedOnButton(this, ShelfView::TOUCH, *event);
-      event->SetHandled();
-      return;
-    case ui::ET_GESTURE_SCROLL_END:
-    case ui::ET_SCROLL_FLING_START:
-      shelf_view_->PointerReleasedOnButton(this, ShelfView::TOUCH, false);
-      event->SetHandled();
+      ImageButton::OnGestureEvent(event);
       return;
     case ui::ET_GESTURE_TAP:
     case ui::ET_GESTURE_TAP_CANCEL:
@@ -177,7 +167,7 @@ void AppListButton::OnGestureEvent(ui::GestureEvent* event) {
             base::Bind(&AppListButton::StartVoiceInteractionAnimation,
                        base::Unretained(this)));
       }
-      if (!Shell::Get()->IsAppListVisible())
+      if (!Shell::Get()->app_list()->IsVisible())
         AnimateInkDrop(views::InkDropState::ACTION_PENDING, event);
       ImageButton::OnGestureEvent(event);
       return;
@@ -255,7 +245,7 @@ std::unique_ptr<views::InkDropRipple> AppListButton::CreateInkDropRipple()
   gfx::Rect bounds(center.x() - kAppListButtonRadius,
                    center.y() - kAppListButtonRadius, 2 * kAppListButtonRadius,
                    2 * kAppListButtonRadius);
-  return base::MakeUnique<views::FloodFillInkDropRipple>(
+  return std::make_unique<views::FloodFillInkDropRipple>(
       size(), GetLocalBounds().InsetsFrom(bounds),
       GetInkDropCenterBasedOnLastEvent(), GetInkDropBaseColor(),
       ink_drop_visible_opacity());
@@ -270,7 +260,7 @@ void AppListButton::NotifyClick(const ui::Event& event) {
 bool AppListButton::ShouldEnterPushedState(const ui::Event& event) {
   if (!shelf_view_->ShouldEventActivateButton(this, event))
     return false;
-  if (Shell::Get()->IsAppListVisible())
+  if (Shell::Get()->app_list()->IsVisible())
     return false;
   return views::ImageButton::ShouldEnterPushedState(event);
 }
@@ -283,7 +273,7 @@ std::unique_ptr<views::InkDrop> AppListButton::CreateInkDrop() {
 }
 
 std::unique_ptr<views::InkDropMask> AppListButton::CreateInkDropMask() const {
-  return base::MakeUnique<views::CircleInkDropMask>(
+  return std::make_unique<views::CircleInkDropMask>(
       size(),
       last_event_is_back_event_ ? GetBackButtonCenterPoint()
                                 : GetAppListButtonCenterPoint(),
@@ -506,6 +496,9 @@ void AppListButton::OnVoiceInteractionStatusChanged(
 
   switch (state) {
     case ash::VoiceInteractionState::STOPPED:
+      UMA_HISTOGRAM_TIMES(
+          "VoiceInteraction.OpenDuration",
+          base::TimeTicks::Now() - voice_interaction_start_timestamp_);
       break;
     case ash::VoiceInteractionState::NOT_READY:
       // If we are showing the bursting or waiting animation, no need to do
@@ -526,6 +519,8 @@ void AppListButton::OnVoiceInteractionStatusChanged(
             base::Bind(&VoiceInteractionOverlay::HideAnimation,
                        base::Unretained(voice_interaction_overlay_)));
       }
+
+      voice_interaction_start_timestamp_ = base::TimeTicks::Now();
       break;
   }
 }
@@ -614,9 +609,9 @@ void AppListButton::InitializeVoiceInteractionOverlay() {
   AddChildView(voice_interaction_overlay_);
   voice_interaction_overlay_->SetVisible(false);
   voice_interaction_animation_delay_timer_ =
-      base::MakeUnique<base::OneShotTimer>();
+      std::make_unique<base::OneShotTimer>();
   voice_interaction_animation_hide_delay_timer_ =
-      base::MakeUnique<base::OneShotTimer>();
+      std::make_unique<base::OneShotTimer>();
 }
 
 bool AppListButton::IsUserPrimary() {

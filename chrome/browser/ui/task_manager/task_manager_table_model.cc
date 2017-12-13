@@ -22,6 +22,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/nacl/browser/nacl_browser.h"
+#include "components/nacl/common/features.h"
 #include "components/nacl/common/nacl_switches.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/common/result_codes.h"
@@ -309,20 +310,20 @@ TableSortDescriptor::TableSortDescriptor(int col_id, bool ascending)
 // TaskManagerTableModel:
 ////////////////////////////////////////////////////////////////////////////////
 
-TaskManagerTableModel::TaskManagerTableModel(int64_t refresh_flags,
-                                             TableViewDelegate* delegate)
+TaskManagerTableModel::TaskManagerTableModel(TableViewDelegate* delegate)
     : TaskManagerObserver(base::TimeDelta::FromMilliseconds(kRefreshTimeMS),
-                          refresh_flags),
+                          REFRESH_TYPE_NONE),
       table_view_delegate_(delegate),
       columns_settings_(new base::DictionaryValue),
       table_model_observer_(nullptr),
       stringifier_(new TaskManagerValuesStringifier),
-#if !defined(DISABLE_NACL)
-      is_nacl_debugging_flag_enabled_(base::CommandLine::ForCurrentProcess()->
-          HasSwitch(switches::kEnableNaClDebug)) {
+#if BUILDFLAG(ENABLE_NACL)
+      is_nacl_debugging_flag_enabled_(
+          base::CommandLine::ForCurrentProcess()->HasSwitch(
+              switches::kEnableNaClDebug)) {
 #else
       is_nacl_debugging_flag_enabled_(false) {
-#endif  // !defined(DISABLE_NACL)
+#endif  // BUILDFLAG(ENABLE_NACL)
   DCHECK(delegate);
   StartUpdating();
 }
@@ -352,7 +353,7 @@ base::string16 TaskManagerTableModel::GetText(int row, int column) {
 
     case IDS_TASK_MANAGER_CPU_COLUMN:
       return stringifier_->GetCpuUsageText(
-          observed_task_manager()->GetCpuUsage(tasks_[row]));
+          observed_task_manager()->GetPlatformIndependentCPUUsage(tasks_[row]));
 
     case IDS_TASK_MANAGER_CPU_TIME_COLUMN:
       return stringifier_->GetCpuTimeText(
@@ -502,8 +503,10 @@ int TaskManagerTableModel::CompareValues(int row1,
           observed_task_manager()->GetNetworkUsage(tasks_[row2]));
 
     case IDS_TASK_MANAGER_CPU_COLUMN:
-      return ValueCompare(observed_task_manager()->GetCpuUsage(tasks_[row1]),
-                          observed_task_manager()->GetCpuUsage(tasks_[row2]));
+      return ValueCompare(
+          observed_task_manager()->GetPlatformIndependentCPUUsage(tasks_[row1]),
+          observed_task_manager()->GetPlatformIndependentCPUUsage(
+              tasks_[row2]));
 
     case IDS_TASK_MANAGER_CPU_TIME_COLUMN:
       return ValueCompare(observed_task_manager()->GetCpuTime(tasks_[row1]),

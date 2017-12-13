@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -653,7 +654,7 @@ class MasterConfigBuilderStageTest(AbstractStageTestCase):
     scheduled_slave_builds = [('slave1', 'bb_id1', 0),
                               ('slave2', 'bb_id2', 0)]
     self._run.attrs.metadata.ExtendKeyListWithList(
-        constants.METADATA_SCHEDULED_SLAVES, scheduled_slave_builds)
+        constants.METADATA_SCHEDULED_IMPORTANT_SLAVES, scheduled_slave_builds)
     self.assertEqual(set(stage.GetScheduledSlaveBuildbucketIds()),
                      {'bb_id1', 'bb_id2'})
 
@@ -664,7 +665,7 @@ class MasterConfigBuilderStageTest(AbstractStageTestCase):
                               ('slave2', 'bb_id2', 0),
                               ('slave1', 'bb_id3', 3)]
     self._run.attrs.metadata.ExtendKeyListWithList(
-        constants.METADATA_SCHEDULED_SLAVES, scheduled_slave_builds)
+        constants.METADATA_SCHEDULED_IMPORTANT_SLAVES, scheduled_slave_builds)
     self.assertEqual(set(stage.GetScheduledSlaveBuildbucketIds()),
                      {'bb_id3', 'bb_id2'})
 

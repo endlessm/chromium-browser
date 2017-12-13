@@ -167,6 +167,8 @@ Polymer({
    * @private
    */
   getStateText_: function(networkProperties) {
+    if (!networkProperties.ConnectionState)
+      return '';
     return this.i18n('Onc' + networkProperties.ConnectionState);
   },
 
@@ -216,6 +218,16 @@ Polymer({
   isCellular_: function(networkProperties) {
     return networkProperties.Type == CrOnc.Type.CELLULAR &&
         !!networkProperties.Cellular;
+  },
+
+  /**
+   * @param {!CrOnc.NetworkProperties} networkProperties
+   * @return {boolean}
+   * @private
+   */
+  showCellularChooseNetwork_: function(networkProperties) {
+    return networkProperties.Type == CrOnc.Type.CELLULAR &&
+        !!this.get('Cellular.SupportNetworkScan', this.networkProperties);
   },
 
   /**
@@ -407,6 +419,29 @@ Polymer({
       var value = this.get(field, this.networkProperties);
       return value !== undefined && value !== '';
     });
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  hasDeviceFields_: function() {
+    return this.hasVisibleFields_(this.getDeviceFields_());
+  },
+
+  /**
+   * @return {!Array<string>} The fields to display in the device section.
+   * @private
+   */
+  getDeviceFields_: function() {
+    /** @type {!Array<string>} */ var fields = [];
+    if (this.networkProperties.Type == CrOnc.Type.CELLULAR) {
+      fields.push(
+          'Cellular.HomeProvider.Name', 'Cellular.ESN', 'Cellular.ICCID',
+          'Cellular.IMEI', 'Cellular.IMSI', 'Cellular.MDN', 'Cellular.MEID',
+          'Cellular.MIN');
+    }
+    return fields;
   },
 
   /**

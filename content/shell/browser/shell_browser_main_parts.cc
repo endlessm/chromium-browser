@@ -20,12 +20,12 @@
 #include "content/public/common/url_constants.h"
 #include "content/shell/android/shell_descriptors.h"
 #include "content/shell/browser/shell.h"
-#include "content/shell/browser/shell_access_token_store.h"
 #include "content/shell/browser/shell_browser_context.h"
 #include "content/shell/browser/shell_devtools_manager_delegate.h"
 #include "content/shell/browser/shell_net_log.h"
 #include "content/shell/common/shell_switches.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
+#include "device/geolocation/access_token_store.h"
 #include "device/geolocation/geolocation_delegate.h"
 #include "device/geolocation/geolocation_provider.h"
 #include "net/base/filename_util.h"
@@ -43,6 +43,9 @@
 #include "net/base/network_change_notifier.h"
 #endif
 
+#if defined(USE_X11)
+#include "ui/base/x/x11_util.h"  // nogncheck
+#endif
 #if defined(USE_AURA) && defined(USE_X11)
 #include "ui/events/devices/x11/touch_factory_x11.h"  // nogncheck
 #endif
@@ -59,21 +62,6 @@
 namespace content {
 
 namespace {
-
-// A provider of services for Geolocation.
-class ShellGeolocationDelegate : public device::GeolocationDelegate {
- public:
-  explicit ShellGeolocationDelegate(ShellBrowserContext* context)
-      : context_(context) {}
-
-  scoped_refptr<device::AccessTokenStore> CreateAccessTokenStore() final {
-    return new ShellAccessTokenStore(context_);
-  }
-
- private:
-  ShellBrowserContext* context_;
-  DISALLOW_COPY_AND_ASSIGN(ShellGeolocationDelegate);
-};
 
 GURL GetStartupURL() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -142,6 +130,9 @@ void ShellBrowserMainParts::PostMainMessageLoopStart() {
 }
 
 void ShellBrowserMainParts::PreEarlyInitialization() {
+#if defined(USE_X11)
+  ui::SetDefaultX11ErrorHandlers();
+#endif
 #if !defined(OS_CHROMEOS) && defined(USE_AURA) && defined(OS_LINUX)
   ui::InitializeInputMethodForTesting();
 #endif
@@ -175,7 +166,8 @@ int ShellBrowserMainParts::PreCreateThreads() {
             switches::kCrashDumpsDir);
     breakpad::CrashDumpObserver::GetInstance()->RegisterClient(
         base::MakeUnique<breakpad::ChildProcessCrashObserver>(
-            crash_dumps_dir, kAndroidMinidumpDescriptor));
+            crash_dumps_dir, kAndroidMinidumpDescriptor,
+            base::Bind(&base::DoNothing)));
   }
 
   return 0;
@@ -185,8 +177,6 @@ int ShellBrowserMainParts::PreCreateThreads() {
 void ShellBrowserMainParts::PreMainMessageLoopRun() {
   net_log_.reset(new ShellNetLog("content_shell"));
   InitializeBrowserContexts();
-  device::GeolocationProvider::SetGeolocationDelegate(
-      new ShellGeolocationDelegate(browser_context()));
   Shell::Initialize();
   net::NetModule::SetResourceProvider(PlatformResourceProvider);
   ShellDevToolsManagerDelegate::StartHttpHandler(browser_context_.get());

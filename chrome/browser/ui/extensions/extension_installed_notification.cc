@@ -21,8 +21,9 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/message_center/message_center.h"
-#include "ui/message_center/message_center_style.h"
+#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/public/cpp/message_center_switches.h"
 
 namespace {
 const char* kNotifierId = "app.downloaded-notification";
@@ -46,7 +47,7 @@ ExtensionInstalledNotification::ExtensionInstalledNotification(
 
   message_center::RichNotificationData optional_field;
   std::unique_ptr<Notification> notification(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE,
+      message_center::NOTIFICATION_TYPE_SIMPLE, extension_id_,
       base::UTF8ToUTF16(extension->name()),
       l10n_util::GetStringUTF16(IDS_EXTENSION_NOTIFICATION_INSTALLED),
       gfx::Image(gfx::CreateVectorIcon(vector_icons::kCheckCircleIcon, 40,
@@ -56,7 +57,7 @@ ExtensionInstalledNotification::ExtensionInstalledNotification(
       l10n_util::GetStringUTF16(IDS_EXTENSION_NOTIFICATION_DISPLAY_SOURCE),
       GURL(extension_urls::kChromeWebstoreBaseURL) /* origin_url */,
       extension_id_, optional_field, this));
-  if (message_center::MessageCenter::IsNewStyleNotificationEnabled()) {
+  if (message_center::IsNewStyleNotificationEnabled()) {
     notification->set_icon(gfx::Image());
     notification->set_accent_color(
         message_center::kSystemNotificationColorNormal);
@@ -84,8 +85,4 @@ void ExtensionInstalledNotification::Click() {
       profile_, extension, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       extensions::SOURCE_INSTALLED_NOTIFICATION);
   OpenApplication(params);
-}
-
-std::string ExtensionInstalledNotification::id() const {
-  return extension_id_;
 }

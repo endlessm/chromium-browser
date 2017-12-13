@@ -4751,3 +4751,315 @@ TEST_F(FragmentShaderValidationTest, AssignValueToCentroidIn)
         FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
     }
 }
+
+// Test that shader compilation fails if the component argument is dynamic.
+TEST_F(FragmentShaderValidationTest, DynamicComponentTextureGather)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "precision mediump sampler2D;\n"
+        "uniform sampler2D tex;\n"
+        "out vec4 o_color;\n"
+        "uniform int uComp;\n"
+        "void main()\n"
+        "{\n"
+        "    o_color = textureGather(tex, vec2(0), uComp);"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that shader compilation fails if the component argument to textureGather has a negative
+// value.
+TEST_F(FragmentShaderValidationTest, TextureGatherNegativeComponent)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "precision mediump sampler2D;\n"
+        "uniform sampler2D tex;\n"
+        "out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "    o_color = textureGather(tex, vec2(0), -1);"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that shader compilation fails if the component argument to textureGather has a value greater
+// than 3.
+TEST_F(FragmentShaderValidationTest, TextureGatherTooGreatComponent)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "precision mediump sampler2D;\n"
+        "uniform sampler2D tex;\n"
+        "out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "    o_color = textureGather(tex, vec2(0), 4);"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that shader compilation fails if the offset is less than the minimum value.
+TEST_F(FragmentShaderValidationTest, TextureGatherTooGreatOffset)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "precision mediump sampler2D;\n"
+        "uniform sampler2D tex;\n"
+        "out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "    o_color = textureGatherOffset(tex, vec2(0), ivec2(-100), 2);"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that it isn't allowed to use 'location' layout qualifier on GLSL ES 3.0 vertex shader
+// outputs.
+TEST_F(VertexShaderValidationTest, UseLocationOnVertexOutES30)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "in vec4 v1;\n"
+        "layout (location = 1) out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that using 'location' layout qualifier on vertex shader outputs is legal in GLSL ES 3.1
+// shaders.
+TEST_F(VertexShaderValidationTest, UseLocationOnVertexOutES31)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "in vec4 v1;\n"
+        "layout (location = 1) out vec4 o_color1;\n"
+        "layout (location = 2) out vec4 o_color2;\n"
+        "out vec3 v3;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that it isn't allowed to use 'location' layout qualifier on GLSL ES 3.0 fragment shader
+// inputs.
+TEST_F(FragmentShaderValidationTest, UseLocationOnFragmentInES30)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "layout (location = 0) in vec4 v_color1;\n"
+        "layout (location = 0) out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that using 'location' layout qualifier on fragment shader inputs is legal in GLSL ES 3.1
+// shaders.
+TEST_F(FragmentShaderValidationTest, UseLocationOnFragmentInES31)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout (location = 0) in mat4 v_mat;\n"
+        "layout (location = 4) in vec4 v_color1;\n"
+        "in vec2 v_color2;\n"
+        "layout (location = 0) out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that declaring outputs of a vertex shader with same location causes a compile error.
+TEST_F(VertexShaderValidationTest, DeclareSameLocationOnVertexOut)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "in float i_value;\n"
+        "layout (location = 1) out vec4 o_color1;\n"
+        "layout (location = 1) out vec4 o_color2;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that declaring inputs of a fragment shader with same location causes a compile error.
+TEST_F(FragmentShaderValidationTest, DeclareSameLocationOnFragmentIn)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "in float i_value;\n"
+        "layout (location = 1) in vec4 i_color1;\n"
+        "layout (location = 1) in vec4 i_color2;\n"
+        "layout (location = 0) out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that the location of an element of an array conflicting with other output varyings in a
+// vertex shader causes a compile error.
+TEST_F(VertexShaderValidationTest, LocationConflictsnOnArrayElement)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "in float i_value;\n"
+        "layout (location = 0) out vec4 o_color1[3];\n"
+        "layout (location = 1) out vec4 o_color2;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that the location of an element of a matrix conflicting with other output varyings in a
+// vertex shader causes a compile error.
+TEST_F(VertexShaderValidationTest, LocationConflictsOnMatrixElement)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "in float i_value;\n"
+        "layout (location = 0) out mat4 o_mvp;\n"
+        "layout (location = 2) out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that the location of an element of a struct conflicting with other output varyings in a
+// vertex shader causes a compile error.
+TEST_F(VertexShaderValidationTest, LocationConflictsOnStructElement)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "in float i_value;\n"
+        "struct S\n"
+        "{\n"
+        "    float value1;\n"
+        "    vec3 value2;\n"
+        "};\n"
+        "layout (location = 0) out S s_in;"
+        "layout (location = 1) out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that a block can follow the final case in a switch statement.
+// GLSL ES 3.00.5 section 6 and the grammar suggest that an empty block is a statement.
+TEST_F(FragmentShaderValidationTest, SwitchFinalCaseHasEmptyBlock)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+
+        precision mediump float;
+        uniform int i;
+        void main()
+        {
+            switch (i)
+            {
+                case 0:
+                    break;
+                default:
+                    {}
+            }
+        })";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Test that an empty declaration can follow the final case in a switch statement.
+TEST_F(FragmentShaderValidationTest, SwitchFinalCaseHasEmptyDeclaration)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+
+        precision mediump float;
+        uniform int i;
+        void main()
+        {
+            switch (i)
+            {
+                case 0:
+                    break;
+                default:
+                    float;
+            }
+        })";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}

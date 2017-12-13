@@ -13,6 +13,7 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <string>
 
 #include "base/gtest_prod_util.h"
@@ -210,19 +211,17 @@ class OmniboxView {
   // only ever return true on mobile ports.
   virtual bool IsIndicatingQueryRefinement() const;
 
-  // Called after a match has been opened.
-  virtual void OnMatchOpened(AutocompleteMatch::Type match_type);
-
   // Returns |text| with any leading javascript schemas stripped.
   static base::string16 StripJavascriptSchemas(const base::string16& text);
 
-  // First, calls StripJavascriptSchemas().  Then automatically collapses
-  // internal whitespace as follows:
+  // Automatically collapses internal whitespace as follows:
   // * If the only whitespace in |text| is newlines, users are most likely
   // pasting in URLs split into multiple lines by terminals, email programs,
   // etc. So all newlines are removed.
   // * Otherwise, users may be pasting in search data, e.g. street addresses. In
   // this case, runs of whitespace are collapsed down to single spaces.
+  //
+  // Finally, calls StripJavascriptSchemas() on the resulting string.
   static base::string16 SanitizeTextForPaste(const base::string16& text);
 
  protected:

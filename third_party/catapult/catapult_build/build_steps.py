@@ -97,13 +97,22 @@ _CATAPULT_TESTS = [
     },
     {
         'name': 'Py-vulcanize Tests',
-        'path': 'third_party/py_vulcanize/bin/run_py_tests',
+        'path': 'common/py_vulcanize/bin/run_py_tests',
         'additional_args': ['--no-install-hooks'],
         'disabled': ['android'],
     },
     {
         'name': 'Systrace Tests',
         'path': 'systrace/bin/run_tests',
+    },
+    {
+        'name': 'Snap-it Tests',
+        'path': 'telemetry/bin/run_snap_it_unittest',
+        'additional_args': [
+            '--browser=reference',
+        ],
+        'uses_sandbox_env': True,
+        'disabled': ['android'],
     },
     {
         'name': 'Telemetry Tests with Stable Browser (Desktop)',
