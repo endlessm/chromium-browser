@@ -87,11 +87,13 @@ common_defines+=\
 	is_clang=true \
 	clang_base_path="/usr" \
 	clang_use_chrome_plugins=false \
-	allow_posix_link_time_opt=false \
+	use_lld=false \
+	is_cfi=false \
+	use_thin_lto=false \
 	fatal_linker_warnings=false \
 	target_os="linux" \
 	current_os="linux" \
-	use_vulcanize=false
+	optimize_webui=false
 
 ffmpeg_std_defines   += proprietary_codecs=false
 ffmpeg_extra_defines += proprietary_codecs=true ffmpeg_branding="Chrome"
@@ -252,7 +254,7 @@ override_dh_install-arch:
 	cp -a debian/chromium-browser.svg debian/chromium-browser/usr/share/icons/hicolor/scalable/apps
 
 
-	# Record files that were built, so we can compare later that we instlled everything.
+	# Record files that were built, so we can compare later that we installed everything.
 	find debian/tmp debian/tmp-std debian/tmp-std -type f |cut -d/ -f3- >$(T)/unfiltered-built
 	grep -vE \($(subst $(SPACE),\|,$(BUILT_UNUSED_MATCH))\) $(T)/unfiltered-built $(foreach expr,$(RENAMED_FILE), |sed -r -e $(expr)) |grep -vE \($(subst $(SPACE),\|,$(INDEP_MATCH))\) | LC_ALL=C sort >$(T)/built
 
@@ -285,10 +287,17 @@ override_dh_install-arch:
 
 	install -T -m 755 debian/chromium-browser.sh debian/chromium-browser/usr/bin/chromium-browser
 
-	# Manpage is for wrong program name, and it's in a weird place.  Use and destroy.
+	# Generate the manpage and install it
 	mkdir -p debian/chromium-browser/usr/share/man/man1
-	mv debian/chromium-browser/$(LIB_DIR)/chrome.1 debian/chromium-browser/usr/share/man/man1/chromium-browser.1
-	gzip -f -9 debian/chromium-browser/usr/share/man/man1/chromium-browser.1
+	sed \
+	  -e "s:/@@PACKAGE@@:/chromium:g" \
+	  -e "s:@@PACKAGE@@:chromium-browser:g" \
+	  -e "s:@@MENUNAME@@:Chromium:g" \
+	  chrome/app/resources/manpage.1.in \
+	  > debian/chromium-browser/usr/share/man/man1/chromium-browser.1
+	gzip -9n debian/chromium-browser/usr/share/man/man1/chromium-browser.1
+	echo "usr/share/man/man1/chromium-browser.1.gz" >> $(T)/built
+	LC_ALL=C sort $(T)/built -o $(T)/built
 
 	# this should find almost nothing
 	find debian/chromium-browser/$(LIB_DIR)/locales -type f -name \*.pak -print
@@ -392,7 +401,7 @@ debian/chromium-browser.sh: debian/chromium-browser.sh.in
     $< > $@
 
 out/Release/gn:
-	tools/gn/bootstrap/bootstrap.py --verbose --no-rebuild --gn-gen-args '$(common_defines)'
+	CC=clang-4.0 CXX=clang++-4.0 tools/gn/bootstrap/bootstrap.py --verbose --no-rebuild --gn-gen-args '$(common_defines)'
 	echo built $@
 
 

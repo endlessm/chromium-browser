@@ -1,4 +1,3 @@
-Tests: smoketest
-Depends: xvfb, bash, python3-minimal, unity-chromium-extension,
-  libsikuli-script-java, metacity, x11-apps, python3-httplib2,
-  dbus-x11, imagemagick
+Tests: chromium-version, html5test
+Depends: chromium-browser, chromium-chromedriver, python3-apt, python3-selenium
+Restrictions: allow-stderr

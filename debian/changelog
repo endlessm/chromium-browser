@@ -1,3 +1,76 @@
+chromium-browser (63.0.3239.84-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 63.0.3239.84
+    - CVE-2017-15407: Out of bounds write in QUIC.
+    - CVE-2017-15408: Heap buffer overflow in PDFium.
+    - CVE-2017-15409: Out of bounds write in Skia.
+    - CVE-2017-15410: Use after free in PDFium.
+    - CVE-2017-15411: Use after free in PDFium.
+    - CVE-2017-15412: Use after free in libXML.
+    - CVE-2017-15413: Type confusion in WebAssembly.
+    - CVE-2017-15415: Pointer information disclosure in IPC call.
+    - CVE-2017-15416: Out of bounds read in Blink.
+    - CVE-2017-15417: Cross origin information disclosure in Skia.
+    - CVE-2017-15418: Use of uninitialized value in Skia.
+    - CVE-2017-15419: Cross origin leak of redirect URL in Blink.
+    - CVE-2017-15420: URL spoofing in Omnibox.
+    - CVE-2017-15422: Integer overflow in ICU.
+    - CVE-2017-15423: Issue with SPAKE implementation in BoringSSL.
+    - CVE-2017-15424: URL Spoof in Omnibox.
+    - CVE-2017-15425: URL Spoof in Omnibox.
+    - CVE-2017-15426: URL Spoof in Omnibox.
+    - CVE-2017-15427: Insufficient blocking of JavaScript in Omnibox.
+  * debian/rules:
+    - replace allow_posix_link_time_opt=false by use_lld=false, is_cfi=false
+      and use_thin_lto=false
+    - rename use_vulcanize GN flag to optimize_webui
+    - generate the man page as it's not being built with chromium any
+      longer (since commit 64b961499bebc54fe48478f5e37477252c7887fa)
+    - build gn with clang
+  * debian/patches/arm-neon.patch: refreshed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/fix-gn-bootstrap.patch: removed, no longer needed
+  * debian/patches/fix_building_widevinecdm_with_chromium.patch: replaced by
+    debian/patches/widevine-revision.patch
+  * debian/patches/no-new-ninja-flag.patch: refreshed
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: added
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: updated
+  * debian/patches/suppress-newer-clang-warning-flags.patch: updated
+  * debian/patches/touch-v35: refreshed
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/widevine-other-locations: updated (LP: #1652110)
+  * debian/patches/widevine-revision.patch: added (LP: #1652110)
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 07 Dec 2017 13:43:39 +0100
+
+chromium-browser (62.0.3202.94-0ubuntu0.16.04.1317) xenial; urgency=medium
+
+  * Upstream release: 62.0.3202.94
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Mon, 13 Nov 2017 23:17:10 +0100
+
+chromium-browser (62.0.3202.89-0ubuntu0.16.04.1315) xenial; urgency=medium
+
+  * Upstream release: 62.0.3202.89
+    - CVE-2017-15398: Stack buffer overflow in QUIC.
+    - CVE-2017-15399: Use after free in V8.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Mon, 06 Nov 2017 22:59:12 +0100
+
+chromium-browser (62.0.3202.75-0ubuntu0.16.04.1313) xenial; urgency=medium
+
+  * Upstream release: 62.0.3202.75
+    - CVE-2017-15396: Stack overflow in V8.
+  * debian/control: bump Standards-Version to 4.1.1
+  * debian/patches/set-rpath-on-chromium-executables.patch: updated
+  * debian/tests/*:
+    - removed stale autopkgtests
+    - added new autopkgtests based on chromium's new headless mode
+  * debian/source/include-binaries: updated to reflect new binary data in tests
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 27 Oct 2017 19:48:18 +0200
+
 chromium-browser (62.0.3202.62-0ubuntu0.16.04.1308) xenial; urgency=medium
 
   * Upstream release: 62.0.3202.62
