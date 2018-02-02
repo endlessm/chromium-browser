@@ -11,6 +11,8 @@
 
 #include "common/platform.h"
 
+#include <cstddef>
+
 namespace gl
 {
 
