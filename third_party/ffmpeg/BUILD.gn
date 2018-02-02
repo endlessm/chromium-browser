@@ -267,6 +267,9 @@ target(link_target_type, "ffmpeg_internal") {
       } else {
         asmflags += [ "-DHAVE_VFP_ARGS=0" ]
       }
+      if (is_clang) {
+        asmflags += [ "-fno-integrated-as" ]
+      }
     }
   }
 
