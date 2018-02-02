@@ -3,7 +3,7 @@ Section: web
 Priority: optional
 Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
 XS-Testsuite: autopkgtest
-Vcs-Bzr: https://code.launchpad.net/~chromium-team/chromium-browser/yakkety-working
+Vcs-Bzr: https://code.launchpad.net/~chromium-team/chromium-browser/xenial-stable
 Homepage: https://chromium.googlesource.com/chromium/src/
 Build-Depends:
 	debhelper (>= 9),
@@ -113,4 +113,4 @@ Description: WebDriver driver for the Chromium Browser
  Chromedriver serves as a bridge between Chromium Browser and Selenium 
  WebDriver.
  .
- See http://code.google.com/p/selenium/wiki/ChromeDriver for details.
+ See https://sites.google.com/a/chromium.org/chromedriver/ for details.

@@ -1,3 +1,76 @@
+chromium-browser (64.0.3282.140-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 64.0.3282.140
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 02 Feb 2018 15:30:32 +0100
+
+chromium-browser (64.0.3282.119-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 64.0.3282.119
+    - CVE-2018-6031: Use after free in PDFium.
+    - CVE-2018-6032: Same origin bypass in Shared Worker.
+    - CVE-2018-6033: Race when opening downloaded files.
+    - CVE-2018-6034: Integer overflow in Blink.
+    - CVE-2018-6035: Insufficient isolation of devtools from extensions.
+    - CVE-2018-6036: Integer underflow in WebAssembly.
+    - CVE-2018-6037: Insufficient user gesture requirements in autofill.
+    - CVE-2018-6038: Heap buffer overflow in WebGL.
+    - CVE-2018-6039: XSS in DevTools.
+    - CVE-2018-6040: Content security policy bypass.
+    - CVE-2018-6041: URL spoof in Navigation.
+    - CVE-2018-6042: URL spoof in OmniBox.
+    - CVE-2018-6043: Insufficient escaping with external URL handlers.
+    - CVE-2018-6045: Insufficient isolation of devtools from extensions.
+    - CVE-2018-6046: Insufficient isolation of devtools from extensions.
+    - CVE-2018-6047: Cross origin URL leak in WebGL.
+    - CVE-2018-6048: Referrer policy bypass in Blink.
+    - CVE-2017-15420: URL spoofing in Omnibox.
+    - CVE-2018-6049: UI spoof in Permissions.
+    - CVE-2018-6050: URL spoof in OmniBox.
+    - CVE-2018-6051: Referrer leak in XSS Auditor.
+    - CVE-2018-6052: Incomplete no-referrer policy implementation.
+    - CVE-2018-6053: Leak of page thumbnails in New Tab Page.
+    - CVE-2018-6054: Use after free in WebUI.
+  * debian/control: update reference URL for chromedriver
+  * debian/rules:
+    - remove enable_hotwording build flag
+    - exclude build artifacts from the binary package (LP: #1742653)
+  * debian/patches/add-missing-cstddef-include.patch: added
+  * debian/patches/configuration-directory.patch: refreshed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/enable-chromecast-by-default.patch: refreshed
+  * debian/patches/fix-ffmpeg-ia32-build.patch: added
+  * debian/patches/last-commit-position: refreshed
+  * debian/patches/no-new-ninja-flag.patch: refreshed
+  * debian/patches/relax-ninja-version-requirement.patch: refreshed
+  * debian/patches/restore-clang-no-integrated-as.patch: added
+  * debian/patches/revert-clang-nostdlib++.patch: updated
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: refreshed
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: updated
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+  * debian/patches/touch-v35: refreshed
+  * debian/patches/widevine-other-locations: updated (LP: #1738149)
+  * debian/known_gn_gen_args-*: remove enable_hotwording build flag
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 24 Jan 2018 23:32:17 +0100
+
+chromium-browser (63.0.3239.132-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 63.0.3239.132
+  * debian/rules: do not install files used for building only (LP: #1742653)
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Sun, 14 Jan 2018 21:29:46 +0100
+
+chromium-browser (63.0.3239.108-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 63.0.3239.108
+    - CVE-2017-15429: UXSS in V8.
+  * debian/control: update Vcs-Bzr field
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Fri, 15 Dec 2017 09:46:08 +0100
+
 chromium-browser (63.0.3239.84-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 63.0.3239.84
