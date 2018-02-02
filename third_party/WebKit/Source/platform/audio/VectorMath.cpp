@@ -35,7 +35,7 @@
 #include <Accelerate/Accelerate.h>
 #endif
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
 #include <emmintrin.h>
 #endif
 
@@ -50,7 +50,7 @@
 #include <math.h>
 #include <algorithm>
 
-#if defined(ARCH_CPU_X86_FAMILY) && !defined(OS_MACOSX)
+#if defined(ARCH_CPU_X86_64) && !defined(OS_MACOSX)
 // Define the blink::VectorMath::SSE namespace.
 #include "platform/audio/cpu/x86/VectorMathImpl.cpp"
 #endif
@@ -183,7 +183,7 @@ void Vsma(const float* source_p,
           size_t frames_to_process) {
   int n = frames_to_process;
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
   if ((source_stride == 1) && (dest_stride == 1)) {
     size_t i = 0u;
 
@@ -260,7 +260,7 @@ void Vsmul(const float* source_p,
            size_t frames_to_process) {
   int n = frames_to_process;
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
   if ((source_stride == 1) && (dest_stride == 1)) {
     size_t i = 0u;
 
@@ -332,7 +332,7 @@ void Vadd(const float* source1p,
           size_t frames_to_process) {
   int n = frames_to_process;
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
   if ((source_stride1 == 1) && (source_stride2 == 1) && (dest_stride == 1)) {
     size_t i = 0u;
 
@@ -408,7 +408,7 @@ void Vmul(const float* source1p,
           size_t frames_to_process) {
   int n = frames_to_process;
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
   if ((source_stride1 == 1) && (source_stride2 == 1) && (dest_stride == 1)) {
     size_t i = 0u;
 
@@ -484,7 +484,7 @@ void Zvmul(const float* real1p,
            float* imag_dest_p,
            size_t frames_to_process) {
   unsigned i = 0;
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
   // If the real1p address is not 16-byte aligned, the first several
   // frames  (at most three) should be processed separately.
   for (; !SSE::IsAligned(real1p + i) && i < frames_to_process; ++i) {
@@ -540,7 +540,7 @@ void Vsvesq(const float* source_p,
   int n = frames_to_process;
   float sum = 0;
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
   if (source_stride == 1) {
     size_t i = 0u;
 
@@ -599,7 +599,7 @@ void Vmaxmgv(const float* source_p,
   int n = frames_to_process;
   float max = 0;
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
   if (source_stride == 1) {
     size_t i = 0u;
 
