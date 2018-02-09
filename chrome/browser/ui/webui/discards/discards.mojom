@@ -141,6 +141,9 @@ interface DetailsProvider {
   // each tab currently open in the browser, across all profiles.
   GetTabDiscardsInfo() => (array<TabDiscardsInfo> infos);
 
+  // Returns a formatted string with memory information
+  GetMemoryInfo() => (string memory);
+
   // Returns the in-memory entries and the entries for the requested origins.
   // Note that any entry may take some time to load from disk, and so there may
   // not be any data for a given entry until on the second or subsequent
