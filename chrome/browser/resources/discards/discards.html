@@ -19,8 +19,48 @@ general use and is not localized.-->
     <script src="mojom/webui_graph_dump.mojom.js"></script>
     <script src="discards.js"></script>
     <link rel="stylesheet" href="chrome://resources/css/text_defaults_md.css">
+    <style include="action-link">
+      table {
+        border-collapse: collapse;
+      }
+
+      table td,
+      table th {
+        border: 1px solid #777;
+        padding-left: 4px;
+        padding-right: 4px;
+      }
+
+      table th {
+        background: rgb(224, 236, 255);
+        padding-bottom: 4px;
+        padding-inline-end: 16px;
+        padding-top: 4px;
+        white-space: nowrap;
+      }
+  </style>
   </head>
   <body>
     <discards-main></discards-main>
+      <h1>Memory</h1>
+        <table id="memory-info-table">
+          <thead>
+            <tr id="memory-info-table-header">
+              <th data-sort-key="total">Total</th>
+              <th data-sort-key="freeRAM">Free RAM</th>
+              <th data-sort-key="swapTotal">Swap Total</th>
+              <th data-sort-key="swapFree">Swap Free</th>
+              <th data-sort-key="cached">Cached</th>
+              <th data-sort-key="buffers">Buffers</th>
+              <th data-sort-key="cachedAndBuffers">Cached+Buffers</th>
+              <th data-sort-key="activeFiles">Active Files</th>
+              <th data-sort-key="inactiveFiles">Inactive Files</th>
+              <th data-sort-key="dirty">Dirty</th>
+              <th data-sort-key="memoryInUse">Memory in use (%)</th>
+            </tr>
+          </thead>
+        <tbody id="memory-info-table-body">
+      </tbody>
+    </table>
   </body>
 </html>
