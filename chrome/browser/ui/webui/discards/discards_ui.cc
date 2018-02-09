@@ -27,6 +27,9 @@
 #include "mojo/public/cpp/bindings/binding.h"
 #include "ui/resources/grit/ui_resources.h"
 
+#include "base/memory/singleton.h"
+#include "base/sys_info.h"
+
 namespace {
 
 resource_coordinator::DiscardReason GetDiscardReason(bool urgent) {
@@ -108,6 +111,51 @@ class DiscardsDetailsProviderImpl : public mojom::DiscardsDetailsProvider {
     }
 
     std::move(callback).Run(std::move(infos));
+  }
+
+  std::string AddStringRow(const std::string& value) {
+    std::string row;
+    row.append("<td>"+value+"</td>");
+    return row;
+  }
+
+  void GetMemoryInfo(GetMemoryInfoCallback callback) override {
+
+    std::string memory;
+
+    base::SystemMemoryInfoKB meminfo;
+    base::GetSystemMemoryInfo(&meminfo);
+    // Total
+    memory.append(AddStringRow(base::IntToString(meminfo.total / 1024)));
+    // Free ram
+    memory.append(AddStringRow(base::IntToString(meminfo.free / 1024)));
+    // Swap Total
+    memory.append(AddStringRow(base::IntToString(meminfo.swap_total / 1024)));
+    // Swap Free
+    memory.append(AddStringRow(base::IntToString(meminfo.swap_free / 1024)));
+    // Cached
+    memory.append(AddStringRow(base::IntToString(meminfo.cached / 1024)));
+    // Buffers
+    memory.append(AddStringRow(base::IntToString(meminfo.buffers / 1024)));
+    // Cached + Buffers
+    memory.append(AddStringRow(base::IntToString((meminfo.cached + meminfo.buffers) / 1024)));
+    // Active Files
+    memory.append(AddStringRow(base::IntToString(meminfo.active_file / 1024)));
+    // Inactive Files
+    memory.append(AddStringRow(base::IntToString(meminfo.inactive_file / 1024)));
+    // Dirty
+    memory.append(AddStringRow(base::IntToString(meminfo.dirty / 1024)));
+
+    // Check base::endless::MemoryPressureMonitor::GetUsedMemoryInPercent to know where these values come from.
+    const int kSwapWeight = 4, kMinFileMemory = 50 * 1024;
+    int total_memory = meminfo.total + meminfo.swap_total / kSwapWeight;
+    int file_memory = meminfo.active_file + meminfo.inactive_file - meminfo.dirty - kMinFileMemory;
+    int available_memory = meminfo.free + meminfo.swap_free / kSwapWeight + file_memory;
+    int percentage = ((total_memory - available_memory) * 100) / total_memory;
+    // Memory in use (%)
+    memory.append(AddStringRow(base::IntToString(percentage)));
+
+    std::move(callback).Run(std::move(memory));
   }
 
   void SetAutoDiscardable(int32_t tab_id,

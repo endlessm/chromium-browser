@@ -77,5 +77,25 @@ general use and is not localized.
         </td>
       </tr>
     </template>
+    <h1>Memory</h1>
+    <table id="memory-info-table">
+      <thead>
+        <tr id="memory-info-table-header">
+          <th data-sort-key="total">Total</th>
+          <th data-sort-key="freeRAM">Free RAM</th>
+          <th data-sort-key="swapTotal">Swap Total</th>
+          <th data-sort-key="swapFree">Swap Free</th>
+          <th data-sort-key="cached">Cached</th>
+          <th data-sort-key="buffers">Buffers</th>
+          <th data-sort-key="cachedAndBuffers">Cached+Buffers</th>
+          <th data-sort-key="activeFiles">Active Files</th>
+          <th data-sort-key="inactiveFiles">Inactive Files</th>
+          <th data-sort-key="dirty">Dirty</th>
+          <th data-sort-key="memoryInUse">Memory in use (%)</th>
+        </tr>
+      </thead>
+      <tbody id="memory-info-table-body">
+      </tbody>
+    </table>
   </body>
 </html>
