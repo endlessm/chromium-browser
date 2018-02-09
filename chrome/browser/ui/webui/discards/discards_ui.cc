@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/containers/flat_map.h"
 #include "base/logging.h"
+#include "base/process/process_metrics.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -42,6 +43,9 @@
 #include "ui/resources/grit/ui_resources.h"
 #include "url/gurl.h"
 #include "url/origin.h"
+
+#include "base/memory/singleton.h"
+#include "base/system/sys_info.h"
 
 namespace {
 
@@ -248,6 +252,51 @@ class DiscardsDetailsProviderImpl : public mojom::DiscardsDetailsProvider {
       GetSiteCharacteristicsDatabaseCallback callback) override;
   void GetSiteCharacteristicsDatabaseSize(
       GetSiteCharacteristicsDatabaseSizeCallback callback) override;
+
+  std::string AddStringRow(const std::string& value) {
+    std::string row;
+    row.append("<td>"+value+"</td>");
+    return row;
+  }
+
+  void GetMemoryInfo(GetMemoryInfoCallback callback) override {
+
+    std::string memory;
+
+    base::SystemMemoryInfoKB meminfo;
+    base::GetSystemMemoryInfo(&meminfo);
+    // Total
+    memory.append(AddStringRow(base::NumberToString(meminfo.total / 1024)));
+    // Free ram
+    memory.append(AddStringRow(base::NumberToString(meminfo.free / 1024)));
+    // Swap Total
+    memory.append(AddStringRow(base::NumberToString(meminfo.swap_total / 1024)));
+    // Swap Free
+    memory.append(AddStringRow(base::NumberToString(meminfo.swap_free / 1024)));
+    // Cached
+    memory.append(AddStringRow(base::NumberToString(meminfo.cached / 1024)));
+    // Buffers
+    memory.append(AddStringRow(base::NumberToString(meminfo.buffers / 1024)));
+    // Cached + Buffers
+    memory.append(AddStringRow(base::NumberToString((meminfo.cached + meminfo.buffers) / 1024)));
+    // Active Files
+    memory.append(AddStringRow(base::NumberToString(meminfo.active_file / 1024)));
+    // Inactive Files
+    memory.append(AddStringRow(base::NumberToString(meminfo.inactive_file / 1024)));
+    // Dirty
+    memory.append(AddStringRow(base::NumberToString(meminfo.dirty / 1024)));
+
+    // Check base::endless::MemoryPressureMonitor::GetUsedMemoryInPercent to know where these values come from.
+    const int kSwapWeight = 4, kMinFileMemory = 50 * 1024;
+    int total_memory = meminfo.total + meminfo.swap_total / kSwapWeight;
+    int file_memory = meminfo.active_file + meminfo.inactive_file - meminfo.dirty - kMinFileMemory;
+    int available_memory = meminfo.free + meminfo.swap_free / kSwapWeight + file_memory;
+    int percentage = ((total_memory - available_memory) * 100) / total_memory;
+    // Memory in use (%)
+    memory.append(AddStringRow(base::NumberToString(percentage)));
+
+    std::move(callback).Run(std::move(memory));
+  }
 
   void SetAutoDiscardable(int32_t id,
                           bool is_auto_discardable,
