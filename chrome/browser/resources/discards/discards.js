@@ -429,6 +429,17 @@ cr.define('discards', function() {
   }
 
   /**
+   * Updates the memory information table with the table
+   * row provided by GetMemoryInfo()
+   */
+  function updateMemoryInfo() {
+    uiHandler.getMemoryInfo().then((response) => {
+      let memoryInfoContainer = $('memory-info-table-body');
+      memoryInfoContainer.innerHTML = response.memory;
+    });
+  }
+
+  /**
    * Causes the discard info table to be updated in as stable a manner as
    * possible. That is, rows will stay in their relative positions, even if the
    * current sort order is violated. Only the addition or removal of rows (tabs)
@@ -482,6 +493,7 @@ cr.define('discards', function() {
       // Render the content in place.
       renderTabDiscardsInfoTable();
     });
+    updateMemoryInfo();
   }
 
   /**
