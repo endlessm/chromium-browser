@@ -262,6 +262,17 @@ Polymer({
   },
 
   /**
+   * Updates the memory information table with the table
+   * row provided by GetMemoryInfo()
+   */
+  updateMemoryInfoImpl_: function() {
+    this.uiHandler_.getMemoryInfo().then((response) => {
+      let memoryInfoContainer = $('memory-info-table-body');
+      memoryInfoContainer.innerHTML = response.memory;
+    });
+  },
+
+  /**
    * A wrapper to updateTableImpl_ that is called due to user action and not
    * due to the automatic timer. Cancels the existing timer  and reschedules
    * it after rendering instantaneously.
@@ -272,6 +283,7 @@ Polymer({
       clearInterval(this.updateTimer_);
     }
     this.updateTableImpl_();
+    this.updateMemoryInfoImpl_();
     this.updateTimer_ = setInterval(this.updateTableImpl_.bind(this), 1000);
   },
 
