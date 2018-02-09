@@ -49,6 +49,9 @@ interface DiscardsDetailsProvider {
   // each tab currently open in the browser, across all profiles.
   GetTabDiscardsInfo() => (array<TabDiscardsInfo> infos);
 
+  // Returns a formatted string with memory information
+  GetMemoryInfo() => (string memory);
+
   // Sets the auto-discardable state of a tab, as specified by its stable
   // |tab_id|, earlier returned by GetTabDiscardsInfo. Invokes a callback when
   // the change has been made.
