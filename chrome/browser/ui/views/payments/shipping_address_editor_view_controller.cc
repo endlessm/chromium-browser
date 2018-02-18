@@ -5,7 +5,6 @@
 #include "chrome/browser/ui/views/payments/shipping_address_editor_view_controller.h"
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -43,33 +42,6 @@ namespace {
 // as is done for std::string::npos.
 // http://www.cplusplus.com/reference/string/string/npos
 const size_t kInvalidCountryIndex = static_cast<size_t>(-1);
-
-// Used to normalize a profile in place and synchronously from an
-// AddressNormalizer that already loaded the normalization rules.
-class SynchronousAddressNormalizerDelegate
-    : public autofill::AddressNormalizer::Delegate {
- public:
-  // Doesn't take ownership of |profile_to_normalize| but does modify it.
-  SynchronousAddressNormalizerDelegate(
-      autofill::AutofillProfile* profile_to_normalize)
-      : normalized(false), profile_to_normalize_(profile_to_normalize) {}
-
-  ~SynchronousAddressNormalizerDelegate() override { DCHECK(normalized); }
-
- private:
-  void OnAddressNormalized(
-      const autofill::AutofillProfile& normalized_profile) override {
-    *profile_to_normalize_ = normalized_profile;
-    normalized = true;
-  }
-
-  void OnCouldNotNormalize(const autofill::AutofillProfile& profile) override {
-    normalized = false;
-  }
-
-  bool normalized;
-  autofill::AutofillProfile* profile_to_normalize_;
-};
 
 }  // namespace
 
@@ -508,16 +480,9 @@ void ShippingAddressEditorViewController::UpdateEditorFields() {
 void ShippingAddressEditorViewController::OnDataChanged(bool synchronous) {
   SaveFieldsToProfile(&temporary_profile_, /*ignore_errors*/ true);
 
-  // This function is called after rules are successfully loaded. Because of
-  // this, normalization is guaranteed to be synchronous. If they're not loaded,
-  // something went wrong with the network call and normalization can't happen
-  // (there's no data to go in the region combobox anyways).
-  std::string country_code = countries_[chosen_country_index_].first;
-  if (state()->GetAddressNormalizer()->AreRulesLoadedForRegion(country_code)) {
-    SynchronousAddressNormalizerDelegate delegate(&temporary_profile_);
-    state()->GetAddressNormalizer()->StartAddressNormalization(
-        temporary_profile_, country_code, 1, &delegate);
-  }
+  // Normalization is guaranteed to be synchronous and rules should have been
+  // loaded already.
+  state()->GetAddressNormalizer()->NormalizeAddressSync(&temporary_profile_);
 
   UpdateEditorFields();
   if (synchronous) {

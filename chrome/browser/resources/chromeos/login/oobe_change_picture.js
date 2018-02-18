@@ -63,6 +63,15 @@ Polymer({
     firstDefaultImageIndex: Number,
 
     /**
+     * True when camera video mode is enabled.
+     * @private {boolean}
+     */
+    cameraVideoModeEnabled: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
      * The currently selected item. This property is bound to the iron-selector
      * and never directly assigned. This may be undefined momentarily as
      * the selection changes due to iron-selector implementation details.
@@ -193,8 +202,8 @@ Polymer({
   onPhotoTaken_: function(event) {
     chrome.send('photoTaken', [event.detail.photoDataUrl]);
     this.pictureList_.setOldImageUrl(event.detail.photoDataUrl);
-
     this.pictureList_.setFocus();
+    this.sendSelectImage_(CrPicture.SelectionTypes.OLD, '');
     announceAccessibleMessage(
         loadTimeData.getString('photoCaptureAccessibleText'));
   },

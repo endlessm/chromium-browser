@@ -129,6 +129,7 @@ ContentSettingSimpleBubbleModel::ContentSettingSimpleBubbleModel(
   // Notifications do not have a bubble.
   DCHECK_NE(content_type, CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
   SetTitle();
+  SetMessage();
   SetManageText();
   SetCustomLink();
 }
@@ -145,15 +146,15 @@ void ContentSettingSimpleBubbleModel::SetTitle() {
           : nullptr;
 
   static const ContentSettingsTypeIdEntry kBlockedTitleIDs[] = {
-    {CONTENT_SETTINGS_TYPE_COOKIES, IDS_BLOCKED_COOKIES_TITLE},
-    {CONTENT_SETTINGS_TYPE_IMAGES, IDS_BLOCKED_IMAGES_TITLE},
-    {CONTENT_SETTINGS_TYPE_JAVASCRIPT, IDS_BLOCKED_JAVASCRIPT_TITLE},
-    {CONTENT_SETTINGS_TYPE_PLUGINS, IDS_BLOCKED_PLUGINS_TITLE},
-    {CONTENT_SETTINGS_TYPE_POPUPS, IDS_BLOCKED_POPUPS_TITLE},
-    {CONTENT_SETTINGS_TYPE_MIXEDSCRIPT,
-        IDS_BLOCKED_DISPLAYING_INSECURE_CONTENT},
-    {CONTENT_SETTINGS_TYPE_PPAPI_BROKER,
-        IDS_BLOCKED_PPAPI_BROKER_TITLE},
+      {CONTENT_SETTINGS_TYPE_COOKIES, IDS_BLOCKED_COOKIES_TITLE},
+      {CONTENT_SETTINGS_TYPE_IMAGES, IDS_BLOCKED_IMAGES_TITLE},
+      {CONTENT_SETTINGS_TYPE_JAVASCRIPT, IDS_BLOCKED_JAVASCRIPT_TITLE},
+      {CONTENT_SETTINGS_TYPE_PLUGINS, IDS_BLOCKED_PLUGINS_TITLE},
+      {CONTENT_SETTINGS_TYPE_POPUPS, IDS_BLOCKED_POPUPS_TITLE},
+      {CONTENT_SETTINGS_TYPE_MIXEDSCRIPT,
+       IDS_BLOCKED_DISPLAYING_INSECURE_CONTENT_TITLE},
+      {CONTENT_SETTINGS_TYPE_PPAPI_BROKER, IDS_BLOCKED_PPAPI_BROKER_TITLE},
+      {CONTENT_SETTINGS_TYPE_SOUND, IDS_BLOCKED_SOUND_TITLE},
   };
   // Fields as for kBlockedTitleIDs, above.
   static const ContentSettingsTypeIdEntry kAccessedTitleIDs[] = {
@@ -170,6 +171,39 @@ void ContentSettingSimpleBubbleModel::SetTitle() {
   int title_id = GetIdForContentType(title_ids, num_title_ids, content_type());
   if (title_id)
     set_title(l10n_util::GetStringUTF16(title_id));
+}
+
+void ContentSettingSimpleBubbleModel::SetMessage() {
+  TabSpecificContentSettings* content_settings =
+      web_contents()
+          ? TabSpecificContentSettings::FromWebContents(web_contents())
+          : nullptr;
+
+  static const ContentSettingsTypeIdEntry kBlockedMessageIDs[] = {
+      {CONTENT_SETTINGS_TYPE_COOKIES, IDS_BLOCKED_COOKIES_MESSAGE},
+      {CONTENT_SETTINGS_TYPE_IMAGES, IDS_BLOCKED_IMAGES_MESSAGE},
+      {CONTENT_SETTINGS_TYPE_JAVASCRIPT, IDS_BLOCKED_JAVASCRIPT_MESSAGE},
+      {CONTENT_SETTINGS_TYPE_POPUPS, IDS_BLOCKED_POPUPS_MESSAGE},
+      {CONTENT_SETTINGS_TYPE_MIXEDSCRIPT,
+       IDS_BLOCKED_DISPLAYING_INSECURE_CONTENT},
+      {CONTENT_SETTINGS_TYPE_PPAPI_BROKER, IDS_BLOCKED_PPAPI_BROKER_MESSAGE},
+  };
+  // Fields as for kBlockedMessageIDs, above.
+  static const ContentSettingsTypeIdEntry kAccessedMessageIDs[] = {
+      {CONTENT_SETTINGS_TYPE_COOKIES, IDS_ACCESSED_COOKIES_MESSAGE},
+      {CONTENT_SETTINGS_TYPE_PPAPI_BROKER, IDS_ALLOWED_PPAPI_BROKER_MESSAGE},
+  };
+  const ContentSettingsTypeIdEntry* message_ids = kBlockedMessageIDs;
+  size_t num_message_ids = arraysize(kBlockedMessageIDs);
+  if (content_settings && content_settings->IsContentAllowed(content_type()) &&
+      !content_settings->IsContentBlocked(content_type())) {
+    message_ids = kAccessedMessageIDs;
+    num_message_ids = arraysize(kAccessedMessageIDs);
+  }
+  int message_id =
+      GetIdForContentType(message_ids, num_message_ids, content_type());
+  if (message_id)
+    set_message(l10n_util::GetStringUTF16(message_id));
 }
 
 void ContentSettingSimpleBubbleModel::SetManageText() {
@@ -276,11 +310,12 @@ void ContentSettingSingleRadioGroup::SetRadioGroup() {
   radio_group.url = url;
 
   static const ContentSettingsTypeIdEntry kBlockedAllowIDs[] = {
-    {CONTENT_SETTINGS_TYPE_COOKIES, IDS_BLOCKED_COOKIES_UNBLOCK},
-    {CONTENT_SETTINGS_TYPE_IMAGES, IDS_BLOCKED_IMAGES_UNBLOCK},
-    {CONTENT_SETTINGS_TYPE_JAVASCRIPT, IDS_BLOCKED_JAVASCRIPT_UNBLOCK},
-    {CONTENT_SETTINGS_TYPE_POPUPS, IDS_BLOCKED_POPUPS_UNBLOCK},
-    {CONTENT_SETTINGS_TYPE_PPAPI_BROKER, IDS_BLOCKED_PPAPI_BROKER_UNBLOCK},
+      {CONTENT_SETTINGS_TYPE_COOKIES, IDS_BLOCKED_COOKIES_UNBLOCK},
+      {CONTENT_SETTINGS_TYPE_IMAGES, IDS_BLOCKED_IMAGES_UNBLOCK},
+      {CONTENT_SETTINGS_TYPE_JAVASCRIPT, IDS_BLOCKED_JAVASCRIPT_UNBLOCK},
+      {CONTENT_SETTINGS_TYPE_POPUPS, IDS_BLOCKED_POPUPS_UNBLOCK},
+      {CONTENT_SETTINGS_TYPE_PPAPI_BROKER, IDS_BLOCKED_PPAPI_BROKER_UNBLOCK},
+      {CONTENT_SETTINGS_TYPE_SOUND, IDS_BLOCKED_SOUND_UNBLOCK},
   };
   // Fields as for kBlockedAllowIDs, above.
   static const ContentSettingsTypeIdEntry kAllowedAllowIDs[] = {
@@ -302,11 +337,12 @@ void ContentSettingSingleRadioGroup::SetRadioGroup() {
   }
 
   static const ContentSettingsTypeIdEntry kBlockedBlockIDs[] = {
-    {CONTENT_SETTINGS_TYPE_COOKIES, IDS_BLOCKED_COOKIES_NO_ACTION},
-    {CONTENT_SETTINGS_TYPE_IMAGES, IDS_BLOCKED_IMAGES_NO_ACTION},
-    {CONTENT_SETTINGS_TYPE_JAVASCRIPT, IDS_BLOCKED_JAVASCRIPT_NO_ACTION},
-    {CONTENT_SETTINGS_TYPE_POPUPS, IDS_BLOCKED_POPUPS_NO_ACTION},
-    {CONTENT_SETTINGS_TYPE_PPAPI_BROKER, IDS_BLOCKED_PPAPI_BROKER_NO_ACTION},
+      {CONTENT_SETTINGS_TYPE_COOKIES, IDS_BLOCKED_COOKIES_NO_ACTION},
+      {CONTENT_SETTINGS_TYPE_IMAGES, IDS_BLOCKED_IMAGES_NO_ACTION},
+      {CONTENT_SETTINGS_TYPE_JAVASCRIPT, IDS_BLOCKED_JAVASCRIPT_NO_ACTION},
+      {CONTENT_SETTINGS_TYPE_POPUPS, IDS_BLOCKED_POPUPS_NO_ACTION},
+      {CONTENT_SETTINGS_TYPE_PPAPI_BROKER, IDS_BLOCKED_PPAPI_BROKER_NO_ACTION},
+      {CONTENT_SETTINGS_TYPE_SOUND, IDS_BLOCKED_SOUND_NO_ACTION},
   };
   static const ContentSettingsTypeIdEntry kAllowedBlockIDs[] = {
     {CONTENT_SETTINGS_TYPE_COOKIES, IDS_ALLOWED_COOKIES_BLOCK},
@@ -594,7 +630,7 @@ ContentSettingPopupBubbleModel::CreateListItem(int32_t id, const GURL& url) {
 
   const bool use_md = ui::MaterialDesignController::IsSecondaryUiMaterial();
   if (use_md) {
-    // Format the title to inlude the unicode single dot bullet code-point
+    // Format the title to include the unicode single dot bullet code-point
     // \u2022 and two spaces.
     title = l10n_util::GetStringFUTF16(IDS_LIST_BULLET, title);
   }
@@ -1482,22 +1518,22 @@ void ContentSettingDownloadsBubbleModel::SetRadioGroup() {
 
   RadioGroup radio_group;
   radio_group.url = url;
-  switch (download_request_limiter->GetDownloadStatus(web_contents())) {
-    case DownloadRequestLimiter::ALLOW_ALL_DOWNLOADS:
+  switch (download_request_limiter->GetDownloadUiStatus(web_contents())) {
+    case DownloadRequestLimiter::DOWNLOAD_UI_ALLOWED:
       radio_group.radio_items.push_back(
           l10n_util::GetStringUTF16(IDS_ALLOWED_DOWNLOAD_NO_ACTION));
       radio_group.radio_items.push_back(
           l10n_util::GetStringFUTF16(IDS_ALLOWED_DOWNLOAD_BLOCK, display_host));
       radio_group.default_item = kAllowButtonIndex;
       break;
-    case DownloadRequestLimiter::DOWNLOADS_NOT_ALLOWED:
+    case DownloadRequestLimiter::DOWNLOAD_UI_BLOCKED:
       radio_group.radio_items.push_back(l10n_util::GetStringFUTF16(
           IDS_BLOCKED_DOWNLOAD_UNBLOCK, display_host));
       radio_group.radio_items.push_back(
           l10n_util::GetStringUTF16(IDS_BLOCKED_DOWNLOAD_NO_ACTION));
       radio_group.default_item = 1;
       break;
-    default:
+    case DownloadRequestLimiter::DOWNLOAD_UI_DEFAULT:
       NOTREACHED();
       return;
   }
@@ -1529,14 +1565,14 @@ void ContentSettingDownloadsBubbleModel::SetTitle() {
       g_browser_process->download_request_limiter();
   DCHECK(download_request_limiter);
 
-  switch (download_request_limiter->GetDownloadStatus(web_contents())) {
-    case DownloadRequestLimiter::ALLOW_ALL_DOWNLOADS:
+  switch (download_request_limiter->GetDownloadUiStatus(web_contents())) {
+    case DownloadRequestLimiter::DOWNLOAD_UI_ALLOWED:
       set_title(l10n_util::GetStringUTF16(IDS_ALLOWED_DOWNLOAD_TITLE));
       return;
-    case DownloadRequestLimiter::DOWNLOADS_NOT_ALLOWED:
+    case DownloadRequestLimiter::DOWNLOAD_UI_BLOCKED:
       set_title(l10n_util::GetStringUTF16(IDS_BLOCKED_DOWNLOAD_TITLE));
       return;
-    default:
+    case DownloadRequestLimiter::DOWNLOAD_UI_DEFAULT:
       // No title otherwise.
       return;
   }
@@ -1591,7 +1627,8 @@ ContentSettingBubbleModel*
   }
   if (content_type == CONTENT_SETTINGS_TYPE_IMAGES ||
       content_type == CONTENT_SETTINGS_TYPE_JAVASCRIPT ||
-      content_type == CONTENT_SETTINGS_TYPE_PPAPI_BROKER) {
+      content_type == CONTENT_SETTINGS_TYPE_PPAPI_BROKER ||
+      content_type == CONTENT_SETTINGS_TYPE_SOUND) {
     return new ContentSettingSingleRadioGroup(delegate, web_contents, profile,
                                               content_type);
   }

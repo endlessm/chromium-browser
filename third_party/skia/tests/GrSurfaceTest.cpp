@@ -54,6 +54,7 @@ DEF_GPUTEST_FOR_NULLGL_CONTEXT(GrSurface, reporter, ctxInfo) {
                                                                256,
                                                                256,
                                                                kRGBA_8888_GrPixelConfig,
+                                                               GrMipMapped::kNo,
                                                                backendTexHandle);
 
     sk_sp<GrSurface> texRT2 = context->resourceProvider()->wrapRenderableBackendTexture(
@@ -81,6 +82,8 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(GrSurfaceRenderability, reporter, ctxInfo) {
     GrPixelConfig configs[] = {
         kUnknown_GrPixelConfig,
         kAlpha_8_GrPixelConfig,
+        kAlpha_8_as_Alpha_GrPixelConfig,
+        kAlpha_8_as_Red_GrPixelConfig,
         kGray_8_GrPixelConfig,
         kRGB_565_GrPixelConfig,
         kRGBA_4444_GrPixelConfig,
@@ -92,6 +95,7 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(GrSurfaceRenderability, reporter, ctxInfo) {
         kRGBA_float_GrPixelConfig,
         kRG_float_GrPixelConfig,
         kAlpha_half_GrPixelConfig,
+        kAlpha_half_as_Red_GrPixelConfig,
         kRGBA_half_GrPixelConfig,
     };
     SkASSERT(kGrPixelConfigCnt == SK_ARRAY_COUNT(configs));
@@ -211,7 +215,8 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(InitialTextureClear, reporter, context_info) 
                     // Try creating the texture as a deferred proxy.
                     for (int i = 0; i < 2; ++i) {
                         auto surfCtx = context->contextPriv().makeDeferredSurfaceContext(
-                                desc, approx ? SkBackingFit::kApprox : SkBackingFit::kExact,
+                                desc, GrMipMapped::kNo,
+                                approx ? SkBackingFit::kApprox : SkBackingFit::kExact,
                                 SkBudgeted::kYes);
                         if (!surfCtx) {
                             continue;

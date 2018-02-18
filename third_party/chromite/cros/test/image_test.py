@@ -19,6 +19,7 @@ import mimetypes
 import os
 import re
 import stat
+import unittest
 
 from elftools.elf import elffile
 from elftools.common import exceptions
@@ -30,8 +31,10 @@ from chromite.lib import image_test_lib
 from chromite.lib import osutils
 from chromite.lib import parseelf
 
+from chromite.cros.test import usergroup_baseline
 
-class LocaltimeTest(image_test_lib.NonForgivingImageTestCase):
+
+class LocaltimeTest(image_test_lib.ImageTestCase):
   """Verify that /etc/localtime is a symlink to /var/lib/timezone/localtime.
 
   This is an example of an image test. The image is already mounted. The
@@ -66,7 +69,7 @@ def _GuessMimeType(magic_obj, file_name):
   return mime_type
 
 
-class BlacklistTest(image_test_lib.NonForgivingImageTestCase):
+class BlacklistTest(image_test_lib.ImageTestCase):
   """Verify that rootfs does not contain blacklisted items."""
 
   def TestBlacklistedDirectories(self):
@@ -161,7 +164,7 @@ class BlacklistTest(image_test_lib.NonForgivingImageTestCase):
     self.assertFalse(failures, '\n'.join(failures))
 
 
-class LinkageTest(image_test_lib.NonForgivingImageTestCase):
+class LinkageTest(image_test_lib.ImageTestCase):
   """Verify that all binaries and libraries have proper linkage."""
 
   def setUp(self):
@@ -242,7 +245,8 @@ class LinkageTest(image_test_lib.NonForgivingImageTestCase):
         self.fail('Fail linkage test for %s: %s' % (to_test, e))
 
 
-class FileSystemMetaDataTest(image_test_lib.ForgivingImageTestCase):
+@unittest.expectedFailure
+class FileSystemMetaDataTest(image_test_lib.ImageTestCase):
   """A test class to gather file system stats such as free inodes, blocks."""
 
   def TestStats(self):
@@ -304,7 +308,7 @@ class FileSystemMetaDataTest(image_test_lib.ForgivingImageTestCase):
                          higher_is_better=False, graph='filesystem_stats')
 
 
-class SymbolsTest(image_test_lib.NonForgivingImageTestCase):
+class SymbolsTest(image_test_lib.ImageTestCase):
   """Tests related to symbols in ELF files."""
 
   def setUp(self):
@@ -374,3 +378,239 @@ class SymbolsTest(image_test_lib.NonForgivingImageTestCase):
         failures.append('File %s contains unsatisfied symbols: %r' %
                         (full_name, missing))
     self.assertFalse(failures, '\n'.join(failures))
+
+
+class UserGroupTest(image_test_lib.ImageTestCase):
+  """Tests users and groups in /etc/passwd and /etc/group."""
+
+  @staticmethod
+  def _validate_passwd(entry):
+    """Check users that are not in the baseline.
+
+    The user ID should match the group ID, and the user's home directory
+    and shell should be invalid.
+    """
+    uid = entry.uid
+    gid = entry.gid
+
+    if uid != gid:
+      logging.error('New user "%s" has uid %d and different gid %d',
+                    entry.user, uid, gid)
+      return False
+
+    if entry.home != '/dev/null':
+      logging.error('Expected /dev/null for new user "%s" home dir, got "%s"',
+                    entry.user, entry.home)
+      return False
+
+    if entry.shell != '/bin/false':
+      logging.error('Expected /bin/false for new user "%s" shell, got "%s"',
+                    entry.user, entry.shell)
+      return False
+
+    return True
+
+  @staticmethod
+  def _validate_group(entry):
+    """Check groups that are not in the baseline.
+
+    Allow groups that have no users and groups with only the matching user.
+    """
+    group_name = entry.group
+    users = entry.users
+
+    # Groups with no users and groups with only the matching user are OK.
+    if not users or users == {group_name}:
+      return True
+
+    logging.error('New group "%s" has users "%s"', group_name, users)
+    return False
+
+  @staticmethod
+  def _match_passwd(expected, actual):
+    """Match password, uid, gid, home, and shell."""
+    matched = True
+
+    if expected.encpasswd != actual.encpasswd:
+      matched = False
+      logging.error('Expected encrypted password "%s" for user "%s", got "%s".',
+                    expected.encpasswd, expected.user, actual.encpasswd)
+
+    if expected.uid != actual.uid:
+      matched = False
+      logging.error('Expected uid %d for user "%s", got %d.',
+                    expected.uid, expected.user, actual.uid)
+
+    if expected.gid != actual.gid:
+      matched = False
+      logging.error('Expected gid %d for user "%s", got %d.',
+                    expected.gid, expected.user, actual.gid)
+
+    if isinstance(expected.home, set):
+      valid_home = actual.home in expected.home
+    else:
+      valid_home = actual.home == expected.home
+    if not valid_home:
+      matched = False
+      logging.error('Expected home "%s" for user "%s", got "%s".',
+                    expected.home, expected.user, actual.home)
+
+    if isinstance(expected.shell, set):
+      valid_shell = actual.shell in expected.shell
+    else:
+      valid_shell = actual.shell == expected.shell
+    if not valid_shell:
+      matched = False
+      logging.error('Expected shell "%s" for user "%s", got "%s".',
+                    expected.shell, expected.user, actual.shell)
+
+    return matched
+
+  @staticmethod
+  def _match_group(expected, actual):
+    """Match password, gid, and members."""
+    matched = True
+
+    if expected.encpasswd != actual.encpasswd:
+      matched = False
+      logging.error(
+          'Expected encrypted password "%s" for group "%s", got "%s".',
+          expected.encpasswd, expected.group, actual.encpasswd)
+
+    if expected.gid != actual.gid:
+      matched = False
+      logging.error('Expected gid %d for group "%s", got %d.',
+                    expected.gid, expected.group, actual.gid)
+
+    if expected.users != actual.users:
+      matched = False
+      logging.error('Expected members "%s" for group "%s", got "%s".',
+                    expected.users, expected.group, actual.users)
+
+    return matched
+
+  def _LoadPath(self, path):
+    """Load the given passwd/group file.
+
+    Args:
+      path: Path to the file.
+
+    Returns:
+      A dict of passwd/group entries indexed by account name.
+    """
+    d = {}
+    for line in osutils.ReadFile(path).splitlines():
+      fields = line.split(':')
+      if len(fields) == 7:
+        # wpa:!:219:219::/dev/null:/bin/false
+        entry = usergroup_baseline.UserEntry(user=fields[0],
+                                             encpasswd=fields[1],
+                                             uid=int(fields[2]),
+                                             gid=int(fields[3]),
+                                             home=fields[5],
+                                             shell=fields[6])
+        d[entry.user] = entry
+      elif len(fields) == 4:
+        # tty:!:5:power,brltty
+        users = set()
+        if fields[3]:
+          users = set(fields[3].split(','))
+        entry = usergroup_baseline.GroupEntry(group=fields[0],
+                                              encpasswd=fields[1],
+                                              gid=int(fields[2]),
+                                              users=users)
+        d[entry.group] = entry
+      else:
+        raise ValueError('Invalid baseline format "%s"' % line)
+
+    return d
+
+  def _LoadBaseline(self, basename):
+    """Loads the passwd or group baseline."""
+    d = None
+    if 'passwd' in basename:
+      d = usergroup_baseline.USER_BASELINE.copy()
+
+      # Per-board baseline.
+      if self._board and self._board in usergroup_baseline.USER_BOARD_BASELINES:
+        d.update(usergroup_baseline.USER_BOARD_BASELINES[self._board])
+    elif 'group' in basename:
+      d = usergroup_baseline.GROUP_BASELINE.copy()
+      # TODO(jorgelo): Merge this into the main baseline once:
+      #     *Freon users are included in the main overlay.
+      d.update(usergroup_baseline.GROUP_BASELINE_FREON)
+
+      # Per-board baseline.
+      if (self._board and
+          self._board in usergroup_baseline.GROUP_BOARD_BASELINES):
+        d.update(usergroup_baseline.GROUP_BOARD_BASELINES[self._board])
+    else:
+      raise ValueError('Invalid basename "%s"' % basename)
+
+    return d
+
+  def _CheckFile(self, basename):
+    """Validates the passwd or group file."""
+    match_func = getattr(self, '_match_%s' % basename)
+    validate_func = getattr(self, '_validate_%s' % basename)
+
+    expected_entries = self._LoadBaseline(basename)
+    actual_entries = self._LoadPath(os.path.join(image_test_lib.ROOT_A,
+                                                 'etc',
+                                                 basename))
+
+    success = True
+    for entry, details in actual_entries.iteritems():
+      if entry not in expected_entries:
+        is_valid = validate_func(details)
+        if not is_valid:
+          logging.error('Unexpected %s entry for "%s".', basename, entry)
+
+        success = success and is_valid
+        continue
+
+      expected = expected_entries[entry]
+      match_res = match_func(expected, details)
+      success = success and match_res
+
+    missing = set(expected_entries.keys()) - set(actual_entries.keys())
+    for m in missing:
+      logging.info('Ignoring missing %s entry for "%s".', basename, m)
+
+    self.assertTrue(success)
+
+  def TestUsers(self):
+    """Enforces a whitelist of known user IDs."""
+    self._CheckFile('passwd')
+
+  def TestGroups(self):
+    """Enforces a whitelist of known group IDs."""
+    self._CheckFile('group')
+
+
+class CroshTest(image_test_lib.ImageTestCase):
+  """Check crosh code."""
+
+  # Base directory for crosh code.
+  CROSH_DIR = 'usr/share/crosh'
+
+  def TestUnknownModules(self):
+    """Only permit a whitelist of known, allowed crosh modules on the system."""
+    # Do *not* add modules to this list until they've been reviewed by security
+    # or someone in the crosh/OWNERS list.  Insecure code here can easily cause
+    # compromise of CrOS system security in verified mode.  It has happened.
+    WHITELIST = {
+        'dev.d': {'50-crosh.sh'},
+        'extra.d': {'30-cups.sh'},
+        'removable.d': {'50-crosh.sh'},
+    }
+
+    base_path = os.path.join(image_test_lib.ROOT_A, self.CROSH_DIR)
+    for mod_dir, good_modules in WHITELIST.items():
+      mod_path = os.path.join(base_path, mod_dir)
+      if not os.path.exists(mod_path):
+        continue
+
+      found_modules = set(os.listdir(mod_path))
+      unknown_modules = found_modules - good_modules
+      self.assertEqual(set(), unknown_modules)

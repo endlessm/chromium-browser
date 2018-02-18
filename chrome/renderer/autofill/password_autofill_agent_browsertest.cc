@@ -25,11 +25,11 @@
 #include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/password_form_field_prediction_map.h"
 #include "components/password_manager/core/common/password_manager_features.h"
-#include "content/public/common/associated_interface_provider.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
@@ -347,7 +347,7 @@ class PasswordAutofillAgentTest : public ChromeRenderViewTest {
 
     // Because the test cases only involve the main frame in this test,
     // the fake password client is only used for the main frame.
-    content::AssociatedInterfaceProvider* remote_associated_interfaces =
+    blink::AssociatedInterfaceProvider* remote_associated_interfaces =
         view_->GetMainRenderFrame()->GetRemoteAssociatedInterfaces();
     remote_associated_interfaces->OverrideBinderForTesting(
         mojom::PasswordManagerClient::Name_,
@@ -424,8 +424,7 @@ class PasswordAutofillAgentTest : public ChromeRenderViewTest {
       const base::string16& password) {
     // This call is necessary to setup the autofill agent appropriate for the
     // user selection; simulates the menu actually popping up.
-    static_cast<autofill::PageClickListener*>(autofill_agent_)
-        ->FormControlElementClicked(input, false);
+    autofill_agent_->FormControlElementClicked(input, false);
 
     autofill_agent_->FillPasswordSuggestion(username, password);
   }
@@ -1047,8 +1046,8 @@ TEST_F(PasswordAutofillAgentTest, SendPasswordFormsTest_PasswordChangeForm) {
 
 TEST_F(PasswordAutofillAgentTest,
        SendPasswordFormsTest_CannotCreatePasswordForm) {
-  // This test checks that a request to the store is sent even if we fail to
-  // create a |PasswordForm|.
+  // This test checks that a request to the store is sent even if it is a credit
+  // card form.
   fake_driver_.reset_password_forms_calls();
   LoadHTML(kCreditCardFormHTML);
   base::RunLoop().RunUntilIdle();
@@ -1057,7 +1056,7 @@ TEST_F(PasswordAutofillAgentTest,
   EXPECT_FALSE(fake_driver_.password_forms_parsed()->empty());
   EXPECT_TRUE(fake_driver_.called_password_forms_rendered());
   ASSERT_TRUE(fake_driver_.password_forms_rendered());
-  EXPECT_TRUE(fake_driver_.password_forms_rendered()->empty());
+  EXPECT_FALSE(fake_driver_.password_forms_rendered()->empty());
 }
 
 TEST_F(PasswordAutofillAgentTest, SendPasswordFormsTest_ReloadTab) {
@@ -1357,16 +1356,18 @@ TEST_F(PasswordAutofillAgentTest, PreviewSuggestion) {
     EXPECT_TRUE(password_autofill_agent_->PreviewSuggestion(
         selected_element, kAliceUsername, kAlicePassword));
     CheckTextFieldsSuggestedState(kAliceUsername, true, kAlicePassword, true);
-    int username_length = strlen(kAliceUsername);
-    CheckUsernameSelection(0, username_length);
+    // Since the suggestion is previewed as a placeholder, there should be no
+    // selected text.
+    CheckUsernameSelection(0, 0);
 
     // Try previewing with a password different from the one that was initially
     // sent to the renderer.
     EXPECT_TRUE(password_autofill_agent_->PreviewSuggestion(
         selected_element, kBobUsername, kCarolPassword));
     CheckTextFieldsSuggestedState(kBobUsername, true, kCarolPassword, true);
-    username_length = strlen(kBobUsername);
-    CheckUsernameSelection(0, username_length);
+    // Since the suggestion is previewed as a placeholder, there should be no
+    // selected text.
+    CheckUsernameSelection(0, 0);
 
     ClearUsernameAndPasswordFields();
   }
@@ -1439,8 +1440,8 @@ TEST_F(PasswordAutofillAgentTest, PreviewSuggestionSelectionRange) {
     EXPECT_TRUE(password_autofill_agent_->PreviewSuggestion(
         selected_element, kAliceUsername, kAlicePassword));
     CheckTextFieldsSuggestedState(kAliceUsername, true, kAlicePassword, true);
-    int username_length = strlen(kAliceUsername);
-    CheckUsernameSelection(3, username_length);
+    // The selection should be set after the third character.
+    CheckUsernameSelection(3, 3);
   }
 }
 
@@ -1610,16 +1611,14 @@ TEST_F(PasswordAutofillAgentTest, CredentialsOnClick) {
 
   // Simulate a user clicking on the username element. This should produce a
   // message with all the usernames.
-  static_cast<PageClickListener*>(autofill_agent_)
-      ->FormControlElementClicked(username_element_, false);
+  autofill_agent_->FormControlElementClicked(username_element_, false);
   CheckSuggestions(std::string(), false);
 
   // Now simulate a user typing in an unrecognized username and then
   // clicking on the username element. This should also produce a message with
   // all the usernames.
   SimulateUsernameTyping("baz");
-  static_cast<PageClickListener*>(autofill_agent_)
-      ->FormControlElementClicked(username_element_, true);
+  autofill_agent_->FormControlElementClicked(username_element_, true);
   CheckSuggestions("baz", true);
   ClearUsernameAndPasswordFields();
 }
@@ -1643,8 +1642,7 @@ TEST_F(PasswordAutofillAgentTest,
   // Simulate a user clicking on the password element. This should produce no
   // message.
   fake_driver_.reset_show_pw_suggestions();
-  static_cast<PageClickListener*>(autofill_agent_)
-      ->FormControlElementClicked(password_element_, false);
+  autofill_agent_->FormControlElementClicked(password_element_, false);
   EXPECT_TRUE(GetCalledShowPasswordSuggestions());
 }
 
@@ -1676,8 +1674,7 @@ TEST_F(PasswordAutofillAgentTest,
   // Simulate a user clicking on the password element. This should produce a
   // dropdown with suggestion of all available usernames and so username
   // filter will be the empty string.
-  static_cast<PageClickListener*>(autofill_agent_)
-      ->FormControlElementClicked(password_element_, false);
+  autofill_agent_->FormControlElementClicked(password_element_, false);
   CheckSuggestions("", false);
 }
 
@@ -1697,8 +1694,7 @@ TEST_F(PasswordAutofillAgentTest, NoCredentialsOnPasswordClick) {
   // Simulate a user clicking on the password element. This should produce no
   // message.
   fake_driver_.reset_show_pw_suggestions();
-  static_cast<PageClickListener*>(autofill_agent_)
-      ->FormControlElementClicked(password_element_, false);
+  autofill_agent_->FormControlElementClicked(password_element_, false);
   EXPECT_TRUE(GetCalledShowPasswordSuggestions());
 }
 
@@ -1791,9 +1787,26 @@ TEST_F(PasswordAutofillAgentTest,
   SetFocused(username_element_);
 
   // The password should have stayed as the user changed it.
-  CheckTextFieldsDOMState(old_username, true, new_password, false);
+  // The username should not be autofilled, because it was typed by the user.
+  CheckTextFieldsDOMState(old_username, false, new_password, false);
   // The password should not have a suggested value.
-  CheckTextFieldsState(old_username, true, std::string(), false);
+  CheckTextFieldsState(old_username, false, std::string(), false);
+}
+
+// The user types the username, then accepts a suggestion. This test checks
+// that autofilling does not rewrite the username, if the value is already
+// there.
+TEST_F(PasswordAutofillAgentTest, AcceptingSuggestionDoesntRewriteUsername) {
+  fill_data_.wait_for_username = true;
+  SimulateUsernameTyping(kAliceUsername);
+  SimulateOnFillPasswordForm(fill_data_);
+  SimulateSuggestionChoice(username_element_);
+
+  const std::string username(username_element_.Value().Utf8());
+  const std::string password(password_element_.Value().Utf8());
+
+  // The password was autofilled. The username was not.
+  CheckTextFieldsDOMState(username, false, password, true);
 }
 
 // The user types in a username and a password, but then just before sending
@@ -2384,8 +2397,7 @@ TEST_F(PasswordAutofillAgentTest,
   SimulateOnFillPasswordForm(fill_data_);
   // Simulate a user clicking on the username element. This should produce a
   // message.
-  static_cast<PageClickListener*>(autofill_agent_)
-      ->FormControlElementClicked(username_element_, true);
+  autofill_agent_->FormControlElementClicked(username_element_, true);
   CheckSuggestions("", true);
 }
 
@@ -2403,8 +2415,7 @@ TEST_F(PasswordAutofillAgentTest,
   SimulateOnFillPasswordForm(fill_data_);
   // Simulate a user clicking on the password element. This should produce a
   // message.
-  static_cast<PageClickListener*>(autofill_agent_)
-      ->FormControlElementClicked(password_element_, true);
+  autofill_agent_->FormControlElementClicked(password_element_, true);
   CheckSuggestions("", false);
 }
 
@@ -2440,7 +2451,7 @@ TEST_F(PasswordAutofillAgentTest, IgnoreNotPasswordFields) {
       ->WillSubmitForm(form_element);
 
   base::RunLoop().RunUntilIdle();
-  ASSERT_FALSE(fake_driver_.called_password_form_submitted());
+  ASSERT_TRUE(fake_driver_.called_password_form_submitted_only_for_fallback());
 }
 
 // Tests that only the password field is autocompleted when the browser sends
@@ -2935,8 +2946,7 @@ TEST_F(PasswordAutofillAgentTest, SuggestPasswordFieldSignInForm) {
 
   // Simulate a user clicking on the password element. This should produce a
   // dropdown with suggestion of all available usernames.
-  static_cast<PageClickListener*>(autofill_agent_)
-      ->FormControlElementClicked(password_element_, false);
+  autofill_agent_->FormControlElementClicked(password_element_, false);
   CheckSuggestions("", false);
 }
 
@@ -3048,8 +3058,7 @@ TEST_F(PasswordAutofillAgentTest, SuggestWhenJavaScriptUpdatesFieldNames) {
 
   // Simulate a user clicking on the password element. This should produce a
   // dropdown with suggestion of all available usernames.
-  static_cast<PageClickListener*>(autofill_agent_)
-      ->FormControlElementClicked(password_element_, false);
+  autofill_agent_->FormControlElementClicked(password_element_, false);
   CheckSuggestions("", false);
 }
 
@@ -3233,8 +3242,7 @@ TEST_F(PasswordAutofillAgentTest, GaiaReauthenticationFormIgnored) {
   UpdateOnlyPasswordElement();
 
   // Simulate a user clicking on the password element.
-  static_cast<PageClickListener*>(autofill_agent_)
-      ->FormControlElementClicked(password_element_, false);
+  autofill_agent_->FormControlElementClicked(password_element_, false);
 
   // Check that no information about Gaia reauthentication is not sent.
   EXPECT_FALSE(fake_driver_.called_password_forms_parsed());

@@ -92,7 +92,7 @@ base::ListValue* AddSection(base::ListValue* parent_list,
   // use-after-free in |*SyncStat::SetValue|. This is why the following DCHECK
   // is necessary to ensure no reallocation takes place.
   // TODO(crbug.com/702230): Remove the usages of raw pointers in this file.
-  DCHECK_LT(parent_list->GetSize(), parent_list->capacity());
+  DCHECK_LT(parent_list->GetSize(), parent_list->GetList().capacity());
   parent_list->Append(std::move(section));
   return section_contents;
 }
@@ -110,7 +110,7 @@ base::ListValue* AddSensitiveSection(base::ListValue* parent_list,
   // |parent_list| and its members will be invalidated. This would result in
   // use-after-free in |*SyncStat::SetValue|. This is why the following DCHECK
   // is necessary to ensure no reallocation takes place.
-  DCHECK_LT(parent_list->GetSize(), parent_list->capacity());
+  DCHECK_LT(parent_list->GetSize(), parent_list->GetList().capacity());
   // TODO(crbug.com/702230): Remove the usages of raw pointers in this file.
   parent_list->Append(std::move(section));
   return section_contents;
@@ -145,7 +145,7 @@ StringSyncStat::StringSyncStat(base::ListValue* section,
   // other SyncStats will be invalidated. This is why the following dcheck is
   // necessary, so that it is guaranteed that a reallocation will not happen.
   // TODO(crbug.com/702230): Remove the usages of raw pointers in this file.
-  DCHECK_LT(section->GetSize(), section->capacity());
+  DCHECK_LT(section->GetSize(), section->GetList().capacity());
   section->Append(base::WrapUnique(stat_));
   section->GetDictionary(section->GetSize() - 1, &stat_);
 }
@@ -180,7 +180,7 @@ BoolSyncStat::BoolSyncStat(base::ListValue* section, const std::string& key) {
   // other SyncStats will be invalidated. This is why the following dcheck is
   // necessary, so that it is guaranteed that a reallocation will not happen.
   // TODO(crbug.com/702230): Remove the usages of raw pointers in this file.
-  DCHECK_LT(section->GetSize(), section->capacity());
+  DCHECK_LT(section->GetSize(), section->GetList().capacity());
   section->Append(base::WrapUnique(stat_));
   section->GetDictionary(section->GetSize() - 1, &stat_);
 }
@@ -210,7 +210,7 @@ IntSyncStat::IntSyncStat(base::ListValue* section, const std::string& key) {
   // other SyncStats will be invalidated. This is why the following dcheck is
   // necessary, so that it is guaranteed that a reallocation will not happen.
   // TODO(crbug.com/702230): Remove the usages of raw pointers in this file.
-  DCHECK_LT(section->GetSize(), section->capacity());
+  DCHECK_LT(section->GetSize(), section->GetList().capacity());
   section->Append(base::WrapUnique(stat_));
   section->GetDictionary(section->GetSize() - 1, &stat_);
 }
@@ -296,12 +296,23 @@ std::string GetConnectionStatus(const SyncService::SyncTokenStatus& status) {
 
 }  // namespace
 
+std::unique_ptr<base::DictionaryValue> ConstructAboutInformation_DEPRECATED(
+    SyncService* service,
+    version_info::Channel channel) {
+  AccountInfo primary_account_info;
+  if (service->signin())
+    primary_account_info = service->signin()->GetAuthenticatedAccountInfo();
+
+  return ConstructAboutInformation(service, primary_account_info, channel);
+}
+
 // This function both defines the structure of the message to be returned and
 // its contents.  Most of the message consists of simple fields in about:sync
 // which are grouped into sections and populated with the help of the SyncStat
 // classes defined above.
 std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
     SyncService* service,
+    AccountInfo primary_account_info,
     version_info::Channel channel) {
   auto about_info = std::make_unique<base::DictionaryValue>();
 
@@ -462,8 +473,8 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
     sync_id.SetValue(full_status.sync_id);
   if (is_status_valid && !full_status.invalidator_client_id.empty())
     invalidator_id.SetValue(full_status.invalidator_client_id);
-  if (service->signin())
-    username.SetValue(service->signin()->GetAuthenticatedAccountInfo().email);
+
+  username.SetValue(primary_account_info.email);
 
   const SyncService::SyncTokenStatus& token_status =
       service->GetSyncTokenStatus();

@@ -16,8 +16,9 @@ import static org.junit.Assert.fail;
 import android.os.Build;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import android.util.Log;
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -27,7 +28,6 @@ import org.appspot.apprtc.AppRTCClient.SignalingParameters;
 import org.appspot.apprtc.PeerConnectionClient;
 import org.appspot.apprtc.PeerConnectionClient.PeerConnectionEvents;
 import org.appspot.apprtc.PeerConnectionClient.PeerConnectionParameters;
-import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -46,7 +46,7 @@ import org.webrtc.VideoFrame;
 import org.webrtc.VideoRenderer;
 import org.webrtc.VideoSink;
 
-@RunWith(BaseJUnit4ClassRunner.class)
+@RunWith(AndroidJUnit4.class)
 public class PeerConnectionClientTest implements PeerConnectionEvents {
   private static final String TAG = "RTCClientTest";
   private static final int ICE_CONNECTION_WAIT_TIMEOUT = 10000;
@@ -79,7 +79,7 @@ public class PeerConnectionClientTest implements PeerConnectionEvents {
   private boolean isClosed;
   private boolean isIceConnected;
   private SessionDescription localSdp;
-  private List<IceCandidate> iceCandidates = new LinkedList<IceCandidate>();
+  private List<IceCandidate> iceCandidates = new ArrayList<>();
   private final Object localSdpEvent = new Object();
   private final Object iceCandidateEvent = new Object();
   private final Object iceConnectedEvent = new Object();
@@ -100,12 +100,16 @@ public class PeerConnectionClientTest implements PeerConnectionEvents {
     }
 
     // Resets render to wait for new amount of video frames.
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void reset(int expectedFrames) {
       renderFrameCalled = false;
       doneRendering = new CountDownLatch(expectedFrames);
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void renderFrame(VideoRenderer.I420Frame frame) {
       if (!renderFrameCalled) {
         if (rendererName != null) {
@@ -143,12 +147,16 @@ public class PeerConnectionClientTest implements PeerConnectionEvents {
     }
 
     // Resets render to wait for new amount of video frames.
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void reset(int expectedFrames) {
       renderFrameCalled = false;
       doneRendering = new CountDownLatch(expectedFrames);
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onFrame(VideoFrame frame) {
       if (!renderFrameCalled) {
         if (rendererName != null) {
@@ -243,48 +251,65 @@ public class PeerConnectionClientTest implements PeerConnectionEvents {
   // Helper wait functions.
   private boolean waitForLocalSDP(int timeoutMs) throws InterruptedException {
     synchronized (localSdpEvent) {
-      if (localSdp == null) {
-        localSdpEvent.wait(timeoutMs);
+      final long endTimeMs = System.currentTimeMillis() + timeoutMs;
+      while (localSdp == null) {
+        final long waitTimeMs = endTimeMs - System.currentTimeMillis();
+        if (waitTimeMs < 0) {
+          return false;
+        }
+        localSdpEvent.wait(waitTimeMs);
       }
-      return (localSdp != null);
+      return true;
     }
   }
 
   private boolean waitForIceCandidates(int timeoutMs) throws InterruptedException {
     synchronized (iceCandidateEvent) {
-      if (iceCandidates.size() == 0) {
+      final long endTimeMs = System.currentTimeMillis() + timeoutMs;
+      while (iceCandidates.size() == 0) {
+        final long waitTimeMs = endTimeMs - System.currentTimeMillis();
+        if (waitTimeMs < 0) {
+          return false;
+        }
         iceCandidateEvent.wait(timeoutMs);
       }
-      return (iceCandidates.size() > 0);
+      return true;
     }
   }
 
   private boolean waitForIceConnected(int timeoutMs) throws InterruptedException {
     synchronized (iceConnectedEvent) {
-      if (!isIceConnected) {
+      final long endTimeMs = System.currentTimeMillis() + timeoutMs;
+      while (!isIceConnected) {
+        final long waitTimeMs = endTimeMs - System.currentTimeMillis();
+        if (waitTimeMs < 0) {
+          Log.e(TAG, "ICE connection failure");
+          return false;
+        }
         iceConnectedEvent.wait(timeoutMs);
       }
-      if (!isIceConnected) {
-        Log.e(TAG, "ICE connection failure");
-      }
-
-      return isIceConnected;
+      return true;
     }
   }
 
   private boolean waitForPeerConnectionClosed(int timeoutMs) throws InterruptedException {
     synchronized (closeEvent) {
-      if (!isClosed) {
+      final long endTimeMs = System.currentTimeMillis() + timeoutMs;
+      while (!isClosed) {
+        final long waitTimeMs = endTimeMs - System.currentTimeMillis();
+        if (waitTimeMs < 0) {
+          return false;
+        }
         closeEvent.wait(timeoutMs);
       }
-      return isClosed;
+      return true;
     }
   }
 
   PeerConnectionClient createPeerConnectionClient(MockSink localRenderer,
       MockRenderer remoteRenderer, PeerConnectionParameters peerConnectionParameters,
       VideoCapturer videoCapturer) {
-    List<PeerConnection.IceServer> iceServers = new LinkedList<PeerConnection.IceServer>();
+    List<PeerConnection.IceServer> iceServers = new ArrayList<>();
     SignalingParameters signalingParameters =
         new SignalingParameters(iceServers, true, // iceServers, initiator.
             null, null, null, // clientId, wssUrl, wssPostUrl.
@@ -303,8 +328,7 @@ public class PeerConnectionClientTest implements PeerConnectionEvents {
   }
 
   private PeerConnectionParameters createParametersForAudioCall() {
-    PeerConnectionParameters peerConnectionParameters = new PeerConnectionParameters(
-        false, /* videoCallEnabled */
+    return new PeerConnectionParameters(false, /* videoCallEnabled */
         true, /* loopback */
         false, /* tracing */
         // Video codec parameters.
@@ -322,8 +346,6 @@ public class PeerConnectionClientTest implements PeerConnectionEvents {
         false, /* aecDump */
         false /* useOpenSLES */, false /* disableBuiltInAEC */, false /* disableBuiltInAGC */,
         false /* disableBuiltInNS */, false /* enableLevelControl */, false /* disableWebRtcAGC */);
-
-    return peerConnectionParameters;
   }
 
   private VideoCapturer createCameraCapturer(boolean captureToTexture) {
@@ -341,8 +363,7 @@ public class PeerConnectionClientTest implements PeerConnectionEvents {
   }
 
   private PeerConnectionParameters createParametersForVideoCall(String videoCodec) {
-    PeerConnectionParameters peerConnectionParameters = new PeerConnectionParameters(
-        true, /* videoCallEnabled */
+    return new PeerConnectionParameters(true, /* videoCallEnabled */
         true, /* loopback */
         false, /* tracing */
         // Video codec parameters.
@@ -360,8 +381,6 @@ public class PeerConnectionClientTest implements PeerConnectionEvents {
         false, /* aecDump */
         false /* useOpenSLES */, false /* disableBuiltInAEC */, false /* disableBuiltInAGC */,
         false /* disableBuiltInNS */, false /* enableLevelControl */, false /* disableWebRtcAGC */);
-
-    return peerConnectionParameters;
   }
 
   @Before

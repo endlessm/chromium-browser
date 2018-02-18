@@ -58,7 +58,6 @@ class ResultLayer : public ui::Layer, public ui::LayerDelegate {
 
  private:
   // ui::LayerDelegate:
-  void OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) override {}
   void OnDeviceScaleFactorChanged(float old_device_scale_factor,
                                   float new_device_scale_factor) override {}
   void OnPaintLayer(const ui::PaintContext& context) override;
@@ -185,7 +184,7 @@ HighlighterResultView::HighlighterResultView(aura::Window* root_window) {
   set_owned_by_client();
 }
 
-HighlighterResultView::~HighlighterResultView() {}
+HighlighterResultView::~HighlighterResultView() = default;
 
 void HighlighterResultView::Animate(const gfx::RectF& bounds,
                                     HighlighterGestureType gesture_type,

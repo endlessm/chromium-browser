@@ -91,9 +91,9 @@ const char kSessionExitedCleanly[] = "profile.exited_cleanly";
 // shutdown. Used to determine the exit type the last time the profile was open.
 const char kSessionExitType[] = "profile.exit_type";
 
-// Stores the total amount of observed active session time for the user.
-// Observed time is active session time.
-const char kObservedSessionTime[] = "profile.observed_time";
+// Stores the total amount of observed active session time for the user while
+// in-product help is active. Observed time is active session time in seconds.
+const char kObservedSessionTime[] = "profile.observed_session_time";
 
 // The last time that the site engagement service recorded an engagement event
 // for this profile for any URL. Recorded only during shutdown. Used to prevent
@@ -369,8 +369,6 @@ const char kWebKitJavascriptEnabled[] = "webkit.webprefs.javascript_enabled";
 const char kWebKitLoadsImagesAutomatically[] =
     "webkit.webprefs.loads_images_automatically";
 const char kWebKitPluginsEnabled[] = "webkit.webprefs.plugins_enabled";
-const char kWebKitEncryptedMediaEnabled[] =
-    "webkit.webprefs.encrypted_media_enabled";
 
 // Boolean that is true when Data Saver is enabled.
 // TODO(bengr): Migrate the preference string to "data_saver.enabled"
@@ -407,6 +405,11 @@ const char kConfirmToQuitEnabled[] = "browser.confirm_to_quit";
 // in fullscreen. Mac only.
 const char kShowFullscreenToolbar[] = "browser.show_fullscreen_toolbar";
 
+// Boolean that indicates whether the browser should allow Javascript injection
+// via Apple Events. Mac only.
+const char kAllowJavascriptAppleEvents[] =
+    "browser.allow_javascript_apple_events";
+
 #endif
 
 // Boolean which specifies whether we should ask the user if we should download
@@ -439,10 +442,6 @@ const char kNetworkQualities[] = "net.network_qualities";
 // Instead the cloud policy registration is retried at least 1 or 3 days later.
 const char kLastPolicyCheckTime[] = "policy.last_policy_check_time";
 #endif
-
-// Prefix URL for the experimental Instant ZeroSuggest provider.
-const char kInstantUIZeroSuggestUrlPrefix[] =
-    "instant_ui.zero_suggest_url_prefix";
 
 // A preference of enum chrome_browser_net::NetworkPredictionOptions shows
 // if prediction of network actions is allowed, depending on network type.
@@ -498,8 +497,21 @@ const char kUserTimezone[] = "settings.timezone";
 
 // This setting disables manual timezone selection and starts periodic timezone
 // refresh.
+// Deprecated. Replaced with kResolveTimezoneByGeolocationMethod.
+// TODO(alemate): https://crbug.com/783367 Remove outdated prefs.
 const char kResolveTimezoneByGeolocation[] =
     "settings.resolve_timezone_by_geolocation";
+
+// This setting controls what information is sent to the server to get
+// device location to resolve time zone in user session. Values must
+// match TimeZoneResolverManager::TimeZoneResolveMethod enum.
+const char kResolveTimezoneByGeolocationMethod[] =
+    "settings.resolve_timezone_by_geolocation_method";
+
+// This setting is true when kResolveTimezoneByGeolocation value
+// has been migrated to kResolveTimezoneByGeolocationMethod.
+const char kResolveTimezoneByGeolocationMigratedToMethod[] =
+    "settings.resolve_timezone_by_geolocation_migrated_to_method";
 
 // A string pref set to the current input method.
 const char kLanguageCurrentInputMethod[] =
@@ -581,6 +593,8 @@ const char kChromeOSReleaseNotesVersion[] = "settings.release_notes.version";
 const char kDisplayPowerState[] = "settings.display.power_state";
 // A dictionary pref that stores per display preferences.
 const char kDisplayProperties[] = "settings.display.properties";
+// A dictionary pref that stores the touch associations for the device.
+const char kDisplayTouchAssociations[] = "settings.display.touch_associations";
 
 // A dictionary pref that specifies per-display layout/offset information.
 // Its key is the ID of the display and its value is a dictionary for the
@@ -590,14 +604,6 @@ const char kSecondaryDisplays[] = "settings.display.secondary_displays";
 // A dictionary pref that specifies the state of the rotation lock, and the
 // display orientation, for the internal display.
 const char kDisplayRotationLock[] = "settings.display.rotation_lock";
-
-// A boolean pref that specifies if the stylus tools should be enabled/disabled.
-const char kEnableStylusTools[] = "settings.enable_stylus_tools";
-
-// A boolean pref that specifies if the ash palette should be launched after an
-// eject input event has been received.
-const char kLaunchPaletteOnEjectEvent[] =
-    "settings.launch_palette_on_eject_event";
 
 // A string pref that contains either a Chrome app ID (see
 // extensions::ExtensionId) or an Android package name (using Java package
@@ -616,6 +622,12 @@ const char kNoteTakingAppEnabledOnLockScreen[] =
 // to run on lock screen, not to actually enable the apps to run on lock screen.
 const char kNoteTakingAppsLockScreenWhitelist[] =
     "settings.note_taking_apps_lock_screen_whitelist";
+
+// Dictionary pref that maps lock screen app ID to a boolean indicating whether
+// the toast dialog has been show and dismissed as the app was being launched
+// on the lock screen.
+const char kNoteTakingAppsLockScreenToastShown[] =
+    "settings.note_taking_apps_lock_screen_toast_shown";
 
 // Whether the preferred note taking app should be requested to restore the last
 // note created on lock screen when launched on lock screen.
@@ -730,9 +742,6 @@ const char kAttestationEnabled[] = "attestation.enabled";
 // The list of extensions allowed to use the platformKeysPrivate API for
 // remote attestation.
 const char kAttestationExtensionWhitelist[] = "attestation.extension_whitelist";
-
-// A boolean pref indicating whether the projection touch HUD is enabled or not.
-const char kTouchHudProjectionEnabled[] = "touch_hud.projection_enabled";
 
 // A boolean pref recording whether user has dismissed the multiprofile
 // itroduction dialog show.
@@ -890,9 +899,10 @@ const char kInstantTetheringBleAdvertisingSupported[] =
 // Boolean pref indicating whether someone can cast to the device.
 const char kCastReceiverEnabled[] = "cast_receiver.enabled";
 
-// String pref indicating what name should be advertised for casting to.
-// If the string is empty or blank the system name will be used.
-const char kCastReceiverName[] = "cast_receiver.name";
+// String pref indicating what is the minimum version of Chrome required to
+// allow user sign in. If the string is empty or blank no restrictions will
+// be applied. See base::Version for exact string format.
+const char kMinimumAllowedChromeVersion[] = "minimum_req.version";
 
 #endif  // defined(OS_CHROMEOS)
 
@@ -1066,6 +1076,14 @@ const char kEnableReferrers[] = "enable_referrers";
 
 // Whether to send the DNT header.
 const char kEnableDoNotTrack[] = "enable_do_not_track";
+
+// Whether to allow the use of Encrypted Media Extensions (EME), except for the
+// use of Clear Key key sytems, which is always allowed as required by the spec.
+// TODO(crbug.com/784675): This pref was used as a WebPreference which is why
+// the string is prefixed with "webkit.webprefs". Now this is used in
+// RendererPreferences and we should migrate the pref to use a new
+// non-webkit-prefixed string.
+const char kEnableEncryptedMedia[] = "webkit.webprefs.encrypted_media_enabled";
 
 // GL_VENDOR string.
 const char kGLVendorString[] = "gl_vendor_string";
@@ -1458,9 +1476,6 @@ const char kWasRestarted[] = "was.restarted";
 // Whether Extensions are enabled.
 const char kDisableExtensions[] = "extensions.disabled";
 
-// Whether the plugin finder that lets you install missing plugins is enabled.
-const char kDisablePluginFinder[] = "plugins.disable_plugin_finder";
-
 // Customized app page names that appear on the New Tab Page.
 const char kNtpAppPageNames[] = "ntp.app_page_names";
 
@@ -1492,9 +1507,9 @@ const char kContentSuggestionsConsecutiveIgnoredPrefName[] =
 // as an integer YYYYMMDD, in wall time in the local timezone.
 // If sent_day changes, sent_count is reset to 0. Allows limiting per-day
 // notification count.
-extern const char kContentSuggestionsNotificationsSentDay[] =
+const char kContentSuggestionsNotificationsSentDay[] =
     "ntp.content_suggestions.notifications.sent_day";
-extern const char kContentSuggestionsNotificationsSentCount[] =
+const char kContentSuggestionsNotificationsSentCount[] =
     "ntp.content_suggestions.notifications.sent_count";
 #endif  // defined(OS_ANDROID)
 
@@ -1667,6 +1682,11 @@ const char kAuthAndroidNegotiateAccountType[] =
 // domain sub-content requests.
 const char kAllowCrossOriginAuthPrompt[] = "auth.allow_cross_origin_prompt";
 
+#if defined(OS_POSIX)
+// Boolean that specifies whether NTLMv2 is enabled.
+const char kNtlmV2Enabled[] = "auth.ntlm_v2_enabled";
+#endif  // defined(OS_POSIX)
+
 // Boolean that specifies whether the built-in asynchronous DNS client is used.
 const char kBuiltInDnsClientEnabled[] = "async_dns.enabled";
 
@@ -1688,30 +1708,6 @@ const char kVideoCaptureAllowed[] = "hardware.video_capture_enabled";
 // Holds URL patterns that specify URLs that will be granted access to video
 // capture devices without prompt.
 const char kVideoCaptureAllowedUrls[] = "hardware.video_capture_allowed_urls";
-
-// A boolean pref that controls the enabled-state of hotword search voice
-// trigger.
-const char kHotwordSearchEnabled[] = "hotword.search_enabled_2";
-
-// A boolean pref that controls the enabled-state of hotword search voice
-// trigger from any screen.
-const char kHotwordAlwaysOnSearchEnabled[] = "hotword.always_on_search_enabled";
-
-// A boolean pref that indicates whether the hotword always-on notification
-// has been seen already.
-const char kHotwordAlwaysOnNotificationSeen[] =
-    "hotword.always_on_notification_seen";
-
-// A boolean pref that controls whether the sound of "Ok, Google" plus a few
-// seconds of audio data before and the spoken query are sent back to be stored
-// in a user's Voice & Audio Activity. Updated whenever the user opens
-// chrome://settings and also polled for every 24 hours.
-const char kHotwordAudioLoggingEnabled[] = "hotword.audio_logging_enabled";
-
-// A string holding the locale information under which Hotword was installed.
-// It is used for comparison since the hotword voice search trigger must be
-// reinstalled to handle a new language.
-const char kHotwordPreviousLanguage[] = "hotword.previous_language";
 
 #if defined(OS_CHROMEOS)
 // Dictionary for transient storage of settings that should go into device
@@ -1861,6 +1857,20 @@ const char kReportArcStatusEnabled[] = "arc.status_reporting_enabled";
 // and download rate in kbits/s to throttle to)
 const char kNetworkThrottlingEnabled[] = "net.throttling_enabled";
 
+// Integer pref used by the metrics::DailyEvent owned by
+// chromeos::PowerMetricsReporter.
+const char kPowerMetricsDailySample[] = "power.metrics.daily_sample";
+
+// Integer prefs used to back event counts reported by
+// chromeos::PowerMetricsReporter.
+const char kPowerMetricsIdleScreenDimCount[] =
+    "power.metrics.idle_screen_dim_count";
+const char kPowerMetricsIdleScreenOffCount[] =
+    "power.metrics.idle_screen_off_count";
+const char kPowerMetricsIdleSuspendCount[] = "power.metrics.idle_suspend_count";
+const char kPowerMetricsLidClosedSuspendCount[] =
+    "power.metrics.lid_closed_suspend_count";
+
 #endif  // defined(OS_CHROMEOS)
 
 // Whether there is a Flash version installed that supports clearing LSO data.
@@ -1910,9 +1920,18 @@ const char kSigninScreenTimezone[] = "settings.signin_screen_timezone";
 
 // This setting starts periodic timezone refresh when not in user session.
 // (user session is controlled by user profile preference
-// kResolveTimezoneByGeolocation
+// kResolveTimezoneByGeolocation)
+//
+// Deprecated. Superseeded by kResolveDeviceTimezoneByGeolocationMethod.
+// TODO(alemate): https://crbug.com/783367 Remove outdated prefs.
 const char kResolveDeviceTimezoneByGeolocation[] =
     "settings.resolve_device_timezone_by_geolocation";
+
+// This setting controls what information is sent to the server to get
+// device location to resolve time zone outside of user session. Values must
+// match TimeZoneResolverManager::TimeZoneResolveMethod enum.
+const char kResolveDeviceTimezoneByGeolocationMethod[] =
+    "settings.resolve_device_timezone_by_geolocation_method";
 
 // This is policy-controlled preference.
 // It has values defined in policy enum
@@ -2099,9 +2118,6 @@ const char kAppListEnableTime[] = "app_list.when_enabled";
 // Keeps local state of app list while sync service is not available.
 const char kAppListLocalState[] = "app_list.local_state";
 
-// A boolean identifying if we should show the app launcher promo or not.
-const char kShowAppLauncherPromo[] = "app_launcher.show_promo";
-
 // A dictionary that tracks the Drive app to Chrome app mapping. The key is
 // a Drive app id and the value is the corresponding Chrome app id. The pref
 // is unsynable and used to track local mappings only.
@@ -2229,6 +2245,10 @@ const char kCloudPolicyOverridesMachinePolicy[] = "policy.cloud_override";
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 // Policy that indicates how to handle animated images.
 const char kAnimationPolicy[] = "settings.a11y.animation_policy";
+
+// A list of URLs (for U2F) or domains (for webauthn) that automatically permit
+// direct attestation of a Security Key.
+const char kSecurityKeyPermitAttestation[] = "securitykey.permit_attestation";
 #endif
 
 const char kBackgroundTracingLastUpload[] = "background_tracing.last_upload";
@@ -2257,6 +2277,9 @@ const char kMediaRouterEnableCloudServices[] =
 // user.
 const char kMediaRouterFirstRunFlowAcknowledged[] =
     "media_router.firstrunflow.acknowledged";
+// Whether or not the user has enabled Media Remoting. Defaults to true.
+const char kMediaRouterMediaRemotingEnabled[] =
+    "media_router.media_remoting.enabled";
 // A list of website origins on which the user has chosen to use tab mirroring.
 const char kMediaRouterTabMirroringSources[] =
     "media_router.tab_mirroring_sources";
@@ -2321,12 +2344,6 @@ const char kSearchGeolocationPostDisclosureMetricsRecorded[] =
 // A dictionary which stores whether location access is enabled for the current
 // default search engine.
 const char kDSEGeolocationSetting[] = "dse_geolocation_setting";
-
-// A dictionary which stores whether location access is enabled for the current
-// default search engine, if it is the Google search engine. Deprecated
-// Google-only version of the above.
-const char kGoogleDSEGeolocationSettingDeprecated[] =
-    "google_dse_geolocation_setting";
 
 // A dictionary of manifest URLs of Web Share Targets to a dictionary containing
 // attributes of its share_target field found in its manifest. Each key in the
@@ -2491,8 +2508,27 @@ const char kPrefetchUsageMixedCount[] = "offline_pages.prefetch_mixed_count";
 // will be wiped.
 const char kMediaEngagementSchemaVersion[] = "media.engagement.schema_version";
 
-// Boolean that specifies opting into --isolate-origins=... (selective Site
-// Isolation).
+// Maximum number of tabs that has been opened since the last time it has been
+// reported.
+const char kTabStatsTotalTabCountMax[] = "tab_stats.total_tab_count_max";
+
+// Maximum number of tabs that has been opened in a single window since the last
+// time it has been reported.
+const char kTabStatsMaxTabsPerWindow[] = "tab_stats.max_tabs_per_window";
+
+// Maximum number of windows that has been opened since the last time it has
+// been reported.
+const char kTabStatsWindowCountMax[] = "tab_stats.window_count_max";
+
+//  Timestamp of the last time the tab stats daily metrics have been reported.
+const char kTabStatsDailySample[] = "tab_stats.last_daily_sample";
+
+// A list of origins (URLs) to treat as "secure origins" for debugging purposes.
+const char kUnsafelyTreatInsecureOriginAsSecure[] =
+    "unsafely_treat_insecure_origin_as_secure";
+
+// A list of origins (URLs) that specifies opting into --isolate-origins=...
+// (selective Site Isolation).
 const char kIsolateOrigins[] = "site_isolation.isolate_origins";
 
 // Boolean that specifies opting into --site-per-process (full Site Isolation).

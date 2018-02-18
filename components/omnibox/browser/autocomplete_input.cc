@@ -4,17 +4,19 @@
 
 #include "components/omnibox/browser/autocomplete_input.h"
 
+#include <vector>
+
 #include "base/macros.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "components/metrics/proto/omnibox_event.pb.h"
 #include "components/omnibox/browser/autocomplete_scheme_classifier.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/url_formatter/url_fixer.h"
 #include "components/url_formatter/url_formatter.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/base/url_util.h"
+#include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "url/url_canon_ip.h"
 #include "url/url_util.h"
 
@@ -85,7 +87,7 @@ AutocompleteInput::AutocompleteInput(
       allow_exact_keyword_match_(true),
       want_asynchronous_matches_(true),
       from_omnibox_focus_(false) {
-  Init(text, std::string(), scheme_classifier);
+  Init(text, scheme_classifier);
 }
 
 AutocompleteInput::AutocompleteInput(
@@ -100,7 +102,7 @@ AutocompleteInput::AutocompleteInput(
       allow_exact_keyword_match_(true),
       want_asynchronous_matches_(true),
       from_omnibox_focus_(false) {
-  Init(text, std::string(), scheme_classifier);
+  Init(text, scheme_classifier);
 }
 
 AutocompleteInput::AutocompleteInput(
@@ -111,17 +113,17 @@ AutocompleteInput::AutocompleteInput(
     const AutocompleteSchemeClassifier& scheme_classifier)
     : cursor_position_(cursor_position),
       current_page_classification_(current_page_classification),
+      desired_tld_(desired_tld),
       prevent_inline_autocomplete_(false),
       prefer_keyword_(false),
       allow_exact_keyword_match_(true),
       want_asynchronous_matches_(true),
       from_omnibox_focus_(false) {
-  Init(text, desired_tld, scheme_classifier);
+  Init(text, scheme_classifier);
 }
 
 void AutocompleteInput::Init(
     const base::string16& text,
-    const std::string& desired_tld,
     const AutocompleteSchemeClassifier& scheme_classifier) {
   DCHECK(cursor_position_ <= text.length() ||
          cursor_position_ == base::string16::npos)
@@ -134,7 +136,7 @@ void AutocompleteInput::Init(
                                     &cursor_position_);
 
   GURL canonicalized_url;
-  type_ = Parse(text_, desired_tld, scheme_classifier, &parts_, &scheme_,
+  type_ = Parse(text_, desired_tld_, scheme_classifier, &parts_, &scheme_,
                 &canonicalized_url);
   PopulateTermsPrefixedByHttpOrHttps(text_, &terms_prefixed_by_http_or_https_);
 
@@ -464,7 +466,7 @@ void AutocompleteInput::ParseForEmphasizeComponents(
     url::Component* host) {
   url::Parsed parts;
   base::string16 scheme_str;
-  Parse(text, std::string(), scheme_classifier, &parts, &scheme_str, NULL);
+  Parse(text, std::string(), scheme_classifier, &parts, &scheme_str, nullptr);
 
   *scheme = parts.scheme;
   *host = parts.host;
@@ -478,7 +480,7 @@ void AutocompleteInput::ParseForEmphasizeComponents(
     base::string16 real_url(text.substr(after_scheme_and_colon));
     url::Parsed real_parts;
     AutocompleteInput::Parse(real_url, std::string(), scheme_classifier,
-                             &real_parts, NULL, NULL);
+                             &real_parts, nullptr, nullptr);
     if (real_parts.scheme.is_nonempty() || real_parts.host.is_nonempty()) {
       if (real_parts.scheme.is_nonempty()) {
         *scheme = url::Component(
@@ -508,11 +510,13 @@ base::string16 AutocompleteInput::FormattedStringWithEquivalentMeaning(
   if (!url_formatter::CanStripTrailingSlash(url))
     return formatted_url;
   const base::string16 url_with_path(formatted_url + base::char16('/'));
-  return (AutocompleteInput::Parse(formatted_url, std::string(),
-                                   scheme_classifier, NULL, NULL, NULL) ==
-          AutocompleteInput::Parse(url_with_path, std::string(),
-                                   scheme_classifier, NULL, NULL, NULL)) ?
-      formatted_url : url_with_path;
+  return (AutocompleteInput::Parse(
+              formatted_url, std::string(), scheme_classifier, nullptr, nullptr,
+              nullptr) == AutocompleteInput::Parse(url_with_path, std::string(),
+                                                   scheme_classifier, nullptr,
+                                                   nullptr, nullptr))
+             ? formatted_url
+             : url_with_path;
 }
 
 // static
@@ -542,7 +546,7 @@ bool AutocompleteInput::HasHTTPScheme(const base::string16& input) {
   if (url::FindAndCompareScheme(utf8_input, kViewSourceScheme, &scheme)) {
     utf8_input.erase(0, scheme.end() + 1);
   }
-  return url::FindAndCompareScheme(utf8_input, url::kHttpScheme, NULL);
+  return url::FindAndCompareScheme(utf8_input, url::kHttpScheme, nullptr);
 }
 
 void AutocompleteInput::UpdateText(const base::string16& text,

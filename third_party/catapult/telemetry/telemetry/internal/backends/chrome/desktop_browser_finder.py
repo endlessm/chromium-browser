@@ -66,13 +66,16 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
       try:
         returned_browser = None
 
+        browser_options = finder_options.browser_options
         browser_backend = desktop_browser_backend.DesktopBrowserBackend(
             self._platform_backend,
-            finder_options.browser_options, self._local_executable,
+            browser_options, self._local_executable,
             self._flash_path, self._is_content_shell, self._browser_directory)
 
+        browser_backend.ClearCaches()
+
         returned_browser = browser.Browser(
-            browser_backend, self._platform_backend, self._credentials_path)
+            browser_backend, self._platform_backend)
 
         return returned_browser
       except Exception: # pylint: disable=broad-except

@@ -34,6 +34,7 @@ const CGFloat kSeparatorEdgeInset = 14;
 
 typedef NS_ENUM(NSInteger, SectionIdentifier) {
   SectionIdentifierItems = kSectionIdentifierEnumZero,
+  SectionIdentifierAddButton,
 };
 
 typedef NS_ENUM(NSInteger, ItemType) {
@@ -167,10 +168,11 @@ typedef NS_ENUM(NSInteger, ItemType) {
   if (!self.editing) {
     CollectionViewItem* addButtonItem = [self.dataSource addButtonItem];
     if (addButtonItem) {
+      [model addSectionWithIdentifier:SectionIdentifierAddButton];
       addButtonItem.type = ItemTypeAddItem;
       addButtonItem.accessibilityTraits |= UIAccessibilityTraitButton;
       [model addItem:addButtonItem
-          toSectionWithIdentifier:SectionIdentifierItems];
+          toSectionWithIdentifier:SectionIdentifierAddButton];
     }
   }
 }
@@ -201,11 +203,22 @@ typedef NS_ENUM(NSInteger, ItemType) {
       if ([cell isKindOfClass:[PaymentsTextCell class]]) {
         PaymentsTextCell* textCell =
             base::mac::ObjCCastStrict<PaymentsTextCell>(cell);
-        textCell.textLabel.font = [MDCTypography body2Font];
         textCell.textLabel.textColor =
             self.dataSource.state == PaymentRequestSelectorStateError
                 ? [[MDCPalette cr_redPalette] tint600]
                 : [[MDCPalette greyPalette] tint600];
+      }
+      break;
+    }
+    case ItemTypeAddItem: {
+      if ([cell isKindOfClass:[PaymentsTextCell class]]) {
+        PaymentsTextCell* paymentsTextCell =
+            base::mac::ObjCCastStrict<PaymentsTextCell>(cell);
+        // Style call to action cells.
+        if (paymentsTextCell.cellType == PaymentsTextCellTypeCallToAction) {
+          paymentsTextCell.textLabel.textColor =
+              [[MDCPalette cr_bluePalette] tint500];
+        }
       }
       break;
     }

@@ -39,7 +39,7 @@
 #include "chrome/browser/signin/easy_unlock_service.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/ash/ash_util.h"
-#include "chrome/browser/ui/ash/lock_screen_client.h"
+#include "chrome/browser/ui/ash/login_screen_client.h"
 #include "chrome/browser/ui/ash/session_controller_client.h"
 #include "chrome/browser/ui/webui/chromeos/login/screenlock_icon_provider.h"
 #include "chrome/browser/ui/webui/chromeos/login/screenlock_icon_source.h"
@@ -201,21 +201,7 @@ void ScreenLocker::Init() {
 
   authenticator_ = UserSessionManager::GetInstance()->CreateAuthenticator(this);
   extended_authenticator_ = ExtendedAuthenticator::Create(this);
-  if (ash::switches::IsUsingMdLogin()) {
-    // Create delegate that calls into the views-based lock screen via mojo.
-    views_screen_locker_ = base::MakeUnique<ViewsScreenLocker>(this);
-    delegate_ = views_screen_locker_.get();
-
-    // Create and display lock screen.
-    LockScreenClient::Get()->ShowLockScreen(base::BindOnce(
-        [](ViewsScreenLocker* screen_locker, bool did_show) {
-          CHECK(did_show);
-          screen_locker->OnLockScreenReady();
-        },
-        views_screen_locker_.get()));
-
-    views_screen_locker_->Init();
-  } else {
+  if (ash::switches::IsUsingWebUiLock()) {
     web_ui_.reset(new WebUIScreenLocker(this));
     delegate_ = web_ui_.get();
     web_ui_->LockScreen();
@@ -226,6 +212,20 @@ void ScreenLocker::Init() {
         new ScreenlockIconSource(screenlock_icon_provider_->AsWeakPtr());
     content::URLDataSource::Add(web_ui_->web_contents()->GetBrowserContext(),
                                 screenlock_icon_source);
+  } else {
+    // Create delegate that calls into the views-based lock screen via mojo.
+    views_screen_locker_ = base::MakeUnique<ViewsScreenLocker>(this);
+    delegate_ = views_screen_locker_.get();
+
+    // Create and display lock screen.
+    LoginScreenClient::Get()->ShowLockScreen(base::BindOnce(
+        [](ViewsScreenLocker* screen_locker, bool did_show) {
+          CHECK(did_show);
+          screen_locker->OnLockScreenReady();
+        },
+        views_screen_locker_.get()));
+
+    views_screen_locker_->Init();
   }
 
   // Start locking on ash side.
@@ -354,6 +354,7 @@ void ScreenLocker::Authenticate(const UserContext& user_context,
 
   DCHECK(!on_auth_complete_);
   on_auth_complete_ = std::move(callback);
+  unlock_attempt_type_ = AUTH_PASSWORD;
 
   authentication_start_time_ = base::Time::Now();
   delegate_->SetPasswordInputEnabled(false);
@@ -478,6 +479,9 @@ void ScreenLocker::ShutDownClass() {
   DCHECK(g_screen_lock_observer);
   delete g_screen_lock_observer;
   g_screen_lock_observer = nullptr;
+
+  // Delete |screen_locker_| if it is being shown.
+  ScheduleDeletion();
 }
 
 // static
@@ -569,8 +573,11 @@ ScreenLocker::~ScreenLocker() {
   VLOG(1) << "Destroying ScreenLocker " << this;
   DCHECK(base::MessageLoopForUI::IsCurrent());
 
-  if (authenticator_.get())
+  if (authenticator_)
     authenticator_->SetConsumer(nullptr);
+  if (extended_authenticator_)
+    extended_authenticator_->SetConsumer(nullptr);
+
   ClearErrors();
 
   screen_locker_ = nullptr;

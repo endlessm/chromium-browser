@@ -25,7 +25,7 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/extensions/bookmark_app_helper.h"
+#include "chrome/browser/extensions/browsertest_util.h"
 #include "chrome/browser/pdf/pdf_extension_test_util.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
@@ -39,8 +39,8 @@
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_features.h"
+#include "chrome/common/chrome_render_frame.mojom.h"
 #include "chrome/common/render_messages.h"
-#include "chrome/common/thumbnail_capturer.mojom.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/search_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -73,9 +73,16 @@
 #include "net/url_request/url_request_filter.h"
 #include "net/url_request/url_request_interceptor.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/WebKit/public/web/WebContextMenuData.h"
 #include "ui/base/models/menu_model.h"
+
+#if defined(OS_CHROMEOS)
+#include "ash/public/cpp/window_properties.h"
+#include "ash/public/interfaces/window_pin_type.mojom.h"
+#include "ui/aura/window.h"
+#endif
 
 using content::WebContents;
 using extensions::MimeHandlerViewGuest;
@@ -154,7 +161,7 @@ class ContextMenuBrowserTest : public InProcessBrowserTest {
 
   // Does not work on ChromeOS.
   Profile* CreateSecondaryProfile(int profile_num) {
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     ProfileManager* profile_manager = g_browser_process->profile_manager();
     base::FilePath profile_path = profile_manager->user_data_dir();
     profile_path = profile_path.AppendASCII(
@@ -163,38 +170,19 @@ class ContextMenuBrowserTest : public InProcessBrowserTest {
   }
 
   const extensions::Extension* InstallTestBookmarkApp(const GURL& app_url) {
-    Profile* profile = browser()->profile();
-    size_t num_extensions = extensions::ExtensionRegistry::Get(profile)
-                                ->enabled_extensions()
-                                .size();
     WebApplicationInfo web_app_info;
     web_app_info.app_url = app_url;
     web_app_info.scope = app_url;
     web_app_info.title = base::UTF8ToUTF16("Test app");
     web_app_info.description = base::UTF8ToUTF16("Test description");
 
-    content::WindowedNotificationObserver windowed_observer(
-        extensions::NOTIFICATION_CRX_INSTALLER_DONE,
-        content::NotificationService::AllSources());
-    extensions::CreateOrUpdateBookmarkApp(
-        extensions::ExtensionSystem::Get(profile)->extension_service(),
-        &web_app_info);
-    windowed_observer.Wait();
-
-    EXPECT_EQ(++num_extensions, extensions::ExtensionRegistry::Get(profile)
-                                    ->enabled_extensions()
-                                    .size());
-    return content::Details<const extensions::Extension>(
-               windowed_observer.details())
-        .ptr();
+    return extensions::browsertest_util::InstallBookmarkApp(
+        browser()->profile(), web_app_info);
   }
 
   Browser* OpenTestBookmarkApp(const extensions::Extension* bookmark_app) {
-    OpenApplication(AppLaunchParams(browser()->profile(), bookmark_app,
-                                    extensions::LAUNCH_CONTAINER_WINDOW,
-                                    WindowOpenDisposition::CURRENT_TAB,
-                                    extensions::SOURCE_CHROME_INTERNAL));
-    return chrome::FindLastActive();
+    return extensions::browsertest_util::LaunchAppBrowser(browser()->profile(),
+                                                          bookmark_app);
   }
 };
 
@@ -251,8 +239,6 @@ class PdfPluginContextMenuBrowserTest : public InProcessBrowserTest {
     content::ContextMenuParams params;
     params.page_url = page_url;
     params.frame_url = frame->GetLastCommittedURL();
-    params.frame_page_state =
-        content::PageState::CreateFromURL(params.frame_url);
     params.media_type = blink::WebContextMenuData::kMediaTypePlugin;
     TestRenderViewContextMenu menu(frame, params);
     menu.Init();
@@ -294,6 +280,31 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest,
 
   EXPECT_TRUE(menu3->IsCommandIdVisible(IDC_CONTENT_CONTEXT_COPYLINKTEXT));
 }
+
+#if defined(OS_CHROMEOS)
+IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest,
+                       ContextMenuEntriesAreDisabledInLockedFullscreen) {
+  int entries_to_test[] = {
+    IDC_VIEW_SOURCE, IDC_CONTENT_CONTEXT_OPENLINKNEWTAB,
+    IDC_CONTENT_CONTEXT_INSPECTELEMENT,
+  };
+  std::unique_ptr<TestRenderViewContextMenu> menu =
+      CreateContextMenuMediaTypeNone(GURL("http://www.google.com/"),
+                                     GURL("http://www.google.com/"));
+
+  // Entries are enabled.
+  for (auto entry : entries_to_test)
+    EXPECT_TRUE(menu->IsCommandIdEnabled(entry));
+
+  // Set locked fullscreen state.
+  browser()->window()->GetNativeWindow()->SetProperty(
+      ash::kWindowPinTypeKey, ash::mojom::WindowPinType::TRUSTED_PINNED);
+
+  // All entries are disabled in locked fullscreen (testing only a subset here).
+  for (auto entry : entries_to_test)
+    EXPECT_FALSE(menu->IsCommandIdEnabled(entry));
+}
+#endif  // defined(OS_CHROMEOS)
 
 IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, OpenEntryPresentForNormalURLs) {
   std::unique_ptr<TestRenderViewContextMenu> menu =
@@ -973,13 +984,13 @@ IN_PROC_BROWSER_TEST_F(SearchByImageBrowserTest, ImageSearchWithCorruptImage) {
   RightClickImage();
   waiter.WaitForMenuOpenAndClose();
 
-  chrome::mojom::ThumbnailCapturerPtr thumbnail_capturer;
+  chrome::mojom::ChromeRenderFrameAssociatedPtr chrome_render_frame;
   browser()
       ->tab_strip_model()
       ->GetActiveWebContents()
       ->GetMainFrame()
-      ->GetRemoteInterfaces()
-      ->GetInterface(&thumbnail_capturer);
+      ->GetRemoteAssociatedInterfaces()
+      ->GetInterface(&chrome_render_frame);
 
   auto callback = [](bool* response_received, const base::Closure& quit,
                      const std::vector<uint8_t>& thumbnail_data,
@@ -990,7 +1001,7 @@ IN_PROC_BROWSER_TEST_F(SearchByImageBrowserTest, ImageSearchWithCorruptImage) {
 
   base::RunLoop run_loop;
   bool response_received = false;
-  thumbnail_capturer->RequestThumbnailForContextNode(
+  chrome_render_frame->RequestThumbnailForContextNode(
       0, gfx::Size(2048, 2048), chrome::mojom::ImageFormat::JPEG,
       base::Bind(callback, &response_received, run_loop.QuitClosure()));
   run_loop.Run();
@@ -1024,7 +1035,6 @@ IN_PROC_BROWSER_TEST_F(PdfPluginContextMenuBrowserTest,
   content::ContextMenuParams params;
   params.page_url = page_url;
   params.frame_url = frame->GetLastCommittedURL();
-  params.frame_page_state = content::PageState::CreateFromURL(params.frame_url);
   params.media_type = blink::WebContextMenuData::kMediaTypePlugin;
   TestRenderViewContextMenu menu(frame, params);
   menu.Init();

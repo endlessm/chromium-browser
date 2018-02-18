@@ -40,6 +40,10 @@ NoTransportImageTransportFactory::~NoTransportImageTransportFactory() {
   context_factory_.SendOnLostResources();
 }
 
+bool NoTransportImageTransportFactory::IsGpuCompositingDisabled() {
+  return false;
+}
+
 ui::ContextFactory* NoTransportImageTransportFactory::GetContextFactory() {
   return &context_factory_;
 }
@@ -57,8 +61,5 @@ viz::GLHelper* NoTransportImageTransportFactory::GetGLHelper() {
   }
   return gl_helper_.get();
 }
-
-void NoTransportImageTransportFactory::SetGpuChannelEstablishFactory(
-    gpu::GpuChannelEstablishFactory* factory) {}
 
 }  // namespace content

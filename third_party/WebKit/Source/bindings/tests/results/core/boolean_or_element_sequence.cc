@@ -15,6 +15,7 @@
 #include "bindings/core/v8/ToV8ForCore.h"
 #include "bindings/core/v8/V8Element.h"
 #include "core/animation/ElementAnimation.h"
+#include "core/css/cssom/ElementComputedStyleMap.h"
 #include "core/dom/ChildNode.h"
 #include "core/dom/NonDocumentTypeChildNode.h"
 #include "core/dom/ParentNode.h"
@@ -62,7 +63,7 @@ BooleanOrElementSequence::BooleanOrElementSequence(const BooleanOrElementSequenc
 BooleanOrElementSequence::~BooleanOrElementSequence() = default;
 BooleanOrElementSequence& BooleanOrElementSequence::operator=(const BooleanOrElementSequence&) = default;
 
-DEFINE_TRACE(BooleanOrElementSequence) {
+void BooleanOrElementSequence::Trace(blink::Visitor* visitor) {
   visitor->Trace(element_sequence_);
 }
 

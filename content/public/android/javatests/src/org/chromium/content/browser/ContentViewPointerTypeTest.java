@@ -72,12 +72,9 @@ public class ContentViewPointerTypeTest {
         mActivityTestRule.runOnUiThreadForTestCommon(new Runnable() {
             @Override
             public void run() {
-                float x = mActivityTestRule.getContentViewCore()
-                                  .getRenderCoordinates()
-                                  .fromLocalCssToPix((float) (rect.left + rect.right) / 2.0f);
-                float y = mActivityTestRule.getContentViewCore()
-                                  .getRenderCoordinates()
-                                  .fromLocalCssToPix((float) (rect.top + rect.bottom) / 2.0f);
+                RenderCoordinates coord = mActivityTestRule.getRenderCoordinates();
+                float x = coord.fromLocalCssToPix((float) (rect.left + rect.right) / 2.0f);
+                float y = coord.fromLocalCssToPix((float) (rect.top + rect.bottom) / 2.0f);
                 moveCursor(x, y);
             }
         });
@@ -90,8 +87,8 @@ public class ContentViewPointerTypeTest {
     //@Feature({"Main"})
     @DisabledTest(message = "crbug.com/755112")
     public void testPointerType() throws Throwable {
-        checkPointerTypeForNode("hand", WebCursorInfoType.TYPE_HAND);
-        checkPointerTypeForNode("text", WebCursorInfoType.TYPE_I_BEAM);
-        checkPointerTypeForNode("help", WebCursorInfoType.TYPE_HELP);
+        checkPointerTypeForNode("hand", WebCursorInfoType.HAND);
+        checkPointerTypeForNode("text", WebCursorInfoType.I_BEAM);
+        checkPointerTypeForNode("help", WebCursorInfoType.HELP);
     }
 }

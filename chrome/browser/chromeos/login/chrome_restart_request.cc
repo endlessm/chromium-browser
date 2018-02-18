@@ -44,6 +44,7 @@
 #include "gpu/ipc/service/switches.h"
 #include "media/base/media_switches.h"
 #include "media/media_features.h"
+#include "services/service_manager/sandbox/switches.h"
 #include "third_party/cros_system_api/switches/chrome_switches.h"
 #include "ui/app_list/app_list_switches.h"
 #include "ui/base/ui_base_switches.h"
@@ -75,6 +76,10 @@ void DeriveCommandLine(const GURL& start_url,
   DCHECK_NE(&base_command_line, command_line);
 
   static const char* const kForwardSwitches[] = {
+    service_manager::switches::kDisableSeccompFilterSandbox,
+    service_manager::switches::kDisableSetuidSandbox,
+    service_manager::switches::kGpuSandboxAllowSysVShm,
+    service_manager::switches::kGpuSandboxFailuresFatal,
     ::switches::kBlinkSettings,
     ::switches::kDisable2dCanvasImageChromium,
     ::switches::kDisableAccelerated2dCanvas,
@@ -87,7 +92,7 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableGpu,
     ::switches::kDisableGpuMemoryBufferVideoFrames,
     ::switches::kDisableGpuShaderDiskCache,
-    ::switches::kUsePassthroughCmdDecoder,
+    ::switches::kUseCmdDecoder,
     ::switches::kDisableGpuWatchdog,
     ::switches::kDisableGpuCompositing,
     ::switches::kDisableGpuRasterization,
@@ -96,8 +101,6 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisablePreferCompositingToLCDText,
     ::switches::kDisablePanelFitting,
     ::switches::kDisableRGBA4444Textures,
-    ::switches::kDisableSeccompFilterSandbox,
-    ::switches::kDisableSetuidSandbox,
     ::switches::kDisableThreadedScrolling,
     ::switches::kDisableTouchDragDrop,
     ::switches::kDisableZeroCopy,
@@ -136,8 +139,6 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kForceGpuRasterization,
     ::switches::kGpuRasterizationMSAASampleCount,
     ::switches::kGpuStartupDialog,
-    ::switches::kGpuSandboxAllowSysVShm,
-    ::switches::kGpuSandboxFailuresFatal,
     ::switches::kGpuSandboxStartEarly,
     ::switches::kNoSandbox,
     ::switches::kNumRasterThreads,
@@ -154,7 +155,6 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kTopChromeMD,
     ::switches::kTraceToConsole,
     ::switches::kUIDisablePartialSwap,
-    ::switches::kUIPrioritizeInGpuProcess,
 #if defined(USE_CRAS)
     ::switches::kUseCras,
 #endif
@@ -172,15 +172,14 @@ void DeriveCommandLine(const GURL& start_url,
 #endif
     ::switches::kDisableVaapiAcceleratedVideoEncode,
     ::switches::kOzonePlatform,
-    app_list::switches::kDisableSyncAppList,
-    app_list::switches::kEnableSyncAppList,
     ash::switches::kAshEnableTabletMode,
     ash::switches::kAshForceEnableStylusTools,
     ash::switches::kAshEnablePaletteOnAllDisplays,
     ash::switches::kAshTouchHud,
     ash::switches::kAuraLegacyPowerButton,
     ash::switches::kForceClamshellPowerButton,
-    ash::switches::kShowMdLogin,
+    ash::switches::kShowViewsLogin,
+    ash::switches::kShowWebUiLock,
     chromeos::switches::kDefaultWallpaperLarge,
     chromeos::switches::kDefaultWallpaperSmall,
     chromeos::switches::kGuestWallpaperLarge,

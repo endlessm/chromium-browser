@@ -15,25 +15,25 @@ namespace webrtc {
 namespace jni {
 
 JNI_FUNCTION_DECLARATION(jstring,
-                         MediaStreamTrack_nativeId,
+                         MediaStreamTrack_getNativeId,
                          JNIEnv* jni,
                          jclass,
                          jlong j_p) {
-  return JavaStringFromStdString(
+  return NativeToJavaString(
       jni, reinterpret_cast<MediaStreamTrackInterface*>(j_p)->id());
 }
 
 JNI_FUNCTION_DECLARATION(jstring,
-                         MediaStreamTrack_nativeKind,
+                         MediaStreamTrack_getNativeKind,
                          JNIEnv* jni,
                          jclass,
                          jlong j_p) {
-  return JavaStringFromStdString(
+  return NativeToJavaString(
       jni, reinterpret_cast<MediaStreamTrackInterface*>(j_p)->kind());
 }
 
 JNI_FUNCTION_DECLARATION(jboolean,
-                         MediaStreamTrack_nativeEnabled,
+                         MediaStreamTrack_getNativeEnabled,
                          JNIEnv* jni,
                          jclass,
                          jlong j_p) {
@@ -41,7 +41,7 @@ JNI_FUNCTION_DECLARATION(jboolean,
 }
 
 JNI_FUNCTION_DECLARATION(jobject,
-                         MediaStreamTrack_nativeState,
+                         MediaStreamTrack_getNativeState,
                          JNIEnv* jni,
                          jclass,
                          jlong j_p) {
@@ -51,7 +51,7 @@ JNI_FUNCTION_DECLARATION(jobject,
 }
 
 JNI_FUNCTION_DECLARATION(jboolean,
-                         MediaStreamTrack_nativeSetEnabled,
+                         MediaStreamTrack_setNativeEnabled,
                          JNIEnv* jni,
                          jclass,
                          jlong j_p,

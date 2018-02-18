@@ -10,6 +10,7 @@
 // clang-format off
 #include "V8TestInterfaceGarbageCollected.h"
 
+#include "base/memory/scoped_refptr.h"
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/IDLTypes.h"
 #include "bindings/core/v8/NativeValueTraitsImpl.h"
@@ -23,7 +24,6 @@
 #include "platform/bindings/ScriptState.h"
 #include "platform/bindings/V8ObjectConstructor.h"
 #include "platform/wtf/GetPtr.h"
-#include "platform/wtf/RefPtr.h"
 
 namespace blink {
 
@@ -44,7 +44,6 @@ const WrapperTypeInfo V8TestInterfaceGarbageCollected::wrapperTypeInfo = {
     WrapperTypeInfo::kWrapperTypeObjectPrototype,
     WrapperTypeInfo::kObjectClassId,
     WrapperTypeInfo::kNotInheritFromActiveScriptWrappable,
-    WrapperTypeInfo::kIndependent,
 };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && defined(__clang__)
 #pragma clang diagnostic pop
@@ -169,11 +168,12 @@ static void forEachMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
 
   ScriptValue callback;
   ScriptValue thisArg;
-  if (!(info[0]->IsObject() && v8::Local<v8::Object>::Cast(info[0])->IsCallable())) {
+  if (info[0]->IsFunction()) {
+    callback = ScriptValue(ScriptState::Current(info.GetIsolate()), info[0]);
+  } else {
     exceptionState.ThrowTypeError("The callback provided as parameter 1 is not a function.");
     return;
   }
-  callback = ScriptValue(ScriptState::Current(info.GetIsolate()), info[0]);
 
   thisArg = ScriptValue(ScriptState::Current(info.GetIsolate()), info[1]);
 

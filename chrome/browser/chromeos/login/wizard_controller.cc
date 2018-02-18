@@ -33,7 +33,6 @@
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/voice_interaction/arc_voice_interaction_framework_service.h"
 #include "chrome/browser/chromeos/customization/customization_document.h"
-#include "chrome/browser/chromeos/device/input_service_proxy.h"
 #include "chrome/browser/chromeos/login/enrollment/auto_enrollment_check_screen.h"
 #include "chrome/browser/chromeos/login/enrollment/enrollment_screen.h"
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
@@ -93,6 +92,7 @@
 #include "chromeos/timezone/timezone_provider.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_prefs.h"
+#include "components/arc/arc_util.h"
 #include "components/crash/content/app/breakpad_linux.h"
 #include "components/pairing/bluetooth_controller_pairing_controller.h"
 #include "components/pairing/bluetooth_host_pairing_controller.h"
@@ -103,6 +103,8 @@
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_types.h"
+#include "content/public/common/service_manager_connection.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/accelerators/accelerator.h"
 
@@ -426,9 +428,12 @@ BaseScreen* WizardController::CreateScreen(OobeScreen screen) {
         shark_controller_.get());
   } else if (screen == OobeScreen::SCREEN_OOBE_HOST_PAIRING) {
     if (!remora_controller_) {
+      DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+      DCHECK(content::ServiceManagerConnection::GetForProcess());
+      service_manager::Connector* connector =
+          content::ServiceManagerConnection::GetForProcess()->GetConnector();
       remora_controller_.reset(
-          new pairing_chromeos::BluetoothHostPairingController(
-              InputServiceProxy::GetInputServiceTaskRunner()));
+          new pairing_chromeos::BluetoothHostPairingController(connector));
       remora_controller_->StartPairing();
     }
     return new HostPairingScreen(this, this,
@@ -875,7 +880,8 @@ void WizardController::OnVoiceInteractionValuePropSkipped() {
 
 void WizardController::OnVoiceInteractionValuePropAccepted() {
   const Profile* profile = ProfileManager::GetActiveUserProfile();
-  if (is_in_session_oobe_ && !arc::IsArcPlayStoreEnabledForProfile(profile)) {
+  if (is_in_session_oobe_ && !arc::IsArcPlayStoreEnabledForProfile(profile) &&
+      arc::IsPlayStoreAvailable()) {
     ShowArcTermsOfServiceScreen();
     return;
   }
@@ -1614,6 +1620,13 @@ bool WizardController::ShouldShowArcTerms() const {
     VLOG(1) << "Skip ARC Terms of Service screen because ARC is disabled.";
     return false;
   }
+
+  if (!arc::IsPlayStoreAvailable()) {
+    VLOG(1) << "Skip ARC Terms of Service screen because Play Store is not "
+               "available on the device.";
+    return false;
+  }
+
   if (arc::IsActiveDirectoryUserForProfile(profile)) {
     VLOG(1) << "Skip ARC Terms of Service screen because it does not apply to "
                "Active Directory users.";
@@ -1653,11 +1666,14 @@ void WizardController::MaybeStartListeningForSharkConnection() {
     return;
 
   if (!shark_connection_listener_) {
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+    DCHECK(content::ServiceManagerConnection::GetForProcess());
+    service_manager::Connector* connector =
+        content::ServiceManagerConnection::GetForProcess()->GetConnector();
     shark_connection_listener_.reset(
         new pairing_chromeos::SharkConnectionListener(
-            InputServiceProxy::GetInputServiceTaskRunner(),
-            base::Bind(&WizardController::OnSharkConnected,
-                       weak_factory_.GetWeakPtr())));
+            connector, base::Bind(&WizardController::OnSharkConnected,
+                                  weak_factory_.GetWeakPtr())));
   }
 }
 

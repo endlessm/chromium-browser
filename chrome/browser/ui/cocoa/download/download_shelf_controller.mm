@@ -156,9 +156,10 @@ const CGFloat kMDCloseButtonSize = 24;
 
 - (void)loadView {
   if (base::FeatureList::IsEnabled(features::kMacMaterialDesignDownloadShelf)) {
-    NSView* view = [[DownloadShelfView alloc]
+    base::scoped_nsobject<NSView> scopedView([[DownloadShelfView alloc]
         initWithFrame:NSMakeRect(0, 0, kMDShelfInitialWidth,
-                                 [DownloadShelfView shelfHeight])];
+                                 [DownloadShelfView shelfHeight])]);
+    NSView* view = scopedView.get();
     view.autoresizingMask = [NSView
         cr_localizedAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
     const NSRect bounds = view.bounds;
@@ -174,7 +175,7 @@ const CGFloat kMDCloseButtonSize = 24;
         [NSView cr_localizedAutoresizingMask:NSViewMinXMargin];
     closeButton.icon = &vector_icons::kClose16Icon;
     [closeButton
-        cr_setAccessibilityLabel:l10n_util::GetNSString(IDS_ACCNAME_CLOSE)];
+        cr_setAccessibilityLabel:l10n_util::GetNSString(IDS_HIDE_DOWNLOADS)];
     closeButton.target = self;
     closeButton.action = @selector(handleClose:);
     hoverCloseButton_ = closeButton;
@@ -213,6 +214,7 @@ const CGFloat kMDCloseButtonSize = 24;
 
   NSNotificationCenter* defaultCenter = [NSNotificationCenter defaultCenter];
   [[self animatableView] setResizeDelegate:resizeDelegate_];
+  [[self animatableView] setDelegate:self];
   if (!base::FeatureList::IsEnabled(
           features::kMacMaterialDesignDownloadShelf)) {
     [[self view] setPostsFrameChangedNotifications:YES];
@@ -235,6 +237,7 @@ const CGFloat kMDCloseButtonSize = 24;
 
 - (void)dealloc {
   [[self animatableView] setResizeDelegate:nil];
+  [[self animatableView] setDelegate:nil];
   [self browserWillBeDestroyed];
   [super dealloc];
 }
@@ -371,6 +374,8 @@ const CGFloat kMDCloseButtonSize = 24;
   if (![self isVisible]) {
     [self closed];
     [[self view] setHidden:YES];  // So that it doesn't appear in AX hierarchy.
+    NSAccessibilityPostNotification([self view],
+                                    NSAccessibilityLayoutChangedNotification);
   }
 }
 
@@ -451,14 +456,17 @@ const CGFloat kMDCloseButtonSize = 24;
   // Start at width 0...
   NSSize size = [controller preferredSize];
   NSRect frame = NSMakeRect(0, 0, 0, size.height);
-  [[controller view] setFrame:[itemContainerView_ cr_localizedRect:frame]];
+  NSView* view = [controller view];
+  [view setFrame:[itemContainerView_ cr_localizedRect:frame]];
 
   // ...then, in MD, animate everything together.
   if (base::FeatureList::IsEnabled(features::kMacMaterialDesignDownloadShelf)) {
+    view.alphaValue = 0;
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
       context.duration = kDownloadItemOpenDuration;
       context.timingFunction =
           CAMediaTimingFunction.cr_materialEaseOutTimingFunction;
+      view.animator.alphaValue = 1;
       [self layoutItems];
     }
                         completionHandler:nil];

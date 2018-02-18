@@ -6,6 +6,7 @@ DEPS = [
   'bot_update',
   'gclient',
   'gerrit',
+  'recipe_engine/json',
   'recipe_engine/path',
   'recipe_engine/platform',
   'recipe_engine/properties',
@@ -49,6 +50,7 @@ def RunSteps(api):
   gerrit_no_reset = True if api.properties.get('gerrit_no_reset') else False
   gerrit_no_rebase_patch_ref = bool(
       api.properties.get('gerrit_no_rebase_patch_ref'))
+  manifest_name = api.properties.get('manifest_name')
 
   if api.properties.get('test_apply_gerrit_ref'):
     prop2arg = {
@@ -79,7 +81,8 @@ def RunSteps(api):
         suffix=suffix,
         gerrit_no_reset=gerrit_no_reset,
         gerrit_no_rebase_patch_ref=gerrit_no_rebase_patch_ref,
-        disable_syntax_validation=True)
+        disable_syntax_validation=True,
+        manifest_name=manifest_name)
     if patch:
       api.bot_update.deapply_patch(bot_update_step)
 
@@ -88,6 +91,13 @@ def GenTests(api):
   yield api.test('basic') + api.properties(
       patch=False,
       revision='abc'
+  )
+  yield api.test('with_manifest_name_no_patch') + api.properties(
+      manifest_name='checkout',
+      patch=False
+  )
+  yield api.test('with_manifest_name') + api.properties(
+      manifest_name='checkout'
   )
   yield api.test('buildbot') + api.properties(
       path_config='buildbot',
@@ -142,7 +152,7 @@ def GenTests(api):
       issue=12345,
       patchset=654321,
       rietveld='https://rietveld.example.com/',
-  ) + api.step_data('bot_update', retcode=1)
+  ) + api.step_data('bot_update', api.json.invalid(None), retcode=1)
   yield api.test('tryjob_fail_patch') + api.properties(
       issue=12345,
       patchset=654321,

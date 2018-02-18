@@ -32,6 +32,7 @@
 !Android.mk
 .*.sw?
 .DS_Store
+.cipd
 .classpath
 .cproject
 .gdb_history
@@ -81,6 +82,7 @@ vs-chromium-project.txt
 /chrome/app/theme/default_200_percent/google_chrome
 /chrome/app/theme/google_chrome
 /chrome/browser/autofill/internal
+/chrome/browser/chromeos/arc/voice_interaction/internal
 /chrome/browser/chromeos/login/screenshot_testing/golden_screenshots/*.png
 /chrome/browser/chromeos/login/screenshot_testing/artifacts
 /chrome/browser/extensions/api/ledger/
@@ -101,7 +103,6 @@ vs-chromium-project.txt
 /chrome/chrome_version_resources.xml
 /chrome/common/extensions/api/api.xml
 /chrome/common/extensions/api/ledger/
-/chrome/Hammer
 /chrome/installer/linux/internal
 /chrome/installer/mac/internal
 /chrome/installer/mac/third_party/xz/xz
@@ -115,7 +116,6 @@ vs-chromium-project.txt
 /chrome/interactive_ui_tests_run.xml
 /chrome/setup.xml
 /chrome/setup_unittests.xml
-/chrome/supplement.gypi
 /chrome/sync_integration_tests_run.xml
 /chrome/test/android/telemetry_tests/browser_tests/*.wpr
 /chrome/test/chromeos/autotest/files/client/deps/chrome_test/test_src/
@@ -177,7 +177,6 @@ vs-chromium-project.txt
 /googleurl
 /gpu/gles2_conform_test
 /infra/.recipe_deps
-/internal_gyp
 /ios/third_party/earl_grey/src
 /ios/third_party/fishhook/src
 /ios/third_party/gcdwebserver/src
@@ -187,6 +186,7 @@ vs-chromium-project.txt
 /ios/third_party/material_roboto_font_loader_ios/src
 /ios/third_party/material_sprited_animation_view_ios/src
 /ios/third_party/material_text_accessibility_ios/src
+/ios/third_party/motion_interchange_objc/src
 /ios/third_party/ochamcrest/src
 /ios_internal
 /libassistant

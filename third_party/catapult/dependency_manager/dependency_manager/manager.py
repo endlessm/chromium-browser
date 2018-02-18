@@ -169,20 +169,18 @@ class DependencyManager(object):
       if not dependency_info:
         # The dependency is only configured for other platforms.
         skipped_deps.append(dependency)
-        logging.warning(
-            'Dependency %s not configured for platform %s. Skipping prefetch.',
-            dependency, platform)
         continue
       local_path = dependency_info.GetLocalPath()
       if local_path:
         found_deps.append(dependency)
         continue
       fetched_path = None
+      cloud_storage_error = None
       for _ in range(0, cloud_storage_retries + 1):
         try:
           fetched_path = dependency_info.GetRemotePath()
-        except exceptions.CloudStorageError:
-          continue
+        except exceptions.CloudStorageError as e:
+          cloud_storage_error = e
         break
       if fetched_path:
         found_deps.append(dependency)
@@ -190,7 +188,8 @@ class DependencyManager(object):
         missing_deps.append(dependency)
         logging.error(
             'Dependency %s could not be found or fetched from cloud storage for'
-            ' platform %s.', dependency, platform)
+            ' platform %s. Error: %s', dependency, platform,
+            cloud_storage_error)
     if missing_deps:
       raise exceptions.NoPathFoundError(', '.join(missing_deps), platform)
     return (found_deps, skipped_deps)

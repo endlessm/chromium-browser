@@ -7,14 +7,21 @@
 from __future__ import print_function
 
 import copy
+import mock
 import os
 
 from chromite.cbuildbot import cbuildbot_run
-from chromite.lib import config_lib
-from chromite.lib import constants
 from chromite.cbuildbot.builders import generic_builders
 from chromite.cbuildbot.builders import simple_builders
+from chromite.cbuildbot.stages import completion_stages
+from chromite.cbuildbot.stages import generic_stages
+from chromite.cbuildbot.stages import handle_changes_stages
+from chromite.cbuildbot.stages import tast_test_stages
+from chromite.cbuildbot.stages import vm_test_stages
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import cros_test_lib
+from chromite.lib import failures_lib
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.scripts import cbuildbot
@@ -30,11 +37,25 @@ class SimpleBuilderTest(cros_test_lib.MockTempDirTestCase):
     # List of all stages that would have been called as part of this run.
     self.called_stages = []
 
+    # Map from stage class to exception to be raised when stage is run.
+    self.stage_exceptions = {}
+
+    # VM test stages that are run by SimpleBuilder._RunVMTests.
+    self.all_vm_test_stages = [vm_test_stages.VMTestStage,
+                               tast_test_stages.TastVMTestStage]
+
     # Simple new function that redirects RunStage to record all stages to be
     # run rather than mock them completely. These can be used in a test to
     # assert something has been called.
-    def run_stage(_class_instance, stage_name, *_args, **_kwargs):
+    def run_stage(_class_instance, stage_name, *args, **_kwargs):
+      # It's more useful to record the actual stage that's wrapped within
+      # RepeatStage or RetryStage.
+      if stage_name in [generic_stages.RepeatStage, generic_stages.RetryStage]:
+        stage_name = args[1]
+
       self.called_stages.append(stage_name)
+      if stage_name in self.stage_exceptions:
+        raise self.stage_exceptions[stage_name]
 
     # Parallel version.
     def run_parallel_stages(_class_instance, *_args):
@@ -61,11 +82,12 @@ class SimpleBuilderTest(cros_test_lib.MockTempDirTestCase):
     self._manager.__exit__(None, None, None)
 
   def _initConfig(
-      self, bot_id, extra_argv=None, override_hw_test_config=None, models=None):
+      self, bot_id, master=False, extra_argv=None, override_hw_test_config=None,
+      models=None):
     """Return normal options/build_config for |bot_id|"""
     site_config = config_lib.GetConfig()
     build_config = copy.deepcopy(site_config[bot_id])
-    build_config['master'] = False
+    build_config['master'] = master
     build_config['important'] = False
     if models:
       build_config['models'] = models
@@ -87,6 +109,22 @@ class SimpleBuilderTest(cros_test_lib.MockTempDirTestCase):
 
     return cbuildbot_run.BuilderRun(
         options, site_config, build_config, self._manager)
+
+  def _RunVMTests(self):
+    """Helper method that runs VM tests and returns exceptions.
+
+    Returns:
+      List of exception classes in CompoundFailure.
+    """
+    board = 'betty-release'
+    builder_run = self._initConfig(board)
+    exception_types = []
+
+    try:
+      simple_builders.SimpleBuilder(builder_run)._RunVMTests(builder_run, board)
+    except failures_lib.CompoundFailure as f:
+      exception_types = [e.type for e in f.exc_infos]
+    return exception_types
 
   def testRunStagesPreCQ(self):
     """Verify RunStages for PRE_CQ_LAUNCHER_TYPE builders"""
@@ -154,8 +192,9 @@ class SimpleBuilderTest(cros_test_lib.MockTempDirTestCase):
     unified_build = self._initConfig(
         'lumpy-release',
         extra_argv=extra_argv,
-        models=[config_lib.ModelTestConfig('model1'),
-                config_lib.ModelTestConfig('model2', ['sanity', 'bvt-inline'])])
+        models=[config_lib.ModelTestConfig('model1', 'model1'),
+                config_lib.ModelTestConfig(
+                    'model2', 'model2', ['sanity', 'bvt-inline'])])
     unified_build.attrs.chrome_version = 'TheChromeVersion'
     simple_builders.SimpleBuilder(unified_build).RunStages()
 
@@ -170,8 +209,8 @@ class SimpleBuilderTest(cros_test_lib.MockTempDirTestCase):
     test_phase1 = unified_build.config.hw_tests[0]
     test_phase2 = unified_build.config.hw_tests[1]
 
-    model1 = config_lib.ModelTestConfig('model1')
-    model2 = config_lib.ModelTestConfig('model2', [test_phase2.suite])
+    model1 = config_lib.ModelTestConfig('model1', 'some_lab_board')
+    model2 = config_lib.ModelTestConfig('model2', 'mode11', [test_phase2.suite])
 
     hw_stage = simple_builders.SimpleBuilder(unified_build)._GetHWTestStage(
         unified_build,
@@ -179,6 +218,7 @@ class SimpleBuilderTest(cros_test_lib.MockTempDirTestCase):
         model1,
         test_phase1)
     self.assertIsNotNone(hw_stage)
+    self.assertEqual(hw_stage._board_name, 'some_lab_board')
 
     hw_stage = simple_builders.SimpleBuilder(unified_build)._GetHWTestStage(
         unified_build,
@@ -193,3 +233,94 @@ class SimpleBuilderTest(cros_test_lib.MockTempDirTestCase):
         model2,
         test_phase2)
     self.assertIsNotNone(hw_stage)
+
+  def testAllVMTestStagesSucceed(self):
+    """Verify all VM test stages are run."""
+    self.assertEquals([], self._RunVMTests())
+    self.assertEquals(self.all_vm_test_stages, self.called_stages)
+
+  def testAllVMTestStagesFail(self):
+    """Verify failures are reported when all VM test stages fail."""
+    self.stage_exceptions = {
+        vm_test_stages.VMTestStage: failures_lib.InfrastructureFailure(),
+        tast_test_stages.TastVMTestStage: failures_lib.TestFailure(),
+    }
+    self.assertEquals(
+        [failures_lib.InfrastructureFailure, failures_lib.TestFailure],
+        self._RunVMTests())
+    self.assertEquals(self.all_vm_test_stages, self.called_stages)
+
+  def testVMTestStageFails(self):
+    """Verify TastVMTestStage is still run when VMTestStage fails."""
+    self.stage_exceptions = {
+        vm_test_stages.VMTestStage: failures_lib.TestFailure(),
+    }
+    self.assertEquals([failures_lib.TestFailure], self._RunVMTests())
+    self.assertEquals(self.all_vm_test_stages, self.called_stages)
+
+  def testTastVMTestStageFails(self):
+    """Verify VMTestStage is still run when TastVMTestStage fails."""
+    self.stage_exceptions = {
+        tast_test_stages.TastVMTestStage: failures_lib.TestFailure(),
+    }
+    self.assertEquals([failures_lib.TestFailure], self._RunVMTests())
+    self.assertEquals(self.all_vm_test_stages, self.called_stages)
+
+
+class DistributedBuilderTests(SimpleBuilderTest):
+  """Tests for DistributedBuilder."""
+
+  def testRunStagesCommitQueueMaster(self):
+    """Verify RunStages for master-paladin builder."""
+    builder_run = self._initConfig('master-paladin', master=True)
+    builder = simple_builders.DistributedBuilder(builder_run)
+    builder.sync_stage = mock.Mock()
+    builder.completion_stage_class = mock.Mock()
+    builder.RunStages()
+    self.assertTrue(handle_changes_stages.CommitQueueHandleChangesStage
+                    in self.called_stages)
+
+  def testRunStagesCommitQueueMasterWithImportantBuilderFailedException(self):
+    """Verify RunStages for CQ-master with ImportantBuilderFailedException."""
+    builder_run = self._initConfig('master-paladin', master=True)
+    builder = simple_builders.DistributedBuilder(builder_run)
+    builder.sync_stage = mock.Mock()
+    builder.completion_stage_class = (
+        completion_stages.CommitQueueCompletionStage)
+    self.PatchObject(
+        completion_stages.CommitQueueCompletionStage, '__init__',
+        return_value=None)
+    self.PatchObject(
+        completion_stages.CommitQueueCompletionStage, 'Run',
+        side_effect=completion_stages.ImportantBuilderFailedException)
+    self.assertRaises(completion_stages.ImportantBuilderFailedException,
+                      builder.RunStages)
+    self.assertTrue(handle_changes_stages.CommitQueueHandleChangesStage
+                    in self.called_stages)
+
+  def testRunStagesCommitQueueMasterWithStepFailure(self):
+    """Verify RunStages for CQ-master with StepFailure."""
+    builder_run = self._initConfig('master-paladin', master=True)
+    builder = simple_builders.DistributedBuilder(builder_run)
+    builder.sync_stage = mock.Mock()
+    builder.completion_stage_class = (
+        completion_stages.CommitQueueCompletionStage)
+    self.PatchObject(
+        completion_stages.CommitQueueCompletionStage, '__init__',
+        return_value=None)
+    self.PatchObject(
+        completion_stages.CommitQueueCompletionStage, 'Run',
+        side_effect=failures_lib.StepFailure)
+    self.assertRaises(failures_lib.StepFailure, builder.RunStages)
+    self.assertFalse(handle_changes_stages.CommitQueueHandleChangesStage
+                     in self.called_stages)
+
+  def testRunStagesReleaseMaster(self):
+    """Verify RunStages for master-release builder."""
+    builder_run = self._initConfig('master-release', master=True)
+    builder = simple_builders.DistributedBuilder(builder_run)
+    builder.sync_stage = mock.Mock()
+    builder.completion_stage_class = mock.Mock()
+    builder.RunStages()
+    self.assertFalse(handle_changes_stages.CommitQueueHandleChangesStage
+                     in self.called_stages)

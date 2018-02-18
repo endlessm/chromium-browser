@@ -18,7 +18,7 @@ namespace vr {
 
 namespace {
 
-static constexpr float kTolerance = 1e-5;
+static constexpr float kTolerance = 1e-5f;
 
 static int s_next_animation_id = 1;
 static int s_next_group_id = 1;
@@ -194,6 +194,10 @@ void AnimationPlayer::SetTransitionedProperties(
   transition_.target_properties = properties;
 }
 
+void AnimationPlayer::SetTransitionDuration(base::TimeDelta delta) {
+  transition_.duration = delta;
+}
+
 void AnimationPlayer::TransitionFloatTo(base::TimeTicks monotonic_time,
                                         int target_property,
                                         float current,
@@ -257,7 +261,6 @@ SkColor AnimationPlayer::GetTargetColorValue(int target_property,
 }
 
 void AnimationPlayer::StartAnimations(base::TimeTicks monotonic_time) {
-  // TODO(vollick): support groups. crbug.com/742358
   cc::TargetProperties animated_properties;
   for (auto& animation : animations_) {
     if (animation->run_state() == cc::Animation::RUNNING ||

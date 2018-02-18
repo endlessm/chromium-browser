@@ -26,7 +26,6 @@ struct TestConfig {
   int resume_count = 0;
   std::string write_settings;
   bool fallback_scsv = false;
-  std::string digest_prefs;
   std::vector<int> signing_prefs;
   std::vector<int> verify_prefs;
   std::string key_file;
@@ -87,9 +86,10 @@ struct TestConfig {
   bool tls_unique = false;
   bool expect_ticket_renewal = false;
   bool expect_no_session = false;
-  bool expect_early_data_info = false;
+  bool expect_ticket_supports_early_data = false;
   bool expect_accept_early_data = false;
   bool expect_reject_early_data = false;
+  bool expect_no_offer_early_data = false;
   bool use_ticket_callback = false;
   bool renew_ticket = false;
   bool enable_early_data = false;

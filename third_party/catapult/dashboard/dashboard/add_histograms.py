@@ -5,6 +5,7 @@
 """URL endpoint for adding new histograms to the dashboard."""
 
 import json
+import logging
 import sys
 
 from google.appengine.api import taskqueue
@@ -14,6 +15,7 @@ from dashboard import add_point
 from dashboard import add_point_queue
 from dashboard.api import api_request_handler
 from dashboard.common import datastore_hooks
+from dashboard.common import histogram_helpers
 from dashboard.common import stored_object
 from dashboard.models import histogram
 from tracing.value import histogram_set
@@ -63,12 +65,27 @@ class AddHistogramsHandler(api_request_handler.ApiRequestHandler):
   def AuthorizedPost(self):
     datastore_hooks.SetPrivilegedRequest()
 
-    data_str = self.request.get('data')
-    if not data_str:
-      raise api_request_handler.BadRequestError('Missing "data" parameter')
+    try:
+      data_str = self.request.get('data')
+      if not data_str:
+        raise api_request_handler.BadRequestError('Missing "data" parameter')
 
-    histogram_dicts = json.loads(data_str)
-    ProcessHistogramSet(histogram_dicts)
+      logging.info('Received data: %s', data_str)
+
+      histogram_dicts = json.loads(data_str)
+      ProcessHistogramSet(histogram_dicts)
+    except api_request_handler.BadRequestError as e:
+      # TODO(simonhatch, eakuefner: Remove this later.
+      # When this has all stabilized a bit, remove and let this 400 to clients,
+      # but for now to preven the waterfall from re-uploading over and over
+      # while we bug fix, let's just log the error.
+      # https://github.com/catapult-project/catapult/issues/4019
+      logging.error(e.message)
+    except Exception as e:  # pylint: disable=broad-except
+      # TODO(simonhatch, eakuefner: Remove this later.
+      # We shouldn't be catching ALL exceptions, this is just while the
+      # stability of the endpoint is being worked on.
+      logging.error(e.message)
 
 
 def ProcessHistogramSet(histogram_dicts):
@@ -78,6 +95,7 @@ def ProcessHistogramSet(histogram_dicts):
   histograms = histogram_set.HistogramSet()
   histograms.ImportDicts(histogram_dicts)
   histograms.ResolveRelatedHistograms()
+  histograms.DeduplicateDiagnostics()
   InlineDenseSharedDiagnostics(histograms)
 
   revision = ComputeRevision(histograms)
@@ -102,7 +120,6 @@ def ProcessHistogramSet(histogram_dicts):
           raise ValueError(
               name + ' diagnostics must be the same for all histograms')
 
-      if name in SUITE_LEVEL_SPARSE_DIAGNOSTIC_NAMES:
         suite_level_sparse_diagnostic_entities.append(
             histogram.SparseDiagnostic(
                 id=diag.guid, data=diag.AsDict(), test=suite_key,
@@ -208,14 +225,26 @@ def ComputeTestPath(guid, histograms):
   suite_path = '%s/%s/%s' % _GetMasterBotBenchmarkFromHistogram(hist)
   path = '%s/%s' % (suite_path, hist.name)
 
-  tir_label = histogram.GetTIRLabelFromHistogram(hist)
+  tir_label = histogram_helpers.GetTIRLabelFromHistogram(hist)
   if tir_label:
     path += '/' + tir_label
 
+  is_ref = hist.diagnostics.get(reserved_infos.IS_REFERENCE_BUILD.name)
+  if is_ref and len(is_ref) == 1:
+    is_ref = list(is_ref)[0]
+
+  # If a Histogram represents a summary across multiple stories, then its
+  # 'stories' diagnostic will contain the names of all of the stories.
+  # If a Histogram is not a summary, then its 'stories' diagnostic will contain
+  # the singular name of its story.
   story_name = hist.diagnostics.get(reserved_infos.STORIES.name)
   if story_name and len(story_name) == 1:
     escaped_story_name = add_point.EscapeName(list(story_name)[0])
     path += '/' + escaped_story_name
+    if is_ref:
+      path += '_ref'
+  elif is_ref:
+    path += '/ref'
 
   return path
 

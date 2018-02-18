@@ -16,12 +16,11 @@
 #include "chrome/browser/ui/views/harmony/chrome_typography.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "content/public/browser/web_contents.h"
-#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_features.h"
 #include "ui/gfx/text_elider.h"
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/label.h"
-#include "ui/views/layout/box_layout.h"
+#include "ui/views/layout/fill_layout.h"
 #include "ui/views/widget/widget.h"
 
 using content::WebContents;
@@ -104,9 +103,7 @@ ExternalProtocolDialog::ExternalProtocolDialog(
   set_margins(
       provider->GetDialogInsetsForContentType(views::CONTROL, views::CONTROL));
 
-  // TODO(crbug.com/760651): We should use FillLayout since we only have one
-  // child, but it causes the checkbox image to get cut off in MD.
-  SetLayoutManager(new views::BoxLayout(views::BoxLayout::kHorizontal));
+  SetLayoutManager(new views::FillLayout());
 
   DCHECK(delegate_->GetMessageText().empty());
   remember_decision_checkbox_ =

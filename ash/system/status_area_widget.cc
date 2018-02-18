@@ -47,7 +47,7 @@ StatusAreaWidget::StatusAreaWidget(aura::Window* status_container, Shelf* shelf)
   SetContentsView(status_area_widget_delegate_);
 }
 
-StatusAreaWidget::~StatusAreaWidget() {}
+StatusAreaWidget::~StatusAreaWidget() = default;
 
 void StatusAreaWidget::CreateTrayViews() {
   AddOverviewButtonTray();
@@ -123,8 +123,6 @@ void StatusAreaWidget::UpdateAfterLoginStatusChange(LoginStatus login_status) {
   login_status_ = login_status;
   if (system_tray_)
     system_tray_->UpdateAfterLoginStatusChange(login_status);
-  if (web_notification_tray_)
-    web_notification_tray_->UpdateAfterLoginStatusChange(login_status);
   if (logout_button_tray_)
     logout_button_tray_->UpdateAfterLoginStatusChange();
   if (overview_button_tray_)
@@ -144,7 +142,7 @@ bool StatusAreaWidget::ShouldShowShelf() const {
 bool StatusAreaWidget::IsMessageBubbleShown() const {
   return ((system_tray_ && system_tray_->IsSystemBubbleVisible()) ||
           (web_notification_tray_ &&
-           web_notification_tray_->IsMessageCenterBubbleVisible()));
+           web_notification_tray_->IsMessageCenterVisible()));
 }
 
 void StatusAreaWidget::SchedulePaint() {

@@ -68,7 +68,62 @@ CONFIG_TYPE_DUMP_ORDER = (
     'cbuildbot',
     'unittest-stress',
     'infra-go',
+    'tryjob',
 )
+
+DISPLAY_LABEL_PRECQ = 'pre_cq'
+DISPLAY_LABEL_TRYJOB = 'tryjob'
+DISPLAY_LABEL_INCREMENATAL = 'incremental'
+DISPLAY_LABEL_FULL = 'full'
+DISPLAY_LABEL_INFORMATIONAL = 'informational'
+
+# These are the build groups against which tryjobs can be run. All other
+# groups MUST be production builds.
+# TODO: crbug.com/776955 Make the above statement true.
+TRYJOB_DISPLAY_LABEL = {
+    DISPLAY_LABEL_PRECQ,
+    DISPLAY_LABEL_TRYJOB,
+    DISPLAY_LABEL_INCREMENATAL,
+    DISPLAY_LABEL_FULL,
+    DISPLAY_LABEL_INFORMATIONAL,
+}
+
+DISPLAY_LABEL_CQ = 'cq'
+DISPLAY_LABEL_RELEASE = 'release'
+DISPLAY_LABEL_CHROME_PFQ = 'chrome_pfq'
+DISPLAY_LABEL_MNC_ANDROID_PFQ = 'mnc_android_pfq'
+DISPLAY_LABEL_NYC_ANDROID_PFQ = 'nyc_android_pfq'
+DISPLAY_LABEL_FIRMWARE = 'firmware'
+DISPLAY_LABEL_FACTORY = 'factory'
+DISPLAY_LABEL_TOOLCHAIN = 'toolchain'
+DISPLAY_LABEL_UTILITY = 'utility'
+DISPLAY_LABEL_UNKNOWN_PRODUCTION = 'production_tryjob'
+
+# This list of constants should be kept in sync with GoldenEye code.
+ALL_DISPLAY_LABEL = TRYJOB_DISPLAY_LABEL | {
+    DISPLAY_LABEL_CQ,
+    DISPLAY_LABEL_RELEASE,
+    DISPLAY_LABEL_CHROME_PFQ,
+    DISPLAY_LABEL_MNC_ANDROID_PFQ,
+    DISPLAY_LABEL_NYC_ANDROID_PFQ,
+    DISPLAY_LABEL_FIRMWARE,
+    DISPLAY_LABEL_FACTORY,
+    DISPLAY_LABEL_TOOLCHAIN,
+    DISPLAY_LABEL_UTILITY,
+    DISPLAY_LABEL_UNKNOWN_PRODUCTION,
+}
+
+def isTryjobConfig(build_config):
+  """Is a given build config a tryjob config, or a production config?
+
+  Args:
+    build_config: A fully populated instance of BuildConfig.
+
+  Returns:
+    Boolean. True if it's a tryjob config.
+  """
+  return build_config.display_label in TRYJOB_DISPLAY_LABEL
+
 
 # In the Json, this special build config holds the default values for all
 # other configs.
@@ -91,6 +146,7 @@ CONFIG_TEMPLATE_RELEASE_BRANCH = 'release_branch'
 CONFIG_TEMPLATE_REFERENCE_BOARD_NAME = 'reference_board_name'
 CONFIG_TEMPLATE_MODELS = 'models'
 CONFIG_TEMPLATE_MODEL_NAME = 'name'
+CONFIG_TEMPLATE_MODEL_BOARD_NAME = 'board_name'
 CONFIG_TEMPLATE_MODEL_TEST_SUITES = 'test_suites'
 CONFIG_TEMPLATE_MODEL_CQ_TEST_ENABLED = 'cq_test_enabled'
 
@@ -266,7 +322,8 @@ class BuildConfig(AttrDict):
         if k == 'child_configs':
           result[k] = [x.deepcopy() for x in v]
         elif k in ('vm_tests', 'vm_tests_override',
-                   'hw_tests', 'hw_tests_override'):
+                   'hw_tests', 'hw_tests_override',
+                   'tast_vm_tests'):
           result[k] = [copy.copy(x) for x in v]
         # type(v) is faster than isinstance.
         elif type(v) is list:
@@ -403,16 +460,46 @@ class GCETestConfig(object):
   def __eq__(self, other):
     return self.__dict__ == other.__dict__
 
+
+class TastVMTestConfig(object):
+  """Config object for a Tast virtual-machine-based test suite.
+
+  Members:
+    name: String containing short human-readable name describing test suite.
+    test_exprs: List of string expressions describing which tests to run; this
+                is passed directly to the 'tast run' command. See
+                https://goo.gl/UPNEgT for info about test expressions.
+    timeout: Number of seconds to wait before timing out waiting for
+             results.
+  """
+  DEFAULT_TEST_TIMEOUT = 10 * 60
+
+  def __init__(self, suite_name, test_exprs, timeout=DEFAULT_TEST_TIMEOUT):
+    """Constructor -- see members above."""
+    # This is an easy mistake to make and results in confusing errors later when
+    # a list of one-character strings gets passed to the tast command.
+    if not isinstance(test_exprs, list):
+      raise TypeError('test_exprs must be list of strings')
+    self.suite_name = suite_name
+    self.test_exprs = test_exprs
+    self.timeout = timeout
+
+  def __eq__(self, other):
+    return self.__dict__ == other.__dict__
+
+
 class ModelTestConfig(object):
   """Model specific config that controls which test suites are executed.
 
   Members:
-    name: The name of the model that will be tested (matches autotest platform)
+    name: The name of the model that will be tested (matches model label)
+    lab_board_name: The name of the board in the lab (matches board label)
     test_suites: List of hardware test suites that will be executed.
   """
-  def __init__(self, name, test_suites=None):
+  def __init__(self, name, lab_board_name, test_suites=None):
     """Constructor -- see members above."""
     self.name = name
+    self.lab_board_name = lab_board_name
     self.test_suites = test_suites
 
   def __eq__(self, other):
@@ -451,6 +538,9 @@ class HWTestConfig(object):
     suite_min_duts: Preferred minimum duts. Lab will prioritize on getting such
                     number of duts even if the suite is competing with
                     other suites that have higher priority.
+    suite_args: Arguments passed to the suite.  This should be a dict
+                representing keyword arguments.  The value is marshalled
+                using repr(), so the dict values should be basic types.
 
   Some combinations of member settings are invalid:
     * A suite config may not specify both blocking and async.
@@ -475,12 +565,22 @@ class HWTestConfig(object):
   # there's a better fix, we'll allow these phases hours to fail.
   ASYNC_HW_TEST_TIMEOUT = int(250.0 * _MINUTE)
 
-  def __init__(self, suite, num=constants.HWTEST_DEFAULT_NUM,
-               pool=constants.HWTEST_MACH_POOL, timeout=SHARED_HW_TEST_TIMEOUT,
-               async=False, warn_only=False, critical=False, blocking=False,
-               file_bugs=False, priority=constants.HWTEST_BUILD_PRIORITY,
-               retry=True, max_retries=constants.HWTEST_MAX_RETRIES,
-               minimum_duts=0, suite_min_duts=0, offload_failures_only=False):
+  def __init__(self, suite,
+               num=constants.HWTEST_DEFAULT_NUM,
+               pool=constants.HWTEST_MACH_POOL,
+               timeout=SHARED_HW_TEST_TIMEOUT,
+               async=False,
+               warn_only=False,
+               critical=False,
+               blocking=False,
+               file_bugs=False,
+               priority=constants.HWTEST_BUILD_PRIORITY,
+               retry=True,
+               max_retries=constants.HWTEST_MAX_RETRIES,
+               minimum_duts=0,
+               suite_min_duts=0,
+               suite_args=None,
+               offload_failures_only=False):
     """Constructor -- see members above."""
     assert not async or not blocking
     assert not warn_only or not critical
@@ -498,6 +598,7 @@ class HWTestConfig(object):
     self.max_retries = max_retries
     self.minimum_duts = minimum_duts
     self.suite_min_duts = suite_min_duts
+    self.suite_args = suite_args
     self.offload_failures_only = offload_failures_only
 
   def SetBranchedValues(self):
@@ -547,6 +648,12 @@ def DefaultSettings():
       # supported by a given unified build and their corresponding test config.
       models=[],
 
+      # This value defines what part of the Golden Eye UI is responsible for
+      # displaying builds of this build config. The value is required, and
+      # must be in ALL_DISPLAY_LABEL.
+      # TODO: Make the value required after crbug.com/776955 is finished.
+      display_label=None,
+
       # The profile of the variant to set up and build.
       profile=None,
 
@@ -563,6 +670,11 @@ def DefaultSettings():
       # mark the builder as important=True.
       important=False,
 
+      # If True, build config should always be run as if --debug was set
+      # on the cbuildbot command line. This is different from 'important'
+      # and is usually correlated with tryjob build configs.
+      debug=False,
+
       # Timeout for the build as a whole (in seconds).
       build_timeout=(4 * 60 + 30) * 60,
 
@@ -572,6 +684,11 @@ def DefaultSettings():
       # feature of upload_symbols, and it may make sense to merge the features
       # at some point.
       health_threshold=0,
+
+      # If this build_config fails this many times consecutively, trigger a
+      # sanity-check build on this build_config. A sanity-check-pre-cq is a
+      # pre-cq build without patched CLs.
+      sanity_check_threshold=0,
 
       # List of email addresses to send health alerts to for this builder. It
       # supports automatic email address lookup for the following sheriff
@@ -764,6 +881,10 @@ def DefaultSettings():
       # A list of GCETestConfig objects to use. Currently only some lakitu
       # builders run gce tests.
       gce_tests=[],
+
+      # A list of TastVMTestConfig objects describing Tast-based test suites
+      # that should be run in a VM.
+      tast_vm_tests=[],
 
       # List of patterns for portage packages for which stripped binpackages
       # should be uploaded to GS. The patterns are used to search for packages
@@ -1753,6 +1874,7 @@ def _DeserializeTestConfigs(build_dict):
   _DeserializeTestConfig(build_dict, 'hw_tests_override', HWTestConfig,
                          preserve_none=True)
   _DeserializeTestConfig(build_dict, 'gce_tests', GCETestConfig)
+  _DeserializeTestConfig(build_dict, 'tast_vm_tests', TastVMTestConfig)
 
 
 def _CreateBuildConfig(name, default, build_dict, templates):

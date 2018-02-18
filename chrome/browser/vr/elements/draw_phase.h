@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_VR_ELEMENTS_DRAW_PHASE_H_
 #define CHROME_BROWSER_VR_ELEMENTS_DRAW_PHASE_H_
 
+#include <string>
+
 namespace vr {
 
 // Each draw phase is rendered independently in the order specified below.
@@ -12,11 +14,14 @@ enum DrawPhase : int {
   // kPhaseNone is to be used for elements that do not draw. Eg, layouts.
   kPhaseNone = 0,
   kPhaseBackground,
+  kPhaseOverlayBackground,
   kPhaseFloorCeiling,
   kPhaseForeground,
-  kPhaseOverlayBackground,
   kPhaseOverlayForeground,
+  kNumDrawPhases = kPhaseOverlayForeground
 };
+
+std::string DrawPhaseToString(DrawPhase phase);
 
 }  // namespace vr
 

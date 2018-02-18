@@ -95,8 +95,7 @@ WebStateImpl::WebStateImpl(const CreateParams& params,
   // Restore session history last because WKBasedNavigationManagerImpl relies on
   // CRWWebController to restore history into the web view.
   if (session_storage) {
-    SessionStorageBuilder session_storage_builder;
-    session_storage_builder.ExtractSessionState(this, session_storage);
+    RestoreSessionStorage(session_storage);
   } else {
     certificate_policy_cache_ =
         base::MakeUnique<SessionCertificatePolicyCacheImpl>();
@@ -112,9 +111,7 @@ WebStateImpl::~WebStateImpl() {
   ClearWebUI();
 
   for (auto& observer : observers_)
-    observer.WebStateDestroyed();
-  for (auto& observer : observers_)
-    observer.ResetWebState();
+    observer.WebStateDestroyed(this);
   for (auto& observer : policy_deciders_)
     observer.WebStateDestroyed();
   for (auto& observer : policy_deciders_)
@@ -179,23 +176,18 @@ void WebStateImpl::SetWebController(CRWWebController* web_controller) {
 
 void WebStateImpl::OnTitleChanged() {
   for (auto& observer : observers_)
-    observer.TitleWasSet();
-}
-
-void WebStateImpl::OnVisibleSecurityStateChange() {
-  for (auto& observer : observers_)
-    observer.DidChangeVisibleSecurityState();
+    observer.TitleWasSet(this);
 }
 
 void WebStateImpl::OnDialogSuppressed() {
   DCHECK(ShouldSuppressDialogs());
   for (auto& observer : observers_)
-    observer.DidSuppressDialog();
+    observer.DidSuppressDialog(this);
 }
 
 void WebStateImpl::OnRenderProcessGone() {
   for (auto& observer : observers_)
-    observer.RenderProcessGone();
+    observer.RenderProcessGone(this);
 }
 
 bool WebStateImpl::OnScriptCommandReceived(const std::string& command,
@@ -222,10 +214,10 @@ void WebStateImpl::SetIsLoading(bool is_loading) {
 
   if (is_loading) {
     for (auto& observer : observers_)
-      observer.DidStartLoading();
+      observer.DidStartLoading(this);
   } else {
     for (auto& observer : observers_)
-      observer.DidStopLoading();
+      observer.DidStopLoading(this);
   }
 }
 
@@ -258,30 +250,26 @@ void WebStateImpl::OnPageLoaded(const GURL& url, bool load_success) {
       load_success ? PageLoadCompletionStatus::SUCCESS
                    : PageLoadCompletionStatus::FAILURE;
   for (auto& observer : observers_)
-    observer.PageLoaded(load_completion_status);
+    observer.PageLoaded(this, load_completion_status);
 }
 
-void WebStateImpl::OnFormActivityRegistered(const std::string& form_name,
-                                            const std::string& field_name,
-                                            const std::string& type,
-                                            const std::string& value,
-                                            bool input_missing) {
+void WebStateImpl::OnFormActivityRegistered(const FormActivityParams& params) {
   for (auto& observer : observers_) {
-    observer.FormActivityRegistered(form_name, field_name, type, value,
-                                    input_missing);
+    observer.FormActivityRegistered(this, params);
   }
 }
 
 void WebStateImpl::OnFaviconUrlUpdated(
     const std::vector<FaviconURL>& candidates) {
+  cached_favicon_urls_ = candidates;
   for (auto& observer : observers_)
-    observer.FaviconUrlUpdated(candidates);
+    observer.FaviconUrlUpdated(this, candidates);
 }
 
 void WebStateImpl::OnDocumentSubmitted(const std::string& form_name,
                                        bool user_initiated) {
   for (auto& observer : observers_)
-    observer.DocumentSubmitted(form_name, user_initiated);
+    observer.DocumentSubmitted(this, form_name, user_initiated);
 }
 
 NavigationManagerImpl& WebStateImpl::GetNavigationManagerImpl() {
@@ -352,14 +340,6 @@ WebInterstitial* WebStateImpl::GetWebInterstitial() const {
   return interstitial_;
 }
 
-void WebStateImpl::OnPasswordInputShownOnHttp() {
-  [web_controller_ didShowPasswordInputOnHTTP];
-}
-
-void WebStateImpl::OnCreditCardInputShownOnHttp() {
-  [web_controller_ didShowCreditCardInputOnHTTP];
-}
-
 net::HttpResponseHeaders* WebStateImpl::GetHttpResponseHeaders() const {
   return http_response_headers_.get();
 }
@@ -405,7 +385,7 @@ void WebStateImpl::ShowWebInterstitial(WebInterstitialImpl* interstitial) {
 
 void WebStateImpl::SendChangeLoadProgress(double progress) {
   for (auto& observer : observers_)
-    observer.LoadProgressChanged(progress);
+    observer.LoadProgressChanged(this, progress);
 }
 
 void WebStateImpl::HandleContextMenu(const web::ContextMenuParams& params) {
@@ -540,6 +520,11 @@ WebStateInterfaceProvider* WebStateImpl::GetWebStateInterfaceProvider() {
   return web_state_interface_provider_.get();
 }
 
+void WebStateImpl::DidChangeVisibleSecurityState() {
+  for (auto& observer : observers_)
+    observer.DidChangeVisibleSecurityState(this);
+}
+
 void WebStateImpl::BindInterfaceRequestFromMainFrame(
     const std::string& interface_name,
     mojo::ScopedMessagePipeHandle interface_pipe) {
@@ -561,6 +546,20 @@ bool WebStateImpl::IsWebUsageEnabled() const {
 }
 
 void WebStateImpl::SetWebUsageEnabled(bool enabled) {
+  // SetWebUsageEnabled(false) will cause the WKWebView to be removed and this
+  // is the only way to clear browser data. Cache the session history in this
+  // WebState so that when web usage is re-enabled, history can be restored into
+  // the newly created WKWebView.
+  // TODO(crbug.com/557963): don't destroy WKWebView to clear browser data.
+  if (web::GetWebClient()->IsSlimNavigationManagerEnabled()) {
+    if (enabled && cached_session_storage_) {
+      RestoreSessionStorage(cached_session_storage_.get());
+      cached_session_storage_.reset();
+    } else {
+      cached_session_storage_.reset(BuildSessionStorage());
+    }
+  }
+
   [web_controller_ setWebUsageEnabled:enabled];
 }
 
@@ -579,13 +578,13 @@ UIView* WebStateImpl::GetView() {
 void WebStateImpl::WasShown() {
   [web_controller_ wasShown];
   for (auto& observer : observers_)
-    observer.WasShown();
+    observer.WasShown(this);
 }
 
 void WebStateImpl::WasHidden() {
   [web_controller_ wasHidden];
   for (auto& observer : observers_)
-    observer.WasHidden();
+    observer.WasHidden(this);
 }
 
 BrowserState* WebStateImpl::GetBrowserState() const {
@@ -730,12 +729,25 @@ void WebStateImpl::TakeSnapshot(const SnapshotCallback& callback,
 
 void WebStateImpl::OnNavigationStarted(web::NavigationContext* context) {
   for (auto& observer : observers_)
-    observer.DidStartNavigation(context);
+    observer.DidStartNavigation(this, context);
 }
 
 void WebStateImpl::OnNavigationFinished(web::NavigationContext* context) {
   for (auto& observer : observers_)
-    observer.DidFinishNavigation(context);
+    observer.DidFinishNavigation(this, context);
+
+  // Update cached_favicon_urls_.
+  if (!context->IsSameDocument()) {
+    // Favicons are not valid after document change. Favicon URLs will be
+    // refetched by CRWWebController and passed to OnFaviconUrlUpdated.
+    cached_favicon_urls_.clear();
+  } else if (!cached_favicon_urls_.empty()) {
+    // For same-document navigations favicon urls will not be refetched and
+    // WebStateObserver:FaviconUrlUpdated must use the cached results.
+    for (auto& observer : observers_) {
+      observer.FaviconUrlUpdated(this, cached_favicon_urls_);
+    }
+  }
 }
 
 #pragma mark - NavigationManagerDelegate implementation
@@ -750,8 +762,6 @@ void WebStateImpl::ClearTransientContent() {
     interstitial->DontProceed();
     // Don't access |interstitial| after calling |DontProceed()|, as it triggers
     // deletion.
-    for (auto& observer : observers_)
-      observer.InterstitialDismissed();
   }
   [web_controller_ clearTransientContentView];
 }
@@ -760,8 +770,9 @@ void WebStateImpl::RecordPageStateInNavigationItem() {
   [web_controller_ recordStateInHistory];
 }
 
-void WebStateImpl::UpdateHtml5HistoryState() {
-  [web_controller_ updateHTML5HistoryState];
+void WebStateImpl::OnGoToIndexSameDocumentNavigation(
+    NavigationInitiationType type) {
+  [web_controller_ didFinishGoToIndexSameDocumentNavigationWithType:type];
 }
 
 void WebStateImpl::WillChangeUserAgentType() {
@@ -789,18 +800,18 @@ void WebStateImpl::Reload() {
 
 void WebStateImpl::OnNavigationItemsPruned(size_t pruned_item_count) {
   for (auto& observer : observers_)
-    observer.NavigationItemsPruned(pruned_item_count);
+    observer.NavigationItemsPruned(this, pruned_item_count);
 }
 
 void WebStateImpl::OnNavigationItemChanged() {
   for (auto& observer : observers_)
-    observer.NavigationItemChanged();
+    observer.NavigationItemChanged(this);
 }
 
 void WebStateImpl::OnNavigationItemCommitted(
     const LoadCommittedDetails& load_details) {
   for (auto& observer : observers_)
-    observer.NavigationItemCommitted(load_details);
+    observer.NavigationItemCommitted(this, load_details);
 }
 
 WebState* WebStateImpl::GetWebState() {
@@ -809,6 +820,11 @@ WebState* WebStateImpl::GetWebState() {
 
 id<CRWWebViewNavigationProxy> WebStateImpl::GetWebViewNavigationProxy() const {
   return [web_controller_ webViewNavigationProxy];
+}
+
+void WebStateImpl::RestoreSessionStorage(CRWSessionStorage* session_storage) {
+  SessionStorageBuilder session_storage_builder;
+  session_storage_builder.ExtractSessionState(this, session_storage);
 }
 
 }  // namespace web

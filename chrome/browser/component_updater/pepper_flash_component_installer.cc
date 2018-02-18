@@ -19,6 +19,7 @@
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
+#include "base/memory/ref_counted.h"
 #include "base/path_service.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
@@ -164,7 +165,7 @@ bool MakePepperFlashPluginInfo(const base::FilePath& flash_path,
   plugin_info->is_out_of_process = out_of_process;
   plugin_info->path = flash_path;
   plugin_info->name = content::kFlashPluginName;
-  plugin_info->permissions = chrome::kPepperFlashPermissions;
+  plugin_info->permissions = kPepperFlashPermissions;
 
   // The description is like "Shockwave Flash 10.2 r154".
   plugin_info->description = base::StringPrintf("%s %d.%d r%d",
@@ -250,6 +251,7 @@ class FlashComponentInstallerPolicy : public ComponentInstallerPolicy {
   update_client::CrxInstaller::Result OnCustomInstall(
       const base::DictionaryValue& manifest,
       const base::FilePath& install_dir) override;
+  void OnCustomUninstall() override;
   bool VerifyInstallation(const base::DictionaryValue& manifest,
                           const base::FilePath& install_dir) const override;
   void ComponentReady(const base::Version& version,
@@ -301,6 +303,8 @@ FlashComponentInstallerPolicy::OnCustomInstall(
   return update_client::CrxInstaller::Result(update_client::InstallError::NONE);
 }
 
+void FlashComponentInstallerPolicy::OnCustomUninstall() {}
+
 void FlashComponentInstallerPolicy::ComponentReady(
     const base::Version& version,
     const base::FilePath& path,
@@ -321,7 +325,7 @@ bool FlashComponentInstallerPolicy::VerifyInstallation(
     const base::DictionaryValue& manifest,
     const base::FilePath& install_dir) const {
   base::Version unused;
-  return chrome::CheckPepperFlashManifest(manifest, &unused);
+  return CheckPepperFlashManifest(manifest, &unused);
 }
 
 // The base directory on Windows looks like:
@@ -375,11 +379,9 @@ void RegisterPepperFlashComponent(ComponentUpdateService* cus) {
     return;
 #endif  // defined(OS_CHROMEOS)
 
-  std::unique_ptr<ComponentInstallerPolicy> policy(
-      new FlashComponentInstallerPolicy);
-  // |cus| will take ownership of |installer| during installer->Register(cus).
-  ComponentInstaller* installer = new ComponentInstaller(std::move(policy));
-  installer->Register(cus, base::Closure());
+  auto installer = base::MakeRefCounted<ComponentInstaller>(
+      std::make_unique<FlashComponentInstallerPolicy>());
+  installer->Register(cus, base::OnceClosure());
 #endif  // defined(GOOGLE_CHROME_BUILD)
 }
 

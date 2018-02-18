@@ -63,13 +63,6 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
 
   ~RenderViewContextMenu() override;
 
-  // Returns the offset amount if the context menu requires off-setting.
-  //
-  // If |render_frame_host| belongs to a WebContents that is nested within
-  // other WebContents(s), then this value is the offset between the topmost
-  // WebContents and the frame's WebContents.
-  static gfx::Vector2d GetOffset(content::RenderFrameHost* render_frame_host);
-
   // Adds the spell check service item to the context menu.
   static void AddSpellCheckServiceItem(ui::SimpleMenuModel* menu,
                                        bool is_checked);
@@ -160,6 +153,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   void AppendSearchWebForImageItems();
   void AppendProtocolHandlerSubMenu();
   void AppendPasswordItems();
+  void AppendPictureInPictureItem();
 
   // Command enabled query functions.
   bool IsReloadEnabled() const;
@@ -203,6 +197,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   void ExecTranslate();
   void ExecLanguageSettings(int event_flags);
   void ExecProtocolHandlerSettings(int event_flags);
+  void ExecPictureInPicture();
 
   // Writes the specified text/url to the system clipboard
   void WriteURLToClipboard(const GURL& url);

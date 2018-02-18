@@ -11,19 +11,26 @@
 @class OpenUrlCommand;
 @class ShowSigninCommand;
 @class StartVoiceSearchCommand;
+@class UIViewController;
 
 // This protocol groups commands that are part of ApplicationCommands, but
 // may also be forwarded directly to a settings navigation controller.
 @protocol ApplicationSettingsCommands
 
-// Shows the accounts settings.
-- (void)showAccountsSettings;
+// Shows the accounts settings UI, presenting from |baseViewController|.
+- (void)showAccountsSettingsFromViewController:
+    (UIViewController*)baseViewController;
 
-// Shows the sync settings UI.
-- (void)showSyncSettings;
+// TODO(crbug.com/779791) : Do not pass baseViewController through dispatcher.
+// Shows the sync settings UI, presenting from |baseViewController|.
+- (void)showSyncSettingsFromViewController:
+    (UIViewController*)baseViewController;
 
-// Shows the sync encryption passphrase UI.
-- (void)showSyncPassphraseSettings;
+// TODO(crbug.com/779791) : Do not pass baseViewController through dispatcher.
+// Shows the sync encryption passphrase UI, presenting from
+// |baseViewController|.
+- (void)showSyncPassphraseSettingsFromViewController:
+    (UIViewController*)baseViewController;
 
 @end
 
@@ -39,8 +46,9 @@
 // Dismisses all modal dialogs.
 - (void)dismissModalDialogs;
 
-// Shows the Settings UI.
-- (void)showSettings;
+// TODO(crbug.com/779791) : Do not pass baseViewController through dispatcher.
+// Shows the Settings UI, presenting from |baseViewController|.
+- (void)showSettingsFromViewController:(UIViewController*)baseViewController;
 
 // Switches to show either regular or incognito tabs, and then opens
 // a new oen of those tabs. |newTabCommand|'s |incognito| property inidcates
@@ -66,25 +74,29 @@
 - (void)dismissTabSwitcher;
 
 // Shows the Clear Browsing Data Settings UI (part of Settings).
-- (void)showClearBrowsingDataSettings;
+- (void)showClearBrowsingDataSettingsFromViewController:
+    (UIViewController*)baseViewController;
 
-// Shows the Autofill Settings UI.
-- (void)showAutofillSettings;
+// TODO(crbug.com/779791) : Do not pass baseViewController through dispatcher.
+// Shows the Autofill Settings UI, presenting from |baseViewController|.
+- (void)showAutofillSettingsFromViewController:
+    (UIViewController*)baseViewController;
 
-// Shows the Save Passwords settings UI.
-- (void)showSavePasswordsSettings;
-
-// Shows the Report an Issue UI.
-- (void)showReportAnIssue;
+// Shows the Report an Issue UI, presenting from |baseViewController|.
+- (void)showReportAnIssueFromViewController:
+    (UIViewController*)baseViewController;
 
 // Opens the |command| URL.
 - (void)openURL:(OpenUrlCommand*)command;
 
-// Shows the signin UI.
-- (void)showSignin:(ShowSigninCommand*)command;
+// TODO(crbug.com/779791) : Do not pass baseViewController through dispatcher.
+// Shows the signin UI, presenting from |baseViewController|.
+- (void)showSignin:(ShowSigninCommand*)command
+    baseViewController:(UIViewController*)baseViewController;
 
-// Shows the Add Account UI
-- (void)showAddAccount;
+// TODO(crbug.com/779791) : Do not pass baseViewController through dispatcher.
+// Shows the Add Account UI, presenting from |baseViewController|.
+- (void)showAddAccountFromViewController:(UIViewController*)baseViewController;
 
 @end
 

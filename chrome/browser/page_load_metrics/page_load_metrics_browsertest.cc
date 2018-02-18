@@ -8,7 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/command_line.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -17,6 +16,7 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/test/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -58,7 +58,6 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/common/content_features.h"
-#include "content/public/common/content_switches.h"
 #include "content/public/common/referrer.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
@@ -338,25 +337,17 @@ using WebFeature = blink::mojom::WebFeature;
 
 class PageLoadMetricsBrowserTest : public InProcessBrowserTest {
  public:
-  PageLoadMetricsBrowserTest() {}
+  PageLoadMetricsBrowserTest() {
+    scoped_feature_list_.InitAndEnableFeature(ukm::kUkmFeature);
+  }
+
   ~PageLoadMetricsBrowserTest() override {}
 
  protected:
   void PreRunTestOnMainThread() override {
     InProcessBrowserTest::PreRunTestOnMainThread();
 
-    // UKM DCHECKs if the active UkmRecorder is changed from one instance
-    // to another, rather than being changed from a nullptr; browser_tests
-    // need to circumvent that to be able to intercept UKM calls with its
-    // own TestUkmRecorder instance rather than the default UkmRecorder.
-    ukm::UkmRecorder::Set(nullptr);
     test_ukm_recorder_ = base::MakeUnique<ukm::TestAutoSetUkmRecorder>();
-  }
-
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    InProcessBrowserTest::SetUpCommandLine(command_line);
-    command_line->AppendSwitchASCII(switches::kEnableFeatures,
-                                    ukm::kUkmFeature.name);
   }
 
   // Force navigation to a new page, so the currently tracked page load runs its
@@ -384,6 +375,7 @@ class PageLoadMetricsBrowserTest : public InProcessBrowserTest {
     return base::MakeUnique<PageLoadMetricsWaiter>(web_contents);
   }
 
+  base::test::ScopedFeatureList scoped_feature_list_;
   base::HistogramTester histogram_tester_;
   std::unique_ptr<ukm::TestAutoSetUkmRecorder> test_ukm_recorder_;
 
@@ -423,18 +415,20 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, NewPage) {
   histogram_tester_.ExpectTotalCount(
       internal::kHistogramPageTimingForegroundDuration, 1);
 
-  const ukm::UkmSource* source = test_ukm_recorder_->GetSourceForUrl(url);
-  EXPECT_NE(nullptr, source);
-  EXPECT_TRUE(
-      test_ukm_recorder_->HasMetric(*source, internal::kUkmPageLoadEventName,
-                                    internal::kUkmDomContentLoadedName));
-  EXPECT_TRUE(test_ukm_recorder_->HasMetric(
-      *source, internal::kUkmPageLoadEventName, internal::kUkmLoadEventName));
-  EXPECT_TRUE(test_ukm_recorder_->HasMetric(
-      *source, internal::kUkmPageLoadEventName, internal::kUkmFirstPaintName));
-  EXPECT_TRUE(
-      test_ukm_recorder_->HasMetric(*source, internal::kUkmPageLoadEventName,
-                                    internal::kUkmFirstContentfulPaintName));
+  const auto& entries = test_ukm_recorder_->GetMergedEntriesByName(
+      internal::kUkmPageLoadEventName);
+  EXPECT_EQ(1u, entries.size());
+  for (const auto& kv : entries) {
+    test_ukm_recorder_->ExpectEntrySourceHasUrl(kv.second.get(), url);
+    EXPECT_TRUE(test_ukm_recorder_->EntryHasMetric(
+        kv.second.get(), internal::kUkmDomContentLoadedName));
+    EXPECT_TRUE(test_ukm_recorder_->EntryHasMetric(
+        kv.second.get(), internal::kUkmLoadEventName));
+    EXPECT_TRUE(test_ukm_recorder_->EntryHasMetric(
+        kv.second.get(), internal::kUkmFirstPaintName));
+    EXPECT_TRUE(test_ukm_recorder_->EntryHasMetric(
+        kv.second.get(), internal::kUkmFirstContentfulPaintName));
+  }
 
   // Verify that NoPageLoadMetricsRecorded returns false when PageLoad metrics
   // have been recorded.
@@ -684,7 +678,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, Ignore204Pages) {
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, IgnoreDownloads) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir downloads_directory;
   ASSERT_TRUE(downloads_directory.CreateUniqueTempDir());
   browser()->profile()->GetPrefs()->SetFilePath(
@@ -1077,7 +1071,13 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
       "Prerender.none_PrefetchTTFCP.Reference.Cacheable.Visible", 0);
 }
 
-IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, CSSTiming) {
+// Flaky on Linux; see https://crbug.com/788651.
+#if defined(OS_LINUX)
+#define MAYBE_CSSTiming DISABLED_CSSTiming
+#else
+#define MAYBE_CSSTiming CSSTiming
+#endif
+IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, MAYBE_CSSTiming) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   auto waiter = CreatePageLoadMetricsWaiter();

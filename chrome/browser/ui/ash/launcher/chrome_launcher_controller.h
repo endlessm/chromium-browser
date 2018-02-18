@@ -35,7 +35,6 @@ class ArcAppDeferredLauncherController;
 class BrowserShortcutLauncherItemController;
 class BrowserStatusMonitor;
 class ChromeLauncherControllerUserSwitchObserver;
-class ChromeLauncherPrefsObserver;
 class GURL;
 class Profile;
 class LauncherControllerHelper;
@@ -317,8 +316,7 @@ class ChromeLauncherController
   void SetVirtualKeyboardBehaviorFromPrefs();
 
   // Returns the shelf item status for the given |app_id|, which can be either
-  // STATUS_ACTIVE (if the app is active), STATUS_RUNNING (if there is such an
-  // app) or STATUS_CLOSED.
+  // STATUS_RUNNING (if there is such an app) or STATUS_CLOSED.
   ash::ShelfItemStatus GetAppState(const std::string& app_id);
 
   // Creates an app launcher to insert at |index|. Note that |index| may be
@@ -437,8 +435,6 @@ class ChromeLauncherController
   // A special observer class to detect user switches.
   std::unique_ptr<ChromeLauncherControllerUserSwitchObserver>
       user_switch_observer_;
-
-  std::unique_ptr<ChromeLauncherPrefsObserver> prefs_observer_;
 
   std::unique_ptr<ArcAppDeferredLauncherController> arc_deferred_launcher_;
 

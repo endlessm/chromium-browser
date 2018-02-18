@@ -31,7 +31,6 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/test_frame_navigation_observer.h"
-#include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_javascript_dialog_manager.h"
 #include "net/url_request/url_request.h"
@@ -298,7 +297,7 @@ void NavigationStallDelegate::RequestBeginning(
     std::vector<std::unique_ptr<content::ResourceThrottle>>* throttles) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (request->url() == url_)
-    throttles->push_back(base::MakeUnique<HttpRequestStallThrottle>());
+    throttles->push_back(std::make_unique<HttpRequestStallThrottle>());
 }
 
 FileChooserDelegate::FileChooserDelegate(const base::FilePath& file)
@@ -355,52 +354,83 @@ void UrlCommitObserver::DidFinishNavigation(
   }
 }
 
-FrameRectChangedMessageFilter::FrameRectChangedMessageFilter()
+UpdateResizeParamsMessageFilter::UpdateResizeParamsMessageFilter()
     : content::BrowserMessageFilter(FrameMsgStart),
-      message_loop_runner_(new content::MessageLoopRunner),
+      frame_rect_run_loop_(base::MakeUnique<base::RunLoop>()),
       frame_rect_received_(false) {}
 
-bool FrameRectChangedMessageFilter::OnMessageReceived(
-    const IPC::Message& message) {
-  IPC_BEGIN_MESSAGE_MAP(FrameRectChangedMessageFilter, message)
-    IPC_MESSAGE_HANDLER(FrameHostMsg_FrameRectChanged, OnFrameRectChanged)
-  IPC_END_MESSAGE_MAP()
-  return false;
+void UpdateResizeParamsMessageFilter::WaitForRect() {
+  frame_rect_run_loop_->Run();
 }
 
-gfx::Rect FrameRectChangedMessageFilter::last_rect() const {
-  return last_rect_;
-}
-
-void FrameRectChangedMessageFilter::Wait() {
-  message_loop_runner_->Run();
-}
-
-void FrameRectChangedMessageFilter::Reset() {
+void UpdateResizeParamsMessageFilter::ResetRectRunLoop() {
   last_rect_ = gfx::Rect();
-  message_loop_runner_ = new content::MessageLoopRunner;
+  frame_rect_run_loop_.reset(new base::RunLoop);
   frame_rect_received_ = false;
 }
 
-FrameRectChangedMessageFilter::~FrameRectChangedMessageFilter() {}
-
-void FrameRectChangedMessageFilter::OnFrameRectChanged(
-    const gfx::Rect& rect,
-    const viz::LocalSurfaceId& local_surface_id) {
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
-      base::BindOnce(&FrameRectChangedMessageFilter::OnFrameRectChangedOnUI,
-                     this, rect, local_surface_id));
+viz::FrameSinkId UpdateResizeParamsMessageFilter::GetOrWaitForId() {
+  // No-opt if already quit.
+  frame_sink_id_run_loop_.Run();
+  return frame_sink_id_;
 }
 
-void FrameRectChangedMessageFilter::OnFrameRectChangedOnUI(
+UpdateResizeParamsMessageFilter::~UpdateResizeParamsMessageFilter() {}
+
+void UpdateResizeParamsMessageFilter::OnUpdateResizeParams(
     const gfx::Rect& rect,
-    const viz::LocalSurfaceId& local_surface_id) {
+    const ScreenInfo& screen_info,
+    uint64_t sequence_number,
+    const viz::SurfaceId& surface_id) {
+  // Track each rect updates.
+  content::BrowserThread::PostTask(
+      content::BrowserThread::UI, FROM_HERE,
+      base::BindOnce(&UpdateResizeParamsMessageFilter::OnUpdatedFrameRectOnUI,
+                     this, rect));
+
+  // Record the received value. We cannot check the current state of the child
+  // frame, as it can only be processed on the UI thread, and we cannot block
+  // here.
+  frame_sink_id_ = surface_id.frame_sink_id();
+
+  // There can be several updates before a valid viz::FrameSinkId is ready. Do
+  // not quit |run_loop_| until after we receive a valid one.
+  if (!frame_sink_id_.is_valid())
+    return;
+
+  // We can't nest on the IO thread. So tests will wait on the UI thread, so
+  // post there to exit the nesting.
+  content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::UI)
+      ->PostTask(FROM_HERE,
+                 base::BindOnce(
+                     &UpdateResizeParamsMessageFilter::OnUpdatedFrameSinkIdOnUI,
+                     this));
+}
+
+void UpdateResizeParamsMessageFilter::OnUpdatedFrameRectOnUI(
+    const gfx::Rect& rect) {
   last_rect_ = rect;
   if (!frame_rect_received_) {
     frame_rect_received_ = true;
-    message_loop_runner_->Quit();
+    // Tests looking at the rect currently expect all received input to finish
+    // processing before the test continutes.
+    frame_rect_run_loop_->QuitWhenIdle();
   }
+}
+
+void UpdateResizeParamsMessageFilter::OnUpdatedFrameSinkIdOnUI() {
+  frame_sink_id_run_loop_.Quit();
+}
+
+bool UpdateResizeParamsMessageFilter::OnMessageReceived(
+    const IPC::Message& message) {
+  IPC_BEGIN_MESSAGE_MAP(UpdateResizeParamsMessageFilter, message)
+    IPC_MESSAGE_HANDLER(FrameHostMsg_UpdateResizeParams, OnUpdateResizeParams)
+  IPC_END_MESSAGE_MAP()
+
+  // We do not consume the message, so that we can verify the effects of it
+  // being processed.
+  return false;
 }
 
 }  // namespace content

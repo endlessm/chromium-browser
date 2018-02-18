@@ -239,6 +239,7 @@ The suite job has another 2:39:39.789250 till timeout.
   def setUp(self):
     self._build = 'test-build'
     self._board = 'test-board'
+    self._model = 'test-model'
     self._suite = 'test-suite'
     self._pool = 'test-pool'
     self._num = 42
@@ -575,9 +576,11 @@ The suite job has another 2:39:39.789250 till timeout.
     result_1 = commands._GetRunSuiteArgs(build=self._build,
                                          suite=self._suite,
                                          board=self._board,
+                                         model=self._model,
                                          subsystems=['light'])
     expected_1 = ['--build', self._build,
                   '--board', self._board,
+                  '--model', self._model,
                   '--suite_name', 'suite_attr_wrapper',
                   '--suite_args',
                   ("{'attr_filter': '(suite:%s) and (subsystem:light)'}" %
@@ -886,12 +889,12 @@ fe5d699f2e9e4a7de031497953313dbd *./models/snappy/setvars.sh
             'reef_v1.1.5909-bd1f0c9'))
 
   def testGetModels(self):
-    self.rc.SetDefaultCmdResult(output='reef\npyro\nsnappy\n')
+    self.rc.SetDefaultCmdResult(output='pyro\nreef\nsnappy\n')
     build_bin = os.path.join(self._buildroot, constants.DEFAULT_CHROOT_DIR,
                              'usr', 'bin')
-    osutils.Touch(os.path.join(build_bin, 'fdtget'), makedirs=True)
+    osutils.Touch(os.path.join(build_bin, 'cros_config_host_py'), makedirs=True)
     result = commands.GetModels(self._buildroot, self._board)
-    self.assertEquals(result, ['reef', 'pyro', 'snappy'])
+    self.assertEquals(result, ['pyro', 'reef', 'snappy'])
 
   def testBuildMaximum(self):
     """Base case where Build is called with all options (except extra_env)."""

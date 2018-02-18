@@ -21,7 +21,7 @@
 #include "chromeos/network/network_connect.h"
 #include "chromeos/network/network_type_pattern.h"
 #include "components/cryptauth/cryptauth_service.h"
-#include "components/prefs/pref_registry_simple.h"
+#include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "components/proximity_auth/logging/logging.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
@@ -45,7 +45,8 @@ TetherService* TetherService::Get(Profile* profile) {
 }
 
 // static
-void TetherService::RegisterProfilePrefs(PrefRegistrySimple* registry) {
+void TetherService::RegisterProfilePrefs(
+    user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(prefs::kInstantTetheringAllowed, true);
   registry->RegisterBooleanPref(prefs::kInstantTetheringEnabled, true);
 
@@ -80,8 +81,6 @@ std::string TetherService::TetherFeatureStateToString(
       return "[other or unknown]";
     case (TetherFeatureState::BLE_ADVERTISING_NOT_SUPPORTED):
       return "[BLE advertising not supported]";
-    case (TetherFeatureState::SCREEN_LOCKED):
-      return "[screen is locked]";
     case (TetherFeatureState::NO_AVAILABLE_HOSTS):
       return "[no potential Tether hosts]";
     case (TetherFeatureState::CELLULAR_DISABLED):
@@ -106,12 +105,10 @@ std::string TetherService::TetherFeatureStateToString(
 TetherService::TetherService(
     Profile* profile,
     chromeos::PowerManagerClient* power_manager_client,
-    chromeos::SessionManagerClient* session_manager_client,
     cryptauth::CryptAuthService* cryptauth_service,
     chromeos::NetworkStateHandler* network_state_handler)
     : profile_(profile),
       power_manager_client_(power_manager_client),
-      session_manager_client_(session_manager_client),
       cryptauth_service_(cryptauth_service),
       network_state_handler_(network_state_handler),
       notification_presenter_(
@@ -122,7 +119,6 @@ TetherService::TetherService(
       timer_(base::MakeUnique<base::OneShotTimer>()),
       weak_ptr_factory_(this) {
   power_manager_client_->AddObserver(this);
-  session_manager_client_->AddObserver(this);
   cryptauth_service_->GetCryptAuthDeviceManager()->AddObserver(this);
   network_state_handler_->AddObserver(this, FROM_HERE);
 
@@ -195,7 +191,6 @@ void TetherService::Shutdown() {
   // Remove all observers. This ensures that once Shutdown() is called, no more
   // calls to UpdateTetherTechnologyState() will be triggered.
   power_manager_client_->RemoveObserver(this);
-  session_manager_client_->RemoveObserver(this);
   cryptauth_service_->GetCryptAuthDeviceManager()->RemoveObserver(this);
   network_state_handler_->RemoveObserver(this, FROM_HERE);
   if (adapter_)
@@ -210,7 +205,8 @@ void TetherService::Shutdown() {
   notification_presenter_.reset();
 }
 
-void TetherService::SuspendImminent() {
+void TetherService::SuspendImminent(
+    power_manager::SuspendImminent::Reason reason) {
   suspended_ = true;
   UpdateTetherTechnologyState();
 }
@@ -226,14 +222,6 @@ void TetherService::SuspendDone(const base::TimeDelta& sleep_duration) {
     tether_component_.reset();
   }
 
-  UpdateTetherTechnologyState();
-}
-
-void TetherService::ScreenIsLocked() {
-  UpdateTetherTechnologyState();
-}
-
-void TetherService::ScreenIsUnlocked() {
   UpdateTetherTechnologyState();
 }
 
@@ -365,7 +353,6 @@ TetherService::GetTetherTechnologyState() {
     case BLE_NOT_PRESENT:
     case BLE_ADVERTISING_NOT_SUPPORTED:
     case WIFI_NOT_PRESENT:
-    case SCREEN_LOCKED:
     case NO_AVAILABLE_HOSTS:
     case CELLULAR_DISABLED:
       return chromeos::NetworkStateHandler::TechnologyState::

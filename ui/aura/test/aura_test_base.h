@@ -35,6 +35,8 @@ class FocusClient;
 
 namespace test {
 
+class AuraTestContextFactory;
+
 enum class BackendType { CLASSIC, MUS };
 
 // A base class for aura unit tests.
@@ -112,6 +114,9 @@ class AuraTestBase : public testing::Test,
   // WindowManagerDelegate:
   void SetWindowManagerClient(WindowManagerClient* client) override;
   void OnWmConnected() override;
+  void OnWmAcceleratedWidgetAvailableForDisplay(
+      int64_t display_id,
+      gfx::AcceleratedWidget widget) override {}
   void OnWmSetBounds(Window* window, const gfx::Rect& bounds) override;
   bool OnWmSetProperty(
       Window* window,
@@ -166,6 +171,7 @@ class AuraTestBase : public testing::Test,
   bool teardown_called_ = false;
   PropertyConverter property_converter_;
   std::unique_ptr<AuraTestHelper> helper_;
+  std::unique_ptr<AuraTestContextFactory> mus_context_factory_;
   std::vector<std::unique_ptr<WindowTreeHostMus>> window_tree_hosts_;
   std::vector<std::unique_ptr<ui::PointerEvent>> observed_pointer_events_;
 

@@ -12,13 +12,11 @@
 #include "ui/views/controls/button/button.h"
 #include "ui/views/view.h"
 
-namespace views {
-class ImageButton;
-}
-
 namespace ash {
 
+class HoverNotifier;
 class LoginBubble;
+class LoginButton;
 
 // Display the user's profile icon, name, and a menu icon in various layout
 // styles.
@@ -71,7 +69,8 @@ class ASH_EXPORT LoginUserView : public views::Button,
   void ButtonPressed(Button* sender, const ui::Event& event) override;
 
  private:
-  class OpacityInputHandler;
+  // Called when hover state changes.
+  void OnHover(bool has_hover);
 
   // Updates UI element values so they reflect the data in |current_user_|.
   void UpdateCurrentUserState();
@@ -92,12 +91,12 @@ class ASH_EXPORT LoginUserView : public views::Button,
   mojom::LoginUserInfoPtr current_user_;
 
   // Used to dispatch opacity update events.
-  std::unique_ptr<OpacityInputHandler> opacity_input_handler_;
+  std::unique_ptr<HoverNotifier> hover_notifier_;
 
   LoginDisplayStyle display_style_;
   UserImage* user_image_ = nullptr;
   UserLabel* user_label_ = nullptr;
-  views::ImageButton* user_dropdown_ = nullptr;
+  LoginButton* user_dropdown_ = nullptr;
   std::unique_ptr<LoginBubble> user_menu_;
 
   // True iff the view is currently opaque (ie, opacity = 1).

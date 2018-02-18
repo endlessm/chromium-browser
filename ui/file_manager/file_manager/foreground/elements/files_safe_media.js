@@ -40,7 +40,7 @@ var FilesSafeMedia = Polymer({
       case 'video':
          return 'foreground/elements/files_safe_video_webview_content.html';
       case 'html':
-        return 'foreground/elements/files_safe_html_webview_content.html';
+        return 'foreground/elements/files_safe_text_webview_content.html';
       default:
         console.error('Unsupported type: ' + this.type);
         return '';
@@ -67,7 +67,9 @@ var FilesSafeMedia = Polymer({
       var data = {};
       data.type = this.type;
       data.src = this.src;
-      this.webview_.contentWindow.postMessage(data, FILES_APP_ORIGIN);
+      window.setTimeout(function() {
+        this.webview_.contentWindow.postMessage(data, FILES_APP_ORIGIN);
+      }.bind(this));
     }
   },
 

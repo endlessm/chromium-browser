@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 
+#include "ash/app_list/model/search_result.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/macros.h"
@@ -28,7 +29,6 @@
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "ui/app_list/app_list_switches.h"
-#include "ui/app_list/search_result.h"
 
 using content::BrowserThread;
 using extensions::Manifest;
@@ -198,8 +198,6 @@ class WebstoreProviderTest : public InProcessBrowserTest {
 
       mock_server_response_.clear();
     }
-
-    webstore_provider_->Stop();
   }
 
   std::string GetResultTitles() const {

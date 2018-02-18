@@ -19,7 +19,6 @@
 #include "url/gurl.h"
 
 class PrefService;
-class Profile;
 
 namespace base {
 class DictionaryValue;
@@ -38,6 +37,10 @@ extern const base::Feature kTranslateUI2016Q2;
 // Enables or disables the new improved language settings.
 // These settings support the new UI.
 extern const base::Feature kImprovedLanguageSettings;
+
+// Enables or disables using the most recent target language as the default
+// target language option.
+extern const base::Feature kTranslateRecentTarget;
 
 // The trial (study) name in finch study config.
 extern const char kTranslateUI2016Q2TrialName[];
@@ -77,6 +80,22 @@ class DenialTimeUpdate {
   base::ListValue* time_list_;  // Weak, owned by the containing prefs service.
 };
 
+// This class holds various info about a language, that are related to Translate
+// Preferences and Language Settings.
+struct TranslateLanguageInfo {
+  TranslateLanguageInfo();
+  TranslateLanguageInfo(const TranslateLanguageInfo&);
+
+  // This ISO code of the language.
+  std::string code;
+  // The display name of the language in the current locale.
+  std::string display_name;
+  // The display name of the language in the language locale.
+  std::string native_display_name;
+  // Whether we support translate for this language.
+  bool supports_translate = false;
+};
+
 // The wrapper of PrefService object for Translate.
 //
 // It is assumed that |prefs_| is alive while this instance is alive.
@@ -91,10 +110,23 @@ class TranslatePrefs {
   static const char kPrefTranslateBlockedLanguages[];
   static const char kPrefTranslateLastDeniedTimeForLanguage[];
   static const char kPrefTranslateTooOftenDeniedForLanguage[];
+  static const char kPrefTranslateRecentTarget[];
 #if defined(OS_ANDROID)
   static const char kPrefTranslateAutoAlwaysCount[];
   static const char kPrefTranslateAutoNeverCount[];
 #endif
+
+  // This parameter specifies how the language should be moved within the list.
+  enum RearrangeSpecifier {
+    // No-op enumerator.
+    kNone,
+    // Move the language to the very top of the list.
+    kTop,
+    // Move the language up by one position.
+    kUp,
+    // Move the language down by one position.
+    kDown
+  };
 
   // |preferred_languages_pref| is only used on Chrome OS, other platforms must
   // pass NULL.
@@ -102,8 +134,12 @@ class TranslatePrefs {
                  const char* accept_languages_pref,
                  const char* preferred_languages_pref);
 
-  // Checks if the translate feature is enabled.
-  bool IsEnabled() const;
+  // Checks if the "offer translate" (i.e. automatic translate bubble) feature
+  // is enabled.
+  bool IsOfferTranslateEnabled() const;
+
+  // Checks if translate is allowed by policy.
+  bool IsTranslateAllowedByPolicy() const;
 
   // Sets the country that the application is run in. Determined by the
   // VariationsService, can be left empty. Used by the TranslateRanker.
@@ -127,6 +163,27 @@ class TranslatePrefs {
   void AddToLanguageList(const std::string& language, bool force_blocked);
   // Removes the language from the language list at chrome://settings/languages.
   void RemoveFromLanguageList(const std::string& language);
+
+  // Rearranges the given language inside the language list.
+  // The target position is specified as a RearrangeSpecifier.
+  // The param |enabled_languages| is a list of languages that are enabled in
+  // the current UI. This is required because the full language list contains
+  // some languages that might not be enabled in the current UI and we need to
+  // skip those languages while rearranging the list.
+  void RearrangeLanguage(const std::string& language,
+                         RearrangeSpecifier where,
+                         const std::vector<std::string>& enabled_languages);
+
+  // Returns the list of TranslateLanguageInfo for all languages that are
+  // available in the given locale.
+  // The list returned in |languages| is sorted alphabetically based on the
+  // display names in the given locale.
+  // May cause a supported language list fetch unless |translate_allowed| is
+  // false.
+  static void GetLanguageInfoList(
+      const std::string& app_locale,
+      bool translate_allowed,
+      std::vector<TranslateLanguageInfo>* languages);
 
   bool IsSiteBlacklisted(const std::string& site) const;
   void BlacklistSite(const std::string& site);
@@ -193,30 +250,24 @@ class TranslatePrefs {
   // Gets the language list of the language settings.
   void GetLanguageList(std::vector<std::string>* languages) const;
 
-  // Updates the language list of the language settings.
-  void UpdateLanguageList(const std::vector<std::string>& languages);
-
   bool CanTranslateLanguage(TranslateAcceptLanguages* accept_languages,
                             const std::string& language);
   bool ShouldAutoTranslate(const std::string& original_language,
                            std::string* target_language);
 
-  // Language and probability pair.
-  typedef std::pair<std::string, double> LanguageAndProbability;
-  typedef std::vector<LanguageAndProbability> LanguageAndProbabilityList;
-
-  // Output the User Profile Profile's (ULP) "reading list" into |list| as
-  // ordered list of <string, double> pair, sorted by the double in decreasing
-  // order. Return the confidence of the list or 0.0 if there no ULP "reading
-  // list".
-  double GetReadingFromUserLanguageProfile(
-      LanguageAndProbabilityList* list) const;
+  // Stores and retrieves the last-observed translate target language. Used to
+  // determine which target language to offer in future.
+  void SetRecentTargetLanguage(const std::string& target_language);
+  std::string GetRecentTargetLanguage() const;
 
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
   static void MigrateUserPrefs(PrefService* user_prefs,
                                const char* accept_languages_pref);
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, UpdateLanguageList);
+  FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest,
+                           UpdateLanguageListFeatureEnabled);
   FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, BlockLanguage);
   FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, UnblockLanguage);
   FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, AddToLanguageList);
@@ -224,7 +275,13 @@ class TranslatePrefs {
   FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, AddToLanguageListFeatureEnabled);
   FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest,
                            RemoveFromLanguageListFeatureEnabled);
+  FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, MoveLanguageToTheTop);
+  FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, MoveLanguageUp);
+  FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, MoveLanguageDown);
   friend class TranslatePrefsTest;
+
+  // Updates the language list of the language settings.
+  void UpdateLanguageList(const std::vector<std::string>& languages);
 
   // Merges two language sets to migrate to the language setting UI.
   static void CreateBlockedLanguages(

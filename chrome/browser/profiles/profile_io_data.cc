@@ -47,8 +47,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ssl/chrome_expect_ct_reporter.h"
-#include "chrome/browser/ui/search/new_tab_page_interceptor_service.h"
-#include "chrome/browser/ui/search/new_tab_page_interceptor_service_factory.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/features.h"
@@ -72,22 +70,26 @@
 #include "components/policy/core/common/cloud/policy_header_service.h"
 #include "components/policy/core/common/cloud/user_cloud_policy_manager.h"
 #include "components/prefs/pref_service.h"
-#include "components/previews/core/previews_io_data.h"
-#include "components/signin/core/common/signin_pref_names.h"
+#include "components/previews/content/previews_io_data.h"
+#include "components/signin/core/browser/profile_management_switches.h"
+#include "components/signin/core/browser/signin_pref_names.h"
 #include "components/sync/base/pref_names.h"
 #include "components/url_formatter/url_fixer.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_network_transaction_factory.h"
-#include "content/public/browser/ignore_errors_cert_verifier.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/resource_context.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/network/ignore_errors_cert_verifier.h"
 #include "content/public/network/url_request_context_builder_mojo.h"
 #include "extensions/features/features.h"
+#include "net/cert/caching_cert_verifier.h"
 #include "net/cert/cert_verifier.h"
+#include "net/cert/cert_verify_proc.h"
 #include "net/cert/ct_log_verifier.h"
 #include "net/cert/ct_policy_enforcer.h"
 #include "net/cert/multi_log_ct_verifier.h"
+#include "net/cert/multi_threaded_cert_verifier.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_transaction_factory.h"
@@ -127,6 +129,9 @@
 
 #if defined(OS_ANDROID)
 #include "content/public/browser/android/content_protocol_handler.h"
+#else
+#include "chrome/browser/ui/search/new_tab_page_interceptor_service.h"
+#include "chrome/browser/ui/search/new_tab_page_interceptor_service_factory.h"
 #endif  // defined(OS_ANDROID)
 
 #if defined(OS_CHROMEOS)
@@ -176,6 +181,34 @@ using content::ResourceContext;
 namespace {
 
 net::CertVerifier* g_cert_verifier_for_testing = nullptr;
+
+// A CertVerifier that forwards all requests to |g_cert_verifier_for_testing|.
+// This is used to allow Profiles to have their own
+// std::unique_ptr<net::CertVerifier> while forwarding calls to the shared
+// verifier.
+class WrappedTestingCertVerifier : public net::CertVerifier {
+ public:
+  ~WrappedTestingCertVerifier() override = default;
+
+  // CertVerifier implementation
+  int Verify(const RequestParams& params,
+             net::CRLSet* crl_set,
+             net::CertVerifyResult* verify_result,
+             const net::CompletionCallback& callback,
+             std::unique_ptr<Request>* out_req,
+             const net::NetLogWithSource& net_log) override {
+    verify_result->Reset();
+    if (!g_cert_verifier_for_testing)
+      return net::ERR_FAILED;
+    return g_cert_verifier_for_testing->Verify(params, crl_set, verify_result,
+                                               callback, out_req, net_log);
+  }
+  bool SupportsOCSPStapling() override {
+    if (!g_cert_verifier_for_testing)
+      return false;
+    return g_cert_verifier_for_testing->SupportsOCSPStapling();
+  }
+};
 
 #if BUILDFLAG(DEBUG_DEVTOOLS)
 bool IsSupportedDevToolsURL(const GURL& url, base::FilePath* path) {
@@ -423,12 +456,14 @@ void ProfileIOData::InitializeOnUIThread(Profile* profile) {
   params->protocol_handler_interceptor =
       protocol_handler_registry->CreateJobInterceptorFactory();
 
+#if !defined(OS_ANDROID)
   NewTabPageInterceptorService* new_tab_interceptor_service =
       NewTabPageInterceptorServiceFactory::GetForProfile(profile);
   if (new_tab_interceptor_service) {
     params->new_tab_page_interceptor =
         new_tab_interceptor_service->CreateInterceptor();
   }
+#endif
 
   params->proxy_config_service = ProxyServiceFactory::CreateProxyConfigService(
       profile->GetProxyConfigTracker());
@@ -494,6 +529,9 @@ void ProfileIOData::InitializeOnUIThread(Profile* profile) {
     sync_first_setup_complete_.MoveToThread(io_task_runner);
     sync_has_auth_error_.Init(syncer::prefs::kSyncHasAuthError, pref_service);
     sync_has_auth_error_.MoveToThread(io_task_runner);
+    dice_enabled_ = signin::CreateDicePrefMember(pref_service);
+    if (dice_enabled_)
+      dice_enabled_->MoveToThread(io_task_runner);
   }
 
   network_prediction_options_.Init(prefs::kNetworkPredictionOptions,
@@ -502,10 +540,10 @@ void ProfileIOData::InitializeOnUIThread(Profile* profile) {
   network_prediction_options_.MoveToThread(io_task_runner);
 
 #if defined(OS_CHROMEOS)
-  std::unique_ptr<policy::PolicyCertVerifier> verifier =
-      policy::PolicyCertServiceFactory::CreateForProfile(profile);
-  policy_cert_verifier_ = verifier.get();
-  cert_verifier_ = std::move(verifier);
+  if (!g_cert_verifier_for_testing) {
+    profile_params_->policy_cert_verifier =
+        policy::PolicyCertServiceFactory::CreateForProfile(profile);
+  }
 #endif
   // The URLBlacklistManager has to be created on the UI thread to register
   // observers of |pref_service|, and it also has to clean up on
@@ -537,6 +575,12 @@ void ProfileIOData::InitializeOnUIThread(Profile* profile) {
   incognito_availibility_pref_.Init(
       prefs::kIncognitoModeAvailability, pref_service);
   incognito_availibility_pref_.MoveToThread(io_task_runner);
+
+#if defined(OS_CHROMEOS)
+  account_consistency_mirror_required_pref_.Init(
+      prefs::kAccountConsistencyMirrorRequired, pref_service);
+  account_consistency_mirror_required_pref_.MoveToThread(io_task_runner);
+#endif
 
   // We need to make sure that content initializes its own data structures that
   // are associated with each ResourceContext because we might post this
@@ -615,7 +659,6 @@ ProfileIOData::ProfileParams::~ProfileParams() {}
 ProfileIOData::ProfileIOData(Profile::ProfileType profile_type)
     : initialized_(false),
 #if defined(OS_CHROMEOS)
-      policy_cert_verifier_(nullptr),
       use_system_key_slot_(false),
 #endif
       main_request_context_(nullptr),
@@ -1014,7 +1057,6 @@ void ProfileIOData::Init(
   std::unique_ptr<content::URLRequestContextBuilderMojo> builder =
       base::MakeUnique<content::URLRequestContextBuilderMojo>();
 
-  builder->set_net_log(io_thread->net_log());
   builder->set_shared_http_user_agent_settings(
       chrome_http_user_agent_settings_.get());
   builder->set_ssl_config_service(profile_params_->ssl_config_service);
@@ -1070,8 +1112,8 @@ void ProfileIOData::Init(
 
   builder->set_network_delegate(std::move(network_delegate));
 
-  builder->set_transport_security_persister_path(profile_params_->path);
-  builder->set_transport_security_persister_readonly(IsOffTheRecord());
+  if (!IsOffTheRecord())
+    builder->set_transport_security_persister_path(profile_params_->path);
 
   // Take ownership over these parameters.
   cookie_settings_ = profile_params_->cookie_settings;
@@ -1095,8 +1137,9 @@ void ProfileIOData::Init(
 #endif
 
   if (g_cert_verifier_for_testing) {
-    builder->set_shared_cert_verifier(g_cert_verifier_for_testing);
+    builder->SetCertVerifier(std::make_unique<WrappedTestingCertVerifier>());
   } else {
+    std::unique_ptr<net::CertVerifier> cert_verifier;
 #if defined(OS_CHROMEOS)
     crypto::ScopedPK11Slot public_slot =
         crypto::GetPublicSlotForChromeOSUser(username_hash_);
@@ -1104,22 +1147,23 @@ void ProfileIOData::Init(
     // for cert trust purposes anyway.
     scoped_refptr<net::CertVerifyProc> verify_proc(
         new chromeos::CertVerifyProcChromeOS(std::move(public_slot)));
-    if (policy_cert_verifier_) {
-      DCHECK_EQ(policy_cert_verifier_, cert_verifier_.get());
-      policy_cert_verifier_->InitializeOnIOThread(verify_proc);
+    if (profile_params_->policy_cert_verifier) {
+      profile_params_->policy_cert_verifier->InitializeOnIOThread(verify_proc);
+      cert_verifier = std::move(profile_params_->policy_cert_verifier);
     } else {
-      cert_verifier_ = base::MakeUnique<net::CachingCertVerifier>(
+      cert_verifier = base::MakeUnique<net::CachingCertVerifier>(
           base::MakeUnique<net::MultiThreadedCertVerifier>(verify_proc.get()));
     }
+#else
+    cert_verifier = std::make_unique<net::CachingCertVerifier>(
+        std::make_unique<net::MultiThreadedCertVerifier>(
+            net::CertVerifyProc::CreateDefault()));
+#endif
     const base::CommandLine& command_line =
         *base::CommandLine::ForCurrentProcess();
-    cert_verifier_ = content::IgnoreErrorsCertVerifier::MaybeWrapCertVerifier(
-        command_line, switches::kUserDataDir, std::move(cert_verifier_));
-    builder->set_shared_cert_verifier(cert_verifier_.get());
-#else
-    builder->set_shared_cert_verifier(
-        io_thread_globals->system_request_context->cert_verifier());
-#endif
+    cert_verifier = content::IgnoreErrorsCertVerifier::MaybeWrapCertVerifier(
+        command_line, switches::kUserDataDir, std::move(cert_verifier));
+    builder->SetCertVerifier(std::move(cert_verifier));
   }
 
   // Install the New Tab Page Interceptor.
@@ -1218,7 +1262,8 @@ void ProfileIOData::Init(
   main_request_context_->transport_security_state()->SetReportSender(
       certificate_report_sender_.get());
 
-  expect_ct_reporter_.reset(new ChromeExpectCTReporter(main_request_context_));
+  expect_ct_reporter_.reset(new ChromeExpectCTReporter(
+      main_request_context_, base::Closure(), base::Closure()));
   main_request_context_->transport_security_state()->SetExpectCTReporter(
       expect_ct_reporter_.get());
 
@@ -1370,6 +1415,8 @@ void ProfileIOData::ShutdownOnUIThread(
   sync_suppress_start_.Destroy();
   sync_first_setup_complete_.Destroy();
   sync_has_auth_error_.Destroy();
+  if (dice_enabled_)
+    dice_enabled_->Destroy();
   enable_referrers_.Destroy();
   enable_do_not_track_.Destroy();
   force_google_safesearch_.Destroy();
@@ -1385,6 +1432,9 @@ void ProfileIOData::ShutdownOnUIThread(
   if (chrome_http_user_agent_settings_)
     chrome_http_user_agent_settings_->CleanupOnUIThread();
   incognito_availibility_pref_.Destroy();
+#if defined(OS_CHROMEOS)
+  account_consistency_mirror_required_pref_.Destroy();
+#endif
 
   if (!context_getters->empty()) {
     if (BrowserThread::IsMessageLoopValid(BrowserThread::IO)) {

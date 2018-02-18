@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/arc/arc_optin_uma.h"
@@ -148,7 +147,10 @@ void ArcActiveDirectoryEnrollmentTokenFetcher::
       user_id = enroll_response.user_id();
       break;
     }
-    case policy::DM_STATUS_SERVICE_ARC_DISABLED: {
+    case policy::DM_STATUS_SERVICE_ARC_DISABLED:
+    case policy::DM_STATUS_SERVICE_POLICY_NOT_FOUND: {
+      // POLICY_NOT_FOUND is the first error encountered when the domain is not
+      // set up yet in CPanel, so just treat it the same as ARC_DISABLED.
       fetch_status = Status::ARC_DISABLED;
       break;
     }
@@ -196,8 +198,7 @@ void ArcActiveDirectoryEnrollmentTokenFetcher::CancelSamlFlow() {
   dm_token_.clear();
   auth_session_id_.clear();
   DCHECK(!callback_.is_null());
-  base::ResetAndReturn(&callback_)
-      .Run(Status::FAILURE, std::string(), std::string());
+  std::move(callback_).Run(Status::FAILURE, std::string(), std::string());
 }
 
 void ArcActiveDirectoryEnrollmentTokenFetcher::OnAuthSucceeded() {

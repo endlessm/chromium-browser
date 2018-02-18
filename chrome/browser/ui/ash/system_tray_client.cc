@@ -15,7 +15,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_util.h"
-#include "chrome/browser/chromeos/bluetooth/bluetooth_pairing_dialog.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/options/network_config_view.h"
@@ -26,17 +25,18 @@
 #include "chrome/browser/chromeos/system/system_clock.h"
 #include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/browser/ui/singleton_tabs.h"
+#include "chrome/browser/ui/webui/chromeos/bluetooth_pairing_dialog.h"
 #include "chrome/browser/ui/webui/chromeos/internet_config_dialog.h"
 #include "chrome/browser/upgrade_detector.h"
 #include "chrome/common/url_constants.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
-#include "chromeos/login/login_state.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
@@ -45,7 +45,7 @@
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/common/net.mojom.h"
-#include "components/arc/instance_holder.h"
+#include "components/arc/connection_holder.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/common/service_manager_connection.h"
@@ -57,14 +57,14 @@
 #include "services/ui/public/cpp/property_type_converters.h"
 #include "services/ui/public/interfaces/window_manager.mojom.h"
 #include "third_party/cros_system_api/dbus/shill/dbus-constants.h"
+#include "ui/events/event_constants.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/dialog_delegate.h"
 
-using chromeos::BluetoothPairingDialog;
 using chromeos::DBusThreadManager;
-using chromeos::LoginState;
 using chromeos::UpdateEngineClient;
-using device::BluetoothDevice;
+using session_manager::SessionState;
+using session_manager::SessionManager;
 using views::Widget;
 
 namespace {
@@ -164,56 +164,10 @@ SystemTrayClient* SystemTrayClient::Get() {
 }
 
 // static
-ash::LoginStatus SystemTrayClient::GetUserLoginStatus() {
-  if (!LoginState::Get()->IsUserLoggedIn())
-    return ash::LoginStatus::NOT_LOGGED_IN;
-
-  // Session manager client owns screen lock status.
-  if (DBusThreadManager::Get()->GetSessionManagerClient()->IsScreenLocked())
-    return ash::LoginStatus::LOCKED;
-
-  LoginState::LoggedInUserType user_type =
-      LoginState::Get()->GetLoggedInUserType();
-  switch (user_type) {
-    case LoginState::LOGGED_IN_USER_NONE:
-      return ash::LoginStatus::NOT_LOGGED_IN;
-    case LoginState::LOGGED_IN_USER_REGULAR:
-      return ash::LoginStatus::USER;
-    case LoginState::LOGGED_IN_USER_OWNER:
-      return ash::LoginStatus::OWNER;
-    case LoginState::LOGGED_IN_USER_GUEST:
-      return ash::LoginStatus::GUEST;
-    case LoginState::LOGGED_IN_USER_PUBLIC_ACCOUNT:
-      return ash::LoginStatus::PUBLIC;
-    case LoginState::LOGGED_IN_USER_SUPERVISED:
-      return ash::LoginStatus::SUPERVISED;
-    case LoginState::LOGGED_IN_USER_KIOSK_APP:
-      return ash::LoginStatus::KIOSK_APP;
-    case LoginState::LOGGED_IN_USER_ARC_KIOSK_APP:
-      return ash::LoginStatus::ARC_KIOSK_APP;
-  }
-  NOTREACHED();
-  return ash::LoginStatus::NOT_LOGGED_IN;
-}
-
-// static
 int SystemTrayClient::GetDialogParentContainerId() {
-  const ash::LoginStatus login_status = GetUserLoginStatus();
-  if (login_status == ash::LoginStatus::NOT_LOGGED_IN ||
-      login_status == ash::LoginStatus::LOCKED) {
-    return ash::kShellWindowId_LockSystemModalContainer;
-  }
-
-  session_manager::SessionManager* const session_manager =
-      session_manager::SessionManager::Get();
-  const bool session_started = session_manager->IsSessionStarted();
-  const bool is_in_secondary_login_screen =
-      session_manager->IsInSecondaryLoginScreen();
-
-  if (!session_started || is_in_secondary_login_screen)
-    return ash::kShellWindowId_LockSystemModalContainer;
-
-  return ash::kShellWindowId_SystemModalContainer;
+  return SessionManager::Get()->session_state() == SessionState::ACTIVE
+             ? ash::kShellWindowId_SystemModalContainer
+             : ash::kShellWindowId_LockSystemModalContainer;
 }
 
 // static
@@ -272,16 +226,15 @@ void SystemTrayClient::ShowBluetoothPairingDialog(
     const base::string16& name_for_display,
     bool paired,
     bool connected) {
-  std::string canonical_address = BluetoothDevice::CanonicalizeAddress(address);
+  std::string canonical_address =
+      device::BluetoothDevice::CanonicalizeAddress(address);
   if (canonical_address.empty())  // Address was invalid.
     return;
 
   base::RecordAction(
       base::UserMetricsAction("StatusArea_Bluetooth_Connect_Unknown"));
-  BluetoothPairingDialog* dialog = new BluetoothPairingDialog(
+  chromeos::BluetoothPairingDialog::ShowDialog(
       canonical_address, name_for_display, paired, connected);
-  // The dialog deletes itself on close.
-  dialog->ShowInContainer(GetDialogParentContainerId());
 }
 
 void SystemTrayClient::ShowDateSettings() {
@@ -359,7 +312,7 @@ void SystemTrayClient::ShowPublicAccountInfo() {
 
 void SystemTrayClient::ShowEnterpriseInfo() {
   // At the login screen, lock screen, etc. show enterprise help in a window.
-  if (session_manager::SessionManager::Get()->IsUserSessionBlocked()) {
+  if (SessionManager::Get()->IsUserSessionBlocked()) {
     scoped_refptr<chromeos::HelpAppLauncher> help_app(
         new chromeos::HelpAppLauncher(nullptr /* parent_window */));
     help_app->ShowHelpTopic(chromeos::HelpAppLauncher::HELP_ENTERPRISE);
@@ -375,7 +328,7 @@ void SystemTrayClient::ShowEnterpriseInfo() {
 
 void SystemTrayClient::ShowNetworkConfigure(const std::string& network_id) {
   // UI is not available at the lock screen.
-  if (session_manager::SessionManager::Get()->IsScreenLocked())
+  if (SessionManager::Get()->IsScreenLocked())
     return;
 
   DCHECK(chromeos::NetworkHandler::IsInitialized());
@@ -392,9 +345,7 @@ void SystemTrayClient::ShowNetworkConfigure(const std::string& network_id) {
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           chromeos::switches::kNetworkSettingsConfig)) {
-    chromeos::InternetConfigDialog::ShowDialogForNetworkState(
-        ProfileManager::GetActiveUserProfile(), GetDialogParentContainerId(),
-        network_state);
+    chromeos::InternetConfigDialog::ShowDialogForNetworkState(network_state);
 
   } else {
     chromeos::NetworkConfigView::ShowForNetworkId(network_id);
@@ -417,9 +368,7 @@ void SystemTrayClient::ShowNetworkCreate(const std::string& type) {
     // is deprecated.
     std::string onc_type =
         chromeos::network_util::TranslateShillTypeToONC(type);
-    chromeos::InternetConfigDialog::ShowDialogForNetworkType(
-        ProfileManager::GetActiveUserProfile(), GetDialogParentContainerId(),
-        onc_type);
+    chromeos::InternetConfigDialog::ShowDialogForNetworkType(onc_type);
   } else {
     chromeos::NetworkConfigView::ShowForType(type);
   }
@@ -427,13 +376,8 @@ void SystemTrayClient::ShowNetworkCreate(const std::string& type) {
 
 void SystemTrayClient::ShowThirdPartyVpnCreate(
     const std::string& extension_id) {
-  const user_manager::User* primary_user =
-      user_manager::UserManager::Get()->GetPrimaryUser();
-  if (!primary_user)
-    return;
+  Profile* profile = ProfileManager::GetPrimaryUserProfile();
 
-  Profile* profile =
-      chromeos::ProfileHelper::Get()->GetProfileByUser(primary_user);
   if (!profile)
     return;
 
@@ -442,15 +386,25 @@ void SystemTrayClient::ShowThirdPartyVpnCreate(
       ->SendShowAddDialogToExtension(extension_id);
 }
 
+void SystemTrayClient::ShowArcVpnCreate(const std::string& app_id) {
+  Profile* profile = ProfileManager::GetPrimaryUserProfile();
+
+  if (!profile)
+    return;
+
+  arc::LaunchApp(profile, app_id, ui::EF_NONE);
+}
+
 void SystemTrayClient::ShowNetworkSettings(const std::string& network_id) {
   ShowNetworkSettingsHelper(network_id, false /* show_configure */);
 }
 
 void SystemTrayClient::ShowNetworkSettingsHelper(const std::string& network_id,
                                                  bool show_configure) {
-  if (session_manager::SessionManager::Get()->IsInSecondaryLoginScreen())
+  SessionManager* const session_manager = SessionManager::Get();
+  if (session_manager->IsInSecondaryLoginScreen())
     return;
-  if (!LoginState::Get()->IsUserLoggedIn()) {
+  if (!session_manager->IsSessionStarted()) {
     chromeos::LoginDisplayHost::default_host()->OpenInternetDetailDialog(
         network_id);
     return;

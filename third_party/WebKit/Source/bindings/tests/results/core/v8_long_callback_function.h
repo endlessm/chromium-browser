@@ -12,31 +12,28 @@
 #ifndef V8LongCallbackFunction_h
 #define V8LongCallbackFunction_h
 
-#include "bindings/core/v8/NativeValueTraits.h"
 #include "core/CoreExport.h"
 #include "platform/bindings/CallbackFunctionBase.h"
-#include "platform/bindings/ScriptWrappable.h"
-#include "platform/bindings/TraceWrapperV8Reference.h"
-#include "platform/heap/Handle.h"
-#include "platform/wtf/text/WTFString.h"
 
 namespace blink {
 
+class ScriptWrappable;
+
 class CORE_EXPORT V8LongCallbackFunction final : public CallbackFunctionBase {
  public:
-  static V8LongCallbackFunction* Create(ScriptState*, v8::Local<v8::Value> callback);
+  static V8LongCallbackFunction* Create(v8::Local<v8::Function> callback_function) {
+    return new V8LongCallbackFunction(callback_function);
+  }
 
-  ~V8LongCallbackFunction() = default;
+  ~V8LongCallbackFunction() override = default;
 
-  bool call(ScriptWrappable* scriptWrappable, int32_t num1, int32_t num2, int32_t& returnValue);
+  // Performs "invoke".
+  // https://heycam.github.io/webidl/#es-invoking-callback-functions
+  v8::Maybe<int32_t> Invoke(ScriptWrappable* callback_this_value, int32_t num1, int32_t num2) WARN_UNUSED_RESULT;
 
  private:
-  V8LongCallbackFunction(ScriptState*, v8::Local<v8::Function>);
-};
-
-template <>
-struct NativeValueTraits<V8LongCallbackFunction> : public NativeValueTraitsBase<V8LongCallbackFunction> {
-  CORE_EXPORT static V8LongCallbackFunction* NativeValue(v8::Isolate*, v8::Local<v8::Value>, ExceptionState&);
+  explicit V8LongCallbackFunction(v8::Local<v8::Function> callback_function)
+      : CallbackFunctionBase(callback_function) {}
 };
 
 }  // namespace blink

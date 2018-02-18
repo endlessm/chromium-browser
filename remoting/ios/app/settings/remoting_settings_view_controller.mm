@@ -35,26 +35,20 @@ static NSString* const kFeedbackContext = @"InSessionFeedbackContext";
 @synthesize inputMode = _inputMode;
 @synthesize shouldResizeHostToFit = _shouldResizeHostToFit;
 
-- (id)init {
-  self = [super init];
-  if (self) {
-    _appBar = [[MDCAppBar alloc] init];
-    [self addChildViewController:_appBar.headerViewController];
-
-    self.view.backgroundColor = RemotingTheme.menuBlueColor;
-    _appBar.headerViewController.headerView.backgroundColor =
-        RemotingTheme.menuBlueColor;
-    MDCNavigationBarTextColorAccessibilityMutator* mutator =
-        [[MDCNavigationBarTextColorAccessibilityMutator alloc] init];
-    [mutator mutate:_appBar.navigationBar];
-  }
-  return self;
-}
-
 #pragma mark - UIViewController
 
 - (void)viewDidLoad {
   [super viewDidLoad];
+
+  _appBar = [[MDCAppBar alloc] init];
+  [self addChildViewController:_appBar.headerViewController];
+
+  self.view.backgroundColor = RemotingTheme.menuBlueColor;
+  _appBar.headerViewController.headerView.backgroundColor =
+      RemotingTheme.menuBlueColor;
+  MDCNavigationBarTextColorAccessibilityMutator* mutator =
+      [[MDCNavigationBarTextColorAccessibilityMutator alloc] init];
+  [mutator mutate:_appBar.navigationBar];
 
   _appBar.headerViewController.headerView.trackingScrollView =
       self.collectionView;
@@ -78,7 +72,6 @@ static NSString* const kFeedbackContext = @"InSessionFeedbackContext";
           forSupplementaryViewOfKind:UICollectionElementKindSectionHeader
                  withReuseIdentifier:UICollectionElementKindSectionHeader];
 
-  // TODO(nicholss): All of these strings need to be setup for l18n.
   _sections = @[
     l10n_util::GetNSString(IDS_DISPLAY_OPTIONS),
     l10n_util::GetNSString(IDS_MOUSE_OPTIONS),
@@ -239,22 +232,6 @@ static NSString* const kFeedbackContext = @"InSessionFeedbackContext";
   _content = [NSMutableArray array];
 
   __weak RemotingSettingsViewController* weakSelf = self;
-
-// We are not going to support the shrink option for now.
-#if 0
-  SettingOption* shrinkOption = [[SettingOption alloc] init];
-  shrinkOption.title = l10n_util::GetNSString(IDS_SHRINK_TO_FIT);
-  // TODO(nicholss): I think this text changes based on value. Confirm.
-  shrinkOption.subtext = l10n_util::GetNSString(IDS_SHRINK_TO_FIT_SUBTITLE);
-  shrinkOption.style = OptionCheckbox;
-  shrinkOption.checked = NO;
-  __weak SettingOption* weakShrinkOption = shrinkOption;
-  shrinkOption.action = ^{
-    if ([weakSelf.delegate respondsToSelector:@selector(setShrinkToFit:)]) {
-      [weakSelf.delegate setShrinkToFit:weakShrinkOption.checked];
-    }
-  };
-#endif
 
   SettingOption* resizeOption = [[SettingOption alloc] init];
   resizeOption.title = l10n_util::GetNSString(IDS_RESIZE_TO_CLIENT);

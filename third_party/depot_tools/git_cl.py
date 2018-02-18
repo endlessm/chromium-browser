@@ -27,6 +27,7 @@ import re
 import shutil
 import stat
 import sys
+import tempfile
 import textwrap
 import urllib
 import urllib2
@@ -1154,7 +1155,7 @@ class Changelist(object):
     self.lookedup_patchset = False
     self.patchset = None
     self.cc = None
-    self.watchers = ()
+    self.more_cc = []
     self._remote = None
 
     self._codereview_impl = None
@@ -1202,21 +1203,19 @@ class Changelist(object):
     """
     if self.cc is None:
       base_cc = settings.GetDefaultCCList()
-      more_cc = ','.join(self.watchers)
+      more_cc = ','.join(self.more_cc)
       self.cc = ','.join(filter(None, (base_cc, more_cc))) or ''
     return self.cc
 
   def GetCCListWithoutDefault(self):
     """Return the users cc'd on this CL excluding default ones."""
     if self.cc is None:
-      self.cc = ','.join(self.watchers)
+      self.cc = ','.join(self.more_cc)
     return self.cc
 
-  def SetWatchers(self, watchers):
-    """Sets the list of email addresses that should be cc'd based on the changed
-    files in this CL.
-    """
-    self.watchers = watchers
+  def ExtendCC(self, more_cc):
+    """Extends the list of users to cc on this CL based on the changed files."""
+    self.more_cc.extend(more_cc)
 
   def GetBranch(self):
     """Returns the short branch name, e.g. 'master'."""
@@ -1626,7 +1625,7 @@ class Changelist(object):
     watchlist = watchlists.Watchlists(change.RepositoryRoot())
     files = [f.LocalPath() for f in change.AffectedFiles()]
     if not options.bypass_watchlists:
-      self.SetWatchers(watchlist.GetWatchersForPaths(files))
+      self.ExtendCC(watchlist.GetWatchersForPaths(files))
 
     if not options.bypass_hooks:
       if options.reviewers or options.tbrs or options.add_owners_to:
@@ -1645,6 +1644,7 @@ class Changelist(object):
         return 1
       if not options.reviewers and hook_results.reviewers:
         options.reviewers = hook_results.reviewers.split(',')
+      self.ExtendCC(hook_results.more_cc)
 
     # TODO(tandrii): Checking local patchset against remote patchset is only
     # supported for Rietveld. Extend it to Gerrit or remove it completely.
@@ -2900,7 +2900,12 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
 
     # This may be None; default fallback value is determined in logic below.
     title = options.title
-    automatic_title = False
+
+    # Extract bug number from branch name.
+    bug = options.bug
+    match = re.match(r'(?:bug|fix)[_-]?(\d+)', self.GetBranch())
+    if not bug and match:
+      bug = match.group(1)
 
     if options.squash:
       self._GerritCommitMsgHookCheck(offer_removal=not options.force)
@@ -2924,8 +2929,6 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
             else:
               title = ask_for_data(
                   'Title for patchset [%s]: ' % default_title) or default_title
-            if title == default_title:
-              automatic_title = True
         change_id = self._GetChangeDetail()['change_id']
         while True:
           footer_change_ids = git_footers.get_footer_change_id(message)
@@ -2952,7 +2955,7 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
           confirm_or_exit(action='edit')
           if not options.force:
             change_desc = ChangeDescription(message)
-            change_desc.prompt(bug=options.bug)
+            change_desc.prompt(bug=bug)
             message = change_desc.description
             if not message:
               DieWithError("Description is empty. Aborting...")
@@ -2971,11 +2974,10 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
         change_desc = ChangeDescription(message)
 
         if not options.force:
-          change_desc.prompt(bug=options.bug)
+          change_desc.prompt(bug=bug)
         # On first upload, patchset title is always this string, while
         # --title flag gets converted to first line of message.
         title = 'Initial upload'
-        automatic_title = True
         if not change_desc.description:
           DieWithError("Description is empty. Aborting...")
         change_ids = git_footers.get_footer_change_id(change_desc.description)
@@ -2998,8 +3000,12 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
       parent = self._ComputeParent(remote, upstream_branch, custom_cl_base,
                                    options.force, change_desc)
       tree = RunGit(['rev-parse', 'HEAD:']).strip()
-      ref_to_push = RunGit(['commit-tree', tree, '-p', parent,
-                            '-m', change_desc.description]).strip()
+      with tempfile.NamedTemporaryFile(delete=False) as desc_tempfile:
+        desc_tempfile.write(change_desc.description)
+        desc_tempfile.close()
+        ref_to_push = RunGit(['commit-tree', tree, '-p', parent,
+                              '-F', desc_tempfile.name]).strip()
+        os.remove(desc_tempfile.name)
     else:
       change_desc = ChangeDescription(
           options.message or CreateDescriptionFromLog(git_diff_args))
@@ -3045,26 +3051,17 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
     if options.send_mail:
       refspec_opts.append('ready')
       refspec_opts.append('notify=ALL')
+    elif not self.GetIssue():
+      refspec_opts.append('wip')
     else:
-      if not self.GetIssue():
-        refspec_opts.append('wip')
-      else:
-        refspec_opts.append('notify=NONE')
+      refspec_opts.append('notify=NONE')
 
     # TODO(tandrii): options.message should be posted as a comment
     # if --send-mail is set on non-initial upload as Rietveld used to do it.
 
     if title:
-      if not re.match(r'^[\w ]+$', title):
-        title = re.sub(r'[^\w ]', '', title)
-        if not automatic_title:
-          print('WARNING: Patchset title may only contain alphanumeric chars '
-                'and spaces. You can edit it in the UI. '
-                'See https://crbug.com/663787.\n'
-                'Cleaned up title: %s' % title)
-      # Per doc, spaces must be converted to underscores, and Gerrit will do the
-      # reverse on its side.
-      refspec_opts.append('m=' + title.replace(' ', '_'))
+      # Punctuation and whitespace in |title| must be percent-encoded.
+      refspec_opts.append('m=' + gerrit_util.PercentEncodeForGitRef(title))
 
     if options.private:
       refspec_opts.append('private')
@@ -3073,6 +3070,12 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
       # Documentation on Gerrit topics is here:
       # https://gerrit-review.googlesource.com/Documentation/user-upload.html#topic
       refspec_opts.append('topic=%s' % options.topic)
+
+    # Gerrit sorts hashtags, so order is not important.
+    hashtags = {change_desc.sanitize_hash_tag(t) for t in options.hashtags}
+    if not self.GetIssue():
+      hashtags.update(change_desc.get_hash_tags())
+    refspec_opts += ['hashtag=%s' % t for t in sorted(hashtags)]
 
     refspec_suffix = ''
     if refspec_opts:
@@ -3345,6 +3348,10 @@ class ChangeDescription(object):
   CC_LINE = r'^[ \t]*(CC)[ \t]*=[ \t]*(.*?)[ \t]*$'
   BUG_LINE = r'^[ \t]*(?:(BUG)[ \t]*=|Bug:)[ \t]*(.*?)[ \t]*$'
   CHERRY_PICK_LINE = r'^\(cherry picked from commit [a-fA-F0-9]{40}\)$'
+  STRIP_HASH_TAG_PREFIX = r'^(\s*(revert|reland)( "|:)?\s*)*'
+  BRACKET_HASH_TAG = r'\s*\[([^\[\]]+)\]'
+  COLON_SEPARATED_HASH_TAG = r'^([a-zA-Z0-9_\- ]+):'
+  BAD_HASH_TAG_CHUNK = r'[^a-zA-Z0-9]+'
 
   def __init__(self, description):
     self._description_lines = (description or '').strip().splitlines()
@@ -3516,6 +3523,37 @@ class ChangeDescription(object):
     matches = [re.match(self.CC_LINE, line) for line in self._description_lines]
     cced = [match.group(2).strip() for match in matches if match]
     return cleanup_list(cced)
+
+  def get_hash_tags(self):
+    """Extracts and sanitizes a list of Gerrit hashtags."""
+    subject = (self._description_lines or ('',))[0]
+    subject = re.sub(
+        self.STRIP_HASH_TAG_PREFIX, '', subject, flags=re.IGNORECASE)
+
+    tags = []
+    start = 0
+    bracket_exp = re.compile(self.BRACKET_HASH_TAG)
+    while True:
+      m = bracket_exp.match(subject, start)
+      if not m:
+        break
+      tags.append(self.sanitize_hash_tag(m.group(1)))
+      start = m.end()
+
+    if not tags:
+      # Try "Tag: " prefix.
+      m = re.match(self.COLON_SEPARATED_HASH_TAG, subject)
+      if m:
+        tags.append(self.sanitize_hash_tag(m.group(1)))
+    return tags
+
+  @classmethod
+  def sanitize_hash_tag(cls, tag):
+    """Returns a sanitized Gerrit hash tag.
+
+    A sanitized hashtag can be used as a git push refspec parameter value.
+    """
+    return re.sub(cls.BAD_HASH_TAG_CHUNK, '-', tag).strip('-').lower()
 
   def update_with_git_number_footers(self, parent_hash, parent_msg, dest_ref):
     """Updates this commit description given the parent.
@@ -4743,6 +4781,8 @@ def CMDpresubmit(parser, args):
                     help='Run upload hook instead of the push hook')
   parser.add_option('-f', '--force', action='store_true',
                     help='Run checks even if tree is dirty')
+  parser.add_option('--all', action='store_true',
+                    help='Run checks against all files, not just modified ones')
   auth.add_auth_options(parser)
   options, args = parser.parse_args(args)
   auth_config = auth.extract_auth_config_from_options(options)
@@ -4758,11 +4798,26 @@ def CMDpresubmit(parser, args):
     # Default to diffing against the common ancestor of the upstream branch.
     base_branch = cl.GetCommonAncestorWithUpstream()
 
+  if options.all:
+    base_change = cl.GetChange(base_branch, None)
+    files = [('M', f) for f in base_change.AllFiles()]
+    change = presubmit_support.GitChange(
+        base_change.Name(),
+        base_change.FullDescriptionText(),
+        base_change.RepositoryRoot(),
+        files,
+        base_change.issue,
+        base_change.patchset,
+        base_change.author_email,
+        base_change._upstream)
+  else:
+    change = cl.GetChange(base_branch, None)
+
   cl.RunHook(
       committing=not options.upload,
       may_prompt=False,
       verbose=options.verbose,
-      change=cl.GetChange(base_branch, None))
+      change=change)
   return 0
 
 
@@ -4859,7 +4914,7 @@ def cleanup_list(l):
   return sorted(filter(None, stripped_items))
 
 
-@subcommand.usage('[args to "git diff"]')
+@subcommand.usage('[flags]')
 def CMDupload(parser, args):
   """Uploads the current changelist to codereview.
 
@@ -4868,6 +4923,16 @@ def CMDupload(parser, args):
   To unset run:
     git config --unset branch.branch_name.skip-deps-uploads
   Can also set the above globally by using the --global flag.
+
+  If the name of the checked out branch starts with "bug-" or "fix-" followed by
+  a bug number, this bug number is automatically populated in the CL
+  description.
+
+  If subject contains text in square brackets or has "<text>: " prefix, such
+  text(s) is treated as Gerrit hashtags. For example, CLs with subjects
+    [git-cl] add support for hashtags
+    Foo bar: implement foo
+  will be hashtagged with "git-cl" and "foo-bar" respectively.
   """
   parser.add_option('--bypass-hooks', action='store_true', dest='bypass_hooks',
                     help='bypass upload presubmit hook')
@@ -4894,6 +4959,10 @@ def CMDupload(parser, args):
   parser.add_option('--cc',
                     action='append', default=[],
                     help='cc email addresses')
+  parser.add_option('--hashtag', dest='hashtags',
+                    action='append', default=[],
+                    help=('Gerrit hashtag for new CL; '
+                          'can be applied multiple times'))
   parser.add_option('-s', '--send-mail', action='store_true',
                     help='send email to reviewer(s) and cc(s) immediately')
   parser.add_option('--emulate_svn_auto_props',
@@ -4904,22 +4973,17 @@ def CMDupload(parser, args):
   parser.add_option('-c', '--use-commit-queue', action='store_true',
                     help='tell the commit queue to commit this patchset; '
                           'implies --send-mail')
-  parser.add_option('--private', action='store_true',
-                    help='set the review private (rietveld only)')
   parser.add_option('--target_branch',
                     '--target-branch',
                     metavar='TARGET',
                     help='Apply CL to remote ref TARGET.  ' +
                          'Default: remote branch head, or master')
   parser.add_option('--squash', action='store_true',
-                    help='Squash multiple commits into one (Gerrit only)')
+                    help='Squash multiple commits into one')
   parser.add_option('--no-squash', action='store_true',
-                    help='Don\'t squash multiple commits into one ' +
-                         '(Gerrit only)')
+                    help='Don\'t squash multiple commits into one')
   parser.add_option('--topic', default=None,
-                    help='Topic to specify when uploading (Gerrit only)')
-  parser.add_option('--email', default=None,
-                    help='email address to use to connect to Rietveld')
+                    help='Topic to specify when uploading')
   parser.add_option('--tbr-owners', dest='add_owners_to', action='store_const',
                     const='TBR', help='add a set of OWNERS to TBR')
   parser.add_option('--r-owners', dest='add_owners_to', action='store_const',
@@ -4931,6 +4995,12 @@ def CMDupload(parser, args):
   parser.add_option('--dependencies', action='store_true',
                     help='Uploads CLs of all the local branches that depend on '
                          'the current branch')
+
+  # TODO: remove Rietveld flags
+  parser.add_option('--private', action='store_true',
+                    help='set the review private (rietveld only)')
+  parser.add_option('--email', default=None,
+                    help='email address to use to connect to Rietveld')
 
   orig_args = args
   add_git_similarity(parser)
@@ -4976,7 +5046,8 @@ def CMDsplit(parser, args):
   the shared OWNERS file.
   """
   parser.add_option("-d", "--description", dest="description_file",
-                    help="A text file containing a CL description. ")
+                    help="A text file containing a CL description in which "
+                         "$directory will be replaced by each CL's directory.")
   parser.add_option("-c", "--comment", dest="comment_file",
                     help="A text file containing a CL comment.")
   options, _ = parser.parse_args(args)

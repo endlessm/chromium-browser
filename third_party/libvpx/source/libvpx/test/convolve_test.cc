@@ -580,6 +580,121 @@ TEST_P(ConvolveTest, DISABLED_Avg_Speed) {
          UUT_->use_highbd_ ? UUT_->use_highbd_ : 8, elapsed_time);
 }
 
+TEST_P(ConvolveTest, DISABLED_Scale_Speed) {
+  const uint8_t *const in = input();
+  uint8_t *const out = output();
+  const InterpKernel *const eighttap = vp9_filter_kernels[EIGHTTAP];
+  const int kNumTests = 5000000;
+  const int width = Width();
+  const int height = Height();
+  vpx_usec_timer timer;
+
+  SetConstantInput(127);
+
+  vpx_usec_timer_start(&timer);
+  for (int n = 0; n < kNumTests; ++n) {
+    UUT_->shv8_[0](in, kInputStride, out, kOutputStride, eighttap, 8, 16, 8, 16,
+                   width, height);
+  }
+  vpx_usec_timer_mark(&timer);
+
+  const int elapsed_time = static_cast<int>(vpx_usec_timer_elapsed(&timer));
+  printf("convolve_scale_%dx%d_%d: %d us\n", width, height,
+         UUT_->use_highbd_ ? UUT_->use_highbd_ : 8, elapsed_time);
+}
+
+TEST_P(ConvolveTest, DISABLED_8Tap_Speed) {
+  const uint8_t *const in = input();
+  uint8_t *const out = output();
+  const InterpKernel *const eighttap = vp9_filter_kernels[EIGHTTAP_SHARP];
+  const int kNumTests = 5000000;
+  const int width = Width();
+  const int height = Height();
+  vpx_usec_timer timer;
+
+  SetConstantInput(127);
+
+  vpx_usec_timer_start(&timer);
+  for (int n = 0; n < kNumTests; ++n) {
+    UUT_->hv8_[0](in, kInputStride, out, kOutputStride, eighttap, 8, 16, 8, 16,
+                  width, height);
+  }
+  vpx_usec_timer_mark(&timer);
+
+  const int elapsed_time = static_cast<int>(vpx_usec_timer_elapsed(&timer));
+  printf("convolve8_%dx%d_%d: %d us\n", width, height,
+         UUT_->use_highbd_ ? UUT_->use_highbd_ : 8, elapsed_time);
+}
+
+TEST_P(ConvolveTest, DISABLED_8Tap_Horiz_Speed) {
+  const uint8_t *const in = input();
+  uint8_t *const out = output();
+  const InterpKernel *const eighttap = vp9_filter_kernels[EIGHTTAP_SHARP];
+  const int kNumTests = 5000000;
+  const int width = Width();
+  const int height = Height();
+  vpx_usec_timer timer;
+
+  SetConstantInput(127);
+
+  vpx_usec_timer_start(&timer);
+  for (int n = 0; n < kNumTests; ++n) {
+    UUT_->h8_[0](in, kInputStride, out, kOutputStride, eighttap, 8, 16, 8, 16,
+                 width, height);
+  }
+  vpx_usec_timer_mark(&timer);
+
+  const int elapsed_time = static_cast<int>(vpx_usec_timer_elapsed(&timer));
+  printf("convolve8_horiz_%dx%d_%d: %d us\n", width, height,
+         UUT_->use_highbd_ ? UUT_->use_highbd_ : 8, elapsed_time);
+}
+
+TEST_P(ConvolveTest, DISABLED_8Tap_Vert_Speed) {
+  const uint8_t *const in = input();
+  uint8_t *const out = output();
+  const InterpKernel *const eighttap = vp9_filter_kernels[EIGHTTAP_SHARP];
+  const int kNumTests = 5000000;
+  const int width = Width();
+  const int height = Height();
+  vpx_usec_timer timer;
+
+  SetConstantInput(127);
+
+  vpx_usec_timer_start(&timer);
+  for (int n = 0; n < kNumTests; ++n) {
+    UUT_->v8_[0](in, kInputStride, out, kOutputStride, eighttap, 8, 16, 8, 16,
+                 width, height);
+  }
+  vpx_usec_timer_mark(&timer);
+
+  const int elapsed_time = static_cast<int>(vpx_usec_timer_elapsed(&timer));
+  printf("convolve8_vert_%dx%d_%d: %d us\n", width, height,
+         UUT_->use_highbd_ ? UUT_->use_highbd_ : 8, elapsed_time);
+}
+
+TEST_P(ConvolveTest, DISABLED_8Tap_Avg_Speed) {
+  const uint8_t *const in = input();
+  uint8_t *const out = output();
+  const InterpKernel *const eighttap = vp9_filter_kernels[EIGHTTAP_SHARP];
+  const int kNumTests = 5000000;
+  const int width = Width();
+  const int height = Height();
+  vpx_usec_timer timer;
+
+  SetConstantInput(127);
+
+  vpx_usec_timer_start(&timer);
+  for (int n = 0; n < kNumTests; ++n) {
+    UUT_->hv8_[1](in, kInputStride, out, kOutputStride, eighttap, 8, 16, 8, 16,
+                  width, height);
+  }
+  vpx_usec_timer_mark(&timer);
+
+  const int elapsed_time = static_cast<int>(vpx_usec_timer_elapsed(&timer));
+  printf("convolve8_avg_%dx%d_%d: %d us\n", width, height,
+         UUT_->use_highbd_ ? UUT_->use_highbd_ : 8, elapsed_time);
+}
+
 TEST_P(ConvolveTest, Copy) {
   uint8_t *const in = input();
   uint8_t *const out = output();
@@ -879,33 +994,51 @@ TEST_P(ConvolveTest, FilterExtremes) {
 
 /* This test exercises that enough rows and columns are filtered with every
    possible initial fractional positions and scaling steps. */
+#if !CONFIG_VP9_HIGHBITDEPTH
+static const ConvolveFunc scaled_2d_c_funcs[2] = { vpx_scaled_2d_c,
+                                                   vpx_scaled_avg_2d_c };
+
 TEST_P(ConvolveTest, CheckScalingFiltering) {
   uint8_t *const in = input();
   uint8_t *const out = output();
-  const InterpKernel *const eighttap = vp9_filter_kernels[EIGHTTAP];
+  uint8_t ref[kOutputStride * kMaxDimension];
 
-  SetConstantInput(127);
+  ::libvpx_test::ACMRandom prng;
+  for (int y = 0; y < Height(); ++y) {
+    for (int x = 0; x < Width(); ++x) {
+      const uint16_t r = prng.Rand8Extremes();
+      assign_val(in, y * kInputStride + x, r);
+    }
+  }
 
-  for (int frac = 0; frac < 16; ++frac) {
-    for (int step = 1; step <= 32; ++step) {
-      /* Test the horizontal and vertical filters in combination. */
-      ASM_REGISTER_STATE_CHECK(
-          UUT_->shv8_[0](in, kInputStride, out, kOutputStride, eighttap, frac,
-                         step, frac, step, Width(), Height()));
+  for (int i = 0; i < 2; ++i) {
+    for (INTERP_FILTER filter_type = 0; filter_type < 4; ++filter_type) {
+      const InterpKernel *const eighttap = vp9_filter_kernels[filter_type];
+      for (int frac = 0; frac < 16; ++frac) {
+        for (int step = 1; step <= 32; ++step) {
+          /* Test the horizontal and vertical filters in combination. */
+          scaled_2d_c_funcs[i](in, kInputStride, ref, kOutputStride, eighttap,
+                               frac, step, frac, step, Width(), Height());
+          ASM_REGISTER_STATE_CHECK(
+              UUT_->shv8_[i](in, kInputStride, out, kOutputStride, eighttap,
+                             frac, step, frac, step, Width(), Height()));
 
-      CheckGuardBlocks();
+          CheckGuardBlocks();
 
-      for (int y = 0; y < Height(); ++y) {
-        for (int x = 0; x < Width(); ++x) {
-          ASSERT_EQ(lookup(in, y * kInputStride + x),
-                    lookup(out, y * kOutputStride + x))
-              << "x == " << x << ", y == " << y << ", frac == " << frac
-              << ", step == " << step;
+          for (int y = 0; y < Height(); ++y) {
+            for (int x = 0; x < Width(); ++x) {
+              ASSERT_EQ(lookup(ref, y * kOutputStride + x),
+                        lookup(out, y * kOutputStride + x))
+                  << "x == " << x << ", y == " << y << ", frac == " << frac
+                  << ", step == " << step;
+            }
+          }
         }
       }
     }
   }
 }
+#endif
 
 using std::tr1::make_tuple;
 
@@ -1154,8 +1287,8 @@ INSTANTIATE_TEST_CASE_P(AVX2, ConvolveTest,
 #else   // !CONFIG_VP9_HIGHBITDEPTH
 const ConvolveFunctions convolve8_avx2(
     vpx_convolve_copy_c, vpx_convolve_avg_c, vpx_convolve8_horiz_avx2,
-    vpx_convolve8_avg_horiz_ssse3, vpx_convolve8_vert_avx2,
-    vpx_convolve8_avg_vert_ssse3, vpx_convolve8_avx2, vpx_convolve8_avg_ssse3,
+    vpx_convolve8_avg_horiz_avx2, vpx_convolve8_vert_avx2,
+    vpx_convolve8_avg_vert_avx2, vpx_convolve8_avx2, vpx_convolve8_avg_avx2,
     vpx_scaled_horiz_c, vpx_scaled_avg_horiz_c, vpx_scaled_vert_c,
     vpx_scaled_avg_vert_c, vpx_scaled_2d_c, vpx_scaled_avg_2d_c, 0);
 const ConvolveParam kArrayConvolve8_avx2[] = { ALL_SIZES(convolve8_avx2) };

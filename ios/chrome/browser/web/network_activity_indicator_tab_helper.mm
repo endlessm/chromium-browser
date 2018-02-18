@@ -29,13 +29,16 @@ void NetworkActivityIndicatorTabHelper::CreateForWebState(
 NetworkActivityIndicatorTabHelper::NetworkActivityIndicatorTabHelper(
     web::WebState* web_state,
     NSString* tab_id)
-    : web::WebStateObserver(web_state), network_activity_key_([tab_id copy]) {}
+    : network_activity_key_([tab_id copy]) {
+  web_state->AddObserver(this);
+}
 
 NetworkActivityIndicatorTabHelper::~NetworkActivityIndicatorTabHelper() {
   Stop();
 }
 
-void NetworkActivityIndicatorTabHelper::DidStartLoading() {
+void NetworkActivityIndicatorTabHelper::DidStartLoading(
+    web::WebState* web_state) {
   NetworkActivityIndicatorManager* shared_manager =
       [NetworkActivityIndicatorManager sharedInstance];
   // Verifies that there are not any network tasks associated with this instance
@@ -44,8 +47,14 @@ void NetworkActivityIndicatorTabHelper::DidStartLoading() {
     [shared_manager startNetworkTaskForGroup:network_activity_key_];
 }
 
-void NetworkActivityIndicatorTabHelper::DidStopLoading() {
+void NetworkActivityIndicatorTabHelper::DidStopLoading(
+    web::WebState* web_state) {
   Stop();
+}
+
+void NetworkActivityIndicatorTabHelper::WebStateDestroyed(
+    web::WebState* web_state) {
+  web_state->RemoveObserver(this);
 }
 
 void NetworkActivityIndicatorTabHelper::Stop() {

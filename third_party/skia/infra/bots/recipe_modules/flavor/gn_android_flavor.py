@@ -8,6 +8,7 @@ import default_flavor
 import re
 import subprocess
 
+ADB_BINARY = 'adb.1.0.35'
 
 """GN Android flavor utils, used for building Skia for Android with GN."""
 class GNAndroidFlavorUtils(default_flavor.DefaultFlavorUtils):
@@ -48,18 +49,90 @@ class GNAndroidFlavorUtils(default_flavor.DefaultFlavorUtils):
       self.m.run(self.m.step,
                  'kill adb server after failure of \'%s\' (attempt %d)' % (
                      title, attempt),
-                 cmd=['adb', 'kill-server'],
+                 cmd=[ADB_BINARY, 'kill-server'],
                  infra_step=True, timeout=30, abort_on_failure=False,
                  fail_build_on_failure=False)
       self.m.run(self.m.step,
                  'wait for device after failure of \'%s\' (attempt %d)' % (
                      title, attempt),
-                 cmd=['adb', 'wait-for-device'], infra_step=True, timeout=180,
-                 abort_on_failure=False, fail_build_on_failure=False)
+                 cmd=[ADB_BINARY, 'wait-for-device'], infra_step=True,
+                 timeout=180, abort_on_failure=False,
+                 fail_build_on_failure=False)
 
     with self.m.context(cwd=self.m.vars.skia_dir):
-      self.m.run.with_retry(self.m.step, title, attempts, cmd=['adb']+list(cmd),
-                            between_attempts_fn=wait_for_device, **kwargs)
+      return self.m.run.with_retry(self.m.step, title, attempts,
+                                   cmd=[ADB_BINARY]+list(cmd),
+                                   between_attempts_fn=wait_for_device,
+                                   **kwargs)
+
+  # A list of devices we can't root.  If rooting fails and a device is not
+  # on the list, we fail the task to avoid perf inconsistencies.
+  rootable_blacklist = ['GalaxyS6', 'GalaxyS7_G930A', 'GalaxyS7_G930FD',
+                        'MotoG4', 'NVIDIA_Shield']
+
+  def _lock_cpu(self, target_percent):
+    if (self.m.vars.builder_cfg.get('model') in self.rootable_blacklist or
+        self.m.vars.internal_hardware_label):
+      return
+    self.m.run(self.m.python.inline, 'Scale CPU to %f' % target_percent,
+        program="""
+import os
+import subprocess
+import sys
+ADB = sys.argv[1]
+model = sys.argv[2]
+target_percent = float(sys.argv[3])
+log = subprocess.check_output([ADB, 'root'])
+# check for message like 'adbd cannot run as root in production builds'
+if 'cannot' in log:
+  raise Exception('adb root failed')
+
+if model == 'Nexus10':
+  available_freqs = [200000, 300000, 400000, 500000, 600000, 700000, 800000]
+elif model == 'Nexus7':
+  # Nexus7 claims to support 1300000, but only really allows 1200000
+  available_freqs = [51000, 102000, 204000, 340000, 475000, 640000, 760000,
+                     860000, 1000000, 1100000, 1200000]
+else:
+  # Most devices give a list of their available frequencies.
+  available_freqs = subprocess.check_output([ADB, 'shell', 'cat '
+      '/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies'])
+
+  # Check for message like '/system/bin/sh: file not found'
+  if available_freqs and '/system/bin/sh' not in available_freqs:
+    available_freqs = sorted(
+        int(i) for i in available_freqs.strip().split())
+  else:
+    raise Exception('Could not get list of available frequencies: %s' %
+                    available_freqs)
+
+maxfreq = available_freqs[-1]
+target = int(round(maxfreq * target_percent))
+freq = maxfreq
+for f in reversed(available_freqs):
+  if f <= target:
+    freq = f
+    break
+
+print 'Setting frequency to %d' % freq
+
+subprocess.check_output([ADB, 'shell', 'echo "userspace" > '
+    '/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor'])
+# If scaling_max_freq is lower than our attempted setting, it won't take.
+subprocess.check_output([ADB, 'shell', 'echo %d > '
+    '/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq' % freq])
+subprocess.check_output([ADB, 'shell', 'echo %d > '
+    '/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed' % freq])
+actual_freq = subprocess.check_output([ADB, 'shell', 'cat '
+    '/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed']).strip()
+if actual_freq != str(freq):
+  raise Exception('(actual, expected) (%s, %d)'
+                  % (actual_freq, freq))
+        """,
+        args = [ADB_BINARY, self.m.vars.builder_cfg.get('model'),
+                str(target_percent)],
+        infra_step=True,
+        timeout=30)
 
   def compile(self, unused_target):
     compiler      = self.m.vars.builder_cfg.get('compiler')
@@ -108,7 +181,7 @@ class GNAndroidFlavorUtils(default_flavor.DefaultFlavorUtils):
 
     self._py('fetch-gn', self.m.vars.skia_dir.join('bin', 'fetch-gn'))
     self._run('gn gen', gn, 'gen', self.out_dir, '--args=' + gn_args)
-    self._run('ninja', ninja, '-C', self.out_dir)
+    self._run('ninja', ninja, '-k', '0', '-C', self.out_dir)
 
   def install(self):
     self._adb('mkdir ' + self.device_dirs.resource_dir,
@@ -122,7 +195,7 @@ class GNAndroidFlavorUtils(default_flavor.DefaultFlavorUtils):
           import subprocess
           import sys
           out = sys.argv[1]
-          log = subprocess.check_output(['adb', 'logcat', '-d'])
+          log = subprocess.check_output(['%s', 'logcat', '-d'])
           for line in log.split('\\n'):
             tokens = line.split()
             if len(tokens) == 11 and tokens[-7] == 'F' and tokens[-3] == 'pc':
@@ -132,9 +205,10 @@ class GNAndroidFlavorUtils(default_flavor.DefaultFlavorUtils):
                 sym = subprocess.check_output(['addr2line', '-Cfpe', local, addr])
                 line = line.replace(addr, addr + ' ' + sym.strip())
             print line
-          """,
+          """ % ADB_BINARY,
           args=[self.m.vars.skia_out.join(self.m.vars.configuration)],
           infra_step=True,
+          timeout=300,
           abort_on_failure=False)
 
     # Only shutdown the device and quarantine the bot if the first failed step
@@ -151,6 +225,10 @@ class GNAndroidFlavorUtils(default_flavor.DefaultFlavorUtils):
       self._adb('kill adb server', 'kill-server')
 
   def step(self, name, cmd, **kwargs):
+    if (cmd[0] == 'nanobench'):
+      self._lock_cpu(0.6)
+    else:
+      self._lock_cpu(1.0)
     app = self.m.vars.skia_out.join(self.m.vars.configuration, cmd[0])
     self._adb('push %s' % cmd[0],
               'push', app, self.m.vars.android_bin_dir)
@@ -169,14 +247,14 @@ class GNAndroidFlavorUtils(default_flavor.DefaultFlavorUtils):
     import sys
     bin_dir = sys.argv[1]
     sh      = sys.argv[2]
-    subprocess.check_call(['adb', 'shell', 'sh', bin_dir + sh])
+    subprocess.check_call(['%s', 'shell', 'sh', bin_dir + sh])
     try:
-      sys.exit(int(subprocess.check_output(['adb', 'shell', 'cat',
+      sys.exit(int(subprocess.check_output(['%s', 'shell', 'cat',
                                             bin_dir + 'rc'])))
     except ValueError:
       print "Couldn't read the return code.  Probably killed for OOM."
       sys.exit(1)
-    """, args=[self.m.vars.android_bin_dir, sh])
+    """ % (ADB_BINARY, ADB_BINARY), args=[self.m.vars.android_bin_dir, sh])
 
   def copy_file_to_device(self, host, device):
     self._adb('push %s %s' % (host, device), 'push', host, device)
@@ -196,10 +274,10 @@ class GNAndroidFlavorUtils(default_flavor.DefaultFlavorUtils):
         continue
       for f in fs:
         print os.path.join(p,f)
-        subprocess.check_call(['adb', 'push',
+        subprocess.check_call(['%s', 'push',
                                os.path.realpath(os.path.join(host, p, f)),
                                os.path.join(device, p, f)])
-    """, args=[host, device], infra_step=True)
+    """ % ADB_BINARY, args=[host, device], infra_step=True)
 
   def copy_directory_contents_to_host(self, device, host):
     self._adb('pull %s %s' % (device, host), 'pull', device, host)

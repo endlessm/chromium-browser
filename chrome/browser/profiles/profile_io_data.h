@@ -191,6 +191,8 @@ class ProfileIOData {
     return &network_prediction_options_;
   }
 
+  BooleanPrefMember* dice_enabled() const { return dice_enabled_.get(); }
+
 #if defined(OS_CHROMEOS)
   std::string username_hash() const {
     return username_hash_;
@@ -206,6 +208,12 @@ class ProfileIOData {
   IntegerPrefMember* incognito_availibility() const {
     return &incognito_availibility_pref_;
   }
+
+#if defined(OS_CHROMEOS)
+  BooleanPrefMember* account_consistency_mirror_required() const {
+    return &account_consistency_mirror_required_pref_;
+  }
+#endif
 
   chrome_browser_net::LoadingPredictorObserver* loading_predictor_observer()
       const {
@@ -339,6 +347,7 @@ class ProfileIOData {
     std::unique_ptr<net::ProxyConfigService> proxy_config_service;
 
 #if defined(OS_CHROMEOS)
+    std::unique_ptr<policy::PolicyCertVerifier> policy_cert_verifier;
     std::string username_hash;
     bool use_system_key_slot;
     std::unique_ptr<chromeos::CertificateProvider> certificate_provider;
@@ -546,6 +555,7 @@ class ProfileIOData {
   mutable BooleanPrefMember sync_has_auth_error_;
   mutable BooleanPrefMember sync_suppress_start_;
   mutable BooleanPrefMember sync_first_setup_complete_;
+  mutable std::unique_ptr<BooleanPrefMember> dice_enabled_;
 
   // Member variables which are pointed to by the various context objects.
   mutable BooleanPrefMember enable_referrers_;
@@ -556,6 +566,9 @@ class ProfileIOData {
   mutable StringPrefMember allowed_domains_for_apps_;
   mutable IntegerPrefMember network_prediction_options_;
   mutable IntegerPrefMember incognito_availibility_pref_;
+#if defined(OS_CHROMEOS)
+  mutable BooleanPrefMember account_consistency_mirror_required_pref_;
+#endif
 
   BooleanPrefMember enable_metrics_;
 
@@ -575,10 +588,6 @@ class ProfileIOData {
 
   mutable std::unique_ptr<ChromeExpectCTReporter> expect_ct_reporter_;
 #if defined(OS_CHROMEOS)
-  // Set to |cert_verifier_| if it references a PolicyCertVerifier. In that
-  // case, the verifier is owned by  |cert_verifier_|. Otherwise, set to NULL.
-  mutable std::unique_ptr<net::CertVerifier> cert_verifier_;
-  mutable policy::PolicyCertVerifier* policy_cert_verifier_;
   mutable std::string username_hash_;
   mutable bool use_system_key_slot_;
   mutable std::unique_ptr<chromeos::CertificateProvider> certificate_provider_;

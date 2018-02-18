@@ -201,12 +201,10 @@ void ExternalProtocolHandler::SetBlockState(const std::string& scheme,
   if (profile_prefs) {  // May be NULL during testing.
     DictionaryPrefUpdate update_excluded_schemas_profile(
         profile_prefs, prefs::kExcludedSchemes);
-    if (!update_excluded_schemas_profile->empty()) {
-      if (state == DONT_BLOCK)
-        update_excluded_schemas_profile->SetBoolean(scheme, false);
-      else
-        update_excluded_schemas_profile->Remove(scheme, nullptr);
-    }
+    if (state == DONT_BLOCK)
+      update_excluded_schemas_profile->SetBoolean(scheme, false);
+    else
+      update_excluded_schemas_profile->Remove(scheme, nullptr);
   }
 }
 
@@ -222,6 +220,10 @@ void ExternalProtocolHandler::LaunchUrlWithDelegate(
 
   // Escape the input scheme to be sure that the command does not
   // have parameters unexpected by the external program.
+  // TODO(mgiuca): This essentially amounts to "remove illegal characters from
+  // the URL", something that probably should be done by the GURL constructor
+  // itself. The GURL constructor does do it in some cases (e.g., mailto) but
+  // not in general. https://crbug.com/788244.
   std::string escaped_url_string = net::EscapeExternalHandlerValue(url.spec());
   GURL escaped_url(escaped_url_string);
 
@@ -243,9 +245,9 @@ void ExternalProtocolHandler::LaunchUrlWithDelegate(
   // The worker creates tasks with references to itself and puts them into
   // message loops.
   shell_integration::DefaultWebClientWorkerCallback callback = base::Bind(
-      &OnDefaultProtocolClientWorkerFinished, url, render_process_host_id,
-      render_view_routing_id, block_state == UNKNOWN, page_transition,
-      has_user_gesture, delegate);
+      &OnDefaultProtocolClientWorkerFinished, escaped_url,
+      render_process_host_id, render_view_routing_id, block_state == UNKNOWN,
+      page_transition, has_user_gesture, delegate);
 
   // Start the check process running. This will send tasks to a worker task
   // runner and when the answer is known will send the result back to

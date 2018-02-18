@@ -10,6 +10,7 @@ Unit tests for the contents of device_utils.py (mostly DeviceUtils).
 # pylint: disable=protected-access
 # pylint: disable=unused-argument
 
+import contextlib
 import json
 import logging
 import os
@@ -1664,32 +1665,28 @@ class DeviceUtilsPushChangedFilesZippedTest(DeviceUtilsTest):
 
   def testPushChangedFilesZipped_noUnzipCommand(self):
     test_files = [('/test/host/path/file1', '/test/device/path/file1')]
-    mock_zip_temp = mock.mock_open()
-    mock_zip_temp.return_value.name = '/test/temp/file/tmp.zip'
     with self.assertCalls(
-        (mock.call.tempfile.NamedTemporaryFile(suffix='.zip'), mock_zip_temp),
-        (mock.call.multiprocessing.Process(
-            target=device_utils.DeviceUtils._CreateDeviceZip,
-            args=('/test/temp/file/tmp.zip', test_files)), mock.Mock()),
         (self.call.device._MaybeInstallCommands(), False)):
       self.assertFalse(self.device._PushChangedFilesZipped(test_files,
                                                            ['/test/dir']))
 
   def _testPushChangedFilesZipped_spec(self, test_files):
-    mock_zip_temp = mock.mock_open()
-    mock_zip_temp.return_value.name = '/test/temp/file/tmp.zip'
+    @contextlib.contextmanager
+    def mock_zip_temp_dir():
+      yield '/test/temp/dir'
+
     with self.assertCalls(
-        (mock.call.tempfile.NamedTemporaryFile(suffix='.zip'), mock_zip_temp),
-        (mock.call.multiprocessing.Process(
-            target=device_utils.DeviceUtils._CreateDeviceZip,
-            args=('/test/temp/file/tmp.zip', test_files)), mock.Mock()),
         (self.call.device._MaybeInstallCommands(), True),
+        (mock.call.py_utils.tempfile_ext.NamedTemporaryDirectory(),
+         mock_zip_temp_dir),
+        (mock.call.devil.utils.zip_utils.WriteZipFile(
+            '/test/temp/dir/tmp.zip', test_files)),
         (self.call.device.NeedsSU(), True),
         (mock.call.devil.android.device_temp_file.DeviceTempFile(self.adb,
                                                                  suffix='.zip'),
              MockTempFile('/test/sdcard/foo123.zip')),
         self.call.adb.Push(
-            '/test/temp/file/tmp.zip', '/test/sdcard/foo123.zip'),
+            '/test/temp/dir/tmp.zip', '/test/sdcard/foo123.zip'),
         self.call.device.RunShellCommand(
             'unzip /test/sdcard/foo123.zip&&chmod -R 777 /test/dir',
             shell=True, as_root=True,
@@ -2527,60 +2524,6 @@ class DeviceUtilsTakeScreenshotTest(DeviceUtilsTest):
       self.device.TakeScreenshot('/test/host/screenshot.png')
 
 
-class DeviceUtilsGetMemoryUsageForPidTest(DeviceUtilsTest):
-
-  def setUp(self):
-    super(DeviceUtilsGetMemoryUsageForPidTest, self).setUp()
-
-  def testGetMemoryUsageForPid_validPid(self):
-    with self.assertCalls(
-        (self.call.device._RunPipedShellCommand(
-            'showmap 1234 | grep TOTAL', as_root=True),
-         ['100 101 102 103 104 105 106 107 TOTAL']),
-        (self.call.device.ReadFile('/proc/1234/status', as_root=True),
-         'VmHWM: 1024 kB\n')):
-      self.assertEqual(
-          {
-            'Size': 100,
-            'Rss': 101,
-            'Pss': 102,
-            'Shared_Clean': 103,
-            'Shared_Dirty': 104,
-            'Private_Clean': 105,
-            'Private_Dirty': 106,
-            'VmHWM': 1024
-          },
-          self.device.GetMemoryUsageForPid(1234))
-
-  def testGetMemoryUsageForPid_noSmaps(self):
-    with self.assertCalls(
-        (self.call.device._RunPipedShellCommand(
-            'showmap 4321 | grep TOTAL', as_root=True),
-         ['cannot open /proc/4321/smaps: No such file or directory']),
-        (self.call.device.ReadFile('/proc/4321/status', as_root=True),
-         'VmHWM: 1024 kb\n')):
-      self.assertEquals({'VmHWM': 1024}, self.device.GetMemoryUsageForPid(4321))
-
-  def testGetMemoryUsageForPid_noStatus(self):
-    with self.assertCalls(
-        (self.call.device._RunPipedShellCommand(
-            'showmap 4321 | grep TOTAL', as_root=True),
-         ['100 101 102 103 104 105 106 107 TOTAL']),
-        (self.call.device.ReadFile('/proc/4321/status', as_root=True),
-         self.CommandError())):
-      self.assertEquals(
-          {
-            'Size': 100,
-            'Rss': 101,
-            'Pss': 102,
-            'Shared_Clean': 103,
-            'Shared_Dirty': 104,
-            'Private_Clean': 105,
-            'Private_Dirty': 106,
-          },
-          self.device.GetMemoryUsageForPid(4321))
-
-
 class DeviceUtilsDismissCrashDialogIfNeededTest(DeviceUtilsTest):
 
   def testDismissCrashDialogIfNeeded_crashedPageckageNotFound(self):
@@ -2706,7 +2649,7 @@ class DeviceUtilsHealthyDevicesTest(mock_calls.TestCase):
         (mock.call.devil.android.sdk.adb_wrapper.AdbWrapper.Devices(),
          [_AdbWrapperMock(s) for s in test_serials])):
       with self.assertRaises(device_errors.NoDevicesError):
-        device_utils.DeviceUtils.HealthyDevices(device_arg=None)
+        device_utils.DeviceUtils.HealthyDevices(device_arg=None, retry=False)
 
   def testHealthyDevices_noneDeviceArg_multiple_attached_ANDROID_SERIAL(self):
     try:
@@ -2745,7 +2688,17 @@ class DeviceUtilsHealthyDevicesTest(mock_calls.TestCase):
         (mock.call.devil.android.sdk.adb_wrapper.AdbWrapper.Devices(),
          [_AdbWrapperMock(s) for s in test_serials])):
       with self.assertRaises(device_errors.NoDevicesError):
-        device_utils.DeviceUtils.HealthyDevices(device_arg=[])
+        device_utils.DeviceUtils.HealthyDevices(device_arg=[], retry=False)
+
+  def testHealthyDevices_EmptyListDeviceArg_no_attached_with_retry(self):
+    test_serials = []
+    with self.assertCalls(
+        (mock.call.devil.android.sdk.adb_wrapper.AdbWrapper.Devices(),
+         [_AdbWrapperMock(s) for s in test_serials]),
+        (mock.call.devil.android.sdk.adb_wrapper.AdbWrapper.Devices(),
+         [_AdbWrapperMock(s) for s in test_serials])):
+      with self.assertRaises(device_errors.NoDevicesError):
+        device_utils.DeviceUtils.HealthyDevices(device_arg=[], retry=True)
 
   def testHealthyDevices_ListDeviceArg(self):
     device_arg = ['0123456789abcdef', 'fedcba9876543210']

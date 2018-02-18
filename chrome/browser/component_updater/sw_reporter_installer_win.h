@@ -31,25 +31,35 @@ namespace component_updater {
 
 class ComponentUpdateService;
 
+// Expose the feature name so it can be referenced in tests.
+// TODO(crbug.com/786964): This feature will continue to exist as part of a
+// permanent variations study to control which version of the reporter gets
+// downloaded. Rename it to something that makes sense long-term.
+constexpr char kComponentTagFeatureName[] = "ExperimentalSwReporterEngine";
+
 constexpr char kSwReporterComponentId[] = "gkmgaooipdjhmangpemjhigmamcehddo";
 
-// These MUST match the values for SwReporterExperimentError in histograms.xml.
-// Exposed for testing.
-enum SwReporterExperimentError {
+// These MUST match the values for SoftwareReporterExperimentError in
+// histograms.xml. Exposed for testing.
+enum SoftwareReporterExperimentError {
   SW_REPORTER_EXPERIMENT_ERROR_BAD_TAG = 0,
   SW_REPORTER_EXPERIMENT_ERROR_BAD_PARAMS = 1,
+  SW_REPORTER_EXPERIMENT_ERROR_MISSING_PARAMS = 2,
   SW_REPORTER_EXPERIMENT_ERROR_MAX,
 };
 
 // Callback for running the software reporter after it is downloaded.
-using SwReporterRunner =
-    base::Callback<void(const safe_browsing::SwReporterQueue& invocations,
-                        const base::Version& version)>;
+using SwReporterRunner = base::Callback<void(
+    safe_browsing::SwReporterInvocationType invocation_type,
+    safe_browsing::SwReporterInvocationSequence&& invocations)>;
 
 class SwReporterInstallerPolicy : public ComponentInstallerPolicy {
  public:
-  SwReporterInstallerPolicy(const SwReporterRunner& reporter_runner,
-                            bool is_experimental_engine_supported);
+  // Note: |on_sequence_done| will be invoked on the UI thread.
+  SwReporterInstallerPolicy(
+      const SwReporterRunner& reporter_runner,
+      safe_browsing::SwReporterInvocationType invocation_type,
+      safe_browsing::OnReporterSequenceDone on_sequence_done);
   ~SwReporterInstallerPolicy() override;
 
   // ComponentInstallerPolicy implementation.
@@ -60,6 +70,7 @@ class SwReporterInstallerPolicy : public ComponentInstallerPolicy {
   update_client::CrxInstaller::Result OnCustomInstall(
       const base::DictionaryValue& manifest,
       const base::FilePath& install_dir) override;
+  void OnCustomUninstall() override;
   void ComponentReady(const base::Version& version,
                       const base::FilePath& install_dir,
                       std::unique_ptr<base::DictionaryValue> manifest) override;
@@ -72,18 +83,29 @@ class SwReporterInstallerPolicy : public ComponentInstallerPolicy {
  private:
   friend class SwReporterInstallerTest;
 
-  // Returns true if the experimental engine is supported and the Feature is
-  // enabled.
-  bool IsExperimentalEngineEnabled() const;
-
   SwReporterRunner reporter_runner_;
-  const bool is_experimental_engine_supported_;
+
+  const safe_browsing::SwReporterInvocationType invocation_type_;
+
+  // The action to be called on the first time the invocation sequence
+  // runs.
+  safe_browsing::OnReporterSequenceDone on_sequence_done_;
 
   DISALLOW_COPY_AND_ASSIGN(SwReporterInstallerPolicy);
 };
 
+// Installs the SwReporter component and runs the reporter once it's available.
+// Once ready, this may trigger either a periodic or a user-initiated run of
+// the reporter, depending on |invocation_type|. Once the last invocation
+// finishes, |on_sequence_done| is called with a boolean variable indicating if
+// the run succeeded.
+void RegisterSwReporterComponentWithParams(
+    safe_browsing::SwReporterInvocationType invocation_type,
+    safe_browsing::OnReporterSequenceDone on_sequence_done,
+    ComponentUpdateService* cus);
+
 // Call once during startup to make the component update service aware of the
-// SwReporter.
+// SwReporter. Once ready, this may trigger a periodic run of the reporter.
 void RegisterSwReporterComponent(ComponentUpdateService* cus);
 
 // Register local state preferences related to the SwReporter.

@@ -50,7 +50,10 @@ static void TypefaceStyle_test(skiatest::Reporter* reporter,
     os2Table->usWidthClass.value = static_cast<WidthType>(SkEndian_SwapBE16(width));
 
     sk_sp<SkTypeface> newTypeface(SkTypeface::MakeFromStream(new SkMemoryStream(sk_ref_sp(data))));
-    SkASSERT_RELEASE(newTypeface);
+    if (!newTypeface) {
+        // Not all SkFontMgr can MakeFromStream().
+        return;
+    }
 
     SkFontStyle newStyle = newTypeface->fontStyle();
 
@@ -110,6 +113,11 @@ DEF_TEST(TypefaceAxes, reporter) {
     params.setVariationDesignPosition({position, SK_ARRAY_COUNT(position)});
     // TODO: if axes are set and the back-end doesn't support them, should we create the typeface?
     sk_sp<SkTypeface> typeface = fm->makeFromStream(std::move(distortable), params);
+
+    if (!typeface) {
+        // Not all SkFontMgr can makeFromStream().
+        return;
+    }
 
     int count = typeface->getVariationDesignPosition(nullptr, 0);
     if (count == -1) {
@@ -176,11 +184,6 @@ DEF_TEST(Typeface, reporter) {
     REPORTER_ASSERT(reporter, SkTypeface::Equal(nullptr, t2.get()));
     REPORTER_ASSERT(reporter, SkTypeface::Equal(t1.get(), nullptr));
     REPORTER_ASSERT(reporter, SkTypeface::Equal(t2.get(), nullptr));
-
-#ifdef SK_BUILD_FOR_ANDROID
-    sk_sp<SkTypeface> t3(SkTypeface::MakeFromName("non-existent-font", SkFontStyle()));
-    REPORTER_ASSERT(reporter, nullptr == t3);
-#endif
 }
 
 namespace {

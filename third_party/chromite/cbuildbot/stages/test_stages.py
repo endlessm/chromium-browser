@@ -34,7 +34,8 @@ from chromite.lib import timeout_util
 PRE_CQ = validation_pool.PRE_CQ
 
 
-class UnitTestStage(generic_stages.BoardSpecificBuilderStage):
+class UnitTestStage(generic_stages.BoardSpecificBuilderStage,
+                    generic_stages.ArchivingStageMixin):
   """Run unit tests."""
 
   option_name = 'tests'
@@ -58,6 +59,10 @@ class UnitTestStage(generic_stages.BoardSpecificBuilderStage):
                             self._current_board,
                             blacklist=self._run.config.unittest_blacklist,
                             extra_env=extra_env)
+    # Package UnitTest binaries.
+    tarball = commands.BuildUnitTestTarball(
+        self._build_root, self._current_board, self.archive_path)
+    self.UploadArtifact(tarball, archive=False)
 
     if os.path.exists(os.path.join(self.GetImageDirSymlink(),
                                    'au-generator.zip')):
@@ -76,12 +81,19 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
   PERF_RESULTS_EXTENSION = 'results'
 
   def __init__(
-      self, builder_run, board, model, suite_config, suffix=None, **kwargs):
+      self,
+      builder_run,
+      board,
+      model,
+      suite_config,
+      suffix=None,
+      lab_board_name=None,
+      **kwargs):
 
     if suffix is None:
       suffix = ''
 
-    if board is not model:
+    if model:
       suffix += ' [%s]' % (model)
 
     if not self.TestsEnabled(builder_run):
@@ -98,6 +110,7 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
     self.wait_for_results = True
 
     self._model = model
+    self._board_name = lab_board_name or board
 
   # Disable complaint about calling _HandleStageException.
   # pylint: disable=W0212
@@ -250,15 +263,10 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
     build = '/'.join([self._bot_id, self.version])
 
     # Get the subsystems set for the board to test
-    per_board_dict = self._run.attrs.metadata.GetDict()['board-metadata']
-    current_board_dict = per_board_dict.get(self._current_board)
-    if current_board_dict:
-      subsystems = set(current_board_dict.get('subsystems_to_test', []))
-      # 'subsystem:all' indicates to skip the subsystem logic
-      if 'all' in subsystems:
-        subsystems = None
+    if self.suite_config.suite == constants.HWTEST_PROVISION_SUITE:
+      subsystems = set()
     else:
-      subsystems = None
+      subsystems = self._GetSubsystems()
 
     skip_duts_check = False
     if config_lib.IsCanaryType(self._run.config.build_type):
@@ -267,8 +275,10 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
     build_id, db = self._run.GetCIDBHandle()
 
     cmd_result = commands.RunHWTestSuite(
-        build, self.suite_config.suite, self._model,
-        pool=self.suite_config.pool, num=self.suite_config.num,
+        build, self.suite_config.suite, self._board_name,
+        model=self._model,
+        pool=self.suite_config.pool,
+        num=self.suite_config.num,
         file_bugs=self.suite_config.file_bugs,
         wait_for_results=self.wait_for_results,
         priority=self.suite_config.priority,
@@ -277,9 +287,11 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
         max_retries=self.suite_config.max_retries,
         minimum_duts=self.suite_config.minimum_duts,
         suite_min_duts=self.suite_config.suite_min_duts,
+        suite_args=self.suite_config.suite_args,
         offload_failures_only=self.suite_config.offload_failures_only,
         debug=not self.TestsEnabled(self._run),
-        subsystems=subsystems, skip_duts_check=skip_duts_check,
+        subsystems=subsystems,
+        skip_duts_check=skip_duts_check,
         job_keyvals=self.GetJobKeyvals())
 
     if config_lib.IsCQType(self._run.config.build_type):
@@ -305,6 +317,21 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
                                 message_value=str(s), board=self._current_board)
     if cmd_result.to_raise:
       raise cmd_result.to_raise
+
+  def _GetSubsystems(self):
+    """Return a set of subsystem strings for the current board.
+
+    Returns an empty set if there are no subsystems.
+    """
+    per_board_dict = self._run.attrs.metadata.GetDict()['board-metadata']
+    current_board_dict = per_board_dict.get(self._current_board)
+    if not current_board_dict:
+      return set()
+    subsystems = set(current_board_dict.get('subsystems_to_test', []))
+    # 'subsystem:all' indicates to skip the subsystem logic
+    if 'all' in subsystems:
+      return set()
+    return subsystems
 
 
 class ASyncHWTestStage(HWTestStage, generic_stages.ForgivingBuilderStage):

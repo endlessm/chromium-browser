@@ -30,7 +30,6 @@
 #include "chrome/browser/chromeos/policy/device_local_account.h"
 #include "chrome/browser/chromeos/policy/device_local_account_policy_service.h"
 #include "chrome/browser/chromeos/policy/device_policy_cros_browser_test.h"
-#include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/supervised_user_creation_screen_handler.h"
@@ -38,6 +37,7 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/fake_session_manager_client.h"
+#include "chromeos/login/auth/authpolicy_login_helper.h"
 #include "chromeos/login/auth/key.h"
 #include "chromeos/login/auth/mock_url_fetchers.h"
 #include "chromeos/login/auth/user_context.h"
@@ -48,6 +48,7 @@
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_store.h"
 #include "components/policy/core/common/cloud/policy_builder.h"
+#include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
@@ -760,15 +761,14 @@ class ExistingUserControllerActiveDirectoryTest
   ExistingUserControllerActiveDirectoryTest() = default;
 
   // Overriden from DevicePolicyCrosBrowserTest:
-  void MarkOwnership() override {
-    policy::DevicePolicyCrosTestHelper::MarkAsActiveDirectoryEnterpriseOwned(
-        kActiveDirectoryRealm);
-  }
+  void MarkOwnership() override {}
 
   // Overriden from ExistingUserControllerTest:
   void SetUpInProcessBrowserTestFixture() override {
-    RefreshDevicePolicy();
     ExistingUserControllerTest::SetUpInProcessBrowserTestFixture();
+    ASSERT_TRUE(AuthPolicyLoginHelper::LockDeviceActiveDirectoryForTesting(
+        kActiveDirectoryRealm));
+    RefreshDevicePolicy();
   }
 
   void TearDownOnMainThread() override {

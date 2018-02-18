@@ -19,11 +19,12 @@ namespace ui {
 class UserActivityDetector;
 }
 
+class AccessibilityControllerClient;
 class AshInit;
 class CastConfigClientMediaRouter;
 class ChromeNewWindowClient;
 class ChromeShellContentState;
-class LockScreenClient;
+class LoginScreenClient;
 class ImeControllerClient;
 class ImmersiveContextMus;
 class ImmersiveHandlerFactoryMus;
@@ -52,6 +53,8 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   void PostMainMessageLoopRun() override;
 
  private:
+  std::unique_ptr<AccessibilityControllerClient>
+      accessibility_controller_client_;
   std::unique_ptr<ChromeShellContentState> chrome_shell_content_state_;
   std::unique_ptr<CastConfigClientMediaRouter> cast_config_client_media_router_;
   std::unique_ptr<MediaClient> media_client_;
@@ -64,7 +67,7 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   std::unique_ptr<VolumeController> volume_controller_;
   std::unique_ptr<VpnListForwarder> vpn_list_forwarder_;
   std::unique_ptr<AshInit> ash_init_;
-  std::unique_ptr<LockScreenClient> lock_screen_client_;
+  std::unique_ptr<LoginScreenClient> login_screen_client_;
 
   // Used only for mash.
   std::unique_ptr<ui::UserActivityDetector> user_activity_detector_;

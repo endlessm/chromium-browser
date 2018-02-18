@@ -19,7 +19,6 @@
 #include "components/viz/common/surfaces/local_surface_id_allocator.h"
 #include "components/viz/service/display/display.h"
 #include "components/viz/service/display/display_scheduler.h"
-#include "components/viz/service/display/texture_mailbox_deleter.h"
 #include "components/viz/service/frame_sinks/compositor_frame_sink_support.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 #include "ui/gfx/geometry/rect.h"
@@ -65,21 +64,19 @@ SurfacesInstance::SurfacesInstance()
       needs_sync_points);
 
   begin_frame_source_.reset(new viz::StubBeginFrameSource);
-  std::unique_ptr<viz::TextureMailboxDeleter> texture_mailbox_deleter(
-      new viz::TextureMailboxDeleter(nullptr));
   std::unique_ptr<ParentOutputSurface> output_surface_holder(
       new ParentOutputSurface(AwRenderThreadContextProvider::Create(
           base::WrapRefCounted(new AwGLSurface),
           DeferredGpuCommandService::GetInstance())));
   output_surface_ = output_surface_holder.get();
   auto scheduler = base::MakeUnique<viz::DisplayScheduler>(
-      begin_frame_source_.get(), nullptr,
+      begin_frame_source_.get(), nullptr /* current_task_runner */,
       output_surface_holder->capabilities().max_frames_pending);
   display_ = base::MakeUnique<viz::Display>(
       nullptr /* shared_bitmap_manager */,
       nullptr /* gpu_memory_buffer_manager */, settings, frame_sink_id_,
       std::move(output_surface_holder), std::move(scheduler),
-      std::move(texture_mailbox_deleter));
+      nullptr /* current_task_runner */);
   display_->Initialize(this, frame_sink_manager_->surface_manager());
   // TODO(ccameron): WebViews that are embedded in WCG windows will want to
   // specify gfx::ColorSpace::CreateExtendedSRGB(). This situation is not yet
@@ -120,7 +117,8 @@ void SurfacesInstance::DrawAndSwap(const gfx::Size& viewport,
                                    const gfx::Rect& clip,
                                    const gfx::Transform& transform,
                                    const gfx::Size& frame_size,
-                                   const viz::SurfaceId& child_id) {
+                                   const viz::SurfaceId& child_id,
+                                   float device_scale_factor) {
   DCHECK(std::find(child_ids_.begin(), child_ids_.end(), child_id) !=
          child_ids_.end());
 
@@ -143,27 +141,29 @@ void SurfacesInstance::DrawAndSwap(const gfx::Size& viewport,
       render_pass->CreateAndAppendDrawQuad<viz::SurfaceDrawQuad>();
   surface_quad->SetNew(quad_state, gfx::Rect(quad_state->quad_layer_rect),
                        gfx::Rect(quad_state->quad_layer_rect), child_id,
-                       viz::SurfaceDrawQuadType::PRIMARY, SK_ColorWHITE,
-                       nullptr);
+                       base::nullopt, SK_ColorWHITE, false);
 
   viz::CompositorFrame frame;
   // We draw synchronously, so acknowledge a manual BeginFrame.
   frame.metadata.begin_frame_ack =
       viz::BeginFrameAck::CreateManualAckWithDamage();
   frame.render_pass_list.push_back(std::move(render_pass));
-  frame.metadata.device_scale_factor = 1.f;
+  frame.metadata.device_scale_factor = device_scale_factor;
   frame.metadata.referenced_surfaces = child_ids_;
 
-  if (!root_id_.is_valid() || viewport != surface_size_) {
+  if (!root_id_.is_valid() || viewport != surface_size_ ||
+      device_scale_factor != device_scale_factor_) {
     root_id_ = local_surface_id_allocator_->GenerateId();
     surface_size_ = viewport;
-    display_->SetLocalSurfaceId(root_id_, 1.f);
+    device_scale_factor_ = device_scale_factor;
+    display_->SetLocalSurfaceId(root_id_, device_scale_factor);
   }
   bool result = support_->SubmitCompositorFrame(root_id_, std::move(frame));
   DCHECK(result);
 
   display_->Resize(viewport);
   display_->DrawAndSwap();
+  display_->DidReceiveSwapBuffersAck(++swap_id_);
 }
 
 void SurfacesInstance::AddChildId(const viz::SurfaceId& child_id) {
@@ -202,7 +202,7 @@ void SurfacesInstance::SetSolidColorRootFrame() {
   frame.metadata.begin_frame_ack =
       viz::BeginFrameAck::CreateManualAckWithDamage();
   frame.metadata.referenced_surfaces = child_ids_;
-  frame.metadata.device_scale_factor = 1;
+  frame.metadata.device_scale_factor = device_scale_factor_;
   bool result = support_->SubmitCompositorFrame(root_id_, std::move(frame));
   DCHECK(result);
 }
@@ -211,6 +211,13 @@ void SurfacesInstance::DidReceiveCompositorFrameAck(
     const std::vector<viz::ReturnedResource>& resources) {
   ReclaimResources(resources);
 }
+
+void SurfacesInstance::DidPresentCompositorFrame(uint32_t presentation_token,
+                                                 base::TimeTicks time,
+                                                 base::TimeDelta refresh,
+                                                 uint32_t flags) {}
+
+void SurfacesInstance::DidDiscardCompositorFrame(uint32_t presentation_token) {}
 
 void SurfacesInstance::OnBeginFrame(const viz::BeginFrameArgs& args) {}
 

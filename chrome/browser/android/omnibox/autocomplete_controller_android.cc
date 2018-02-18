@@ -34,7 +34,6 @@
 #include "chrome/common/url_constants.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
-#include "components/metrics/proto/omnibox_event.pb.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
 #include "components/omnibox/browser/autocomplete_input.h"
@@ -54,6 +53,7 @@
 #include "jni/AutocompleteController_jni.h"
 #include "net/base/escape.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "ui/base/device_form_factor.h"
 
 using base::android::AttachCurrentThread;
@@ -181,6 +181,7 @@ void AutocompleteControllerAndroid::OnOmniboxFocused(
     const JavaParamRef<jobject>& obj,
     const JavaParamRef<jstring>& j_omnibox_text,
     const JavaParamRef<jstring>& j_current_url,
+    const JavaParamRef<jstring>& j_current_title,
     jboolean focused_from_fakebox) {
   if (!autocomplete_controller_)
     return;
@@ -191,6 +192,7 @@ void AutocompleteControllerAndroid::OnOmniboxFocused(
     return;
 
   base::string16 url = ConvertJavaStringToUTF16(env, j_current_url);
+  base::string16 current_title = ConvertJavaStringToUTF16(env, j_current_title);
   const GURL current_url = GURL(url);
   base::string16 omnibox_text = ConvertJavaStringToUTF16(env, j_omnibox_text);
 
@@ -205,6 +207,7 @@ void AutocompleteControllerAndroid::OnOmniboxFocused(
                              ClassifyPage(current_url, focused_from_fakebox),
                              ChromeAutocompleteSchemeClassifier(profile_));
   input_.set_current_url(current_url);
+  input_.set_current_title(current_title);
   input_.set_from_omnibox_focus(true);
   autocomplete_controller_->Start(input_);
 }
@@ -409,16 +412,16 @@ AutocompleteControllerAndroid::ClassifyPage(const GURL& gurl,
   }
 
   if (url == chrome::kChromeUINativeNewTabURL) {
-    // If the fakebox demotion experiment is not active, pretend all focus
-    // events go to the omnibox.
-    if (!base::FeatureList::IsEnabled(omnibox::kAndroidFakeboxDemotion))
+    // On phones, the omnibox is not initially shown on the NTP.  In this case,
+    // treat the fakebox like the omnibox.
+    if (ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_PHONE)
       return OmniboxEventProto::INSTANT_NTP_WITH_OMNIBOX_AS_STARTING_FOCUS;
-    // On phones, the specific feature flag for the experiment on phones has to
-    // be enabled.  (Because there is only one box on the NTP on phones, the
-    // case for demoting URLs is less clear; hence the separate experiment)
-    if ((ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_PHONE) &&
-        !base::FeatureList::IsEnabled(omnibox::kAndroidFakeboxDemotionOnPhones))
-      return OmniboxEventProto::INSTANT_NTP_WITH_OMNIBOX_AS_STARTING_FOCUS;
+
+    // On tablets, the user can choose to focus either the fakebox or the
+    // omnibox.  Chrome distinguishes between the two in order to apply URL
+    // demotion when the user focuses the fakebox (which looks more like a
+    // search box) but not when they focus the omnibox (which looks more
+    // like a URL bar).
     return focused_from_fakebox ?
         OmniboxEventProto::INSTANT_NTP_WITH_FAKEBOX_AS_STARTING_FOCUS :
         OmniboxEventProto::INSTANT_NTP_WITH_OMNIBOX_AS_STARTING_FOCUS;
@@ -566,9 +569,10 @@ AutocompleteControllerAndroid::GetTopSynchronousResult(
   return BuildOmniboxSuggestion(env, *result.begin());
 }
 
-static jlong Init(JNIEnv* env,
-                  const JavaParamRef<jobject>& obj,
-                  const JavaParamRef<jobject>& jprofile) {
+static jlong JNI_AutocompleteController_Init(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& jprofile) {
   Profile* profile = ProfileAndroid::FromProfileAndroid(jprofile);
   if (!profile)
     return 0;
@@ -578,7 +582,8 @@ static jlong Init(JNIEnv* env,
   return reinterpret_cast<intptr_t>(native_bridge);
 }
 
-static ScopedJavaLocalRef<jstring> QualifyPartialURLQuery(
+static ScopedJavaLocalRef<jstring>
+JNI_AutocompleteController_QualifyPartialURLQuery(
     JNIEnv* env,
     const JavaParamRef<jclass>& clazz,
     const JavaParamRef<jstring>& jquery) {
@@ -607,8 +612,9 @@ static ScopedJavaLocalRef<jstring> QualifyPartialURLQuery(
   return ConvertUTF8ToJavaString(env, match.destination_url.spec());
 }
 
-static void PrefetchZeroSuggestResults(JNIEnv* env,
-                                       const JavaParamRef<jclass>& clazz) {
+static void JNI_AutocompleteController_PrefetchZeroSuggestResults(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz) {
   Profile* profile = ProfileManager::GetActiveUserProfile();
   if (!profile)
     return;

@@ -79,9 +79,6 @@ CastWebView::CastWebView(Delegate* delegate,
   DCHECK(window_);
   content::WebContentsObserver::Observe(web_contents_.get());
   web_contents_->SetDelegate(this);
-
-  if (transparent_)
-    window_->SetTransparent();
 }
 
 CastWebView::~CastWebView() {}
@@ -319,8 +316,10 @@ void CastWebView::MediaStartedPlaying(const MediaPlayerInfo& media_info,
   metrics::CastMetricsHelper::GetInstance()->LogMediaPlay();
 }
 
-void CastWebView::MediaStoppedPlaying(const MediaPlayerInfo& media_info,
-                                      const MediaPlayerId& id) {
+void CastWebView::MediaStoppedPlaying(
+    const MediaPlayerInfo& media_info,
+    const MediaPlayerId& id,
+    WebContentsObserver::MediaStoppedReason reason) {
   metrics::CastMetricsHelper::GetInstance()->LogMediaPause();
 }
 

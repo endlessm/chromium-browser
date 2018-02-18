@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "chromecast_export.h"
+#include "volume_control.h"
 
 namespace chromecast {
 namespace media {
@@ -19,7 +20,7 @@ class AudioPostProcessor;
 // Creates an AudioPostProcessor.
 // This is applicable only to Alsa CMA backend.
 // Please refer to
-// chromecast/media/cma/backend/alsa/post_processors/governor_shlib.cc
+// chromecast/media/cma/backend/post_processors/governor_shlib.cc
 // as an example, but OEM's implementations should not have any
 // Chromium dependencies.
 // Called from StreamMixerAlsa when shared objects are listed in
@@ -76,6 +77,15 @@ class AudioPostProcessor {
   // for the format and parsing of messages.
   // OEM's do not need to implement this method.
   virtual void UpdateParameters(const std::string& message) {}
+
+  // Set content type to the PostProcessor so it could change processing
+  // settings accordingly.
+  virtual void SetContentType(AudioContentType content_type) {}
+
+  // Called when device is playing as part of a stereo pair.
+  // |channel| is the playout channel on this device (0 for left, 1 for right).
+  // or -1 if the device is not part of a stereo pair.
+  virtual void SetPlayoutChannel(int channel) {}
 
   virtual ~AudioPostProcessor() = default;
 };

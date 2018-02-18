@@ -26,7 +26,7 @@
 <translation id="15373452373711364">Stor muspekare</translation>
 <translation id="1550523713251050646">Klicka här för fler alternativ</translation>
 <translation id="1621499497873603021">Tid som återstår tills batteriet är tomt: <ph name="TIME_LEFT" /></translation>
-<translation id="16620462294541761">Det gick inte att verifiera lösenordet. Försök igen.</translation>
+<translation id="1658406695958299976">Det gick inte att verifiera lösenordet. Obs! Om du nyligen har bytt lösenord börjar det nya lösenordet att gälla först när du loggar ut. Använd det gamla lösenordet här.</translation>
 <translation id="1677472565718498478"><ph name="TIME" /> kvar</translation>
 <translation id="1698760176351776263">IPv6-adress: <ph name="ADDRESS" /></translation>
 <translation id="1734367976349034509">Enheten är företagshanterad</translation>
@@ -65,10 +65,12 @@
 <translation id="2391579633712104609">180°</translation>
 <translation id="2429753432712299108">Bluetooth-enheten <ph name="DEVICE_NAME" /> har begärt tillstånd för koppling. Innan du godkänner bekräftar du att den här lösenordsnyckeln visas på den enheten: <ph name="PASSKEY" /></translation>
 <translation id="2482878487686419369">Aviseringar</translation>
+<translation id="2484513351006226581">Tryck på <ph name="KEYBOARD_SHORTCUT" /> om du vill byta tangentbordslayout.</translation>
 <translation id="2501920221385095727">Tröga tangenter</translation>
 <translation id="2509468283778169019">CAPS LOCK är på</translation>
 <translation id="2532589005999780174">Högkontrastläge</translation>
 <translation id="2597972630681408282">Nattljus: <ph name="NIGHT_LIGHT_STATUS" /></translation>
+<translation id="2617342710774726426">SIM-kortet är låst</translation>
 <translation id="2653659639078652383">Skicka</translation>
 <translation id="2675319268637823299">En administratör har förbjudit multiinloggning för <ph name="USER_EMAIL" />.
     Alla användare måste logga ut för att fortsätta.</translation>
@@ -98,6 +100,7 @@
 <translation id="3126069444801937830">Starta om för att uppdatera</translation>
 <translation id="3147142846278915599">Översikt (appar synkroniseras …)</translation>
 <translation id="315116470104423982">Mobildata</translation>
+<translation id="3153444934357957346">Du kan högst använda <ph name="MULTI_PROFILE_USER_LIMIT" /> konton för multiinloggning.</translation>
 <translation id="3236488194889173876">Det finns inget tillgängligt mobilnätverk</translation>
 <translation id="3294437725009624529">Gäst</translation>
 <translation id="332587331255250389">Byt batteri</translation>
@@ -105,8 +108,11 @@
 <translation id="3368922792935385530">Ansluten</translation>
 <translation id="3371140690572404006">USB-C-enhet (främre porten på högra sidan)</translation>
 <translation id="3400357268283240774">Ytterligare inställningar</translation>
+<translation id="3413817803639110246">Det finns inget att se här ännu</translation>
 <translation id="3445925074670675829">USB-C-enhet</translation>
+<translation id="3465566417615315331">Klicka på ditt foto</translation>
 <translation id="3473479545200714844">Skärmförstorare</translation>
+<translation id="3477079411857374384">Ctrl-Skift-Mellanslag</translation>
 <translation id="3510164367642747937">Markera muspekaren</translation>
 <translation id="3573179567135747900">Byt tillbaka till "<ph name="FROM_LOCALE" />" (kräver omstart)</translation>
 <translation id="3582792037806681688">Multiinloggning tillåts inte för en användare i den här sessionen</translation>
@@ -118,7 +124,6 @@
 <translation id="3712407551474845318">Ta bild av skärmområde</translation>
 <translation id="371370241367527062">Mikrofonen på framsidan</translation>
 <translation id="3771549900096082774">Högkontrastläge</translation>
-<translation id="3775358506042162758">Du kan högst använda tre konton för multiinloggning.</translation>
 <translation id="3783640748446814672">alt</translation>
 <translation id="3784455785234192852">Lås</translation>
 <translation id="3798670284305777884">Högtalare (inbyggd)</translation>
@@ -137,6 +142,7 @@
 <translation id="4338109981321384717">Förstoringsglas</translation>
 <translation id="4351433414020964307">Assistenten läses in …</translation>
 <translation id="4378551569595875038">Ansluter ...</translation>
+<translation id="4379531060876907730">Här är dina verktyg för e-penna</translation>
 <translation id="4421231901400348175">Dela kontroll över skärmen med <ph name="HELPER_NAME" /> via Fjärrhjälp.</translation>
 <translation id="4430019312045809116">Volym</translation>
 <translation id="4479639480957787382">Ethernet</translation>
@@ -146,12 +152,12 @@
 <translation id="453661520163887813"><ph name="TIME" /> tills batteriet är fullt</translation>
 <translation id="4544944664594876241">Kortkommandot för att låsa skärmen har ändrats. Använd <ph name="NEW_SHORTCUT" /> i stället för <ph name="OLD_SHORTCUT" />.</translation>
 <translation id="4659419629803378708">ChromeVox har aktiverats</translation>
-<translation id="4729904664295161097">Assistenten är bara tillgänglig för den primära profilen.</translation>
 <translation id="4776917500594043016">Lösenord för <ph name="USER_EMAIL_ADDRESS" /></translation>
 <translation id="479989351350248267">sök</translation>
 <translation id="4804818685124855865">Koppla från</translation>
 <translation id="4849058404725798627">Markera objekt med tangentbordsfokus</translation>
 <translation id="4872237917498892622">Alt + Sök eller Skift</translation>
+<translation id="4890187583552566966">Administratören har inaktiverat Google Assistent.</translation>
 <translation id="4895488851634969361">Batteriet är fullt.</translation>
 <translation id="4905614135390995787">Kortkommandot för att aktivera och inaktivera högkontrastläget har ändrats. Använd <ph name="NEW_SHORTCUT" /> i stället för <ph name="OLD_SHORTCUT" />.</translation>
 <translation id="4918086044614829423">Acceptera</translation>
@@ -171,7 +177,6 @@
 <translation id="5571066253365925590">Bluetooth aktiverad</translation>
 <translation id="5597451508971090205"><ph name="SHORT_WEEKDAY" />, <ph name="DATE" /></translation>
 <translation id="5600837773213129531">Inaktivera talad feedback genom att trycka på Ctrl + Alt + Z.</translation>
-<translation id="5612734644261457353">Det gick inte att verifiera lösenordet nu heller. Obs! Om du nyligen har bytt lösenord börjar det nya lösenordet gälla när du loggar ut. Använd det gamla lösenordet här.</translation>
 <translation id="5648021990716966815">Mikrofonuttag</translation>
 <translation id="5673434351075758678">Från <ph name="FROM_LOCALE" /> till <ph name="TO_LOCALE" /> efter synkronisering av inställningarna.</translation>
 <translation id="5744083938413354016">Tryck snabbt två gånger och dra</translation>
@@ -195,6 +200,7 @@
 <translation id="6043994281159824495">Logga ut nu</translation>
 <translation id="6047696787498798094">Skärmdelningen avbryts när du byter till en annan användare. Vill du fortsätta?</translation>
 <translation id="6062360702481658777">Du loggas ut automatiskt om <ph name="LOGOUT_TIME_LEFT" />.</translation>
+<translation id="6064337552080329342">Lösenordet kunde inte verifieras. Försök igen.</translation>
 <translation id="607652042414456612">Din dator kan upptäckas av Bluetooth-enheter som finns i närheten och den visas som <ph name="NAME" /> med adressen <ph name="ADDRESS" /></translation>
 <translation id="6106745654298855237">Laddar <ph name="POWER_SOURCE" /></translation>
 <translation id="615957422585914272">Visa skärmtangentbordet</translation>
@@ -261,10 +267,12 @@ Använd bara den här funktionen med konton som du litar på.</translation>
 <translation id="7658239707568436148">Avbryt</translation>
 <translation id="7692480393933218409">Laddar anslutna USB-C-enheter</translation>
 <translation id="776344839111254542">Klicka här om du vill se mer information om uppdateringen</translation>
+<translation id="7796353162336583443">När du har tryckt på e-pennan på hyllan kan du anteckna, ta en skärmdump eller använda Google Assistent, laserpekaren eller förstoringsglaset.</translation>
 <translation id="7798302898096527229">Avbryt genom att trycka på söktangenten eller Skift.</translation>
 <translation id="7814236020522506259"><ph name="HOUR" /> och <ph name="MINUTE" /></translation>
 <translation id="7829386189513694949">stark signal</translation>
 <translation id="7904094684485781019">Administratören för kontot tillåter inte multiinloggning.</translation>
+<translation id="7933084174919150729">Endast den primära profilen har tillgång till Google Assistent.</translation>
 <translation id="7977927628060636163">Söker efter mobilnätverk …</translation>
 <translation id="7982789257301363584">Nätverk</translation>
 <translation id="7994370417837006925">Multiinloggning</translation>
@@ -281,16 +289,17 @@ Använd bara den här funktionen med konton som du litar på.</translation>
 <translation id="8261506727792406068">Radera</translation>
 <translation id="8308637677604853869">Föregående meny</translation>
 <translation id="8351131234907093545">Skapa anteckning</translation>
-<translation id="8392234662362215700">Tryck på Ctrl + Skift + blanksteg om du vill byta tangentbordslayout.</translation>
 <translation id="8428213095426709021">Inställningar</translation>
 <translation id="8433186206711564395">Nätverksinställningar</translation>
 <translation id="8433977262951327081">Kortkommandot för att visa menybubblan för inmatningsalternativ i hyllan har ändrats. Använd <ph name="NEW_SHORTCUT" /> i stället för <ph name="OLD_SHORTCUT" />.</translation>
+<translation id="8452135315243592079">SIM-kort saknas</translation>
 <translation id="8454013096329229812">Wi-Fi är aktiverat.</translation>
 <translation id="847056008324733326">Inställningar för skala på skärmen</translation>
 <translation id="8477270416194247200">Avbryt genom att trycka på Alt + söktangenten eller Skift.</translation>
 <translation id="8484916590211895857"><ph name="NAME" />: återansluter …</translation>
 <translation id="8517041960877371778">Din <ph name="DEVICE_TYPE" /> laddas eventuellt inte så länge den är på.</translation>
 <translation id="8639760480004882931"><ph name="PERCENTAGE" /> återstår</translation>
+<translation id="8652175077544655965">Stäng inställningarna</translation>
 <translation id="8673028979667498656">270°</translation>
 <translation id="8676770494376880701">Laddare med låg effekt ansluten</translation>
 <translation id="8814190375133053267">Wi-Fi</translation>

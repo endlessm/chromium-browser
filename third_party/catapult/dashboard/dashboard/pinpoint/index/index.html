@@ -30,12 +30,14 @@ found in the LICENSE file.
   <link rel="lazy-import" href="/dashboard/pinpoint/elements/error-page.html">
   <link rel="lazy-import" href="/dashboard/pinpoint/elements/job-page.html">
   <link rel="lazy-import" href="/dashboard/pinpoint/elements/jobs-page.html">
-  <link rel="lazy-import" href="/dashboard/pinpoint/elements/new-page.html">
+  <link rel="lazy-import" href="/dashboard/pinpoint/elements/migrate-page.html">
 
   <template>
     <style>
       #content {
-        margin: 1em;
+        /* Add some extra space at the bottom to ensure any
+           Floating Action Buttons don't overlap anything. */
+        margin: 1em 1em 7em 1em;
       }
     </style>
 
@@ -51,7 +53,7 @@ found in the LICENSE file.
     <app-location route="{{route}}"></app-location>
     <app-route route="{{route}}" pattern="/:page" data="{{routeData}}" tail="{{subroute}}"></app-route>
 
-    <navigation-bar></navigation-bar>
+    <navigation-bar auth-headers="{{authHeaders}}"></navigation-bar>
 
     <!--
     The <iron-pages> element can be used as a simple content switcher. We have a
@@ -61,9 +63,9 @@ found in the LICENSE file.
     <div id="content">
       <iron-pages selected="[[page]]" attr-for-selected="name" fallback-selection="error" on-iron-select="onSelectedPage" on-iron-deselect="onDeselectedPage">
         <error-page name="error"></error-page>
-        <job-page name="job" route="{{subroute}}"></job-page>
+        <job-page name="job" route="{{subroute}}" auth-headers="[[authHeaders]]"></job-page>
         <jobs-page name="jobs" route="{{subroute}}"></jobs-page>
-        <new-page name="new" abs-route="{{route}}"></new-page>
+        <migrate-page name="migrate"></migrate-page>
       </iron-pages>
     </div>
 

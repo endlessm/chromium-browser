@@ -9,6 +9,7 @@
 
 #include "base/i18n/rtl.h"
 #include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -152,6 +153,10 @@ void HungPagesTableModel::TabDestroyed(WebContentsObserverImpl* tab) {
   // WARNING: we've likely been deleted.
 }
 
+void HungPagesTableModel::TabUpdated(WebContentsObserverImpl* tab) {
+  delegate_->TabUpdated();
+}
+
 HungPagesTableModel::WebContentsObserverImpl::WebContentsObserverImpl(
     HungPagesTableModel* model, WebContents* tab)
     : content::WebContentsObserver(tab),
@@ -161,6 +166,19 @@ HungPagesTableModel::WebContentsObserverImpl::WebContentsObserverImpl(
 void HungPagesTableModel::WebContentsObserverImpl::RenderProcessGone(
     base::TerminationStatus status) {
   model_->TabDestroyed(this);
+}
+
+void HungPagesTableModel::WebContentsObserverImpl::RenderViewHostChanged(
+    content::RenderViewHost* old_host,
+    content::RenderViewHost* new_host) {
+  // If |new_host| is currently responsive dismiss this dialog, otherwise
+  // let the model know the tab has been updated. Updating the tab will
+  // dismiss the current dialog but restart the hung renderer timeout.
+  if (!new_host->GetWidget()->IsCurrentlyUnresponsive()) {
+    model_->TabDestroyed(this);
+    return;
+  }
+  model_->TabUpdated(this);
 }
 
 void HungPagesTableModel::WebContentsObserverImpl::WebContentsDestroyed() {
@@ -342,6 +360,13 @@ base::string16 HungRendererDialogView::GetDialogButtonLabel(
 }
 
 bool HungRendererDialogView::Cancel() {
+  auto* render_view_host = hung_pages_table_model_->GetRenderViewHost();
+  bool currently_unresponsive =
+      render_view_host &&
+      render_view_host->GetWidget()->IsCurrentlyUnresponsive();
+  UMA_HISTOGRAM_BOOLEAN("Stability.RendererUnresponsiveBeforeTermination",
+                        currently_unresponsive);
+
   content::RenderProcessHost* rph =
       hung_pages_table_model_->GetRenderProcessHost();
   if (rph) {
@@ -368,10 +393,7 @@ bool HungRendererDialogView::Cancel() {
 }
 
 bool HungRendererDialogView::Accept() {
-  // Start waiting again for responsiveness.
-  auto* render_view_host = hung_pages_table_model_->GetRenderViewHost();
-  if (render_view_host)
-    render_view_host->GetWidget()->RestartHangMonitorTimeoutIfNecessary();
+  RestartHangTimer();
   return true;
 }
 
@@ -391,6 +413,10 @@ bool HungRendererDialogView::ShouldUseCustomFrame() const {
 
 ///////////////////////////////////////////////////////////////////////////////
 // HungRendererDialogView, HungPagesTableModel::Delegate overrides:
+
+void HungRendererDialogView::TabUpdated() {
+  RestartHangTimer();
+}
 
 void HungRendererDialogView::TabDestroyed() {
   GetWidget()->Close();
@@ -443,4 +469,11 @@ void HungRendererDialogView::Init() {
                   kTableViewWidth, kTableViewHeight);
 
   initialized_ = true;
+}
+
+void HungRendererDialogView::RestartHangTimer() {
+  // Start waiting again for responsiveness.
+  auto* render_view_host = hung_pages_table_model_->GetRenderViewHost();
+  if (render_view_host)
+    render_view_host->GetWidget()->RestartHangMonitorTimeoutIfNecessary();
 }

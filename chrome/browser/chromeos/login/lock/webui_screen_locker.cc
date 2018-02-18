@@ -4,6 +4,7 @@
 
 #include "chrome/browser/chromeos/login/lock/webui_screen_locker.h"
 
+#include "ash/public/cpp/ash_switches.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
@@ -83,6 +84,10 @@ void WebUIScreenLocker::RequestPreload() {
 
 // static
 bool WebUIScreenLocker::ShouldPreloadLockScreen() {
+  // Only preload webui lock screen when it is used.
+  if (!ash::switches::IsUsingWebUiLock())
+    return false;
+
   // Bail for mash because IdleDetector/UserActivityDetector does not work
   // properly there.
   // TODO(xiyuan): Revisit after http://crbug.com/626899.
@@ -170,7 +175,6 @@ void WebUIScreenLocker::LockScreen() {
       new SignInScreenController(GetOobeUI(), this));
 
   login_display_.reset(new WebUILoginDisplay(this));
-  login_display_->set_background_bounds(bounds);
   login_display_->set_parent_window(GetNativeWindow());
   login_display_->Init(screen_locker_->users(), false, true, false);
 
@@ -401,7 +405,8 @@ void WebUIScreenLocker::LidEventReceived(PowerManagerClient::LidState state,
   }
 }
 
-void WebUIScreenLocker::SuspendImminent() {
+void WebUIScreenLocker::SuspendImminent(
+    power_manager::SuspendImminent::Reason reason) {
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
       base::BindOnce(&WebUIScreenLocker::ResetAndFocusUserPod,

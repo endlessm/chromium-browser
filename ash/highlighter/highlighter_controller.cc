@@ -5,6 +5,7 @@
 #include "ash/highlighter/highlighter_controller.h"
 
 #include <memory>
+#include <utility>
 
 #include "ash/highlighter/highlighter_gesture_util.h"
 #include "ash/highlighter/highlighter_result_view.h"
@@ -54,7 +55,7 @@ float GetScreenshotScale(aura::Window* window) {
 HighlighterController::HighlighterController()
     : binding_(this), weak_factory_(this) {}
 
-HighlighterController::~HighlighterController() {}
+HighlighterController::~HighlighterController() = default;
 
 void HighlighterController::SetExitCallback(base::OnceClosure exit_callback,
                                             bool require_success) {
@@ -96,6 +97,10 @@ void HighlighterController::SetClient(
   client_.set_connection_error_handler(
       base::Bind(&HighlighterController::OnClientConnectionLost,
                  weak_factory_.GetWeakPtr()));
+}
+
+void HighlighterController::ExitHighlighterMode() {
+  CallExitCallback();
 }
 
 views::View* HighlighterController::GetPointerView() const {

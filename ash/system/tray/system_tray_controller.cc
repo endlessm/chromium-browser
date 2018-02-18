@@ -13,9 +13,9 @@
 namespace ash {
 
 SystemTrayController::SystemTrayController()
-    : hour_clock_type_(base::GetHourClockType()) {}
+    : binding_(this), hour_clock_type_(base::GetHourClockType()) {}
 
-SystemTrayController::~SystemTrayController() {}
+SystemTrayController::~SystemTrayController() = default;
 
 void SystemTrayController::ShowSettings() {
   if (system_tray_client_)
@@ -124,6 +124,11 @@ void SystemTrayController::ShowThirdPartyVpnCreate(
     system_tray_client_->ShowThirdPartyVpnCreate(extension_id);
 }
 
+void SystemTrayController::ShowArcVpnCreate(const std::string& app_id) {
+  if (system_tray_client_)
+    system_tray_client_->ShowArcVpnCreate(app_id);
+}
+
 void SystemTrayController::ShowNetworkSettings(const std::string& network_id) {
   if (system_tray_client_)
     system_tray_client_->ShowNetworkSettings(network_id);
@@ -135,7 +140,7 @@ void SystemTrayController::RequestRestartForUpdate() {
 }
 
 void SystemTrayController::BindRequest(mojom::SystemTrayRequest request) {
-  bindings_.AddBinding(this, std::move(request));
+  binding_.Bind(std::move(request));
 }
 
 void SystemTrayController::SetClient(mojom::SystemTrayClientPtr client) {

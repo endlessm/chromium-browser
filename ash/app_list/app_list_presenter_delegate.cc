@@ -48,8 +48,8 @@ gfx::Point GetCenterOfDisplayForWindow(aura::Window* window,
   // until after this function is called.)
   keyboard::KeyboardController* keyboard_controller =
       keyboard::KeyboardController::GetInstance();
-  if (keyboard_controller && keyboard_controller->keyboard_visible())
-    bounds.Subtract(keyboard_controller->current_keyboard_bounds());
+  if (keyboard_controller)
+    bounds.Subtract(keyboard_controller->GetWorkspaceObscuringBounds());
 
   // Apply the |minimum_height|.
   if (bounds.height() < minimum_height)
@@ -260,7 +260,7 @@ void AppListPresenterDelegate::OnGestureEvent(ui::GestureEvent* event) {
 // AppListPresenterDelegate, keyboard::KeyboardControllerObserver
 // implementation:
 
-void AppListPresenterDelegate::OnKeyboardBoundsChanging(
+void AppListPresenterDelegate::OnKeyboardWorkspaceOccludedBoundsChanging(
     const gfx::Rect& new_bounds) {
   UpdateBounds();
 }

@@ -25,12 +25,14 @@
 #include "chrome/browser/offline_pages/offline_page_request_interceptor.h"
 #include "chrome/browser/offline_pages/offline_page_tab_helper.h"
 #include "chrome/browser/offline_pages/test_offline_page_model_builder.h"
+#include "chrome/browser/renderer_host/chrome_navigation_ui_data.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/offline_pages/core/client_namespace_constants.h"
 #include "components/offline_pages/core/offline_page_model_impl.h"
+#include "components/offline_pages/core/request_header/offline_page_navigation_ui_data.h"
 #include "components/previews/core/previews_decider.h"
 #include "components/previews/core/previews_experiments.h"
 #include "content/public/browser/browser_thread.h"
@@ -134,7 +136,7 @@ class TestURLRequestDelegate : public net::URLRequest::Delegate {
   void OnResponseStarted(net::URLRequest* request, int net_error) override {
     DCHECK_NE(net::ERR_IO_PENDING, net_error);
     if (net_error != net::OK) {
-      read_completed_callback_.Run(0);
+      OnReadCompleted(request, 0);
       return;
     }
     int bytes_read = 0;
@@ -249,7 +251,8 @@ class TestOfflinePageArchiver : public OfflinePageArchiver {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(callback, this, ArchiverResult::SUCCESSFULLY_CREATED, url_,
-                   archive_file_path_, base::string16(), archive_file_size_));
+                   archive_file_path_, base::string16(), archive_file_size_,
+                   std::string()));
   }
 
  private:
@@ -332,6 +335,9 @@ class OfflinePageRequestJobTest : public testing::Test {
   int64_t offline_id4() const { return offline_id4_; }
   int64_t offline_id5() const { return offline_id5_; }
   int bytes_read() const { return bytes_read_; }
+  bool is_offline_page_set_in_navigation_data() const {
+    return is_offline_page_set_in_navigation_data_;
+  }
 
   TestPreviewsDecider* test_previews_decider() {
     return test_previews_decider_.get();
@@ -344,7 +350,8 @@ class OfflinePageRequestJobTest : public testing::Test {
       const std::string& method,
       content::ResourceType resource_type);
   void OnGetPageByOfflineIdDone(const OfflinePageItem* pages);
-  void ReadCompleted(int bytes_read);
+  void ReadCompleted(int bytes_read,
+                     bool is_offline_page_set_in_navigation_data);
 
   // Runs on IO thread.
   void SetUpNetworkObjectsOnIO();
@@ -355,7 +362,8 @@ class OfflinePageRequestJobTest : public testing::Test {
                             const std::string& extra_header_value,
                             content::ResourceType resource_type);
   void ReadCompletedOnIO(int bytes_read);
-  void TearDownOnReadCompletedOnIO(int bytes_read);
+  void TearDownOnReadCompletedOnIO(int bytes_read,
+                                   bool is_offline_page_set_in_navigation_data);
 
   content::TestBrowserThreadBundle thread_bundle_;
   base::SimpleTestClock clock_;
@@ -370,6 +378,7 @@ class OfflinePageRequestJobTest : public testing::Test {
   int64_t offline_id4_;
   int64_t offline_id5_;
   int bytes_read_;
+  bool is_offline_page_set_in_navigation_data_;
   OfflinePageItem page_;
 
   // These are not thread-safe. But they can be used in the pattern that
@@ -398,6 +407,7 @@ OfflinePageRequestJobTest::OfflinePageRequestJobTest()
       offline_id4_(-1),
       offline_id5_(-1),
       bytes_read_(0),
+      is_offline_page_set_in_navigation_data_(false),
       network_change_notifier_(new TestNetworkChangeNotifier),
       test_previews_decider_(new TestPreviewsDecider) {}
 
@@ -562,7 +572,8 @@ std::unique_ptr<net::URLRequest> OfflinePageRequestJobTest::CreateRequest(
       /*render_frame_id=*/1,
       /*is_main_frame=*/true,
       /*allow_download=*/true,
-      /*is_async=*/true, content::PREVIEWS_OFF);
+      /*is_async=*/true, content::PREVIEWS_OFF,
+      std::make_unique<ChromeNavigationUIData>());
 
   return request;
 }
@@ -739,15 +750,30 @@ void OfflinePageRequestJobTest::InterceptRequest(
 void OfflinePageRequestJobTest::ReadCompletedOnIO(int bytes_read) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
+  bool is_offline_page_set_in_navigation_data = false;
+  const content::ResourceRequestInfo* info =
+      content::ResourceRequestInfo::ForRequest(request_.get());
+  ChromeNavigationUIData* navigation_data =
+      static_cast<ChromeNavigationUIData*>(info->GetNavigationUIData());
+  if (navigation_data) {
+    offline_pages::OfflinePageNavigationUIData* offline_page_data =
+        navigation_data->GetOfflinePageNavigationUIData();
+    if (offline_page_data && offline_page_data->is_offline_page())
+      is_offline_page_set_in_navigation_data = true;
+  }
+
   // Since the caller is still holding a request object which we want to dispose
   // as part of tearing down on IO thread, we need to do it in a separate task.
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
       base::Bind(&OfflinePageRequestJobTest::TearDownOnReadCompletedOnIO,
-                 base::Unretained(this), bytes_read));
+                 base::Unretained(this), bytes_read,
+                 is_offline_page_set_in_navigation_data));
 }
 
-void OfflinePageRequestJobTest::TearDownOnReadCompletedOnIO(int bytes_read) {
+void OfflinePageRequestJobTest::TearDownOnReadCompletedOnIO(
+    int bytes_read,
+    bool is_offline_page_set_in_navigation_data) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
   TearDownNetworkObjectsOnIO();
@@ -755,13 +781,18 @@ void OfflinePageRequestJobTest::TearDownOnReadCompletedOnIO(int bytes_read) {
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
       base::Bind(&OfflinePageRequestJobTest::ReadCompleted,
-                 base::Unretained(this), bytes_read));
+                 base::Unretained(this), bytes_read,
+                 is_offline_page_set_in_navigation_data));
 }
 
-void OfflinePageRequestJobTest::ReadCompleted(int bytes_read) {
+void OfflinePageRequestJobTest::ReadCompleted(
+    int bytes_read,
+    bool is_offline_page_set_in_navigation_data) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   bytes_read_ = bytes_read;
+  is_offline_page_set_in_navigation_data_ =
+      is_offline_page_set_in_navigation_data;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
 }
@@ -818,6 +849,7 @@ TEST_F(OfflinePageRequestJobTest, LoadOfflinePageOnDisconnectedNetwork) {
   base::RunLoop().Run();
 
   EXPECT_EQ(kTestFileSize2, bytes_read());
+  EXPECT_TRUE(is_offline_page_set_in_navigation_data());
   ASSERT_TRUE(offline_page_tab_helper()->GetOfflinePageForTest());
   EXPECT_EQ(offline_id2(),
             offline_page_tab_helper()->GetOfflinePageForTest()->offline_id);
@@ -837,6 +869,7 @@ TEST_F(OfflinePageRequestJobTest, PageNotFoundOnDisconnectedNetwork) {
   base::RunLoop().Run();
 
   EXPECT_EQ(0, bytes_read());
+  EXPECT_FALSE(is_offline_page_set_in_navigation_data());
   EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
   ExpectOneUniqueSampleForAggregatedRequestResult(
       OfflinePageRequestJob::AggregatedRequestResult::
@@ -855,6 +888,7 @@ TEST_F(OfflinePageRequestJobTest, LoadOfflinePageOnProhibitivelySlowNetwork) {
   base::RunLoop().Run();
 
   EXPECT_EQ(kTestFileSize2, bytes_read());
+  EXPECT_TRUE(is_offline_page_set_in_navigation_data());
   ASSERT_TRUE(offline_page_tab_helper()->GetOfflinePageForTest());
   EXPECT_EQ(offline_id2(),
             offline_page_tab_helper()->GetOfflinePageForTest()->offline_id);
@@ -867,6 +901,28 @@ TEST_F(OfflinePageRequestJobTest, LoadOfflinePageOnProhibitivelySlowNetwork) {
   ExpectOnlinePageSizeTotalSuffixCount(0);
 }
 
+TEST_F(OfflinePageRequestJobTest,
+       DontLoadReloadOfflinePageOnProhibitivelySlowNetwork) {
+  SimulateHasNetworkConnectivity(true);
+
+  test_previews_decider()->set_should_allow_preview(true);
+
+  // Treat this as a reloaded page.
+  InterceptRequest(kTestUrl1, "GET", kOfflinePageHeader,
+                   std::string(kOfflinePageHeaderReasonKey) + "=" +
+                       kOfflinePageHeaderReasonValueReload,
+                   content::RESOURCE_TYPE_MAIN_FRAME);
+  base::RunLoop().Run();
+
+  EXPECT_EQ(0, bytes_read());
+  EXPECT_FALSE(is_offline_page_set_in_navigation_data());
+  EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
+  ExpectNoAccessEntryPoint();
+  ExpectNoSamplesInAggregatedRequestResult();
+  ExpectOfflinePageSizeTotalSuffixCount(0);
+  ExpectOnlinePageSizeTotalSuffixCount(0);
+}
+
 TEST_F(OfflinePageRequestJobTest, PageNotFoundOnProhibitivelySlowNetwork) {
   SimulateHasNetworkConnectivity(true);
 
@@ -876,6 +932,7 @@ TEST_F(OfflinePageRequestJobTest, PageNotFoundOnProhibitivelySlowNetwork) {
   base::RunLoop().Run();
 
   EXPECT_EQ(0, bytes_read());
+  EXPECT_FALSE(is_offline_page_set_in_navigation_data());
   EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
   ExpectOneUniqueSampleForAggregatedRequestResult(
       OfflinePageRequestJob::AggregatedRequestResult::
@@ -897,6 +954,7 @@ TEST_F(OfflinePageRequestJobTest, LoadOfflinePageOnFlakyNetwork) {
   base::RunLoop().Run();
 
   EXPECT_EQ(kTestFileSize2, bytes_read());
+  EXPECT_TRUE(is_offline_page_set_in_navigation_data());
   ASSERT_TRUE(offline_page_tab_helper()->GetOfflinePageForTest());
   EXPECT_EQ(offline_id2(),
             offline_page_tab_helper()->GetOfflinePageForTest()->offline_id);
@@ -921,6 +979,7 @@ TEST_F(OfflinePageRequestJobTest, PageNotFoundOnFlakyNetwork) {
   base::RunLoop().Run();
 
   EXPECT_EQ(0, bytes_read());
+  EXPECT_FALSE(is_offline_page_set_in_navigation_data());
   EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
   ExpectOneUniqueSampleForAggregatedRequestResult(
       OfflinePageRequestJob::AggregatedRequestResult::
@@ -941,6 +1000,7 @@ TEST_F(OfflinePageRequestJobTest, ForceLoadOfflinePageOnConnectedNetwork) {
   base::RunLoop().Run();
 
   EXPECT_EQ(kTestFileSize2, bytes_read());
+  EXPECT_TRUE(is_offline_page_set_in_navigation_data());
   ASSERT_TRUE(offline_page_tab_helper()->GetOfflinePageForTest());
   EXPECT_EQ(offline_id2(),
             offline_page_tab_helper()->GetOfflinePageForTest()->offline_id);
@@ -964,6 +1024,7 @@ TEST_F(OfflinePageRequestJobTest, PageNotFoundOnConnectedNetwork) {
   base::RunLoop().Run();
 
   EXPECT_EQ(0, bytes_read());
+  EXPECT_FALSE(is_offline_page_set_in_navigation_data());
   EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
   ExpectOneUniqueSampleForAggregatedRequestResult(
       OfflinePageRequestJob::AggregatedRequestResult::
@@ -980,6 +1041,7 @@ TEST_F(OfflinePageRequestJobTest, DoNotLoadOfflinePageOnConnectedNetwork) {
   base::RunLoop().Run();
 
   EXPECT_EQ(0, bytes_read());
+  EXPECT_FALSE(is_offline_page_set_in_navigation_data());
   EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
   ExpectNoAccessEntryPoint();
   ExpectNoSamplesInAggregatedRequestResult();
@@ -998,6 +1060,7 @@ TEST_F(OfflinePageRequestJobTest, LoadOfflinePageByOfflineID) {
   base::RunLoop().Run();
 
   EXPECT_EQ(kTestFileSize1, bytes_read());
+  EXPECT_TRUE(is_offline_page_set_in_navigation_data());
   ASSERT_TRUE(offline_page_tab_helper()->GetOfflinePageForTest());
   EXPECT_EQ(offline_id(),
             offline_page_tab_helper()->GetOfflinePageForTest()->offline_id);
@@ -1025,6 +1088,7 @@ TEST_F(OfflinePageRequestJobTest,
   base::RunLoop().Run();
 
   EXPECT_EQ(0, bytes_read());
+  EXPECT_FALSE(is_offline_page_set_in_navigation_data());
   EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
   ExpectOneUniqueSampleForAggregatedRequestResult(
       OfflinePageRequestJob::AggregatedRequestResult::
@@ -1101,6 +1165,7 @@ TEST_F(OfflinePageRequestJobTest, LoadOfflinePageAfterRedirect) {
   base::RunLoop().Run();
 
   EXPECT_EQ(kTestFileSize3, bytes_read());
+  EXPECT_TRUE(is_offline_page_set_in_navigation_data());
   ASSERT_TRUE(offline_page_tab_helper()->GetOfflinePageForTest());
   EXPECT_EQ(offline_id3(),
             offline_page_tab_helper()->GetOfflinePageForTest()->offline_id);
@@ -1124,6 +1189,7 @@ TEST_F(OfflinePageRequestJobTest, NoRedirectForOfflinePageWithSameOriginalURL) {
   base::RunLoop().Run();
 
   EXPECT_EQ(kTestFileSize5, bytes_read());
+  EXPECT_TRUE(is_offline_page_set_in_navigation_data());
   ASSERT_TRUE(offline_page_tab_helper()->GetOfflinePageForTest());
   EXPECT_EQ(offline_id5(),
             offline_page_tab_helper()->GetOfflinePageForTest()->offline_id);
@@ -1143,6 +1209,7 @@ TEST_F(OfflinePageRequestJobTest, LoadOfflinePageFromNonExistentFile) {
   base::RunLoop().Run();
 
   EXPECT_EQ(0, bytes_read());
+  EXPECT_TRUE(is_offline_page_set_in_navigation_data());
   ASSERT_TRUE(offline_page_tab_helper()->GetOfflinePageForTest());
   EXPECT_EQ(offline_id4(),
             offline_page_tab_helper()->GetOfflinePageForTest()->offline_id);

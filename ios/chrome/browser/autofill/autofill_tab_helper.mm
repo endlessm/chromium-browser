@@ -22,10 +22,11 @@ void AutofillTabHelper::CreateForWebState(
     web::WebState* web_state,
     password_manager::PasswordGenerationManager* password_generation_manager) {
   DCHECK(web_state);
-  DCHECK(!FromWebState(web_state));
-  web_state->SetUserData(UserDataKey(),
-                         base::WrapUnique(new AutofillTabHelper(
-                             web_state, password_generation_manager)));
+  if (!FromWebState(web_state)) {
+    web_state->SetUserData(UserDataKey(),
+                           base::WrapUnique(new AutofillTabHelper(
+                               web_state, password_generation_manager)));
+  }
 }
 
 id<FormSuggestionProvider> AutofillTabHelper::GetSuggestionProvider() {
@@ -35,16 +36,16 @@ id<FormSuggestionProvider> AutofillTabHelper::GetSuggestionProvider() {
 AutofillTabHelper::AutofillTabHelper(
     web::WebState* web_state,
     password_manager::PasswordGenerationManager* password_generation_manager)
-    : web::WebStateObserver(web_state),
-      controller_([[AutofillController alloc]
+    : controller_([[AutofillController alloc]
                initWithBrowserState:ios::ChromeBrowserState::FromBrowserState(
                                         web_state->GetBrowserState())
           passwordGenerationManager:password_generation_manager
                            webState:web_state]) {
-  DCHECK(web::WebStateObserver::web_state());
+  web_state->AddObserver(this);
 }
 
-void AutofillTabHelper::WebStateDestroyed() {
+void AutofillTabHelper::WebStateDestroyed(web::WebState* web_state) {
   [controller_ detachFromWebState];
+  web_state->RemoveObserver(this);
   controller_ = nil;
 }

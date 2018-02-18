@@ -48,6 +48,7 @@ const int64_t kRefreshTimeMS = 1000;
 // only once per group.
 bool IsSharedByGroup(int column_id) {
   switch (column_id) {
+    case IDS_TASK_MANAGER_MEM_FOOTPRINT_COLUMN:
     case IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN:
     case IDS_TASK_MANAGER_SHARED_MEM_COLUMN:
     case IDS_TASK_MANAGER_PHYSICAL_MEM_COLUMN:
@@ -65,6 +66,7 @@ bool IsSharedByGroup(int column_id) {
     case IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN:
     case IDS_TASK_MANAGER_NACL_DEBUG_STUB_PORT_COLUMN:
     case IDS_TASK_MANAGER_IDLE_WAKEUPS_COLUMN:
+    case IDS_TASK_MANAGER_HARD_FAULTS_COLUMN:
     case IDS_TASK_MANAGER_OPEN_FD_COUNT_COLUMN:
     case IDS_TASK_MANAGER_PROCESS_PRIORITY_COLUMN:
     case IDS_TASK_MANAGER_MEMORY_STATE_COLUMN:
@@ -192,6 +194,13 @@ class TaskManagerValuesStringifier {
       return n_a_string_;
 
     return base::FormatNumber(idle_wakeups);
+  }
+
+  base::string16 GetHardFaultsText(int hard_faults) {
+    if (hard_faults == -1)
+      return n_a_string_;
+
+    return base::FormatNumber(hard_faults);
   }
 
   base::string16 GetNaClPortText(int nacl_port) {
@@ -363,6 +372,10 @@ base::string16 TaskManagerTableModel::GetText(int row, int column) {
       return stringifier_->GetStartTimeText(
           observed_task_manager()->GetStartTime(tasks_[row]));
 
+    case IDS_TASK_MANAGER_MEM_FOOTPRINT_COLUMN:
+      return stringifier_->GetMemoryUsageText(
+          observed_task_manager()->GetMemoryFootprintUsage(tasks_[row]), false);
+
     case IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN:
       return stringifier_->GetMemoryUsageText(
           observed_task_manager()->GetPrivateMemoryUsage(tasks_[row]), false);
@@ -398,6 +411,10 @@ base::string16 TaskManagerTableModel::GetText(int row, int column) {
     case IDS_TASK_MANAGER_IDLE_WAKEUPS_COLUMN:
       return stringifier_->GetIdleWakeupsText(
           observed_task_manager()->GetIdleWakeupsPerSecond(tasks_[row]));
+
+    case IDS_TASK_MANAGER_HARD_FAULTS_COLUMN:
+      return stringifier_->GetHardFaultsText(
+          observed_task_manager()->GetHardFaultsPerSecond(tasks_[row]));
 
     case IDS_TASK_MANAGER_WEBCORE_IMAGE_CACHE_COLUMN: {
       blink::WebCache::ResourceTypeStats stats;
@@ -516,6 +533,11 @@ int TaskManagerTableModel::CompareValues(int row1,
       return ValueCompare(observed_task_manager()->GetStartTime(tasks_[row1]),
                           observed_task_manager()->GetStartTime(tasks_[row2]));
 
+    case IDS_TASK_MANAGER_MEM_FOOTPRINT_COLUMN:
+      return ValueCompare(
+          observed_task_manager()->GetMemoryFootprintUsage(tasks_[row1]),
+          observed_task_manager()->GetMemoryFootprintUsage(tasks_[row2]));
+
     case IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN:
       return ValueCompare(
           observed_task_manager()->GetPrivateMemoryUsage(tasks_[row1]),
@@ -563,6 +585,11 @@ int TaskManagerTableModel::CompareValues(int row1,
       return ValueCompare(
           observed_task_manager()->GetIdleWakeupsPerSecond(tasks_[row1]),
           observed_task_manager()->GetIdleWakeupsPerSecond(tasks_[row2]));
+
+    case IDS_TASK_MANAGER_HARD_FAULTS_COLUMN:
+      return ValueCompare(
+          observed_task_manager()->GetHardFaultsPerSecond(tasks_[row1]),
+          observed_task_manager()->GetHardFaultsPerSecond(tasks_[row2]));
 
     case IDS_TASK_MANAGER_WEBCORE_IMAGE_CACHE_COLUMN:
     case IDS_TASK_MANAGER_WEBCORE_SCRIPTS_CACHE_COLUMN:
@@ -726,15 +753,20 @@ void TaskManagerTableModel::UpdateRefreshTypes(int column_id, bool visibility) {
       type = REFRESH_TYPE_CPU_TIME;
       break;
 
+    case IDS_TASK_MANAGER_MEM_FOOTPRINT_COLUMN:
+      type = REFRESH_TYPE_MEMORY_FOOTPRINT;
+      break;
+
     case IDS_TASK_MANAGER_PHYSICAL_MEM_COLUMN:
       type = REFRESH_TYPE_PHYSICAL_MEMORY;
       break;
-
     case IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN:
     case IDS_TASK_MANAGER_SHARED_MEM_COLUMN:
     case IDS_TASK_MANAGER_SWAPPED_MEM_COLUMN:
       type = REFRESH_TYPE_MEMORY_DETAILS;
       if (table_view_delegate_->IsColumnVisible(
+              IDS_TASK_MANAGER_PHYSICAL_MEM_COLUMN) ||
+          table_view_delegate_->IsColumnVisible(
               IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN) ||
           table_view_delegate_->IsColumnVisible(
               IDS_TASK_MANAGER_SHARED_MEM_COLUMN) ||
@@ -757,6 +789,10 @@ void TaskManagerTableModel::UpdateRefreshTypes(int column_id, bool visibility) {
 
     case IDS_TASK_MANAGER_IDLE_WAKEUPS_COLUMN:
       type = REFRESH_TYPE_IDLE_WAKEUPS;
+      break;
+
+    case IDS_TASK_MANAGER_HARD_FAULTS_COLUMN:
+      type = REFRESH_TYPE_HARD_FAULTS;
       break;
 
     case IDS_TASK_MANAGER_WEBCORE_IMAGE_CACHE_COLUMN:

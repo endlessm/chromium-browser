@@ -17,7 +17,6 @@
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/resource_request_details.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/resource_type.h"
 
@@ -196,6 +195,13 @@ void SafeBrowsingNavigationObserver::DidRedirectNavigation(
 
 void SafeBrowsingNavigationObserver::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
+  if ((navigation_handle->HasCommitted() || navigation_handle->IsDownload()) &&
+      !navigation_handle->GetSocketAddress().IsEmpty()) {
+    manager_->RecordHostToIpMapping(
+        navigation_handle->GetURL().host(),
+        navigation_handle->GetSocketAddress().host());
+  }
+
   if (navigation_handle_map_.find(navigation_handle) ==
       navigation_handle_map_.end()) {
     return;
@@ -216,21 +222,6 @@ void SafeBrowsingNavigationObserver::DidFinishNavigation(
   manager_->RecordNavigationEvent(
       std::move(navigation_handle_map_[navigation_handle]));
   navigation_handle_map_.erase(navigation_handle);
-}
-
-void SafeBrowsingNavigationObserver::DidGetResourceResponseStart(
-    const content::ResourceRequestDetails& details) {
-  // We only care about main frame and sub frame.
-  if (details.resource_type != content::RESOURCE_TYPE_MAIN_FRAME &&
-      details.resource_type != content::RESOURCE_TYPE_SUB_FRAME) {
-    return;
-  }
-  if (!details.url.is_valid() || details.socket_address.IsEmpty())
-    return;
-  if (!details.url.host().empty()) {
-    manager_->RecordHostToIpMapping(details.url.host(),
-                                    details.socket_address.host());
-  }
 }
 
 void SafeBrowsingNavigationObserver::DidGetUserInteraction(

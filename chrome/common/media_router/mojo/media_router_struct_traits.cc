@@ -167,6 +167,7 @@ bool StructTraits<media_router::mojom::CastMediaSinkDataView,
   return true;
 }
 
+// static
 bool StructTraits<media_router::mojom::MediaRouteDataView,
                   media_router::MediaRoute>::
     Read(media_router::mojom::MediaRouteDataView data,
@@ -176,6 +177,12 @@ bool StructTraits<media_router::mojom::MediaRouteDataView,
     return false;
 
   out->set_media_route_id(media_route_id);
+
+  std::string presentation_id;
+  if (!data.ReadPresentationId(&presentation_id))
+    return false;
+
+  out->set_presentation_id(presentation_id);
 
   base::Optional<media_router::MediaSource::Id> media_source_id;
   if (!data.ReadMediaSource(&media_source_id))
@@ -214,7 +221,7 @@ bool StructTraits<media_router::mojom::MediaRouteDataView,
       data.supports_media_route_controller());
   out->set_for_display(data.for_display());
   out->set_incognito(data.is_incognito());
-  out->set_offscreen_presentation(data.is_offscreen_presentation());
+  out->set_local_presentation(data.is_local_presentation());
 
   return true;
 }

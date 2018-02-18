@@ -6,6 +6,7 @@ package org.chromium.android_webview;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.Process;
@@ -14,7 +15,6 @@ import android.support.annotation.IntDef;
 import android.util.Log;
 import android.webkit.WebSettings;
 
-import org.chromium.base.BuildInfo;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
@@ -135,7 +135,7 @@ public class AwSettings {
     private int mCacheMode = WebSettings.LOAD_DEFAULT;
     private boolean mShouldFocusFirstNode = true;
     private boolean mGeolocationEnabled = true;
-    private boolean mAutoCompleteEnabled = !BuildInfo.isAtLeastO();
+    private boolean mAutoCompleteEnabled = Build.VERSION.SDK_INT < Build.VERSION_CODES.O;
     private boolean mFullscreenSupported;
     private boolean mSupportZoom = true;
     private boolean mBuiltInZoomControls;
@@ -259,7 +259,8 @@ public class AwSettings {
 
             // By default, scale the text size by the system font scale factor. Embedders
             // may override this by invoking setTextZoom().
-            mTextSizePercent *= context.getResources().getConfiguration().fontScale;
+            mTextSizePercent =
+                    (int) (mTextSizePercent * context.getResources().getConfiguration().fontScale);
 
             mSupportLegacyQuirks = supportsLegacyQuirks;
             mAllowEmptyDocumentPersistence = allowEmptyDocumentPersistence;
@@ -1567,8 +1568,8 @@ public class AwSettings {
      */
     public void setDefaultVideoPosterURL(String url) {
         synchronized (mAwSettingsLock) {
-            if (mDefaultVideoPosterURL != null && !mDefaultVideoPosterURL.equals(url)
-                    || mDefaultVideoPosterURL == null && url != null) {
+            if ((mDefaultVideoPosterURL != null && !mDefaultVideoPosterURL.equals(url))
+                    || (mDefaultVideoPosterURL == null && url != null)) {
                 mDefaultVideoPosterURL = url;
                 mEventHandler.updateWebkitPreferencesLocked();
             }

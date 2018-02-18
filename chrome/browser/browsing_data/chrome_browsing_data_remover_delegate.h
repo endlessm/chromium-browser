@@ -268,7 +268,6 @@ class ChromeBrowsingDataRemoverDelegate
 #endif
   SubTask clear_hostname_resolution_cache_;
   SubTask clear_network_predictor_;
-  SubTask clear_networking_history_;
   SubTask clear_passwords_;
   SubTask clear_passwords_stats_;
   SubTask clear_http_auth_cache_;
@@ -282,6 +281,7 @@ class ChromeBrowsingDataRemoverDelegate
 #endif
   SubTask clear_auto_sign_in_;
   SubTask clear_reporting_cache_;
+  SubTask clear_video_perf_history_;
   // Counts the number of plugin data tasks. Should be the number of LSO cookies
   // to be deleted, or 1 while we're fetching LSO cookies or deleting in bulk.
   int clear_plugin_data_count_ = 0;

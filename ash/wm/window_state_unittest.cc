@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "ash/public/cpp/window_properties.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_state_util.h"
@@ -27,7 +28,7 @@ class AlwaysMaximizeTestState : public WindowState::State {
  public:
   explicit AlwaysMaximizeTestState(WindowStateType initial_state_type)
       : state_type_(initial_state_type) {}
-  ~AlwaysMaximizeTestState() override {}
+  ~AlwaysMaximizeTestState() override = default;
 
   // WindowState::State overrides:
   void OnWMEvent(WindowState* window_state, const WMEvent* event) override {
@@ -253,7 +254,7 @@ TEST_F(WindowStateTest, RestoreBounds) {
 TEST_F(WindowStateTest, AutoManaged) {
   std::unique_ptr<aura::Window> window(CreateTestWindowInShellWithId(0));
   WindowState* window_state = GetWindowState(window.get());
-  window_state->set_window_position_managed(true);
+  window_state->SetWindowPositionManaged(true);
   window->Hide();
   window->SetBounds(gfx::Rect(100, 100, 100, 100));
   window->Show();
@@ -271,7 +272,7 @@ TEST_F(WindowStateTest, AutoManaged) {
             window->GetBoundsInScreen().ToString());
 
   // The window should still be auto managed despite being right maximized.
-  EXPECT_TRUE(window_state->window_position_managed());
+  EXPECT_TRUE(window_state->GetWindowPositionManaged());
 }
 
 // Test that the replacement of a State object works as expected.
@@ -456,6 +457,17 @@ TEST_F(WindowStateTest, FullscreenMinimizedSwitching) {
   // return to the state before minimizing and fullscreen.
   ash::wm::ToggleFullScreen(window_state, nullptr);
   ASSERT_TRUE(window_state->IsMaximized());
+}
+
+TEST_F(WindowStateTest, CanConsumeSystemKeys) {
+  std::unique_ptr<aura::Window> window(
+      CreateTestWindowInShellWithBounds(gfx::Rect(100, 100, 100, 100)));
+  WindowState* window_state = GetWindowState(window.get());
+
+  EXPECT_FALSE(window_state->CanConsumeSystemKeys());
+
+  window->SetProperty(kCanConsumeSystemKeysKey, true);
+  EXPECT_TRUE(window_state->CanConsumeSystemKeys());
 }
 
 // TODO(skuhne): Add more unit test to verify the correctness for the restore

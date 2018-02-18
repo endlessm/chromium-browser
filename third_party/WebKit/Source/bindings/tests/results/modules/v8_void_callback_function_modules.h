@@ -12,31 +12,32 @@
 #ifndef V8VoidCallbackFunctionModules_h
 #define V8VoidCallbackFunctionModules_h
 
-#include "bindings/core/v8/NativeValueTraits.h"
 #include "modules/ModulesExport.h"
 #include "platform/bindings/CallbackFunctionBase.h"
-#include "platform/bindings/ScriptWrappable.h"
-#include "platform/bindings/TraceWrapperV8Reference.h"
-#include "platform/heap/Handle.h"
-#include "platform/wtf/text/WTFString.h"
 
 namespace blink {
 
+class ScriptWrappable;
+
 class MODULES_EXPORT V8VoidCallbackFunctionModules final : public CallbackFunctionBase {
  public:
-  static V8VoidCallbackFunctionModules* Create(ScriptState*, v8::Local<v8::Value> callback);
+  static V8VoidCallbackFunctionModules* Create(v8::Local<v8::Function> callback_function) {
+    return new V8VoidCallbackFunctionModules(callback_function);
+  }
 
-  ~V8VoidCallbackFunctionModules() = default;
+  ~V8VoidCallbackFunctionModules() override = default;
 
-  bool call(ScriptWrappable* scriptWrappable);
+  // Performs "invoke".
+  // https://heycam.github.io/webidl/#es-invoking-callback-functions
+  v8::Maybe<void> Invoke(ScriptWrappable* callback_this_value) WARN_UNUSED_RESULT;
+
+  // Performs "invoke", and then reports an exception, if any, to the global
+  // error handler such as DevTools' console.
+  void InvokeAndReportException(ScriptWrappable* callback_this_value);
 
  private:
-  V8VoidCallbackFunctionModules(ScriptState*, v8::Local<v8::Function>);
-};
-
-template <>
-struct NativeValueTraits<V8VoidCallbackFunctionModules> : public NativeValueTraitsBase<V8VoidCallbackFunctionModules> {
-  MODULES_EXPORT static V8VoidCallbackFunctionModules* NativeValue(v8::Isolate*, v8::Local<v8::Value>, ExceptionState&);
+  explicit V8VoidCallbackFunctionModules(v8::Local<v8::Function> callback_function)
+      : CallbackFunctionBase(callback_function) {}
 };
 
 }  // namespace blink

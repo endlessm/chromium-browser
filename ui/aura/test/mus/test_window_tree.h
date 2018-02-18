@@ -103,6 +103,8 @@ class TestWindowTree : public ui::mojom::WindowTree {
     return last_set_window_bounds_;
   }
 
+  const std::string& last_wm_action() const { return last_wm_action_; }
+
  private:
   struct Change {
     WindowTreeChangeType type;
@@ -196,16 +198,17 @@ class TestWindowTree : public ui::mojom::WindowTree {
                  Id transport_window_id,
                  ui::CursorData cursor_data) override;
   void SetWindowTextInputState(uint32_t window_id,
-                               mojo::TextInputStatePtr state) override;
+                               ui::mojom::TextInputStatePtr state) override;
   void SetImeVisibility(uint32_t window_id,
                         bool visible,
-                        mojo::TextInputStatePtr state) override;
+                        ui::mojom::TextInputStatePtr state) override;
   void OnWindowInputEventAck(uint32_t event_id,
                              ui::mojom::EventResult result) override;
   void DeactivateWindow(uint32_t window_id) override;
   void StackAbove(uint32_t change_id, uint32_t above_id,
                   uint32_t below_id) override;
   void StackAtTop(uint32_t change_id, uint32_t window_id) override;
+  void PerformWmAction(uint32_t window_id, const std::string& action) override;
   void GetWindowManagerClient(
       mojo::AssociatedInterfaceRequest<ui::mojom::WindowManagerClient> internal)
       override;
@@ -252,6 +255,8 @@ class TestWindowTree : public ui::mojom::WindowTree {
   base::Optional<viz::LocalSurfaceId> last_local_surface_id_;
 
   gfx::Rect last_set_window_bounds_;
+
+  std::string last_wm_action_;
 
   DISALLOW_COPY_AND_ASSIGN(TestWindowTree);
 };

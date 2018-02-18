@@ -4,13 +4,9 @@
 
 #include "chrome/browser/chromeos/input_method/input_method_engine.h"
 
+#include <map>
 #include <memory>
 #include <utility>
-
-#undef FocusIn
-#undef FocusOut
-#undef RootWindow
-#include <map>
 
 #include "ash/shell.h"
 #include "base/logging.h"
@@ -112,16 +108,11 @@ bool InputMethodEngine::SetCandidateWindowVisible(bool visible,
     return false;
   }
 
+  window_visible_ = visible;
   IMECandidateWindowHandlerInterface* cw_handler =
       ui::IMEBridge::Get()->GetCandidateWindowHandler();
-
-  if (cw_handler) {
-    if (window_visible_ != visible)
-      cw_handler->OnCandidateWindowVisibilityChanged(visible);
-
-    cw_handler->UpdateLookupTable(*candidate_window_, visible);
-  }
-  window_visible_ = visible;
+  if (cw_handler)
+    cw_handler->UpdateLookupTable(*candidate_window_, window_visible_);
   return true;
 }
 

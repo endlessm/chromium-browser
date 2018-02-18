@@ -59,7 +59,7 @@ class FakeCIDBConnection(object):
                   build_config, bot_hostname, master_build_id=None,
                   timeout_seconds=None, status=constants.BUILDER_STATUS_PASSED,
                   important=None, buildbucket_id=None, milestone_version=None,
-                  platform_version=None, start_time=None):
+                  platform_version=None, start_time=None, build_type=None):
     """Insert a build row.
 
     Note this API slightly differs from cidb as we pass status to avoid having
@@ -90,7 +90,8 @@ class FakeCIDBConnection(object):
            'buildbucket_id': buildbucket_id,
            'final': False,
            'milestone_version': milestone_version,
-           'platform_version': platform_version}
+           'platform_version': platform_version,
+           'build_type': build_type}
     self.buildTable.append(row)
     return build_id
 
@@ -197,8 +198,9 @@ class FakeCIDBConnection(object):
     self.failureTable[failure_id] = values
     return failure_id
 
-  def InsertBuildMessage(self, build_id, message_type=None,
-                         message_subtype=None, message_value=None, board=None):
+  def InsertBuildMessage(self, build_id,
+                         message_type=None, message_subtype=None,
+                         message_value=None, board=None):
     """Insert a build message.
 
     Args:
@@ -249,48 +251,52 @@ class FakeCIDBConnection(object):
 
     return len(hwTestResults)
 
-  def InsertBuildRequest(self, build_id, request_build_config, request_reason,
-                         request_build_args=None, request_buildbucket_id=None,
-                         timestamp=None):
-    """Insert a build request.
+  def InsertBuildRequests(self, build_reqs):
+    """Insert a list of build requests.
 
     Args:
-      build_id: build_id (int) of the build which sends the request.
-      request_build_config: build_config (string) of the requested build.
-      request_reason: reason (must be a member of
-        build_requests.BUILD_REQUEST_REASONS) of the request.
-      request_build_args: build_args (string) of the requested build, default to
-        None.
-      request_buildbucket_id: buildbucket_id (string) of the requested build,
-        default to None.
-      timestamp: timestamp of the build request when it's created.
+      build_reqs: A list of build_requests.BuildRequest instances.
 
     Returns:
-       Integer primary key of the inserted row.
+       The number of inserted rows.
     """
     request_id = len(self.buildRequestTable)
+    for build_req in build_reqs:
+      values = {
+          'id': request_id,
+          'build_id': build_req.build_id,
+          'request_build_config': build_req.request_build_config,
+          'request_build_args': build_req.request_build_args,
+          'request_buildbucket_id': build_req.request_buildbucket_id,
+          'request_reason': build_req.request_reason,
+          'timestamp': build_req.timestamp or datetime.datetime.now()}
+      self.buildRequestTable[request_id] = values
+      request_id = request_id + 1
 
-    values = {'id': request_id,
-              'build_id': build_id,
-              'request_build_config': request_build_config,
-              'request_build_args': request_build_args,
-              'request_buildbucket_id': request_buildbucket_id,
-              'request_reason': request_reason,
-              'timestamp': timestamp or datetime.datetime.now()}
-    self.buildRequestTable[request_id] = values
-    return request_id
+    return len(build_reqs)
 
-  def GetBuildMessages(self, build_id):
+  def GetBuildMessages(self, build_id, message_type=None, message_subtype=None):
     """Get the build messages of the given build id.
 
     Args:
       build_id: build id (string) of the build to get messages.
+      message_type: Get messages with the specific message_type (string) if
+        message_type is not None.
+      message_subtype: Get messages with the specific message_subtype (stirng)
+        if message_subtype is not None.
 
     Returns:
       A list of build messages (in the format of dict).
     """
-    return [v for v in  self.buildMessageTable.values()
-            if v['build_id'] == build_id]
+    messages = []
+    for v in self.buildMessageTable.values():
+      if (v['build_id'] == build_id and
+          (message_type is None or v['message_type'] == message_type) and
+          (message_subtype is None or
+           v['message_subtype'] == message_subtype)):
+        messages.append(v)
+
+    return messages
 
   def StartBuildStage(self, build_stage_id):
     if build_stage_id > len(self.buildStageTable):
@@ -627,6 +633,29 @@ class FakeCIDBConnection(object):
       return requests[:num_results]
     else:
       return requests
+
+  def GetBuildRequestsForRequesterBuild(self, requester_build_id,
+                                        request_reason=None):
+    """Get the build_requests associated to the requester build.
+
+    Args:
+      requester_build_id: The build id of the requester build.
+      request_reason: If provided, only return the build_request of the given
+        request reason. Default to None.
+
+    Returns:
+      A list of build_request.BuildRequest instances.
+    """
+    results = []
+    for value in self.buildRequestTable.values():
+      if (value['build_id'] == requester_build_id and
+          request_reason is None or request_reason == value['request_reason']):
+        results.append(build_requests.BuildRequest(
+            value['id'], value['build_id'], value['request_build_config'],
+            value['request_build_args'], value['request_buildbucket_id'],
+            value['request_reason'], value['timestamp']))
+
+    return results
 
   def HasFailureMsgForStage(self, build_stage_id):
     """Determine whether a build stage has failure messages in failureTable.

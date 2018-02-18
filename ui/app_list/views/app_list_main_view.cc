@@ -6,6 +6,10 @@
 
 #include <algorithm>
 
+#include "ash/app_list/model/app_list_folder_item.h"
+#include "ash/app_list/model/app_list_item.h"
+#include "ash/app_list/model/app_list_model.h"
+#include "ash/app_list/model/search_box_model.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
@@ -15,12 +19,8 @@
 #include "base/strings/string_util.h"
 #include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_features.h"
-#include "ui/app_list/app_list_folder_item.h"
-#include "ui/app_list/app_list_item.h"
-#include "ui/app_list/app_list_model.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/pagination_model.h"
-#include "ui/app_list/search_box_model.h"
 #include "ui/app_list/views/app_list_folder_view.h"
 #include "ui/app_list/views/app_list_item_view.h"
 #include "ui/app_list/views/apps_container_view.h"
@@ -28,7 +28,6 @@
 #include "ui/app_list/views/contents_view.h"
 #include "ui/app_list/views/search_box_view.h"
 #include "ui/app_list/views/search_result_page_view.h"
-#include "ui/app_list/views/start_page_view.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/button.h"
@@ -67,8 +66,6 @@ void AppListMainView::Init(int initial_apps_page,
   app_list::PaginationModel* pagination_model = GetAppsPaginationModel();
   if (pagination_model->is_valid_page(initial_apps_page))
     pagination_model->SelectPage(initial_apps_page, false);
-
-  OnSearchEngineIsGoogleChanged(model_->search_engine_is_google());
 }
 
 void AppListMainView::AddContentsViews() {
@@ -135,13 +132,6 @@ void AppListMainView::NotifySearchBoxVisibilityChanged() {
 
 const char* AppListMainView::GetClassName() const {
   return "AppListMainView";
-}
-
-void AppListMainView::OnSearchEngineIsGoogleChanged(bool is_google) {
-  if (contents_view_->start_page_view()) {
-    contents_view_->start_page_view()->instant_container()->SetVisible(
-        is_google);
-  }
 }
 
 void AppListMainView::ActivateApp(AppListItem* item, int event_flags) {

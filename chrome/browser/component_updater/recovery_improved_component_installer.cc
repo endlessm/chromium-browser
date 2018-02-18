@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/callback.h"
+#include "base/memory/ref_counted.h"
 #include "build/build_config.h"
 #include "chrome/browser/component_updater/component_updater_utils.h"
 
@@ -43,6 +44,8 @@ RecoveryImprovedInstallerPolicy::OnCustomInstall(
     const base::FilePath& install_dir) {
   return update_client::CrxInstaller::Result(0);
 }
+
+void RecoveryImprovedInstallerPolicy::OnCustomUninstall() {}
 
 void RecoveryImprovedInstallerPolicy::ComponentReady(
     const base::Version& version,
@@ -92,11 +95,10 @@ void RegisterRecoveryImprovedComponent(ComponentUpdateService* cus,
 
   DVLOG(1) << "Registering RecoveryImproved component.";
 
-  std::unique_ptr<ComponentInstallerPolicy> policy(
-      new RecoveryImprovedInstallerPolicy(prefs));
-  // |cus| will take ownership of |installer| during installer->Register(cus).
-  ComponentInstaller* installer = new ComponentInstaller(std::move(policy));
-  installer->Register(cus, base::Closure());
+  // |cus| takes ownership of |installer| through the CrxComponent instance.
+  auto installer = base::MakeRefCounted<ComponentInstaller>(
+      std::make_unique<RecoveryImprovedInstallerPolicy>(prefs));
+  installer->Register(cus, base::OnceClosure());
 #endif
 #endif
 }

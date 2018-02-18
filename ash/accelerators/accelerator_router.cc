@@ -41,9 +41,9 @@ bool IsSystemKey(ui::KeyboardCode key_code) {
 
 }  // namespace
 
-AcceleratorRouter::AcceleratorRouter() {}
+AcceleratorRouter::AcceleratorRouter() = default;
 
-AcceleratorRouter::~AcceleratorRouter() {}
+AcceleratorRouter::~AcceleratorRouter() = default;
 
 bool AcceleratorRouter::ProcessAccelerator(aura::Window* target,
                                            const ui::KeyEvent& key_event,
@@ -92,7 +92,7 @@ bool AcceleratorRouter::CanConsumeSystemKeys(aura::Window* target,
   // Uses the top level window so if the target is a web contents window the
   // containing parent window will be checked for the property.
   aura::Window* top_level = ::wm::GetToplevelWindow(target);
-  return top_level && wm::GetWindowState(top_level)->can_consume_system_keys();
+  return top_level && wm::GetWindowState(top_level)->CanConsumeSystemKeys();
 }
 
 bool AcceleratorRouter::ShouldProcessAcceleratorNow(

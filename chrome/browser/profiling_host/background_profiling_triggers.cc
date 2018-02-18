@@ -6,8 +6,13 @@
 
 #include "base/task_scheduler/post_task.h"
 #include "build/build_config.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiling_host/profiling_process_host.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/process_type.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/memory_instrumentation.h"
 
 namespace profiling {
@@ -15,7 +20,7 @@ namespace profiling {
 namespace {
 // Check memory usage every hour. Trigger slow report if needed.
 const int kRepeatingCheckMemoryDelayInHours = 1;
-const int kSecondReportRepeatingCheckMemoryDelayInHours = 12;
+const int kThrottledReportRepeatingCheckMemoryDelayInHours = 12;
 
 #if defined(OS_ANDROID)
 const size_t kBrowserProcessMallocTriggerKb = 100 * 1024;    // 100 MB
@@ -26,6 +31,34 @@ const size_t kBrowserProcessMallocTriggerKb = 400 * 1024;    // 400 MB
 const size_t kGPUProcessMallocTriggerKb = 400 * 1024;        // 400 MB
 const size_t kRendererProcessMallocTriggerKb = 500 * 1024;   // 500 MB
 #endif  // OS_ANDROID
+
+int GetContentProcessType(
+    const memory_instrumentation::mojom::ProcessType& type) {
+  using memory_instrumentation::mojom::ProcessType;
+
+  switch (type) {
+    case ProcessType::BROWSER:
+      return content::ProcessType::PROCESS_TYPE_BROWSER;
+
+    case ProcessType::RENDERER:
+      return content::ProcessType::PROCESS_TYPE_RENDERER;
+
+    case ProcessType::GPU:
+      return content::ProcessType::PROCESS_TYPE_GPU;
+
+    case ProcessType::UTILITY:
+      return content::ProcessType::PROCESS_TYPE_UTILITY;
+
+    case ProcessType::PLUGIN:
+      return content::ProcessType::PROCESS_TYPE_PLUGIN_DEPRECATED;
+
+    case ProcessType::OTHER:
+      return content::ProcessType::PROCESS_TYPE_UNKNOWN;
+  }
+
+  NOTREACHED();
+  return content::ProcessType::PROCESS_TYPE_UNKNOWN;
+}
 
 }  // namespace
 
@@ -38,6 +71,8 @@ BackgroundProfilingTriggers::BackgroundProfilingTriggers(
 BackgroundProfilingTriggers::~BackgroundProfilingTriggers() {}
 
 void BackgroundProfilingTriggers::StartTimer() {
+  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+
   // Register a repeating timer to check memory usage periodically.
   timer_.Start(
       FROM_HERE, base::TimeDelta::FromHours(kRepeatingCheckMemoryDelayInHours),
@@ -45,15 +80,52 @@ void BackgroundProfilingTriggers::StartTimer() {
                  weak_ptr_factory_.GetWeakPtr()));
 }
 
-void BackgroundProfilingTriggers::PerformMemoryUsageChecks() {
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
-      base::BindOnce(
-          &BackgroundProfilingTriggers::PerformMemoryUsageChecksOnIOThread,
-          weak_ptr_factory_.GetWeakPtr()));
+bool BackgroundProfilingTriggers::IsAllowedToUpload() const {
+  if (!ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled()) {
+    return false;
+  }
+
+  // Do not upload if there is an incognito session running in any profile.
+  std::vector<Profile*> profiles =
+      g_browser_process->profile_manager()->GetLoadedProfiles();
+  for (Profile* profile : profiles) {
+    if (profile->HasOffTheRecordProfile()) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
-void BackgroundProfilingTriggers::PerformMemoryUsageChecksOnIOThread() {
+bool BackgroundProfilingTriggers::IsOverTriggerThreshold(
+    int content_process_type,
+    uint32_t private_footprint_kb) {
+  if (!host_->ShouldProfileProcessType(content_process_type)) {
+    return false;
+  }
+
+  switch (content_process_type) {
+    case content::ProcessType::PROCESS_TYPE_BROWSER:
+      return private_footprint_kb > kBrowserProcessMallocTriggerKb;
+
+    case content::ProcessType::PROCESS_TYPE_GPU:
+      return private_footprint_kb > kGPUProcessMallocTriggerKb;
+
+    case content::ProcessType::PROCESS_TYPE_RENDERER:
+      return private_footprint_kb > kRendererProcessMallocTriggerKb;
+
+    default:
+      return false;
+  }
+}
+
+void BackgroundProfilingTriggers::PerformMemoryUsageChecks() {
+  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+
+  if (!IsAllowedToUpload()) {
+    return;
+  }
+
   memory_instrumentation::MemoryInstrumentation::GetInstance()
       ->RequestGlobalDump(
           base::Bind(&BackgroundProfilingTriggers::OnReceivedMemoryDump,
@@ -63,50 +135,39 @@ void BackgroundProfilingTriggers::PerformMemoryUsageChecksOnIOThread() {
 void BackgroundProfilingTriggers::OnReceivedMemoryDump(
     bool success,
     memory_instrumentation::mojom::GlobalMemoryDumpPtr dump) {
-  if (!success)
+  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+
+  if (!success) {
     return;
+  }
 
-  ProfilingProcessHost::Mode mode = host_->mode();
+  bool should_send_report = false;
   for (const auto& proc : dump->process_dumps) {
-    bool trigger_report = false;
-
-    if (proc->process_type ==
-            memory_instrumentation::mojom::ProcessType::BROWSER &&
-        (mode == profiling::ProfilingProcessHost::Mode::kMinimal ||
-         mode == profiling::ProfilingProcessHost::Mode::kAll)) {
-      trigger_report =
-          proc->os_dump->private_footprint_kb > kBrowserProcessMallocTriggerKb;
+    if (IsOverTriggerThreshold(GetContentProcessType(proc->process_type),
+                               proc->os_dump->private_footprint_kb)) {
+      should_send_report = true;
+      break;
     }
+  }
 
-    if (proc->process_type == memory_instrumentation::mojom::ProcessType::GPU &&
-        (mode == profiling::ProfilingProcessHost::Mode::kMinimal ||
-         mode == profiling::ProfilingProcessHost::Mode::kAll)) {
-      trigger_report =
-          proc->os_dump->private_footprint_kb > kGPUProcessMallocTriggerKb;
-    }
+  if (should_send_report) {
+    TriggerMemoryReport();
 
-    if (proc->process_type ==
-            memory_instrumentation::mojom::ProcessType::RENDERER &&
-        mode == profiling::ProfilingProcessHost::Mode::kAll) {
-      trigger_report =
-          proc->os_dump->private_footprint_kb > kRendererProcessMallocTriggerKb;
-    }
-
-    if (trigger_report)
-      TriggerMemoryReportForProcess(proc->pid);
+    // If a report was sent, throttle the memory data collection rate to
+    // kThrottledReportRepeatingCheckMemoryDelayInHours to avoid sending too
+    // many reports from a known problematic client.
+    timer_.Start(
+        FROM_HERE,
+        base::TimeDelta::FromHours(
+            kThrottledReportRepeatingCheckMemoryDelayInHours),
+        base::Bind(&BackgroundProfilingTriggers::PerformMemoryUsageChecks,
+                   weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
-void BackgroundProfilingTriggers::TriggerMemoryReportForProcess(
-    base::ProcessId pid) {
-  host_->RequestProcessReport(pid, "MEMLOG_BACKGROUND_TRIGGER");
-
-  // Reset the timer to avoid uploading too many reports.
-  timer_.Start(
-      FROM_HERE,
-      base::TimeDelta::FromHours(kSecondReportRepeatingCheckMemoryDelayInHours),
-      base::Bind(&BackgroundProfilingTriggers::PerformMemoryUsageChecks,
-                 weak_ptr_factory_.GetWeakPtr()));
+void BackgroundProfilingTriggers::TriggerMemoryReport() {
+  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  host_->RequestProcessReport("MEMLOG_BACKGROUND_TRIGGER");
 }
 
 }  // namespace profiling

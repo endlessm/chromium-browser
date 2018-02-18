@@ -49,6 +49,7 @@ class ChromeAutofillClientIOS : public AutofillClientIOS {
 
   // AutofillClientIOS implementation.
   ukm::UkmRecorder* GetUkmRecorder() override;
+  AddressNormalizer* GetAddressNormalizer() override;
   void ShowUnmaskPrompt(const CreditCard& card,
                         UnmaskCardReason reason,
                         base::WeakPtr<CardUnmaskDelegate> delegate) override;
@@ -67,6 +68,7 @@ class ChromeAutofillClientIOS : public AutofillClientIOS {
   void PropagateAutofillPredictions(
       content::RenderFrameHost* rfh,
       const std::vector<FormStructure*>& forms) override;
+  void DidInteractWithNonsecureCreditCardInput() override;
 
  private:
   infobars::InfoBarManager* infobar_manager_;

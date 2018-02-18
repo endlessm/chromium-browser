@@ -222,7 +222,7 @@ void UserManagerProfileDialog::ShowReauthDialog(
   // Load the re-auth URL, prepopulated with the user's email address.
   // Add the index of the profile to the URL so that the inline login page
   // knows which profile to load and update the credentials.
-  GURL url = signin::GetReauthURLWithEmail(
+  GURL url = signin::GetReauthURLWithEmailForDialog(
       signin_metrics::AccessPoint::ACCESS_POINT_USER_MANAGER, reason, email);
   instance_->ShowDialog(browser_context, email, url);
 }
@@ -230,13 +230,16 @@ void UserManagerProfileDialog::ShowReauthDialog(
 // static
 void UserManagerProfileDialog::ShowSigninDialog(
     content::BrowserContext* browser_context,
-    const base::FilePath& profile_path) {
+    const base::FilePath& profile_path,
+    signin_metrics::Reason reason) {
   if (!UserManager::IsShowing())
     return;
+  DCHECK(reason ==
+             signin_metrics::Reason::REASON_FORCED_SIGNIN_PRIMARY_ACCOUNT ||
+         reason == signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT);
   instance_->SetSigninProfilePath(profile_path);
-  GURL url = signin::GetPromoURL(
-      signin_metrics::AccessPoint::ACCESS_POINT_USER_MANAGER,
-      signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT, true, true);
+  GURL url = signin::GetPromoURLForDialog(
+      signin_metrics::AccessPoint::ACCESS_POINT_USER_MANAGER, reason, true);
   instance_->ShowDialog(browser_context, std::string(), url);
 }
 

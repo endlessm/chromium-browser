@@ -45,6 +45,7 @@
 #include "base/command_line.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
+#include "base/macros.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/memory/ptr_util.h"
 #include "base/pickle.h"
@@ -66,6 +67,7 @@
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -108,9 +110,15 @@ namespace {
 
 bool g_should_download_favicons = false;
 
-std::string g_locale;
+std::string* g_locale() {
+  CR_DEFINE_STATIC_LOCAL(std::string, locale, ());
+  return &locale;
+}
 
-std::string g_locale_list;
+std::string* g_locale_list() {
+  CR_DEFINE_STATIC_LOCAL(std::string, locale_list, ());
+  return &locale_list;
+}
 
 const void* const kAwContentsUserDataKey = &kAwContentsUserDataKey;
 const void* const kComputedRendererPriorityUserDataKey =
@@ -166,22 +174,23 @@ AwContents* AwContents::FromID(int render_process_id, int render_view_id) {
 }
 
 // static
-void UpdateDefaultLocale(JNIEnv* env,
-                         const JavaParamRef<jclass>&,
-                         const JavaParamRef<jstring>& locale,
-                         const JavaParamRef<jstring>& locale_list) {
-  g_locale = ConvertJavaStringToUTF8(env, locale);
-  g_locale_list = ConvertJavaStringToUTF8(env, locale_list);
+void JNI_AwContents_UpdateDefaultLocale(
+    JNIEnv* env,
+    const JavaParamRef<jclass>&,
+    const JavaParamRef<jstring>& locale,
+    const JavaParamRef<jstring>& locale_list) {
+  *g_locale() = ConvertJavaStringToUTF8(env, locale);
+  *g_locale_list() = ConvertJavaStringToUTF8(env, locale_list);
 }
 
 // static
 std::string AwContents::GetLocale() {
-  return g_locale;
+  return *g_locale();
 }
 
 // static
 std::string AwContents::GetLocaleList() {
-  return g_locale_list;
+  return *g_locale_list();
 }
 
 // static
@@ -393,9 +402,9 @@ void AwContents::Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   delete this;
 }
 
-static jlong Init(JNIEnv* env,
-                  const JavaParamRef<jclass>&,
-                  const JavaParamRef<jobject>& browser_context) {
+static jlong JNI_AwContents_Init(JNIEnv* env,
+                                 const JavaParamRef<jclass>&,
+                                 const JavaParamRef<jobject>& browser_context) {
   // TODO(joth): Use |browser_context| to get the native BrowserContext, rather
   // than hard-code the default instance lookup here.
   std::unique_ptr<WebContents> web_contents(content::WebContents::Create(
@@ -405,26 +414,28 @@ static jlong Init(JNIEnv* env,
   return reinterpret_cast<intptr_t>(new AwContents(std::move(web_contents)));
 }
 
-static jboolean HasRequiredHardwareExtensions(JNIEnv* env,
-                                              const JavaParamRef<jclass>&) {
+static jboolean JNI_AwContents_HasRequiredHardwareExtensions(
+    JNIEnv* env,
+    const JavaParamRef<jclass>&) {
   return content::GpuDataManager::GetInstance()
       ->GetGPUInfo()
       .can_support_threaded_texture_mailbox;
 }
 
-static void SetAwDrawSWFunctionTable(JNIEnv* env,
-                                     const JavaParamRef<jclass>&,
-                                     jlong function_table) {
+static void JNI_AwContents_SetAwDrawSWFunctionTable(JNIEnv* env,
+                                                    const JavaParamRef<jclass>&,
+                                                    jlong function_table) {
   RasterHelperSetAwDrawSWFunctionTable(
       reinterpret_cast<AwDrawSWFunctionTable*>(function_table));
 }
 
-static void SetAwDrawGLFunctionTable(JNIEnv* env,
-                                     const JavaParamRef<jclass>&,
-                                     jlong function_table) {}
+static void JNI_AwContents_SetAwDrawGLFunctionTable(JNIEnv* env,
+                                                    const JavaParamRef<jclass>&,
+                                                    jlong function_table) {}
 
 // static
-jint GetNativeInstanceCount(JNIEnv* env, const JavaParamRef<jclass>&) {
+jint JNI_AwContents_GetNativeInstanceCount(JNIEnv* env,
+                                           const JavaParamRef<jclass>&) {
   return base::subtle::NoBarrier_Load(&g_instance_count);
 }
 
@@ -1302,8 +1313,9 @@ jlong AwContents::GetAutofillProvider(
   return reinterpret_cast<jlong>(autofill_provider_.get());
 }
 
-void SetShouldDownloadFavicons(JNIEnv* env,
-                               const JavaParamRef<jclass>& jclazz) {
+void JNI_AwContents_SetShouldDownloadFavicons(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& jclazz) {
   g_should_download_favicons = true;
 }
 
@@ -1320,6 +1332,29 @@ void AwContents::RenderViewHostChanged(content::RenderViewHost* old_host,
   // new compositor is constructed.
   browser_view_renderer_.SetActiveCompositorID(
       CompositorID(process_id, routing_id));
+}
+
+void AwContents::DidFinishNavigation(
+    content::NavigationHandle* navigation_handle) {
+  // If this request was blocked in any way, broadcast an error.
+  net::Error error_code = navigation_handle->GetNetErrorCode();
+  if (error_code != net::ERR_BLOCKED_BY_CLIENT &&
+      error_code != net::ERR_BLOCKED_BY_ADMINISTRATOR &&
+      error_code != net::ERR_ABORTED) {
+    return;
+  }
+  AwContentsClientBridge* client =
+      AwContentsClientBridge::FromWebContents(web_contents_.get());
+  if (!client)
+    return;
+
+  AwWebResourceRequest request(navigation_handle->GetURL().spec(),
+                               navigation_handle->IsPost() ? "POST" : "GET",
+                               navigation_handle->IsInMainFrame(),
+                               navigation_handle->HasUserGesture(),
+                               net::HttpRequestHeaders());
+
+  client->OnReceivedError(request, error_code, false);
 }
 
 void AwContents::DidAttachInterstitialPage() {

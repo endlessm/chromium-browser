@@ -13,8 +13,7 @@ FakeCrasAudioClient::FakeCrasAudioClient()
       active_output_node_id_(0) {
 }
 
-FakeCrasAudioClient::~FakeCrasAudioClient() {
-}
+FakeCrasAudioClient::~FakeCrasAudioClient() = default;
 
 void FakeCrasAudioClient::Init(dbus::Bus* bus) {
   VLOG(1) << "FakeCrasAudioClient is created";
@@ -98,18 +97,17 @@ bool FakeCrasAudioClient::HasObserver(const Observer* observer) const {
 }
 
 void FakeCrasAudioClient::GetVolumeState(
-    const GetVolumeStateCallback& callback) {
-  callback.Run(volume_state_, true);
+    DBusMethodCallback<VolumeState> callback) {
+  std::move(callback).Run(volume_state_);
 }
 
 void FakeCrasAudioClient::GetDefaultOutputBufferSize(
-    const GetDefaultOutputBufferSizeCallback& callback) {
-  callback.Run(512, true);
+    DBusMethodCallback<int> callback) {
+  std::move(callback).Run(512);
 }
 
-void FakeCrasAudioClient::GetNodes(const GetNodesCallback& callback,
-                                   const ErrorCallback& error_callback) {
-  callback.Run(node_list_, true);
+void FakeCrasAudioClient::GetNodes(DBusMethodCallback<AudioNodeList> callback) {
+  std::move(callback).Run(node_list_);
 }
 
 void FakeCrasAudioClient::SetOutputNodeVolume(uint64_t node_id,

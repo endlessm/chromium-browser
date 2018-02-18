@@ -25,20 +25,6 @@
 
 namespace data_use_measurement {
 
-namespace {
-
-bool IsDisabledPlatform() {
-#if defined(OS_MACOSX)
-  // TODO(rajendrant): Fix mac os specific race conditions and enable.
-  // crbug.com/753559
-  return true;
-#else
-  return false;
-#endif
-}
-
-}  // namespace
-
 // static
 const void* const ChromeDataUseAscriber::DataUseRecorderEntryAsUserData::
     kDataUseAscriberUserDataKey =
@@ -193,9 +179,6 @@ void ChromeDataUseAscriber::OnUrlRequestCompleted(
     bool started) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
-  if (IsDisabledPlatform())
-    return;
-
   ChromeDataUseRecorder* recorder = GetDataUseRecorder(request);
 
   if (!recorder)
@@ -220,9 +203,6 @@ void ChromeDataUseAscriber::OnUrlRequestCompleted(
 
 void ChromeDataUseAscriber::OnUrlRequestDestroyed(net::URLRequest* request) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-
-  if (IsDisabledPlatform())
-    return;
 
   const DataUseRecorderEntry entry = GetDataUseRecorderEntry(request);
 
@@ -256,6 +236,8 @@ void ChromeDataUseAscriber::OnUrlRequestDestroyed(net::URLRequest* request) {
   }
 
   DataUseAscriber::OnUrlRequestDestroyed(request);
+  request->RemoveUserData(
+      DataUseRecorderEntryAsUserData::kDataUseAscriberUserDataKey);
 
   // If all requests are done for |entry| and no more requests can be attributed
   // to it, it is safe to delete.
@@ -270,8 +252,6 @@ void ChromeDataUseAscriber::RenderFrameCreated(int render_process_id,
                                                int main_render_process_id,
                                                int main_render_frame_id) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  if (IsDisabledPlatform())
-    return;
 
   const auto render_frame =
       RenderFrameHostID(render_process_id, render_frame_id);
@@ -301,8 +281,6 @@ void ChromeDataUseAscriber::RenderFrameDeleted(int render_process_id,
                                                int main_render_process_id,
                                                int main_render_frame_id) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  if (IsDisabledPlatform())
-    return;
 
   RenderFrameHostID key(render_process_id, render_frame_id);
 
@@ -334,8 +312,6 @@ void ChromeDataUseAscriber::ReadyToCommitMainFrameNavigation(
     int render_process_id,
     int render_frame_id) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  if (IsDisabledPlatform())
-    return;
 
   main_render_frame_entry_map_
       .find(RenderFrameHostID(render_process_id, render_frame_id))
@@ -350,9 +326,6 @@ void ChromeDataUseAscriber::DidFinishMainFrameNavigation(
     uint32_t page_transition,
     base::TimeTicks time) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-
-  if (IsDisabledPlatform())
-    return;
 
   RenderFrameHostID main_frame(render_process_id, render_frame_id);
 
@@ -420,13 +393,20 @@ void ChromeDataUseAscriber::DidFinishMainFrameNavigation(
       main_frame_it->second.data_use_recorder;
   old_frame_entry->set_page_transition(page_transition);
 
+  if (old_frame_entry == entry)
+    return;
+
   if (is_same_document_navigation) {
     std::vector<net::URLRequest*> pending_url_requests;
     entry->GetPendingURLRequests(&pending_url_requests);
     for (net::URLRequest* request : pending_url_requests) {
-      AscribeRecorderWithRequest(request, old_frame_entry);
       entry->MovePendingURLRequestTo(&(*old_frame_entry), request);
+      request->RemoveUserData(
+          DataUseRecorderEntryAsUserData::kDataUseAscriberUserDataKey);
+      AscribeRecorderWithRequest(request, old_frame_entry);
     }
+    entry->RemoveAllPendingURLRequests();
+    DCHECK(entry->IsDataUseComplete());
     data_use_recorders_.erase(entry);
 
     NotifyPageLoadCommit(old_frame_entry);
@@ -455,6 +435,8 @@ void ChromeDataUseAscriber::DidFinishMainFrameNavigation(
           !old_frame_entry->GetPendingURLRequestStartTime(request).is_null());
       if (old_frame_entry->GetPendingURLRequestStartTime(request) > time) {
         old_frame_entry->MovePendingURLRequestTo(&*entry, request);
+        request->RemoveUserData(
+            DataUseRecorderEntryAsUserData::kDataUseAscriberUserDataKey);
         AscribeRecorderWithRequest(request, entry);
       }
     }
@@ -480,7 +462,7 @@ void ChromeDataUseAscriber::NotifyDataUseCompleted(DataUseRecorderEntry entry) {
 
 std::unique_ptr<URLRequestClassifier>
 ChromeDataUseAscriber::CreateURLRequestClassifier() const {
-  return base::MakeUnique<ContentURLRequestClassifier>();
+  return std::make_unique<ContentURLRequestClassifier>();
 }
 
 ChromeDataUseAscriber::DataUseRecorderEntry
@@ -500,16 +482,13 @@ void ChromeDataUseAscriber::AscribeRecorderWithRequest(
   entry->AddPendingURLRequest(request);
   request->SetUserData(
       DataUseRecorderEntryAsUserData::kDataUseAscriberUserDataKey,
-      base::MakeUnique<DataUseRecorderEntryAsUserData>(entry));
+      std::make_unique<DataUseRecorderEntryAsUserData>(entry));
 }
 
 void ChromeDataUseAscriber::WasShownOrHidden(int main_render_process_id,
                                              int main_render_frame_id,
                                              bool visible) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-
-  if (IsDisabledPlatform())
-    return;
 
   auto main_frame_it = main_render_frame_entry_map_.find(
       RenderFrameHostID(main_render_process_id, main_render_frame_id));
@@ -525,9 +504,6 @@ void ChromeDataUseAscriber::RenderFrameHostChanged(int old_render_process_id,
                                                    int new_render_process_id,
                                                    int new_render_frame_id) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-
-  if (IsDisabledPlatform())
-    return;
 
   auto old_frame_iter = main_render_frame_entry_map_.find(
       RenderFrameHostID(old_render_process_id, old_render_frame_id));

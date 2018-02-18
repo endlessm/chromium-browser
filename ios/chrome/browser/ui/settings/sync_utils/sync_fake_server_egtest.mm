@@ -19,7 +19,7 @@
 #import "ios/chrome/browser/ui/authentication/signin_earlgrey_utils.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view.h"
 #import "ios/chrome/browser/ui/settings/settings_collection_view_controller.h"
-#include "ios/chrome/browser/ui/tools_menu/tools_menu_constants.h"
+#include "ios/chrome/browser/ui/tools_menu/public/tools_menu_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_popup_controller.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/app/bookmarks_test_util.h"
@@ -112,12 +112,7 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 @implementation SyncFakeServerTestCase
 
 - (void)tearDown {
-  GREYAssert(testing::WaitUntilConditionOrTimeout(
-                 testing::kWaitForUIElementTimeout,
-                 ^{
-                   return chrome_test_util::BookmarksLoaded();
-                 }),
-             @"Bookmark model did not load");
+  [ChromeEarlGrey waitForBookmarksToFinishLoading];
   chrome_test_util::ClearBookmarks();
   AssertNumberOfEntities(0, syncer::BOOKMARKS);
 
@@ -569,12 +564,7 @@ void AssertNumberOfEntitiesWithName(int entity_count,
 // TODO(crbug.com/646164): This is copied from bookmarks_egtest.mm and should
 // move to common location.
 - (void)addBookmark:(const GURL)url withTitle:(NSString*)title {
-  GREYAssert(testing::WaitUntilConditionOrTimeout(
-                 testing::kWaitForUIElementTimeout,
-                 ^{
-                   return chrome_test_util::BookmarksLoaded();
-                 }),
-             @"Bookmark model did not load");
+  [ChromeEarlGrey waitForBookmarksToFinishLoading];
   bookmarks::BookmarkModel* bookmark_model =
       ios::BookmarkModelFactory::GetForBrowserState(
           chrome_test_util::GetOriginalBrowserState());

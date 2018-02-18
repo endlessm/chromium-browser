@@ -3055,12 +3055,15 @@
   },
   "Cast Android (dbg)": {
     "additional_compile_targets": [
-      "cast_shell_apk"
+      "cast_junit_test_lists",
+      "cast_shell_apk",
+      "cast_test_lists"
     ]
   },
   "Cast Audio Linux": {
     "additional_compile_targets": [
-      "cast_shell"
+      "cast_shell",
+      "cast_test_lists"
     ],
     "gtest_tests": [
       {
@@ -3097,7 +3100,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "cast_alsa_cma_backend_unittests"
+        "test": "cast_audio_backend_unittests"
       },
       {
         "swarming": {
@@ -3244,7 +3247,8 @@
   },
   "Cast Linux": {
     "additional_compile_targets": [
-      "cast_shell"
+      "cast_shell",
+      "cast_test_lists"
     ],
     "gtest_tests": [
       {
@@ -3281,7 +3285,7 @@
         "swarming": {
           "can_use_on_swarming_builders": true
         },
-        "test": "cast_alsa_cma_backend_unittests"
+        "test": "cast_audio_backend_unittests"
       },
       {
         "swarming": {
@@ -3432,7 +3436,7 @@
       }
     ]
   },
-  "Fuchsia Compile": {
+  "Fuchsia ARM64": {
     "additional_compile_targets": [
       "base_unittests",
       "content_unittests",
@@ -3447,9 +3451,90 @@
       "mojo_public_system_unittests",
       "mojo_system_unittests",
       "net_unittests",
+      "service_manager_unittests",
       "skia_unittests",
+      "sql_unittests",
+      "ui_base_unittests"
+    ]
+  },
+  "Fuchsia ARM64 Cast Audio": {
+    "additional_compile_targets": [
+      "cast_shell",
+      "cast_test_lists"
+    ]
+  },
+  "Fuchsia x64": {
+    "additional_compile_targets": [
+      "base_unittests",
+      "content_browsertests",
+      "content_shell",
+      "gl_unittests",
+      "headless_shell",
+      "ipc_tests",
+      "media_unittests",
+      "mojo_common_unittests",
+      "mojo_js_unittests",
+      "mojo_public_bindings_unittests",
+      "mojo_public_system_unittests",
+      "mojo_system_unittests",
+      "net_unittests",
       "service_manager_unittests",
       "ui_base_unittests"
+    ],
+    "gtest_tests": [
+      {
+        "args": [
+          "--test-launcher-filter-file=../../testing/buildbot/filters/fuchsia.content_unittests.filter"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "kvm": "1"
+            }
+          ]
+        },
+        "test": "content_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "kvm": "1"
+            }
+          ]
+        },
+        "test": "crypto_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "kvm": "1"
+            }
+          ]
+        },
+        "test": "skia_unittests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "kvm": "1"
+            }
+          ]
+        },
+        "test": "sql_unittests"
+      }
+    ]
+  },
+  "Fuchsia x64 Cast Audio": {
+    "additional_compile_targets": [
+      "cast_shell",
+      "cast_test_lists"
     ]
   },
   "Linux Builder": {
@@ -3539,17 +3624,6 @@
       },
       {
         "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_browser_tests",
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "shards": 5
-        },
-        "test": "browser_tests"
-      },
-      {
-        "args": [
           "--site-per-process",
           "--test-launcher-filter-file=../../testing/buildbot/filters/site-per-process.browser_tests.filter"
         ],
@@ -3603,26 +3677,6 @@
         "test": "components_browsertests"
       },
       {
-        "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_components_browsertests",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "components_browsertests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "components_unittests"
-      },
-      {
-        "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_components_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -3658,6 +3712,18 @@
         "name": "site_per_process_content_browsertests",
         "swarming": {
           "can_use_on_swarming_builders": true
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "args": [
+          "--enable-viz",
+          "--test-launcher-filter-file=../../testing/buildbot/filters/viz.content_browsertests.filter"
+        ],
+        "name": "viz_content_browsertests",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "shards": 2
         },
         "test": "content_browsertests"
       },
@@ -3724,16 +3790,6 @@
         "test": "extensions_browsertests"
       },
       {
-        "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_extensions_browsertests",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "extensions_browsertests"
-      },
-      {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -3794,32 +3850,12 @@
         "test": "headless_browsertests"
       },
       {
-        "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_headless_browsertests",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "headless_browsertests"
-      },
-      {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
         "test": "headless_unittests"
       },
       {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "interactive_ui_tests"
-      },
-      {
-        "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_interactive_ui_tests",
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -4019,16 +4055,6 @@
       },
       {
         "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_unit_tests",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "unit_tests"
-      },
-      {
-        "args": [
           "--site-per-process"
         ],
         "name": "site_per_process_unit_tests",
@@ -4167,12 +4193,12 @@
         "script": "checkdeps.py"
       },
       {
-        "name": "webkit_lint",
-        "script": "webkit_lint.py"
-      },
-      {
         "name": "checkperms",
         "script": "checkperms.py"
+      },
+      {
+        "name": "webkit_lint",
+        "script": "webkit_lint.py"
       }
     ]
   },
@@ -4221,17 +4247,6 @@
         "test": "boringssl_ssl_tests"
       },
       {
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "shards": 10
-        },
-        "test": "browser_tests"
-      },
-      {
-        "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_browser_tests",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 10
@@ -4293,26 +4308,6 @@
         "test": "components_browsertests"
       },
       {
-        "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_components_browsertests",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "components_browsertests"
-      },
-      {
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "components_unittests"
-      },
-      {
-        "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_components_unittests",
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -4414,16 +4409,6 @@
         "test": "extensions_browsertests"
       },
       {
-        "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_extensions_browsertests",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "extensions_browsertests"
-      },
-      {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
@@ -4484,33 +4469,12 @@
         "test": "headless_browsertests"
       },
       {
-        "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_headless_browsertests",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "headless_browsertests"
-      },
-      {
         "swarming": {
           "can_use_on_swarming_builders": true
         },
         "test": "headless_unittests"
       },
       {
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "shards": 3
-        },
-        "test": "interactive_ui_tests"
-      },
-      {
-        "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_interactive_ui_tests",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "shards": 3
@@ -4708,17 +4672,7 @@
       },
       {
         "args": [
-          "--disable-browser-side-navigation"
-        ],
-        "name": "renderer_side_navigation_unit_tests",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "unit_tests"
-      },
-      {
-        "args": [
-          "--site_per_process"
+          "--site-per-process"
         ],
         "name": "site_per_process_unit_tests",
         "swarming": {

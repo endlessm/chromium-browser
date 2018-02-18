@@ -9,10 +9,10 @@
 #import "ios/chrome/browser/tabs/tab_model_observer.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_utils.h"
 #import "ios/chrome/browser/ui/image_util.h"
-#import "ios/chrome/browser/ui/ntp/google_landing_data_source.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_toolbar_controller.h"
-#import "ios/chrome/browser/ui/toolbar/toolbar_controller_base_feature.h"
+#import "ios/chrome/browser/ui/toolbar/public/toolbar_utils.h"
+#import "ios/chrome/browser/ui/toolbar/toolbar_snapshot_providing.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/common/material_timing.h"
 #include "ios/chrome/grit/ios_theme_resources.h"
@@ -22,7 +22,7 @@
 #error "This file requires ARC support."
 #endif
 
-@interface NewTabPageHeaderView () {
+@interface NewTabPageHeaderView ()<ToolbarSnapshotProviding> {
   NewTabPageToolbarController* _toolbarController;
   UIImageView* _searchBoxBorder;
   UIImageView* _shadow;
@@ -31,6 +31,8 @@
 @end
 
 @implementation NewTabPageHeaderView
+
+#pragma mark - Public
 
 - (instancetype)initWithFrame:(CGRect)frame {
   self = [super initWithFrame:frame];
@@ -43,37 +45,6 @@
 
 - (UIView*)toolBarView {
   return [_toolbarController view];
-}
-
-- (ToolbarController*)relinquishedToolbarController {
-  ToolbarController* relinquishedToolbarController = nil;
-  if ([[_toolbarController view] isDescendantOfView:self]) {
-    // Only relinquish the toolbar controller if it's in the hierarchy.
-    relinquishedToolbarController = _toolbarController;
-  }
-  return relinquishedToolbarController;
-}
-
-- (void)addConstraintsToToolbar {
-  _toolbarController.heightConstraint.constant =
-      [_toolbarController preferredToolbarHeightWhenAlignedToTopOfScreen];
-  _toolbarController.heightConstraint.active = YES;
-  [NSLayoutConstraint activateConstraints:@[
-    [[_toolbarController view].leadingAnchor
-        constraintEqualToAnchor:self.leadingAnchor],
-    [[_toolbarController view].topAnchor
-        constraintEqualToAnchor:self.topAnchor],
-    [[_toolbarController view].trailingAnchor
-        constraintEqualToAnchor:self.trailingAnchor],
-  ]];
-}
-
-- (void)reparentToolbarController {
-  DCHECK(![[_toolbarController view] isDescendantOfView:self]);
-  [self addSubview:[_toolbarController view]];
-  if (base::FeatureList::IsEnabled(kSafeAreaCompatibleToolbar)) {
-    [self addConstraintsToToolbar];
-  }
 }
 
 - (void)addToolbarWithReadingListModel:(ReadingListModel*)readingListModel
@@ -89,7 +60,7 @@
 
   [self addSubview:[_toolbarController view]];
 
-  if (base::FeatureList::IsEnabled(kSafeAreaCompatibleToolbar)) {
+  if (IsSafeAreaCompatibleToolbarEnabled()) {
     [self addConstraintsToToolbar];
   } else {
     CGRect toolbarFrame = self.bounds;
@@ -175,7 +146,7 @@
       ntp_header::kToolbarHeight - content_suggestions::kSearchFieldHeight;
 
   widthConstraint.constant = searchFieldNormalWidth - 2 * maxXInset * percent;
-  topMarginConstraint.constant = content_suggestions::searchFieldTopMargin() +
+  topMarginConstraint.constant = -content_suggestions::searchFieldTopMargin() -
                                  ntp_header::kMaxTopMarginDiff * percent;
   heightConstraint.constant =
       content_suggestions::kSearchFieldHeight + maxHeightDiff * percent;
@@ -197,9 +168,10 @@
 
 - (void)safeAreaInsetsDidChange {
   [super safeAreaInsetsDidChange];
-  if (base::FeatureList::IsEnabled(kSafeAreaCompatibleToolbar)) {
+  if (IsSafeAreaCompatibleToolbarEnabled()) {
     _toolbarController.heightConstraint.constant =
-        [_toolbarController preferredToolbarHeightWhenAlignedToTopOfScreen];
+        ToolbarHeightWithTopOfScreenOffset(
+            [_toolbarController statusBarOffset]);
   }
 }
 
@@ -208,6 +180,68 @@
                    animations:^{
                      [_shadow setAlpha:0];
                    }];
+}
+
+#pragma mark - ToolbarOwner
+
+- (CGRect)toolbarFrame {
+  return _toolbarController.view.frame;
+}
+
+- (id<ToolbarSnapshotProviding>)toolbarSnapshotProvider {
+  return self;
+}
+
+#pragma mark - ToolbarSnapshotProviding
+
+- (UIView*)snapshotForTabSwitcher {
+  return nil;
+}
+
+- (UIView*)snapshotForStackViewWithWidth:(CGFloat)width
+                          safeAreaInsets:(UIEdgeInsets)safeAreaInsets {
+  UIView* toolbar = _toolbarController.view;
+  CGRect oldFrame = toolbar.frame;
+  CGRect newFrame = oldFrame;
+  newFrame.size.width = width;
+
+  toolbar.frame = newFrame;
+  [_toolbarController activateFakeSafeAreaInsets:safeAreaInsets];
+
+  UIView* toolbarSnapshotView;
+  if ([toolbar window]) {
+    // Take a snapshot only if it has been added to the view hierarchy.
+    toolbarSnapshotView = [toolbar snapshotViewAfterScreenUpdates:NO];
+  } else {
+    toolbarSnapshotView = [[UIView alloc] initWithFrame:toolbar.frame];
+    [toolbarSnapshotView layer].contents = static_cast<id>(
+        CaptureViewWithOption(toolbar, 0, kClientSideRendering).CGImage);
+  }
+
+  toolbar.frame = oldFrame;
+  [_toolbarController deactivateFakeSafeAreaInsets];
+
+  return toolbarSnapshotView;
+}
+
+- (UIColor*)toolbarBackgroundColor {
+  return [UIColor whiteColor];
+}
+
+#pragma mark - Private
+
+- (void)addConstraintsToToolbar {
+  _toolbarController.heightConstraint.constant =
+      ToolbarHeightWithTopOfScreenOffset([_toolbarController statusBarOffset]);
+  _toolbarController.heightConstraint.active = YES;
+  [NSLayoutConstraint activateConstraints:@[
+    [[_toolbarController view].leadingAnchor
+        constraintEqualToAnchor:self.leadingAnchor],
+    [[_toolbarController view].topAnchor
+        constraintEqualToAnchor:self.topAnchor],
+    [[_toolbarController view].trailingAnchor
+        constraintEqualToAnchor:self.trailingAnchor],
+  ]];
 }
 
 @end

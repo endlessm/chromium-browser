@@ -56,7 +56,6 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
-#include "content/public/browser/resource_request_details.h"
 #include "content/public/browser/session_storage_namespace.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
@@ -160,8 +159,6 @@ PrerenderManagerObserver::~PrerenderManagerObserver() {}
 
 // static
 PrerenderManager::PrerenderManagerMode PrerenderManager::mode_ =
-    PRERENDER_MODE_SIMPLE_LOAD_EXPERIMENT;
-PrerenderManager::PrerenderManagerMode PrerenderManager::instant_mode_ =
     PRERENDER_MODE_SIMPLE_LOAD_EXPERIMENT;
 PrerenderManager::PrerenderManagerMode PrerenderManager::omnibox_mode_ =
     PRERENDER_MODE_SIMPLE_LOAD_EXPERIMENT;
@@ -282,14 +279,6 @@ PrerenderManager::AddForcedPrerenderFromExternalRequest(
     const gfx::Rect& bounds) {
   return AddPrerender(ORIGIN_EXTERNAL_REQUEST_FORCED_PRERENDER, url, referrer,
                       bounds, session_storage_namespace);
-}
-
-std::unique_ptr<PrerenderHandle> PrerenderManager::AddPrerenderForInstant(
-    const GURL& url,
-    content::SessionStorageNamespace* session_storage_namespace,
-    const gfx::Size& size) {
-  return AddPrerender(ORIGIN_INSTANT, url, content::Referrer(), gfx::Rect(size),
-                      session_storage_namespace);
 }
 
 void PrerenderManager::CancelAllPrerenders() {
@@ -568,8 +557,6 @@ void PrerenderManager::RecordPrerenderFirstContentfulPaint(
 PrerenderManager::PrerenderManagerMode PrerenderManager::GetMode(
     Origin origin) {
   switch (origin) {
-    case ORIGIN_INSTANT:
-      return instant_mode_;
     case ORIGIN_OMNIBOX:
       return omnibox_mode_;
     default:
@@ -583,11 +570,6 @@ void PrerenderManager::SetMode(PrerenderManagerMode mode) {
 }
 
 // static
-void PrerenderManager::SetInstantMode(PrerenderManagerMode mode) {
-  instant_mode_ = mode;
-}
-
-// static
 void PrerenderManager::SetOmniboxMode(PrerenderManagerMode mode) {
   omnibox_mode_ = mode;
 }
@@ -595,7 +577,6 @@ void PrerenderManager::SetOmniboxMode(PrerenderManagerMode mode) {
 // static
 bool PrerenderManager::IsAnyPrerenderingPossible() {
   return mode_ != PRERENDER_MODE_DISABLED ||
-         instant_mode_ != PRERENDER_MODE_DISABLED ||
          omnibox_mode_ != PRERENDER_MODE_DISABLED;
 }
 

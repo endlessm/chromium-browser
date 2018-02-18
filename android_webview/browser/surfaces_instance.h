@@ -46,7 +46,8 @@ class SurfacesInstance : public base::RefCounted<SurfacesInstance>,
                    const gfx::Rect& clip,
                    const gfx::Transform& transform,
                    const gfx::Size& frame_size,
-                   const viz::SurfaceId& child_id);
+                   const viz::SurfaceId& child_id,
+                   float device_scale_factor);
 
   void AddChildId(const viz::SurfaceId& child_id);
   void RemoveChildId(const viz::SurfaceId& child_id);
@@ -67,6 +68,11 @@ class SurfacesInstance : public base::RefCounted<SurfacesInstance>,
   // viz::mojom::CompositorFrameSinkClient implementation.
   void DidReceiveCompositorFrameAck(
       const std::vector<viz::ReturnedResource>& resources) override;
+  void DidPresentCompositorFrame(uint32_t presentation_token,
+                                 base::TimeTicks time,
+                                 base::TimeDelta refresh,
+                                 uint32_t flags) override;
+  void DidDiscardCompositorFrame(uint32_t presentation_token) override;
   void OnBeginFrame(const viz::BeginFrameArgs& args) override;
   void OnBeginFramePausedChanged(bool paused) override;
   void ReclaimResources(
@@ -85,12 +91,15 @@ class SurfacesInstance : public base::RefCounted<SurfacesInstance>,
   std::unique_ptr<viz::CompositorFrameSinkSupport> support_;
 
   viz::LocalSurfaceId root_id_;
+  float device_scale_factor_ = 1.0f;
   std::vector<viz::SurfaceId> child_ids_;
 
   // This is owned by |display_|.
   ParentOutputSurface* output_surface_;
 
   gfx::Size surface_size_;
+
+  uint64_t swap_id_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(SurfacesInstance);
 };

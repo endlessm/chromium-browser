@@ -36,7 +36,7 @@ class ResizeShadowImageSource : public gfx::CanvasImageSource {
       : gfx::CanvasImageSource(gfx::Size(kImageSide, kImageSide),
                                false /* is opaque */) {}
 
-  ~ResizeShadowImageSource() override {}
+  ~ResizeShadowImageSource() override = default;
 
   // gfx::CanvasImageSource:
   void Draw(gfx::Canvas* canvas) override {
@@ -100,7 +100,8 @@ ResizeShadow::~ResizeShadow() {
 
 void ResizeShadow::OnWindowBoundsChanged(aura::Window* window,
                                          const gfx::Rect& old_bounds,
-                                         const gfx::Rect& new_bounds) {
+                                         const gfx::Rect& new_bounds,
+                                         ui::PropertyChangeReason reason) {
   UpdateBoundsAndVisibility();
 }
 

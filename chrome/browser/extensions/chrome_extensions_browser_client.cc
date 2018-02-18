@@ -28,6 +28,7 @@
 #include "chrome/browser/extensions/chrome_url_request_util.h"
 #include "chrome/browser/extensions/error_console/error_console.h"
 #include "chrome/browser/extensions/event_router_forwarder.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_system_factory.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/menu_manager.h"
@@ -52,6 +53,7 @@
 #include "extensions/browser/api/generated_api_registration.h"
 #include "extensions/browser/extension_function_registry.h"
 #include "extensions/browser/extension_prefs.h"
+#include "extensions/browser/extension_system.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/mojo/interface_registration.h"
 #include "extensions/browser/pref_names.h"
@@ -178,14 +180,20 @@ ChromeExtensionsBrowserClient::MaybeCreateResourceBundleRequestJob(
 }
 
 bool ChromeExtensionsBrowserClient::AllowCrossRendererResourceLoad(
-    net::URLRequest* request,
+    const GURL& url,
+    content::ResourceType resource_type,
+    ui::PageTransition page_transition,
+    int child_id,
     bool is_incognito,
     const Extension* extension,
-    InfoMap* extension_info_map) {
+    const ExtensionSet& extensions,
+    const ProcessMap& process_map) {
   bool allowed = false;
   if (chrome_url_request_util::AllowCrossRendererResourceLoad(
-          request, is_incognito, extension, extension_info_map, &allowed))
+          url, resource_type, page_transition, child_id, is_incognito,
+          extension, extensions, process_map, &allowed)) {
     return allowed;
+  }
 
   // Couldn't determine if resource is allowed. Block the load.
   return false;
@@ -465,6 +473,13 @@ bool ChromeExtensionsBrowserClient::IsLockScreenContext(
 
 std::string ChromeExtensionsBrowserClient::GetApplicationLocale() {
   return g_browser_process->GetApplicationLocale();
+}
+
+bool ChromeExtensionsBrowserClient::IsExtensionEnabled(
+    const std::string& extension_id,
+    content::BrowserContext* context) const {
+  return ExtensionSystem::Get(context)->extension_service()->IsExtensionEnabled(
+      extension_id);
 }
 
 // static

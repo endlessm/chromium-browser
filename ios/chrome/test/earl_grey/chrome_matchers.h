@@ -74,6 +74,11 @@ id<GREYMatcher> ShowTabsButton();
 id<GREYMatcher> CollectionViewSwitchCell(NSString* accessibilityIdentifier,
                                          BOOL isOn);
 
+// Matcher for SyncSwitchCell.
+// TODO(crbug.com/684139): Update |is_on| to something more obvious from
+// callsites.
+id<GREYMatcher> SyncSwitchCell(NSString* accessibilityLabel, BOOL is_on);
+
 // Matcher for the Open in New Tab option in the context menu when long pressing
 // a link.
 id<GREYMatcher> OpenLinkInNewTabButton();
@@ -86,6 +91,9 @@ id<GREYMatcher> AccountConsistencySetupSigninButton();
 
 // Returns matcher for the account consistency confirmation button.
 id<GREYMatcher> AccountConsistencyConfirmationOkButton();
+
+// Returns matcher for the add account accounts button.
+id<GREYMatcher> AddAccountButton();
 
 // Returns matcher for the sign out accounts button.
 id<GREYMatcher> SignOutAccountsButton();
@@ -170,6 +178,22 @@ id<GREYMatcher> ClearSavedPasswordsButton();
 
 // Returns matcher for the collection view of content suggestion.
 id<GREYMatcher> ContentSuggestionCollectionView();
+
+// Returns matcher for the warning message while filling in payment requests.
+id<GREYMatcher> WarningMessageView();
+
+// Returns matcher for the payment picker cell.
+id<GREYMatcher> PaymentRequestPickerRow();
+
+// Returns matcher for the payment request search bar.
+id<GREYMatcher> PaymentRequestPickerSearchBar();
+
+// Returns matcher for the bookmarks button on the Tools menu.
+id<GREYMatcher> BookmarksMenuButton();
+
+// Returns matcher for the recent tabs button on the Tools menu.
+id<GREYMatcher> RecentTabsMenuButton();
+
 }  // namespace chrome_test_util
 
 #endif  // IOS_CHROME_TEST_EARL_GREY_CHROME_MATCHERS_H_

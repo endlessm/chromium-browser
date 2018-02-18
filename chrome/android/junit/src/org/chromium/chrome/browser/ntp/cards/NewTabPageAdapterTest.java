@@ -20,7 +20,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import static org.chromium.chrome.browser.ntp.cards.ContentSuggestionsUnitTestUtils.bindViewHolders;
 import static org.chromium.chrome.browser.ntp.cards.ContentSuggestionsUnitTestUtils.makeUiConfig;
 import static org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.createDummySuggestions;
 import static org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.registerCategory;
@@ -35,6 +34,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -75,6 +75,8 @@ import org.chromium.chrome.browser.suggestions.SuggestionsRanker;
 import org.chromium.chrome.browser.suggestions.SuggestionsUiDelegate;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.util.browser.Features;
+import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
+import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.CategoryInfoBuilder;
 import org.chromium.chrome.test.util.browser.suggestions.FakeSuggestionsSource;
 import org.chromium.net.NetworkChangeNotifier;
@@ -91,17 +93,15 @@ import java.util.List;
  */
 @RunWith(LocalRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
-@Features({@Features.Register(value = ChromeFeatureList.NTP_CONDENSED_LAYOUT, enabled = false),
-        @Features.Register(value = ChromeFeatureList.CHROME_HOME, enabled = false),
-        @Features.Register(value = ChromeFeatureList.CONTENT_SUGGESTIONS_SCROLL_TO_LOAD,
-                enabled = false),
-        @Features.Register(value = ChromeFeatureList.ANDROID_SIGNIN_PROMOS, enabled = false)})
+@DisableFeatures({ChromeFeatureList.NTP_CONDENSED_LAYOUT, ChromeFeatureList.CHROME_HOME,
+        ChromeFeatureList.CONTENT_SUGGESTIONS_SCROLL_TO_LOAD,
+        ChromeFeatureList.ANDROID_SIGNIN_PROMOS})
 public class NewTabPageAdapterTest {
     @Rule
     public DisableHistogramsRule mDisableHistogramsRule = new DisableHistogramsRule();
 
     @Rule
-    public Features.Processor mFeatureProcessor = new Features.Processor();
+    public TestRule mFeatureProcessor = new Features.JUnitProcessor();
 
     @CategoryInt
     private static final int TEST_CATEGORY = 42;
@@ -281,7 +281,7 @@ public class NewTabPageAdapterTest {
         FeatureUtilities.resetChromeHomeEnabledForTests();
 
         // Set empty variation params for the test.
-        CardsVariationParameters.setTestVariationParams(new HashMap<>());
+        CardsVariationParameters.setTestVariationParams(new HashMap<String, String>());
 
         // Initialise the sign in state. We will be signed in by default in the tests.
         assertFalse(
@@ -510,8 +510,8 @@ public class NewTabPageAdapterTest {
         reloadNtp();
         assertItemsFor(section(suggestions), section(otherSuggestions));
 
-        // Bind the whole section - indicate that it is being viewed.
-        bindViewHolders(mAdapter.getSectionListForTesting().getSection(otherCategory));
+        // Indicate that the whole section is being viewed.
+        for (SnippetArticle article : otherSuggestions) article.mExposed = true;
 
         List<SnippetArticle> newSuggestions = createDummySuggestions(3, TEST_CATEGORY, "new");
         mSource.setSuggestionsForCategory(TEST_CATEGORY, newSuggestions);
@@ -973,7 +973,7 @@ public class NewTabPageAdapterTest {
 
     @Test
     @Feature({"Ntp"})
-    @Features(@Features.Register(ChromeFeatureList.CHROME_HOME))
+    @EnableFeatures(ChromeFeatureList.CHROME_HOME)
     public void testSigninPromoModern() {
         when(mMockSigninManager.isSignInAllowed()).thenReturn(true);
         when(mMockSigninManager.isSignedInOnNative()).thenReturn(false);
@@ -1140,7 +1140,7 @@ public class NewTabPageAdapterTest {
 
     @Test
     @Feature({"Ntp"})
-    @Features(@Features.Register(ChromeFeatureList.CHROME_HOME))
+    @EnableFeatures(ChromeFeatureList.CHROME_HOME)
     public void testAllDismissedModern() {
         when(mUiDelegate.isVisible()).thenReturn(true);
 
@@ -1258,7 +1258,7 @@ public class NewTabPageAdapterTest {
      */
     private SectionDescriptor sectionWithStatusCard() {
         assertFalse(FeatureUtilities.isChromeHomeEnabled());
-        return new SectionDescriptor(Collections.emptyList()).withStatusCard();
+        return new SectionDescriptor(Collections.<SnippetArticle>emptyList()).withStatusCard();
     }
 
     /**
@@ -1269,7 +1269,7 @@ public class NewTabPageAdapterTest {
      */
     private SectionDescriptor emptySection() {
         assertTrue(FeatureUtilities.isChromeHomeEnabled());
-        return new SectionDescriptor(Collections.emptyList());
+        return new SectionDescriptor(Collections.<SnippetArticle>emptyList());
     }
 
     private void resetUiDelegate() {
@@ -1281,8 +1281,8 @@ public class NewTabPageAdapterTest {
 
     private void reloadNtp() {
         mSource.removeObservers();
-        mAdapter = new NewTabPageAdapter(mUiDelegate, mock(View.class), makeUiConfig(),
-                mOfflinePageBridge, mock(ContextMenuManager.class),
+        mAdapter = new NewTabPageAdapter(mUiDelegate, mock(View.class), /* logoView = */ null,
+                makeUiConfig(), mOfflinePageBridge, mock(ContextMenuManager.class),
                 /* tileGroupDelegate = */ null, /* suggestionsCarousel = */ null);
         mAdapter.refreshSuggestions();
     }

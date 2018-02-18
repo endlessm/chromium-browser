@@ -11,6 +11,7 @@
 #include "content/public/common/service_names.mojom.h"
 #include "content/public/test/test_launcher.h"
 #include "ui/aura/env.h"
+#include "ui/base/ui_base_switches.h"
 
 namespace {
 
@@ -41,6 +42,8 @@ class MusTestLauncherDelegate : public ChromeTestLauncherDelegate {
     content::GetContentMainParams()->env_mode = aura::Env::Mode::MUS;
     content::GetContentMainParams()->create_discardable_memory =
         (config_ == AshConfig::MUS);
+    base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+        switches::kMus, switches::kMusHostVizValue);
     return ChromeTestLauncherDelegate::RunTestSuite(argc, argv);
   }
 

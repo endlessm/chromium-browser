@@ -88,10 +88,10 @@ SkPath MakePath(const AccessibilityFocusRing& input_ring,
 }  // namespace
 
 AccessibilityFocusRingLayer::AccessibilityFocusRingLayer(
-    FocusRingLayerDelegate* delegate)
+    AccessibilityLayerDelegate* delegate)
     : FocusRingLayer(delegate) {}
 
-AccessibilityFocusRingLayer::~AccessibilityFocusRingLayer() {}
+AccessibilityFocusRingLayer::~AccessibilityFocusRingLayer() = default;
 
 void AccessibilityFocusRingLayer::Set(const AccessibilityFocusRing& ring) {
   ring_ = ring;

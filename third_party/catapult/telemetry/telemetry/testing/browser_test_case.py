@@ -11,6 +11,7 @@ import unittest
 
 from telemetry.internal.browser import browser_finder
 from telemetry.internal.util import path
+from telemetry.internal.util import ps_util
 from telemetry.testing import options_for_unittests
 
 current_browser_options = None
@@ -68,6 +69,11 @@ def teardown_browser():
 class BrowserTestCase(unittest.TestCase):
   __metaclass__ = _MetaBrowserTestCase
 
+  def setUp(self):
+    # TODO(nedn): remove this debug log once crbug.com/766877 is resolved
+    if self._platform.GetOSName() == 'win':
+      ps_util.ListAllSubprocesses()
+
   @classmethod
   def setUpClass(cls):
     cls._platform = None
@@ -86,7 +92,7 @@ class BrowserTestCase(unittest.TestCase):
       if not browser_to_create:
         raise Exception('No browser found, cannot continue test.')
       cls._platform = browser_to_create.platform
-      cls._platform.network_controller.InitializeIfNeeded()
+      cls._platform.network_controller.Open()
 
       try:
         current_browser = browser_to_create.Create(options)

@@ -9,11 +9,11 @@
 #include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
-#include "chrome/browser/ui/blocked_content/console_logger.h"
 #include "components/safe_browsing/db/util.h"
 #include "components/safe_browsing/db/v4_protocol_manager_util.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/page_navigator.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/console_message_level.h"
 #include "third_party/WebKit/public/web/WebTriggeringEventInfo.h"
@@ -35,30 +35,38 @@ using safe_browsing::SubresourceFilterLevel;
 const base::Feature kAbusiveExperienceEnforce{
     "AbusiveExperienceEnforce", base::FEATURE_DISABLED_BY_DEFAULT};
 
-SafeBrowsingTriggeredPopupBlocker::~SafeBrowsingTriggeredPopupBlocker() =
-    default;
+SafeBrowsingTriggeredPopupBlocker::PageData::PageData() = default;
 
-SafeBrowsingTriggeredPopupBlocker::SafeBrowsingTriggeredPopupBlocker(
-    content::WebContents* web_contents,
-    std::unique_ptr<ConsoleLogger> logger)
-    : content::WebContentsObserver(web_contents),
-      scoped_observer_(this),
-      logger_(std::move(logger)),
-      ignore_sublists_(
-          base::GetFieldTrialParamByFeatureAsBool(kAbusiveExperienceEnforce,
-                                                  kIgnoreSublistsParam,
-                                                  false /* default_value */)) {
-  if (auto* observer_manager =
-          subresource_filter::SubresourceFilterObserverManager::FromWebContents(
-              web_contents)) {
-    scoped_observer_.Add(observer_manager);
+SafeBrowsingTriggeredPopupBlocker::PageData::~PageData() {
+  if (is_triggered_) {
+    UMA_HISTOGRAM_COUNTS_100("ContentSettings.Popups.StrongBlocker.NumBlocked",
+                             num_popups_blocked_);
   }
 }
+
+// static
+std::unique_ptr<SafeBrowsingTriggeredPopupBlocker>
+SafeBrowsingTriggeredPopupBlocker::MaybeCreate(
+    content::WebContents* web_contents) {
+  if (!base::FeatureList::IsEnabled(kAbusiveExperienceEnforce))
+    return nullptr;
+
+  auto* observer_manager =
+      subresource_filter::SubresourceFilterObserverManager::FromWebContents(
+          web_contents);
+  if (!observer_manager)
+    return nullptr;
+  return base::WrapUnique(
+      new SafeBrowsingTriggeredPopupBlocker(web_contents, observer_manager));
+}
+
+SafeBrowsingTriggeredPopupBlocker::~SafeBrowsingTriggeredPopupBlocker() =
+    default;
 
 bool SafeBrowsingTriggeredPopupBlocker::ShouldApplyStrongPopupBlocker(
     const content::OpenURLParams* open_url_params) {
   LogAction(Action::kConsidered);
-  if (!is_triggered_for_current_committed_load_)
+  if (!current_page_data_->is_triggered())
     return false;
 
   bool should_block = true;
@@ -66,21 +74,30 @@ bool SafeBrowsingTriggeredPopupBlocker::ShouldApplyStrongPopupBlocker(
     should_block = open_url_params->triggering_event_info ==
                    blink::WebTriggeringEventInfo::kFromUntrustedEvent;
   }
-
-  // TODO(csharrison): Log some dry-run style metrics for when the feature is
-  // not enabled.
-  if (!base::FeatureList::IsEnabled(kAbusiveExperienceEnforce)) {
+  if (!base::FeatureList::IsEnabled(kAbusiveExperienceEnforce))
     return false;
-  }
 
-  // TODO(csharrison): Migrate SubresourceFilter* popup metrics.
   if (should_block) {
     LogAction(Action::kBlocked);
-    logger_->LogInFrame(web_contents()->GetMainFrame(),
-                        content::CONSOLE_MESSAGE_LEVEL_ERROR,
-                        kAbusiveEnforceMessage);
+    current_page_data_->inc_num_popups_blocked();
+    web_contents()->GetMainFrame()->AddMessageToConsole(
+        content::CONSOLE_MESSAGE_LEVEL_ERROR, kAbusiveEnforceMessage);
   }
   return should_block;
+}
+
+SafeBrowsingTriggeredPopupBlocker::SafeBrowsingTriggeredPopupBlocker(
+    content::WebContents* web_contents,
+    subresource_filter::SubresourceFilterObserverManager* observer_manager)
+    : content::WebContentsObserver(web_contents),
+      scoped_observer_(this),
+      current_page_data_(base::MakeUnique<PageData>()),
+      ignore_sublists_(
+          base::GetFieldTrialParamByFeatureAsBool(kAbusiveExperienceEnforce,
+                                                  kIgnoreSublistsParam,
+                                                  false /* default_value */)) {
+  DCHECK(observer_manager);
+  scoped_observer_.Add(observer_manager);
 }
 
 void SafeBrowsingTriggeredPopupBlocker::DidFinishNavigation(
@@ -97,18 +114,18 @@ void SafeBrowsingTriggeredPopupBlocker::DidFinishNavigation(
     return;
   }
 
-  is_triggered_for_current_committed_load_ = false;
+  DCHECK(current_page_data_);
+  current_page_data_ = base::MakeUnique<PageData>();
   if (navigation_handle->IsErrorPage())
     return;
 
   // Log a warning only if we've matched a warn-only safe browsing list.
   if (level == SubresourceFilterLevel::ENFORCE) {
-    is_triggered_for_current_committed_load_ = true;
+    current_page_data_->set_is_triggered(true);
     LogAction(Action::kEnforcedSite);
   } else if (level == SubresourceFilterLevel::WARN) {
-    logger_->LogInFrame(web_contents()->GetMainFrame(),
-                        content::CONSOLE_MESSAGE_LEVEL_WARNING,
-                        kAbusiveWarnMessage);
+    web_contents()->GetMainFrame()->AddMessageToConsole(
+        content::CONSOLE_MESSAGE_LEVEL_WARNING, kAbusiveWarnMessage);
     LogAction(Action::kWarningSite);
   }
   LogAction(Action::kNavigation);

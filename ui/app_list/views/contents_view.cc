@@ -22,7 +22,6 @@
 #include "ui/app_list/views/search_result_list_view.h"
 #include "ui/app_list/views/search_result_page_view.h"
 #include "ui/app_list/views/search_result_tile_item_list_view.h"
-#include "ui/app_list/views/start_page_view.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -67,16 +66,9 @@ void ContentsView::Init(AppListModel* model) {
 
   apps_container_view_ = new AppsContainerView(app_list_main_view_, model);
 
-  // Start page is only for non-fullscreen app list.
-  if (is_fullscreen_app_list_enabled_) {
-    // Add |apps_container_view_| as STATE_START corresponding page for
-    // fullscreen app list.
-    AddLauncherPage(apps_container_view_, AppListModel::STATE_START);
-  } else {
-    start_page_view_ =
-        new StartPageView(app_list_main_view_, view_delegate, app_list_view_);
-    AddLauncherPage(start_page_view_, AppListModel::STATE_START);
-  }
+  // Add |apps_container_view_| as STATE_START corresponding page for
+  // fullscreen app list.
+  AddLauncherPage(apps_container_view_, AppListModel::STATE_START);
 
   // Search results UI.
   search_results_page_view_ = new SearchResultPageView();
@@ -85,8 +77,10 @@ void ContentsView::Init(AppListModel* model) {
   AppListModel::SearchResults* results = view_delegate->GetModel()->results();
 
   if (features::IsAnswerCardEnabled()) {
+    search_result_answer_card_view_ =
+        new SearchResultAnswerCardView(view_delegate);
     search_results_page_view_->AddSearchResultContainerView(
-        results, new SearchResultAnswerCardView(view_delegate));
+        results, search_result_answer_card_view_);
   }
 
   search_result_tile_item_list_view_ = new SearchResultTileItemListView(
@@ -298,28 +292,8 @@ void ContentsView::UpdateSearchBox(double progress,
   gfx::Rect search_box_rect =
       gfx::Tween::RectValueBetween(progress, search_box_from, search_box_to);
 
-  int original_z_height = from_page->GetSearchBoxZHeight();
-  int target_z_height = to_page->GetSearchBoxZHeight();
-
-  if (original_z_height != target_z_height) {
-    gfx::ShadowValue original_shadow = GetShadowForZHeight(original_z_height);
-    gfx::ShadowValue target_shadow = GetShadowForZHeight(target_z_height);
-
-    gfx::Vector2d offset(gfx::Tween::LinearIntValueBetween(
-                             progress, original_shadow.x(), target_shadow.x()),
-                         gfx::Tween::LinearIntValueBetween(
-                             progress, original_shadow.y(), target_shadow.y()));
-    search_box->SetShadow(gfx::ShadowValue(
-        offset,
-        gfx::Tween::LinearIntValueBetween(progress, original_shadow.blur(),
-                                          target_shadow.blur()),
-        gfx::Tween::ColorValueBetween(progress, original_shadow.color(),
-                                      target_shadow.color())));
-  }
-  if (is_fullscreen_app_list_enabled_) {
-    search_box->UpdateLayout(progress, current_state, target_state);
-    search_box->UpdateBackground(progress, current_state, target_state);
-  }
+  search_box->UpdateLayout(progress, current_state, target_state);
+  search_box->UpdateBackground(progress, current_state, target_state);
   search_box->GetWidget()->SetBounds(
       search_box->GetViewBoundsForSearchBoxContentsBounds(
           ConvertRectToWidget(search_box_rect)));
@@ -522,6 +496,8 @@ void ContentsView::TransitionStarted() {}
 void ContentsView::TransitionChanged() {
   UpdatePageBounds();
 }
+
+void ContentsView::TransitionEnded() {}
 
 int ContentsView::GetDisplayHeight() const {
   return display::Screen::GetScreen()

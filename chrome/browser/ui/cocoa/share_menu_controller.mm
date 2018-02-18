@@ -6,6 +6,8 @@
 
 #include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
+#include "base/mac/sdk_forward_declarations.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/browser.h"
@@ -23,6 +25,11 @@
 #include "ui/gfx/image/image.h"
 #include "ui/snapshot/snapshot.h"
 
+// Private method, used to identify instantiated services.
+@interface NSSharingService (ExposeName)
+- (id)name;
+@end
+
 namespace {
 
 NSString* const kExtensionPrefPanePath =
@@ -34,6 +41,11 @@ NSString* const kOpenSharingSubpaneActionValue = @"revealExtensionPoint";
 NSString* const kOpenSharingSubpaneProtocolKey = @"protocol";
 NSString* const kOpenSharingSubpaneProtocolValue = @"com.apple.share-services";
 
+// The reminder service doesn't have a convenient NSSharingServiceName*
+// constant.
+NSString* const kRemindersSharingServiceName =
+    @"com.apple.reminders.RemindersShareExtension";
+
 }  // namespace
 
 @implementation ShareMenuController {
@@ -43,6 +55,9 @@ NSString* const kOpenSharingSubpaneProtocolValue = @"com.apple.share-services";
   NSWindow* windowForShare_;  // weak
   NSRect rectForShare_;
   base::scoped_nsobject<NSImage> snapshotForShare_;
+  // The Reminders share extension reads title/URL from the currently active
+  // activity.
+  base::scoped_nsobject<NSUserActivity> activity_ API_AVAILABLE(macos(10.10));
 }
 
 + (BOOL)shouldShowMoreItem {
@@ -65,11 +80,10 @@ NSString* const kOpenSharingSubpaneProtocolValue = @"com.apple.share-services";
   // to fetch sharing services that can handle the NSURL type.
   NSArray* services = [NSSharingService
       sharingServicesForItems:@[ [NSURL URLWithString:@"https://google.com"] ]];
-  NSSharingService* readingListService = [NSSharingService
-      sharingServiceNamed:NSSharingServiceNameAddToSafariReadingList];
   for (NSSharingService* service in services) {
     // Don't include "Add to Reading List".
-    if ([service isEqual:readingListService])
+    if ([[service name]
+            isEqualToString:NSSharingServiceNameAddToSafariReadingList])
       continue;
     NSMenuItem* item = [self menuItemForService:service];
     [item setEnabled:canShare];
@@ -91,14 +105,14 @@ NSString* const kOpenSharingSubpaneProtocolValue = @"com.apple.share-services";
 
 - (void)sharingService:(NSSharingService*)service
          didShareItems:(NSArray*)items {
-  // TODO(lgrey): Add an UMA stat.
+  UMA_HISTOGRAM_BOOLEAN("OSX.NativeShare", true);
   [self clearTransitionData];
 }
 
 - (void)sharingService:(NSSharingService*)service
     didFailToShareItems:(NSArray*)items
                   error:(NSError*)error {
-  // TODO(lgrey): Add an UMA stat.
+  UMA_HISTOGRAM_BOOLEAN("OSX.NativeShare", false);
   [self clearTransitionData];
 }
 
@@ -142,6 +156,10 @@ NSString* const kOpenSharingSubpaneProtocolValue = @"com.apple.share-services";
   windowForShare_ = nil;
   rectForShare_ = NSZeroRect;
   snapshotForShare_.reset();
+  if (@available(macOS 10.10, *)) {
+    [activity_ invalidate];
+    activity_.reset();
+  }
 }
 
 // Performs the share action using the sharing service represented by |sender|.
@@ -161,14 +179,24 @@ NSString* const kOpenSharingSubpaneProtocolValue = @"com.apple.share-services";
   [service setSubject:title];
 
   NSArray* itemsToShare;
-  if ([service
-          isEqual:[NSSharingService
-                      sharingServiceNamed:NSSharingServiceNamePostOnTwitter]]) {
+  if ([[service name] isEqual:NSSharingServiceNamePostOnTwitter]) {
     // The Twitter share service expects the title as an additional share item.
     // This is the same approach system apps use.
     itemsToShare = @[ url, title ];
   } else {
     itemsToShare = @[ url ];
+  }
+  if (@available(macOS 10.10, *)) {
+    if ([[service name] isEqual:kRemindersSharingServiceName]) {
+      activity_.reset([[NSUserActivity alloc]
+          initWithActivityType:NSUserActivityTypeBrowsingWeb]);
+      // webpageURL must be http or https or an exception is thrown.
+      if ([url.scheme hasPrefix:@"http"]) {
+        [activity_ setWebpageURL:url];
+      }
+      [activity_ setTitle:title];
+      [activity_ becomeCurrent];
+    }
   }
   [service performWithItems:itemsToShare];
 }
@@ -211,11 +239,9 @@ NSString* const kOpenSharingSubpaneProtocolValue = @"com.apple.share-services";
 
 // Creates a menu item that calls |service| when invoked.
 - (NSMenuItem*)menuItemForService:(NSSharingService*)service {
-  BOOL isMail = [service
-      isEqual:[NSSharingService
-                  sharingServiceNamed:NSSharingServiceNameComposeEmail]];
+  BOOL isMail = [[service name] isEqual:NSSharingServiceNameComposeEmail];
   NSString* keyEquivalent = isMail ? [self keyEquivalentForMail] : @"";
-  NSString* title = isMail ? l10n_util::GetNSString(IDS_EMAIL_PAGE_LOCATION_MAC)
+  NSString* title = isMail ? l10n_util::GetNSString(IDS_EMAIL_LINK_MAC)
                            : service.menuItemTitle;
   base::scoped_nsobject<NSMenuItem> item([[NSMenuItem alloc]
       initWithTitle:title

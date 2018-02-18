@@ -14,7 +14,6 @@
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/service/display/direct_renderer.h"
 #include "components/viz/service/display/output_surface.h"
-#include "components/viz/service/display/texture_mailbox_deleter.h"
 #include "components/viz/service/frame_sinks/compositor_frame_sink_support.h"
 
 namespace viz {
@@ -76,8 +75,6 @@ bool TestLayerTreeFrameSink::BindToClient(
 
   std::unique_ptr<OutputSurface> display_output_surface =
       test_client_->CreateDisplayOutputSurface(context_provider());
-  bool display_context_shared_with_compositor =
-      display_output_surface->context_provider() == context_provider();
 
   std::unique_ptr<DisplayScheduler> scheduler;
   if (!synchronous_composite_) {
@@ -86,7 +83,8 @@ bool TestLayerTreeFrameSink::BindToClient(
           base::MakeUnique<DelayBasedTimeSource>(task_runner_.get()));
     } else {
       begin_frame_source_ = base::MakeUnique<DelayBasedBeginFrameSource>(
-          base::MakeUnique<DelayBasedTimeSource>(task_runner_.get()));
+          base::MakeUnique<DelayBasedTimeSource>(task_runner_.get()),
+          BeginFrameSource::kNotRestartableId);
       begin_frame_source_->SetAuthoritativeVSyncInterval(
           base::TimeDelta::FromMilliseconds(1000.f / refresh_rate_));
     }
@@ -98,13 +96,7 @@ bool TestLayerTreeFrameSink::BindToClient(
   display_ = base::MakeUnique<Display>(
       shared_bitmap_manager(), gpu_memory_buffer_manager(), renderer_settings_,
       frame_sink_id_, std::move(display_output_surface), std::move(scheduler),
-      base::MakeUnique<TextureMailboxDeleter>(task_runner_.get()));
-
-  // We want the Display's OutputSurface to hear about lost context, and when
-  // this shares a context with it we should not be listening for lost context
-  // callbacks on the context here.
-  if (display_context_shared_with_compositor && context_provider())
-    context_provider()->SetLostContextCallback(base::Closure());
+      task_runner_);
 
   constexpr bool is_root = false;
   constexpr bool needs_sync_points = true;
@@ -192,6 +184,19 @@ void TestLayerTreeFrameSink::DidReceiveCompositorFrameAck(
   if (!display_->has_scheduler())
     return;
   client_->DidReceiveCompositorFrameAck();
+}
+
+void TestLayerTreeFrameSink::DidPresentCompositorFrame(
+    uint32_t presentation_token,
+    base::TimeTicks time,
+    base::TimeDelta refresh,
+    uint32_t flags) {
+  client_->DidPresentCompositorFrame(presentation_token, time, refresh, flags);
+}
+
+void TestLayerTreeFrameSink::DidDiscardCompositorFrame(
+    uint32_t presentation_token) {
+  client_->DidDiscardCompositorFrame(presentation_token);
 }
 
 void TestLayerTreeFrameSink::OnBeginFrame(const BeginFrameArgs& args) {

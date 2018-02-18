@@ -1,7 +1,8 @@
 AM_CFLAGS = \
 	-I $(top_srcdir)/include/drm \
 	-I $(top_srcdir)/amdgpu \
-	-I $(top_srcdir)
+	-I $(top_srcdir) \
+	-pthread
 
 LDADD = $(top_builddir)/libdrm.la \
 	$(top_builddir)/amdgpu/libdrm_amdgpu.la \
@@ -23,7 +24,11 @@ amdgpu_test_SOURCES = \
 	basic_tests.c \
 	bo_tests.c \
 	cs_tests.c \
-	uvd_messages.h \
+	decode_messages.h \
 	vce_tests.c \
 	vce_ib.h \
-	frame.h
+	frame.h \
+	uvd_enc_tests.c \
+	vcn_tests.c \
+	uve_ib.h \
+	deadlock_tests.c

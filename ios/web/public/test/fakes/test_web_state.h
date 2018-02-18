@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 
 #include "base/observer_list.h"
@@ -70,8 +71,6 @@ class TestWebState : public WebState {
   CRWWebViewProxyType GetWebViewProxy() const override;
   bool IsShowingWebInterstitial() const override;
   WebInterstitial* GetWebInterstitial() const override;
-  void OnPasswordInputShownOnHttp() override {}
-  void OnCreditCardInputShownOnHttp() override {}
 
   void AddObserver(WebStateObserver* observer) override;
 
@@ -80,6 +79,7 @@ class TestWebState : public WebState {
   void AddPolicyDecider(WebStatePolicyDecider* decider) override {}
   void RemovePolicyDecider(WebStatePolicyDecider* decider) override {}
   WebStateInterfaceProvider* GetWebStateInterfaceProvider() override;
+  void DidChangeVisibleSecurityState() override {}
   bool HasOpener() const override;
   void SetHasOpener(bool has_opener) override;
   void TakeSnapshot(const SnapshotCallback& callback,
@@ -88,15 +88,18 @@ class TestWebState : public WebState {
 
   // Setters for test data.
   void SetBrowserState(BrowserState* browser_state);
+  void SetJSInjectionReceiver(CRWJSInjectionReceiver* injection_receiver);
   void SetContentIsHTML(bool content_is_html);
   void SetLoading(bool is_loading);
   void SetCurrentURL(const GURL& url);
+  void SetVisibleURL(const GURL& url);
   void SetTrustLevel(URLVerificationTrustLevel trust_level);
   void SetNavigationManager(
       std::unique_ptr<NavigationManager> navigation_manager);
   void SetView(UIView* view);
   void SetIsCrashed(bool value);
   void SetIsEvicted(bool value);
+  void SetWebViewProxy(CRWWebViewProxyType web_view_proxy);
 
   // Getters for test data.
   CRWContentView* GetTransientContentView();
@@ -106,9 +109,13 @@ class TestWebState : public WebState {
   void OnNavigationStarted(NavigationContext* navigation_context);
   void OnNavigationFinished(NavigationContext* navigation_context);
   void OnRenderProcessGone();
+  void OnFormActivity(const FormActivityParams& params);
+  void OnDocumentSubmitted(const std::string& form_name, bool user_initiated);
+  void OnVisibleSecurityStateChanged();
 
  private:
   BrowserState* browser_state_;
+  CRWJSInjectionReceiver* injection_receiver_;
   bool web_usage_enabled_;
   bool is_loading_;
   bool is_visible_;
@@ -123,6 +130,7 @@ class TestWebState : public WebState {
   std::string mime_type_;
   std::unique_ptr<NavigationManager> navigation_manager_;
   UIView* view_;
+  CRWWebViewProxyType web_view_proxy_;
 
   // A list of observers notified when page state changes. Weak references.
   base::ObserverList<WebStateObserver, true> observers_;

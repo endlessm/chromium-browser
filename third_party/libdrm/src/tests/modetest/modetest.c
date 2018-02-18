@@ -174,6 +174,15 @@ static const char *mode_flag_names[] = {
 
 static bit_name_fn(mode_flag)
 
+static void dump_fourcc(uint32_t fourcc)
+{
+	printf(" %c%c%c%c",
+		fourcc,
+		fourcc >> 8,
+		fourcc >> 16,
+		fourcc >> 24);
+}
+
 static void dump_encoders(struct device *dev)
 {
 	drmModeEncoder *encoder;
@@ -238,6 +247,91 @@ static void dump_blob(struct device *dev, uint32_t blob_id)
 		printf("%.2hhx", blob_data[i]);
 	}
 	printf("\n");
+
+	drmModeFreePropertyBlob(blob);
+}
+
+static const char *modifier_to_string(uint64_t modifier)
+{
+	switch (modifier) {
+	case DRM_FORMAT_MOD_INVALID:
+		return "INVALID";
+	case DRM_FORMAT_MOD_LINEAR:
+		return "LINEAR";
+	case I915_FORMAT_MOD_X_TILED:
+		return "X_TILED";
+	case I915_FORMAT_MOD_Y_TILED:
+		return "Y_TILED";
+	case I915_FORMAT_MOD_Yf_TILED:
+		return "Yf_TILED";
+	case I915_FORMAT_MOD_Y_TILED_CCS:
+		return "Y_TILED_CCS";
+	case I915_FORMAT_MOD_Yf_TILED_CCS:
+		return "Yf_TILED_CCS";
+	case DRM_FORMAT_MOD_SAMSUNG_64_32_TILE:
+		return "SAMSUNG_64_32_TILE";
+	case DRM_FORMAT_MOD_VIVANTE_TILED:
+		return "VIVANTE_TILED";
+	case DRM_FORMAT_MOD_VIVANTE_SUPER_TILED:
+		return "VIVANTE_SUPER_TILED";
+	case DRM_FORMAT_MOD_VIVANTE_SPLIT_TILED:
+		return "VIVANTE_SPLIT_TILED";
+	case DRM_FORMAT_MOD_VIVANTE_SPLIT_SUPER_TILED:
+		return "VIVANTE_SPLIT_SUPER_TILED";
+	case NV_FORMAT_MOD_TEGRA_TILED:
+		return "MOD_TEGRA_TILED";
+	case NV_FORMAT_MOD_TEGRA_16BX2_BLOCK(0):
+		return "MOD_TEGRA_16BX2_BLOCK(0)";
+	case NV_FORMAT_MOD_TEGRA_16BX2_BLOCK(1):
+		return "MOD_TEGRA_16BX2_BLOCK(1)";
+	case NV_FORMAT_MOD_TEGRA_16BX2_BLOCK(2):
+		return "MOD_TEGRA_16BX2_BLOCK(2)";
+	case NV_FORMAT_MOD_TEGRA_16BX2_BLOCK(3):
+		return "MOD_TEGRA_16BX2_BLOCK(3)";
+	case NV_FORMAT_MOD_TEGRA_16BX2_BLOCK(4):
+		return "MOD_TEGRA_16BX2_BLOCK(4)";
+	case NV_FORMAT_MOD_TEGRA_16BX2_BLOCK(5):
+		return "MOD_TEGRA_16BX2_BLOCK(5)";
+	case DRM_FORMAT_MOD_BROADCOM_VC4_T_TILED:
+		return "MOD_BROADCOM_VC4_T_TILED";
+	case DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC:
+		return "MOD_CHROMEOS_ROCKCHIP_AFBC";
+	default:
+		return "(UNKNOWN MODIFIER)";
+	}
+}
+
+static void dump_in_formats(struct device *dev, uint32_t blob_id)
+{
+	uint32_t i, j;
+	drmModePropertyBlobPtr blob;
+	struct drm_format_modifier_blob *header;
+	uint32_t *formats;
+	struct drm_format_modifier *modifiers;
+
+	printf("\t\tin_formats blob decoded:\n");
+	blob = drmModeGetPropertyBlob(dev->fd, blob_id);
+	if (!blob) {
+		printf("\n");
+		return;
+	}
+
+	header = blob->data;
+	formats = (uint32_t *) ((char *) header + header->formats_offset);
+	modifiers = (struct drm_format_modifier *)
+		((char *) header + header->modifiers_offset);
+
+	for (i = 0; i < header->count_formats; i++) {
+		printf("\t\t\t");
+		dump_fourcc(formats[i]);
+		printf(": ");
+		for (j = 0; j < header->count_modifiers; j++) {
+			uint64_t mask = 1ULL << i;
+			if (modifiers[j].formats & mask)
+				printf(" %s", modifier_to_string(modifiers[j].modifier));
+		}
+		printf("\n");
+	}
 
 	drmModeFreePropertyBlob(blob);
 }
@@ -319,6 +413,9 @@ static void dump_prop(struct device *dev, drmModePropertyPtr prop,
 		printf(" %"PRId64"\n", value);
 	else
 		printf(" %"PRIu64"\n", value);
+
+	if (strcmp(prop->name, "IN_FORMATS") == 0)
+		dump_in_formats(dev, value);
 }
 
 static void dump_connectors(struct device *dev)
@@ -417,32 +514,9 @@ static void dump_framebuffers(struct device *dev)
 	printf("\n");
 }
 
-static const char *
-mod_to_string(uint64_t mod, char *buf, int len)
-{
-	switch (mod) {
-	case DRM_FORMAT_MOD_NONE:
-		return "LINEAR";
-	case I915_FORMAT_MOD_X_TILED:
-		return "X_TILED";
-	case I915_FORMAT_MOD_Y_TILED:
-		return "Y_TILED";
-	case I915_FORMAT_MOD_Yf_TILED:
-		return "Yf_TILED";
-	case DRM_FORMAT_MOD_SAMSUNG_64_32_TILE:
-		return "SAMSUNG_64_32_TILE";
-	case DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC:
-		return "CHROMEOS_ROCKCHIP_AFBC";
-	default:
-		snprintf(buf, len, "%016x", mod);
-		return buf;
-	}
-}
-
 static void dump_planes(struct device *dev)
 {
-	unsigned int i, j, k;
-	char buf[17];
+	unsigned int i, j;
 
 	printf("Planes:\n");
 	printf("id\tcrtc\tfb\tCRTC x,y\tx,y\tgamma size\tpossible crtcs\n");
@@ -465,19 +539,8 @@ static void dump_planes(struct device *dev)
 			continue;
 
 		printf("  formats:");
-		for (j = 0; j < ovr->count_formats; j++) {
-			if (ovr->count_format_modifiers == 0) {
-				printf(" %4.4s", (char *)&ovr->formats[j]);
-				continue;
-			}
-			struct drm_format_modifier *fm;
-			for (k = 0; k < ovr->count_format_modifiers; k++) {
-				fm = &ovr->format_modifiers[k];
-				if (fm->formats & (1 << j))
-					printf(" %4.4s:%s", (char *)&ovr->formats[j],
-					       mod_to_string(fm->modifier, buf, sizeof(buf)));
-			}
-		}
+		for (j = 0; j < ovr->count_formats; j++)
+			dump_fourcc(ovr->formats[j]);
 		printf("\n");
 
 		if (plane->props) {
@@ -643,7 +706,7 @@ static struct resources *get_resources(struct device *dev)
 	if (!res->planes)
 		goto error;
 
-	get_resource(res, plane_res, plane, Plane2);
+	get_resource(res, plane_res, plane, Plane);
 	get_properties(res, plane_res, plane, PLANE);
 
 	return res;
@@ -738,6 +801,7 @@ struct pipe_arg {
 };
 
 struct plane_arg {
+	uint32_t plane_id;  /* the id of plane to use */
 	uint32_t crtc_id;  /* the id of CRTC to bind to */
 	bool has_position;
 	int32_t x, y;
@@ -992,7 +1056,7 @@ static int set_plane(struct device *dev, struct plane_arg *p)
 {
 	drmModePlane *ovr;
 	uint32_t handles[4] = {0}, pitches[4] = {0}, offsets[4] = {0};
-	uint32_t plane_id = 0;
+	uint32_t plane_id;
 	struct bo *plane_bo;
 	uint32_t plane_flags = 0;
 	int crtc_x, crtc_y, crtc_w, crtc_h;
@@ -1016,16 +1080,27 @@ static int set_plane(struct device *dev, struct plane_arg *p)
 		return -1;
 	}
 
-	for (i = 0; i < dev->resources->plane_res->count_planes && !plane_id; i++) {
+	plane_id = p->plane_id;
+
+	for (i = 0; i < dev->resources->plane_res->count_planes; i++) {
 		ovr = dev->resources->planes[i].plane;
-		if (!ovr || !format_support(ovr, p->fourcc))
+		if (!ovr)
 			continue;
 
-		if ((ovr->possible_crtcs & (1 << pipe)) && !ovr->crtc_id)
+		if (plane_id && plane_id != ovr->plane_id)
+			continue;
+
+		if (!format_support(ovr, p->fourcc))
+			continue;
+
+		if ((ovr->possible_crtcs & (1 << pipe)) &&
+		    (ovr->crtc_id == 0 || ovr->crtc_id == p->crtc_id)) {
 			plane_id = ovr->plane_id;
+			break;
+		}
 	}
 
-	if (!plane_id) {
+	if (i == dev->resources->plane_res->count_planes) {
 		fprintf(stderr, "no unused plane available for CRTC %u\n",
 			crtc->crtc->crtc_id);
 		return -1;
@@ -1393,6 +1468,11 @@ static int parse_plane(struct plane_arg *plane, const char *p)
 {
 	char *end;
 
+	plane->plane_id = strtoul(p, &end, 10);
+	if (*end != '@')
+		return -EINVAL;
+
+	p = end + 1;
 	plane->crtc_id = strtoul(p, &end, 10);
 	if (*end != ':')
 		return -EINVAL;
@@ -1464,7 +1544,7 @@ static void usage(char *name)
 	fprintf(stderr, "\t-p\tlist CRTCs and planes (pipes)\n");
 
 	fprintf(stderr, "\n Test options:\n\n");
-	fprintf(stderr, "\t-P <crtc_id>:<w>x<h>[+<x>+<y>][*<scale>][@<format>]\tset a plane\n");
+	fprintf(stderr, "\t-P <plane_id>@<crtc_id>:<w>x<h>[+<x>+<y>][*<scale>][@<format>]\tset a plane\n");
 	fprintf(stderr, "\t-s <connector_id>[,<connector_id>][@<crtc_id>]:<mode>[-<vrefresh>][@<format>]\tset a mode\n");
 	fprintf(stderr, "\t-C\ttest hw cursor\n");
 	fprintf(stderr, "\t-v\ttest vsynced page flipping\n");

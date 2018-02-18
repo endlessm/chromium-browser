@@ -35,6 +35,9 @@
 /* Forward reference for array to keep "drm" handles */
 extern int drm_amdgpu[MAX_CARDS_SUPPORTED];
 
+/* Global variables */
+extern int open_render_node;
+
 /*************************  Basic test suite ********************************/
 
 /*
@@ -100,6 +103,51 @@ int suite_vce_tests_clean();
  * Tests in vce test suite
  */
 extern CU_TestInfo vce_tests[];
+
+/**
++ * Initialize vcn test suite
++ */
+int suite_vcn_tests_init();
+
+/**
++ * Deinitialize vcn test suite
++ */
+int suite_vcn_tests_clean();
+
+/**
++ * Tests in vcn test suite
++ */
+extern CU_TestInfo vcn_tests[];
+
+/**
+ * Initialize uvd enc test suite
+ */
+int suite_uvd_enc_tests_init();
+
+/**
+ * Deinitialize uvd enc test suite
+ */
+int suite_uvd_enc_tests_clean();
+
+/**
+ * Tests in uvd enc test suite
+ */
+extern CU_TestInfo uvd_enc_tests[];
+
+/**
+ * Initialize deadlock test suite
+ */
+int suite_deadlock_tests_init();
+
+/**
+ * Deinitialize deadlock test suite
+ */
+int suite_deadlock_tests_clean();
+
+/**
+ * Tests in uvd enc test suite
+ */
+extern CU_TestInfo deadlock_tests[];
 
 /**
  * Helper functions

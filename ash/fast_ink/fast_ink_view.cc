@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/shell.h"
 #include "ash/shell_observer.h"
@@ -33,9 +34,16 @@
 #include "ui/views/widget/widget.h"
 
 namespace ash {
+namespace {
+
+// The outset used to expand the surface damage rectangle in order to
+// allow single buffer updates while a frame is in-flight.
+const int kSurfaceDamageOutsetDIP = 100;
+
+}  // namespace
 
 struct FastInkView::Resource {
-  Resource() {}
+  Resource() = default;
   ~Resource() {
     // context_provider might be null in unit tests when ran with --mash
     // TODO(kaznacheev) Have MASH provide a context provider for tests
@@ -140,6 +148,11 @@ class FastInkView::LayerTreeFrameSinkHolder
     if (view_)
       view_->DidReceiveCompositorFrameAck();
   }
+  void DidPresentCompositorFrame(uint32_t presentation_token,
+                                 base::TimeTicks time,
+                                 base::TimeDelta refresh,
+                                 uint32_t flags) override {}
+  void DidDiscardCompositorFrame(uint32_t presentation_token) override {}
   void DidLoseLayerTreeFrameSink() override {
     exported_resources_.clear();
     if (shell_)
@@ -211,7 +224,7 @@ FastInkView::FastInkView(aura::Window* root_window) : weak_ptr_factory_(this) {
   screen_to_buffer_transform_ =
       widget_->GetNativeWindow()->GetHost()->GetRootTransform();
 
-  frame_sink_holder_ = base::MakeUnique<LayerTreeFrameSinkHolder>(
+  frame_sink_holder_ = std::make_unique<LayerTreeFrameSinkHolder>(
       this, widget_->GetNativeView()->CreateLayerTreeFrameSink());
 }
 
@@ -220,36 +233,46 @@ FastInkView::~FastInkView() {
       std::move(frame_sink_holder_));
 }
 
-void FastInkView::DidReceiveCompositorFrameAck() {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&FastInkView::OnDidDrawSurface,
-                            weak_ptr_factory_.GetWeakPtr()));
-}
-
-void FastInkView::ReclaimResource(std::unique_ptr<Resource> resource) {
-  returned_resources_.push_back(std::move(resource));
-}
-
 void FastInkView::UpdateDamageRect(const gfx::Rect& rect) {
   buffer_damage_rect_.Union(rect);
 }
 
 void FastInkView::RequestRedraw() {
-  if (pending_update_buffer_)
+  if (pending_redraw_)
     return;
 
-  pending_update_buffer_ = true;
+  pending_redraw_ = true;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(&FastInkView::UpdateBuffer, weak_ptr_factory_.GetWeakPtr()));
+      base::Bind(&FastInkView::Redraw, weak_ptr_factory_.GetWeakPtr()));
+}
+
+void FastInkView::Redraw() {
+  DCHECK(pending_redraw_);
+  pending_redraw_ = false;
+
+  if (!buffer_damage_rect_.IsEmpty()) {
+    // Defer buffer update if damage exceeds the bounds of the pending
+    // draw surface rectangle. This prevents visible artifacts at the
+    // border of the draw surface rectangle when compositing.
+    // Note: Draw surface rectangle is expanded to prevent this from
+    // causing a performance problem during normal usage.
+    if (pending_draw_surface_rect_.IsEmpty() ||
+        pending_draw_surface_rect_.Contains(buffer_damage_rect_)) {
+      UpdateBuffer();
+    }
+  }
+
+  if (!surface_damage_rect_.IsEmpty()) {
+    // Defer surface update if a frame is already in-flight.
+    if (!pending_draw_surface_)
+      UpdateSurface();
+  }
 }
 
 void FastInkView::UpdateBuffer() {
   TRACE_EVENT1("ui", "FastInkView::UpdateBuffer", "damage",
                buffer_damage_rect_.ToString());
-
-  DCHECK(pending_update_buffer_);
-  pending_update_buffer_ = false;
 
   gfx::Rect screen_bounds = widget_->GetNativeView()->GetBoundsInScreen();
   gfx::Rect update_rect = buffer_damage_rect_;
@@ -332,22 +355,11 @@ void FastInkView::UpdateBuffer() {
 
   // Update surface damage rectangle.
   surface_damage_rect_.Union(update_rect);
-
-  needs_update_surface_ = true;
-
-  // Early out if waiting for last surface update to be drawn.
-  if (pending_draw_surface_)
-    return;
-
-  UpdateSurface();
 }
 
 void FastInkView::UpdateSurface() {
   TRACE_EVENT1("ui", "FastInkView::UpdateSurface", "damage",
                surface_damage_rect_.ToString());
-
-  DCHECK(needs_update_surface_);
-  needs_update_surface_ = false;
 
   std::unique_ptr<Resource> resource;
   // Reuse returned resource if available.
@@ -415,7 +427,13 @@ void FastInkView::UpdateSurface() {
   gpu::SyncToken sync_token;
   uint64_t fence_sync = gles2->InsertFenceSyncCHROMIUM();
   gles2->OrderingBarrierCHROMIUM();
-  gles2->GenUnverifiedSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
+  // For mus and mash, the compositor isn't sharing the GPU channel with
+  // FastInkView, so it cannot consume unverified sync token generated here.
+  // We need generate verified sync token for mus and mash.
+  if (ash::Shell::GetAshConfig() == ash::Config::CLASSIC)
+    gles2->GenUnverifiedSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
+  else
+    gles2->GenSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
 
   viz::TransferableResource transferable_resource;
   transferable_resource.id = next_resource_id_++;
@@ -440,6 +458,12 @@ void FastInkView::UpdateSurface() {
       widget_->GetNativeView()->GetBoundsInScreen().size()));
   gfx::Rect quad_rect(buffer_size);
   bool needs_blending = true;
+
+  // Expand surface damage to allow single buffer updates while frame
+  // is in-flight.
+  surface_damage_rect_.Inset(-kSurfaceDamageOutsetDIP,
+                             -kSurfaceDamageOutsetDIP);
+  pending_draw_surface_rect_ = surface_damage_rect_;
 
   gfx::Rect damage_rect =
       gfx::ConvertRectToPixel(device_scale_factor, surface_damage_rect_);
@@ -488,9 +512,22 @@ void FastInkView::UpdateSurface() {
   pending_draw_surface_ = true;
 }
 
+void FastInkView::DidReceiveCompositorFrameAck() {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&FastInkView::OnDidDrawSurface,
+                            weak_ptr_factory_.GetWeakPtr()));
+}
+
+void FastInkView::ReclaimResource(std::unique_ptr<Resource> resource) {
+  returned_resources_.push_back(std::move(resource));
+}
+
 void FastInkView::OnDidDrawSurface() {
   pending_draw_surface_ = false;
-  if (needs_update_surface_)
+  pending_draw_surface_rect_ = gfx::Rect();
+  if (!buffer_damage_rect_.IsEmpty())
+    UpdateBuffer();
+  if (!surface_damage_rect_.IsEmpty())
     UpdateSurface();
 }
 

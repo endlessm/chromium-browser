@@ -32,8 +32,6 @@ uint32_t GetHomeButtonAndHomePageIsNewTabPageFlags() {
 
 }  // namespace
 
-namespace chrome {
-
 void RegisterBrowserPrefs(PrefRegistrySimple* registry) {
   registry->RegisterIntegerPref(prefs::kOptionsWindowLastTabIndex, 0);
   registry->RegisterBooleanPref(prefs::kAllowFileSelectionDialogs, true);
@@ -61,8 +59,7 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(prefs::kWebAppCreateInAppsMenu, true);
   registry->RegisterBooleanPref(prefs::kWebAppCreateInQuickLaunchBar, true);
   registry->RegisterBooleanPref(
-      prefs::kEnableTranslate,
-      true,
+      prefs::kOfferTranslateEnabled, true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   registry->RegisterStringPref(prefs::kCloudPrintEmail, std::string());
   registry->RegisterBooleanPref(prefs::kCloudPrintProxyEnabled, true);
@@ -114,9 +111,10 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
       prefs::kShowFullscreenToolbar,
       true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterBooleanPref(
+      prefs::kAllowJavascriptAppleEvents, false,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 #else
   registry->RegisterBooleanPref(prefs::kFullscreenAllowed, true);
 #endif
 }
-
-}  // namespace chrome

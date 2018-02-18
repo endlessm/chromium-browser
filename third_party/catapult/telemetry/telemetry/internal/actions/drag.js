@@ -44,27 +44,36 @@
   DragAction.prototype.startGesture_ = function() {
     this.beginMeasuringHook();
 
-    var rect = __GestureCommon_GetBoundingVisibleRect(this.options_.element_);
-    var start_left =
+    let speed = this.options_.speed_;
+
+    // TODO(bokan): Remove this condition once gpuBenchmarking is changed to
+    // take all coordinates in viewport space. crbug.com/610021.
+    if ('gesturesExpectedInViewportCoordinates' in chrome.gpuBenchmarking) {
+      speed = speed * chrome.gpuBenchmarking.pageScaleFactor();
+    }
+
+    const rect = __GestureCommon_GetBoundingVisibleRect(this.options_.element_);
+    const startLeft =
         rect.left + (rect.width * this.options_.left_start_ratio_);
-    var start_top =
+    const startTop =
         rect.top + (rect.height * this.options_.top_start_ratio_);
-    var end_left =
+    const endLeft =
         rect.left + (rect.width * this.options_.left_end_ratio_);
-    var end_top =
+    const endTop =
         rect.top + (rect.height * this.options_.top_end_ratio_);
     chrome.gpuBenchmarking.smoothDrag(
-        start_left, start_top, end_left, end_top,
+        startLeft, startTop, endLeft, endTop,
         this.onGestureComplete_.bind(this), this.options_.gesture_source_type_,
-        this.options_.speed_);
+        speed);
   };
 
   DragAction.prototype.onGestureComplete_ = function() {
     this.endMeasuringHook();
 
     // We're done.
-    if (this.callback_)
+    if (this.callback_) {
       this.callback_();
+    }
   };
 
   window.__DragAction = DragAction;

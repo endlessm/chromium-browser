@@ -8,6 +8,8 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
@@ -46,6 +48,7 @@ class NavigationController;
 class RenderProcessHostFactory;
 class TestRenderFrameHostFactory;
 class TestRenderViewHostFactory;
+class TestRenderWidgetHostFactory;
 class WebContents;
 struct WebPreferences;
 
@@ -86,16 +89,13 @@ class RenderFrameHostTester {
   // information with various sets of parameters. These are helper functions for
   // simulating the most common types of loads.
   //
-  // Guidance for calling these:
+  // Guidance for calling this:
   // - nav_entry_id should be 0 if simulating a renderer-initiated navigation;
   //   if simulating a browser-initiated one, pass the GetUniqueID() value of
   //   the NavigationController's PendingEntry.
   // - did_create_new_entry should be true if simulating a navigation that
   //   created a new navigation entry; false for history navigations, reloads,
   //   and other navigations that don't affect the history list.
-  virtual void SendFailedNavigate(int nav_entry_id,
-                                  bool did_create_new_entry,
-                                  const GURL& url) = 0;
   virtual void SendNavigateWithTransition(int nav_entry_id,
                                           bool did_create_new_entry,
                                           const GURL& url,
@@ -122,8 +122,12 @@ class RenderFrameHostTester {
   // can be generalized as needed. Setting a header policy should only be done
   // once per navigation of the RFH.
   virtual void SimulateFeaturePolicyHeader(
-      blink::WebFeaturePolicyFeature feature,
+      blink::FeaturePolicyFeature feature,
       const std::vector<url::Origin>& whitelist) = 0;
+
+  // Gets all the console messages requested via
+  // RenderFrameHost::AddMessageToConsole in this frame.
+  virtual const std::vector<std::string>& GetConsoleMessages() = 0;
 };
 
 // An interface and utility for driving tests of RenderViewHost.
@@ -179,6 +183,7 @@ class RenderViewHostTestEnabler {
   std::unique_ptr<MockRenderProcessHostFactory> rph_factory_;
   std::unique_ptr<TestRenderViewHostFactory> rvh_factory_;
   std::unique_ptr<TestRenderFrameHostFactory> rfh_factory_;
+  std::unique_ptr<TestRenderWidgetHostFactory> rwhi_factory_;
 };
 
 // RenderViewHostTestHarness ---------------------------------------------------
@@ -232,10 +237,6 @@ class RenderViewHostTestHarness : public testing::Test {
   // Cover for |contents()->NavigateAndCommit(url)|. See
   // WebContentsTester::NavigateAndCommit for details.
   void NavigateAndCommit(const GURL& url);
-
-  // Simulates a reload of the current page.
-  void Reload();
-  void FailedReload();
 
  protected:
   // testing::Test

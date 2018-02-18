@@ -29,6 +29,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/chrome_cleaner_fetcher_win.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/chrome_cleaner_navigation_util_win.h"
+#include "chrome/browser/safe_browsing/chrome_cleaner/chrome_cleaner_reboot_dialog_controller_impl_win.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/chrome_cleaner_runner_win.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/settings_resetter_win.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/srt_client_info_win.h"
@@ -78,23 +79,13 @@ enum IPCDisconnectedHistogramValue {
   IPC_DISCONNECTED_MAX,
 };
 
-// These values are used to send UMA information and are replicated in the
-// enums.xml, so the order MUST NOT CHANGE
-enum SettingsPageActiveOnRebootRequiredHistogramValue {
-  SETTINGS_PAGE_ON_REBOOT_REQUIRED_NO_BROWSER = 0,
-  SETTINGS_PAGE_ON_REBOOT_REQUIRED_NOT_ACTIVE_TAB = 1,
-  SETTINGS_PAGE_ON_REBOOT_REQUIRED_ACTIVE_TAB = 2,
-
-  SETTINGS_PAGE_ON_REBOOT_REQUIRED_MAX,
-};
-
 // Attempts to change the Chrome Cleaner binary's suffix to ".exe". Will return
 // an empty FilePath on failure. Should be called on a sequence with traits
 // appropriate for IO operations.
 base::FilePath VerifyAndRenameDownloadedCleaner(
     base::FilePath downloaded_path,
     ChromeCleanerFetchStatus fetch_status) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   if (downloaded_path.empty() || !base::PathExists(downloaded_path))
     return base::FilePath();
@@ -153,13 +144,6 @@ void RecordIPCDisconnectedHistogram(IPCDisconnectedHistogramValue error) {
                             IPC_DISCONNECTED_MAX);
 }
 
-void RecordSettingsPageActiveOnRebootRequired(
-    SettingsPageActiveOnRebootRequiredHistogramValue value) {
-  UMA_HISTOGRAM_ENUMERATION(
-      "SoftwareReporter.Cleaner.SettingsPageActiveOnRebootRequired", value,
-      SETTINGS_PAGE_ON_REBOOT_REQUIRED_MAX);
-}
-
 }  // namespace
 
 void RecordCleanupStartedHistogram(CleanupStartedHistogramValue value) {
@@ -194,6 +178,12 @@ void ChromeCleanerControllerDelegate::ResetTaggedProfiles(
         std::move(profiles), std::move(continuation),
         base::MakeUnique<PostCleanupSettingsResetter::Delegate>());
   }
+}
+
+void ChromeCleanerControllerDelegate::StartRebootPromptFlow(
+    ChromeCleanerController* controller) {
+  // The controller object decides if and when a prompt should be shown.
+  ChromeCleanerRebootDialogControllerImpl::Create(controller);
 }
 
 // static
@@ -233,7 +223,7 @@ bool ChromeCleanerControllerImpl::IsPoweredByPartner() {
   }
 
   const std::string& reporter_engine =
-      reporter_invocation_->command_line.GetSwitchValueASCII(
+      reporter_invocation_->command_line().GetSwitchValueASCII(
           chrome_cleaner::kEngineSwitch);
   // Currently, only engine=2 corresponds to a partner-powered engine. This
   // condition should be updated if other partner-powered engines are added.
@@ -401,10 +391,10 @@ void ChromeCleanerControllerImpl::NotifyObserver(Observer* observer) const {
       observer->OnScanning();
       break;
     case State::kInfected:
-      observer->OnInfected(*files_to_delete_);
+      observer->OnInfected(scanner_results_);
       break;
     case State::kCleaning:
-      observer->OnCleaning(*files_to_delete_);
+      observer->OnCleaning(scanner_results_);
       break;
     case State::kRebootRequired:
       observer->OnRebootRequired();
@@ -430,7 +420,6 @@ void ChromeCleanerControllerImpl::ResetCleanerDataAndInvalidateWeakPtrs() {
 
   weak_factory_.InvalidateWeakPtrs();
   reporter_invocation_.reset();
-  files_to_delete_.reset();
   prompt_user_callback_.Reset();
 }
 
@@ -472,7 +461,7 @@ void ChromeCleanerControllerImpl::OnChromeCleanerFetchedAndVerified(
 // static
 void ChromeCleanerControllerImpl::WeakOnPromptUser(
     const base::WeakPtr<ChromeCleanerControllerImpl>& controller,
-    std::unique_ptr<std::set<base::FilePath>> files_to_delete,
+    ChromeCleanerScannerResults&& scanner_results,
     ChromePrompt::PromptUserCallback prompt_user_callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
@@ -484,24 +473,24 @@ void ChromeCleanerControllerImpl::WeakOnPromptUser(
                                              PromptAcceptance::DENIED));
   }
 
-  controller->OnPromptUser(std::move(files_to_delete),
+  controller->OnPromptUser(std::move(scanner_results),
                            std::move(prompt_user_callback));
 }
 
 void ChromeCleanerControllerImpl::OnPromptUser(
-    std::unique_ptr<std::set<base::FilePath>> files_to_delete,
+    ChromeCleanerScannerResults&& scanner_results,
     ChromePrompt::PromptUserCallback prompt_user_callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  DCHECK(files_to_delete);
   DCHECK_EQ(State::kScanning, state());
-  DCHECK(!files_to_delete_);
+  DCHECK(scanner_results_.files_to_delete().empty());
+  DCHECK(scanner_results_.registry_keys().empty());
   DCHECK(!prompt_user_callback_);
   DCHECK(!time_scanning_started_.is_null());
 
   UMA_HISTOGRAM_LONG_TIMES_100("SoftwareReporter.Cleaner.ScanningTime",
                                base::Time::Now() - time_scanning_started_);
 
-  if (files_to_delete->empty()) {
+  if (scanner_results.files_to_delete().empty()) {
     BrowserThread::GetTaskRunnerForThread(BrowserThread::IO)
         ->PostTask(FROM_HERE, base::BindOnce(std::move(prompt_user_callback),
                                              PromptAcceptance::DENIED));
@@ -512,8 +501,8 @@ void ChromeCleanerControllerImpl::OnPromptUser(
   }
 
   UMA_HISTOGRAM_COUNTS_1000("SoftwareReporter.NumberOfFilesToDelete",
-                            files_to_delete->size());
-  files_to_delete_ = std::move(files_to_delete);
+                            scanner_results.files_to_delete().size());
+  scanner_results_ = std::move(scanner_results);
   prompt_user_callback_ = std::move(prompt_user_callback);
   SetStateAndNotifyObservers(State::kInfected);
 }
@@ -575,26 +564,8 @@ void ChromeCleanerControllerImpl::OnCleanerProcessDone(
       RecordCleanupResultHistogram(CLEANUP_RESULT_REBOOT_REQUIRED);
       SetStateAndNotifyObservers(State::kRebootRequired);
 
-      Browser* browser = chrome_cleaner_util::FindBrowser();
-      if (!browser) {
-        RecordSettingsPageActiveOnRebootRequired(
-            SETTINGS_PAGE_ON_REBOOT_REQUIRED_NO_BROWSER);
-        return;
-      }
-
-      // No need to reopen the Settings page if it's the current active tab.
-      if (chrome_cleaner_util::SettingsPageIsActiveTab(browser)) {
-        RecordSettingsPageActiveOnRebootRequired(
-            SETTINGS_PAGE_ON_REBOOT_REQUIRED_ACTIVE_TAB);
-        return;
-      }
-
-      // Reopens the Settings page as a background tab. Eventually the user
-      // might see that a reboot is required.
-      RecordSettingsPageActiveOnRebootRequired(
-          SETTINGS_PAGE_ON_REBOOT_REQUIRED_NOT_ACTIVE_TAB);
-      chrome_cleaner_util::OpenSettingsPage(
-          browser, WindowOpenDisposition::NEW_BACKGROUND_TAB);
+      // Start the reboot prompt flow.
+      delegate_->StartRebootPromptFlow(this);
       return;
     }
 

@@ -13,18 +13,19 @@
 #include <string>
 #include <unordered_set>
 
+#include "base/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
-#include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/features.h"
 #include "content/public/browser/platform_notification_service.h"
 #include "content/public/common/persistent_notification_status.h"
 #include "third_party/WebKit/public/platform/modules/permissions/permission_status.mojom.h"
+#include "ui/message_center/notification.h"
 
 class NotificationDelegate;
 class ScopedKeepAlive;
@@ -55,7 +56,8 @@ class PlatformNotificationServiceImpl
       const std::string& notification_id,
       const GURL& origin,
       const base::Optional<int>& action_index,
-      const base::Optional<base::string16>& reply);
+      const base::Optional<base::string16>& reply,
+      base::OnceClosure completed_closure);
 
   // To be called when a persistent notification has been closed. The data
   // associated with the notification has to be pruned from the database in this
@@ -64,7 +66,8 @@ class PlatformNotificationServiceImpl
   void OnPersistentNotificationClose(content::BrowserContext* browser_context,
                                      const std::string& notification_id,
                                      const GURL& origin,
-                                     bool by_user);
+                                     bool by_user,
+                                     base::OnceClosure completed_closure);
 
   // content::PlatformNotificationService implementation.
   blink::mojom::PermissionStatus CheckPermissionOnUIThread(
@@ -80,8 +83,7 @@ class PlatformNotificationServiceImpl
       const std::string& notification_id,
       const GURL& origin,
       const content::PlatformNotificationData& notification_data,
-      const content::NotificationResources& notification_resources,
-      base::Closure* cancel_callback) override;
+      const content::NotificationResources& notification_resources) override;
   void DisplayPersistentNotification(
       content::BrowserContext* browser_context,
       const std::string& notification_id,
@@ -89,6 +91,8 @@ class PlatformNotificationServiceImpl
       const GURL& origin,
       const content::PlatformNotificationData& notification_data,
       const content::NotificationResources& notification_resources) override;
+  void CloseNotification(content::BrowserContext* browser_context,
+                         const std::string& notification_id) override;
   void ClosePersistentNotification(content::BrowserContext* browser_context,
                                    const std::string& notification_id) override;
   void GetDisplayedNotifications(
@@ -108,18 +112,18 @@ class PlatformNotificationServiceImpl
   PlatformNotificationServiceImpl();
   ~PlatformNotificationServiceImpl() override;
 
-  // Persistent notifications fired through the delegate do not care about the
-  // lifetime of the Service Worker responsible for executing the event.
   void OnClickEventDispatchComplete(
+      base::OnceClosure completed_closure,
       content::PersistentNotificationStatus status);
   void OnCloseEventDispatchComplete(
+      base::OnceClosure completed_closure,
       content::PersistentNotificationStatus status);
 
   // Creates a new Web Notification-based Notification object. Should only be
   // called when the notification is first shown.
   // TODO(peter): |delegate| can be a scoped_refptr, but properly passing this
   // through requires changing a whole lot of Notification constructor calls.
-  Notification CreateNotificationFromData(
+  message_center::Notification CreateNotificationFromData(
       Profile* profile,
       const GURL& origin,
       const std::string& notification_id,

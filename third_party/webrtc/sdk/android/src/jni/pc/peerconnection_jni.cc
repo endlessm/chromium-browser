@@ -37,6 +37,7 @@
 #include "rtc_base/logging.h"
 #include "sdk/android/src/jni/classreferenceholder.h"
 #include "sdk/android/src/jni/jni_helpers.h"
+#include "sdk/android/src/jni/pc/datachannel.h"
 #include "sdk/android/src/jni/pc/java_native_conversion.h"
 #include "sdk/android/src/jni/pc/mediaconstraints_jni.h"
 #include "sdk/android/src/jni/pc/peerconnectionobserver_jni.h"
@@ -95,24 +96,7 @@ JNI_FUNCTION_DECLARATION(jobject,
   rtc::scoped_refptr<DataChannelInterface> channel(
       ExtractNativePC(jni, j_pc)->CreateDataChannel(
           JavaToStdString(jni, j_label), &init));
-  // Mustn't pass channel.get() directly through NewObject to avoid reading its
-  // vararg parameter as 64-bit and reading memory that doesn't belong to the
-  // 32-bit parameter.
-  jlong nativeChannelPtr = jlongFromPointer(channel.get());
-  if (!nativeChannelPtr) {
-    LOG(LS_ERROR) << "Failed to create DataChannel";
-    return nullptr;
-  }
-  jclass j_data_channel_class = FindClass(jni, "org/webrtc/DataChannel");
-  jmethodID j_data_channel_ctor =
-      GetMethodID(jni, j_data_channel_class, "<init>", "(J)V");
-  jobject j_channel = jni->NewObject(j_data_channel_class, j_data_channel_ctor,
-                                     nativeChannelPtr);
-  CHECK_EXCEPTION(jni) << "error during NewObject";
-  // Channel is now owned by Java object, and will be freed from there.
-  int bumped_count = channel->AddRef();
-  RTC_CHECK(bumped_count == 2) << "Unexpected refcount";
-  return j_channel;
+  return WrapNativeDataChannel(jni, channel);
 }
 
 JNI_FUNCTION_DECLARATION(void,
@@ -121,12 +105,12 @@ JNI_FUNCTION_DECLARATION(void,
                          jobject j_pc,
                          jobject j_observer,
                          jobject j_constraints) {
-  MediaConstraintsJni* constraints =
-      new MediaConstraintsJni(jni, j_constraints);
+  std::unique_ptr<MediaConstraintsInterface> constraints =
+      JavaToNativeMediaConstraints(jni, j_constraints);
   rtc::scoped_refptr<CreateSdpObserverJni> observer(
       new rtc::RefCountedObject<CreateSdpObserverJni>(jni, j_observer,
-                                                      constraints));
-  ExtractNativePC(jni, j_pc)->CreateOffer(observer, constraints);
+                                                      std::move(constraints)));
+  ExtractNativePC(jni, j_pc)->CreateOffer(observer, observer->constraints());
 }
 
 JNI_FUNCTION_DECLARATION(void,
@@ -135,12 +119,12 @@ JNI_FUNCTION_DECLARATION(void,
                          jobject j_pc,
                          jobject j_observer,
                          jobject j_constraints) {
-  MediaConstraintsJni* constraints =
-      new MediaConstraintsJni(jni, j_constraints);
+  std::unique_ptr<MediaConstraintsInterface> constraints =
+      JavaToNativeMediaConstraints(jni, j_constraints);
   rtc::scoped_refptr<CreateSdpObserverJni> observer(
       new rtc::RefCountedObject<CreateSdpObserverJni>(jni, j_observer,
-                                                      constraints));
-  ExtractNativePC(jni, j_pc)->CreateAnswer(observer, constraints);
+                                                      std::move(constraints)));
+  ExtractNativePC(jni, j_pc)->CreateAnswer(observer, observer->constraints());
 }
 
 JNI_FUNCTION_DECLARATION(void,
@@ -165,6 +149,22 @@ JNI_FUNCTION_DECLARATION(void,
       new rtc::RefCountedObject<SetSdpObserverJni>(jni, j_observer, nullptr));
   ExtractNativePC(jni, j_pc)->SetRemoteDescription(
       observer, JavaToNativeSessionDescription(jni, j_sdp));
+}
+
+JNI_FUNCTION_DECLARATION(void,
+                         PeerConnection_setAudioPlayout,
+                         JNIEnv* jni,
+                         jobject j_pc,
+                         jboolean playout) {
+  ExtractNativePC(jni, j_pc)->SetAudioPlayout(playout);
+}
+
+JNI_FUNCTION_DECLARATION(void,
+                         PeerConnection_setAudioRecording,
+                         JNIEnv* jni,
+                         jobject j_pc,
+                         jboolean recording) {
+  ExtractNativePC(jni, j_pc)->SetAudioRecording(recording);
 }
 
 JNI_FUNCTION_DECLARATION(jboolean,
@@ -350,20 +350,9 @@ JNI_FUNCTION_DECLARATION(jboolean,
                          jobject j_current,
                          jobject j_max) {
   PeerConnectionInterface::BitrateParameters params;
-  jclass j_integer_class = jni->FindClass("java/lang/Integer");
-  jmethodID int_value_id = GetMethodID(jni, j_integer_class, "intValue", "()I");
-  if (!IsNull(jni, j_min)) {
-    int min_value = jni->CallIntMethod(j_min, int_value_id);
-    params.min_bitrate_bps = rtc::Optional<int>(min_value);
-  }
-  if (!IsNull(jni, j_current)) {
-    int current_value = jni->CallIntMethod(j_current, int_value_id);
-    params.current_bitrate_bps = rtc::Optional<int>(current_value);
-  }
-  if (!IsNull(jni, j_max)) {
-    int max_value = jni->CallIntMethod(j_max, int_value_id);
-    params.max_bitrate_bps = rtc::Optional<int>(max_value);
-  }
+  params.min_bitrate_bps = JavaToNativeOptionalInt(jni, j_min);
+  params.current_bitrate_bps = JavaToNativeOptionalInt(jni, j_current);
+  params.max_bitrate_bps = JavaToNativeOptionalInt(jni, j_max);
   return ExtractNativePC(jni, j_pc)->SetBitrate(params).ok();
 }
 

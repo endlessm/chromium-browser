@@ -82,6 +82,8 @@ struct GLColor
 
     const GLubyte &operator[](size_t index) const { return (&R)[index]; }
 
+    testing::AssertionResult ExpectNear(const GLColor &expected, const GLColor &err) const;
+
     GLubyte R, G, B, A;
 
     static const GLColor black;
@@ -341,6 +343,8 @@ class ANGLETestBase
 
     static OSWindow *GetOSWindow() { return mOSWindow; }
 
+    GLuint get2DTexturedQuadProgram();
+
     angle::PlatformMethods mPlatformMethods;
 
     class ScopedIgnorePlatformMessages : angle::NonCopyable
@@ -357,8 +361,6 @@ class ANGLETestBase
     bool destroyEGLContext();
 
     void checkD3D11SDKLayersMessages();
-
-    GLuint get2DTexturedQuadProgram();
 
     void drawQuad(GLuint program,
                   const std::string &positionAttribName,
@@ -451,6 +453,6 @@ if(COND)                                                      \
         std::cout << "Test skipped: " #COND "." << std::endl; \
         return;                                               \
     \
-}
+} ANGLE_EMPTY_STATEMENT
 
 #endif  // ANGLE_TESTS_ANGLE_TEST_H_

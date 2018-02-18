@@ -12,6 +12,7 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -121,6 +122,9 @@ std::unique_ptr<base::DictionaryValue> GetTranslatedStrings(bool is_google) {
   AddString(translated_strings.get(), "attributionIntro",
             IDS_NEW_TAB_ATTRIBUTION_INTRO);
   AddString(translated_strings.get(), "title", IDS_NEW_TAB_TITLE);
+  AddString(translated_strings.get(), "mostVisitedTitle",
+            IDS_NEW_TAB_MOST_VISITED);
+
   if (is_google) {
     AddString(translated_strings.get(), "searchboxPlaceholder",
               IDS_GOOGLE_SEARCH_BOX_EMPTY_HINT);
@@ -231,13 +235,40 @@ std::string ConvertLogoImageToBase64(const EncodedLogo& logo) {
                             logo.metadata.mime_type.c_str(), base64.c_str());
 }
 
+std::string LogoTypeToString(search_provider_logos::LogoType type) {
+  switch (type) {
+    case search_provider_logos::LogoType::SIMPLE:
+      return "SIMPLE";
+    case search_provider_logos::LogoType::ANIMATED:
+      return "ANIMATED";
+    case search_provider_logos::LogoType::INTERACTIVE:
+      return "INTERACTIVE";
+  }
+  NOTREACHED();
+  return std::string();
+}
+
 std::unique_ptr<base::DictionaryValue> ConvertLogoMetadataToDict(
     const LogoMetadata& meta) {
   auto result = base::MakeUnique<base::DictionaryValue>();
+  result->SetString("type", LogoTypeToString(meta.type));
   result->SetString("onClickUrl", meta.on_click_url.spec());
+  result->SetString("fullPageUrl", meta.full_page_url.spec());
   result->SetString("altText", meta.alt_text);
   result->SetString("mimeType", meta.mime_type);
   result->SetString("animatedUrl", meta.animated_url.spec());
+
+  // If support for interactive Doodles is disabled, treat them as simple
+  // Doodles instead and use the full page URL as the target URL.
+  if (meta.type == search_provider_logos::LogoType::INTERACTIVE &&
+      !base::GetFieldTrialParamByFeatureAsBool(features::kDoodlesOnLocalNtp,
+                                               "local_ntp_interactive_doodles",
+                                               /*default_value=*/true)) {
+    result->SetString(
+        "type", LogoTypeToString(search_provider_logos::LogoType::SIMPLE));
+    result->SetString("onClickUrl", meta.full_page_url.spec());
+  }
+
   return result;
 }
 
@@ -622,9 +653,10 @@ std::string LocalNtpSource::GetContentSecurityPolicyScriptSrc() const {
 std::string LocalNtpSource::GetContentSecurityPolicyChildSrc() const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
-  if (one_google_bar_service_) {
+  if (one_google_bar_service_ || logo_service_) {
     // Allow embedding of the most visited iframe, as well as the account
-    // switcher and the notifications dropdown from the One Google Bar.
+    // switcher and the notifications dropdown from the One Google Bar, and/or
+    // the iframe for interactive Doodles.
     return base::StringPrintf("child-src %s https://*.google.com/;",
                               chrome::kChromeSearchMostVisitedUrl);
   }

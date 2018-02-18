@@ -57,7 +57,7 @@
 #include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
 #include "ios/chrome/browser/sync/ios_chrome_sync_client.h"
 #include "ios/chrome/browser/tab_parenting_global_observer.h"
-#include "ios/chrome/browser/tabs/tab_model_list.h"
+#import "ios/chrome/browser/tabs/tab_model_list.h"
 #include "ios/chrome/browser/translate/translate_ranker_metrics_provider.h"
 #include "ios/chrome/common/channel_info.h"
 #include "ios/web/public/web_thread.h"
@@ -146,12 +146,13 @@ void IOSChromeMetricsServiceClient::CollectFinalMetricsForLog(
 std::unique_ptr<metrics::MetricsLogUploader>
 IOSChromeMetricsServiceClient::CreateUploader(
     base::StringPiece server_url,
+    base::StringPiece insecure_server_url,
     base::StringPiece mime_type,
     metrics::MetricsLogUploader::MetricServiceType service_type,
     const metrics::MetricsLogUploader::UploadCallback& on_upload_complete) {
   return base::MakeUnique<metrics::NetMetricsLogUploader>(
       GetApplicationContext()->GetSystemURLRequestContext(), server_url,
-      mime_type, service_type, on_upload_complete);
+      insecure_server_url, mime_type, service_type, on_upload_complete);
 }
 
 base::TimeDelta IOSChromeMetricsServiceClient::GetStandardUploadInterval() {
@@ -189,7 +190,7 @@ void IOSChromeMetricsServiceClient::Initialize() {
   // be worth revisiting this to still log events from non-incognito sessions.
   metrics_service_->RegisterMetricsProvider(
       base::MakeUnique<OmniboxMetricsProvider>(
-          base::Bind(&::IsOffTheRecordSessionActive)));
+          base::Bind(&TabModelList::IsOffTheRecordSessionActive)));
 
   {
     auto stability_metrics_provider =
@@ -297,6 +298,16 @@ void IOSChromeMetricsServiceClient::OnSyncPrefsChanged(bool must_purge) {
     ukm_service_->Purge();
     ukm_service_->ResetClientId();
   }
+  // Signal service manager to enable/disable UKM based on new state.
+  UpdateRunningServices();
+}
+
+void IOSChromeMetricsServiceClient::OnIncognitoWebStateAdded() {
+  // Signal service manager to enable/disable UKM based on new state.
+  UpdateRunningServices();
+}
+
+void IOSChromeMetricsServiceClient::OnIncognitoWebStateRemoved() {
   // Signal service manager to enable/disable UKM based on new state.
   UpdateRunningServices();
 }

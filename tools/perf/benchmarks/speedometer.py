@@ -72,6 +72,12 @@ class SpeedometerMeasurement(legacy_page_test.LegacyPageTest):
         page, 'Total', 'ms',
         tab.EvaluateJavaScript('benchmarkClient._timeValues'),
         important=True))
+    results.AddValue(list_of_scalar_values.ListOfScalarValues(
+        page, 'RunsPerMinute', 'score',
+        tab.EvaluateJavaScript(
+            '[parseFloat(document.getElementById("result-number").innerText)];'
+        ),
+        important=True))
 
     # Extract the timings for each suite
     for suite_name in self.enabled_suites:
@@ -89,7 +95,7 @@ class SpeedometerMeasurement(legacy_page_test.LegacyPageTest):
     keychain_metric.KeychainMetric().AddResults(tab, results)
 
 
-@benchmark.Owner(emails=['bmeurer@chromium.org', 'mvstanton@chromium.org'])
+@benchmark.Owner(emails=['hablich@chromium.org'])
 class Speedometer(perf_benchmark.PerfBenchmark):
   test = SpeedometerMeasurement
 
@@ -113,3 +119,18 @@ class Speedometer(perf_benchmark.PerfBenchmark):
       def SetExpectations(self):
         pass # http://browserbench.org/Speedometer/ not disabled.
     return StoryExpectations()
+
+
+@benchmark.Owner(emails=['hablich@chromium.org'])
+class V8SpeedometerFuture(Speedometer):
+  """Speedometer benchmark with the V8 flag --future.
+
+  Shows the performance of upcoming V8 VM features.
+  """
+
+  @classmethod
+  def Name(cls):
+    return 'speedometer-future'
+
+  def SetExtraBrowserOptions(self, options):
+    options.AppendExtraBrowserArgs('--enable-features=V8VmFuture')

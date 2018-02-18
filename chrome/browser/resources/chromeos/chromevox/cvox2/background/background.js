@@ -217,6 +217,7 @@ Background.GESTURE_NEXT_COMMAND_MAP = {
   'swipeRight1': 'nextObject',
   'swipeUp2': 'jumpToTop',
   'swipeDown2': 'readFromHere',
+  'tap2': 'stopSpeech',
 };
 
 Background.prototype = {
@@ -630,7 +631,8 @@ Background.prototype = {
     actionNode.doDefault();
 
     if (actionNode.role != RoleType.STATIC_TEXT &&
-        actionNode.role != RoleType.TEXT_FIELD)
+        actionNode.role != RoleType.TEXT_FIELD &&
+        !actionNode.state[StateType.RICHLY_EDITABLE])
       return;
 
     if (!selectionSpan)

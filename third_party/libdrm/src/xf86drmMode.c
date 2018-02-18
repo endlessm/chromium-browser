@@ -271,9 +271,9 @@ int drmModeAddFB(int fd, uint32_t width, uint32_t height, uint8_t depth,
 }
 
 int drmModeAddFB2WithModifiers(int fd, uint32_t width, uint32_t height,
-                               uint32_t pixel_format, uint32_t bo_handles[4],
-                               uint32_t pitches[4], uint32_t offsets[4],
-                               uint64_t modifier[4], uint32_t *buf_id, uint32_t flags)
+                               uint32_t pixel_format, const uint32_t bo_handles[4],
+                               const uint32_t pitches[4], const uint32_t offsets[4],
+                               const uint64_t modifier[4], uint32_t *buf_id, uint32_t flags)
 {
 	struct drm_mode_fb_cmd2 f;
 	int ret;
@@ -297,8 +297,8 @@ int drmModeAddFB2WithModifiers(int fd, uint32_t width, uint32_t height,
 }
 
 int drmModeAddFB2(int fd, uint32_t width, uint32_t height,
-                  uint32_t pixel_format, uint32_t bo_handles[4],
-                  uint32_t pitches[4], uint32_t offsets[4],
+                  uint32_t pixel_format, const uint32_t bo_handles[4],
+                  const uint32_t pitches[4], const uint32_t offsets[4],
                   uint32_t *buf_id, uint32_t flags)
 {
 	return drmModeAddFB2WithModifiers(fd, width, height,
@@ -889,6 +889,7 @@ int drmHandleEvent(int fd, drmEventContextPtr evctx)
 	int len, i;
 	struct drm_event *e;
 	struct drm_event_vblank *vblank;
+	void *user_data;
 
 	/* The DRM read semantics guarantees that we always get only
 	 * complete events. */
@@ -901,7 +902,7 @@ int drmHandleEvent(int fd, drmEventContextPtr evctx)
 
 	i = 0;
 	while (i < len) {
-		e = (struct drm_event *) &buffer[i];
+		e = (struct drm_event *)(buffer + i);
 		switch (e->type) {
 		case DRM_EVENT_VBLANK:
 			if (evctx->version < 1 ||
@@ -915,15 +916,22 @@ int drmHandleEvent(int fd, drmEventContextPtr evctx)
 					      U642VOID (vblank->user_data));
 			break;
 		case DRM_EVENT_FLIP_COMPLETE:
-			if (evctx->version < 2 ||
-			    evctx->page_flip_handler == NULL)
-				break;
 			vblank = (struct drm_event_vblank *) e;
-			evctx->page_flip_handler(fd,
-						 vblank->sequence,
-						 vblank->tv_sec,
-						 vblank->tv_usec,
-						 U642VOID (vblank->user_data));
+			user_data = U642VOID (vblank->user_data);
+
+			if (evctx->version >= 3 && evctx->page_flip_handler2)
+				evctx->page_flip_handler2(fd,
+							 vblank->sequence,
+							 vblank->tv_sec,
+							 vblank->tv_usec,
+							 vblank->crtc_id,
+							 user_data);
+			else if (evctx->version >= 2 && evctx->page_flip_handler)
+				evctx->page_flip_handler(fd,
+							 vblank->sequence,
+							 vblank->tv_sec,
+							 vblank->tv_usec,
+							 user_data);
 			break;
 		default:
 			break;
@@ -946,6 +954,22 @@ int drmModePageFlip(int fd, uint32_t crtc_id, uint32_t fb_id,
 	flip.flags = flags;
 
 	return DRM_IOCTL(fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip);
+}
+
+int drmModePageFlipTarget(int fd, uint32_t crtc_id, uint32_t fb_id,
+			  uint32_t flags, void *user_data,
+			  uint32_t target_vblank)
+{
+	struct drm_mode_crtc_page_flip_target flip_target;
+
+	memclear(flip_target);
+	flip_target.fb_id = fb_id;
+	flip_target.crtc_id = crtc_id;
+	flip_target.user_data = VOID2U64(user_data);
+	flip_target.flags = flags;
+	flip_target.sequence = target_vblank;
+
+	return DRM_IOCTL(fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip_target);
 }
 
 int drmModeSetPlane(int fd, uint32_t plane_id, uint32_t crtc_id,
@@ -974,15 +998,15 @@ int drmModeSetPlane(int fd, uint32_t plane_id, uint32_t crtc_id,
 	return DRM_IOCTL(fd, DRM_IOCTL_MODE_SETPLANE, &s);
 }
 
-static drmModePlanePtr get_plane(unsigned long cmd, int fd, uint32_t plane_id)
+drmModePlanePtr drmModeGetPlane(int fd, uint32_t plane_id)
 {
-	struct drm_mode_get_plane2 ovr, counts;
+	struct drm_mode_get_plane ovr, counts;
 	drmModePlanePtr r = 0;
 
 retry:
 	memclear(ovr);
 	ovr.plane_id = plane_id;
-	if (drmIoctl(fd, cmd, &ovr))
+	if (drmIoctl(fd, DRM_IOCTL_MODE_GETPLANE, &ovr))
 		return 0;
 
 	counts = ovr;
@@ -994,21 +1018,11 @@ retry:
 			goto err_allocs;
 	}
 
-	if (ovr.count_format_modifiers) {
-		ovr.format_modifier_ptr =
-			VOID2U64(drmMalloc(ovr.count_format_modifiers *
-					   sizeof(struct drm_format_modifier)));
-		if (!ovr.format_modifier_ptr)
-			goto err_allocs;
-	}
-
-	if (drmIoctl(fd, cmd, &ovr))
+	if (drmIoctl(fd, DRM_IOCTL_MODE_GETPLANE, &ovr))
 		goto err_allocs;
 
-	if (counts.count_format_types < ovr.count_format_types ||
-	    counts.count_format_modifiers < ovr.count_format_modifiers) {
+	if (counts.count_format_types < ovr.count_format_types) {
 		drmFree(U642VOID(ovr.format_type_ptr));
-		drmFree(U642VOID(ovr.format_modifier_ptr));
 		goto retry;
 	}
 
@@ -1016,7 +1030,6 @@ retry:
 		goto err_allocs;
 
 	r->count_formats = ovr.count_format_types;
-	r->count_format_modifiers = ovr.count_format_modifiers;
 	r->plane_id = ovr.plane_id;
 	r->crtc_id = ovr.crtc_id;
 	r->fb_id = ovr.fb_id;
@@ -1028,39 +1041,12 @@ retry:
 		drmFree(r->formats);
 		drmFree(r);
 		r = 0;
-		goto err_allocs;
-	}
-
-	r->format_modifiers =
-		drmAllocCpy(U642VOID(ovr.format_modifier_ptr),
-			    ovr.count_format_modifiers,
-			    sizeof(struct drm_format_modifier));
-	if (ovr.count_format_modifiers && !r->format_modifiers) {
-		drmFree(r->formats);
-		drmFree(r);
-		r = 0;
 	}
 
 err_allocs:
 	drmFree(U642VOID(ovr.format_type_ptr));
-	drmFree(U642VOID(ovr.format_modifier_ptr));
 
 	return r;
-}
-
-drmModePlanePtr drmModeGetPlane2(int fd, uint32_t plane_id)
-{
-	drmModePlanePtr r = get_plane(DRM_IOCTL_MODE_GETPLANE2, fd, plane_id);
-
-	if (r || errno != EINVAL)
-		return r;
-
-	return get_plane(DRM_IOCTL_MODE_GETPLANE, fd, plane_id);
-}
-
-drmModePlanePtr drmModeGetPlane(int fd, uint32_t plane_id)
-{
-	return get_plane(DRM_IOCTL_MODE_GETPLANE, fd, plane_id);
 }
 
 void drmModeFreePlane(drmModePlanePtr ptr)
@@ -1069,7 +1055,6 @@ void drmModeFreePlane(drmModePlanePtr ptr)
 		return;
 
 	drmFree(ptr->formats);
-	drmFree(ptr->format_modifiers);
 	drmFree(ptr);
 }
 

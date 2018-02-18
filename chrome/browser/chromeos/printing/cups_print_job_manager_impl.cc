@@ -40,7 +40,9 @@ namespace {
 const int kPollRate = 1000;
 
 // How long we'll wait to connect to a printer before declaring an error.
-const int kConnectingTimeout = 20;
+// TODO(crbug.com/786182): Increase to 120s to give pipeline more time to
+// complete.
+const int kConnectingTimeout = 120;
 
 // Threshold for giving up on communicating with CUPS.
 const int kRetryMax = 6;
@@ -250,7 +252,7 @@ class CupsWrapper {
   void QueryCups(const std::vector<std::string>& printer_ids,
                  QueryResult* result) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    base::ThreadRestrictions::AssertIOAllowed();
+    base::AssertBlockingAllowed();
 
     result->success = cups_connection_.GetJobs(printer_ids, &result->queues);
   }
@@ -258,7 +260,7 @@ class CupsWrapper {
   // Cancel the print job on the blocking thread.
   void CancelJobImpl(const std::string& printer_id, const int job_id) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    base::ThreadRestrictions::AssertIOAllowed();
+    base::AssertBlockingAllowed();
 
     std::unique_ptr<::printing::CupsPrinter> printer =
         cups_connection_.GetPrinter(printer_id);

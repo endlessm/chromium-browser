@@ -34,9 +34,11 @@ const (
 // A draft version of TLS 1.3 that is sent over the wire for the current draft.
 const (
 	tls13DraftVersion       = 0x7f12
+	tls13Draft21Version     = 0x7f15
 	tls13ExperimentVersion  = 0x7e01
 	tls13Experiment2Version = 0x7e02
 	tls13Experiment3Version = 0x7e03
+	tls13Draft22Version     = 0x7e04
 )
 
 const (
@@ -44,10 +46,14 @@ const (
 	TLS13Experiment  = 1
 	TLS13Experiment2 = 2
 	TLS13Experiment3 = 3
+	TLS13Draft21     = 4
+	TLS13Draft22     = 5
 )
 
 var allTLSWireVersions = []uint16{
 	tls13DraftVersion,
+	tls13Draft22Version,
+	tls13Draft21Version,
 	tls13Experiment3Version,
 	tls13Experiment2Version,
 	tls13ExperimentVersion,
@@ -91,6 +97,7 @@ const (
 	typeServerHello         uint8 = 2
 	typeHelloVerifyRequest  uint8 = 3
 	typeNewSessionTicket    uint8 = 4
+	typeEndOfEarlyData      uint8 = 5 // draft-ietf-tls-tls13-21
 	typeHelloRetryRequest   uint8 = 6 // draft-ietf-tls-tls13-16
 	typeEncryptedExtensions uint8 = 8 // draft-ietf-tls-tls13-16
 	typeCertificate         uint8 = 11
@@ -104,6 +111,7 @@ const (
 	typeKeyUpdate           uint8 = 24  // draft-ietf-tls-tls13-16
 	typeNextProtocol        uint8 = 67  // Not IANA assigned
 	typeChannelID           uint8 = 203 // Not IANA assigned
+	typeMessageHash         uint8 = 254 // draft-ietf-tls-tls13-21
 )
 
 // TLS compression types.
@@ -131,6 +139,7 @@ const (
 	extensionCookie                     uint16 = 44    // draft-ietf-tls-tls13-16
 	extensionPSKKeyExchangeModes        uint16 = 45    // draft-ietf-tls-tls13-18
 	extensionTicketEarlyDataInfo        uint16 = 46    // draft-ietf-tls-tls13-18
+	extensionCertificateAuthorities     uint16 = 47    // draft-ietf-tls-tls13-21
 	extensionCustom                     uint16 = 1234  // not IANA assigned
 	extensionNextProtoNeg               uint16 = 13172 // not IANA assigned
 	extensionRenegotiationInfo          uint16 = 0xff01
@@ -141,6 +150,12 @@ const (
 const (
 	scsvRenegotiation uint16 = 0x00ff
 )
+
+var tls13HelloRetryRequest = []uint8{
+	0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11, 0xbe, 0x1d, 0x8c,
+	0x02, 0x1e, 0x65, 0xb8, 0x91, 0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb,
+	0x8c, 0x5e, 0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c,
+}
 
 // CurveID is the type of a TLS identifier for an elliptic curve. See
 // http://www.iana.org/assignments/tls-parameters/tls-parameters.xml#tls-parameters-8
@@ -456,8 +471,7 @@ type Config struct {
 	// MaxEarlyDataSize controls the maximum number of bytes that the
 	// server will accept in early data and advertise in a
 	// NewSessionTicketMsg. If 0, no early data will be accepted and
-	// the TicketEarlyDataInfo extension in the NewSessionTicketMsg
-	// will be omitted.
+	// the early_data extension in the NewSessionTicketMsg will be omitted.
 	MaxEarlyDataSize uint32
 
 	// SRTPProtectionProfiles, if not nil, is the list of SRTP
@@ -497,7 +511,11 @@ const (
 	RSABadValueCorrupt
 	RSABadValueTooLong
 	RSABadValueTooShort
-	RSABadValueWrongVersion
+	RSABadValueWrongVersion1
+	RSABadValueWrongVersion2
+	RSABadValueWrongBlockType
+	RSABadValueWrongLeadingByte
+	RSABadValueNoZero
 	NumRSABadValues
 )
 
@@ -577,9 +595,13 @@ type ProtocolBugs struct {
 	// message.
 	SkipFinished bool
 
-	// SkipEndOfEarlyData causes the implementation to skip the
-	// end_of_early_data alert.
+	// SkipEndOfEarlyData causes the implementation to skip
+	// end_of_early_data.
 	SkipEndOfEarlyData bool
+
+	// NonEmptyEndOfEarlyData causes the implementation to end an extra byte in the
+	// EndOfEarlyData.
+	NonEmptyEndOfEarlyData bool
 
 	// SkipCertificateVerify, if true causes peer to skip sending a
 	// CertificateVerify message after the Certificate message.
@@ -605,6 +627,14 @@ type ProtocolBugs struct {
 	// the Finished (or NextProto) message around the ChangeCipherSpec
 	// messages.
 	FragmentAcrossChangeCipherSpec bool
+
+	// SendExtraChangeCipherSpec causes the implementation to send extra
+	// ChangeCipherSpec messages.
+	SendExtraChangeCipherSpec int
+
+	// SendPostHandshakeChangeCipherSpec causes the implementation to send
+	// a ChangeCipherSpec record before every application data record.
+	SendPostHandshakeChangeCipherSpec bool
 
 	// SendUnencryptedFinished, if true, causes the Finished message to be
 	// send unencrypted before ChangeCipherSpec rather than after it.
@@ -750,6 +780,10 @@ type ProtocolBugs struct {
 	// ExpectNoTLS13PSK, if true, causes the server to fail the connection
 	// if a TLS 1.3 PSK is offered.
 	ExpectNoTLS13PSK bool
+
+	// ExpectNoTLS13PSKAfterHRR, if true, causes the server to fail the connection
+	// if a TLS 1.3 PSK is offered after HRR.
+	ExpectNoTLS13PSKAfterHRR bool
 
 	// RequireExtendedMasterSecret, if true, requires that the peer support
 	// the extended master secret option.
@@ -952,9 +986,21 @@ type ProtocolBugs struct {
 	// record size.
 	PackHandshakeFragments int
 
-	// PackHandshakeRecords, if true, causes handshake records in DTLS to be
-	// packed into individual packets, up to the specified packet size.
+	// PackHandshakeRecords, if non-zero, causes handshake and
+	// ChangeCipherSpec records in DTLS to be packed into individual
+	// packets, up to the specified packet size.
 	PackHandshakeRecords int
+
+	// PackAppDataWithHandshake, if true, extends PackHandshakeRecords to
+	// additionally include the first application data record sent after the
+	// final Finished message in a handshake. (If the final Finished message
+	// is sent by the peer, this option has no effect.) This requires that
+	// the runner rather than shim speak first in a given test.
+	PackAppDataWithHandshake bool
+
+	// SplitAndPackAppData, if true, causes application data in DTLS to be
+	// split into two records each and packed into one packet.
+	SplitAndPackAppData bool
 
 	// PackHandshakeFlight, if true, causes each handshake flight in TLS to
 	// be packed into records, up to the largest size record available.
@@ -1038,13 +1084,13 @@ type ProtocolBugs struct {
 	// receipt of a NewSessionTicket message.
 	ExpectNoNewSessionTicket bool
 
-	// DuplicateTicketEarlyDataInfo causes an extra empty extension of
-	// ticket_early_data_info to be sent in NewSessionTicket.
-	DuplicateTicketEarlyDataInfo bool
+	// DuplicateTicketEarlyData causes an extra empty extension of early_data to
+	// be sent in NewSessionTicket.
+	DuplicateTicketEarlyData bool
 
-	// ExpectTicketEarlyDataInfo, if true, means that the client will fail upon
-	// absence of the ticket_early_data_info extension.
-	ExpectTicketEarlyDataInfo bool
+	// ExpectTicketEarlyData, if true, means that the client will fail upon
+	// absence of the early_data extension.
+	ExpectTicketEarlyData bool
 
 	// ExpectTicketAge, if non-zero, is the expected age of the ticket that the
 	// server receives from the client.
@@ -1292,6 +1338,10 @@ type ProtocolBugs struct {
 	// the specified curve in a HelloRetryRequest.
 	SendHelloRetryRequestCurve CurveID
 
+	// SendHelloRetryRequestCipherSuite, if non-zero, causes the server to send
+	// the specified cipher suite in a HelloRetryRequest.
+	SendHelloRetryRequestCipherSuite uint16
+
 	// SendHelloRetryRequestCookie, if not nil, contains a cookie to be
 	// sent by the server in HelloRetryRequest.
 	SendHelloRetryRequestCookie []byte
@@ -1328,6 +1378,14 @@ type ProtocolBugs struct {
 	// SendRequestContext, if not empty, is the request context to send in
 	// a TLS 1.3 CertificateRequest.
 	SendRequestContext []byte
+
+	// OmitCertificateRequestAlgorithms, if true, omits the signature_algorithm
+	// extension in a TLS 1.3 CertificateRequest.
+	OmitCertificateRequestAlgorithms bool
+
+	// SendCustomCertificateRequest, if non-zero, send an additional custom
+	// extension in a TLS 1.3 CertificateRequest.
+	SendCustomCertificateRequest uint16
 
 	// SendSNIWarningAlert, if true, causes the server to send an
 	// unrecognized_name alert before the ServerHello.
@@ -1415,6 +1473,10 @@ type ProtocolBugs struct {
 	// RenegotiationCertificate, if not nil, is the certificate to use on
 	// renegotiation handshakes.
 	RenegotiationCertificate *Certificate
+
+	// ExpectNoCertificateAuthoritiesExtension, if true, causes the client to
+	// reject CertificateRequest with the CertificateAuthorities extension.
+	ExpectNoCertificateAuthoritiesExtension bool
 
 	// UseLegacySigningAlgorithm, if non-zero, is the signature algorithm
 	// to use when signing in TLS 1.1 and earlier where algorithms are not
@@ -1560,7 +1622,7 @@ func wireToVersion(vers uint16, isDTLS bool) (uint16, bool) {
 		switch vers {
 		case VersionSSL30, VersionTLS10, VersionTLS11, VersionTLS12:
 			return vers, true
-		case tls13DraftVersion, tls13ExperimentVersion, tls13Experiment2Version, tls13Experiment3Version:
+		case tls13DraftVersion, tls13Draft22Version, tls13Draft21Version, tls13ExperimentVersion, tls13Experiment2Version, tls13Experiment3Version:
 			return VersionTLS13, true
 		}
 	}
@@ -1568,16 +1630,28 @@ func wireToVersion(vers uint16, isDTLS bool) (uint16, bool) {
 	return 0, false
 }
 
+func isDraft21(vers uint16) bool {
+	return vers == tls13Draft21Version || vers == tls13Draft22Version
+}
+
+func isDraft22(vers uint16) bool {
+	return vers == tls13Draft22Version
+}
+
 func isResumptionExperiment(vers uint16) bool {
-	return vers == tls13ExperimentVersion || vers == tls13Experiment2Version || vers == tls13Experiment3Version
+	return vers == tls13ExperimentVersion || vers == tls13Experiment2Version || vers == tls13Experiment3Version || vers == tls13Draft22Version
 }
 
 func isResumptionClientCCSExperiment(vers uint16) bool {
-	return vers == tls13ExperimentVersion || vers == tls13Experiment2Version
+	return vers == tls13ExperimentVersion || vers == tls13Experiment2Version || vers == tls13Draft22Version
 }
 
 func isResumptionRecordVersionExperiment(vers uint16) bool {
-	return vers == tls13Experiment2Version || vers == tls13Experiment3Version
+	return vers == tls13Experiment2Version || vers == tls13Experiment3Version || vers == tls13Draft22Version
+}
+
+func isResumptionRecordVersionVariant(variant int) bool {
+	return variant == TLS13Experiment2 || variant == TLS13Experiment3 || variant == TLS13Draft22
 }
 
 // isSupportedVersion checks if the specified wire version is acceptable. If so,
@@ -1587,6 +1661,8 @@ func (c *Config) isSupportedVersion(wireVers uint16, isDTLS bool) (uint16, bool)
 	if (c.TLS13Variant != TLS13Experiment && wireVers == tls13ExperimentVersion) ||
 		(c.TLS13Variant != TLS13Experiment2 && wireVers == tls13Experiment2Version) ||
 		(c.TLS13Variant != TLS13Experiment3 && wireVers == tls13Experiment3Version) ||
+		(c.TLS13Variant != TLS13Draft22 && wireVers == tls13Draft22Version) ||
+		(c.TLS13Variant != TLS13Draft21 && wireVers == tls13Draft21Version) ||
 		(c.TLS13Variant != TLS13Default && wireVers == tls13DraftVersion) {
 		return 0, false
 	}

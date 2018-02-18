@@ -21,6 +21,7 @@
 #include "chrome/browser/sync_file_system/sync_status_code.h"
 #include "chrome/browser/sync_file_system/syncable_file_system_util.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/test_utils.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/quota/quota_manager.h"
 #include "storage/browser/test/mock_blob_url_request_context.h"
@@ -62,7 +63,7 @@ class LocalFileChangeTrackerTest : public testing::Test {
     sync_context_->ShutdownOnUIThread();
     sync_context_ = nullptr;
 
-    base::RunLoop().RunUntilIdle();
+    content::RunAllTasksUntilIdle();
     file_system_.TearDown();
     // Make sure we don't leave the external filesystem.
     // (CannedSyncableFileSystem::TearDown does not do this as there may be
@@ -279,7 +280,7 @@ TEST_F(LocalFileChangeTrackerTest, RestoreCreateAndModifyChanges) {
   ASSERT_EQ(0U, urls.size());
 
   const std::string kData("Lorem ipsum.");
-  MockBlobURLRequestContext url_request_context(file_system_context());
+  MockBlobURLRequestContext url_request_context;
   ScopedTextBlob blob(url_request_context, "blob_id:test", kData);
 
   // Create files and nested directories.
@@ -430,7 +431,7 @@ TEST_F(LocalFileChangeTrackerTest, RestoreCopyChanges) {
   ASSERT_EQ(0U, urls.size());
 
   const std::string kData("Lorem ipsum.");
-  MockBlobURLRequestContext url_request_context(file_system_context());
+  MockBlobURLRequestContext url_request_context;
   ScopedTextBlob blob(url_request_context, "blob_id:test", kData);
 
   // Create files and nested directories.

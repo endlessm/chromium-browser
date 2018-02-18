@@ -4,6 +4,7 @@
 
 #include "chrome/browser/predictors/resource_prefetch_predictor.h"
 
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <utility>
@@ -771,6 +772,68 @@ TEST_F(ResourcePrefetchPredictorTest, NavigationUrlNotInDBAndDBFull) {
   EXPECT_EQ(mock_tables_->origin_table_.data_, expected_origin_data);
 }
 
+TEST_F(ResourcePrefetchPredictorTest,
+       NavigationManyResourcesWithDifferentOrigins) {
+  const int kVisitCount = 4;
+  AddUrlToHistory("http://www.google.com", kVisitCount);
+
+  URLRequestSummary main_frame =
+      CreateURLRequestSummary(1, "http://www.google.com");
+
+  auto gen = [](int i) {
+    return base::StringPrintf("http://cdn%d.google.com/script.js", i);
+  };
+  std::vector<URLRequestSummary> resources;
+  const int num_resources =
+      std::max(predictor_->config_.max_resources_per_entry,
+               predictor_->config_.max_origins_per_entry) +
+      10;
+  for (int i = 1; i <= num_resources; ++i) {
+    resources.push_back(CreateURLRequestSummary(
+        1, "http://www.google.com", gen(i), content::RESOURCE_TYPE_SCRIPT,
+        net::MEDIUM, "text/javascript", false));
+  }
+
+  auto page_summary = CreatePageRequestSummary(
+      "http://www.google.com", "http://www.google.com", resources);
+
+  StrictMock<MockResourcePrefetchPredictorObserver> mock_observer(predictor_);
+  EXPECT_CALL(mock_observer, OnNavigationLearned(kVisitCount, page_summary));
+
+  predictor_->RecordPageRequestSummary(
+      base::MakeUnique<PageRequestSummary>(page_summary));
+  profile_->BlockUntilHistoryProcessesPendingRequests();
+
+  PrefetchData url_data = CreatePrefetchData("http://www.google.com/");
+  for (int i = 1;
+       i <= static_cast<int>(predictor_->config_.max_resources_per_entry);
+       ++i) {
+    InitializeResourceData(url_data.add_resources(), gen(i),
+                           content::RESOURCE_TYPE_SCRIPT, 1, 0, 0, i,
+                           net::MEDIUM, false, false);
+  }
+  EXPECT_EQ(mock_tables_->url_resource_table_.data_,
+            PrefetchDataMap({{url_data.primary_key(), url_data}}));
+
+  PrefetchData host_data = CreatePrefetchData("www.google.com");
+  host_data.mutable_resources()->CopyFrom(url_data.resources());
+  EXPECT_EQ(mock_tables_->host_resource_table_.data_,
+            PrefetchDataMap({{host_data.primary_key(), host_data}}));
+
+  OriginData origin_data = CreateOriginData("www.google.com");
+  InitializeOriginStat(origin_data.add_origins(), "http://www.google.com/", 1,
+                       0, 0, 1, false, true);
+  for (int i = 1;
+       i <= static_cast<int>(predictor_->config_.max_origins_per_entry) - 1;
+       ++i) {
+    InitializeOriginStat(origin_data.add_origins(),
+                         GURL(gen(i)).GetOrigin().spec(), 1, 0, 0, i + 1, false,
+                         true);
+  }
+  EXPECT_EQ(mock_tables_->origin_table_.data_,
+            OriginDataMap({{origin_data.host(), origin_data}}));
+}
+
 TEST_F(ResourcePrefetchPredictorTest, RedirectUrlNotInDB) {
   const int kVisitCount = 4;
   AddUrlToHistory("https://facebook.com/google", kVisitCount);
@@ -1146,9 +1209,10 @@ TEST_F(ResourcePrefetchPredictorTest, TestPredictPreconnectOrigins) {
   EXPECT_TRUE(predictor_->IsUrlPreconnectable(main_frame_url));
   EXPECT_TRUE(
       predictor_->PredictPreconnectOrigins(main_frame_url, prediction.get()));
-  EXPECT_EQ(*prediction, CreatePreconnectPrediction("google.com", false,
-                                                    {GURL(gen_origin(1))},
-                                                    {GURL(gen_origin(2))}));
+  EXPECT_EQ(*prediction,
+            CreatePreconnectPrediction(
+                "google.com", false,
+                {{GURL(gen_origin(1)), 1}, {GURL(gen_origin(2)), 0}}));
 
   // Add a redirect.
   RedirectData redirect = CreateRedirectData("google.com", 3);
@@ -1173,9 +1237,9 @@ TEST_F(ResourcePrefetchPredictorTest, TestPredictPreconnectOrigins) {
   EXPECT_TRUE(predictor_->IsUrlPreconnectable(main_frame_url));
   EXPECT_TRUE(
       predictor_->PredictPreconnectOrigins(main_frame_url, prediction.get()));
-  EXPECT_EQ(*prediction, CreatePreconnectPrediction("www.google.com", true,
-                                                    {GURL(gen_origin(4))},
-                                                    std::vector<GURL>()));
+  EXPECT_EQ(*prediction,
+            CreatePreconnectPrediction("www.google.com", true,
+                                       {{GURL(gen_origin(4)), 1}}));
 }
 
 }  // namespace predictors

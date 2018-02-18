@@ -11,6 +11,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#import "base/test/ios/wait_util.h"
 #include "base/test/scoped_command_line.h"
 #include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 #include "components/ntp_snippets/content_suggestion.h"
@@ -111,9 +112,7 @@ GREYElementInteraction* CellWithMatcher(id<GREYMatcher> matcher) {
 #pragma mark - TestCase
 
 // Test case for the ContentSuggestion UI.
-@interface ContentSuggestionsTestCase : ChromeTestCase {
-  std::unique_ptr<base::test::ScopedCommandLine> _scopedCommandLine;
-}
+@interface ContentSuggestionsTestCase : ChromeTestCase
 
 // Current non-incognito browser state.
 @property(nonatomic, assign, readonly) ios::ChromeBrowserState* browserState;
@@ -171,11 +170,6 @@ GREYElementInteraction* CellWithMatcher(id<GREYMatcher> matcher) {
 }
 
 - (void)setUp {
-  // The command line is set up before [super setUp] in order to have the NTP
-  // opened with the command line already setup.
-  _scopedCommandLine = base::MakeUnique<base::test::ScopedCommandLine>();
-  base::CommandLine* commandLine = _scopedCommandLine->GetProcessCommandLine();
-  commandLine->AppendSwitch(switches::kEnableSuggestionsUI);
   self.provider->FireCategoryStatusChanged(self.category,
                                            CategoryStatus::AVAILABLE);
 
@@ -195,7 +189,6 @@ GREYElementInteraction* CellWithMatcher(id<GREYMatcher> matcher) {
 - (void)tearDown {
   self.provider->FireCategoryStatusChanged(
       self.category, CategoryStatus::ALL_SUGGESTIONS_EXPLICITLY_DISABLED);
-  _scopedCommandLine.reset();
   chrome_test_util::ClearBrowsingHistory();
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
   [super tearDown];
@@ -564,6 +557,11 @@ GREYElementInteraction* CellWithMatcher(id<GREYMatcher> matcher) {
   [ChromeEarlGrey waitForMainTabCount:2];
   [ChromeEarlGrey waitForIncognitoTabCount:0];
 
+  // Wait for the end of the new tab opening in background. This is needed as
+  // the iOS 11 devices cannot complete this animations while checking if the
+  // collection is present.
+  base::test::ios::SpinRunLoopWithMinDelay(base::TimeDelta::FromSecondsD(1));
+
   // Check that the tab has been opened in background.
   ConditionBlock condition = ^{
     NSError* error = nil;
@@ -807,8 +805,11 @@ GREYElementInteraction* CellWithMatcher(id<GREYMatcher> matcher) {
   [ChromeEarlGrey goBack];
 
   [[self class] closeAllTabs];
-
   chrome_test_util::OpenNewTab();
+  // TODO(crbug.com/783192): ChromeEarlGrey should have a method to open a new
+  // tab and synchronize with the UI.
+  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+
   [[EarlGrey selectElementWithMatcher:
                  chrome_test_util::StaticTextWithAccessibilityLabel(pageTitle)]
       performAction:grey_longPress()];

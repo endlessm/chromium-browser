@@ -466,21 +466,54 @@ class PaygenBuildStage(generic_stages.BoardSpecificBuilderStage):
         if not self.skip_testing:
           suite_name, archive_board, archive_build, finished_uri = testdata
 
-          model = archive_board
-          # For unified builds, we need to use an explicit model since only
-          # those will actually exist in the hardware test farm.
+          # For unified builds, only test against the specified models.
           if self._run.config.models:
-            model = self._run.config.models[0].name
+            models = []
+            for model in self._run.config.models:
+              # 'au' is a test suite generated in ge_build_config.json
+              if model.test_suites and 'au' in model.test_suites:
+                models.append(model)
 
-          # Paygen tests only need to be run on one model for a given
-          # reference board.
-          # If we add richer labels to Autotest platforms that differentiate
-          # models from boards, we can let Autotest choose for us in the
-          # future from all models for a given reference board.
-          PaygenTestStage(
-              self._run, suite_name, model, self.channel,
-              archive_build, finished_uri, self.skip_duts_check,
-              self.debug).Run()
+            if len(models) > 1:
+              stages = [PaygenTestStage(
+                  self._run,
+                  suite_name,
+                  archive_board,
+                  model.name,
+                  model.lab_board_name,
+                  self.channel,
+                  archive_build,
+                  finished_uri,
+                  self.skip_duts_check,
+                  self.debug) for model in models]
+              steps = [stage.Run for stage in stages]
+              parallel.RunParallelSteps(steps)
+            elif len(models) == 1:
+              PaygenTestStage(
+                  self._run,
+                  suite_name,
+                  archive_board,
+                  models[0].name,
+                  models[0].lab_board_name,
+                  self.channel,
+                  archive_build,
+                  finished_uri,
+                  self.skip_duts_check,
+                  self.debug).Run()
+          else:
+            PaygenTestStage(
+                self._run,
+                suite_name,
+                archive_board,
+                None,
+                archive_board,
+                self.channel,
+                archive_build,
+                finished_uri,
+                self.skip_duts_check,
+                self.debug).Run()
+
+
 
       except (paygen_build_lib.BuildFinished,
               paygen_build_lib.BuildLocked) as e:
@@ -495,14 +528,27 @@ class PaygenBuildStage(generic_stages.BoardSpecificBuilderStage):
 
 class PaygenTestStage(generic_stages.BoardSpecificBuilderStage):
   """Stage that schedules the payload tests."""
-  def __init__(self, builder_run, suite_name, board, channel, build,
-               finished_uri, skip_duts_check, debug, **kwargs):
+  def __init__(
+      self,
+      builder_run,
+      suite_name,
+      board,
+      model,
+      lab_board_name,
+      channel,
+      build,
+      finished_uri,
+      skip_duts_check,
+      debug,
+      **kwargs):
     """Init that accepts the channels argument, if present.
 
     Args:
       builder_run: See builder_run on ArchiveStage
       suite_name: See builder_run on ArchiveStage
-      board: Board of payloads to generate ('x86-mario', 'x86-alex-he', etc)
+      board: Board overlay name.
+      model: Model that will be tested. ('reef', 'pyro', etc)
+      lab_board_name: The actual board label tested against in Autotest
       channel: Channel of payloads to generate ('stable', 'beta', etc)
       build: Version of payloads to generate.
       finished_uri: GS URI of the finished flag to create on success.
@@ -511,6 +557,9 @@ class PaygenTestStage(generic_stages.BoardSpecificBuilderStage):
     """
     self.suite_name = suite_name
     self.board = board
+    self.model = model
+    self.lab_board_name = lab_board_name
+
     self.build = build
     self.finished_uri = finished_uri
     self.skip_duts_check = skip_duts_check
@@ -518,15 +567,22 @@ class PaygenTestStage(generic_stages.BoardSpecificBuilderStage):
     # We don't need the '-channel'suffix.
     if channel.endswith('-channel'):
       channel = channel[0:-len('-channel')]
+    suffix = channel.capitalize()
+    if model:
+      suffix += ' [%s]' % model
+
     super(PaygenTestStage, self).__init__(
-        builder_run, board, suffix=channel.capitalize(), **kwargs)
+        builder_run, board, suffix=suffix, **kwargs)
     self._drm = dryrun_lib.DryRunMgr(self.debug)
 
   def PerformStage(self):
     """Schedule the tests to run."""
     # Schedule the tests to run and wait for the results.
-    paygen_build_lib.ScheduleAutotestTests(self.suite_name, self.board,
-                                           self.build, self.skip_duts_check,
+    paygen_build_lib.ScheduleAutotestTests(self.suite_name,
+                                           self.lab_board_name,
+                                           self.model,
+                                           self.build,
+                                           self.skip_duts_check,
                                            self.debug,
                                            job_keyvals=self.GetJobKeyvals())
 

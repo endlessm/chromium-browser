@@ -279,7 +279,7 @@ CommandHandler.onCommand = function(command) {
     case 'previousLine':
       dir = Dir.BACKWARD;
       didNavigate = true;
-      current = current.move(cursors.Unit.LINE);
+      current = current.move(cursors.Unit.LINE, dir);
       break;
     case 'nextButton':
       dir = Dir.FORWARD;
@@ -457,13 +457,13 @@ CommandHandler.onCommand = function(command) {
       break;
     case 'jumpToTop':
       var node = AutomationUtil.findNodePost(
-          current.start.node.root, Dir.FORWARD, AutomationPredicate.leaf);
+          current.start.node.root, Dir.FORWARD, AutomationPredicate.object);
       if (node)
         current = cursors.Range.fromNode(node);
       break;
     case 'jumpToBottom':
-      var node = AutomationUtil.findNodePost(
-          current.start.node.root, Dir.BACKWARD, AutomationPredicate.leaf);
+      var node = AutomationUtil.findLastNode(
+          current.start.node.root, AutomationPredicate.object);
       if (node)
         current = cursors.Range.fromNode(node);
       break;
@@ -477,7 +477,11 @@ CommandHandler.onCommand = function(command) {
           ChromeVoxState.instance.navigateToRange(
               cursors.Range.fromNode(actionNode.inPageLinkTarget));
         } else {
-          actionNode.doDefault();
+          // Scan for a clickable, which overrides the |actionNode|.
+          var clickable = actionNode;
+          while (clickable && !clickable.clickable)
+            clickable = clickable.parent;
+          clickable ? clickable.doDefault() : actionNode.doDefault();
         }
       }
       // Skip all other processing; if focus changes, we should get an event

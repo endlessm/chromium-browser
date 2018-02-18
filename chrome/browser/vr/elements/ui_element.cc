@@ -9,13 +9,25 @@
 #include "base/logging.h"
 #include "base/numerics/ranges.h"
 #include "base/stl_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/time/time.h"
-#include "chrome/browser/vr/elements/ui_element_transform_operations.h"
+#include "third_party/WebKit/public/platform/WebGestureEvent.h"
+#include "third_party/skia/include/core/SkRRect.h"
+#include "third_party/skia/include/core/SkRect.h"
 #include "ui/gfx/geometry/angle_conversions.h"
+#include "ui/gfx/geometry/rect_f.h"
 
 namespace vr {
 
 namespace {
+
+static constexpr char kRed[] = "\x1b[31m";
+static constexpr char kGreen[] = "\x1b[32m";
+static constexpr char kBlue[] = "\x1b[34m";
+static constexpr char kCyan[] = "\x1b[36m";
+static constexpr char kReset[] = "\x1b[0m";
+
+static constexpr float kHitTestResolutionInMeter = 0.000001f;
 
 int AllocateId() {
   static int g_next_id = 1;
@@ -38,6 +50,9 @@ bool GetRayPlaneDistance(const gfx::Point3F& ray_origin,
 
 }  // namespace
 
+EventHandlers::EventHandlers() = default;
+EventHandlers::~EventHandlers() = default;
+
 UiElement::UiElement() : id_(AllocateId()) {
   animation_player_.set_target(this);
   layout_offset_.AppendTranslate(0, 0, 0);
@@ -50,8 +65,29 @@ UiElement::~UiElement() {
   animation_player_.set_target(nullptr);
 }
 
+void UiElement::set_name(UiElementName name) {
+  name_ = name;
+  OnSetName();
+}
+
+void UiElement::OnSetName() {}
+
+void UiElement::set_type(UiElementType type) {
+  type_ = type;
+  OnSetType();
+}
+
+void UiElement::OnSetType() {}
+
+void UiElement::set_draw_phase(DrawPhase draw_phase) {
+  draw_phase_ = draw_phase;
+  OnSetDrawPhase();
+}
+
+void UiElement::OnSetDrawPhase() {}
+
 void UiElement::Render(UiElementRenderer* renderer,
-                       const gfx::Transform& model_view_proj_matrix) const {
+                       const CameraModel& model) const {
   // Elements without an overridden implementation of Render should have their
   // draw phase set to kPhaseNone and should, consequently, be filtered out when
   // the UiRenderer collects elements to draw. Therefore, if we invoke this
@@ -59,17 +95,47 @@ void UiElement::Render(UiElementRenderer* renderer,
   NOTREACHED();
 }
 
-void UiElement::Initialize() {}
+void UiElement::Initialize(SkiaSurfaceProvider* provider) {}
 
-void UiElement::OnHoverEnter(const gfx::PointF& position) {}
+void UiElement::OnHoverEnter(const gfx::PointF& position) {
+  if (event_handlers_.hover_enter) {
+    event_handlers_.hover_enter.Run();
+  } else if (parent() && bubble_events()) {
+    parent()->OnHoverEnter(position);
+  }
+}
 
-void UiElement::OnHoverLeave() {}
+void UiElement::OnHoverLeave() {
+  if (event_handlers_.hover_leave) {
+    event_handlers_.hover_leave.Run();
+  } else if (parent() && bubble_events()) {
+    parent()->OnHoverLeave();
+  }
+}
 
-void UiElement::OnMove(const gfx::PointF& position) {}
+void UiElement::OnMove(const gfx::PointF& position) {
+  if (event_handlers_.hover_move) {
+    event_handlers_.hover_move.Run(position);
+  } else if (parent() && bubble_events()) {
+    parent()->OnMove(position);
+  }
+}
 
-void UiElement::OnButtonDown(const gfx::PointF& position) {}
+void UiElement::OnButtonDown(const gfx::PointF& position) {
+  if (event_handlers_.button_down) {
+    event_handlers_.button_down.Run();
+  } else if (parent() && bubble_events()) {
+    parent()->OnButtonDown(position);
+  }
+}
 
-void UiElement::OnButtonUp(const gfx::PointF& position) {}
+void UiElement::OnButtonUp(const gfx::PointF& position) {
+  if (event_handlers_.button_up) {
+    event_handlers_.button_up.Run();
+  } else if (parent() && bubble_events()) {
+    parent()->OnButtonUp(position);
+  }
+}
 
 void UiElement::OnFlingStart(std::unique_ptr<blink::WebGestureEvent> gesture,
                              const gfx::PointF& position) {}
@@ -82,12 +148,29 @@ void UiElement::OnScrollUpdate(std::unique_ptr<blink::WebGestureEvent> gesture,
 void UiElement::OnScrollEnd(std::unique_ptr<blink::WebGestureEvent> gesture,
                             const gfx::PointF& position) {}
 
-void UiElement::PrepareToDraw() {}
+bool UiElement::PrepareToDraw() {
+  return false;
+}
 
-void UiElement::OnBeginFrame(const base::TimeTicks& time,
+bool UiElement::DoBeginFrame(const base::TimeTicks& time,
                              const gfx::Vector3dF& look_at) {
+  // TODO(mthiesse): This is overly cautious. We may have animations but not
+  // trigger any updates, so we should refine this logic and have
+  // AnimationPlayer::Tick return a boolean.
+  bool animations_updated = animation_player_.animations().size() > 0;
   animation_player_.Tick(time);
   last_frame_time_ = time;
+  set_update_phase(kUpdatedAnimations);
+  bool begin_frame_updated = OnBeginFrame(time, look_at);
+  UpdateComputedOpacity();
+  bool was_visible_at_any_point = IsVisible() || updated_visibility_this_frame_;
+  return (begin_frame_updated || animations_updated) &&
+         was_visible_at_any_point;
+}
+
+bool UiElement::OnBeginFrame(const base::TimeTicks& time,
+                             const gfx::Vector3dF& look_at) {
+  return false;
 }
 
 bool UiElement::IsHitTestable() const {
@@ -97,7 +180,10 @@ bool UiElement::IsHitTestable() const {
 void UiElement::SetSize(float width, float height) {
   animation_player_.TransitionSizeTo(last_frame_time_, BOUNDS, size_,
                                      gfx::SizeF(width, height));
+  OnSetSize(gfx::SizeF(width, height));
 }
+
+void UiElement::OnSetSize(gfx::SizeF size) {}
 
 void UiElement::SetVisible(bool visible) {
   SetOpacity(visible ? opacity_when_visible_ : 0.0);
@@ -105,6 +191,7 @@ void UiElement::SetVisible(bool visible) {
 
 void UiElement::SetVisibleImmediately(bool visible) {
   opacity_ = visible ? opacity_when_visible_ : 0.0;
+  animation_player_.RemoveAnimations(OPACITY);
 }
 
 bool UiElement::IsVisible() const {
@@ -116,14 +203,17 @@ gfx::SizeF UiElement::size() const {
   return size_;
 }
 
-void UiElement::SetTransformOperations(
-    const UiElementTransformOperations& ui_element_transform_operations) {
-  animation_player_.TransitionTransformOperationsTo(
-      last_frame_time_, TRANSFORM, transform_operations_,
-      ui_element_transform_operations.operations());
-}
-
 void UiElement::SetLayoutOffset(float x, float y) {
+  if (x_centering() == LEFT) {
+    x += size_.width() / 2;
+  } else if (x_centering() == RIGHT) {
+    x -= size_.width() / 2;
+  }
+  if (y_centering() == TOP) {
+    y -= size_.height() / 2;
+  } else if (y_centering() == BOTTOM) {
+    y += size_.height() / 2;
+  }
   cc::TransformOperations operations = layout_offset_;
   cc::TransformOperation& op = operations.at(0);
   op.translate = {x, y, 0};
@@ -174,9 +264,25 @@ cc::TransformOperations UiElement::GetTargetTransform() const {
       TargetProperty::TRANSFORM, transform_operations_);
 }
 
+gfx::Transform UiElement::ComputeTargetWorldSpaceTransform() const {
+  gfx::Transform m;
+  for (const UiElement* current = this; current; current = current->parent()) {
+    m.ConcatTransform(current->GetTargetLocalTransform());
+  }
+  return m;
+}
+
 float UiElement::GetTargetOpacity() const {
   return animation_player_.GetTargetFloatValue(TargetProperty::OPACITY,
                                                opacity_);
+}
+
+float UiElement::ComputeTargetOpacity() const {
+  float opacity = 1.0;
+  for (const UiElement* current = this; current; current = current->parent()) {
+    opacity *= current->GetTargetOpacity();
+  }
+  return opacity;
 }
 
 float UiElement::computed_opacity() const {
@@ -184,19 +290,56 @@ float UiElement::computed_opacity() const {
   return computed_opacity_;
 }
 
-bool UiElement::HitTest(const gfx::PointF& point) const {
-  return point.x() >= 0.0f && point.x() <= 1.0f && point.y() >= 0.0f &&
-         point.y() <= 1.0f;
+bool UiElement::LocalHitTest(const gfx::PointF& point) const {
+  if (point.x() < 0.0f || point.x() > 1.0f || point.y() < 0.0f ||
+      point.y() > 1.0f) {
+    return false;
+  } else if (corner_radius() == 0.f) {
+    return point.x() >= 0.0f && point.x() <= 1.0f && point.y() >= 0.0f &&
+           point.y() <= 1.0f;
+  } else if (size().width() == size().height() &&
+             corner_radius() == size().width() / 2) {
+    return (point - gfx::PointF(0.5, 0.5)).LengthSquared() < 0.25;
+  }
+
+  float width = size().width();
+  float height = size().height();
+  SkRRect rrect = SkRRect::MakeRectXY(SkRect::MakeWH(width, height),
+                                      corner_radius(), corner_radius());
+
+  float left = std::min(point.x() * width, width - kHitTestResolutionInMeter);
+  float top = std::min(point.y() * height, height - kHitTestResolutionInMeter);
+  SkRect point_rect =
+      SkRect::MakeLTRB(left, top, left + kHitTestResolutionInMeter,
+                       top + kHitTestResolutionInMeter);
+  return rrect.contains(point_rect);
 }
 
-void UiElement::SetMode(ColorScheme::Mode mode) {
-  for (auto& child : children_) {
-    child->SetMode(mode);
-  }
-  if (mode_ == mode)
+void UiElement::HitTest(const HitTestRequest& request,
+                        HitTestResult* result) const {
+  gfx::Vector3dF ray_vector = request.ray_target - request.ray_origin;
+  ray_vector.GetNormalized(&ray_vector);
+  result->type = HitTestResult::Type::kNone;
+  float distance_to_plane;
+  if (!GetRayDistance(request.ray_origin, ray_vector, &distance_to_plane)) {
     return;
-  mode_ = mode;
-  OnSetMode();
+  }
+
+  if (distance_to_plane < 0 ||
+      distance_to_plane > request.max_distance_to_plane) {
+    return;
+  }
+
+  result->type = HitTestResult::Type::kHitsPlane;
+  result->distance_to_plane = distance_to_plane;
+  result->hit_point =
+      request.ray_origin + gfx::ScaleVector3d(ray_vector, distance_to_plane);
+  gfx::PointF unit_xy_point = GetUnitRectangleCoordinates(result->hit_point);
+  result->local_hit_point.set_x(0.5f + unit_xy_point.x());
+  result->local_hit_point.set_y(0.5f - unit_xy_point.y());
+  if (LocalHitTest(result->local_hit_point)) {
+    result->type = HitTestResult::Type::kHits;
+  }
 }
 
 const gfx::Transform& UiElement::world_space_transform() const {
@@ -204,7 +347,89 @@ const gfx::Transform& UiElement::world_space_transform() const {
   return world_space_transform_;
 }
 
-void UiElement::OnSetMode() {}
+bool UiElement::IsWorldPositioned() const {
+  return true;
+}
+
+std::string UiElement::DebugName() const {
+  return base::StringPrintf(
+      "%s%s%s",
+      UiElementNameToString(name() == kNone ? owner_name_for_test() : name())
+          .c_str(),
+      type() == kTypeNone ? "" : ":",
+      type() == kTypeNone ? "" : UiElementTypeToString(type()).c_str());
+}
+
+void UiElement::DumpHierarchy(std::vector<size_t> counts,
+                              std::ostringstream* os) const {
+  // Put our ancestors in a vector for easy reverse traversal.
+  std::vector<const UiElement*> ancestors;
+  for (const UiElement* ancestor = parent(); ancestor;
+       ancestor = ancestor->parent()) {
+    ancestors.push_back(ancestor);
+  }
+  DCHECK_EQ(counts.size(), ancestors.size());
+
+  *os << kBlue;
+  for (size_t i = 0; i < counts.size(); ++i) {
+    if (i + 1 == counts.size()) {
+      *os << "+-";
+    } else if (ancestors[ancestors.size() - i - 1]->children().size() >
+               counts[i] + 1) {
+      *os << "| ";
+    } else {
+      *os << "  ";
+    }
+  }
+  *os << kReset;
+
+  if (!IsVisible() || draw_phase() == kPhaseNone) {
+    *os << kBlue;
+  }
+
+  *os << DebugName() << kReset << " " << kCyan << DrawPhaseToString(draw_phase_)
+      << " " << kReset;
+
+  if (draw_phase_ != kPhaseNone && !size().IsEmpty()) {
+    *os << kRed << "[" << size().width() << ", " << size().height() << "] "
+        << kReset;
+  }
+
+  *os << kGreen;
+  DumpGeometry(os);
+  *os << kReset << std::endl;
+
+  counts.push_back(0u);
+  for (auto& child : children_) {
+    child->DumpHierarchy(counts, os);
+    counts.back()++;
+  }
+}
+
+void UiElement::DumpGeometry(std::ostringstream* os) const {
+  if (!transform_operations_.at(0).IsIdentity()) {
+    const auto& translate = transform_operations_.at(0).translate;
+    *os << "t(" << translate.x << ", " << translate.y << ", " << translate.z
+        << ") ";
+  }
+
+  if (!transform_operations_.at(1).IsIdentity()) {
+    const auto& rotate = transform_operations_.at(1).rotate;
+    if (rotate.axis.x > 0.0f) {
+      *os << "rx(" << rotate.angle << ") ";
+    } else if (rotate.axis.y > 0.0f) {
+      *os << "ry(" << rotate.angle << ") ";
+    } else if (rotate.axis.z > 0.0f) {
+      *os << "rz(" << rotate.angle << ") ";
+    }
+  }
+
+  if (!transform_operations_.at(2).IsIdentity()) {
+    const auto& scale = transform_operations_.at(2).scale;
+    *os << "s(" << scale.x << ", " << scale.y << ", " << scale.z << ") ";
+  }
+}
+
 void UiElement::OnUpdatedWorldSpaceTransform() {}
 
 gfx::SizeF UiElement::stale_size() const {
@@ -217,15 +442,21 @@ void UiElement::AddChild(std::unique_ptr<UiElement> child) {
   children_.push_back(std::move(child));
 }
 
-void UiElement::RemoveChild(UiElement* to_remove) {
+std::unique_ptr<UiElement> UiElement::RemoveChild(UiElement* to_remove) {
   DCHECK_EQ(this, to_remove->parent_);
   to_remove->parent_ = nullptr;
   size_t old_size = children_.size();
-  base::EraseIf(children_,
-                [to_remove](const std::unique_ptr<UiElement>& child) {
-                  return child.get() == to_remove;
-                });
+
+  auto it = std::find_if(std::begin(children_), std::end(children_),
+                         [to_remove](const std::unique_ptr<UiElement>& child) {
+                           return child.get() == to_remove;
+                         });
+  DCHECK(it != std::end(children_));
+
+  std::unique_ptr<UiElement> removed(it->release());
+  children_.erase(it);
   DCHECK_NE(old_size, children_.size());
+  return removed;
 }
 
 void UiElement::AddBinding(std::unique_ptr<BindingBase> binding) {
@@ -233,8 +464,11 @@ void UiElement::AddBinding(std::unique_ptr<BindingBase> binding) {
 }
 
 void UiElement::UpdateBindings() {
-  for (auto& binding : bindings_)
-    binding->Update();
+  updated_bindings_this_frame_ = false;
+  for (auto& binding : bindings_) {
+    if (binding->Update())
+      updated_bindings_this_frame_ = true;
+  }
 }
 
 gfx::Point3F UiElement::GetCenter() const {
@@ -277,10 +511,10 @@ bool UiElement::GetRayDistance(const gfx::Point3F& ray_origin,
                              distance);
 }
 
-void UiElement::NotifyClientFloatAnimated(float opacity,
+void UiElement::NotifyClientFloatAnimated(float value,
                                           int target_property_id,
                                           cc::Animation* animation) {
-  opacity_ = base::ClampToRange(opacity, 0.0f, 1.0f);
+  opacity_ = base::ClampToRange(value, 0.0f, 1.0f);
 }
 
 void UiElement::NotifyClientTransformOperationsAnimated(
@@ -308,6 +542,10 @@ void UiElement::SetTransitionedProperties(
   animation_player_.SetTransitionedProperties(converted_properties);
 }
 
+void UiElement::SetTransitionDuration(base::TimeDelta delta) {
+  animation_player_.SetTransitionDuration(delta);
+}
+
 void UiElement::AddAnimation(std::unique_ptr<cc::Animation> animation) {
   animation_player_.AddAnimation(std::move(animation));
 }
@@ -320,54 +558,76 @@ bool UiElement::IsAnimatingProperty(TargetProperty property) const {
   return animation_player_.IsAnimatingProperty(static_cast<int>(property));
 }
 
+void UiElement::DoLayOutChildren() {
+  LayOutChildren();
+  if (!bounds_contain_children_) {
+    DCHECK_EQ(0.0f, x_padding_);
+    DCHECK_EQ(0.0f, y_padding_);
+    return;
+  }
+
+  gfx::RectF bounds;
+  bool first = false;
+  for (auto& child : children_) {
+    if (!child->IsVisible() || child->size().IsEmpty()) {
+      continue;
+    }
+    gfx::Point3F child_center(child->local_origin());
+    child->LocalTransform().TransformPoint(&child_center);
+    gfx::RectF local_rect =
+        gfx::RectF(child_center.x() - 0.5 * child->size().width(),
+                   child_center.y() - 0.5 * child->size().height(),
+                   child->size().width(), child->size().height());
+    if (first) {
+      bounds = local_rect;
+      first = false;
+    } else {
+      bounds.Union(local_rect);
+    }
+  }
+
+  bounds.Inset(-x_padding_, -y_padding_);
+  bounds.set_origin(bounds.CenterPoint());
+  size_ = bounds.size();
+  local_origin_ = bounds.origin();
+}
+
 void UiElement::LayOutChildren() {
   DCHECK_LE(kUpdatedTexturesAndSizes, phase_);
   for (auto& child : children_) {
     // To anchor a child, use the parent's size to find its edge.
-    float x_offset;
-    switch (child->x_anchoring()) {
-      case XLEFT:
-        x_offset = -0.5f * size().width();
-        break;
-      case XRIGHT:
-        x_offset = 0.5f * size().width();
-        break;
-      case XNONE:
-        x_offset = 0.0f;
-        break;
+    float x_offset = 0.0f;
+    if (child->x_anchoring() == LEFT) {
+      x_offset = -0.5f * size().width();
+    } else if (child->x_anchoring() == RIGHT) {
+      x_offset = 0.5f * size().width();
     }
-    float y_offset;
-    switch (child->y_anchoring()) {
-      case YTOP:
-        y_offset = 0.5f * size().height();
-        break;
-      case YBOTTOM:
-        y_offset = -0.5f * size().height();
-        break;
-      case YNONE:
-        y_offset = 0.0f;
-        break;
+    float y_offset = 0.0f;
+    if (child->y_anchoring() == TOP) {
+      y_offset = 0.5f * size().height();
+    } else if (child->y_anchoring() == BOTTOM) {
+      y_offset = -0.5f * size().height();
     }
     child->SetLayoutOffset(x_offset, y_offset);
   }
 }
 
-void UiElement::UpdateComputedOpacityRecursive() {
+void UiElement::UpdateComputedOpacity() {
+  bool was_visible = computed_opacity_ > 0.0f;
   set_computed_opacity(opacity_);
   if (parent_) {
     set_computed_opacity(computed_opacity_ * parent_->computed_opacity());
   }
-
   set_update_phase(kUpdatedComputedOpacity);
-
-  for (auto& child : children_) {
-    child->UpdateComputedOpacityRecursive();
-  }
+  updated_visibility_this_frame_ = IsVisible() != was_visible;
 }
 
 void UiElement::UpdateWorldSpaceTransformRecursive() {
   gfx::Transform transform;
-  transform.Scale(size_.width(), size_.height());
+  transform.Translate(local_origin_.x(), local_origin_.y());
+  if (!size_.IsEmpty()) {
+    transform.Scale(size_.width(), size_.height());
+  }
 
   // Compute an inheritable transformation that can be applied to this element,
   // and it's children, if applicable.
@@ -391,6 +651,10 @@ void UiElement::UpdateWorldSpaceTransformRecursive() {
 
 gfx::Transform UiElement::LocalTransform() const {
   return layout_offset_.Apply() * transform_operations_.Apply();
+}
+
+gfx::Transform UiElement::GetTargetLocalTransform() const {
+  return layout_offset_.Apply() * GetTargetTransform().Apply();
 }
 
 }  // namespace vr

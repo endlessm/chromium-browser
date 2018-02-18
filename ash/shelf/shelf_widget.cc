@@ -110,11 +110,11 @@ ShelfWidget::DelegateView::DelegateView(ShelfWidget* shelf_widget)
   opaque_background_.SetBounds(GetLocalBounds());
 }
 
-ShelfWidget::DelegateView::~DelegateView() {}
+ShelfWidget::DelegateView::~DelegateView() = default;
 
 // static
 bool ShelfWidget::IsUsingMdLoginShelf() {
-  return switches::IsUsingMdLogin() &&
+  return !switches::IsUsingWebUiLock() &&
          (Shell::Get()->session_controller()->GetSessionState() ==
               session_manager::SessionState::LOCKED ||
           Shell::Get()->session_controller()->GetSessionState() ==
@@ -158,7 +158,9 @@ ShelfWidget::ShelfWidget(aura::Window* shelf_container, Shelf* shelf)
       status_area_widget_(nullptr),
       delegate_view_(new DelegateView(this)),
       shelf_view_(new ShelfView(Shell::Get()->shelf_model(), shelf_, this)),
-      login_shelf_view_(new LoginShelfView()),
+      login_shelf_view_(
+          new LoginShelfView(RootWindowController::ForWindow(shelf_container)
+                                 ->lock_screen_action_background_controller())),
       background_animator_(SHELF_BACKGROUND_DEFAULT,
                            shelf_,
                            Shell::Get()->wallpaper_controller()),

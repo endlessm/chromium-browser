@@ -13,9 +13,11 @@
 #include "ash/shell_test_api.h"
 #include "ash/test/ash_test_base.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
+#include "base/run_loop.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
+#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager_test_utils.h"
 #include "chrome/browser/image_decoder.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
@@ -25,6 +27,7 @@
 #include "components/arc/test/fake_wallpaper_instance.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
+#include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user_names.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_service_manager_context.h"
@@ -60,7 +63,7 @@ class ArcWallpaperServiceTest : public ash::AshTestBase {
  public:
   ArcWallpaperServiceTest()
       : user_manager_(new chromeos::FakeChromeUserManager()),
-        user_manager_enabler_(user_manager_) {}
+        user_manager_enabler_(base::WrapUnique(user_manager_)) {}
   ~ArcWallpaperServiceTest() override = default;
 
   void SetUp() override {
@@ -72,13 +75,13 @@ class ArcWallpaperServiceTest : public ash::AshTestBase {
     pref_service_.registry()->RegisterDictionaryPref(
         ash::prefs::kWallpaperColors);
     pref_service_.registry()->RegisterDictionaryPref(
-        wallpaper::kUsersWallpaperInfo);
+        chromeos::kUsersWallpaperInfo);
 
     // Ash prefs
     auto pref_service = std::make_unique<TestingPrefServiceSimple>();
     ash::Shell::RegisterLocalStatePrefs(pref_service->registry());
     pref_service->registry()->SetDefaultForeignPrefValue(
-        ash::prefs::kWallpaperColors, base::MakeUnique<base::DictionaryValue>(),
+        ash::prefs::kWallpaperColors, std::make_unique<base::DictionaryValue>(),
         0);
     ash::ShellTestApi().OnLocalStatePrefServiceInitialized(
         std::move(pref_service));
@@ -117,7 +120,7 @@ class ArcWallpaperServiceTest : public ash::AshTestBase {
 
  private:
   chromeos::FakeChromeUserManager* const user_manager_ = nullptr;
-  chromeos::ScopedUserManagerEnabler user_manager_enabler_;
+  user_manager::ScopedUserManager user_manager_enabler_;
   arc::ArcServiceManager arc_service_manager_;
   // testing_profile_ needs to be deleted before arc_service_manager_.
   TestingProfile testing_profile_;
@@ -131,6 +134,8 @@ class ArcWallpaperServiceTest : public ash::AshTestBase {
 TEST_F(ArcWallpaperServiceTest, SetDefaultWallpaper) {
   service_->SetDefaultWallpaper();
   RunAllPendingInMessageLoop();
+  // Wait until wallpaper loading is done.
+  chromeos::wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   ASSERT_EQ(1u, wallpaper_instance_->changed_ids().size());
   EXPECT_EQ(-1, wallpaper_instance_->changed_ids()[0]);
 }
@@ -141,7 +146,8 @@ TEST_F(ArcWallpaperServiceTest, SetAndGetWallpaper) {
   std::vector<uint8_t> bytes;
   service_->SetWallpaper(bytes, 10 /* ID */);
   content::RunAllTasksUntilIdle();
-
+  // Wait until wallpaper loading is done.
+  chromeos::wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
   ASSERT_EQ(1u, wallpaper_instance_->changed_ids().size());
   EXPECT_EQ(10, wallpaper_instance_->changed_ids()[0]);
 
@@ -160,6 +166,8 @@ TEST_F(ArcWallpaperServiceTest, SetWallpaperFailure) {
   std::vector<uint8_t> bytes;
   service_->SetWallpaper(bytes, 10 /* ID */);
   content::RunAllTasksUntilIdle();
+  // Wait until wallpaper loading is done.
+  chromeos::wallpaper_manager_test_utils::WaitAsyncWallpaperLoadFinished();
 
   // For failure case, ArcWallpaperService reports that wallpaper is changed to
   // requested wallpaper (ID=10), then reports that the wallpaper is changed

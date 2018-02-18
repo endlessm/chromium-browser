@@ -29,9 +29,6 @@
     web::TestCommitNavigationInfo* commitNavigationInfo;
 // Arguments passed to |webState:didLoadPageWithSuccess:|.
 @property(nonatomic, readonly) web::TestLoadPageInfo* loadPageInfo;
-// Arguments passed to |webStateDidDismissInterstitial:|.
-@property(nonatomic, readonly)
-    web::TestDismissInterstitialInfo* dismissInterstitialInfo;
 // Arguments passed to |webState:didChangeLoadingProgress:|.
 @property(nonatomic, readonly)
     web::TestChangeLoadingProgressInfo* changeLoadingProgressInfo;
@@ -46,7 +43,7 @@
 // Arguments passed to |webState:didSubmitDocumentWithFormNamed:userInitiated:|.
 @property(nonatomic, readonly) web::TestSubmitDocumentInfo* submitDocumentInfo;
 // Arguments passed to
-// |webState:didRegisterFormActivityWithFormNamed:fieldName:type:value:|.
+// |webState:didRegisterFormActivity:|.
 @property(nonatomic, readonly) web::TestFormActivityInfo* formActivityInfo;
 // Arguments passed to |webState:didUpdateFaviconURLCandidates|.
 @property(nonatomic, readonly)

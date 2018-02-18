@@ -16,7 +16,6 @@
 
 #include <libaddressinput/address_field.h>
 #include <libaddressinput/localization.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <cstddef>
 #include <string>
@@ -47,23 +46,23 @@ using i18n::addressinput::STREET_ADDRESS;
 TEST(RuleTest, CopyOverwritesRule) {
   Rule rule;
   ASSERT_TRUE(rule.ParseSerializedRule(
-      "{"
-      "\"fmt\":\"%S%Z\","
-      "\"lfmt\":\"%Z%S\","
-      "\"id\":\"data/XA\","
-      "\"name\":\"Le Test\","
-      "\"lname\":\"Testistan\","
-      "\"require\":\"AC\","
-      "\"sub_keys\":\"aa~bb~cc\","
-      "\"languages\":\"en~fr\","
-      "\"zip\":\"\\\\d{3}\","
-      "\"state_name_type\":\"area\","
-      "\"locality_name_type\":\"post_town\","
-      "\"sublocality_name_type\":\"neighborhood\","
-      "\"zip_name_type\":\"postal\","
-      "\"zipex\":\"1234\","
-      "\"posturl\":\"http://www.testpost.com\""
-      "}"));
+      R"({)"
+      R"("fmt":"%S%Z",)"
+      R"("lfmt":"%Z%S",)"
+      R"("id":"data/XA",)"
+      R"("name":"Le Test",)"
+      R"("lname":"Testistan",)"
+      R"("require":"AC",)"
+      R"("sub_keys":"aa~bb~cc",)"
+      R"("languages":"en~fr",)"
+      R"("zip":"\\d{3}",)"
+      R"("state_name_type":"area",)"
+      R"("locality_name_type":"post_town",)"
+      R"("sublocality_name_type":"neighborhood",)"
+      R"("zip_name_type":"postal",)"
+      R"("zipex":"1234",)"
+      R"("posturl":"http://www.testpost.com")"
+      R"(})"));
 
   Rule copy;
   EXPECT_NE(rule.GetFormat(), copy.GetFormat());
@@ -221,19 +220,19 @@ TEST(RuleTest, ParsesPostServiceUrlCorrectly) {
 
 TEST(RuleTest, PostalCodeMatcher) {
   Rule rule;
-  ASSERT_TRUE(rule.ParseSerializedRule("{\"zip\":\"\\\\d{3}\"}"));
+  ASSERT_TRUE(rule.ParseSerializedRule(R"({"zip":"\\d{3}"})"));
   EXPECT_TRUE(rule.GetPostalCodeMatcher() != nullptr);
 }
 
 TEST(RuleTest, PostalCodeMatcherInvalidRegExp) {
   Rule rule;
-  ASSERT_TRUE(rule.ParseSerializedRule("{\"zip\":\"(\"}"));
+  ASSERT_TRUE(rule.ParseSerializedRule(R"({"zip":"("})"));
   EXPECT_TRUE(rule.GetPostalCodeMatcher() == nullptr);
 }
 
 TEST(RuleTest, ParsesJsonRuleCorrectly) {
   Json json;
-  ASSERT_TRUE(json.ParseObject("{\"zip\":\"\\\\d{3}\"}"));
+  ASSERT_TRUE(json.ParseObject(R"({"zip":"\\d{3}"})"));
   Rule rule;
   rule.ParseJsonRule(json);
   EXPECT_TRUE(rule.GetPostalCodeMatcher() != nullptr);
@@ -252,12 +251,13 @@ TEST(RuleTest, EmptyDictionaryIsValid) {
 // Tests for parsing the postal code name.
 class PostalCodeNameParseTest
     : public testing::TestWithParam<std::pair<std::string, int> > {
+ public:
+  PostalCodeNameParseTest(const PostalCodeNameParseTest&) = delete;
+  PostalCodeNameParseTest& operator=(const PostalCodeNameParseTest&) = delete;
+
  protected:
   PostalCodeNameParseTest() {}
   Rule rule_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PostalCodeNameParseTest);
 };
 
 // Verifies that a postal code name is parsed correctly.
@@ -280,12 +280,13 @@ INSTANTIATE_TEST_CASE_P(
 // Tests for parsing the locality name.
 class LocalityNameParseTest
     : public testing::TestWithParam<std::pair<std::string, int> > {
+ public:
+  LocalityNameParseTest(const LocalityNameParseTest&) = delete;
+  LocalityNameParseTest& operator=(const LocalityNameParseTest&) = delete;
+
  protected:
   LocalityNameParseTest() {}
   Rule rule_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(LocalityNameParseTest);
 };
 
 // Verifies that a locality name is parsed correctly.
@@ -308,12 +309,13 @@ INSTANTIATE_TEST_CASE_P(
 // Tests for parsing the locality name.
 class SublocalityNameParseTest
     : public testing::TestWithParam<std::pair<std::string, int> > {
+ public:
+  SublocalityNameParseTest(const SublocalityNameParseTest&) = delete;
+  SublocalityNameParseTest& operator=(const SublocalityNameParseTest&) = delete;
+
  protected:
   SublocalityNameParseTest() {}
   Rule rule_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SublocalityNameParseTest);
 };
 
 // Verifies that a sublocality name is parsed correctly.
@@ -338,12 +340,13 @@ INSTANTIATE_TEST_CASE_P(
 // Tests for parsing the administrative area name.
 class AdminAreaNameParseTest
     : public testing::TestWithParam<std::pair<std::string, int> > {
+ public:
+  AdminAreaNameParseTest(const AdminAreaNameParseTest&) = delete;
+  AdminAreaNameParseTest& operator=(const AdminAreaNameParseTest&) = delete;
+
  protected:
   AdminAreaNameParseTest() {}
   Rule rule_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AdminAreaNameParseTest);
 };
 
 // Verifies that an administrative area name is parsed correctly.
@@ -381,6 +384,10 @@ INSTANTIATE_TEST_CASE_P(
 
 // Tests for rule parsing.
 class RuleParseTest : public testing::TestWithParam<std::string> {
+ public:
+  RuleParseTest(const RuleParseTest&) = delete;
+  RuleParseTest& operator=(const RuleParseTest&) = delete;
+
  protected:
   RuleParseTest() {}
 
@@ -394,9 +401,6 @@ class RuleParseTest : public testing::TestWithParam<std::string> {
 
   Rule rule_;
   Localization localization_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(RuleParseTest);
 };
 
 // Verifies that a region data can be parsed successfully.
@@ -450,12 +454,12 @@ TEST_P(RuleParseTest, SublocalityNameTypeHasUiString) {
   }
 }
 
-// Verifies that the sole postal code is correctly recognised and copied.
+// Verifies that the sole postal code is correctly recognized and copied.
 TEST_P(RuleParseTest, SolePostalCode) {
   Rule rule;
   ASSERT_TRUE(rule.ParseSerializedRule("{\"zip\":\"1234\"}"));
   EXPECT_TRUE(rule.GetPostalCodeMatcher() != nullptr);
-  EXPECT_TRUE(rule.GetSolePostalCode() == "1234");
+  EXPECT_EQ(rule.GetSolePostalCode(), "1234");
 
   Rule copy;
   EXPECT_TRUE(copy.GetPostalCodeMatcher() == nullptr);

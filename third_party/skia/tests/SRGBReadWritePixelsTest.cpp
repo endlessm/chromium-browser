@@ -176,21 +176,22 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SRGBReadWritePixels, reporter, ctxInfo) {
         context->caps()->isConfigTexturable(desc.fConfig)) {
 
         sk_sp<GrSurfaceContext> sContext = context->contextPriv().makeDeferredSurfaceContext(
-                                                                    desc, SkBackingFit::kExact,
-                                                                    SkBudgeted::kNo);
+                                                                             desc, GrMipMapped::kNo,
+                                                                             SkBackingFit::kExact,
+                                                                             SkBudgeted::kNo);
         if (!sContext) {
             ERRORF(reporter, "Could not create SRGBA surface context.");
             return;
         }
 
-        float error = context->caps()->shaderCaps()->floatPrecisionVaries() ? 1.2f  : 0.5f;
+        float error = context->caps()->shaderCaps()->halfIs32Bits() ? 0.5f : 1.2f;
 
         // Write srgba data and read as srgba and then as rgba
         if (sContext->writePixels(iiSRGBA, origData, 0, 0, 0)) {
             // For the all-srgba case, we allow a small error only for devices that have
             // precision variation because the srgba data gets converted to linear and back in
             // the shader.
-            float smallError = context->caps()->shaderCaps()->floatPrecisionVaries() ? 1.f : 0.0f;
+            float smallError = context->caps()->shaderCaps()->halfIs32Bits() ? 0.0f : 1.f;
             read_and_check_pixels(reporter, sContext.get(), origData, iiSRGBA,
                                   check_srgb_to_linear_to_srgb_conversion, smallError,
                                   "write/read srgba to srgba texture");
@@ -215,7 +216,9 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SRGBReadWritePixels, reporter, ctxInfo) {
         }
 
         desc.fConfig = kRGBA_8888_GrPixelConfig;
-        sContext = context->contextPriv().makeDeferredSurfaceContext(desc, SkBackingFit::kExact,
+        sContext = context->contextPriv().makeDeferredSurfaceContext(desc,
+                                                                     GrMipMapped::kNo,
+                                                                     SkBackingFit::kExact,
                                                                      SkBudgeted::kNo);
         if (!sContext) {
             ERRORF(reporter, "Could not create RGBA surface context.");

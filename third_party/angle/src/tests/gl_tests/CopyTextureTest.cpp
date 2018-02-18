@@ -256,10 +256,8 @@ TEST_P(CopyTextureTest, InternalFormat)
 // Test to ensure that the destination texture is redefined if the properties are different.
 TEST_P(CopyTextureTest, RedefineDestinationTexture)
 {
-    if (!checkExtensions())
-    {
-        return;
-    }
+    ANGLE_SKIP_TEST_IF(!checkExtensions());
+    ANGLE_SKIP_TEST_IF(!extensionEnabled("GL_EXT_texture_format_BGRA8888"));
 
     GLColor pixels[4] = {GLColor::red, GLColor::red, GLColor::red, GLColor::red};
 
@@ -395,6 +393,29 @@ TEST_P(CopyTextureTest, CopySubTextureInvalidTextureIds)
     glCopySubTextureCHROMIUM(mTextures[0], 0, GL_TEXTURE_2D, mTextures[1], 0, 1, 1, 0, 0, 1, 1,
                              false, false, false);
     EXPECT_GL_NO_ERROR();
+}
+
+TEST_P(CopyTextureTest, InvalidTarget)
+{
+    ANGLE_SKIP_TEST_IF(!checkExtensions());
+
+    GLTexture textures[2];
+
+    glBindTexture(GL_TEXTURE_2D, textures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+    glBindTexture(GL_TEXTURE_2D, textures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 3, 3, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+    // Invalid enum for a completely invalid target
+    glCopySubTextureCHROMIUM(textures[0], 0, GL_INVALID_VALUE, textures[1], 0, 1, 1, 0, 0, 1, 1,
+                             false, false, false);
+    EXPECT_GL_ERROR(GL_INVALID_ENUM);
+
+    // Invalid value for a valid target enum but is not valid for the destination texture
+    glCopySubTextureCHROMIUM(textures[0], 0, GL_TEXTURE_CUBE_MAP_POSITIVE_X, textures[1], 0, 1, 1,
+                             0, 0, 1, 1, false, false, false);
+    EXPECT_GL_ERROR(GL_INVALID_VALUE);
 }
 
 // Test that using an offset in CopySubTexture works correctly
@@ -994,6 +1015,35 @@ TEST_P(CopyTextureTestDest, AlphaUnmultiply)
 
     glCopyTextureCHROMIUM(mTextures[1], 0, GL_TEXTURE_2D, mTextures[0], 0, GL_ALPHA,
                           GL_UNSIGNED_BYTE, false, false, true);
+
+    EXPECT_GL_NO_ERROR();
+
+    glCopyTextureCHROMIUM(mTextures[0], 0, GL_TEXTURE_2D, mTextures[1], 0, GL_RGBA,
+                          GL_UNSIGNED_BYTE, false, false, false);
+
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expectedPixels);
+}
+
+// Test to ensure that CopyTexture uses the correct ALPHA passthrough shader to ensure RGB channels
+// are set to 0.
+TEST_P(CopyTextureTestDest, AlphaCopyWithRGB)
+{
+    ANGLE_SKIP_TEST_IF(!checkExtensions());
+
+    GLColor originalPixels(50u, 100u, 150u, 155u);
+    GLColor expectedPixels(0u, 0u, 0u, 155u);
+
+    // ReadPixels doesn't work with ALPHA (non-renderable), so we copy again back to an RGBA
+    // texture to verify contents.
+    glBindTexture(GL_TEXTURE_2D, mTextures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &originalPixels);
+    glBindTexture(GL_TEXTURE_2D, mTextures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, 1, 1, 0, GL_ALPHA, GL_HALF_FLOAT_OES, nullptr);
+
+    glCopyTextureCHROMIUM(mTextures[1], 0, GL_TEXTURE_2D, mTextures[0], 0, GL_ALPHA,
+                          GL_HALF_FLOAT_OES, false, false, false);
 
     EXPECT_GL_NO_ERROR();
 

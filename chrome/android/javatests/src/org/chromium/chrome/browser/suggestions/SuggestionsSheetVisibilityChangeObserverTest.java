@@ -27,6 +27,7 @@ import org.junit.runner.RunWith;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Restriction;
+import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ntp.NtpUiCaptureTestData;
@@ -132,17 +133,17 @@ public class SuggestionsSheetVisibilityChangeObserverTest {
 
     @Test
     @MediumTest
+    @RetryOnFailure
     public void testHomeSheetVisibilityOnNewTab() {
         // Show the new tab view
         ThreadUtils.runOnUiThreadBlocking(
                 () -> mActivityRule.getBottomSheet().getNewTabController().displayNewTabUi(false));
         mObserver.expectEvents(InitialReveal, StateChange);
         mEventReporter.surfaceOpenedHelper.waitForCallback();
-        assertEquals(BottomSheet.SHEET_STATE_HALF, mActivityRule.getBottomSheet().getSheetState());
+        assertEquals(BottomSheet.SHEET_STATE_FULL, mActivityRule.getBottomSheet().getSheetState());
 
-        // Tap the omnibox. The bottom sheet should expand to full, with the keyboard coming up.
+        // Tap the omnibox. The bottom sheet should still be full, with the keyboard coming up.
         Espresso.onView(ViewMatchers.withId(R.id.url_bar)).perform(ViewActions.click());
-        mObserver.expectEvents(StateChange);
         assertEquals(BottomSheet.SHEET_STATE_FULL, mActivityRule.getBottomSheet().getSheetState());
 
         // Type in the omnibox, the omnibox suggestion list should come hide the home sheet.

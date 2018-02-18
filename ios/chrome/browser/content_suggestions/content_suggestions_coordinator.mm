@@ -97,7 +97,7 @@
   PrefService* prefs =
       ios::ChromeBrowserState::FromBrowserState(self.browserState)->GetPrefs();
   bool contentSuggestionsEnabled =
-      prefs->GetBoolean(prefs::kSearchSuggestEnabled);
+      prefs->GetBoolean(prefs::kArticlesForYouEnabled);
   if (contentSuggestionsEnabled) {
     ntp_home::RecordNTPImpression(ntp_home::REMOTE_SUGGESTIONS);
   } else {
@@ -133,6 +133,9 @@
              mostVisitedSite:std::move(mostVisitedFactory)];
   self.contentSuggestionsMediator.commandHandler = self.NTPMediator;
   self.contentSuggestionsMediator.headerProvider = self.headerController;
+
+  self.headerController.promoCanShow =
+      [self.contentSuggestionsMediator notificationPromo]->CanShow();
 
   self.metricsRecorder = [[ContentSuggestionsMetricsRecorder alloc] init];
   self.metricsRecorder.delegate = self.contentSuggestionsMediator;

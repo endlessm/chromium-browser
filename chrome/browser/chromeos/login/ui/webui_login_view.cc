@@ -25,8 +25,7 @@
 #include "chrome/browser/chromeos/accessibility/accessibility_util.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/lock_screen_apps/state_controller.h"
-#include "chrome/browser/chromeos/login/ui/internet_detail_dialog.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host_webui.h"
 #include "chrome/browser/chromeos/login/ui/preloaded_web_view.h"
 #include "chrome/browser/chromeos/login/ui/preloaded_web_view_factory.h"
 #include "chrome/browser/chromeos/login/ui/web_contents_forced_title.h"
@@ -40,6 +39,7 @@
 #include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/ash/system_tray_client.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
+#include "chrome/browser/ui/webui/chromeos/internet_detail_dialog.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
@@ -452,11 +452,11 @@ void WebUILoginView::OnVirtualKeyboardStateChanged(bool activated,
 ////////////////////////////////////////////////////////////////////////////////
 // keyboard::KeyboardControllerObserver:
 
-void WebUILoginView::OnKeyboardBoundsChanging(const gfx::Rect& new_bounds) {
+void WebUILoginView::OnKeyboardAvailabilityChanging(const bool is_available) {
   if (!GetOobeUI())
     return;
   CoreOobeView* view = GetOobeUI()->GetCoreOobeView();
-  if (new_bounds.IsEmpty()) {
+  if (!is_available) {
     // Keyboard has been hidden.
     view->ShowControlBar(true);
     view->SetVirtualKeyboardShown(false);
@@ -466,8 +466,6 @@ void WebUILoginView::OnKeyboardBoundsChanging(const gfx::Rect& new_bounds) {
     view->SetVirtualKeyboardShown(true);
   }
 }
-
-void WebUILoginView::OnKeyboardClosed() {}
 
 // WebUILoginView private: -----------------------------------------------------
 

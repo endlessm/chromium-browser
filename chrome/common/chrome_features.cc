@@ -14,6 +14,9 @@ namespace features {
 
 // All features in alphabetical order.
 
+// Enables Ads Metrics.
+const base::Feature kAdsFeature{"AdsMetrics", base::FEATURE_ENABLED_BY_DEFAULT};
+
 #if defined(OS_ANDROID)
 const base::Feature kAllowAutoplayUnmutedInWebappManifestScope{
     "AllowAutoplayUnmutedInWebappManifestScope",
@@ -22,12 +25,16 @@ const base::Feature kAllowAutoplayUnmutedInWebappManifestScope{
 
 #if defined(OS_MACOSX)
 // Enables Javascript execution via AppleScript.
-const base::Feature kAppleScriptExecuteJavaScript{
-    "AppleScriptExecuteJavaScript", base::FEATURE_ENABLED_BY_DEFAULT};
+const base::Feature kAppleScriptExecuteJavaScriptMenuItem{
+    "AppleScriptExecuteJavaScriptMenuItem", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables the fullscreen toolbar to reveal itself if it's hidden.
 const base::Feature kFullscreenToolbarReveal{"FullscreenToolbarReveal",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Use toolkit-views for profile chooser menu.
+const base::Feature kViewsProfileChooser{"ViewsProfileChooser",
+                                         base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Use the Toolkit-Views Task Manager window.
 const base::Feature kViewsTaskManager{"ViewsTaskManager",
@@ -120,6 +127,12 @@ const base::Feature kTabStripKeyboardFocus{"TabStripKeyboardFocus",
                                            base::FEATURE_DISABLED_BY_DEFAULT};
 #endif  // defined(OS_MACOSX)
 
+#if !defined(OS_ANDROID)
+// Enables logging UKMs for background tab activity by TabActivityWatcher.
+const base::Feature kTabMetricsLogging{"TabMetricsLogging",
+                                       base::FEATURE_ENABLED_BY_DEFAULT};
+#endif
+
 // Enables Basic/Advanced tabs in ClearBrowsingData.
 const base::Feature kTabsInCbd{"TabsInCBD", base::FEATURE_ENABLED_BY_DEFAULT};
 
@@ -128,16 +141,22 @@ const base::Feature kTabsInCbd{"TabsInCBD", base::FEATURE_ENABLED_BY_DEFAULT};
 // one that qualifies for inclusion in TopSites.
 const base::Feature kCaptureThumbnailDependingOnTransitionType{
     "CaptureThumbnailDependingOnTransitionType",
-    base::FEATURE_ENABLED_BY_DEFAULT};
+    base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Whether to capture page thumbnails when navigating away from the current page
 // (in addition to any other times this might happen).
 const base::Feature kCaptureThumbnailOnNavigatingAway{
-    "CaptureThumbnailOnNavigatingAway", base::FEATURE_ENABLED_BY_DEFAULT};
+    "CaptureThumbnailOnNavigatingAway", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Whether to trigger app banner installability checks on page load.
 const base::Feature kCheckInstallabilityForBannerOnLoad{
     "CheckInstallabilityForBannerOnLoad", base::FEATURE_DISABLED_BY_DEFAULT};
+
+#if defined(OS_ANDROID)
+// Enables clearing of browsing data which is older than given time period.
+const base::Feature kClearOldBrowsingData{"ClearOldBrowsingData",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
 
 const base::Feature kClickToOpenPDFPlaceholder{
     "ClickToOpenPDFPlaceholder", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -146,6 +165,11 @@ const base::Feature kClickToOpenPDFPlaceholder{
 const base::Feature kContentFullscreen{"ContentFullscreen",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
+
+// Enables a site-wide permission in the UI which controls access to the
+// asynchronous Clipboard web API.
+const base::Feature kClipboardContentSetting{"ClipboardContentSetting",
+                                             base::FEATURE_DISABLED_BY_DEFAULT};
 
 #if defined(OS_ANDROID)
 // Experiment to extract structured metadata for app indexing.
@@ -163,12 +187,6 @@ const base::Feature kDesktopIOSPromotion{"DesktopIOSPromotion",
 // Enables or disables windowing related features for desktop PWAs.
 const base::Feature kDesktopPWAWindowing{"DesktopPWAWindowing",
                                          base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Experiment to display a toggle allowing users to opt-out of persisting a
-// Grant or Deny decision in a permission prompt.
-const base::Feature kDisplayPersistenceToggleInPermissionPrompts{
-    "DisplayPersistenceToggleInPermissionPrompts",
-    base::FEATURE_DISABLED_BY_DEFAULT};
 
 #if !defined(OS_ANDROID)
 const base::Feature kDoodlesOnLocalNtp{"DoodlesOnLocalNtp",
@@ -196,6 +214,38 @@ const base::Feature kExperimentalAppBanners{"ExperimentalAppBanners",
 const base::Feature kExperimentalKeyboardLockUI{
     "ExperimentalKeyboardLockUI", base::FEATURE_DISABLED_BY_DEFAULT};
 
+#if BUILDFLAG(ENABLE_VR) || defined(OS_ANDROID)
+// Controls whether browsing in VR headsets is enabled.
+const base::Feature kVrBrowsing {
+  "VrBrowsing",
+#if defined(OS_ANDROID)
+      base::FEATURE_ENABLED_BY_DEFAULT
+#else
+      base::FEATURE_DISABLED_BY_DEFAULT
+#endif
+};
+#endif  // BUILDFLAG(ENABLE_VR) || defined(OS_ANDROID)
+
+#if BUILDFLAG(ENABLE_VR)
+// Enables the virtual keyboard for Chrome VR.
+const base::Feature kVrBrowserKeyboard{"VrBrowserKeyboard",
+                                       base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Controls features related to VR browsing that are under development.
+const base::Feature kVrBrowsingExperimentalFeatures{
+    "VrBrowsingExperimentalFeatures", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Controls experimental rendering features for VR browsing.
+const base::Feature kVrBrowsingExperimentalRendering{
+    "VrBrowsingExperimentalRendering", base::FEATURE_DISABLED_BY_DEFAULT};
+
+#if BUILDFLAG(ENABLE_OPENVR)
+// Controls OpenVR support.
+const base::Feature kOpenVR{"OpenVR", base::FEATURE_DISABLED_BY_DEFAULT};
+#endif  // ENABLE_OPENVR
+
+#endif  // BUILDFLAG(ENABLE_VR)
+
 #if defined(OS_WIN)
 // Enables using GDI to print text as simply text.
 const base::Feature kGdiTextPrinting {"GdiTextPrinting",
@@ -216,6 +266,12 @@ const base::Feature kImportantSitesInCbd{"ImportantSitesInCBD",
 // a broken Chrome updater in more scenarios than before.
 const base::Feature kImprovedRecoveryComponent{
     "ImprovedRecoveryComponent", base::FEATURE_DISABLED_BY_DEFAULT};
+
+#if !defined(OS_ANDROID)
+// Enables Casting a Presentation API-enabled website to a secondary display.
+const base::Feature kLocalScreenCasting{"LocalScreenCasting",
+                                        base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
 
 // Enables or disables the Location Settings Dialog (LSD). The LSD is an Android
 // system-level geolocation permission prompt.
@@ -254,7 +310,7 @@ const base::Feature kMaterialDesignExtensions{
 
 // Sets whether dismissing the new-tab-page override bubble counts as
 // acknowledgement.
-extern const base::Feature kAcknowledgeNtpOverrideOnDeactivate{
+const base::Feature kAcknowledgeNtpOverrideOnDeactivate{
     "AcknowledgeNtpOverrideOnDeactivate", base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
@@ -278,7 +334,7 @@ const base::Feature kMediaRemoting{"MediaRemoting",
 // of the Media Router dialog with the controller bundled with the WebUI
 // resources.
 const base::Feature kMediaRouterUIRouteController{
-    "MediaRouterUIRouteController", base::FEATURE_DISABLED_BY_DEFAULT};
+    "MediaRouterUIRouteController", base::FEATURE_ENABLED_BY_DEFAULT};
 #endif  // !defined(OS_ANDROID)
 
 // Enables or disables modal permission prompts.
@@ -300,7 +356,8 @@ const base::Feature kMultidevice{"Multidevice",
 // Enables the use of native notification centers instead of using the Message
 // Center for displaying the toasts.
 #if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS)
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
+#if defined(OS_MACOSX) || defined(OS_ANDROID) || \
+    (defined(OS_LINUX) && !defined(OS_CHROMEOS))
 const base::Feature kNativeNotifications{"NativeNotifications",
                                          base::FEATURE_ENABLED_BY_DEFAULT};
 #else
@@ -312,6 +369,12 @@ const base::Feature kNativeNotifications{"NativeNotifications",
 const base::Feature kNetworkPrediction{"NetworkPrediction",
                                        base::FEATURE_ENABLED_BY_DEFAULT};
 
+#if defined(OS_POSIX)
+// Enables NTLMv2, which implicitly disables NTLMv1.
+const base::Feature kNtlmV2Enabled{"NtlmV2Enabled",
+                                   base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
+
 // If enabled, the list of content suggestions on the New Tab page will contain
 // pages that the user downloaded for later use.
 // DO NOT check directly whether this feature is enabled (i.e. do not use
@@ -319,6 +382,12 @@ const base::Feature kNetworkPrediction{"NetworkPrediction",
 // |AreOfflinePageDownloadsEnabled| instead.
 const base::Feature kOfflinePageDownloadSuggestionsFeature{
     "NTPOfflinePageDownloadSuggestions", base::FEATURE_ENABLED_BY_DEFAULT};
+
+#if defined(OS_ANDROID)
+// Enables or disabled the OOM intervention.
+const base::Feature kOomIntervention{"OomIntervention",
+                                     base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
 
 #if !defined(OS_ANDROID)
 // Enables or disabled the OneGoogleBar on the local NTP.
@@ -349,6 +418,11 @@ const base::Feature kPolicyTool{"PolicyTool",
                                 base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
+// Triggers the preconnector on renderer-initiated navigations. This captures
+// more navigations.
+const base::Feature kPreconnectMore{"PreconnectMore",
+                                    base::FEATURE_DISABLED_BY_DEFAULT};
+
 #if BUILDFLAG(ENABLE_PLUGINS)
 // Prefer HTML content by hiding Flash from the list of plugins.
 // https://crbug.com/626728
@@ -361,6 +435,12 @@ const base::Feature kPreferHtmlOverPlugins{"PreferHtmlOverPlugins",
 // locks the Chromebook device.
 const base::Feature kPreloadLockScreen{"PreloadLockScreen",
                                        base::FEATURE_ENABLED_BY_DEFAULT};
+#endif
+
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
+// Enables the new Print Preview UI.
+const base::Feature kNewPrintPreview{"NewPrintPreview",
+                                     base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW) && !defined(OS_WIN) && !defined(OS_MACOSX)
@@ -378,6 +458,12 @@ const base::Feature kPushMessagingBackgroundMode{
 const base::Feature kPwaMinimalUi{"PwaMinimalUi",
                                   base::FEATURE_ENABLED_BY_DEFAULT};
 
+#if !defined(OS_ANDROID)
+const base::Feature kRemoveUsageOfDeprecatedGaiaSigninEndpoint{
+    "RemoveUsageOfDeprecatedGaiaSigninEndpoint",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+#endif
+
 #if defined(OS_CHROMEOS)
 // Runtime flag that indicates whether this leak detector should be enabled in
 // the current instance of Chrome.
@@ -388,41 +474,34 @@ const base::Feature kRuntimeMemoryLeakDetector{
 const base::Feature kSafeSearchUrlReporting{"SafeSearchUrlReporting",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
 
+#if defined(OS_MACOSX)
+// Whether to show all dialogs with toolkit-views on Mac, rather than Cocoa. A
+// subset of "pilot" dialogs can be enabled with kSecondaryUiMd.
+const base::Feature kShowAllDialogsWithViewsToolkit{
+    "ShowAllDialogsWithViewsToolkit", base::FEATURE_ENABLED_BY_DEFAULT};
+#endif  // defined(OS_MACOSX)
+
 #if defined(OS_ANDROID)
 // Enables separate notification channels in Android O for notifications from
 // different origins, instead of sending them all to a single 'Sites' channel.
 const base::Feature kSiteNotificationChannels{"SiteNotificationChannels",
                                               base::FEATURE_ENABLED_BY_DEFAULT};
-#endif  // defined (OS_ANDROID)
+#endif  // defined(OS_ANDROID)
 
 // A new user experience for transitioning into fullscreen and mouse pointer
 // lock states.
 const base::Feature kSimplifiedFullscreenUI{"ViewsSimplifiedFullscreenUI",
                                             base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Enables or disables UI in MD Settings to view content settings grouped by
-// origin.
-const base::Feature kSiteDetails{"SiteDetails",
-                                 base::FEATURE_ENABLED_BY_DEFAULT};
+#if defined(OS_CHROMEOS)
+// Enables or disables the ability to add a Samba Share to the Files app
+const base::Feature kNativeSmb{"NativeSmb", base::FEATURE_DISABLED_BY_DEFAULT};
+#endif  // defined(OS_CHROMEOS)
 
 // Enables or disables the ability to use the sound content setting to mute a
 // website.
 const base::Feature kSoundContentSetting{"SoundContentSetting",
-                                         base::FEATURE_DISABLED_BY_DEFAULT};
-
-#if !defined(OS_ANDROID)
-// Enables delaying the navigation of background tabs in order to improve
-// foreground tab's user experience.
-const base::Feature kStaggeredBackgroundTabOpening{
-    "StaggeredBackgroundTabOpening", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// This controls whether we are running experiment with staggered background
-// tab opening feature. For control group, this should be disabled. This depends
-// on |kStaggeredBackgroundTabOpening| above.
-const base::Feature kStaggeredBackgroundTabOpeningExperiment{
-    "StaggeredBackgroundTabOpeningExperiment",
-    base::FEATURE_ENABLED_BY_DEFAULT};
-#endif
+                                         base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enables or disables the creation of (legacy) supervised users. Does not
 // affect existing supervised users.
@@ -443,9 +522,20 @@ const base::Feature kSyzyasanDeferredFree{"SyzyasanDeferredFree",
                                           base::FEATURE_ENABLED_BY_DEFAULT};
 #endif
 
+// Enable TopSites to source and sort its site data using site engagement.
+const base::Feature kTopSitesFromSiteEngagement{
+    "TopSitesFromSiteEngagement", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables using the local NTP if Google is the default search engine.
 const base::Feature kUseGoogleLocalNtp{"UseGoogleLocalNtp",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
+
+#if defined(OS_CHROMEOS)
+// Enables or disables user activity event logging for power management on
+// Chrome OS.
+const base::Feature kUserActivityEventLogging{
+    "UserActivityEventLogging", base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
 
 #if !defined(OS_ANDROID)
 // Enables or disables Voice Search on the local NTP.
@@ -501,6 +591,7 @@ const base::Feature kEasyUnlockPromotions{"EasyUnlockPromotions",
 // Enables or disables TPM firmware update capability on Chrome OS.
 const base::Feature kTPMFirmwareUpdate{"TPMFirmwareUpdate",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
+
 #endif  // defined(OS_CHROMEOS)
 
 }  // namespace features

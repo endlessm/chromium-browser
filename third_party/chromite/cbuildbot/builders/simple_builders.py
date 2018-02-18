@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import collections
+import traceback
 
 from chromite.cbuildbot import afdo
 from chromite.cbuildbot import manifest_version
@@ -19,19 +20,21 @@ from chromite.cbuildbot.stages import build_stages
 from chromite.cbuildbot.stages import chrome_stages
 from chromite.cbuildbot.stages import completion_stages
 from chromite.cbuildbot.stages import generic_stages
+from chromite.cbuildbot.stages import handle_changes_stages
 from chromite.cbuildbot.stages import release_stages
 from chromite.cbuildbot.stages import report_stages
 from chromite.cbuildbot.stages import scheduler_stages
 from chromite.cbuildbot.stages import sync_stages
+from chromite.cbuildbot.stages import tast_test_stages
 from chromite.cbuildbot.stages import test_stages
 from chromite.cbuildbot.stages import vm_test_stages
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
+from chromite.lib import failures_lib
 from chromite.lib import patch as cros_patch
 from chromite.lib import parallel
 from chromite.lib import results_lib
-from chromite.lib import failures_lib
 
 
 # TODO: SimpleBuilder needs to be broken up big time.
@@ -93,7 +96,6 @@ class SimpleBuilder(generic_builders.Builder):
       builder_run: BuilderRun object for these background stages.
       board: Board name.
     """
-    parallel_stages = []
 
     if not builder_run.options.archive:
       logging.warning("HWTests were requested but could not be run because "
@@ -101,11 +103,13 @@ class SimpleBuilder(generic_builders.Builder):
                       "option in the builder config is set to True.")
       return
 
-    models = [config_lib.ModelTestConfig(board)]
+    # For non-uni builds, we don't pass a model (just board)
+    models = [config_lib.ModelTestConfig(None, board)]
 
     if builder_run.config.models:
       models = builder_run.config.models
 
+    parallel_stages = []
     for suite_config in builder_run.config.hw_tests:
       # Even for blocking stages, all models can still be run in parallel since
       # it will still block the next stage from executing.
@@ -129,7 +133,7 @@ class SimpleBuilder(generic_builders.Builder):
 
     Args:
       builder_run: BuilderRun object for these background stages.
-      board: Board name.
+      board: board overlay name
       model: ModelTestConfig object to test against.
       suite_config: HWTestConfig object that defines the test suite.
 
@@ -152,8 +156,48 @@ class SimpleBuilder(generic_builders.Builder):
                                       board,
                                       model.name,
                                       suite_config,
+                                      lab_board_name=model.lab_board_name,
                                       builder_run=builder_run)
     return result
+
+  def _RunVMTests(self, builder_run, board):
+    """Run VM test stages for the specified board.
+
+    Args:
+      builder_run: BuilderRun object for stages.
+      board: String containing board name.
+    """
+    config = builder_run.config
+    except_infos = []
+
+    try:
+      if config.vm_test_runs > 1:
+        # Run the VMTests multiple times to see if they fail.
+        self._RunStage(generic_stages.RepeatStage, config.vm_test_runs,
+                       vm_test_stages.VMTestStage, board,
+                       builder_run=builder_run)
+      else:
+        # Retry VM-based tests in case failures are flaky.
+        self._RunStage(generic_stages.RetryStage, constants.VM_NUM_RETRIES,
+                       vm_test_stages.VMTestStage, board,
+                       builder_run=builder_run)
+    except Exception as e:
+      except_infos.extend(
+          failures_lib.CreateExceptInfo(e, traceback.format_exc()))
+
+    # Run stages serially to avoid issues encountered when running VMs (or the
+    # devserver) in parallel: https://crbug.com/779267
+    if config.tast_vm_tests:
+      try:
+        self._RunStage(generic_stages.RetryStage, constants.VM_NUM_RETRIES,
+                       tast_test_stages.TastVMTestStage, board,
+                       builder_run=builder_run)
+      except Exception as e:
+        except_infos.extend(
+            failures_lib.CreateExceptInfo(e, traceback.format_exc()))
+
+    if except_infos:
+      raise failures_lib.CompoundFailure('VM tests failed', except_infos)
 
   def _RunDebugSymbolStages(self, builder_run, board):
     """Run debug-related stages for the specified board.
@@ -230,20 +274,9 @@ class SimpleBuilder(generic_builders.Builder):
 
     stage_list += [[chrome_stages.SimpleChromeArtifactsStage, board]]
 
-    if config.vm_test_runs > 1:
-      # Run the VMTests multiple times to see if they fail.
-      stage_list += [
-          [generic_stages.RepeatStage, config.vm_test_runs,
-           vm_test_stages.VMTestStage, board]]
-    else:
-      # Give the VMTests one retry attempt in case failures are flaky.
-      stage_list += [[generic_stages.RetryStage, 1,
-                      vm_test_stages.VMTestStage, board]]
-
     if config.gce_tests:
-      # Give the GCETests one retry attempt in case failures are flaky.
-      stage_list += [[generic_stages.RetryStage, 1, vm_test_stages.GCETestStage,
-                      board]]
+      stage_list += [[generic_stages.RetryStage, constants.VM_NUM_RETRIES,
+                      vm_test_stages.GCETestStage, board]]
 
     if config.afdo_generate:
       stage_list += [[afdo_stages.AFDODataGenerateStage, board]]
@@ -270,6 +303,7 @@ class SimpleBuilder(generic_builders.Builder):
     parallel.RunParallelSteps([
         lambda: self._RunParallelStages(stage_objs + [archive_stage]),
         lambda: self._RunHWTests(builder_run, board),
+        lambda: self._RunVMTests(builder_run, board),
         lambda: self._RunDebugSymbolStages(builder_run, board),
     ])
 
@@ -475,16 +509,28 @@ class DistributedBuilder(SimpleBuilder):
       build_finished: Whether the build completed. A build can be successful
         without completing if it raises ExitEarlyException.
     """
-    completion_stage = self._GetStageInstance(self.completion_stage_class,
-                                              self.sync_stage,
-                                              was_build_successful)
-    self._completion_stage = completion_stage
+    self._completion_stage = self._GetStageInstance(
+        self.completion_stage_class, self.sync_stage, was_build_successful)
     completion_successful = False
     try:
-      completion_stage.Run()
+      self._completion_stage.Run()
+      self._HandleChanges()
       completion_successful = True
+    except failures_lib.StepFailure as e:
+      if isinstance(e, completion_stages.ImportantBuilderFailedException):
+        # When ImportantBuilderFailedException is the only exception, the master
+        # build can still submit partial changes (CLs).
+        self._HandleChanges()
+
+      raise
     finally:
       self._Publish(was_build_successful, build_finished, completion_successful)
+
+  def _HandleChanges(self):
+    """Handle changes picked up by the validation_pool in the sync stage."""
+    if config_lib.IsMasterCQ(self._run.config):
+      self._RunStage(handle_changes_stages.CommitQueueHandleChangesStage,
+                     self.sync_stage, self._completion_stage)
 
   def _Publish(self, was_build_successful, build_finished,
                completion_successful):

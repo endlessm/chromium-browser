@@ -27,6 +27,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -52,6 +53,7 @@ import org.chromium.chrome.browser.suggestions.SuggestionsRanker;
 import org.chromium.chrome.browser.suggestions.SuggestionsUiDelegate;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.util.browser.Features;
+import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.CategoryInfoBuilder;
 import org.chromium.chrome.test.util.browser.suggestions.FakeSuggestionsSource;
 import org.chromium.net.NetworkChangeNotifier;
@@ -65,12 +67,12 @@ import java.util.List;
  */
 @RunWith(LocalRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
-@Features({ @Features.Register(ChromeFeatureList.CHROME_HOME) })
+@EnableFeatures(ChromeFeatureList.CHROME_HOME)
 public class SectionListTest {
     @Rule
     public DisableHistogramsRule mDisableHistogramsRule = new DisableHistogramsRule();
     @Rule
-    public Features.Processor mFeaturesProcessor = new Features.Processor();
+    public TestRule mFeaturesProcessor = new Features.JUnitProcessor();
 
     @CategoryInt
     private static final int CATEGORY1 = 42;
@@ -368,15 +370,18 @@ public class SectionListTest {
         final int initialSectionSize = 2;
         final int updatedSectionSize = 5;
         registerCategory(mSuggestionSource, CATEGORY1, 1);
-        registerCategory(mSuggestionSource, CATEGORY2, initialSectionSize);
+        List<SnippetArticle> suggestions =
+                registerCategory(mSuggestionSource, CATEGORY2, initialSectionSize);
         when(mUiDelegate.isVisible()).thenReturn(true); // Prevent updates on new suggestions.
         SectionList sectionList = new SectionList(mUiDelegate, mOfflinePageBridge);
         sectionList.refreshSuggestions();
 
         assertThat(sectionList.getSection(CATEGORY2).getSuggestionsCount(), is(initialSectionSize));
 
+        // Mark all suggestions as seen so that they cannot get replaced.
+        for (SnippetArticle suggestion : suggestions) suggestion.mExposed = true;
+
         // New suggestions are added, which will make CATEGORY2 stale.
-        bindViewHolders(sectionList);
         mSuggestionSource.setSuggestionsForCategory(
                 CATEGORY2, createDummySuggestions(updatedSectionSize, CATEGORY2));
         assertTrue(sectionList.getSection(CATEGORY2).isDataStale());

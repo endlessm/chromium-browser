@@ -78,8 +78,8 @@ struct RenderTestParams : public angle::PlatformParameters
 {
     virtual std::string suffix() const;
 
-    EGLint windowWidth;
-    EGLint windowHeight;
+    EGLint windowWidth  = 64;
+    EGLint windowHeight = 64;
 };
 
 class ANGLERenderTest : public ANGLEPerfTest
@@ -105,6 +105,9 @@ class ANGLERenderTest : public ANGLEPerfTest
   protected:
     const RenderTestParams &mTestParams;
 
+    void setWebGLCompatibilityEnabled(bool webglCompatibility);
+    void setRobustResourceInit(bool enabled);
+
   private:
     void SetUp() override;
     void TearDown() override;
@@ -113,6 +116,8 @@ class ANGLERenderTest : public ANGLEPerfTest
     void finishTest() override;
 
     bool areExtensionPrerequisitesFulfilled() const;
+
+    static EGLWindow *createEGLWindow(const RenderTestParams &testParams);
 
     EGLWindow *mEGLWindow;
     OSWindow *mOSWindow;

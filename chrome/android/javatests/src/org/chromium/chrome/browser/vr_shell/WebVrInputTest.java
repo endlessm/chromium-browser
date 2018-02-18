@@ -37,6 +37,8 @@ import org.chromium.base.test.util.Restriction;
 import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.vr_shell.rules.VrActivityRestriction;
+import org.chromium.chrome.browser.vr_shell.util.VrShellDelegateUtils;
 import org.chromium.chrome.browser.vr_shell.util.VrTestRuleUtils;
 import org.chromium.chrome.browser.vr_shell.util.VrTransitionUtils;
 import org.chromium.chrome.test.ChromeActivityTestRule;
@@ -86,6 +88,7 @@ public class WebVrInputTest {
     @MediumTest
     @DisableIf.Build(message = "Flaky on K/L crbug.com/762126",
             sdk_is_less_than = Build.VERSION_CODES.M)
+    @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
     public void testScreenTapsNotRegistered() throws InterruptedException {
         mVrTestFramework.loadUrlAndAwaitInitialization(
                 VrTestFramework.getHtmlTestFile("test_screen_taps_not_registered"),
@@ -97,7 +100,7 @@ public class WebVrInputTest {
         // Wait on VrShellImpl to say that its parent consumed the touch event
         // Set to 2 because there's an ACTION_DOWN followed by ACTION_UP
         final CountDownLatch touchRegisteredLatch = new CountDownLatch(2);
-        ((VrShellImpl) VrShellDelegate.getVrShellForTesting())
+        ((VrShellImpl) TestVrShellDelegate.getVrShellForTesting())
                 .setOnDispatchTouchEventForTesting(new OnDispatchTouchEventCallback() {
                     @Override
                     public void onDispatchTouchEvent(boolean parentConsumed) {
@@ -120,6 +123,7 @@ public class WebVrInputTest {
     @Test
     @MediumTest
     @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM)
+    @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
     public void testControllerClicksRegisteredOnDaydream() throws InterruptedException {
         EmulatedVrController controller = new EmulatedVrController(mVrTestRule.getActivity());
         mVrTestFramework.loadUrlAndAwaitInitialization(
@@ -127,6 +131,29 @@ public class WebVrInputTest {
         // Wait to enter VR
         VrTransitionUtils.enterPresentationAndWait(
                 mVrTestFramework.getFirstTabCvc(), mVrTestFramework.getFirstTabWebContents());
+        // The Gamepad API can flakily fail to detect the gamepad from a single button press, so
+        // spam it with button presses
+        boolean controllerConnected = false;
+        for (int i = 0; i < 10; i++) {
+            // The Gamepad API doesn't like detecting pressReleaseTouchpadButton() as it's too fast,
+            // so manually send the up and down events with a delay
+            controller.sendClickButtonToggleEvent();
+            SystemClock.sleep(100);
+            controller.sendClickButtonToggleEvent();
+            SystemClock.sleep(100);
+            if (VrTestFramework
+                            .runJavaScriptOrFail("index != -1", POLL_TIMEOUT_SHORT_MS,
+                                    mVrTestFramework.getFirstTabWebContents())
+                            .equals("true")) {
+                controllerConnected = true;
+                break;
+            }
+        }
+        Assert.assertTrue("Gamepad API detected controller", controllerConnected);
+        // Have a separate start condition so that the above presses/releases don't get
+        // accidentally detected during the actual test
+        VrTestFramework.runJavaScriptOrFail("canStartTest = true;", POLL_TIMEOUT_SHORT_MS,
+                mVrTestFramework.getFirstTabWebContents());
         // Send a controller click and wait for JavaScript to receive it.
         controller.sendClickButtonToggleEvent();
         VrTestFramework.waitOnJavaScriptStep(mVrTestFramework.getFirstTabWebContents());
@@ -144,9 +171,14 @@ public class WebVrInputTest {
     @DisableIf.Build(message = "Flaky on L crbug.com/713781",
             sdk_is_greater_than = Build.VERSION_CODES.KITKAT,
             sdk_is_less_than = Build.VERSION_CODES.M)
+    @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
     public void testScreenTapsRegisteredOnCardboard() throws InterruptedException {
         mVrTestFramework.loadUrlAndAwaitInitialization(
                 VrTestFramework.getHtmlTestFile("test_gamepad_button"), PAGE_LOAD_TIMEOUT_S);
+        // This boolean is used by testControllerClicksRegisteredOnDaydream to prevent some
+        // flakiness, but is unnecessary here, so set immediately
+        VrTestFramework.runJavaScriptOrFail("canStartTest = true;", POLL_TIMEOUT_SHORT_MS,
+                mVrTestFramework.getFirstTabWebContents());
         // Wait to enter VR
         VrTransitionUtils.enterPresentationAndWait(
                 mVrTestFramework.getFirstTabCvc(), mVrTestFramework.getFirstTabWebContents());
@@ -156,7 +188,7 @@ public class WebVrInputTest {
         // TODO(mthiesse, crbug.com/758374): Injecting touch events into the root GvrLayout
         // (VrShellImpl) is flaky. Sometimes the events just don't get routed to the presentation
         // view for no apparent reason. We should figure out why this is and see if it's fixable.
-        final View presentationView = ((VrShellImpl) VrShellDelegate.getVrShellForTesting())
+        final View presentationView = ((VrShellImpl) TestVrShellDelegate.getVrShellForTesting())
                                               .getPresentationViewForTesting();
         long downTime = SystemClock.uptimeMillis();
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
@@ -184,6 +216,7 @@ public class WebVrInputTest {
      */
     @Test
     @MediumTest
+    @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
     public void testPresentationLocksFocus() throws InterruptedException {
         mVrTestFramework.loadUrlAndAwaitInitialization(
                 VrTestFramework.getHtmlTestFile("test_presentation_locks_focus"),
@@ -219,7 +252,8 @@ public class WebVrInputTest {
     @Test
     @MediumTest
     @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM)
-    @CommandLineFlags.Add({"disable-features=" + ChromeFeatureList.VR_SHELL})
+    @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
+    @CommandLineFlags.Add({"disable-features=" + ChromeFeatureList.VR_BROWSING})
     public void testAppButtonNoopsWhenBrowsingDisabled() throws InterruptedException {
         mVrTestFramework.loadUrlAndAwaitInitialization(
                 VrTestFramework.getHtmlTestFile("generic_webvr_page"), PAGE_LOAD_TIMEOUT_S);
@@ -237,6 +271,7 @@ public class WebVrInputTest {
     @Test
     @MediumTest
     @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM)
+    @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
     public void testFocusUpdatesSynchronously() throws InterruptedException {
         mVrTestFramework.loadUrlAndAwaitInitialization(
                 VrTestFramework.getHtmlTestFile("generic_webvr_page_with_activate_listener"),
@@ -245,14 +280,15 @@ public class WebVrInputTest {
         CriteriaHelper.pollUiThread(new Criteria("DisplayActivate was never registered.") {
             @Override
             public boolean isSatisfied() {
-                return VrShellDelegate.getInstanceForTesting().isListeningForWebVrActivate();
+                return VrShellDelegateUtils.getDelegateInstance().isListeningForWebVrActivate();
             }
         }, POLL_TIMEOUT_LONG_MS, POLL_CHECK_INTERVAL_SHORT_MS);
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
                 mVrTestRule.getActivity().getCurrentContentViewCore().onPause();
-                Assert.assertTrue(VrShellDelegate.getInstanceForTesting().isClearActivatePending());
+                Assert.assertTrue(
+                        VrShellDelegateUtils.getDelegateInstance().isClearActivatePending());
             }
         });
     }

@@ -10,6 +10,7 @@
 
 #include "base/values.h"
 #include "chrome/common/profiling/memlog_stream.h"
+#include "chrome/common/profiling/profiling_service.mojom.h"
 #include "chrome/profiling/allocation_event.h"
 #include "services/resource_coordinator/public/interfaces/memory_instrumentation/memory_instrumentation.mojom.h"
 
@@ -31,9 +32,15 @@ struct ExportParams {
   // what the context_id in the allocation mean.
   std::map<std::string, int> context_map;
 
+  // The type of browser [browser, renderer, gpu] that is being heap-dumped.
+  mojom::ProcessType process_type = mojom::ProcessType::OTHER;
+
   // Only allocations exceeding this size or count will be exported.
   size_t min_size_threshold = 0;
   size_t min_count_threshold = 0;
+
+  // Whether or not the outputted JSON should filter strings (anonymized trace).
+  bool is_argument_filtering_enabled = false;
 };
 
 // Creates a JSON-encoded string that is similar in form to traces created by

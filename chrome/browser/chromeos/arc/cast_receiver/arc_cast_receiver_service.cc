@@ -4,9 +4,11 @@
 
 #include "chrome/browser/chromeos/arc/cast_receiver/arc_cast_receiver_service.h"
 
+#include <string>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
@@ -65,17 +67,19 @@ ArcCastReceiverService::ArcCastReceiverService(content::BrowserContext* context,
       prefs::kCastReceiverEnabled,
       base::Bind(&ArcCastReceiverService::OnCastReceiverEnabledChanged,
                  base::Unretained(this)));
-  pref_change_registrar_->Add(
-      prefs::kCastReceiverName,
-      base::Bind(&ArcCastReceiverService::OnCastReceiverNameChanged,
-                 base::Unretained(this)));
+
+  receiver_name_subscription_ =
+      chromeos::CrosSettings::Get()->AddSettingsObserver(
+          chromeos::kCastReceiverName,
+          base::Bind(&ArcCastReceiverService::OnCastReceiverNameChanged,
+                     base::Unretained(this)));
 }
 
 ArcCastReceiverService::~ArcCastReceiverService() {
   arc_bridge_service_->cast_receiver()->RemoveObserver(this);
 }
 
-void ArcCastReceiverService::OnInstanceReady() {
+void ArcCastReceiverService::OnConnectionReady() {
   // Push all existing preferences to the Cast Receiver. Always end with
   // the preference for enabling the receiver so that it does not show up
   // briefly with the wrong settings (e.g. its name).
@@ -102,11 +106,13 @@ void ArcCastReceiverService::OnCastReceiverNameChanged() const {
                                   SetName);
   if (!cast_receiver_instance)
     return;
-  const PrefService::Preference* pref =
-      pref_change_registrar_->prefs()->FindPreference(prefs::kCastReceiverName);
-  if (!pref)
+  std::string name;
+  if (!chromeos::CrosSettings::Get()->GetString(chromeos::kCastReceiverName,
+                                                &name) ||
+      name.empty()) {
     return;
-  cast_receiver_instance->SetName(pref->GetValue()->GetString(),
+  }
+  cast_receiver_instance->SetName(name,
                                   base::Bind(&OnResultReceivedIgnoreResult));
 }
 

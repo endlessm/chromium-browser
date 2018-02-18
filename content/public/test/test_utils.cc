@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/location.h"
@@ -204,10 +205,10 @@ void ResetSchemesAndOriginsWhitelist() {
   url::Initialize();
 }
 
-void EnableFeatureWithParam(const base::Feature& feature,
-                            const std::string& param_name,
-                            const std::string& param_value,
-                            base::CommandLine* command_line) {
+void DeprecatedEnableFeatureWithParam(const base::Feature& feature,
+                                      const std::string& param_name,
+                                      const std::string& param_value,
+                                      base::CommandLine* command_line) {
   static const char kFakeTrialName[] = "TrialNameForTesting";
   static const char kFakeTrialGroupName[] = "TrialGroupForTesting";
 
@@ -393,7 +394,7 @@ void RenderFrameDeletedObserver::WaitUntilDeleted() {
 WebContentsDestroyedWatcher::WebContentsDestroyedWatcher(
     WebContents* web_contents)
     : WebContentsObserver(web_contents) {
-  EXPECT_TRUE(web_contents != NULL);
+  EXPECT_TRUE(web_contents != nullptr);
 }
 
 WebContentsDestroyedWatcher::~WebContentsDestroyedWatcher() {
@@ -405,6 +406,14 @@ void WebContentsDestroyedWatcher::Wait() {
 
 void WebContentsDestroyedWatcher::WebContentsDestroyed() {
   run_loop_.Quit();
+}
+
+GURL EffectiveURLContentBrowserClient::GetEffectiveURL(
+    BrowserContext* browser_context,
+    const GURL& url) {
+  if (url == url_to_modify_)
+    return url_to_return_;
+  return url;
 }
 
 }  // namespace content

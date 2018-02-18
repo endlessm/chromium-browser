@@ -71,7 +71,7 @@
 #include "components/open_from_clipboard/clipboard_recent_content.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/prefs/pref_service.h"
-#include "components/previews/core/previews_ui_service.h"
+#include "components/previews/content/previews_ui_service.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/web_cache/browser/web_cache_manager.h"
@@ -79,6 +79,7 @@
 #include "content/public/browser/plugin_data_remover.h"
 #include "content/public/browser/ssl_host_state_delegate.h"
 #include "content/public/browser/storage_partition.h"
+#include "media/mojo/services/video_decode_perf_history.h"
 #include "net/cookies/cookie_store.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/reporting/reporting_browsing_data_remover.h"
@@ -345,7 +346,6 @@ ChromeBrowsingDataRemoverDelegate::ChromeBrowsingDataRemoverDelegate(
 #endif
       clear_hostname_resolution_cache_(sub_task_forward_callback_),
       clear_network_predictor_(sub_task_forward_callback_),
-      clear_networking_history_(sub_task_forward_callback_),
       clear_passwords_(sub_task_forward_callback_),
       clear_passwords_stats_(sub_task_forward_callback_),
       clear_http_auth_cache_(sub_task_forward_callback_),
@@ -359,6 +359,7 @@ ChromeBrowsingDataRemoverDelegate::ChromeBrowsingDataRemoverDelegate(
 #endif
       clear_auto_sign_in_(sub_task_forward_callback_),
       clear_reporting_cache_(sub_task_forward_callback_),
+      clear_video_perf_history_(sub_task_forward_callback_),
 #if BUILDFLAG(ENABLE_PLUGINS)
       flash_lso_helper_(BrowsingDataFlashLSOHelper::Create(browser_context)),
 #endif
@@ -457,6 +458,9 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
          (!(remove_mask & DATA_TYPE_HISTORY) &&
           !(remove_mask & content::BrowsingDataRemover::DATA_TYPE_DOWNLOADS)));
 
+  HostContentSettingsMap* host_content_settings_map_ =
+      HostContentSettingsMapFactory::GetForProfile(profile_);
+
   //////////////////////////////////////////////////////////////////////////////
   // DATA_TYPE_HISTORY
   if ((remove_mask & DATA_TYPE_HISTORY) && may_delete_history) {
@@ -493,8 +497,7 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     }
 
     language::UrlLanguageHistogram* language_histogram =
-        UrlLanguageHistogramFactory::GetInstance()->GetForBrowserContext(
-            profile_);
+        UrlLanguageHistogramFactory::GetForBrowserContext(profile_);
     if (language_histogram) {
       language_histogram->ClearHistory(delete_begin_, delete_end_);
     }
@@ -675,6 +678,21 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
               ? base::Callback<bool(const std::string&)>()
               : filter_builder.BuildPluginFilter());
     }
+
+    // Clear VideoDecodePerfHistory only if asked to clear from the beginning of
+    // time. The perf history is a simple summing of decode statistics with no
+    // record of when the stats were written nor what site the video was played
+    // on.
+    if (delete_begin_ == base::Time()) {
+      // TODO(chcunningham): Add UMA to track how often this gets deleted.
+      media::VideoDecodePerfHistory* video_decode_perf_history =
+          profile_->GetVideoDecodePerfHistory();
+      if (video_decode_perf_history) {
+        clear_video_perf_history_.Start();
+        video_decode_perf_history->ClearHistory(
+            clear_video_perf_history_.GetCompletionCallback());
+      }
+    }
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -698,10 +716,9 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
        content::BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB)) {
     base::RecordAction(UserMetricsAction("ClearBrowsingData_Cookies"));
 
-    HostContentSettingsMapFactory::GetForProfile(profile_)
-        ->ClearSettingsForOneTypeWithPredicate(
-            CONTENT_SETTINGS_TYPE_CLIENT_HINTS, base::Time(),
-            base::Bind(&WebsiteSettingsFilterAdapter, filter));
+    host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
+        CONTENT_SETTINGS_TYPE_CLIENT_HINTS, base::Time(),
+        base::Bind(&WebsiteSettingsFilterAdapter, filter));
 
     // Clear the safebrowsing cookies only if time period is for "all time".  It
     // doesn't make sense to apply the time period of deleting in the last X
@@ -746,9 +763,8 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     base::RecordAction(UserMetricsAction("ClearBrowsingData_ContentSettings"));
     const auto* registry =
         content_settings::ContentSettingsRegistry::GetInstance();
-    auto* map = HostContentSettingsMapFactory::GetForProfile(profile_);
     for (const content_settings::ContentSettingsInfo* info : *registry) {
-      map->ClearSettingsForOneTypeWithPredicate(
+      host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
           info->website_settings_info()->type(), delete_begin_,
           HostContentSettingsMap::PatternSourcePredicate());
     }
@@ -762,35 +778,31 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
   //////////////////////////////////////////////////////////////////////////////
   // DATA_TYPE_DURABLE_PERMISSION
   if (remove_mask & DATA_TYPE_DURABLE_PERMISSION) {
-    HostContentSettingsMapFactory::GetForProfile(profile_)
-        ->ClearSettingsForOneTypeWithPredicate(
-            CONTENT_SETTINGS_TYPE_DURABLE_STORAGE, base::Time(),
-            base::Bind(&WebsiteSettingsFilterAdapter, filter));
-  }
-
-  //////////////////////////////////////////////////////////////////////////////
-  // Media Engagement
-  if (remove_mask & DATA_TYPE_SITE_USAGE_DATA &&
-      MediaEngagementService::IsEnabled()) {
-    MediaEngagementService::Get(profile_)->ClearDataBetweenTime(delete_begin_,
-                                                                delete_end_);
+    host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
+        CONTENT_SETTINGS_TYPE_DURABLE_STORAGE, base::Time(),
+        base::Bind(&WebsiteSettingsFilterAdapter, filter));
   }
 
   //////////////////////////////////////////////////////////////////////////////
   // DATA_TYPE_SITE_USAGE_DATA
   if (remove_mask & DATA_TYPE_SITE_USAGE_DATA) {
-    HostContentSettingsMapFactory::GetForProfile(profile_)
-        ->ClearSettingsForOneTypeWithPredicate(
-            CONTENT_SETTINGS_TYPE_SITE_ENGAGEMENT, base::Time(),
-            base::Bind(&WebsiteSettingsFilterAdapter, filter));
+    base::RecordAction(UserMetricsAction("ClearBrowsingData_SiteUsageData"));
+
+    host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
+        CONTENT_SETTINGS_TYPE_SITE_ENGAGEMENT, base::Time(),
+        base::Bind(&WebsiteSettingsFilterAdapter, filter));
+
+    if (MediaEngagementService::IsEnabled()) {
+      MediaEngagementService::Get(profile_)->ClearDataBetweenTime(delete_begin_,
+                                                                  delete_end_);
+    }
   }
 
   if ((remove_mask & DATA_TYPE_SITE_USAGE_DATA) ||
       (remove_mask & DATA_TYPE_HISTORY)) {
-    HostContentSettingsMapFactory::GetForProfile(profile_)
-        ->ClearSettingsForOneTypeWithPredicate(
-            CONTENT_SETTINGS_TYPE_APP_BANNER, base::Time(),
-            base::Bind(&WebsiteSettingsFilterAdapter, filter));
+    host_content_settings_map_->ClearSettingsForOneTypeWithPredicate(
+        CONTENT_SETTINGS_TYPE_APP_BANNER, base::Time(),
+        base::Bind(&WebsiteSettingsFilterAdapter, filter));
 
     PermissionDecisionAutoBlocker::GetForProfile(profile_)->RemoveCountsByUrl(
         filter);
@@ -912,13 +924,6 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
           prerender::PrerenderManager::CLEAR_PRERENDER_CONTENTS);
     }
 
-    // When clearing cache, wipe accumulated network related data
-    // (TransportSecurityState and HttpServerPropertiesManager data).
-    clear_networking_history_.Start();
-    profile_->ClearNetworkingHistorySince(
-        delete_begin_,
-        clear_networking_history_.GetCompletionCallback());
-
     ntp_snippets::ContentSuggestionsService* content_suggestions_service =
         ContentSuggestionsServiceFactory::GetForProfileIfExists(profile_);
     if (content_suggestions_service)
@@ -1033,9 +1038,8 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
 
 #if defined(OS_ANDROID)
     clear_media_drm_licenses_.Start();
-    chrome::ClearMediaDrmLicenses(
-        prefs, delete_begin_, delete_end, filter,
-        clear_media_drm_licenses_.GetCompletionCallback());
+    ClearMediaDrmLicenses(prefs, delete_begin_, delete_end, filter,
+                          clear_media_drm_licenses_.GetCompletionCallback());
 #endif  // defined(OS_ANDROID);
   }
 
@@ -1128,7 +1132,6 @@ bool ChromeBrowsingDataRemoverDelegate::AllDone() {
          !clear_nacl_cache_.is_pending() && !clear_pnacl_cache_.is_pending() &&
 #endif
          !clear_network_predictor_.is_pending() &&
-         !clear_networking_history_.is_pending() &&
          !clear_passwords_.is_pending() &&
          !clear_passwords_stats_.is_pending() &&
          !clear_http_auth_cache_.is_pending() &&
@@ -1141,7 +1144,8 @@ bool ChromeBrowsingDataRemoverDelegate::AllDone() {
          !clear_webrtc_logs_.is_pending() &&
 #endif
          !clear_auto_sign_in_.is_pending() &&
-         !clear_reporting_cache_.is_pending() && !clear_plugin_data_count_;
+         !clear_reporting_cache_.is_pending() &&
+         !clear_video_perf_history_.is_pending() && !clear_plugin_data_count_;
 }
 
 #if defined(OS_ANDROID)

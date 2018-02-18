@@ -26,7 +26,7 @@ import org.junit.runner.RunWith;
 public class Camera1CapturerUsingTextureTest {
   static final String TAG = "Camera1CapturerUsingTextureTest";
 
-  private class TestObjectFactory extends CameraVideoCapturerTestFixtures.TestObjectFactory {
+  private static class TestObjectFactory extends CameraVideoCapturerTestFixtures.TestObjectFactory {
     @Override
     public CameraEnumerator getCameraEnumerator() {
       return new Camera1Enumerator();
@@ -54,9 +54,6 @@ public class Camera1CapturerUsingTextureTest {
 
   @Before
   public void setUp() {
-    // Enable VideoFrame capture.
-    PeerConnectionFactory.initializeFieldTrials(PeerConnectionFactory.VIDEO_FRAME_EMIT_TRIAL + "/"
-        + PeerConnectionFactory.TRIAL_ENABLED + "/");
     fixtures = new CameraVideoCapturerTestFixtures(new TestObjectFactory());
   }
 

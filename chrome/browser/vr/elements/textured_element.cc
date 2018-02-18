@@ -5,8 +5,8 @@
 #include "chrome/browser/vr/elements/textured_element.h"
 
 #include "base/trace_event/trace_event.h"
-#include "cc/paint/skia_paint_canvas.h"
 #include "chrome/browser/vr/elements/ui_texture.h"
+#include "chrome/browser/vr/skia_surface_provider.h"
 #include "chrome/browser/vr/ui_element_renderer.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -15,21 +15,28 @@ namespace vr {
 
 namespace {
 static bool g_initialized_for_testing_ = false;
+static bool g_rerender_if_not_dirty_for_testing_ = false;
 }
 
 TexturedElement::TexturedElement(int maximum_width)
-    : texture_handle_(-1), maximum_width_(maximum_width) {}
+    : maximum_width_(maximum_width) {}
+
+TexturedElement::TexturedElement(int maximum_width, ResizeVertically unused)
+    : maximum_width_(maximum_width), resize_vertically_(true) {}
+
+TexturedElement::TexturedElement(int maximum_width, ResizeHorizontally unused)
+    : maximum_width_(maximum_width), resize_vertically_(false) {}
 
 TexturedElement::~TexturedElement() = default;
 
-void TexturedElement::Initialize() {
+void TexturedElement::Initialize(SkiaSurfaceProvider* provider) {
   TRACE_EVENT0("gpu", "TexturedElement::Initialize");
-  glGenTextures(1, &texture_handle_);
-  DCHECK(GetTexture() != nullptr);
+  DCHECK(provider);
+  provider_ = provider;
+  DCHECK(GetTexture());
   texture_size_ = GetTexture()->GetPreferredTextureSize(maximum_width_);
   GetTexture()->OnInitialized();
   initialized_ = true;
-  UpdateTexture();
 }
 
 // static
@@ -37,28 +44,52 @@ void TexturedElement::SetInitializedForTesting() {
   g_initialized_for_testing_ = true;
 }
 
-void TexturedElement::UpdateTexture() {
-  if (!initialized_ || !GetTexture()->dirty() || !IsVisible())
-    return;
-  sk_sp<SkSurface> surface = SkSurface::MakeRasterN32Premul(
-      texture_size_.width(), texture_size_.height());
-  GetTexture()->DrawAndLayout(surface->getCanvas(), texture_size_);
-  Flush(surface.get());
+// static
+void TexturedElement::SetRerenderIfNotDirtyForTesting() {
+  g_rerender_if_not_dirty_for_testing_ = true;
+}
+
+bool TexturedElement::PrepareToDraw() {
+  if (!initialized_ ||
+      !(GetTexture()->dirty() || g_rerender_if_not_dirty_for_testing_) ||
+      !IsVisible())
+    return false;
+  surface_ = provider_->MakeSurface(texture_size_);
+  DCHECK(surface_.get());
+  GetTexture()->DrawAndLayout(surface_->getCanvas(), texture_size_);
+  texture_handle_ = provider_->FlushSurface(surface_.get(), texture_handle_);
   // Update the element size's aspect ratio to match the texture.
   UpdateElementSize();
+  return true;
+}
+
+void TexturedElement::SetForegroundColor(SkColor color) {
+  GetTexture()->SetForegroundColor(color);
+}
+
+void TexturedElement::SetBackgroundColor(SkColor color) {
+  GetTexture()->SetBackgroundColor(color);
 }
 
 void TexturedElement::UpdateElementSize() {
-  // Updating the height according to width is a hack.  This may be overridden.
+  // Adjust the width/height of this element according to the texture. Size in
+  // the other direction is determined by the associated texture.
   gfx::SizeF drawn_size = GetTexture()->GetDrawnSize();
-  float height =
-      drawn_size.height() / drawn_size.width() * stale_size().width();
-  SetSize(stale_size().width(), height);
+  if (resize_vertically_) {
+    DCHECK_GT(stale_size().width(), 0.f);
+    float height =
+        drawn_size.height() / drawn_size.width() * stale_size().width();
+    SetSize(stale_size().width(), height);
+  } else {
+    DCHECK_GT(stale_size().height(), 0.f);
+    float width =
+        drawn_size.width() / drawn_size.height() * stale_size().height();
+    SetSize(width, stale_size().height());
+  }
 }
 
-void TexturedElement::Render(
-    UiElementRenderer* renderer,
-    const gfx::Transform& model_view_proj_matrix) const {
+void TexturedElement::Render(UiElementRenderer* renderer,
+                             const CameraModel& model) const {
   if (!g_initialized_for_testing_) {
     if (!initialized_)
       return;
@@ -67,38 +98,10 @@ void TexturedElement::Render(
   gfx::SizeF drawn_size = GetTexture()->GetDrawnSize();
   gfx::RectF copy_rect(0, 0, drawn_size.width() / texture_size_.width(),
                        drawn_size.height() / texture_size_.height());
-  renderer->DrawTexturedQuad(texture_handle_,
-                             UiElementRenderer::kTextureLocationLocal,
-                             model_view_proj_matrix, copy_rect,
-                             computed_opacity(), size(), corner_radius());
-}
-
-void TexturedElement::Flush(SkSurface* surface) {
-  cc::SkiaPaintCanvas paint_canvas(surface->getCanvas());
-  paint_canvas.flush();
-  SkPixmap pixmap;
-  CHECK(surface->peekPixels(&pixmap));
-
-  SkColorType type = pixmap.colorType();
-  DCHECK(type == kRGBA_8888_SkColorType || type == kBGRA_8888_SkColorType);
-  GLint format = (type == kRGBA_8888_SkColorType ? GL_RGBA : GL_BGRA);
-
-  glBindTexture(GL_TEXTURE_2D, texture_handle_);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexImage2D(GL_TEXTURE_2D, 0, format, pixmap.width(), pixmap.height(), 0,
-               format, GL_UNSIGNED_BYTE, pixmap.addr());
-}
-
-void TexturedElement::OnSetMode() {
-  GetTexture()->SetMode(mode());
-  UpdateTexture();
-}
-
-void TexturedElement::PrepareToDraw() {
-  UpdateTexture();
+  renderer->DrawTexturedQuad(
+      texture_handle_, UiElementRenderer::kTextureLocationLocal,
+      model.view_proj_matrix * world_space_transform(), copy_rect,
+      computed_opacity(), size(), corner_radius());
 }
 
 }  // namespace vr

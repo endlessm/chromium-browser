@@ -7,7 +7,10 @@
 #include "chrome/browser/ui/browser_window.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/browser_window_touch_bar.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/prefs/pref_service.h"
+#include "components/search_engines/search_engines_test_util.cc"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gtest_mac.h"
@@ -15,40 +18,16 @@
 @interface TestingBrowserWindowTouchBar : BrowserWindowTouchBar
 
 @property(nonatomic, assign) BOOL hasUpdatedReloadStop;
-@property(nonatomic, assign) BOOL hasUpdatedBackForward;
-@property(nonatomic, assign) BOOL hasUpdatedStarred;
-
-- (void)updateReloadStopButton;
-- (void)updateBackForwardControl;
-- (void)updateStarredButton;
 
 @end
 
 @implementation TestingBrowserWindowTouchBar
 
 @synthesize hasUpdatedReloadStop = hasUpdatedReloadStop_;
-@synthesize hasUpdatedBackForward = hasUpdatedBackForward_;
-@synthesize hasUpdatedStarred = hasUpdatedStarred_;
 
 - (void)updateReloadStopButton {
   [super updateReloadStopButton];
   hasUpdatedReloadStop_ = YES;
-}
-
-- (void)updateBackForwardControl {
-  [super updateBackForwardControl];
-  hasUpdatedBackForward_ = YES;
-}
-
-- (void)updateStarredButton {
-  [super updateStarredButton];
-  hasUpdatedStarred_ = YES;
-}
-
-- (void)resetFlags {
-  hasUpdatedReloadStop_ = YES;
-  hasUpdatedBackForward_ = YES;
-  hasUpdatedStarred_ = YES;
 }
 
 @end
@@ -89,19 +68,15 @@ IN_PROC_BROWSER_TEST_F(BrowserWindowTouchBarTest, PageLoadInvalidate) {
     NSButton* reload_stop = [browser_touch_bar() reloadStopButton];
     EXPECT_TRUE(reload_stop);
 
-    BrowserWindowController* bwc = browser_window_controller();
-    [bwc setIsLoading:YES force:NO];
+    browser()->window()->UpdateReloadStopState(true, false);
     EXPECT_TRUE([browser_touch_bar() hasUpdatedReloadStop]);
-    EXPECT_TRUE([browser_touch_bar() hasUpdatedBackForward]);
-    EXPECT_TRUE([browser_touch_bar() hasUpdatedStarred]);
     EXPECT_EQ(IDC_STOP, [reload_stop tag]);
 
-    [browser_touch_bar() resetFlags];
+    // Reset the flag.
+    [browser_touch_bar() setHasUpdatedReloadStop:NO];
 
-    [bwc setIsLoading:NO force:NO];
+    browser()->window()->UpdateReloadStopState(false, false);
     EXPECT_TRUE([browser_touch_bar() hasUpdatedReloadStop]);
-    EXPECT_TRUE([browser_touch_bar() hasUpdatedBackForward]);
-    EXPECT_TRUE([browser_touch_bar() hasUpdatedStarred]);
     EXPECT_EQ(IDC_RELOAD, [reload_stop tag]);
   }
 }
@@ -130,6 +105,29 @@ IN_PROC_BROWSER_TEST_F(BrowserWindowTouchBarTest, StarredChanges) {
 
     // The window should have a new touch bar.
     [browser_window_controller() setStarredState:YES];
+    EXPECT_NE(touch_bar, [window touchBar]);
+  }
+}
+
+// Tests if the touch bar gets invalidated if the default search engine has
+// changed.
+IN_PROC_BROWSER_TEST_F(BrowserWindowTouchBarTest, SearchEngineChanges) {
+  if (@available(macOS 10.12.2, *)) {
+    PrefService* prefs = browser()->profile()->GetPrefs();
+    DCHECK(prefs);
+
+    NSWindow* window = [browser_window_controller() window];
+    NSTouchBar* touch_bar = [browser_touch_bar() makeTouchBar];
+    [window setTouchBar:touch_bar];
+    EXPECT_TRUE([window touchBar]);
+
+    // Change the default search engine.
+    std::unique_ptr<TemplateURLData> data =
+        GenerateDummyTemplateURLData("poutine");
+    prefs->Set(DefaultSearchManager::kDefaultSearchProviderDataPrefName,
+               *TemplateURLDataToDictionary(*data));
+
+    // The window should have a new touch bar.
     EXPECT_NE(touch_bar, [window touchBar]);
   }
 }

@@ -53,14 +53,8 @@ class WebViewTranslateClient
     return translate_manager_.get();
   }
 
- private:
-  friend class web::WebStateUserData<WebViewTranslateClient>;
-
-  // The lifetime of WebViewTranslateClient is managed by WebStateUserData.
-  explicit WebViewTranslateClient(web::WebState* web_state);
-
   // TranslateClient implementation.
-  translate::TranslateDriver* GetTranslateDriver() override;
+  translate::IOSTranslateDriver* GetTranslateDriver() override;
   PrefService* GetPrefs() override;
   std::unique_ptr<translate::TranslatePrefs> GetTranslatePrefs() override;
   translate::TranslateAcceptLanguages* GetTranslateAcceptLanguages() override;
@@ -79,8 +73,14 @@ class WebViewTranslateClient
   bool IsTranslatableURL(const GURL& url) override;
   void ShowReportLanguageDetectionErrorUI(const GURL& report_url) override;
 
+ private:
+  friend class web::WebStateUserData<WebViewTranslateClient>;
+
+  // The lifetime of WebViewTranslateClient is managed by WebStateUserData.
+  explicit WebViewTranslateClient(web::WebState* web_state);
+
   // web::WebStateObserver implementation.
-  void WebStateDestroyed() override;
+  void WebStateDestroyed(web::WebState* web_state) override;
 
   std::unique_ptr<translate::TranslateManager> translate_manager_;
   translate::IOSTranslateDriver translate_driver_;

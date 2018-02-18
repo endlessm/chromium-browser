@@ -10,12 +10,13 @@
 #include <vector>
 
 #include "ash/app_list/test_app_list_presenter_impl.h"
-#include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shelf_item_delegate.h"
 #include "ash/public/cpp/shelf_model.h"
+#include "ash/public/cpp/shelf_prefs.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/root_window_controller.h"
+#include "ash/session/session_controller.h"
 #include "ash/shelf/app_list_button.h"
 #include "ash/shelf/overflow_bubble.h"
 #include "ash/shelf/overflow_bubble_view.h"
@@ -46,7 +47,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
+#include "base/test/icu_test_util.h"
 #include "base/test/scoped_mock_time_message_loop_task_runner.h"
 #include "base/test/user_action_tester.h"
 #include "base/time/time.h"
@@ -125,8 +126,8 @@ class TestShelfObserver : public ShelfObserver {
 
 class ShelfObserverIconTest : public AshTestBase {
  public:
-  ShelfObserverIconTest() {}
-  ~ShelfObserverIconTest() override {}
+  ShelfObserverIconTest() = default;
+  ~ShelfObserverIconTest() override = default;
 
   void SetUp() override {
     AshTestBase::SetUp();
@@ -156,7 +157,7 @@ class ShelfObserverIconTest : public AshTestBase {
 class ShelfItemSelectionTracker : public ShelfItemDelegate {
  public:
   ShelfItemSelectionTracker() : ShelfItemDelegate(ShelfID()) {}
-  ~ShelfItemSelectionTracker() override {}
+  ~ShelfItemSelectionTracker() override = default;
 
   size_t item_selected_count() const { return item_selected_count_; }
   void set_item_selected_action(ShelfAction item_selected_action) {
@@ -201,10 +202,6 @@ TEST_F(ShelfObserverIconTest, AddRemove) {
 // Make sure creating/deleting an window on one displays notifies a
 // shelf on external display as well as one on primary.
 TEST_F(ShelfObserverIconTest, AddRemoveWithMultipleDisplays) {
-  // TODO: investigate failure in mash, http://crbug.com/695751.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   UpdateDisplay("400x400,400x400");
   observer()->Reset();
 
@@ -254,8 +251,8 @@ class ShelfViewTest : public AshTestBase {
   static const char*
       kTimeBetweenWindowMinimizedAndActivatedActionsHistogramName;
 
-  ShelfViewTest() {}
-  ~ShelfViewTest() override {}
+  ShelfViewTest() = default;
+  ~ShelfViewTest() override = default;
 
   void SetUp() override {
     AshTestBase::SetUp();
@@ -669,37 +666,15 @@ const char*
         ShelfButtonPressedMetricTracker::
             kTimeBetweenWindowMinimizedAndActivatedActionsHistogramName;
 
-class ScopedTextDirectionChange {
- public:
-  explicit ScopedTextDirectionChange(bool is_rtl) : is_rtl_(is_rtl) {
-    original_locale_ = base::i18n::GetConfiguredLocale();
-    if (is_rtl_)
-      base::i18n::SetICUDefaultLocale("he");
-    CheckTextDirectionIsCorrect();
-  }
-
-  ~ScopedTextDirectionChange() {
-    if (is_rtl_)
-      base::i18n::SetICUDefaultLocale(original_locale_);
-  }
-
- private:
-  void CheckTextDirectionIsCorrect() {
-    ASSERT_EQ(is_rtl_, base::i18n::IsRTL());
-  }
-
-  bool is_rtl_;
-  std::string original_locale_;
-};
-
 class ShelfViewTextDirectionTest : public ShelfViewTest,
                                    public testing::WithParamInterface<bool> {
  public:
-  ShelfViewTextDirectionTest() : text_direction_change_(GetParam()) {}
-  virtual ~ShelfViewTextDirectionTest() {}
+  ShelfViewTextDirectionTest() : scoped_locale_(GetParam() ? "he" : "") {}
+  virtual ~ShelfViewTextDirectionTest() = default;
 
  private:
-  ScopedTextDirectionChange text_direction_change_;
+  // Restores locale to the default when destructor is called.
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_;
 
   DISALLOW_COPY_AND_ASSIGN(ShelfViewTextDirectionTest);
 };
@@ -1218,9 +1193,6 @@ TEST_F(ShelfViewTest, ShelfItemStatus) {
   int index = model_->ItemIndexByID(last_added);
   ShelfButton* button = GetButtonByID(last_added);
   ASSERT_EQ(ShelfButton::STATE_RUNNING, button->state());
-  item.status = STATUS_ACTIVE;
-  model_->Set(index, item);
-  ASSERT_EQ(ShelfButton::STATE_ACTIVE, button->state());
   item.status = STATUS_ATTENTION;
   model_->Set(index, item);
   ASSERT_EQ(ShelfButton::STATE_ATTENTION, button->state());
@@ -1336,9 +1308,6 @@ TEST_F(ShelfViewTest, ShelfItemStatusPlatformApp) {
   int index = model_->ItemIndexByID(last_added);
   ShelfButton* button = GetButtonByID(last_added);
   ASSERT_EQ(ShelfButton::STATE_RUNNING, button->state());
-  item.status = STATUS_ACTIVE;
-  model_->Set(index, item);
-  ASSERT_EQ(ShelfButton::STATE_ACTIVE, button->state());
   item.status = STATUS_ATTENTION;
   model_->Set(index, item);
   ASSERT_EQ(ShelfButton::STATE_ATTENTION, button->state());
@@ -1834,10 +1803,6 @@ TEST_F(ShelfViewTest, CheckOverflowStatusPinOpenedAppToShelf) {
 // item is selected.
 TEST_F(ShelfViewTest,
        Launcher_ButtonPressedUserActionsRecordedWhenItemSelected) {
-  // TODO: investigate failure in mash, http://crbug.com/695751.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   base::UserActionTester user_action_tester;
 
   ShelfItemSelectionTracker* selection_tracker = new ShelfItemSelectionTracker;
@@ -1853,10 +1818,6 @@ TEST_F(ShelfViewTest,
 // Verifies that Launcher_*Task UMA user actions are recorded when an item is
 // selected.
 TEST_F(ShelfViewTest, Launcher_TaskUserActionsRecordedWhenItemSelected) {
-  // TODO: investigate failure in mash, http://crbug.com/695751.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   base::UserActionTester user_action_tester;
 
   ShelfItemSelectionTracker* selection_tracker = new ShelfItemSelectionTracker;
@@ -2004,7 +1965,13 @@ TEST_F(ShelfViewTest, TestShelfItemsAnimations) {
   test_api_->RunMessageLoopUntilAnimationsDone();
   EXPECT_EQ(1, observer.icon_positions_animation_duration());
 
-  // The shelf items should animate if we are entering or exiting tablet mode.
+  // The shelf items should animate if we are entering or exiting tablet mode,
+  // and the shelf alignment is bottom aligned.
+  PrefService* prefs =
+      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
+  const int64_t id = GetPrimaryDisplay().id();
+  shelf_view_->shelf()->SetAlignment(SHELF_ALIGNMENT_BOTTOM);
+  SetShelfAlignmentPref(prefs, id, SHELF_ALIGNMENT_BOTTOM);
   observer.Reset();
   Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
   test_api_->RunMessageLoopUntilAnimationsDone();
@@ -2014,6 +1981,20 @@ TEST_F(ShelfViewTest, TestShelfItemsAnimations) {
   Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(false);
   test_api_->RunMessageLoopUntilAnimationsDone();
   EXPECT_EQ(animation_duration, observer.icon_positions_animation_duration());
+
+  // The shelf items should not animate if we are entering or exiting tablet
+  // mode, and the shelf alignment is not bottom aligned.
+  shelf_view_->shelf()->SetAlignment(SHELF_ALIGNMENT_LEFT);
+  SetShelfAlignmentPref(prefs, id, SHELF_ALIGNMENT_LEFT);
+  observer.Reset();
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
+  test_api_->RunMessageLoopUntilAnimationsDone();
+  EXPECT_EQ(1, observer.icon_positions_animation_duration());
+
+  observer.Reset();
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(false);
+  test_api_->RunMessageLoopUntilAnimationsDone();
+  EXPECT_EQ(1, observer.icon_positions_animation_duration());
 }
 
 // Tests that the blank shelf view area shows a context menu on right click.
@@ -2079,10 +2060,6 @@ TEST_F(ShelfViewTest, ShelfDragViewAndContextMenu) {
 }
 
 TEST_F(ShelfViewTest, MouseWheelScrollOnShelfTransitionsAppList) {
-  // Enable the Fullscreen AppList.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      app_list::features::kEnableFullscreenAppList);
   TestAppListPresenterImpl app_list_presenter_impl;
   app_list_presenter_impl.ShowAndRunLoop(GetPrimaryDisplayId());
   app_list::test::TestAppListPresenter test_app_list_presenter;
@@ -2100,10 +2077,6 @@ TEST_F(ShelfViewTest, MouseWheelScrollOnShelfTransitionsAppList) {
 }
 
 TEST_F(ShelfViewTest, MouseWheelScrollOnApplistButtonTransitionsAppList) {
-  // Enable the fullscreen app list.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      app_list::features::kEnableFullscreenAppList);
   TestAppListPresenterImpl app_list_presenter_impl;
   app_list_presenter_impl.ShowAndRunLoop(GetPrimaryDisplayId());
   app_list::test::TestAppListPresenter test_app_list_presenter;
@@ -2122,10 +2095,6 @@ TEST_F(ShelfViewTest, MouseWheelScrollOnApplistButtonTransitionsAppList) {
 }
 
 TEST_F(ShelfViewTest, MouseWheelScrollOnAppIconTransitionsAppList) {
-  // Enable the Fullscreen AppList.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      app_list::features::kEnableFullscreenAppList);
   TestAppListPresenterImpl app_list_presenter_impl;
   app_list_presenter_impl.ShowAndRunLoop(GetPrimaryDisplayId());
   app_list::test::TestAppListPresenter test_app_list_presenter;
@@ -2148,7 +2117,7 @@ TEST_F(ShelfViewTest, MouseWheelScrollOnAppIconTransitionsAppList) {
 class ShelfViewVisibleBoundsTest : public ShelfViewTest,
                                    public testing::WithParamInterface<bool> {
  public:
-  ShelfViewVisibleBoundsTest() : text_direction_change_(GetParam()) {}
+  ShelfViewVisibleBoundsTest() : scoped_locale_(GetParam() ? "he" : "") {}
 
   void CheckAllItemsAreInBounds() {
     gfx::Rect visible_bounds = shelf_view_->GetVisibleItemsBoundsInScreen();
@@ -2170,7 +2139,8 @@ class ShelfViewVisibleBoundsTest : public ShelfViewTest,
   }
 
  private:
-  ScopedTextDirectionChange text_direction_change_;
+  // Restores locale to the default when destructor is called.
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_;
 
   DISALLOW_COPY_AND_ASSIGN(ShelfViewVisibleBoundsTest);
 };
@@ -2206,7 +2176,7 @@ class InkDropSpy : public views::InkDrop {
  public:
   explicit InkDropSpy(std::unique_ptr<views::InkDrop> ink_drop)
       : ink_drop_(std::move(ink_drop)) {}
-  ~InkDropSpy() override {}
+  ~InkDropSpy() override = default;
 
   std::vector<views::InkDropState> GetAndResetRequestedStates() {
     std::vector<views::InkDropState> requested_states;
@@ -2256,7 +2226,7 @@ class InkDropSpy : public views::InkDrop {
 class ListMenuShelfItemDelegate : public ShelfItemDelegate {
  public:
   ListMenuShelfItemDelegate() : ShelfItemDelegate(ShelfID()) {}
-  ~ListMenuShelfItemDelegate() override {}
+  ~ListMenuShelfItemDelegate() override = default;
 
  private:
   // ShelfItemDelegate:
@@ -2281,8 +2251,8 @@ class ListMenuShelfItemDelegate : public ShelfItemDelegate {
 // Test fixture for testing material design ink drop ripples on shelf.
 class ShelfViewInkDropTest : public ShelfViewTest {
  public:
-  ShelfViewInkDropTest() {}
-  ~ShelfViewInkDropTest() override {}
+  ShelfViewInkDropTest() = default;
+  ~ShelfViewInkDropTest() override = default;
 
   void SetUp() override {
     ash_test_helper()->set_test_shell_delegate(new TestShellDelegate());
@@ -2721,7 +2691,7 @@ class AppListButtonInkDropTest
  public:
   AppListButtonInkDropTest() : pointer_type_(GetParam()) {}
 
-  ~AppListButtonInkDropTest() override {}
+  ~AppListButtonInkDropTest() override = default;
 
   void MovePointerTo(const gfx::Point& point) {
     if (pointer_type_ == ui::EventPointerType::POINTER_TYPE_MOUSE)
@@ -2855,8 +2825,8 @@ std::string ToString(ShelfAlignment shelf_alignment) {
 // Test fixture for testing material design ink drop on overflow button.
 class OverflowButtonInkDropTest : public ShelfViewInkDropTest {
  public:
-  OverflowButtonInkDropTest() {}
-  ~OverflowButtonInkDropTest() override {}
+  OverflowButtonInkDropTest() = default;
+  ~OverflowButtonInkDropTest() override = default;
 
   void SetUp() override {
     ShelfViewInkDropTest::SetUp();
@@ -3130,8 +3100,8 @@ class OverflowButtonTextDirectionTest
     : public OverflowButtonInkDropTest,
       public testing::WithParamInterface<bool> {
  public:
-  OverflowButtonTextDirectionTest() : text_direction_change_(GetParam()) {}
-  ~OverflowButtonTextDirectionTest() override {}
+  OverflowButtonTextDirectionTest() : scoped_locale_(GetParam() ? "he" : "") {}
+  ~OverflowButtonTextDirectionTest() override = default;
 
   void SetUp() override {
     OverflowButtonInkDropTest::SetUp();
@@ -3144,7 +3114,8 @@ class OverflowButtonTextDirectionTest
   std::unique_ptr<OverflowButtonTestApi> overflow_button_test_api_;
 
  private:
-  ScopedTextDirectionChange text_direction_change_;
+  // Restores locale to the default when destructor is called.
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_;
 
   DISALLOW_COPY_AND_ASSIGN(OverflowButtonTextDirectionTest);
 };
@@ -3203,8 +3174,8 @@ TEST_P(OverflowButtonTextDirectionTest, ChevronDirection) {
 // it is active.
 class OverflowButtonActiveInkDropTest : public OverflowButtonInkDropTest {
  public:
-  OverflowButtonActiveInkDropTest() {}
-  ~OverflowButtonActiveInkDropTest() override {}
+  OverflowButtonActiveInkDropTest() = default;
+  ~OverflowButtonActiveInkDropTest() override = default;
 
   void SetUp() override {
     OverflowButtonInkDropTest::SetUp();

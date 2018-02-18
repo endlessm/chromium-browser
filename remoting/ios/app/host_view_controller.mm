@@ -47,6 +47,9 @@ static const CGFloat kMoveFABAnimationTime = 0.3;
   BOOL _surfaceCreated;
   HostSettings* _settings;
 
+  // Used to blur the content when the app enters background.
+  UIView* _blurView;
+
   // Only change this by calling setFabIsRight:.
   BOOL _fabIsRight;
   NSArray<NSLayoutConstraint*>* _fabLeftConstraints;
@@ -81,12 +84,6 @@ static const CGFloat kMoveFABAnimationTime = 0.3;
     _hasPhysicalKeyboard = NO;
     _settings =
         [[RemotingPreferences instance] settingsForHost:client.hostInfo.hostId];
-    _surfaceSizeAnimationLink = [CADisplayLink
-        displayLinkWithTarget:self
-                     selector:@selector(animateHostSurfaceSize:)];
-    _surfaceSizeAnimationLink.paused = YES;
-    [_surfaceSizeAnimationLink addToRunLoop:NSRunLoop.currentRunLoop
-                                    forMode:NSDefaultRunLoopMode];
 
     BOOL fabIsRight =
         [UIView userInterfaceLayoutDirectionForSemanticContentAttribute:
@@ -220,6 +217,7 @@ static const CGFloat kMoveFABAnimationTime = 0.3;
         [[ClientGestures alloc] initWithView:_hostView client:_client];
     _clientGestures.delegate = self;
   }
+
   [[NSNotificationCenter defaultCenter]
       addObserver:self
          selector:@selector(keyboardWillShow:)
@@ -231,6 +229,32 @@ static const CGFloat kMoveFABAnimationTime = 0.3;
          selector:@selector(keyboardWillHide:)
              name:UIKeyboardWillHideNotification
            object:nil];
+
+  [NSNotificationCenter.defaultCenter
+      addObserver:self
+         selector:@selector(applicationDidBecomeActive:)
+             name:UIApplicationDidBecomeActiveNotification
+           object:nil];
+
+  [NSNotificationCenter.defaultCenter
+      addObserver:self
+         selector:@selector(applicationWillResignActive:)
+             name:UIApplicationWillResignActiveNotification
+           object:nil];
+
+  // If the host view is presented when the app is inactive, synthesize an
+  // initial UIApplicationWillResignActiveNotification event.
+  if (UIApplication.sharedApplication.applicationState !=
+      UIApplicationStateActive) {
+    [self applicationWillResignActive:UIApplication.sharedApplication];
+  }
+
+  _surfaceSizeAnimationLink =
+      [CADisplayLink displayLinkWithTarget:self
+                                  selector:@selector(animateHostSurfaceSize:)];
+  _surfaceSizeAnimationLink.paused = YES;
+  [_surfaceSizeAnimationLink addToRunLoop:NSRunLoop.currentRunLoop
+                                  forMode:NSDefaultRunLoopMode];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -240,6 +264,9 @@ static const CGFloat kMoveFABAnimationTime = 0.3;
                                       forHost:_client.hostInfo.hostId];
 
   [[NSNotificationCenter defaultCenter] removeObserver:self];
+
+  _surfaceSizeAnimationLink.paused = YES;
+  [_surfaceSizeAnimationLink invalidate];
 }
 
 - (void)viewDidLayoutSubviews {
@@ -315,8 +342,6 @@ static const CGFloat kMoveFABAnimationTime = 0.3;
 #pragma mark - RemotingSettingsViewControllerDelegate
 
 - (void)setResizeToFit:(BOOL)resizeToFit {
-  // TODO(yuweih): Maybe we add a native screen size mimimum before enabling
-  // this option? This doesn't work well for smaller screens. Ask Jon.
   _settings.shouldResizeHostToFit = resizeToFit;
   [self resizeHostToFitIfNeeded];
 }
@@ -598,6 +623,33 @@ static const CGFloat kMoveFABAnimationTime = 0.3;
                        [self.view layoutIfNeeded];
                      }];
   }
+}
+
+- (void)applicationDidBecomeActive:(UIApplication*)application {
+  if (!_blurView) {
+    LOG(DFATAL) << "Blur view does not exist.";
+    return;
+  }
+  [_blurView removeFromSuperview];
+  _blurView = nil;
+}
+
+- (void)applicationWillResignActive:(UIApplication*)application {
+  if (_blurView) {
+    LOG(DFATAL) << "Blur view already exists.";
+    return;
+  }
+  UIBlurEffect* effect =
+      [UIBlurEffect effectWithStyle:UIBlurEffectStyleRegular];
+  _blurView = [[UIVisualEffectView alloc] initWithEffect:effect];
+  _blurView.translatesAutoresizingMaskIntoConstraints = NO;
+  [self.view insertSubview:_blurView aboveSubview:_hostView];
+  [NSLayoutConstraint activateConstraints:@[
+    [_blurView.leadingAnchor constraintEqualToAnchor:_hostView.leadingAnchor],
+    [_blurView.trailingAnchor constraintEqualToAnchor:_hostView.trailingAnchor],
+    [_blurView.topAnchor constraintEqualToAnchor:_hostView.topAnchor],
+    [_blurView.bottomAnchor constraintEqualToAnchor:_hostView.bottomAnchor],
+  ]];
 }
 
 @end

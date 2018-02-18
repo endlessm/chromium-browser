@@ -18,29 +18,58 @@ from chromite.lib import remote_try
 from chromite.cbuildbot import trybot_patch_pool
 
 
-def PrintKnownConfigs(site_config, display_all=False):
+def ConfigsToPrint(site_config, production, build_config_fragments):
+  """Select a list of buildbot configs to print out.
+
+  Args:
+    site_config: config_lib.SiteConfig containing all config info.
+    production: Display tryjob or production configs?.
+    build_config_fragments: List of strings to filter config names with.
+
+  Returns:
+    List of config_lib.BuildConfig objects.
+  """
+  configs = site_config.values()
+
+  def optionsMatch(config):
+    # In this case, build_configs are config name fragments. If the config
+    # name doesn't contain any of the fragments, filter it out.
+    for build_config in build_config_fragments:
+      if build_config not in config.name:
+        return False
+
+    return config_lib.isTryjobConfig(config) != production
+
+  # All configs, filtered by optionsMatch.
+  configs = [config for config in configs if optionsMatch(config)]
+
+  # Sort build type, then board.
+  # 'daisy-paladin-tryjob' -> ['tryjob', 'paladin', 'daisy']
+  configs.sort(key=lambda c: list(reversed(c.name.split('-'))))
+
+  return configs
+
+def PrintKnownConfigs(site_config, production, build_config_fragments):
   """Print a list of known buildbot configs.
 
   Args:
     site_config: config_lib.SiteConfig containing all config info.
-    display_all: Print all configs.  Otherwise, prints only configs with
-                 trybot_list=True.
+    production: Display tryjob or production configs?.
+    build_config_fragments: List of strings to filter config names with.
   """
-  def _GetSortKey(config_name):
-    config_dict = site_config[config_name]
-    return (not config_dict.trybot_list, config_dict.description, config_name)
+  configs = ConfigsToPrint(site_config, production, build_config_fragments)
 
-  COLUMN_WIDTH = 45
-  if not display_all:
-    print('Note: This is the common list; for all configs, use --all.')
+  COLUMN_WIDTH = max(len(c.name) for c in configs) + 1
+  if production:
+    print('Production configs:')
+  else:
+    print('Tryjob configs:')
+
   print('config'.ljust(COLUMN_WIDTH), 'description')
   print('------'.ljust(COLUMN_WIDTH), '-----------')
-  config_names = site_config.keys()
-  config_names.sort(key=_GetSortKey)
-  for name in config_names:
-    if display_all or site_config[name].trybot_list:
-      desc = site_config[name].description or ''
-      print(name.ljust(COLUMN_WIDTH), desc)
+  for config in configs:
+    desc = config.description or ''
+    print(config.name.ljust(COLUMN_WIDTH), desc)
 
 
 def CbuildbotArgs(options):
@@ -108,18 +137,39 @@ def RunLocal(options):
   return result.returncode
 
 
-def RunRemote(options, patch_pool):
+def DisplayLabel(site_config, options, build_config_name):
+  """Decide which display_label to use.
+
+  Args:
+    site_config: config_lib.SiteConfig containing all config info.
+    options: Parsed command line options for cros tryjob.
+    build_config_name: Name of the build config we are scheduling.
+
+  Returns:
+    String to use as the cbb_build_label value.
+  """
+  # Our site_config is only valid for the current branch. If the build
+  # config is known and has an explicit display_label, use it.
+  # to be 'master'.
+  if (options.branch == 'master' and
+      build_config_name in site_config and
+      site_config[build_config_name].display_label):
+    return site_config[build_config_name].display_label
+
+  # Fall back to defaults.
+  if options.production:
+    return config_lib.DISPLAY_LABEL_UNKNOWN_PRODUCTION
+
+  return config_lib.DISPLAY_LABEL_TRYJOB
+
+
+def RunRemote(site_config, options, patch_pool):
   """Schedule remote tryjobs."""
   logging.info('Scheduling remote tryjob(s): %s',
                ', '.join(options.build_configs))
 
   # Figure out the cbuildbot command line to pass in.
   args = CbuildbotArgs(options)
-
-  if options.production:
-    display_group = 'Production Tryjob'
-  else:
-    display_group = 'Tryjob'
 
   # Figure out the tryjob description.
   description = options.remote_description
@@ -129,23 +179,26 @@ def RunRemote(options, patch_pool):
         options.gerrit_patches+options.local_patches)
 
   print('Submitting tryjob...')
-  tryjob = remote_try.RemoteTryJob(
-      build_configs=options.build_configs,
-      display_group=display_group,
-      remote_description=description,
-      branch=options.branch,
-      pass_through_args=args,
-      production_cidb=options.production,
-      local_patches=patch_pool.local_patches,
-      committer_email=options.committer_email,
-      swarming=options.swarming,
-      master_buildbucket_id='',  # TODO: Add new option to populate.
-  )
+  links = []
+  for build_config in options.build_configs:
+    tryjob = remote_try.RemoteTryJob(
+        build_configs=[build_config],
+        display_label=DisplayLabel(site_config, options, build_config),
+        remote_description=description,
+        branch=options.branch,
+        pass_through_args=args,
+        local_patches=patch_pool.local_patches,
+        committer_email=options.committer_email,
+        swarming=options.swarming,
+        master_buildbucket_id='',  # TODO: Add new option to populate.
+    )
 
-  tryjob.Submit(dryrun=False)
+    tryjob.Submit(dryrun=False)
+    links.extend(tryjob.GetTrybotWaterfallLinks())
+
   print('Tryjob submitted!')
   print('To view your tryjobs, visit:')
-  for link in tryjob.GetTrybotWaterfallLinks():
+  for link in links:
     print('  %s' % link)
 
 
@@ -168,6 +221,12 @@ Local Examples:
 Production Examples (danger, can break production if misused):
   cros tryjob --production --branch release-R61-9765.B asuka-release
   cros tryjob --production --version 9795.0.0 --channel canary  lumpy-payloads
+
+List Examples:
+  cros tryjob --list
+  cros tryjob --production --list
+  cros tryjob --list lumpy
+  cros tryjob --list lumpy vmtest
 """
 
   @classmethod
@@ -219,13 +278,15 @@ Production Examples (danger, can break production if misused):
         description='Which patches should be included with the tryjob?')
     what_group.add_argument(
         '-g', '--gerrit-patches', action='split_extend', default=[],
-        # metavar='Id1 *int_Id2...IdN',
+        metavar='Id1 *int_Id2...IdN',
         help='Space-separated list of short-form Gerrit '
              "Change-Id's or change numbers to patch. "
              "Please prepend '*' to internal Change-Id's")
+    # We have to format metavar poorly to workaround an argparse bug.
+    # https://bugs.python.org/issue11874
     what_group.add_argument(
         '-p', '--local-patches', action='split_extend', default=[],
-        # metavar="'<project1>[:<branch1>]...<projectN>[:<branchN>]'",
+        metavar="'<project1>[:<branch1>] ... <projectN>[:<branchN>] '",
         help='Space-separated list of project branches with '
              'patches to apply.  Projects are specified by name. '
              'If no branch is specified the current branch of the '
@@ -264,6 +325,10 @@ Production Examples (danger, can break production if misused):
     how_group.add_argument(
         '--sanity-check-build', dest='passthrough', action='append_option',
         help='Run the build as a sanity check build.')
+    how_group.add_argument(
+        '--chrome_version', dest='passthrough', action='append_option_value',
+        help='Used with SPEC logic to force a particular '
+             'git revision of chrome rather than the latest.')
 
     # Overrides for the build configs testing behaviors.
     test_group = parser.add_argument_group(
@@ -324,18 +389,15 @@ Production Examples (danger, can break production if misused):
         description='Options for displaying available build configs.')
     configs_group.add_argument(
         '-l', '--list', action='store_true', dest='list', default=False,
-        help='List the suggested trybot configs to use (see --all)')
-    configs_group.add_argument(
-        '-a', '--all', action='store_true', dest='list_all', default=False,
-        help='List all of the buildbot configs available w/--list')
+        help='List the trybot configs (adjusted by --production).')
 
-  def VerifyOptions(self):
+  def VerifyOptions(self, site_config):
     """Verify that our command line options make sense."""
-    site_config = config_lib.GetConfig()
-
     # Handle --list before checking that everything else is valid.
     if self.options.list:
-      PrintKnownConfigs(site_config, self.options.list_all)
+      PrintKnownConfigs(site_config,
+                        self.options.production,
+                        self.options.build_configs)
       raise cros_build_lib.DieSystemExit(0)  # Exit with success code.
 
     # Validate specified build_configs.
@@ -353,11 +415,38 @@ Production Examples (danger, can break production if misused):
       if not cros_build_lib.BooleanPrompt(prompt=prompt, default=False):
         cros_build_lib.Die('No confirmation.')
 
-    patches_given = self.options.gerrit_patches or self.options.local_patches
+    # Ensure that production configs are only run with --production.
+    if not self.options.production:
+      # We can't know if branched configs are tryjob safe.
+      # It should always be safe to run a tryjob config with --production.
+      prod_configs = []
+      for b in self.options.build_configs:
+        if b in site_config and not config_lib.isTryjobConfig(site_config[b]):
+          prod_configs.append(b)
 
-    # Make sure production builds don't have patches.
+      if prod_configs:
+        # Die, and explain why.
+        alternative_configs = ['%s-tryjob' % b for b in prod_configs]
+        msg = ('These configs are not tryjob safe:\n'
+               '  %s\n'
+               'Consider these configs instead:\n'
+               '  %s\n'
+               'See go/cros-explicit-tryjob-build-configs-psa.' %
+               (', '.join(prod_configs), ', '.join(alternative_configs)))
+
+        if self.options.branch == 'master':
+          # On master branch, we know the status of configs for sure.
+          cros_build_lib.Die(msg)
+        elif not self.options.yes:
+          # On branches, we are just guessing. Let people override.
+          prompt = '%s\nAre you sure you want to continue?' % msg
+          if not cros_build_lib.BooleanPrompt(prompt=prompt, default=False):
+            cros_build_lib.Die('No confirmation.')
+
+    patches_given = self.options.gerrit_patches or self.options.local_patches
     if self.options.production:
-      if patches_given:
+      # Make sure production builds don't have patches.
+      if patches_given and not self.options.debug:
         cros_build_lib.Die('Patches cannot be included in production builds.')
     else:
       # Ask for confirmation if there are no patches to test.
@@ -371,8 +460,10 @@ Production Examples (danger, can break production if misused):
 
   def Run(self):
     """Runs `cros chroot`."""
+    site_config = config_lib.GetConfig()
+
     self.options.Freeze()
-    self.VerifyOptions()
+    self.VerifyOptions(site_config)
 
     # Verify gerrit patches are valid.
     print('Verifying patches...')
@@ -383,6 +474,6 @@ Production Examples (danger, can break production if misused):
         remote_patches=[])
 
     if self.options.remote:
-      return RunRemote(self.options, patch_pool)
+      return RunRemote(site_config, self.options, patch_pool)
     else:
       return RunLocal(self.options)

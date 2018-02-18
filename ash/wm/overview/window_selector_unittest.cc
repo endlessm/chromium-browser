@@ -6,8 +6,8 @@
 #include <memory>
 #include <vector>
 
-#include "ash/accessibility/accessibility_delegate.h"
-#include "ash/accessibility_types.h"
+#include "ash/accessibility/accessibility_controller.h"
+#include "ash/accessibility/test_accessibility_controller_client.h"
 #include "ash/app_list/test_app_list_presenter_impl.h"
 #include "ash/display/screen_orientation_controller_chromeos.h"
 #include "ash/display/screen_orientation_controller_test_api.h"
@@ -15,12 +15,14 @@
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/window_properties.h"
+#include "ash/screen_util.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_view_test_api.h"
 #include "ash/shell.h"
 #include "ash/shell_test_api.h"
 #include "ash/system/tray/system_tray.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/wm/overview/overview_window_drag_controller.h"
 #include "ash/wm/overview/window_grid.h"
 #include "ash/wm/overview/window_selector.h"
 #include "ash/wm/overview/window_selector_controller.h"
@@ -81,7 +83,7 @@ const char kActiveWindowChangedFromOverview[] =
 class TestDragWindowDelegate : public aura::test::TestWindowDelegate {
  public:
   TestDragWindowDelegate() { set_window_component(HTCAPTION); }
-  ~TestDragWindowDelegate() override {}
+  ~TestDragWindowDelegate() override = default;
 
  private:
   // Overridden from aura::Test::TestWindowDelegate:
@@ -109,8 +111,8 @@ float GetItemScale(const gfx::Rect& source,
 // declaration.
 class WindowSelectorTest : public AshTestBase {
  public:
-  WindowSelectorTest() {}
-  ~WindowSelectorTest() override {}
+  WindowSelectorTest() = default;
+  ~WindowSelectorTest() override = default;
 
   void SetUp() override {
     AshTestBase::SetUp();
@@ -352,6 +354,11 @@ class WindowSelectorTest : public AshTestBase {
     return gfx::Rect();
   }
 
+  OverviewWindowDragController* window_drag_controller() {
+    DCHECK(window_selector());
+    return window_selector()->window_drag_controller_.get();
+  }
+
  private:
   aura::test::TestWindowDelegate delegate_;
   NonActivatableActivationDelegate non_activatable_activation_delegate_;
@@ -363,11 +370,6 @@ class WindowSelectorTest : public AshTestBase {
 // Tests that the text field in the overview menu is repositioned and resized
 // after a screen rotation.
 TEST_F(WindowSelectorTest, OverviewScreenRotation) {
-  // TODO: fails in mash because rotation is not supported.
-  // http://crbug.com/695556
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   gfx::Rect bounds(0, 0, 400, 300);
   std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
   std::unique_ptr<aura::Window> panel1(CreatePanelWindow(bounds));
@@ -402,13 +404,17 @@ TEST_F(WindowSelectorTest, OverviewScreenRotation) {
 // Tests that an a11y alert is sent on entering overview mode.
 TEST_F(WindowSelectorTest, A11yAlertOnOverviewMode) {
   gfx::Rect bounds(0, 0, 400, 400);
-  AccessibilityDelegate* delegate = Shell::Get()->accessibility_delegate();
+  TestAccessibilityControllerClient client;
+  AccessibilityController* controller =
+      Shell::Get()->accessibility_controller();
+  controller->SetClient(client.CreateInterfacePtrAndBind());
   std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
-  EXPECT_NE(delegate->GetLastAccessibilityAlert(),
-            A11Y_ALERT_WINDOW_OVERVIEW_MODE_ENTERED);
+  EXPECT_NE(mojom::AccessibilityAlert::WINDOW_OVERVIEW_MODE_ENTERED,
+            client.last_a11y_alert());
   ToggleOverview();
-  EXPECT_EQ(delegate->GetLastAccessibilityAlert(),
-            A11Y_ALERT_WINDOW_OVERVIEW_MODE_ENTERED);
+  controller->FlushMojoForTest();
+  EXPECT_EQ(mojom::AccessibilityAlert::WINDOW_OVERVIEW_MODE_ENTERED,
+            client.last_a11y_alert());
 }
 
 // Tests that there are no crashes when there is not enough screen space
@@ -579,10 +585,6 @@ TEST_F(WindowSelectorTest, BasicGesture) {
 // recorded when the mouse/touchscreen/keyboard are used to select a window
 // in overview mode which is different from the previously-active window.
 TEST_F(WindowSelectorTest, ActiveWindowChangedUserActionRecorded) {
-  // TODO: fails because of metrics. http://crbug.com/698129.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   base::UserActionTester user_action_tester;
   gfx::Rect bounds(0, 0, 400, 400);
   std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
@@ -1181,10 +1183,6 @@ TEST_F(WindowSelectorTest, ClickModalWindowParent) {
 // Tests that windows remain on the display they are currently on in overview
 // mode, and that the close buttons are on matching displays.
 TEST_F(WindowSelectorTest, MultipleDisplays) {
-  // TODO: Crashes in bounds_animator.cc in mash: http://crbug.com/730759
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   UpdateDisplay("600x400,600x400");
   aura::Window::Windows root_windows = Shell::GetAllRootWindows();
   gfx::Rect bounds1(0, 0, 400, 400);
@@ -1259,11 +1257,6 @@ TEST_F(WindowSelectorTest, Shutdown) {
 
 // Tests removing a display during overview.
 TEST_F(WindowSelectorTest, RemoveDisplay) {
-  // TODO: hits CHECK in stl as order of |ShelfModel::items_| is wrong.
-  // http://crbug.com/698878.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   UpdateDisplay("400x400,400x400");
   gfx::Rect bounds1(0, 0, 100, 100);
   gfx::Rect bounds2(450, 0, 100, 100);
@@ -1291,11 +1284,6 @@ TEST_F(WindowSelectorTest, RemoveDisplay) {
 
 // Tests removing a display during overview with NON_ZERO_DURATION animation.
 TEST_F(WindowSelectorTest, RemoveDisplayWithAnimation) {
-  // TODO: hits CHECK in stl as order of |ShelfModel::items_| is wrong.
-  // http://crbug.com/698878.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   UpdateDisplay("400x400,400x400");
   gfx::Rect bounds1(0, 0, 100, 100);
   gfx::Rect bounds2(450, 0, 100, 100);
@@ -1381,11 +1369,6 @@ TEST_F(WindowSelectorTest, CreateLabelUnderWindow) {
 // Tests that overview updates the window positions if the display orientation
 // changes.
 TEST_F(WindowSelectorTest, DisplayOrientationChanged) {
-  // TODO: fails in mash because rotation is not supported.
-  // http://crbug.com/695556
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   aura::Window* root_window = Shell::Get()->GetPrimaryRootWindow();
   UpdateDisplay("600x200");
   EXPECT_EQ("0,0 600x200", root_window->bounds().ToString());
@@ -1525,11 +1508,6 @@ TEST_F(WindowSelectorTest, BasicMultiMonitorArrowKeyNavigation) {
 // Tests first monitor when display order doesn't match left to right screen
 // positions.
 TEST_F(WindowSelectorTest, MultiMonitorReversedOrder) {
-  // TODO: SetLayoutForCurrentDisplays() needs to ported to mash.
-  // http://crbug.com/698043.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   UpdateDisplay("400x400,400x400");
   Shell::Get()->display_manager()->SetLayoutForCurrentDisplays(
       display::test::CreateDisplayLayout(display_manager(),
@@ -1951,6 +1929,14 @@ class SplitViewWindowSelectorTest : public WindowSelectorTest {
   SplitViewWindowSelectorTest() = default;
   ~SplitViewWindowSelectorTest() override = default;
 
+  enum class SelectorItemLocation {
+    CENTER,
+    ORIGIN,
+    TOP_RIGHT,
+    BOTTOM_RIGHT,
+    BOTTOM_LEFT,
+  };
+
   void SetUp() override {
     WindowSelectorTest::SetUp();
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
@@ -1965,6 +1951,21 @@ class SplitViewWindowSelectorTest : public WindowSelectorTest {
   void EndSplitView() { split_view_controller()->EndSplitView(); }
 
  protected:
+  aura::Window* CreateWindow(const gfx::Rect& bounds) {
+    aura::Window* window = CreateTestWindowInShellWithDelegate(
+        new SplitViewTestWindowDelegate, -1, bounds);
+    return window;
+  }
+
+  aura::Window* CreateWindowWithMinimumSize(const gfx::Rect& bounds,
+                                            const gfx::Size& size) {
+    SplitViewTestWindowDelegate* delegate = new SplitViewTestWindowDelegate();
+    aura::Window* window =
+        CreateTestWindowInShellWithDelegate(delegate, -1, bounds);
+    delegate->set_minimum_size(size);
+    return window;
+  }
+
   gfx::Rect GetSplitViewLeftWindowBounds(aura::Window* window) {
     return split_view_controller()->GetSnappedWindowBoundsInScreen(
         window, SplitViewController::LEFT);
@@ -1982,15 +1983,79 @@ class SplitViewWindowSelectorTest : public WindowSelectorTest {
         ->split_view_divider_->GetDividerBoundsInScreen(is_dragging);
   }
 
-  void DragWindowTo(WindowSelectorItem* item, const gfx::Point& end_location) {
+  // Drags a window selector item |item| from its center or one of its corners
+  // to |end_location|. This should be used over
+  // DragWindowTo(WindowSelectorItem*, gfx::Point) when testing snapping a
+  // window, but the windows centerpoint may be inside a snap region, thus the
+  // window will not snapped.
+  void DragWindowTo(WindowSelectorItem* item,
+                    const gfx::Point& end_location,
+                    SelectorItemLocation location) {
     // Start drag in the middle of the seletor item.
-    const gfx::Point start_location(item->target_bounds().CenterPoint());
+    gfx::Point start_location;
+    switch (location) {
+      case SelectorItemLocation::CENTER:
+        start_location = item->target_bounds().CenterPoint();
+        break;
+      case SelectorItemLocation::ORIGIN:
+        start_location = item->target_bounds().origin();
+        break;
+      case SelectorItemLocation::TOP_RIGHT:
+        start_location = item->target_bounds().top_right();
+        break;
+      case SelectorItemLocation::BOTTOM_RIGHT:
+        start_location = item->target_bounds().bottom_right();
+        break;
+      case SelectorItemLocation::BOTTOM_LEFT:
+        start_location = item->target_bounds().bottom_left();
+        break;
+      default:
+        NOTREACHED();
+        break;
+    }
     window_selector()->InitiateDrag(item, start_location);
     window_selector()->Drag(item, end_location);
     window_selector()->CompleteDrag(item, end_location);
   }
 
+  // Drags a window selector item |item| from its center point to
+  // |end_location|.
+  void DragWindowTo(WindowSelectorItem* item, const gfx::Point& end_location) {
+    DragWindowTo(item, end_location, SelectorItemLocation::CENTER);
+  }
+
+  // Creates a window which cannot be snapped by splitview.
+  std::unique_ptr<aura::Window> CreateUnsnappableWindow(
+      const gfx::Rect& bounds = gfx::Rect()) {
+    std::unique_ptr<aura::Window> window;
+    if (bounds.IsEmpty())
+      window = CreateTestWindow();
+    else
+      window = base::WrapUnique<aura::Window>(CreateWindow(bounds));
+
+    window->SetProperty(aura::client::kResizeBehaviorKey,
+                        ui::mojom::kResizeBehaviorNone);
+    return window;
+  }
+
+  IndicatorType indicator_type() {
+    DCHECK(window_selector());
+    return window_selector()
+        ->split_view_overview_overlay()
+        ->current_indicator_type();
+  }
+
  private:
+  class SplitViewTestWindowDelegate : public aura::test::TestWindowDelegate {
+   public:
+    SplitViewTestWindowDelegate() = default;
+    ~SplitViewTestWindowDelegate() override = default;
+
+    // aura::test::TestWindowDelegate:
+    void OnWindowDestroying(aura::Window* window) override { window->Hide(); }
+    void OnWindowDestroyed(aura::Window* window) override { delete this; }
+  };
+
   DISALLOW_COPY_AND_ASSIGN(SplitViewWindowSelectorTest);
 };
 
@@ -2021,7 +2086,6 @@ TEST_F(SplitViewWindowSelectorTest, DragOverviewWindowToSnap) {
   // Drag |window2| selector item to snap to left.
   WindowSelectorItem* selector_item2 =
       GetWindowItemForWindow(grid_index, window2.get());
-  const gfx::Point end_location2(0, 0);
   DragWindowTo(selector_item2, gfx::Point(0, 0));
 
   EXPECT_EQ(split_view_controller()->state(),
@@ -2040,6 +2104,88 @@ TEST_F(SplitViewWindowSelectorTest, DragOverviewWindowToSnap) {
             SplitViewController::BOTH_SNAPPED);
   EXPECT_EQ(split_view_controller()->right_window(), window3.get());
   EXPECT_FALSE(window_selector_controller()->IsSelecting());
+}
+
+TEST_F(SplitViewWindowSelectorTest, Dragging) {
+  ui::test::EventGenerator& generator = GetEventGenerator();
+
+  std::unique_ptr<aura::Window> right_window = CreateTestWindow();
+  std::unique_ptr<aura::Window> left_window = CreateTestWindow();
+
+  ToggleOverview();
+  ASSERT_TRUE(window_selector_controller()->IsSelecting());
+
+  WindowSelectorItem* left_selector_item =
+      GetWindowItemForWindow(0, left_window.get());
+  WindowSelectorItem* right_selector_item =
+      GetWindowItemForWindow(0, right_window.get());
+
+  // The inset on each side of the screen which is a snap region. Items dragged
+  // to and released under this region will get snapped.
+  const int drag_offset = OverviewWindowDragController::kMinimumDragOffset;
+  const int drag_offset_snap_region =
+      OverviewWindowDragController::kMinimumDragOffsetAlreadyInSnapRegionDp;
+  const int edge_inset = OverviewWindowDragController::kScreenEdgeInsetForDrag;
+  const int screen_width =
+      ScreenUtil::GetDisplayWorkAreaBoundsInParent(left_window.get()).width();
+  // The selector item has a margin which does not accept events. Inset any
+  // event aimed at the selector items edge so events will reach it.
+  const int selector_item_inset = 20;
+
+  // Check the two windows set up have a region which is under no snap region, a
+  // region that is under the left snap region and a region that is under the
+  // right snap region.
+  ASSERT_GT(left_selector_item->target_bounds().CenterPoint().x(), edge_inset);
+  ASSERT_LT(
+      left_selector_item->target_bounds().origin().x() + selector_item_inset,
+      edge_inset);
+  ASSERT_GT(right_selector_item->target_bounds().top_right().x() -
+                selector_item_inset,
+            screen_width - edge_inset);
+
+  // Verify if the drag is not started in either snap region, the drag still
+  // must move by |drag_offset| before split view acknowledges the drag (ie.
+  // starts moving the selector item).
+  generator.set_current_location(
+      left_selector_item->target_bounds().CenterPoint());
+  generator.PressLeftButton();
+  const gfx::Rect left_original_bounds = left_selector_item->target_bounds();
+  generator.MoveMouseBy(drag_offset - 1, 0);
+  EXPECT_EQ(left_original_bounds, left_selector_item->target_bounds());
+  generator.MoveMouseBy(1, 0);
+  EXPECT_NE(left_original_bounds, left_selector_item->target_bounds());
+  generator.ReleaseLeftButton();
+
+  // Verify if the drag is started in the left snap region, the drag needs to
+  // move by |drag_offset_snap_region| towards the left side of the screen
+  // before split view acknowledges the drag (shows the phantom window).
+  ASSERT_TRUE(window_selector_controller()->IsSelecting());
+  generator.set_current_location(gfx::Point(
+      left_selector_item->target_bounds().origin().x() + selector_item_inset,
+      left_selector_item->target_bounds().CenterPoint().y()));
+  generator.PressLeftButton();
+  generator.MoveMouseBy(-drag_offset_snap_region + 1, 0);
+  EXPECT_FALSE(window_drag_controller()->IsPhantomWindowShowing());
+  generator.MoveMouseBy(-1, 0);
+  EXPECT_TRUE(window_drag_controller()->IsPhantomWindowShowing());
+  // Drag back to the middle before releasing so that we stay in overview mode
+  // on release.
+  generator.MoveMouseTo(left_original_bounds.CenterPoint());
+  generator.ReleaseLeftButton();
+
+  // Verify if the drag is started in the right snap region, the drag needs to
+  // move by |drag_offset_snap_region| towards the right side of the screen
+  // before split view acknowledges the drag.
+  ASSERT_TRUE(window_selector_controller()->IsSelecting());
+  generator.set_current_location(
+      gfx::Point(right_selector_item->target_bounds().top_right().x() -
+                     selector_item_inset,
+                 right_selector_item->target_bounds().CenterPoint().y()));
+  generator.PressLeftButton();
+  generator.MoveMouseBy(drag_offset_snap_region - 1, 0);
+  EXPECT_FALSE(window_drag_controller()->IsPhantomWindowShowing());
+  generator.MoveMouseBy(1, 0);
+  EXPECT_TRUE(window_drag_controller()->IsPhantomWindowShowing());
 }
 
 // Verify the window grid size changes as expected when dragging items around in
@@ -2109,18 +2255,11 @@ TEST_F(SplitViewWindowSelectorTest, WindowGridSizeWhileDraggingWithSplitView) {
   EXPECT_EQ(GetSplitViewRightWindowBounds(window1.get()), GetGridBounds());
   window_selector()->Drag(selector_item, center);
   EXPECT_EQ(GetSplitViewRightWindowBounds(window1.get()), GetGridBounds());
-
-  // TODO(crbug.com/766725): There is a memory leak if we tear down while
-  // overview and splitview mode is active. Investigate.
-  ToggleOverview();
 }
 
 // Tests dragging a unsnappable window.
-TEST_F(SplitViewWindowSelectorTest, DraggingNonSnapableAppWithSplitView) {
-  const gfx::Rect bounds(0, 0, 400, 400);
-  std::unique_ptr<aura::Window> unsnappable_window(CreateWindow(bounds));
-  unsnappable_window->SetProperty(aura::client::kResizeBehaviorKey,
-                                  ui::mojom::kResizeBehaviorNone);
+TEST_F(SplitViewWindowSelectorTest, DraggingUnsnappableAppWithSplitView) {
+  std::unique_ptr<aura::Window> unsnappable_window = CreateUnsnappableWindow();
 
   // The grid bounds should be the size of the root window minus the shelf.
   const gfx::Rect root_window_bounds =
@@ -2171,6 +2310,71 @@ TEST_F(SplitViewWindowSelectorTest, EmptyWindowsListExitOverview) {
   EXPECT_FALSE(window_selector_controller()->IsSelecting());
 }
 
+// Verify the split view phantom window becomes visible when visible.
+TEST_F(SplitViewWindowSelectorTest, PhantomWindowVisibility) {
+  std::unique_ptr<aura::Window> window = CreateTestWindow();
+
+  ToggleOverview();
+  ASSERT_TRUE(window_selector_controller()->IsSelecting());
+
+  const int edge_inset = OverviewWindowDragController::kScreenEdgeInsetForDrag;
+  const int screen_width =
+      ScreenUtil::GetDisplayWorkAreaBoundsInParent(window.get()).width();
+
+  // Verify the phantom window is visible when |selector_item|'s x is in the
+  // range [0, edge_inset] or [screen_width - edge_inset - 1, screen_width].
+  const int grid_index = 0;
+  WindowSelectorItem* selector_item =
+      GetWindowItemForWindow(grid_index, window.get());
+  const gfx::Point start_location(selector_item->target_bounds().CenterPoint());
+  window_selector()->InitiateDrag(selector_item, start_location);
+  EXPECT_FALSE(window_drag_controller()->IsPhantomWindowShowing());
+  window_selector()->Drag(selector_item, gfx::Point(edge_inset + 1, 1));
+  EXPECT_FALSE(window_drag_controller()->IsPhantomWindowShowing());
+  window_selector()->Drag(selector_item, gfx::Point(edge_inset, 1));
+  EXPECT_TRUE(window_drag_controller()->IsPhantomWindowShowing());
+
+  window_selector()->Drag(selector_item,
+                          gfx::Point(screen_width - edge_inset - 2, 1));
+  EXPECT_FALSE(window_drag_controller()->IsPhantomWindowShowing());
+  window_selector()->Drag(selector_item,
+                          gfx::Point(screen_width - edge_inset - 1, 1));
+  EXPECT_TRUE(window_drag_controller()->IsPhantomWindowShowing());
+
+  // Drag back to |start_location| before compeleting the drag, otherwise
+  // |selector_time| will snap to the right and the system will enter splitview,
+  // making |window_drag_controller()| nullptr.
+  window_selector()->Drag(selector_item, start_location);
+  window_selector()->CompleteDrag(selector_item, start_location);
+  EXPECT_FALSE(window_drag_controller()->IsPhantomWindowShowing());
+}
+
+// Verify that the phantom window never shows up when dragging a unsnappable
+// window.
+TEST_F(SplitViewWindowSelectorTest, PhantomWindowVisibilityUnsnappableWindow) {
+  std::unique_ptr<aura::Window> window = CreateUnsnappableWindow();
+
+  ToggleOverview();
+  ASSERT_TRUE(window_selector_controller()->IsSelecting());
+
+  const int screen_width =
+      ScreenUtil::GetDisplayWorkAreaBoundsInParent(window.get()).width();
+
+  const int grid_index = 0;
+  WindowSelectorItem* selector_item =
+      GetWindowItemForWindow(grid_index, window.get());
+  const gfx::Point start_location(selector_item->target_bounds().CenterPoint());
+  window_selector()->InitiateDrag(selector_item, start_location);
+  EXPECT_FALSE(window_drag_controller()->IsPhantomWindowShowing());
+  window_selector()->Drag(selector_item, gfx::Point(0, 1));
+  EXPECT_FALSE(window_drag_controller()->IsPhantomWindowShowing());
+  window_selector()->Drag(selector_item, gfx::Point(screen_width, 1));
+  EXPECT_FALSE(window_drag_controller()->IsPhantomWindowShowing());
+
+  window_selector()->CompleteDrag(selector_item, start_location);
+  EXPECT_FALSE(window_drag_controller()->IsPhantomWindowShowing());
+}
+
 // Verify that the split view overview overlay is shown when expected.
 TEST_F(SplitViewWindowSelectorTest, SplitViewOverviewOverlayVisibility) {
   const gfx::Rect bounds(0, 0, 400, 400);
@@ -2180,24 +2384,24 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewOverviewOverlayVisibility) {
   ToggleOverview();
   ASSERT_TRUE(window_selector_controller()->IsSelecting());
 
+  const int edge_inset = OverviewWindowDragController::kScreenEdgeInsetForDrag;
+
   // Verify that when are no snapped windows, the overlay is visible when a drag
-  // is initiated and disappears when the drag is started.
+  // is initiated and disappears when the drag reaches |edge_inset| from the
+  // edge of the screen.
   const int grid_index = 0;
   WindowSelectorItem* selector_item =
       GetWindowItemForWindow(grid_index, window1.get());
   gfx::Point start_location(selector_item->target_bounds().CenterPoint());
   window_selector()->InitiateDrag(selector_item, start_location);
-  EXPECT_EQ(IndicatorType::DRAG_AREA, window_selector()
-                                          ->split_view_overview_overlay()
-                                          ->current_indicator_type());
-  const gfx::Point end_location1(0, 0);
-  window_selector()->Drag(selector_item, end_location1);
-  EXPECT_EQ(IndicatorType::NONE, window_selector()
-                                     ->split_view_overview_overlay()
-                                     ->current_indicator_type());
+  EXPECT_EQ(IndicatorType::DRAG_AREA, indicator_type());
+  window_selector()->Drag(selector_item, gfx::Point(edge_inset + 1, 0));
+  EXPECT_EQ(IndicatorType::DRAG_AREA, indicator_type());
+  window_selector()->Drag(selector_item, gfx::Point(edge_inset, 0));
+  EXPECT_EQ(IndicatorType::NONE, indicator_type());
 
   // Snap window to the left.
-  window_selector()->CompleteDrag(selector_item, end_location1);
+  window_selector()->CompleteDrag(selector_item, gfx::Point(edge_inset, 0));
   ASSERT_TRUE(split_view_controller()->IsSplitViewModeActive());
   ASSERT_EQ(SplitViewController::LEFT_SNAPPED,
             split_view_controller()->state());
@@ -2206,9 +2410,7 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewOverviewOverlayVisibility) {
   selector_item = GetWindowItemForWindow(grid_index, window2.get());
   start_location = selector_item->target_bounds().CenterPoint();
   window_selector()->InitiateDrag(selector_item, start_location);
-  EXPECT_EQ(IndicatorType::NONE, window_selector()
-                                     ->split_view_overview_overlay()
-                                     ->current_indicator_type());
+  EXPECT_EQ(IndicatorType::NONE, indicator_type());
   window_selector()->CompleteDrag(selector_item, start_location);
 }
 
@@ -2216,14 +2418,8 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewOverviewOverlayVisibility) {
 // attempting to drag a unsnappable window.
 TEST_F(SplitViewWindowSelectorTest,
        SplitViewOverviewOverlayVisibilityUnsnappableWindow) {
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kAshEnableTabletSplitView);
-  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
+  std::unique_ptr<aura::Window> unsnappable_window = CreateUnsnappableWindow();
 
-  const gfx::Rect bounds(0, 0, 400, 400);
-  std::unique_ptr<aura::Window> unsnappable_window(CreateWindow(bounds));
-  unsnappable_window->SetProperty(aura::client::kResizeBehaviorKey,
-                                  ui::mojom::kResizeBehaviorNone);
   ToggleOverview();
   ASSERT_TRUE(window_selector_controller()->IsSelecting());
 
@@ -2232,15 +2428,12 @@ TEST_F(SplitViewWindowSelectorTest,
       GetWindowItemForWindow(grid_index, unsnappable_window.get());
   gfx::Point start_location(selector_item->target_bounds().CenterPoint());
   window_selector()->InitiateDrag(selector_item, start_location);
-  EXPECT_EQ(IndicatorType::CANNOT_SNAP, window_selector()
-                                            ->split_view_overview_overlay()
-                                            ->current_indicator_type());
+  EXPECT_EQ(IndicatorType::CANNOT_SNAP, indicator_type());
   const gfx::Point end_location1(0, 0);
   window_selector()->Drag(selector_item, end_location1);
-  EXPECT_EQ(IndicatorType::NONE, window_selector()
-                                     ->split_view_overview_overlay()
-                                     ->current_indicator_type());
+  EXPECT_EQ(IndicatorType::CANNOT_SNAP, indicator_type());
   window_selector()->CompleteDrag(selector_item, end_location1);
+  EXPECT_EQ(IndicatorType::NONE, indicator_type());
 }
 
 // Verify that the split view overview overlays widget reparents when starting a
@@ -2267,9 +2460,7 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewOverviewOverlayWidgetReparenting) {
       GetWindowItemForWindow(0, primary_screen_window.get());
   gfx::Point start_location(selector_item->target_bounds().CenterPoint());
   window_selector()->InitiateDrag(selector_item, start_location);
-  EXPECT_EQ(IndicatorType::DRAG_AREA, window_selector()
-                                          ->split_view_overview_overlay()
-                                          ->current_indicator_type());
+  EXPECT_EQ(IndicatorType::DRAG_AREA, indicator_type());
   EXPECT_EQ(root_windows[0], window_selector()
                                  ->split_view_overview_overlay()
                                  ->widget_->GetNativeView()
@@ -2287,9 +2478,7 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewOverviewOverlayWidgetReparenting) {
   selector_item = GetWindowItemForWindow(1, secondary_screen_window.get());
   start_location = gfx::Point(selector_item->target_bounds().CenterPoint());
   window_selector()->InitiateDrag(selector_item, start_location);
-  EXPECT_EQ(IndicatorType::DRAG_AREA, window_selector()
-                                          ->split_view_overview_overlay()
-                                          ->current_indicator_type());
+  EXPECT_EQ(IndicatorType::DRAG_AREA, indicator_type());
   EXPECT_EQ(root_windows[1], window_selector()
                                  ->split_view_overview_overlay()
                                  ->widget_->GetNativeView()
@@ -2358,7 +2547,7 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewRotationTest) {
   work_area_rect =
       split_view_controller()->GetDisplayWorkAreaBoundsInScreen(window2.get());
   end_location2 = gfx::Point(work_area_rect.width(), work_area_rect.height());
-  DragWindowTo(selector_item2, end_location2);
+  DragWindowTo(selector_item2, end_location2, SelectorItemLocation::ORIGIN);
   EXPECT_EQ(split_view_controller()->state(),
             SplitViewController::BOTH_SNAPPED);
   EXPECT_EQ(split_view_controller()->left_window(), window2.get());
@@ -2383,7 +2572,7 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewRotationTest) {
   work_area_rect =
       split_view_controller()->GetDisplayWorkAreaBoundsInScreen(window2.get());
   end_location2 = gfx::Point(work_area_rect.width(), work_area_rect.height());
-  DragWindowTo(selector_item2, end_location2);
+  DragWindowTo(selector_item2, end_location2, SelectorItemLocation::ORIGIN);
   EXPECT_EQ(split_view_controller()->state(),
             SplitViewController::BOTH_SNAPPED);
   EXPECT_EQ(split_view_controller()->left_window(), window2.get());
@@ -2465,10 +2654,241 @@ TEST_F(SplitViewWindowSelectorTest, SplitViewOverviewBothActiveTest) {
   EXPECT_NE(window1_bounds, window1_bounds_after_resize);
   EXPECT_NE(overview_grid_bounds, overview_grid_bounds_after_resize);
   EXPECT_NE(divider_bounds, divider_bounds_after_resize);
+}
 
-  // TODO(crbug.com/766725): There is a memory leak if we tear down while
-  // overview and splitview mode is both active. Investigate.
+// Verify that selecting an unsnappable window while in split view works as
+// intended.
+TEST_F(SplitViewWindowSelectorTest, SelectUnsnappableWindowInSplitView) {
+  // Create one snappable and one unsnappable window.
+  std::unique_ptr<aura::Window> window = CreateTestWindow();
+  std::unique_ptr<aura::Window> unsnappable_window = CreateUnsnappableWindow();
+
   ToggleOverview();
+  ASSERT_TRUE(window_selector_controller()->IsSelecting());
+
+  // Snap the snappable window to enter split view mode.
+  split_view_controller()->SnapWindow(window.get(), SplitViewController::LEFT);
+  ASSERT_TRUE(split_view_controller()->IsSplitViewModeActive());
+
+  // Select the unsnappable window.
+  const int grid_index = 0;
+  WindowSelectorItem* selector_item =
+      GetWindowItemForWindow(grid_index, unsnappable_window.get());
+  GetEventGenerator().set_current_location(
+      selector_item->target_bounds().CenterPoint());
+  GetEventGenerator().ClickLeftButton();
+
+  // Verify that we are out of split view and overview mode, and that the active
+  // window is the unsnappable window.
+  EXPECT_FALSE(split_view_controller()->IsSplitViewModeActive());
+  EXPECT_FALSE(window_selector_controller()->IsSelecting());
+  EXPECT_EQ(unsnappable_window.get(), wm::GetActiveWindow());
+
+  std::unique_ptr<aura::Window> window2 = CreateTestWindow();
+  ToggleOverview();
+  split_view_controller()->SnapWindow(window.get(), SplitViewController::LEFT);
+  split_view_controller()->SnapWindow(window2.get(),
+                                      SplitViewController::RIGHT);
+
+  // Split view mode should be active. Overview mode should be ended.
+  EXPECT_TRUE(split_view_controller()->IsSplitViewModeActive());
+  EXPECT_EQ(SplitViewController::BOTH_SNAPPED,
+            split_view_controller()->state());
+  EXPECT_FALSE(window_selector_controller()->IsSelecting());
+
+  ToggleOverview();
+  EXPECT_TRUE(split_view_controller()->IsSplitViewModeActive());
+  EXPECT_EQ(SplitViewController::LEFT_SNAPPED,
+            split_view_controller()->state());
+  EXPECT_TRUE(window_selector_controller()->IsSelecting());
+
+  // Now select the unsnappable window.
+  selector_item = GetWindowItemForWindow(grid_index, unsnappable_window.get());
+  GetEventGenerator().set_current_location(
+      selector_item->target_bounds().CenterPoint());
+  GetEventGenerator().ClickLeftButton();
+
+  // Split view mode should be ended. And the unsnappable window should be the
+  // active window now.
+  EXPECT_FALSE(split_view_controller()->IsSplitViewModeActive());
+  EXPECT_FALSE(window_selector_controller()->IsSelecting());
+  EXPECT_EQ(unsnappable_window.get(), wm::GetActiveWindow());
+}
+
+// Verify that when in overview mode, the selector items unsnappable indicator
+// shows up when expected.
+TEST_F(SplitViewWindowSelectorTest, OverviewUnsnappableIndicatorVisibility) {
+  // Create three windows; two normal and one unsnappable, so that when after
+  // snapping |window1| to enter split view we can test the state of each normal
+  // and unsnappable windows.
+  std::unique_ptr<aura::Window> window1(CreateTestWindow());
+  std::unique_ptr<aura::Window> window2(CreateTestWindow());
+  std::unique_ptr<aura::Window> unsnappable_window = CreateUnsnappableWindow();
+
+  ToggleOverview();
+  ASSERT_TRUE(window_selector_controller()->IsSelecting());
+
+  const int grid_index = 0;
+  WindowSelectorItem* snappable_selector_item =
+      GetWindowItemForWindow(grid_index, window2.get());
+  WindowSelectorItem* unsnappable_selector_item =
+      GetWindowItemForWindow(grid_index, unsnappable_window.get());
+
+  // Note: Using IsDrawn() instead of visible() because
+  // |cannot_snap_label_view_|'s parent (which handles the padding and rounded
+  // corners) is actually the item whose visibility gets altered.
+  EXPECT_FALSE(snappable_selector_item->cannot_snap_label_view_->IsDrawn());
+  EXPECT_FALSE(unsnappable_selector_item->cannot_snap_label_view_->IsDrawn());
+
+  // Snap the extra snappable window to enter split view mode.
+  split_view_controller()->SnapWindow(window1.get(), SplitViewController::LEFT);
+  ASSERT_TRUE(split_view_controller()->IsSplitViewModeActive());
+
+  EXPECT_FALSE(snappable_selector_item->cannot_snap_label_view_->IsDrawn());
+  EXPECT_TRUE(unsnappable_selector_item->cannot_snap_label_view_->IsDrawn());
+}
+
+// Test that when splitview mode and overview mode are both active at the same
+// time, dragging divider behaviors are correct.
+TEST_F(SplitViewWindowSelectorTest, DragDividerToExitTest) {
+  UpdateDisplay("907x407");
+
+  const gfx::Rect bounds(0, 0, 400, 400);
+  std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
+  std::unique_ptr<aura::Window> window2(CreateWindow(bounds));
+  std::unique_ptr<aura::Window> window3(CreateWindow(bounds));
+
+  ToggleOverview();
+
+  // Drag |window1| selector item to snap to left.
+  const int grid_index = 0;
+  WindowSelectorItem* selector_item1 =
+      GetWindowItemForWindow(grid_index, window1.get());
+  DragWindowTo(selector_item1, gfx::Point(0, 0));
+  // Test that overview mode and split view mode are both active.
+  EXPECT_TRUE(split_view_controller()->IsSplitViewModeActive());
+  EXPECT_TRUE(Shell::Get()->window_selector_controller()->IsSelecting());
+
+  // Drag the divider toward closing the snapped window.
+  gfx::Rect divider_bounds = GetSplitViewDividerBounds(false /* is_dragging */);
+  split_view_controller()->StartResize(divider_bounds.CenterPoint());
+  split_view_controller()->EndResize(gfx::Point(0, 0));
+
+  // Test that split view mode is ended. Overview mode is still active.
+  EXPECT_FALSE(split_view_controller()->IsSplitViewModeActive());
+  EXPECT_TRUE(Shell::Get()->window_selector_controller()->IsSelecting());
+
+  // Now drag |window2| selector item to snap to left.
+  WindowSelectorItem* selector_item2 =
+      GetWindowItemForWindow(grid_index, window2.get());
+  DragWindowTo(selector_item2, gfx::Point(0, 0));
+  // Test that overview mode and split view mode are both active.
+  EXPECT_TRUE(split_view_controller()->IsSplitViewModeActive());
+  EXPECT_TRUE(Shell::Get()->window_selector_controller()->IsSelecting());
+
+  // Drag the divider toward closing the overview window grid.
+  divider_bounds = GetSplitViewDividerBounds(false /*is_dragging=*/);
+  const gfx::Rect display_bounds =
+      split_view_controller()->GetDisplayWorkAreaBoundsInScreen(window2.get());
+  split_view_controller()->StartResize(divider_bounds.CenterPoint());
+  split_view_controller()->EndResize(display_bounds.bottom_right());
+
+  // Test that split view mode is ended. Overview mode is also ended. |window2|
+  // should be activated.
+  EXPECT_FALSE(split_view_controller()->IsSplitViewModeActive());
+  EXPECT_FALSE(Shell::Get()->window_selector_controller()->IsSelecting());
+  EXPECT_EQ(window2.get(), wm::GetActiveWindow());
+}
+
+TEST_F(SplitViewWindowSelectorTest, WindowSelectorItemLongPressed) {
+  std::unique_ptr<aura::Window> window1 = CreateTestWindow();
+  std::unique_ptr<aura::Window> window2 = CreateTestWindow();
+
+  ToggleOverview();
+  ASSERT_TRUE(window_selector_controller()->IsSelecting());
+
+  WindowSelectorItem* selector_item = GetWindowItemForWindow(0, window1.get());
+  gfx::Point start_location(selector_item->target_bounds().CenterPoint());
+  const gfx::Rect original_bounds(selector_item->target_bounds());
+
+  // Verify that when a window selector item receives a resetting gesture, we
+  // stay in overview mode and the bounds of the item are the same as they were
+  // before the press sequence started.
+  window_selector()->InitiateDrag(selector_item, start_location);
+  window_selector()->ResetDraggedWindowGesture();
+  EXPECT_TRUE(window_selector_controller()->IsSelecting());
+  EXPECT_EQ(original_bounds, selector_item->target_bounds());
+
+  // Verify that when a window selector item is tapped, we exit overview mode,
+  // and the current active window is the item.
+  window_selector()->InitiateDrag(selector_item, start_location);
+  window_selector()->ActivateDraggedWindow();
+  EXPECT_FALSE(window_selector_controller()->IsSelecting());
+  EXPECT_EQ(window1.get(), wm::GetActiveWindow());
+}
+
+TEST_F(SplitViewWindowSelectorTest, SnappedWindowBoundsTest) {
+  const gfx::Rect bounds(0, 0, 400, 400);
+  const int kMinimumBoundSize = 100;
+  const gfx::Size size(kMinimumBoundSize, kMinimumBoundSize);
+
+  std::unique_ptr<aura::Window> window1(
+      CreateWindowWithMinimumSize(bounds, size));
+  std::unique_ptr<aura::Window> window2(
+      CreateWindowWithMinimumSize(bounds, size));
+  std::unique_ptr<aura::Window> window3(
+      CreateWindowWithMinimumSize(bounds, size));
+  ToggleOverview();
+
+  // Drag |window1| selector item to snap to left.
+  const int grid_index = 0;
+  WindowSelectorItem* selector_item1 =
+      GetWindowItemForWindow(grid_index, window1.get());
+  DragWindowTo(selector_item1, gfx::Point(0, 0));
+  EXPECT_EQ(SplitViewController::LEFT_SNAPPED,
+            split_view_controller()->state());
+  EXPECT_TRUE(Shell::Get()->window_selector_controller()->IsSelecting());
+
+  // Then drag the divider to left toward closing the snapped window.
+  gfx::Rect divider_bounds = GetSplitViewDividerBounds(false /*is_dragging=*/);
+  split_view_controller()->StartResize(divider_bounds.CenterPoint());
+  // Drag the divider to a point that is close enough but still have a short
+  // distance to the edge of the screen.
+  split_view_controller()->EndResize(gfx::Point(20, 20));
+
+  // Test that split view mode is ended. Overview mode is still active.
+  EXPECT_FALSE(split_view_controller()->IsSplitViewModeActive());
+  EXPECT_TRUE(Shell::Get()->window_selector_controller()->IsSelecting());
+  // Test that |window1| has been moved out of the work area and is invisible.
+  EXPECT_LE(window1->bounds().x(), -kMinimumBoundSize);
+  EXPECT_EQ(window1->bounds().width(), kMinimumBoundSize);
+
+  // Drag |window2| selector item to snap to right.
+  WindowSelectorItem* selector_item2 =
+      GetWindowItemForWindow(grid_index, window2.get());
+  const gfx::Rect work_area_rect =
+      split_view_controller()->GetDisplayWorkAreaBoundsInScreen(window2.get());
+  gfx::Point end_location2 =
+      gfx::Point(work_area_rect.width(), work_area_rect.height());
+  DragWindowTo(selector_item2, end_location2);
+  EXPECT_EQ(SplitViewController::RIGHT_SNAPPED,
+            split_view_controller()->state());
+  EXPECT_TRUE(Shell::Get()->window_selector_controller()->IsSelecting());
+
+  // Then drag the divider to right toward closing the snapped window.
+  divider_bounds = GetSplitViewDividerBounds(false /* is_dragging */);
+  split_view_controller()->StartResize(divider_bounds.CenterPoint());
+  // Drag the divider to a point that is close enough but still have a short
+  // distance to the edge of the screen.
+  end_location2.Offset(-20, -20);
+  split_view_controller()->EndResize(end_location2);
+
+  // Test that split view mode is ended. Overview mode is still active.
+  EXPECT_FALSE(split_view_controller()->IsSplitViewModeActive());
+  EXPECT_TRUE(Shell::Get()->window_selector_controller()->IsSelecting());
+  // Test that |window2| has been moved out of the work area and is invisible.
+  EXPECT_GE(window2->bounds().x(), work_area_rect.x());
+  EXPECT_EQ(window2->bounds().width(), kMinimumBoundSize);
 }
 
 }  // namespace ash

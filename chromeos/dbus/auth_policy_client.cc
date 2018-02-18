@@ -59,18 +59,19 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
  public:
   AuthPolicyClientImpl() : weak_ptr_factory_(this) {}
 
-  ~AuthPolicyClientImpl() override {}
+  ~AuthPolicyClientImpl() override = default;
 
   // AuthPolicyClient override.
-  void JoinAdDomain(const std::string& machine_name,
-                    const std::string& user_principal_name,
+  void JoinAdDomain(const authpolicy::JoinDomainRequest& request,
                     int password_fd,
                     JoinCallback callback) override {
     dbus::MethodCall method_call(authpolicy::kAuthPolicyInterface,
                                  authpolicy::kJoinADDomainMethod);
     dbus::MessageWriter writer(&method_call);
-    writer.AppendString(machine_name);
-    writer.AppendString(user_principal_name);
+    if (!writer.AppendProtoAsArrayOfBytes(request)) {
+      std::move(callback).Run(authpolicy::ERROR_DBUS_FAILURE);
+      return;
+    }
     writer.AppendFileDescriptor(password_fd);
     proxy_->CallMethod(
         &method_call, kSlowDbusTimeoutMilliseconds,
@@ -78,15 +79,17 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void AuthenticateUser(const std::string& user_principal_name,
-                        const std::string& object_guid,
+  void AuthenticateUser(const authpolicy::AuthenticateUserRequest& request,
                         int password_fd,
                         AuthCallback callback) override {
     dbus::MethodCall method_call(authpolicy::kAuthPolicyInterface,
                                  authpolicy::kAuthenticateUserMethod);
     dbus::MessageWriter writer(&method_call);
-    writer.AppendString(user_principal_name);
-    writer.AppendString(object_guid);
+    if (!writer.AppendProtoAsArrayOfBytes(request)) {
+      std::move(callback).Run(authpolicy::ERROR_DBUS_FAILURE,
+                              authpolicy::ActiveDirectoryAccountInfo());
+      return;
+    }
     writer.AppendFileDescriptor(password_fd);
     proxy_->CallMethod(
         &method_call, kSlowDbusTimeoutMilliseconds,
@@ -136,7 +139,7 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
     dbus::MethodCall method_call(authpolicy::kAuthPolicyInterface,
                                  authpolicy::kRefreshUserPolicyMethod);
     dbus::MessageWriter writer(&method_call);
-    writer.AppendString(account_id.GetAccountIdKey());
+    writer.AppendString(account_id.GetObjGuid());
     proxy_->CallMethod(
         &method_call, kSlowDbusTimeoutMilliseconds,
         base::BindOnce(&AuthPolicyClientImpl::HandleRefreshPolicyCallback,
@@ -165,12 +168,11 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
                                    dbus::Response* response) {
     if (!response) {
       DLOG(ERROR) << "RefreshDevicePolicy: failed to call to authpolicy";
-      std::move(callback).Run(false);
+      std::move(callback).Run(authpolicy::ERROR_DBUS_FAILURE);
       return;
     }
     dbus::MessageReader reader(response);
-    std::move(callback).Run(GetErrorFromReader(&reader) ==
-                            authpolicy::ERROR_NONE);
+    std::move(callback).Run(GetErrorFromReader(&reader));
   }
 
   void HandleJoinCallback(JoinCallback callback, dbus::Response* response) {
@@ -205,9 +207,9 @@ class AuthPolicyClientImpl : public AuthPolicyClient {
 
 }  // namespace
 
-AuthPolicyClient::AuthPolicyClient() {}
+AuthPolicyClient::AuthPolicyClient() = default;
 
-AuthPolicyClient::~AuthPolicyClient() {}
+AuthPolicyClient::~AuthPolicyClient() = default;
 
 // static
 AuthPolicyClient* AuthPolicyClient::Create() {

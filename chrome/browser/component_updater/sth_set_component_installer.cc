@@ -12,6 +12,7 @@
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
+#include "base/memory/ref_counted.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task_scheduler/post_task.h"
@@ -72,6 +73,8 @@ STHSetComponentInstallerPolicy::OnCustomInstall(
     const base::FilePath& install_dir) {
   return update_client::CrxInstaller::Result(0);  // Nothing custom here.
 }
+
+void STHSetComponentInstallerPolicy::OnCustomUninstall() {}
 
 void STHSetComponentInstallerPolicy::ComponentReady(
     const base::Version& version,
@@ -201,10 +204,8 @@ void RegisterSTHSetComponent(ComponentUpdateService* cus,
   // The global STHDistributor should have been created by this point.
   DCHECK(distributor);
 
-  std::unique_ptr<ComponentInstallerPolicy> policy(
-      new STHSetComponentInstallerPolicy(distributor));
-  // |cus| will take ownership of |installer| during installer->Register(cus).
-  ComponentInstaller* installer = new ComponentInstaller(std::move(policy));
+  auto installer = base::MakeRefCounted<ComponentInstaller>(
+      std::make_unique<STHSetComponentInstallerPolicy>(distributor));
   installer->Register(cus, base::Closure());
 }
 

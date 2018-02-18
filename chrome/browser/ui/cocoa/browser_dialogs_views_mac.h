@@ -33,6 +33,12 @@ struct SecurityInfo;
 
 namespace chrome {
 
+// Whether to use toolkit-views rather than Cocoa for dialogs ready to "pilot".
+bool ShowPilotDialogsWithViewsToolkit();
+
+// Whether to show all dialogs with toolkit-views on Mac, rather than Cocoa.
+bool ShowAllDialogsWithViewsToolkit();
+
 // Shows a Views page info bubble on the given |browser|.
 void ShowPageInfoBubbleViews(Browser* browser,
                              content::WebContents* web_contents,
@@ -76,11 +82,11 @@ bool IsZoomBubbleViewsShown();
 // which allows it to call SetAnchorRect().
 class ContentSettingBubbleViewsBridge {
  public:
-  static void Show(gfx::NativeView parent_view,
-                   ContentSettingBubbleModel* model,
-                   content::WebContents* web_contents,
-                   const gfx::Point& anchor,
-                   LocationBarDecoration* decoration);
+  static gfx::NativeWindow Show(gfx::NativeView parent_view,
+                                ContentSettingBubbleModel* model,
+                                content::WebContents* web_contents,
+                                const gfx::Point& anchor,
+                                LocationBarDecoration* decoration);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(ContentSettingBubbleViewsBridge);

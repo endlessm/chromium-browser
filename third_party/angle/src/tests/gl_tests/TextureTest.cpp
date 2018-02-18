@@ -174,13 +174,6 @@ class Texture2DTest : public TexCoordDrawTest
     // Tests CopyTexSubImage with floating point textures of various formats.
     void testFloatCopySubImage(int sourceImageChannels, int destImageChannels)
     {
-        // TODO(jmadill): Figure out why this is broken on Intel D3D11
-        if (IsIntel() && getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE)
-        {
-            std::cout << "Test skipped on Intel D3D11." << std::endl;
-            return;
-        }
-
         setUpProgram();
 
         if (getClientMajorVersion() < 3)
@@ -1734,15 +1727,6 @@ TEST_P(Texture2DTest, TextureNPOT_GL_ALPHA_UBYTE)
 // ANGLE previously rejected this if GL_OES_texture_npot wasn't active, which is incorrect.
 TEST_P(Texture2DTest, NPOTSubImageParameters)
 {
-    // TODO(geofflang): Allow the GL backend to accept SubImage calls with a null data ptr. (bug
-    // 1278)
-    if (getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE ||
-        getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE)
-    {
-        std::cout << "Test disabled on OpenGL." << std::endl;
-        return;
-    }
-
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, mTexture2D);
 
@@ -1754,7 +1738,8 @@ TEST_P(Texture2DTest, NPOTSubImageParameters)
 
     // Supply a 3x3 (i.e. non-power-of-two) subimage to the texture.
     // This should always work, even if GL_OES_texture_npot isn't active.
-    glTexSubImage2D(GL_TEXTURE_2D, 1, 0, 0, 3, 3, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    std::array<GLColor, 3 * 3> data;
+    glTexSubImage2D(GL_TEXTURE_2D, 1, 0, 0, 3, 3, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
 
     EXPECT_GL_NO_ERROR();
 }
@@ -2532,9 +2517,9 @@ TEST_P(SamplerTypeMixTestES3, SamplerTypeMixDraw)
 // Calling textureSize() on the samplers hits the D3D sampler metadata workaround.
 TEST_P(TextureSizeTextureArrayTest, BaseLevelVariesInTextureArray)
 {
-    if ((IsAMD() || IsIntel()) && getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE)
+    if (IsAMD() && IsD3D11())
     {
-        std::cout << "Test skipped on Intel and AMD D3D." << std::endl;
+        std::cout << "Test skipped on AMD D3D." << std::endl;
         return;
     }
     glActiveTexture(GL_TEXTURE0);
@@ -2865,12 +2850,6 @@ TEST_P(SamplerInStructAsFunctionParameterTest, SamplerInStructAsFunctionParamete
         return;
     }
 
-    if (IsWindows() && IsIntel() && IsOpenGL())
-    {
-        std::cout << "Test skipped on Windows OpenGL on Intel." << std::endl;
-        return;
-    }
-
     runSamplerInStructTest();
 }
 
@@ -2878,11 +2857,6 @@ TEST_P(SamplerInStructAsFunctionParameterTest, SamplerInStructAsFunctionParamete
 // parameter.
 TEST_P(SamplerInStructArrayAsFunctionParameterTest, SamplerInStructArrayAsFunctionParameter)
 {
-    if (IsIntel() && GetParam().getRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-    {
-        std::cout << "Test skipped on Intel OpenGL." << std::endl;
-        return;
-    }
     // TODO(ynovikov): re-enable once root cause of http://anglebug.com/1427 is fixed
     if (IsAndroid() && IsAdreno() && IsOpenGLES())
     {
@@ -2896,11 +2870,6 @@ TEST_P(SamplerInStructArrayAsFunctionParameterTest, SamplerInStructArrayAsFuncti
 // parameter.
 TEST_P(SamplerInNestedStructAsFunctionParameterTest, SamplerInNestedStructAsFunctionParameter)
 {
-    if (IsIntel() && GetParam().getRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-    {
-        std::cout << "Test skipped on Intel OpenGL." << std::endl;
-        return;
-    }
     // TODO(ynovikov): re-enable once root cause of http://anglebug.com/1427 is fixed
     if (IsAndroid() && IsAdreno() && IsOpenGLES())
     {
@@ -3693,6 +3662,25 @@ TEST_P(Texture2DTestES3, StaleUnpackData)
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 }
 
+// Ensure that texture parameters passed as floats that are converted to ints are rounded before
+// validating they are less than 0.
+TEST_P(Texture2DTestES3, TextureBaseMaxLevelRoundingValidation)
+{
+    GLTexture texture;
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    // Use a negative number that will round to zero when converted to an integer
+    // According to the spec(2.3.1 Data Conversion For State - Setting Commands):
+    // "Validation of values performed by state-setting commands is performed after conversion,
+    // unless specified otherwise for a specific command."
+    GLfloat param = -7.30157126e-07f;
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, param);
+    EXPECT_GL_NO_ERROR();
+
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, param);
+    EXPECT_GL_NO_ERROR();
+}
+
 // This test covers a D3D format redefinition bug for 3D textures. The base level format was not
 // being properly checked, and the texture storage of the previous texture format was persisting.
 // This would result in an ASSERT in debug and incorrect rendering in release.
@@ -3976,6 +3964,7 @@ ANGLE_INSTANTIATE_TEST(Texture2DTest,
 ANGLE_INSTANTIATE_TEST(TextureCubeTest,
                        ES2_D3D9(),
                        ES2_D3D11(),
+                       ES2_D3D11_FL10_0(),
                        ES2_D3D11_FL9_3(),
                        ES2_OPENGL(),
                        ES2_OPENGLES());

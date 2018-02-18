@@ -21,6 +21,7 @@
 #include "permission_broker/dbus-constants.h"
 #include "power_manager/dbus-constants.h"
 #include "shill/dbus-constants.h"
+#include "smbprovider/dbus-constants.h"
 #include "update_engine/dbus-constants.h"
 
 namespace dbus {
@@ -64,9 +65,12 @@ const char kImageLoaderServicePath[] = "/org/chromium/ImageLoader";
 // Methods
 const char kRegisterComponent[] = "RegisterComponent";
 const char kLoadComponent[] = "LoadComponent";
+const char kLoadComponentAtPath[] = "LoadComponentAtPath";
 const char kGetComponentVersion[] = "GetComponentVersion";
+const char kRemoveComponent[] = "RemoveComponent";
 // Constants
 const char kBadResult[] = "";
+const char kTerminaComponentName[] = "cros-termina";
 }  // namespace imageloader
 
 namespace speech_synthesis {
@@ -131,6 +135,7 @@ const char kComponentUpdaterServicePath[] =
 const char kComponentUpdaterServiceInterface[] =
     "org.chromium.ComponentUpdaterService";
 const char kComponentUpdaterServiceLoadComponentMethod[] = "LoadComponent";
+const char kComponentUpdaterServiceRemoveComponentMethod[] = "RemoveComponent";
 
 const char kKioskAppServiceName[] = "org.chromium.KioskAppService";
 const char kKioskAppServicePath[] = "/org/chromium/KioskAppService";
@@ -211,6 +216,8 @@ const char kSMSReceivedSignal[] = "SmsReceived";
 //   /usr/include/ModemManager/ModemManager-names.h
 const char kModemManager1ServiceName[] = "org.freedesktop.ModemManager1";
 const char kModemManager1ServicePath[] = "/org/freedesktop/ModemManager1";
+const char kModemManager1ModemInterface[] =
+    "org.freedesktop.ModemManager1.Modem";
 const char kModemManager1MessagingInterface[] =
     "org.freedesktop.ModemManager1.Modem.Messaging";
 const char kModemManager1SmsInterface[] =

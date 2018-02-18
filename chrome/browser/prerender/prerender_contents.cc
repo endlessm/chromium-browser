@@ -38,7 +38,6 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
-#include "content/public/browser/resource_request_details.h"
 #include "content/public/browser/session_storage_namespace.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
@@ -51,7 +50,6 @@
 using content::BrowserThread;
 using content::OpenURLParams;
 using content::RenderViewHost;
-using content::ResourceRedirectDetails;
 using content::SessionStorageNamespace;
 using content::WebContents;
 
@@ -337,10 +335,6 @@ void PrerenderContents::StartPrerendering(
     load_url_params.transition_type = ui::PageTransitionFromInt(
         ui::PAGE_TRANSITION_TYPED |
         ui::PAGE_TRANSITION_FROM_ADDRESS_BAR);
-  } else if (origin_ == ORIGIN_INSTANT) {
-    load_url_params.transition_type = ui::PageTransitionFromInt(
-        ui::PAGE_TRANSITION_GENERATED |
-        ui::PAGE_TRANSITION_FROM_ADDRESS_BAR);
   }
   load_url_params.override_user_agent =
       prerender_manager_->config().is_overriding_user_agent ?
@@ -577,6 +571,17 @@ void PrerenderContents::DidStartNavigation(
   has_finished_loading_ = false;
 }
 
+void PrerenderContents::DidRedirectNavigation(
+    content::NavigationHandle* navigation_handle) {
+  if (!navigation_handle->IsInMainFrame())
+    return;
+
+  // If it's a redirect on the top-level resource, the name needs to be
+  // remembered for future matching, and if it redirects to an https resource,
+  // it needs to be canceled. If a subresource is redirected, nothing changes.
+  CheckURL(navigation_handle->GetURL());
+}
+
 void PrerenderContents::DidFinishLoad(
     content::RenderFrameHost* render_frame_host,
     const GURL& validated_url) {
@@ -629,17 +634,6 @@ void PrerenderContents::DidFinishNavigation(
     if (!AddAliasURL(redirect))
       return;
   }
-}
-
-void PrerenderContents::DidGetRedirectForResourceRequest(
-    const content::ResourceRedirectDetails& details) {
-  // DidGetRedirectForResourceRequest can come for any resource on a page.  If
-  // it's a redirect on the top-level resource, the name needs to be remembered
-  // for future matching, and if it redirects to an https resource, it needs to
-  // be canceled. If a subresource is redirected, nothing changes.
-  if (details.resource_type != content::RESOURCE_TYPE_MAIN_FRAME)
-    return;
-  CheckURL(details.new_url);
 }
 
 void PrerenderContents::Destroy(FinalStatus final_status) {

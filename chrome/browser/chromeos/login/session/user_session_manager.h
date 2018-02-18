@@ -37,6 +37,10 @@ class PrefRegistrySimple;
 class Profile;
 class TokenHandleFetcher;
 
+namespace base {
+class CommandLine;
+}
+
 namespace net {
 class URLRequestContextGetter;
 }
@@ -114,6 +118,10 @@ class UserSessionManager
 
   // Registers session related preferences.
   static void RegisterPrefs(PrefRegistrySimple* registry);
+
+  // Appends additional command switches to the given command line if
+  // SitePerProcess/IsolateOrigins policy is present.
+  static void MaybeAppendPolicySwitches(base::CommandLine* user_flags);
 
   // Invoked after the tmpfs is successfully mounted.
   // Asks session_manager to restart Chrome in Guest session mode.
@@ -230,7 +238,8 @@ class UserSessionManager
   scoped_refptr<input_method::InputMethodManager::State> GetDefaultIMEState(
       Profile* profile);
 
-  // Check given profile's EndofLife Status and show notification accordingly.
+  // Check to see if given profile should show EndOfLife Notification
+  // and show the message accordingly.
   void CheckEolStatus(Profile* profile);
 
   // Note this could return NULL if not enabled.
@@ -398,10 +407,6 @@ class UserSessionManager
   bool TokenHandlesEnabled();
 
   void CreateTokenUtilIfMissing();
-
-  // Returns |true| if given profile show see EndofLife Notification when
-  // applicable.
-  bool ShouldShowEolNotification(Profile* profile);
 
   // Test API methods.
 

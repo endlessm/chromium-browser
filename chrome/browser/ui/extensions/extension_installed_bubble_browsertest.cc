@@ -4,18 +4,21 @@
 
 #include "base/auto_reset.h"
 #include "base/optional.h"
+#include "base/test/scoped_feature_list.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/extensions/extension_installed_bubble.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
+#include "chrome/common/chrome_features.h"
 #include "components/bubble/bubble_controller.h"
 #include "components/bubble/bubble_ui.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/manifest_constants.h"
-#include "ui/base/test/material_design_controller_test_api.h"
+#include "ui/base/ui_base_features.h"
 
 using extensions::Manifest;
 using ActionType = extensions::ExtensionBuilder::ActionType;
@@ -157,10 +160,14 @@ IN_PROC_BROWSER_TEST_F(ExtensionInstalledBubbleBrowserTest,
 // Tests if the BubbleController gets removed from the BubbleManager when
 // the BubbleUi is closed.
 IN_PROC_BROWSER_TEST_F(ExtensionInstalledBubbleBrowserTest, CloseBubbleUi) {
-  ui::test::MaterialDesignControllerTestAPI md_test_api(
-      ui::MaterialDesignController::MATERIAL_NORMAL);
-  md_test_api.SetSecondaryUiMaterial(true);
-
+  base::test::ScopedFeatureList scoped_feature_list;
+#if defined(OS_MACOSX)
+  scoped_feature_list.InitWithFeatures(
+      {features::kSecondaryUiMd, features::kShowAllDialogsWithViewsToolkit},
+      {});
+#else
+  scoped_feature_list.InitWithFeatures({features::kSecondaryUiMd}, {});
+#endif
   auto bubble = MakeBubble("No action", base::nullopt);
   BubbleManager* manager = browser()->GetBubbleManager();
   manager->ShowBubble(std::move(bubble));

@@ -23,9 +23,7 @@ namespace payments {
 class PaymentRequestCanMakePaymentMetricsTest
     : public PaymentRequestBrowserTestBase {
  protected:
-  PaymentRequestCanMakePaymentMetricsTest()
-      : PaymentRequestBrowserTestBase(
-            "/payment_request_can_make_payment_metrics_test.html") {}
+  PaymentRequestCanMakePaymentMetricsTest() {}
 
   void SetupInitialAddressAndCreditCard() {
     autofill::AutofillProfile billing_address =
@@ -39,9 +37,9 @@ class PaymentRequestCanMakePaymentMetricsTest
   void CallCanMakePaymentAndThenShow() {
     // Start the Payment Request and expect CanMakePayment to be called before
     // the Payment Request is shown.
-    ResetEventObserverForSequence({DialogEvent::CAN_MAKE_PAYMENT_CALLED,
-                                   DialogEvent::CAN_MAKE_PAYMENT_RETURNED,
-                                   DialogEvent::DIALOG_OPENED});
+    ResetEventWaiterForSequence({DialogEvent::CAN_MAKE_PAYMENT_CALLED,
+                                 DialogEvent::CAN_MAKE_PAYMENT_RETURNED,
+                                 DialogEvent::DIALOG_OPENED});
     ASSERT_TRUE(content::ExecuteScript(GetActiveWebContents(), "queryShow();"));
     WaitForObservedEvent();
   }
@@ -52,6 +50,7 @@ class PaymentRequestCanMakePaymentMetricsTest
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        Called_True_Shown_Completed) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   // Setup a credit card with an associated billing address so CanMakePayment
@@ -89,6 +88,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        Called_True_Shown_OtherAborted) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   // Setup a credit card with an associated billing address so CanMakePayment
@@ -98,7 +98,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
   CallCanMakePaymentAndThenShow();
 
   // Simulate that an unexpected error occurs.
-  ResetEventObserverForSequence(
+  ResetEventWaiterForSequence(
       {DialogEvent::ABORT_CALLED, DialogEvent::DIALOG_CLOSED});
   const std::string click_buy_button_js =
       "(function() { document.getElementById('abort').click(); })();";
@@ -132,6 +132,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        Called_True_Shown_UserAborted) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   // Setup a credit card with an associated billing address so CanMakePayment
@@ -169,6 +170,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        Called_False_Shown_Completed) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   // An address is needed so that the UI can choose it as a billing address.
@@ -188,7 +190,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
   SetComboboxValue(base::UTF8ToUTF16("2026"),
                    autofill::CREDIT_CARD_EXP_4_DIGIT_YEAR);
   SelectBillingAddress(billing_address.guid());
-  ResetEventObserver(DialogEvent::BACK_TO_PAYMENT_SHEET_NAVIGATION);
+  ResetEventWaiter(DialogEvent::BACK_TO_PAYMENT_SHEET_NAVIGATION);
   ClickOnDialogViewAndWait(DialogViewID::EDITOR_SAVE_BUTTON);
 
   // Complete the Payment Request.
@@ -220,13 +222,14 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        Called_False_Shown_OtherAborted) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   // Don't add a card on file, so CanMakePayment returns false.
   CallCanMakePaymentAndThenShow();
 
   // Simulate that an unexpected error occurs.
-  ResetEventObserverForSequence(
+  ResetEventWaiterForSequence(
       {DialogEvent::ABORT_CALLED, DialogEvent::DIALOG_CLOSED});
   const std::string click_buy_button_js =
       "(function() { document.getElementById('abort').click(); })();";
@@ -260,6 +263,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        Called_False_Shown_UserAborted) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   // Don't add a card on file, so CanMakePayment returns false.
@@ -294,6 +298,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        Called_True_NotShown) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   // Setup a credit card with an associated billing address so CanMakePayment
@@ -301,8 +306,8 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
   SetupInitialAddressAndCreditCard();
 
   // Try to start the Payment Request, but only CanMakePayment should be called.
-  ResetEventObserverForSequence({DialogEvent::CAN_MAKE_PAYMENT_CALLED,
-                                 DialogEvent::CAN_MAKE_PAYMENT_RETURNED});
+  ResetEventWaiterForSequence({DialogEvent::CAN_MAKE_PAYMENT_CALLED,
+                               DialogEvent::CAN_MAKE_PAYMENT_RETURNED});
   ASSERT_TRUE(content::ExecuteScript(GetActiveWebContents(), "queryNoShow();"));
   WaitForObservedEvent();
 
@@ -335,12 +340,13 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        Called_False_NotShown) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   // Don't add a card on file, so CanMakePayment returns false.
   // Try to start the Payment Request, but only CanMakePayment should be called.
-  ResetEventObserverForSequence({DialogEvent::CAN_MAKE_PAYMENT_CALLED,
-                                 DialogEvent::CAN_MAKE_PAYMENT_RETURNED});
+  ResetEventWaiterForSequence({DialogEvent::CAN_MAKE_PAYMENT_CALLED,
+                               DialogEvent::CAN_MAKE_PAYMENT_RETURNED});
   ASSERT_TRUE(content::ExecuteScript(GetActiveWebContents(), "queryNoShow();"));
   WaitForObservedEvent();
 
@@ -373,6 +379,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        NotCalled_Shown_Completed) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   // Setup a credit card with an associated billing address to make it simpler
@@ -381,7 +388,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
   // Start the Payment Request, CanMakePayment should not be called in this
   // test.
-  ResetEventObserver(DialogEvent::DIALOG_OPENED);
+  ResetEventWaiter(DialogEvent::DIALOG_OPENED);
   ASSERT_TRUE(content::ExecuteScript(GetActiveWebContents(), "noQueryShow();"));
   WaitForObservedEvent();
 
@@ -414,6 +421,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        NotCalled_Shown_OtherAborted) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   // Setup a credit card with an associated billing address to make it simpler
@@ -422,12 +430,12 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
   // Start the Payment Request, CanMakePayment should not be called in this
   // test.
-  ResetEventObserver(DialogEvent::DIALOG_OPENED);
+  ResetEventWaiter(DialogEvent::DIALOG_OPENED);
   ASSERT_TRUE(content::ExecuteScript(GetActiveWebContents(), "noQueryShow();"));
   WaitForObservedEvent();
 
   // Simulate that an unexpected error occurs.
-  ResetEventObserverForSequence(
+  ResetEventWaiterForSequence(
       {DialogEvent::ABORT_CALLED, DialogEvent::DIALOG_CLOSED});
   const std::string click_buy_button_js =
       "(function() { document.getElementById('abort').click(); })();";
@@ -461,6 +469,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        NotCalled_Shown_UserAborted) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   // Setup a credit card with an associated billing address to make it simpler
@@ -469,7 +478,7 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
   // Start the Payment Request, CanMakePayment should not be called in this
   // test.
-  ResetEventObserver(DialogEvent::DIALOG_OPENED);
+  ResetEventWaiter(DialogEvent::DIALOG_OPENED);
   ASSERT_TRUE(content::ExecuteScript(GetActiveWebContents(), "noQueryShow();"));
   WaitForObservedEvent();
 
@@ -502,13 +511,14 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        UserAborted_NavigationToSameOrigin) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   CallCanMakePaymentAndThenShow();
 
   // Simulate that the user navigates away from the Payment Request by opening a
   // different page on the same origin.
-  ResetEventObserverForSequence({DialogEvent::DIALOG_CLOSED});
+  ResetEventWaiterForSequence({DialogEvent::DIALOG_CLOSED});
   NavigateTo("/payment_request_email_test.html");
   WaitForObservedEvent();
 
@@ -538,13 +548,14 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        UserAborted_NavigationToDifferentOrigin) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   CallCanMakePaymentAndThenShow();
 
   // Simulate that the user navigates away from the Payment Request by opening a
   // different page on a different origin.
-  ResetEventObserverForSequence({DialogEvent::DIALOG_CLOSED});
+  ResetEventWaiterForSequence({DialogEvent::DIALOG_CLOSED});
   GURL other_origin_url =
       https_server()->GetURL("b.com", "/payment_request_email_test.html");
   ui_test_utils::NavigateToURL(browser(), other_origin_url);
@@ -576,12 +587,13 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        UserAborted_TabClose) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   CallCanMakePaymentAndThenShow();
 
   // Simulate that the user closes the tab containing the Payment Request.
-  ResetEventObserverForSequence({DialogEvent::DIALOG_CLOSED});
+  ResetEventWaiterForSequence({DialogEvent::DIALOG_CLOSED});
   chrome::CloseTab(browser());
   WaitForObservedEvent();
 
@@ -611,12 +623,13 @@ IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
 
 IN_PROC_BROWSER_TEST_F(PaymentRequestCanMakePaymentMetricsTest,
                        UserAborted_Reload) {
+  NavigateTo("/payment_request_can_make_payment_metrics_test.html");
   base::HistogramTester histogram_tester;
 
   CallCanMakePaymentAndThenShow();
 
   // Simulate that the user reloads the page containing the Payment Request.
-  ResetEventObserverForSequence({DialogEvent::DIALOG_CLOSED});
+  ResetEventWaiterForSequence({DialogEvent::DIALOG_CLOSED});
   chrome::Reload(browser(), WindowOpenDisposition::CURRENT_TAB);
   WaitForObservedEvent();
 

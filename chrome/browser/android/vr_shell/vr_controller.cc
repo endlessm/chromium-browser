@@ -61,6 +61,20 @@ float DeltaTimeSeconds(int64_t last_timestamp_nanos) {
          kNanoSecondsPerSecond;
 }
 
+gvr::ControllerButton PlatformToGvrButton(
+    vr::PlatformController::ButtonType type) {
+  switch (type) {
+    case vr::PlatformController::kButtonHome:
+      return gvr::kControllerButtonHome;
+    case vr::PlatformController::kButtonMenu:
+      return gvr::kControllerButtonApp;
+    case vr::PlatformController::kButtonSelect:
+      return gvr::kControllerButtonClick;
+    default:
+      return gvr::kControllerButtonNone;
+  }
+}
+
 }  // namespace
 
 VrController::VrController(gvr_context* gvr_context) {
@@ -145,6 +159,10 @@ float VrController::TouchPosY() {
   return controller_state_->GetTouchPos().y;
 }
 
+bool VrController::IsButtonDown(vr::PlatformController::ButtonType type) const {
+  return controller_state_->GetButtonState(PlatformToGvrButton(type));
+}
+
 base::TimeTicks VrController::GetLastOrientationTimestamp() const {
   // controller_state_->GetLast*Timestamp() returns timestamps in a
   // different timebase from base::TimeTicks::Now(), so we can't use the
@@ -194,16 +212,6 @@ gfx::Point3F VrController::GetPointerStart() const {
   rotation_mat.TransformVector(&pointer_direction);
   return Position() +
          gfx::ScaleVector3d(pointer_direction, kLaserStartDisplacement);
-}
-
-vr::VrControllerModel::State VrController::GetModelState() const {
-  if (ButtonState(gvr::ControllerButton::GVR_CONTROLLER_BUTTON_CLICK))
-    return vr::VrControllerModel::TOUCHPAD;
-  if (ButtonState(gvr::ControllerButton::GVR_CONTROLLER_BUTTON_APP))
-    return vr::VrControllerModel::APP;
-  if (ButtonState(gvr::ControllerButton::GVR_CONTROLLER_BUTTON_HOME))
-    return vr::VrControllerModel::SYSTEM;
-  return vr::VrControllerModel::IDLE;
 }
 
 bool VrController::TouchDownHappened() {

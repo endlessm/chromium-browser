@@ -77,7 +77,8 @@ class WindowBoundsChangeObserver : public aura::WindowObserver {
  private:
   void OnWindowBoundsChanged(aura::Window* window,
                              const gfx::Rect& old_bounds,
-                             const gfx::Rect& new_bounds) override {
+                             const gfx::Rect& new_bounds,
+                             ui::PropertyChangeReason reason) override {
     ui_->UpdateInsetsForWindow(window);
   }
   void OnWindowDestroyed(aura::Window* window) override {
@@ -193,7 +194,7 @@ class AshKeyboardControllerObserver
   ~AshKeyboardControllerObserver() override {}
 
   // KeyboardControllerObserver:
-  void OnKeyboardBoundsChanging(const gfx::Rect& bounds) override {
+  void OnKeyboardVisibleBoundsChanging(const gfx::Rect& bounds) override {
     extensions::EventRouter* router = extensions::EventRouter::Get(context_);
 
     if (!router->HasEventListener(
@@ -396,7 +397,8 @@ void ChromeKeyboardUI::ResetInsets() {
 
 void ChromeKeyboardUI::OnWindowBoundsChanged(aura::Window* window,
                                              const gfx::Rect& old_bounds,
-                                             const gfx::Rect& new_bounds) {
+                                             const gfx::Rect& new_bounds,
+                                             ui::PropertyChangeReason reason) {
   SetShadowAroundKeyboard();
 }
 

@@ -151,9 +151,6 @@ class PlatformBackend(object):
   def HasBeenThermallyThrottled(self):
     raise NotImplementedError()
 
-  def GetSystemCommitCharge(self):
-    raise NotImplementedError()
-
   def GetSystemTotalPhysicalMemory(self):
     raise NotImplementedError()
 
@@ -161,12 +158,6 @@ class PlatformBackend(object):
     return {}
 
   def GetCpuTimestamp(self):
-    return {}
-
-  def PurgeUnpinnedMemory(self):
-    pass
-
-  def GetMemoryStats(self, pid):
     return {}
 
   def GetChildPids(self, pid):
@@ -250,20 +241,6 @@ class PlatformBackend(object):
     return False
 
   def GetNetworkData(self, browser):
-    raise NotImplementedError()
-
-  def ReadMsr(self, msr_number, start=0, length=64):
-    """Read a CPU model-specific register (MSR).
-
-    Which MSRs are available depends on the CPU model.
-    On systems with multiple CPUs, this function may run on any CPU.
-
-    Args:
-      msr_number: The number of the register to read.
-      start: The least significant bit to read, zero-indexed.
-          (Said another way, the number of bits to right-shift the MSR value.)
-      length: The number of bits to read. MSRs are 64 bits, even on 32-bit CPUs.
-    """
     raise NotImplementedError()
 
   def CanTakeScreenshot(self):

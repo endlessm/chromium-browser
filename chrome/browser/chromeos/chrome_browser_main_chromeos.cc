@@ -43,6 +43,7 @@
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_mode_idle_app_name_notification.h"
 #include "chrome/browser/chromeos/arc/arc_service_launcher.h"
+#include "chrome/browser/chromeos/arc/voice_interaction/voice_interaction_controller_client.h"
 #include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/boot_times_recorder.h"
 #include "chrome/browser/chromeos/dbus/chrome_component_updater_service_provider_delegate.h"
@@ -85,7 +86,9 @@
 #include "chrome/browser/chromeos/policy/device_local_account.h"
 #include "chrome/browser/chromeos/power/freezer_cgroup_process_manager.h"
 #include "chrome/browser/chromeos/power/idle_action_warning_observer.h"
+#include "chrome/browser/chromeos/power/ml/user_activity_logging_controller.h"
 #include "chrome/browser/chromeos/power/power_data_collector.h"
+#include "chrome/browser/chromeos/power/power_metrics_reporter.h"
 #include "chrome/browser/chromeos/power/power_prefs.h"
 #include "chrome/browser/chromeos/power/renderer_freezer.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
@@ -101,12 +104,14 @@
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
+#include "chrome/browser/notifications/notification_platform_bridge.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/task_manager/task_manager_interface.h"
 #include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/tablet_mode_client.h"
+#include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_features.h"
@@ -155,7 +160,6 @@
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_names.h"
-#include "components/wallpaper/wallpaper_manager_base.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/media_capture_devices.h"
 #include "content/public/browser/notification_service.h"
@@ -249,6 +253,18 @@ void GetSystemSlotOnIOThread(
   if (system_nss_slot) {
     callback.Run(std::move(system_nss_slot));
   }
+}
+
+// Verifies if shall signal to the platform that it can attempt owning
+// the tpm. This signal is sent on every boot after it has been initially
+// allowed by accepting EULA to make sure we are not stuck in interrupted
+// tpm initialization state.
+bool ShallAttemptTpmOwnership() {
+#if defined(GOOGLE_CHROME_BUILD)
+  return StartupUtils::IsEulaAccepted();
+#else
+  return true;
+#endif
 }
 
 }  // namespace
@@ -534,6 +550,16 @@ class SystemTokenCertDBInitializer {
     if (!tpm_is_ready.has_value() || !tpm_is_ready.value()) {
       VLOG(1) << "SystemTokenCertDBInitializer: TPM is not ready - not loading "
                  "system token.";
+      if (ShallAttemptTpmOwnership()) {
+        // Signal to cryptohome that it can attempt TPM ownership, if it
+        // haven't done that yet. The previous signal from EULA dialogue could
+        // have been lost if initialization was interrupted.
+        // We don't care about the result, and don't block waiting for it.
+        LOG(WARNING) << "Request attempting TPM ownership.";
+        DBusThreadManager::Get()->GetCryptohomeClient()->TpmCanAttemptOwnership(
+            EmptyVoidDBusMethodCallback());
+      }
+
       return;
     }
     VLOG(1)
@@ -710,9 +736,14 @@ void ChromeBrowserMainPartsChromeos::PreMainMessageLoopRun() {
       new NetworkThrottlingObserver(g_browser_process->local_state()));
 
   arc_service_launcher_ = base::MakeUnique<arc::ArcServiceLauncher>();
+  arc_voice_interaction_controller_client_ =
+      std::make_unique<arc::VoiceInteractionControllerClient>();
 
   chromeos::ResourceReporter::GetInstance()->StartMonitoring(
       task_manager::TaskManagerInterface::GetTaskManager());
+
+  if (!base::FeatureList::IsEnabled(features::kNativeNotifications))
+    notification_client_.reset(NotificationPlatformBridge::Create());
 
   ChromeBrowserMainPartsLinux::PreMainMessageLoopRun();
 }
@@ -784,10 +815,11 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
     MagnificationManager::Initialize();
   }
 
-  wallpaper::WallpaperManagerBase::SetPathIds(
-      chrome::DIR_USER_DATA,
-      chrome::DIR_CHROMEOS_WALLPAPERS,
-      chrome::DIR_CHROMEOS_CUSTOM_WALLPAPERS);
+  // TODO(crbug.com/776464): Remove WallpaperManager after everything is
+  // migrated to WallpaperController.
+  WallpaperManager::SetPathIds(chrome::DIR_USER_DATA,
+                               chrome::DIR_CHROMEOS_WALLPAPERS,
+                               chrome::DIR_CHROMEOS_CUSTOM_WALLPAPERS);
 
   // Add observers for WallpaperManager. This depends on PowerManagerClient,
   // TimezoneSettings and CrosSettings.
@@ -817,6 +849,9 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
   // Makes mojo request to TabletModeController in ash.
   tablet_mode_client_ = std::make_unique<TabletModeClient>();
   tablet_mode_client_->Init();
+
+  wallpaper_controller_client_ = std::make_unique<WallpaperControllerClient>();
+  wallpaper_controller_client_->Init();
 
   if (lock_screen_apps::StateController::IsEnabled()) {
     lock_screen_apps_state_controller_ =
@@ -993,6 +1028,10 @@ void ChromeBrowserMainPartsChromeos::PostProfileInit() {
   renderer_freezer_ = base::MakeUnique<RendererFreezer>(
       base::MakeUnique<FreezerCgroupProcessManager>());
 
+  power_metrics_reporter_ = std::make_unique<PowerMetricsReporter>(
+      DBusThreadManager::Get()->GetPowerManagerClient(),
+      g_browser_process->local_state());
+
   g_browser_process->platform_part()->InitializeAutomaticRebootManager();
   g_browser_process->platform_part()->InitializeDeviceDisablingManager();
 
@@ -1060,6 +1099,11 @@ void ChromeBrowserMainPartsChromeos::PostBrowserStart() {
     night_light_client_->Start();
   }
 
+  if (base::FeatureList::IsEnabled(features::kUserActivityEventLogging)) {
+    user_activity_logging_controller_ =
+        std::make_unique<power::ml::UserActivityLoggingController>();
+  }
+
   ChromeBrowserMainPartsLinux::PostBrowserStart();
 }
 
@@ -1078,6 +1122,8 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   NoteTakingHelper::Shutdown();
 
   arc_service_launcher_->Shutdown();
+
+  arc_voice_interaction_controller_client_.reset();
 
   // Unregister CrosSettings observers before CrosSettings is destroyed.
   shutdown_policy_forwarder_.reset();
@@ -1110,6 +1156,7 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   network_pref_state_observer_.reset();
   extension_volume_observer_.reset();
   power_prefs_.reset();
+  power_metrics_reporter_.reset();
   renderer_freezer_.reset();
   wake_on_wifi_manager_.reset();
   network_throttling_observer_.reset();
@@ -1117,6 +1164,7 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   keyboard_event_rewriters_.reset();
   low_disk_notification_.reset();
   chrome_launcher_controller_initializer_.reset();
+  user_activity_logging_controller_.reset();
 
   // Detach D-Bus clients before DBusThreadManager is shut down.
   idle_action_warning_observer_.reset();
@@ -1134,6 +1182,8 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   // http://crbug.com/276659).
   g_browser_process->platform_part()->user_manager()->Shutdown();
   WallpaperManager::Shutdown();
+
+  wallpaper_controller_client_.reset();
 
   // Let the DeviceDisablingManager unregister itself as an observer of the
   // CrosSettings singleton before it is destroyed.
@@ -1154,6 +1204,9 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   // is called.
   g_browser_process->platform_part()->browser_policy_connector_chromeos()->
       PreShutdown();
+
+  // Close the notification client before destroying the profile manager.
+  notification_client_.reset();
 
   // NOTE: Closes ash and destroys ash::Shell.
   ChromeBrowserMainPartsLinux::PostMainMessageLoopRun();

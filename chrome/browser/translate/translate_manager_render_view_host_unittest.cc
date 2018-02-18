@@ -55,6 +55,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_renderer_host.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "net/base/net_errors.h"
@@ -285,10 +286,12 @@ class TranslateManagerRenderViewHostTest
   void SimulateNavigation(const GURL& url,
                           const std::string& lang,
                           bool page_translatable) {
-    if (main_rfh()->GetLastCommittedURL() == url)
-      Reload();
-    else
-      NavigateAndCommit(url);
+    if (main_rfh()->GetLastCommittedURL() == url) {
+      content::NavigationSimulator::Reload(web_contents());
+    } else {
+      content::NavigationSimulator::NavigateAndCommitFromBrowser(web_contents(),
+                                                                 url);
+    }
     SimulateOnTranslateLanguageDetermined(lang, page_translatable);
   }
 
@@ -403,10 +406,12 @@ class TranslateManagerRenderViewHostTest
 
   void ReloadAndWait(bool successful_reload) {
     NavEntryCommittedObserver nav_observer(web_contents());
-    if (successful_reload)
-      Reload();
-    else
-      FailedReload();
+    if (successful_reload) {
+      content::NavigationSimulator::Reload(web_contents());
+    } else {
+      content::NavigationSimulator::ReloadAndFail(web_contents(),
+                                                  net::ERR_TIMED_OUT);
+    }
 
     // Ensures it is really handled a reload.
     const content::LoadCommittedDetails& nav_details =
@@ -599,28 +604,28 @@ TEST_F(TranslateManagerRenderViewHostTest, FetchLanguagesFromTranslateServer) {
   // GetSupportedLanguages() invokes RequestLanguageList() internally.
   std::vector<std::string> default_supported_languages;
   translate::TranslateDownloadManager::GetSupportedLanguages(
-      &default_supported_languages);
+      true /* translate_allowed */, &default_supported_languages);
   // To make sure we got the defaults and don't confuse them with the mocks.
   ASSERT_NE(default_supported_languages.size(), server_languages.size());
 
   // Check that we still get the defaults until the URLFetch has completed.
   std::vector<std::string> current_supported_languages;
   translate::TranslateDownloadManager::GetSupportedLanguages(
-      &current_supported_languages);
+      true /* translate_allowed */, &current_supported_languages);
   EXPECT_EQ(default_supported_languages, current_supported_languages);
 
   // Also check that it didn't change if we failed the URL fetch.
   SimulateSupportedLanguagesURLFetch(false, std::vector<std::string>());
   current_supported_languages.clear();
   translate::TranslateDownloadManager::GetSupportedLanguages(
-      &current_supported_languages);
+      true /* translate_allowed */, &current_supported_languages);
   EXPECT_EQ(default_supported_languages, current_supported_languages);
 
   // Now check that we got the appropriate set of languages from the server.
   SimulateSupportedLanguagesURLFetch(true, server_languages);
   current_supported_languages.clear();
   translate::TranslateDownloadManager::GetSupportedLanguages(
-      &current_supported_languages);
+      true /* translate_allowed */, &current_supported_languages);
   // "xx" can't be displayed in the Translate infobar, so this is eliminated.
   EXPECT_EQ(server_languages.size() - 1, current_supported_languages.size());
   // Not sure we need to guarantee the order of languages, so we find them.
@@ -1223,7 +1228,7 @@ TEST_F(TranslateManagerRenderViewHostTest, TranslateEnabledPref) {
   Profile* profile =
       Profile::FromBrowserContext(web_contents()->GetBrowserContext());
   PrefService* prefs = profile->GetPrefs();
-  prefs->SetBoolean(prefs::kEnableTranslate, true);
+  prefs->SetBoolean(prefs::kOfferTranslateEnabled, true);
 
   SimulateNavigation(GURL("http://www.google.fr"), "fr", true);
 
@@ -1232,7 +1237,7 @@ TEST_F(TranslateManagerRenderViewHostTest, TranslateEnabledPref) {
   EXPECT_TRUE(infobar != NULL);
 
   // Disable translate.
-  prefs->SetBoolean(prefs::kEnableTranslate, false);
+  prefs->SetBoolean(prefs::kOfferTranslateEnabled, false);
 
   // Navigate to a new page, that should close the previous infobar.
   GURL url("http://www.youtube.fr");

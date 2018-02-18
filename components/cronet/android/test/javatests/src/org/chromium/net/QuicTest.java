@@ -21,7 +21,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.Log;
-import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.Feature;
 import org.chromium.net.CronetTestRule.OnlyRunNativeCronet;
@@ -57,6 +56,11 @@ public class QuicTest {
         mBuilder.addQuicHint(QuicTestServer.getServerHost(), QuicTestServer.getServerPort(),
                 QuicTestServer.getServerPort());
 
+        // The pref may not be written if the computed Effective Connection Type (ECT) matches the
+        // default ECT for the current connection type. Force the ECT to "Slow-2G". Since "Slow-2G"
+        // is not the default ECT for any connection type, this ensures that the pref is written to.
+        JSONObject nqeParams = new JSONObject().put("force_effective_connection_type", "Slow-2G");
+
         // TODO(mgersh): Enable connection migration once it works, see http://crbug.com/634910
         JSONObject quicParams = new JSONObject()
                                         .put("connection_options", "PACE,IW10,FOO,DEADBEEF")
@@ -68,7 +72,8 @@ public class QuicTest {
         JSONObject hostResolverParams = CronetTestUtil.generateHostResolverRules();
         JSONObject experimentalOptions = new JSONObject()
                                                  .put("QUIC", quicParams)
-                                                 .put("HostResolverRules", hostResolverParams);
+                                                 .put("HostResolverRules", hostResolverParams)
+                                                 .put("NetworkQualityEstimator", nqeParams);
         mBuilder.setExperimentalOptions(experimentalOptions.toString());
         mBuilder.setStoragePath(getTestStorage(getContext()));
         mBuilder.enableHttpCache(CronetEngine.Builder.HTTP_CACHE_DISK_NO_HTTP, 1000 * 1024);
@@ -151,7 +156,6 @@ public class QuicTest {
     }
 
     // Returns whether a file contains a particular string.
-    @SuppressFBWarnings("OBL_UNSATISFIED_OBLIGATION_EXCEPTION_EDGE")
     private boolean fileContainsString(String filename, String content) throws IOException {
         File file = new File(getTestStorage(getContext()) + "/prefs/" + filename);
         FileInputStream fileInputStream = new FileInputStream(file);

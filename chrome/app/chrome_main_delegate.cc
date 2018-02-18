@@ -39,7 +39,8 @@
 #include "chrome/common/features.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/profiling.h"
-#include "chrome/common/switch_utils.h"
+#include "chrome/common/profiling/memlog_allocator_shim.h"
+#include "chrome/common/profiling/memlog_stream.h"
 #include "chrome/common/trace_event_args_whitelist.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/gpu/chrome_content_gpu_client.h"
@@ -48,6 +49,7 @@
 #include "components/component_updater/component_updater_paths.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/crash/content/app/crash_reporter_client.h"
+#include "components/crash/core/common/crash_key.h"
 #include "components/nacl/common/features.h"
 #include "components/version_info/version_info.h"
 #include "content/public/common/content_client.h"
@@ -109,12 +111,6 @@
 #include "chromeos/hugepage_text/hugepage_text.h"
 #include "components/metrics/leak_detector/leak_detector.h"
 #endif
-
-#if BUILDFLAG(ENABLE_PACKAGE_MASH_SERVICES)
-#include "mash/common/config.h"                                   // nogncheck
-#include "services/ui/public/interfaces/constants.mojom.h"        // nogncheck
-
-#endif  // BUILDFLAG(ENABLE_PACKAGE_MASH_SERVICES)
 
 #if defined(OS_ANDROID)
 #include "base/android/java_exception_reporter.h"
@@ -182,7 +178,10 @@ base::LazyInstance<ChromeCrashReporterClient>::Leaky g_chrome_crash_client =
 #endif
 
 extern int NaClMain(const content::MainFunctionParams&);
+
+#if !defined(OS_CHROMEOS)
 extern int CloudPrintServiceProcessMain(const content::MainFunctionParams&);
+#endif
 
 const char* const ChromeMainDelegate::kNonWildcardDomainNonPortSchemes[] = {
     extensions::kExtensionScheme, chrome::kChromeSearchScheme};
@@ -304,7 +303,7 @@ void AdjustLinuxOOMScore(const std::string& process_type) {
 // and resources loaded.
 bool SubprocessNeedsResourceBundle(const std::string& process_type) {
   return
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
+#if defined(OS_LINUX)
       // The zygote process opens the resources for the renderers.
       process_type == switches::kZygoteProcess ||
 #endif
@@ -689,6 +688,14 @@ bool ChromeMainDelegate::BasicStartupComplete(int* exit_code) {
 
   content::SetContentClient(&chrome_content_client_);
 
+  // The TLS slot used by the memlog allocator shim needs to be initialized
+  // early to ensure that it gets assigned a low slot number. If it gets
+  // initialized too late, the glibc TLS system will require a malloc call in
+  // order to allocate storage for a higher slot number. Since malloc is hooked,
+  // this causes re-entrancy into the allocator shim, while the TLS object is
+  // partially-initialized, which the TLS object is supposed to protect again.
+  profiling::InitTLSSlot();
+
 #if defined (OS_CHROMEOS)
   // The TLS slot used by metrics::LeakDetector needs to be initialized early to
   // ensure that it gets assigned a low slow number. If it gets initialized too
@@ -765,6 +772,8 @@ void ChromeMainDelegate::PreSandboxStartup() {
       *base::CommandLine::ForCurrentProcess();
   std::string process_type =
       command_line.GetSwitchValueASCII(switches::kProcessType);
+
+  crash_reporter::InitializeCrashKeys();
 
 #if defined(OS_POSIX)
   crash_reporter::SetCrashReporterClient(g_chrome_crash_client.Pointer());
@@ -903,7 +912,7 @@ void ChromeMainDelegate::PreSandboxStartup() {
     ChromeContentUtilityClient::PreSandboxStartup();
   }
 
-  chrome::InitializePDF();
+  InitializePDF();
 #endif
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
@@ -964,7 +973,8 @@ int ChromeMainDelegate::RunProcess(
 // Android.
 #if !defined(OS_ANDROID)
   static const MainFunction kMainFunctions[] = {
-#if BUILDFLAG(ENABLE_PRINT_PREVIEW) && !defined(CHROME_MULTIPLE_DLL_CHILD)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW) && !defined(CHROME_MULTIPLE_DLL_CHILD) && \
+    !defined(OS_CHROMEOS)
     {switches::kCloudPrintServiceProcess, CloudPrintServiceProcessMain},
 #endif
 
@@ -1028,7 +1038,7 @@ bool ChromeMainDelegate::DelaySandboxInitialization(
 #endif
   return process_type == switches::kRelauncherProcess;
 }
-#elif defined(OS_POSIX) && !defined(OS_ANDROID)
+#elif defined(OS_LINUX)
 void ChromeMainDelegate::ZygoteStarting(
     std::vector<std::unique_ptr<content::ZygoteForkDelegate>>* delegates) {
 #if defined(OS_CHROMEOS)
@@ -1060,7 +1070,7 @@ void ChromeMainDelegate::ZygoteForked() {
   crash_keys::SetCrashKeysFromCommandLine(*command_line);
 }
 
-#endif  // OS_MACOSX
+#endif  // defined(OS_LINUX)
 
 content::ContentBrowserClient*
 ChromeMainDelegate::CreateContentBrowserClient() {
@@ -1119,23 +1129,4 @@ service_manager::ProcessType ChromeMainDelegate::OverrideProcessType() {
     return service_manager::ProcessType::kDefault;
   }
   return service_manager::ProcessType::kDefault;
-}
-
-bool ChromeMainDelegate::ShouldTerminateServiceManagerOnInstanceQuit(
-    const service_manager::Identity& identity,
-    int* exit_code) {
-#if BUILDFLAG(ENABLE_PACKAGE_MASH_SERVICES)
-  if (identity.name() == mash::common::GetWindowManagerServiceName() ||
-      identity.name() == ui::mojom::kServiceName ||
-      identity.name() == content::mojom::kPackagedServicesServiceName) {
-    // Quit the main process if an important child (e.g. window manager) dies.
-    // On Chrome OS the OS-level session_manager will restart the main process.
-    *exit_code = 1;
-    LOG(ERROR) << "Main process exiting because service " << identity.name()
-               << " quit unexpectedly.";
-    return true;
-  }
-#endif  // BUILDFLAG(ENABLE_PACKAGE_MASH_SERVICES)
-
-  return false;
 }

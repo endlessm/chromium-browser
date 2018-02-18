@@ -5,6 +5,7 @@
 #include "services/service_manager/sandbox/sandbox_type.h"
 
 #include "base/command_line.h"
+#include "build/build_config.h"
 #include "services/service_manager/sandbox/switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -16,6 +17,15 @@ TEST(SandboxTypeTest, Empty) {
 
   command_line.AppendSwitchASCII(switches::kServiceSandboxType, "network");
   EXPECT_EQ(SANDBOX_TYPE_NO_SANDBOX, SandboxTypeFromCommandLine(command_line));
+
+#if defined(OS_WIN)
+  EXPECT_FALSE(
+      command_line.HasSwitch(switches::kNoSandboxAndElevatedPrivileges));
+  SetCommandLineFlagsForSandboxType(
+      &command_line, SANDBOX_TYPE_NO_SANDBOX_AND_ELEVATED_PRIVILEGES);
+  EXPECT_EQ(SANDBOX_TYPE_NO_SANDBOX_AND_ELEVATED_PRIVILEGES,
+            SandboxTypeFromCommandLine(command_line));
+#endif
 
   EXPECT_FALSE(command_line.HasSwitch(switches::kNoSandbox));
   SetCommandLineFlagsForSandboxType(&command_line, SANDBOX_TYPE_NO_SANDBOX);
@@ -124,6 +134,18 @@ TEST(SandboxTypeTest, Nonesuch) {
 
   command_line.AppendSwitch(switches::kNoSandbox);
   EXPECT_EQ(SANDBOX_TYPE_NO_SANDBOX, SandboxTypeFromCommandLine(command_line));
+}
+
+TEST(SandboxTypeTest, ElevatedPrivileges) {
+  // Tests that the "no sandbox and elevated privileges" which is Windows
+  // specific default to no sandbox on non Windows platforms.
+  SandboxType elevated_type =
+      UtilitySandboxTypeFromString(switches::kNoneSandboxAndElevatedPrivileges);
+#if defined(OS_WIN)
+  EXPECT_EQ(SANDBOX_TYPE_NO_SANDBOX_AND_ELEVATED_PRIVILEGES, elevated_type);
+#else
+  EXPECT_EQ(SANDBOX_TYPE_NO_SANDBOX, elevated_type);
+#endif
 }
 
 }  // namespace service_manager

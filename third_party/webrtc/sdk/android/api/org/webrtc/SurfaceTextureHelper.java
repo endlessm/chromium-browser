@@ -18,12 +18,9 @@ import android.opengl.GLES20;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.SystemClock;
 import java.nio.ByteBuffer;
-import java.nio.FloatBuffer;
 import java.util.concurrent.Callable;
-import java.util.concurrent.TimeUnit;
-import org.webrtc.VideoFrame.I420Buffer;
+import org.webrtc.EglBase;
 import org.webrtc.VideoFrame.TextureBuffer;
 
 /**
@@ -53,6 +50,7 @@ public class SurfaceTextureHelper {
    * thread and handler is created for handling the SurfaceTexture. May return null if EGL fails to
    * initialize a pixel buffer surface and make it current.
    */
+  @CalledByNative
   public static SurfaceTextureHelper create(
       final String threadName, final EglBase.Context sharedContext) {
     final HandlerThread thread = new HandlerThread(threadName);
@@ -195,6 +193,7 @@ public class SurfaceTextureHelper {
    * onTextureFrameAvailable(). Only one texture frame can be in flight at once, so you must call
    * this function in order to receive a new frame.
    */
+  @CalledByNative
   public void returnTextureFrame() {
     handler.post(new Runnable() {
       @Override
@@ -218,6 +217,7 @@ public class SurfaceTextureHelper {
    * stopped when the texture frame has been returned by a call to returnTextureFrame(). You are
    * guaranteed to not receive any more onTextureFrameAvailable() after this function returns.
    */
+  @CalledByNative
   public void dispose() {
     Logging.d(TAG, "dispose()");
     ThreadUtils.invokeAtFrontUninterruptibly(handler, new Runnable() {
@@ -231,8 +231,11 @@ public class SurfaceTextureHelper {
     });
   }
 
-  public void textureToYUV(final ByteBuffer buf, final int width, final int height,
-      final int stride, final int textureId, final float[] transformMatrix) {
+  /** Deprecated, use textureToYuv. */
+  @Deprecated
+  @SuppressWarnings("deprecation") // yuvConverter.convert is deprecated
+  void textureToYUV(final ByteBuffer buf, final int width, final int height, final int stride,
+      final int textureId, final float[] transformMatrix) {
     if (textureId != oesTextureId) {
       throw new IllegalStateException("textureToByteBuffer called with unexpected textureId");
     }
@@ -246,6 +249,20 @@ public class SurfaceTextureHelper {
         yuvConverter.convert(buf, width, height, stride, textureId, transformMatrix);
       }
     });
+  }
+
+  /**
+   * Posts to the correct thread to convert |textureBuffer| to I420.
+   */
+  public VideoFrame.I420Buffer textureToYuv(final TextureBuffer textureBuffer) {
+    final VideoFrame.I420Buffer[] result = new VideoFrame.I420Buffer[1];
+    ThreadUtils.invokeAtFrontUninterruptibly(handler, () -> {
+      if (yuvConverter == null) {
+        yuvConverter = new YuvConverter();
+      }
+      result[0] = yuvConverter.convert(textureBuffer);
+    });
+    return result[0];
   }
 
   private void updateTexImage() {

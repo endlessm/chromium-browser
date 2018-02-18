@@ -32,6 +32,10 @@ const char kTestCrosGaiaIdMigrationStarted[] = "started";
 const base::Feature kVoiceInteractionFeature{"ChromeOSVoiceInteraction",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Controls whether enable assistant for locale.
+const base::Feature kAssistantFeatureForLocale{
+    "ChromeOSAssistantForLocale", base::FEATURE_DISABLED_BY_DEFAULT};
+
 }  // namespace
 
 // Please keep the order of these switches synchronized with the header file
@@ -291,6 +295,9 @@ const char kDisableMdOobe[] = "disable-md-oobe";
 // Disables material design Error screen.
 const char kDisableMdErrorScreen[] = "disable-md-error-screen";
 
+// Enables using a random url for captive portal detection.
+const char kEnableCaptivePortalRandomUrl[] = "enable-captive-portal-random-url";
+
 // Enables notifications about captive portals in session.
 const char kEnableNetworkPortalNotification[] =
     "enable-network-portal-notification";
@@ -322,9 +329,14 @@ const char kEnableVideoPlayerChromecastSupport[] =
 // Enables the VoiceInteraction support.
 const char kEnableVoiceInteraction[] = "enable-voice-interaction";
 
-// Enables zip archiver.
-const char kEnableZipArchiverOnFileManager[] =
-    "enable-zip-archiver-on-file-manager";
+// Enables zip archiver - packer.
+const char kEnableZipArchiverPacker[] = "enable-zip-archiver-packer";
+
+// Enables zip archiver - unpacker.
+const char kEnableZipArchiverUnpacker[] = "enable-zip-archiver-unpacker";
+
+// Disables zip archiver - unpacker.
+const char kDisableZipArchiverUnpacker[] = "disable-zip-archiver-unpacker";
 
 // Disables ARC for managed accounts.
 const char kEnterpriseDisableArc[] = "enterprise-disable-arc";
@@ -519,8 +531,9 @@ const char kEnterpriseDisableLicenseTypeSelection[] =
 // Disables per-user timezone.
 const char kDisablePerUserTimezone[] = "disable-per-user-timezone";
 
-// Enables a rename action for external drive such as USB and SD.
-const char kEnableExternalDriveRename[] = "enable-external-drive-rename";
+// Enables fine grained time zone detection.
+const char kEnableFineGrainedTimeZoneDetection[] =
+    "enable-fine-grained-time-zone-detection";
 
 bool WakeOnWifiEnabled() {
   return !base::CommandLine::ForCurrentProcess()->HasSwitch(kDisableWakeOnWifi);
@@ -582,6 +595,12 @@ bool IsCellularFirstDevice() {
 }
 
 bool IsVoiceInteractionLocalesSupported() {
+  // We use Chromium variations to control locales for which assistant should
+  // be enabled. But we still keep checking the previously hard-coded locales
+  // for compatibility.
+  if (base::FeatureList::IsEnabled(kAssistantFeatureForLocale))
+    return true;
+
   // TODO(updowndota): Add DCHECK here to make sure the value never changes
   // after all the use case for this method has been moved into user session.
 
@@ -606,6 +625,12 @@ bool IsVoiceInteractionFlagsEnabled() {
 bool IsVoiceInteractionEnabled() {
   return IsVoiceInteractionLocalesSupported() &&
          IsVoiceInteractionFlagsEnabled();
+}
+
+bool IsZipArchiverUnpackerEnabled() {
+  // Disabled by default.
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      kEnableZipArchiverUnpacker);
 }
 
 }  // namespace switches

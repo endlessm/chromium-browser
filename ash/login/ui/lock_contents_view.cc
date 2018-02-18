@@ -8,7 +8,7 @@
 
 #include "ash/focus_cycler.h"
 #include "ash/ime/ime_controller.h"
-#include "ash/login/lock_screen_controller.h"
+#include "ash/login/login_screen_controller.h"
 #include "ash/login/ui/lock_screen.h"
 #include "ash/login/ui/login_auth_user_view.h"
 #include "ash/login/ui/login_bubble.h"
@@ -35,7 +35,9 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/views/background.h"
+#include "ui/views/controls/label.h"
 #include "ui/views/controls/scroll_view.h"
+#include "ui/views/controls/styled_label.h"
 #include "ui/views/focus/focus_search.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
@@ -138,6 +140,59 @@ views::View* FindFirstOrLastFocusableChild(views::View* root, bool reverse) {
       &dummy_focus_traversable, &dummy_focus_traversable_view);
 }
 
+// Make a section of the text bold.
+// |label|:       The label to apply mixed styles.
+// |text|:        The message to display.
+// |bold_start|:  The position in |text| to start bolding.
+// |bold_length|: The length of bold text.
+void MakeSectionBold(views::StyledLabel* label,
+                     const base::string16& text,
+                     const base::Optional<int>& bold_start,
+                     int bold_length) {
+  auto create_style = [&](bool is_bold) {
+    views::StyledLabel::RangeStyleInfo style;
+    if (is_bold) {
+      style.custom_font = label->GetDefaultFontList().Derive(
+          0, gfx::Font::FontStyle::NORMAL, gfx::Font::Weight::BOLD);
+    }
+    style.override_color = SK_ColorWHITE;
+    return style;
+  };
+
+  auto add_style = [&](const views::StyledLabel::RangeStyleInfo& style,
+                       int start, int end) {
+    if (start >= end)
+      return;
+
+    label->AddStyleRange(gfx::Range(start, end), style);
+  };
+
+  views::StyledLabel::RangeStyleInfo regular_style =
+      create_style(false /*is_bold*/);
+  views::StyledLabel::RangeStyleInfo bold_style =
+      create_style(true /*is_bold*/);
+  if (!bold_start || bold_length == 0) {
+    add_style(regular_style, 0, text.length());
+    return;
+  }
+
+  add_style(regular_style, 0, *bold_start - 1);
+  add_style(bold_style, *bold_start, *bold_start + bold_length);
+  add_style(regular_style, *bold_start + bold_length + 1, text.length());
+}
+
+// Helper function to create a label for the dev channel info view.
+views::Label* CreateInfoLabel() {
+  views::Label* label = new views::Label();
+  label->SetAutoColorReadabilityEnabled(false);
+  label->SetEnabledColor(SK_ColorWHITE);
+  label->SetFontList(views::Label::GetDefaultFontList().Derive(
+      -1, gfx::Font::FontStyle::NORMAL, gfx::Font::Weight::NORMAL));
+  label->SetSubpixelRenderingEnabled(false);
+
+  return label;
+}
+
 }  // namespace
 
 LockContentsView::TestApi::TestApi(LockContentsView* view) : view_(view) {}
@@ -161,20 +216,34 @@ views::View* LockContentsView::TestApi::note_action() const {
   return view_->note_action_;
 }
 
+LoginBubble* LockContentsView::TestApi::tooltip_bubble() const {
+  return view_->tooltip_bubble_.get();
+}
+
+views::View* LockContentsView::TestApi::dev_channel_info() const {
+  return view_->dev_channel_info_;
+}
+
 LockContentsView::UserState::UserState(AccountId account_id)
     : account_id(account_id) {}
+
+LockContentsView::UserState::UserState(UserState&&) = default;
+
+LockContentsView::UserState::~UserState() = default;
 
 LockContentsView::LockContentsView(
     mojom::TrayActionState initial_note_action_state,
     LoginDataDispatcher* data_dispatcher)
     : NonAccessibleView(kLockContentsViewName),
       data_dispatcher_(data_dispatcher),
-      display_observer_(this) {
+      display_observer_(this),
+      session_observer_(this) {
   data_dispatcher_->AddObserver(this);
   display_observer_.Add(display::Screen::GetScreen());
-  Shell::Get()->lock_screen_controller()->AddLockScreenAppsFocusObserver(this);
+  Shell::Get()->login_screen_controller()->AddLockScreenAppsFocusObserver(this);
   Shell::Get()->system_tray_notifier()->AddSystemTrayFocusObserver(this);
   error_bubble_ = std::make_unique<LoginBubble>();
+  tooltip_bubble_ = std::make_unique<LoginBubble>();
 
   // We reuse the focusable state on this view as a signal that focus should
   // switch to the system tray. LockContentsView should otherwise not be
@@ -186,30 +255,47 @@ LockContentsView::LockContentsView(
   main_view_ = new NonAccessibleView();
   AddChildView(main_view_);
 
-  note_action_ =
-      new NoteActionLaunchButton(initial_note_action_state, data_dispatcher_);
-  AddChildView(note_action_);
+  // The top header view.
+  top_header_ = new views::View();
+  auto* top_header_layout = new views::BoxLayout(views::BoxLayout::kHorizontal);
+  top_header_layout->set_main_axis_alignment(
+      views::BoxLayout::MAIN_AXIS_ALIGNMENT_END);
+  top_header_->SetLayoutManager(top_header_layout);
+  AddChildView(top_header_);
+
+  dev_channel_info_ = new views::View();
+  auto* dev_channel_info_layout =
+      new views::BoxLayout(views::BoxLayout::kVertical, gfx::Insets(5, 8));
+  dev_channel_info_layout->set_cross_axis_alignment(
+      views::BoxLayout::CROSS_AXIS_ALIGNMENT_END);
+  dev_channel_info_->SetLayoutManager(dev_channel_info_layout);
+  dev_channel_info_->SetVisible(false);
+  top_header_->AddChildView(dev_channel_info_);
+
+  note_action_ = new NoteActionLaunchButton(initial_note_action_state);
+  top_header_->AddChildView(note_action_);
 
   OnLockScreenNoteStateChanged(initial_note_action_state);
 }
 
 LockContentsView::~LockContentsView() {
   data_dispatcher_->RemoveObserver(this);
-  Shell::Get()->lock_screen_controller()->RemoveLockScreenAppsFocusObserver(
+  Shell::Get()->login_screen_controller()->RemoveLockScreenAppsFocusObserver(
       this);
   Shell::Get()->system_tray_notifier()->RemoveSystemTrayFocusObserver(this);
+
+  if (unlock_attempt_ > 0) {
+    // Times a password was incorrectly entered until user gives up (sign out
+    // current session or shutdown the device). For a successful unlock,
+    // unlock_attempt_ should already be reset by OnLockStateChanged.
+    Shell::Get()->metrics()->login_metrics_recorder()->RecordNumLoginAttempts(
+        unlock_attempt_, false /*success*/);
+  }
 }
 
 void LockContentsView::Layout() {
   View::Layout();
-
-  // Layout note action in the top right corner - the action origin is offset
-  // to the left from the contents view top right corner by the width of the
-  // action view.
-  note_action_->SizeToPreferredSize();
-  gfx::Size action_size = note_action_->GetPreferredSize();
-  note_action_->SetPosition(GetLocalBounds().top_right() -
-                            gfx::Vector2d(action_size.width(), 0));
+  LayoutTopHeader();
 
   if (scroller_)
     scroller_->ClipHeightTo(size().height(), size().height());
@@ -237,7 +323,7 @@ void LockContentsView::AboutToRequestFocusFromTabTraversal(bool reverse) {
   // focused we should change the currently focused widget (ie, to the shelf or
   // status area, or lock screen apps, if they are active).
   if (reverse && lock_screen_apps_active_) {
-    Shell::Get()->lock_screen_controller()->FocusLockScreenApps(reverse);
+    Shell::Get()->login_screen_controller()->FocusLockScreenApps(reverse);
     return;
   }
 
@@ -267,11 +353,7 @@ void LockContentsView::OnUsersChanged(
   main_view_->SetLayoutManager(main_layout_);
 
   // Add auth user.
-  primary_auth_ = new LoginAuthUserView(
-      users[0],
-      base::Bind(&LockContentsView::OnAuthenticate, base::Unretained(this)),
-      base::Bind(&LockContentsView::SwapPrimaryAndSecondaryAuth,
-                 base::Unretained(this), true /*is_primary*/));
+  primary_auth_ = AllocateLoginAuthUserView(users[0], true /*is_primary*/);
   main_view_->AddChildView(primary_auth_);
 
   // Build layout for additional users.
@@ -302,18 +384,47 @@ void LockContentsView::OnPinEnabledForUserChanged(const AccountId& user,
 
   state->show_pin = enabled;
 
-  // We need to update the auth display if |user| is currently shown in either
-  // |primary_auth_| or |opt_secondary_auth_|.
-  if (primary_auth_->current_user()->basic_user_info->account_id ==
-          state->account_id &&
-      primary_auth_->auth_methods() != LoginAuthUserView::AUTH_NONE) {
-    LayoutAuth(primary_auth_, nullptr, true /*animate*/);
-  } else if (opt_secondary_auth_ &&
-             opt_secondary_auth_->current_user()->basic_user_info->account_id ==
-                 state->account_id &&
-             opt_secondary_auth_->auth_methods() !=
-                 LoginAuthUserView::AUTH_NONE) {
-    LayoutAuth(opt_secondary_auth_, nullptr, true /*animate*/);
+  LoginAuthUserView* auth_user =
+      TryToFindAuthUser(user, true /*require_auth_active*/);
+  if (auth_user)
+    LayoutAuth(auth_user, nullptr /*opt_to_hide*/, true /*animate*/);
+}
+
+void LockContentsView::OnClickToUnlockEnabledForUserChanged(
+    const AccountId& user,
+    bool enabled) {
+  LockContentsView::UserState* state = FindStateForUser(user);
+  if (!state) {
+    LOG(ERROR) << "Unable to find user enabling click to auth";
+    return;
+  }
+  state->enable_tap_auth = enabled;
+
+  LoginAuthUserView* auth_user =
+      TryToFindAuthUser(user, true /*require_auth_active*/);
+  if (auth_user)
+    LayoutAuth(auth_user, nullptr /*opt_to_hide*/, true /*animate*/);
+}
+
+void LockContentsView::OnShowEasyUnlockIcon(
+    const AccountId& user,
+    const mojom::EasyUnlockIconOptionsPtr& icon) {
+  UserState* state = FindStateForUser(user);
+  if (!state)
+    return;
+
+  state->easy_unlock_state = icon->Clone();
+  UpdateEasyUnlockIconForUser(user);
+
+  // Show tooltip only if the user is actively showing auth.
+  auto* auth_user = TryToFindAuthUser(user, true /*require_auth_active*/);
+  if (auth_user) {
+    tooltip_bubble_->Close();
+    if (icon->autoshow_tooltip) {
+      tooltip_bubble_->ShowTooltip(
+          icon->tooltip,
+          CurrentAuthUserView()->password_view() /*anchor_view*/);
+    }
   }
 }
 
@@ -321,11 +432,45 @@ void LockContentsView::OnLockScreenNoteStateChanged(
     mojom::TrayActionState state) {
   bool old_lock_screen_apps_active = lock_screen_apps_active_;
   lock_screen_apps_active_ = state == mojom::TrayActionState::kActive;
+  note_action_->UpdateVisibility(state);
+  LayoutTopHeader();
 
   // If lock screen apps just got deactivated - request focus for primary auth,
   // which should focus the password field.
   if (old_lock_screen_apps_active && !lock_screen_apps_active_ && primary_auth_)
     primary_auth_->RequestFocus();
+}
+
+void LockContentsView::OnDevChannelInfoChanged(
+    const std::string& os_version_label_text,
+    const std::string& enterprise_info_text,
+    const std::string& bluetooth_name) {
+  DCHECK(!os_version_label_text.empty() || !enterprise_info_text.empty() ||
+         !bluetooth_name.empty());
+
+  if (!dev_channel_info_->visible()) {
+    // Initialize the dev channel info view.
+    dev_channel_info_->SetVisible(true);
+    for (int i = 0; i < 3; ++i)
+      dev_channel_info_->AddChildView(CreateInfoLabel());
+  }
+
+  views::Label* version_label =
+      static_cast<views::Label*>(dev_channel_info_->child_at(0));
+  version_label->SetVisible(!os_version_label_text.empty());
+  version_label->SetText(base::UTF8ToUTF16(os_version_label_text));
+
+  views::Label* enterprise_label =
+      static_cast<views::Label*>(dev_channel_info_->child_at(1));
+  enterprise_label->SetVisible(!enterprise_info_text.empty());
+  enterprise_label->SetText(base::UTF8ToUTF16(enterprise_info_text));
+
+  views::Label* bluetooth_label =
+      static_cast<views::Label*>(dev_channel_info_->child_at(2));
+  bluetooth_label->SetVisible(!bluetooth_name.empty());
+  bluetooth_label->SetText(base::UTF8ToUTF16(bluetooth_name));
+
+  LayoutTopHeader();
 }
 
 void LockContentsView::OnFocusLeavingLockScreenApps(bool reverse) {
@@ -346,7 +491,7 @@ void LockContentsView::OnFocusLeavingSystemTray(bool reverse) {
   FindFirstOrLastFocusableChild(this, reverse)->RequestFocus();
 
   if (lock_screen_apps_active_) {
-    Shell::Get()->lock_screen_controller()->FocusLockScreenApps(reverse);
+    Shell::Get()->login_screen_controller()->FocusLockScreenApps(reverse);
     return;
   }
 }
@@ -358,6 +503,15 @@ void LockContentsView::OnDisplayMetricsChanged(const display::Display& display,
     return;
 
   DoLayout();
+}
+
+void LockContentsView::OnLockStateChanged(bool locked) {
+  if (!locked) {
+    // Successfully unlock the screen.
+    Shell::Get()->metrics()->login_metrics_recorder()->RecordNumLoginAttempts(
+        unlock_attempt_, true /*success*/);
+    unlock_attempt_ = 0;
+  }
 }
 
 void LockContentsView::FocusNextWidget(bool reverse) {
@@ -385,11 +539,8 @@ void LockContentsView::CreateLowDensityLayout(
       kLowDensityDistanceBetweenUsersInPortraitDp));
 
   // Build auth user.
-  opt_secondary_auth_ = new LoginAuthUserView(
-      users[1],
-      base::Bind(&LockContentsView::OnAuthenticate, base::Unretained(this)),
-      base::Bind(&LockContentsView::SwapPrimaryAndSecondaryAuth,
-                 base::Unretained(this), false /*is_primary*/));
+  opt_secondary_auth_ =
+      AllocateLoginAuthUserView(users[1], false /*is_primary*/);
   opt_secondary_auth_->SetAuthMethods(LoginAuthUserView::AUTH_NONE);
   main_view_->AddChildView(opt_secondary_auth_);
 }
@@ -502,6 +653,21 @@ void LockContentsView::DoLayout() {
   Layout();
 }
 
+void LockContentsView::LayoutTopHeader() {
+  int preferred_width = dev_channel_info_->GetPreferredSize().width() +
+                        note_action_->GetPreferredSize().width();
+  int preferred_height =
+      std::max(dev_channel_info_->GetPreferredSize().height(),
+               note_action_->GetPreferredSize().height());
+  top_header_->SetPreferredSize(gfx::Size(preferred_width, preferred_height));
+  top_header_->SizeToPreferredSize();
+  top_header_->Layout();
+  // Position the top header - the origin is offset to the left from the top
+  // right corner of the entire view by the width of this top header view.
+  top_header_->SetPosition(GetLocalBounds().top_right() -
+                           gfx::Vector2d(preferred_width, 0));
+}
+
 views::View* LockContentsView::MakeOrientationViewWithWidths(int landscape,
                                                              int portrait) {
   auto* view = new MultiSizedView(gfx::Size(landscape, kNonEmptyHeightDp),
@@ -516,7 +682,8 @@ void LockContentsView::AddRotationAction(const OnRotate& on_rotate) {
   rotation_actions_.push_back(on_rotate);
 }
 
-void LockContentsView::SwapPrimaryAndSecondaryAuth(bool is_primary) {
+void LockContentsView::SwapActiveAuthBetweenPrimaryAndSecondary(
+    bool is_primary) {
   if (is_primary &&
       primary_auth_->auth_methods() == LoginAuthUserView::AUTH_NONE) {
     LayoutAuth(primary_auth_, opt_secondary_auth_, true /*animate*/);
@@ -531,7 +698,6 @@ void LockContentsView::SwapPrimaryAndSecondaryAuth(bool is_primary) {
 
 void LockContentsView::OnAuthenticate(bool auth_success) {
   if (auth_success) {
-    unlock_attempt_ = 0;
     error_bubble_->Close();
   } else {
     ShowErrorMessage();
@@ -561,9 +727,12 @@ void LockContentsView::LayoutAuth(LoginAuthUserView* to_update,
 
   // Update auth methods for |to_update|. Disable auth on |opt_to_hide|.
   uint32_t to_update_auth = LoginAuthUserView::AUTH_PASSWORD;
-  if (FindStateForUser(to_update->current_user()->basic_user_info->account_id)
-          ->show_pin)
+  UserState* state =
+      FindStateForUser(to_update->current_user()->basic_user_info->account_id);
+  if (state->show_pin)
     to_update_auth |= LoginAuthUserView::AUTH_PIN;
+  if (state->enable_tap_auth)
+    to_update_auth |= LoginAuthUserView::AUTH_TAP;
   to_update->SetAuthMethods(to_update_auth);
   if (opt_to_hide)
     opt_to_hide->SetAuthMethods(LoginAuthUserView::AUTH_NONE);
@@ -591,11 +760,49 @@ void LockContentsView::SwapToAuthUser(int user_index) {
 }
 
 void LockContentsView::OnAuthUserChanged() {
-  Shell::Get()->lock_screen_controller()->OnFocusPod(
-      CurrentAuthUserView()->current_user()->basic_user_info->account_id);
+  const AccountId new_auth_user =
+      CurrentAuthUserView()->current_user()->basic_user_info->account_id;
 
-  // Reset unlock attempt when the auth user changes.
-  unlock_attempt_ = 0;
+  Shell::Get()->login_screen_controller()->OnFocusPod(new_auth_user);
+  UpdateEasyUnlockIconForUser(new_auth_user);
+
+  if (unlock_attempt_ > 0) {
+    // Times a password was incorrectly entered until user gives up (change
+    // user pod).
+    Shell::Get()->metrics()->login_metrics_recorder()->RecordNumLoginAttempts(
+        unlock_attempt_, false /*success*/);
+
+    // Reset unlock attempt when the auth user changes.
+    unlock_attempt_ = 0;
+  }
+}
+
+void LockContentsView::UpdateEasyUnlockIconForUser(const AccountId& user) {
+  // Try to find an auth view for |user|. If there is none, there is no state to
+  // update.
+  LoginAuthUserView* auth_view =
+      TryToFindAuthUser(user, false /*require_auth_active*/);
+  if (!auth_view)
+    return;
+
+  UserState* state = FindStateForUser(user);
+  DCHECK(state);
+
+  // Hide easy unlock icon if there is no data is available.
+  if (!state->easy_unlock_state) {
+    auth_view->SetEasyUnlockIcon(mojom::EasyUnlockIconId::NONE,
+                                 base::string16());
+    return;
+  }
+
+  // TODO(jdufault): Make easy unlock backend always send aria_label, right now
+  // it is only sent if there is no tooltip.
+  base::string16 accessibility_label = state->easy_unlock_state->aria_label;
+  if (accessibility_label.empty())
+    accessibility_label = state->easy_unlock_state->tooltip;
+
+  auth_view->SetEasyUnlockIcon(state->easy_unlock_state->icon,
+                               accessibility_label);
 }
 
 LoginAuthUserView* LockContentsView::CurrentAuthUserView() {
@@ -609,25 +816,104 @@ LoginAuthUserView* LockContentsView::CurrentAuthUserView() {
 }
 
 void LockContentsView::ShowErrorMessage() {
-  std::string error_text = l10n_util::GetStringUTF8(
+  base::string16 error_text = l10n_util::GetStringUTF16(
       unlock_attempt_ ? IDS_ASH_LOGIN_ERROR_AUTHENTICATING_2ND_TIME
                       : IDS_ASH_LOGIN_ERROR_AUTHENTICATING);
   ImeController* ime_controller = Shell::Get()->ime_controller();
   if (ime_controller->IsCapsLockEnabled()) {
-    error_text +=
-        "\n" + l10n_util::GetStringUTF8(IDS_ASH_LOGIN_ERROR_CAPS_LOCK_HINT);
+    error_text += base::ASCIIToUTF16(" ") +
+                  l10n_util::GetStringUTF16(IDS_ASH_LOGIN_ERROR_CAPS_LOCK_HINT);
   }
 
+  base::Optional<int> bold_start;
+  int bold_length = 0;
   // Display a hint to switch keyboards if there are other active input
   // methods.
   if (ime_controller->available_imes().size() > 1) {
-    error_text += "\n" + l10n_util::GetStringUTF8(
-                             IDS_ASH_LOGIN_ERROR_KEYBOARD_SWITCH_HINT);
+    error_text += base::ASCIIToUTF16(" ");
+    bold_start = error_text.length();
+    base::string16 shortcut =
+        l10n_util::GetStringUTF16(IDS_ASH_LOGIN_KEYBOARD_SWITCH_SHORTCUT);
+    bold_length = shortcut.length();
+
+    size_t shortcut_offset_in_string;
+    error_text +=
+        l10n_util::GetStringFUTF16(IDS_ASH_LOGIN_ERROR_KEYBOARD_SWITCH_HINT,
+                                   shortcut, &shortcut_offset_in_string);
+    *bold_start += shortcut_offset_in_string;
   }
 
+  views::StyledLabel* label = new views::StyledLabel(error_text, this);
+  MakeSectionBold(label, error_text, bold_start, bold_length);
   error_bubble_->ShowErrorBubble(
-      base::UTF8ToUTF16(error_text),
-      CurrentAuthUserView()->password_view() /*anchor_view*/);
+      label, CurrentAuthUserView()->password_view() /*anchor_view*/);
 }
+
+void LockContentsView::OnEasyUnlockIconHovered() {
+  UserState* state = FindStateForUser(
+      CurrentAuthUserView()->current_user()->basic_user_info->account_id);
+  DCHECK(state);
+  mojom::EasyUnlockIconOptionsPtr& easy_unlock_state = state->easy_unlock_state;
+  DCHECK(easy_unlock_state);
+
+  if (!easy_unlock_state->tooltip.empty()) {
+    tooltip_bubble_->ShowTooltip(
+        easy_unlock_state->tooltip,
+        CurrentAuthUserView()->password_view() /*anchor_view*/);
+  }
+}
+
+void LockContentsView::OnEasyUnlockIconTapped() {
+  UserState* state = FindStateForUser(
+      CurrentAuthUserView()->current_user()->basic_user_info->account_id);
+  DCHECK(state);
+  mojom::EasyUnlockIconOptionsPtr& easy_unlock_state = state->easy_unlock_state;
+  DCHECK(easy_unlock_state);
+
+  if (easy_unlock_state->hardlock_on_click) {
+    AccountId user =
+        CurrentAuthUserView()->current_user()->basic_user_info->account_id;
+    Shell::Get()->login_screen_controller()->HardlockPod(user);
+    // TODO(jdufault): This should get called as a result of HardlockPod.
+    OnClickToUnlockEnabledForUserChanged(user, false /*enabled*/);
+  }
+}
+
+LoginAuthUserView* LockContentsView::AllocateLoginAuthUserView(
+    const mojom::LoginUserInfoPtr& user,
+    bool is_primary) {
+  return new LoginAuthUserView(
+      user,
+      base::Bind(&LockContentsView::OnAuthenticate, base::Unretained(this)),
+      base::Bind(&LockContentsView::SwapActiveAuthBetweenPrimaryAndSecondary,
+                 base::Unretained(this), is_primary),
+      base::Bind(&LockContentsView::OnEasyUnlockIconHovered,
+                 base::Unretained(this)),
+      base::Bind(&LockContentsView::OnEasyUnlockIconTapped,
+                 base::Unretained(this)));
+}
+
+LoginAuthUserView* LockContentsView::TryToFindAuthUser(
+    const AccountId& user,
+    bool require_auth_active) {
+  LoginAuthUserView* view = nullptr;
+
+  // Find auth instance.
+  if (primary_auth_->current_user()->basic_user_info->account_id == user) {
+    view = primary_auth_;
+  } else if (opt_secondary_auth_ &&
+             opt_secondary_auth_->current_user()->basic_user_info->account_id ==
+                 user) {
+    view = opt_secondary_auth_;
+  }
+
+  // Make sure auth instance is active if required.
+  if (require_auth_active && view &&
+      view->auth_methods() == LoginAuthUserView::AUTH_NONE) {
+    view = nullptr;
+  }
+
+  return view;
+};
 
 }  // namespace ash

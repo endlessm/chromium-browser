@@ -65,7 +65,7 @@ class IconLabelBubbleView : public views::InkDropObserver,
     DISALLOW_COPY_AND_ASSIGN(SeparatorView);
   };
 
-  IconLabelBubbleView(const gfx::FontList& font_list, bool elide_in_middle);
+  explicit IconLabelBubbleView(const gfx::FontList& font_list);
   ~IconLabelBubbleView() override;
 
   // views::InkDropObserver:
@@ -81,6 +81,10 @@ class IconLabelBubbleView : public views::InkDropObserver,
   // Exposed for testing.
   SeparatorView* separator_view() const { return separator_view_; }
 
+  void set_next_element_interior_padding(int padding) {
+    next_element_interior_padding_ = padding;
+  }
+
  protected:
   static constexpr int kOpenTimeMS = 150;
 
@@ -90,10 +94,6 @@ class IconLabelBubbleView : public views::InkDropObserver,
   const views::Label* label() const { return label_; }
   const views::InkDropContainerView* ink_drop_container() const {
     return ink_drop_container_;
-  }
-
-  void set_next_element_interior_padding(int padding) {
-    next_element_interior_padding_ = padding;
   }
 
   // Gets the color for displaying text.

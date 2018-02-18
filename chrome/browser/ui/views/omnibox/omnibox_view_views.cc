@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
 
 #include <set>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/logging.h"
@@ -193,12 +194,14 @@ void OmniboxViewViews::OnTabChanged(const content::WebContents* web_contents) {
   UpdateSecurityLevel();
   const OmniboxState* state = static_cast<OmniboxState*>(
       web_contents->GetUserData(&OmniboxState::kKey));
-  model()->RestoreState(state ? &state->model_state : NULL);
+  model()->RestoreState(
+      controller()->GetToolbarModel()->GetFormattedURL(nullptr),
+      state ? &state->model_state : NULL);
   if (state) {
     // This assumes that the omnibox has already been focused or blurred as
     // appropriate; otherwise, a subsequent OnFocus() or OnBlur() call could
-    // goof up the selection.  See comments at the end of
-    // BrowserView::ActiveTabChanged().
+    // goof up the selection.  See comments on OnActiveTabChanged() call in
+    // Browser::ActiveTabChanged().
     SelectRange(state->selection);
     saved_selection_for_focus_change_ = state->saved_selection_for_focus_change;
   }
@@ -214,7 +217,8 @@ void OmniboxViewViews::ResetTabState(content::WebContents* web_contents) {
 void OmniboxViewViews::Update() {
   const security_state::SecurityLevel old_security_level = security_level_;
   UpdateSecurityLevel();
-  if (model()->UpdatePermanentText()) {
+  if (model()->SetPermanentText(
+          controller()->GetToolbarModel()->GetFormattedURL(nullptr))) {
     RevertAll();
 
     // Only select all when we have focus.  If we don't have focus, selecting
@@ -471,6 +475,7 @@ void OmniboxViewViews::ApplyCaretVisibility() {
 
 void OmniboxViewViews::OnTemporaryTextMaybeChanged(
     const base::string16& display_text,
+    const AutocompleteMatch& match,
     bool save_original_selection,
     bool notify_text_changed) {
   if (save_original_selection)
@@ -765,6 +770,8 @@ bool OmniboxViewViews::HandleAccessibleAction(
 
 void OmniboxViewViews::OnFocus() {
   views::Textfield::OnFocus();
+  model()->SetPermanentText(
+      controller()->GetToolbarModel()->GetFormattedURL(nullptr));
   // TODO(oshima): Get control key state.
   model()->OnSetFocus(false);
   // Don't call controller()->OnSetFocus, this view has already acquired focus.
@@ -1032,10 +1039,7 @@ void OmniboxViewViews::OnAfterCutOrCopy(ui::ClipboardType clipboard_type) {
     UMA_HISTOGRAM_COUNTS(OmniboxEditModel::kCutOrCopyAllTextHistogram, 1);
 
   ui::ScopedClipboardWriter scoped_clipboard_writer(clipboard_type);
-  if (write_url)
-    scoped_clipboard_writer.WriteURL(selected_text);
-  else
-    scoped_clipboard_writer.WriteText(selected_text);
+  scoped_clipboard_writer.WriteText(selected_text);
 }
 
 void OmniboxViewViews::OnWriteDragData(ui::OSExchangeData* data) {
@@ -1152,6 +1156,8 @@ void OmniboxViewViews::OnCompositingEnded(ui::Compositor* compositor) {
 
 void OmniboxViewViews::OnCompositingLockStateChanged(
     ui::Compositor* compositor) {}
+
+void OmniboxViewViews::OnCompositingChildResizing(ui::Compositor* compositor) {}
 
 void OmniboxViewViews::OnCompositingShuttingDown(ui::Compositor* compositor) {
   scoped_observer_.RemoveAll();

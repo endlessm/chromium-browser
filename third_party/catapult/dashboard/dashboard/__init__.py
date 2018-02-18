@@ -13,6 +13,7 @@ THIRD_PARTY_LIBRARIES = [
     'apiclient',
     'beautifulsoup4',
     'graphy',
+    'html5lib-python',
     'httplib2',
     'mapreduce',
     'mock',
@@ -40,6 +41,7 @@ DASHBOARD_FILES = [
 
 TRACING_PATHS = [
     'tracing/tracing',
+    'tracing/tracing_build',
     'tracing/third_party/gl-matrix/dist/gl-matrix-min.js'
 ]
 

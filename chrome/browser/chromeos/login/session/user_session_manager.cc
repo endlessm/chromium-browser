@@ -65,11 +65,11 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/tether/tether_service.h"
+#include "chrome/browser/component_updater/crl_set_component_installer.h"
 #include "chrome/browser/component_updater/sth_set_component_installer.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/google/google_brand_chromeos.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chrome/browser/net/crl_set_fetcher.h"
 #include "chrome/browser/net/nss_context.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
@@ -272,6 +272,9 @@ base::CommandLine CreatePerSessionCommandLine(Profile* profile) {
   flags_ui::PrefServiceFlagsStorage flags_storage_(profile->GetPrefs());
   about_flags::ConvertFlagsToSwitches(&flags_storage_, &user_flags,
                                       flags_ui::kAddSentinels);
+
+  UserSessionManager::MaybeAppendPolicySwitches(&user_flags);
+
   return user_flags;
 }
 
@@ -287,9 +290,20 @@ bool NeedRestartToApplyPerSessionFlags(
   if (user_manager::UserManager::Get()->IsLoggedInAsSupervisedUser())
     return false;
 
-  if (about_flags::AreSwitchesIdenticalToCurrentCommandLine(
-          user_flags, *base::CommandLine::ForCurrentProcess(),
-          out_command_line_difference)) {
+  // TODO: Remove this special handling for site isolation and isolate origins.
+  auto* current_command_line = base::CommandLine::ForCurrentProcess();
+  if (current_command_line->HasSwitch(::switches::kSitePerProcess) !=
+      user_flags.HasSwitch(::switches::kSitePerProcess)) {
+    out_command_line_difference->insert(::switches::kSitePerProcess);
+  }
+  if (current_command_line->GetSwitchValueASCII(::switches::kIsolateOrigins) !=
+      user_flags.GetSwitchValueASCII(::switches::kIsolateOrigins)) {
+    out_command_line_difference->insert(::switches::kIsolateOrigins);
+  }
+
+  if (out_command_line_difference->empty() &&
+      about_flags::AreSwitchesIdenticalToCurrentCommandLine(
+          user_flags, *current_command_line, out_command_line_difference)) {
     return false;
   }
 
@@ -387,6 +401,22 @@ void UserSessionManager::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterStringPref(prefs::kRLZBrand, std::string());
   registry->RegisterBooleanPref(prefs::kRLZDisabled, false);
   registry->RegisterBooleanPref(prefs::kCanShowOobeGoodiesPage, true);
+}
+
+// static
+void UserSessionManager::MaybeAppendPolicySwitches(
+    base::CommandLine* user_flags) {
+  // Inject site isolation and isolate origins command line switch from
+  // user policy.
+  auto* local_state = g_browser_process->local_state();
+  if (local_state->GetBoolean(prefs::kSitePerProcess)) {
+    user_flags->AppendSwitch(::switches::kSitePerProcess);
+  }
+  if (local_state->HasPrefPath(prefs::kIsolateOrigins)) {
+    user_flags->AppendSwitchASCII(
+        ::switches::kIsolateOrigins,
+        local_state->GetString(prefs::kIsolateOrigins));
+  }
 }
 
 UserSessionManager::UserSessionManager()
@@ -986,7 +1016,8 @@ void UserSessionManager::CreateUserSession(const UserContext& user_context,
   InitSessionRestoreStrategy();
   StoreUserContextDataBeforeProfileIsCreated();
   session_manager::SessionManager::Get()->CreateSession(
-      user_context_.GetAccountId(), user_context_.GetUserIDHash());
+      user_context_.GetAccountId(), user_context_.GetUserIDHash(),
+      user_context.GetUserType() == user_manager::USER_TYPE_CHILD);
 }
 
 void UserSessionManager::PreStartSession() {
@@ -1110,6 +1141,14 @@ void UserSessionManager::InitProfilePreferences(
         SigninManagerFactory::GetForProfile(profile);
     signin_manager->SetAuthenticatedAccountInfo(
         gaia_id, user_context.GetAccountId().GetUserEmail());
+    std::string account_id = signin_manager->GetAuthenticatedAccountId();
+    const user_manager::User* user =
+        user_manager::UserManager::Get()->FindUser(user_context.GetAccountId());
+    bool is_child = user->GetType() == user_manager::USER_TYPE_CHILD;
+    DCHECK(is_child ==
+           (user_context.GetUserType() == user_manager::USER_TYPE_CHILD));
+    AccountTrackerServiceFactory::GetForProfile(profile)->SetIsChildAccount(
+        account_id, is_child);
     VLOG(1) << "Seed SigninManagerBase with the authenticated account info"
             << ", success=" << signin_manager->IsAuthenticated();
 
@@ -1221,12 +1260,21 @@ void UserSessionManager::CompleteProfileCreateAfterAuthTransfer(
 void UserSessionManager::PrepareTpmDeviceAndFinalizeProfile(Profile* profile) {
   BootTimesRecorder::Get()->AddLoginTimeMarker("TPMOwn-Start", false);
 
-  // Own TPM device if, for any reason, it has not been done in EULA screen.
   if (!cryptohome_util::TpmIsEnabled() || cryptohome_util::TpmIsBeingOwned()) {
     FinalizePrepareProfile(profile);
     return;
   }
 
+  // Make sure TPM ownership gets established and the owner password cleared
+  // (if no longer needed) whenever a user logs in. This is so the TPM is in
+  // locked down state after initial setup, which ensures that some decisions
+  // (e.g. NVRAM spaces) are unchangeable until next hardware reset (powerwash,
+  // recovery, etc.).
+  //
+  // Ownership is normally taken when showing the EULA screen, but in case
+  // this gets interrupted TPM ownership might not be established yet. The code
+  // here runs on every login and ensures that the TPM gets into the desired
+  // state eventually.
   auto callback =
       base::BindOnce(&UserSessionManager::OnCryptohomeOperationCompleted,
                      AsWeakPtr(), profile);
@@ -1525,9 +1573,8 @@ void UserSessionManager::InitializeCRLSetFetcher(
     path = ProfileHelper::GetProfilePathByUserIdHash(username_hash);
     component_updater::ComponentUpdateService* cus =
         g_browser_process->component_updater();
-    CRLSetFetcher* crl_set = g_browser_process->crl_set_fetcher();
-    if (crl_set && cus)
-      crl_set->StartInitialLoad(cus, path);
+    if (cus)
+      component_updater::RegisterCRLSetComponent(cus, path);
   }
 }
 
@@ -1764,6 +1811,9 @@ UserSessionManager::GetDefaultIMEState(Profile* profile) {
 }
 
 void UserSessionManager::CheckEolStatus(Profile* profile) {
+  if (!EolNotification::ShouldShowEolNotification())
+    return;
+
   std::map<Profile*, std::unique_ptr<EolNotification>, ProfileCompare>::iterator
       iter = eol_notification_handler_.find(profile);
   if (iter == eol_notification_handler_.end()) {
@@ -1880,8 +1930,7 @@ void UserSessionManager::DoBrowserLaunchInternal(Profile* profile,
 
   // Check to see if this profile should show EndOfLife Notification and show
   // the message accordingly.
-  if (ShouldShowEolNotification(profile))
-    CheckEolStatus(profile);
+  CheckEolStatus(profile);
 
   // Show the one-time notification and update the relevant pref about the
   // completion of the file system migration necessary for ARC, when needed.
@@ -1990,24 +2039,6 @@ void UserSessionManager::Shutdown() {
 void UserSessionManager::CreateTokenUtilIfMissing() {
   if (!token_handle_util_.get())
     token_handle_util_.reset(new TokenHandleUtil());
-}
-
-bool UserSessionManager::ShouldShowEolNotification(Profile* profile) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kDisableEolNotification)) {
-    return false;
-  }
-
-  // Do not show end of life notification if this device is managed by
-  // enterprise user.
-  if (g_browser_process->platform_part()
-          ->browser_policy_connector_chromeos()
-          ->IsEnterpriseManaged()) {
-    return false;
-  }
-
-  // Do not show end of life notification if this is a guest session
-  return !profile->IsGuestSession();
 }
 
 void UserSessionManager::NotifyEasyUnlockKeyOpsFinished() {

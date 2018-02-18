@@ -12,6 +12,7 @@ import logging
 import os
 import StringIO
 import sys
+import tempfile
 import unittest
 import urlparse
 
@@ -31,6 +32,28 @@ def callError(code=1, cmd='', cwd='', stdout='', stderr=''):
 CERR1 = callError(1)
 
 
+def MakeNamedTemporaryFileMock(expected_content):
+  class NamedTemporaryFileMock(object):
+    def __init__(self, *args, **kwargs):
+      self.name = '/tmp/named'
+      self.expected_content = expected_content
+
+    def __enter__(self):
+      return self
+
+    def __exit__(self, _type, _value, _tb):
+      pass
+
+    def write(self, content):
+      if self.expected_content:
+        assert content == self.expected_content
+
+    def close(self):
+      pass
+
+  return NamedTemporaryFileMock
+
+
 class ChangelistMock(object):
   # A class variable so we can access it when we don't have access to the
   # instance that's being set.
@@ -48,6 +71,8 @@ class ChangelistMock(object):
 class PresubmitMock(object):
   def __init__(self, *args, **kwargs):
     self.reviewers = []
+    self.more_cc = ['chromium-reviews+test-more-cc@chromium.org']
+
   @staticmethod
   def should_continue():
     return True
@@ -90,8 +115,6 @@ class RietveldMock(object):
   @staticmethod
   def add_comment(_issue, _comment):
     return 'Commented'
-
-
 
 
 class GitCheckoutMock(object):
@@ -160,6 +183,7 @@ def CookiesAuthenticatorMockFactory(hosts_with_creds=None, same_auth=False):
         return same_auth
       return (hosts_with_creds or {}).get(host)
   return CookiesAuthenticatorMock
+
 
 class MockChangelistWithBranchAndIssue():
   def __init__(self, branch, issue):
@@ -596,6 +620,7 @@ class GitCookiesCheckerTest(TestCase):
     self.maxDiff = 10000
     self.assertEqual(by_line(sys.stdout.getvalue().strip()), by_line(expected))
 
+
 class TestGitCl(TestCase):
   def setUp(self):
     super(TestGitCl, self).setUp()
@@ -708,13 +733,6 @@ class TestGitCl(TestCase):
         (('ask_for_data', 'Please, type yes or no: '), 'ye'),
     ]
     self.assertTrue(git_cl.ask_for_explicit_yes('prompt'))
-
-  def test_ask_for_explicit_yes_true(self):
-    self.calls = [
-        (('ask_for_data', 'prompt [Yes/No]: '), 'yesish'),
-        (('ask_for_data', 'Please, type yes or no: '), 'nO'),
-    ]
-    self.assertFalse(git_cl.ask_for_explicit_yes('prompt'))
 
   def test_LoadCodereviewSettingsFromFile_gerrit(self):
     codereview_file = StringIO.StringIO('GERRIT_HOST: true')
@@ -873,16 +891,17 @@ class TestGitCl(TestCase):
   def _cmd_line(description, args, similarity, find_copies, private, cc):
     """Returns the upload command line passed to upload.RealMain()."""
     return [
-        'upload', '--assume_yes', '--server',
-        'https://codereview.example.com',
+        'upload', '--assume_yes', '--server', 'https://codereview.example.com',
         '--message', description
     ] + args + [
-        '--cc', ','.join(['joe@example.com'] + cc),
-    ] + (['--private'] if private else []) + [
-        '--git_similarity', similarity or '50'
-    ] + (['--git_no_find_copies'] if find_copies is False else []) + [
-        'fake_ancestor_sha', 'HEAD'
-    ]
+        '--cc',
+        ','.join(
+            ['joe@example.com', 'chromium-reviews+test-more-cc@chromium.org'] +
+            cc),
+    ] + (['--private']
+         if private else []) + ['--git_similarity', similarity or '50'] + (
+             ['--git_no_find_copies']
+             if find_copies is False else []) + ['fake_ancestor_sha', 'HEAD']
 
   def _run_reviewer_test(
       self,
@@ -1541,7 +1560,7 @@ class TestGitCl(TestCase):
         ((['git', 'rev-parse', 'HEAD:'],),  # `HEAD:` means HEAD's tree hash.
          '0123456789abcdef'),
         ((['git', 'commit-tree', '0123456789abcdef', '-p', parent,
-           '-m', description],),
+           '-F', '/tmp/named'],),
          ref_to_push),
       ]
     else:
@@ -1611,9 +1630,10 @@ class TestGitCl(TestCase):
       ]
     calls += [
         ((['git', 'config', 'rietveld.cc'],), ''),
-        (('AddReviewers', 'chromium-review.googlesource.com',
-           123456 if squash else None, sorted(reviewers),
-          ['joe@example.com'] + cc, notify), ''),
+        (('AddReviewers', 'chromium-review.googlesource.com', 123456
+          if squash else None, sorted(reviewers),
+          ['joe@example.com', 'chromium-reviews+test-more-cc@chromium.org'] +
+          cc, notify), ''),
     ]
     if tbr:
       calls += [
@@ -1693,6 +1713,9 @@ class TestGitCl(TestCase):
         other_cl_owner=other_cl_owner,
         custom_cl_base=custom_cl_base)
     if fetched_status != 'ABANDONED':
+      self.mock(tempfile, 'NamedTemporaryFile', MakeNamedTemporaryFileMock(
+          expected_content=description))
+      self.mock(os, 'remove', lambda _: True)
       self.calls += self._gerrit_upload_calls(
           description, reviewers, squash,
           squash_mode=squash_mode,
@@ -1730,19 +1753,14 @@ class TestGitCl(TestCase):
         squash=False,
         squash_mode='override_nosquash')
 
-  def test_gerrit_patchset_title_bad_chars(self):
+  def test_gerrit_patchset_title_special_chars(self):
     self.mock(git_cl.sys, 'stdout', StringIO.StringIO())
     self._run_gerrit_upload_test(
-        ['-f', '-t', 'Don\'t put bad cha,.rs'],
+        ['-f', '-t', 'We\'ll escape ^_ ^ special chars...@{u}'],
         'desc\n\nBUG=\n\nChange-Id: I123456789',
         squash=False,
         squash_mode='override_nosquash',
-        title='Dont_put_bad_chars')
-    self.assertIn(
-        'WARNING: Patchset title may only contain alphanumeric chars '
-        'and spaces. You can edit it in the UI. See https://crbug.com/663787.\n'
-        'Cleaned up title: Dont put bad chars\n',
-        git_cl.sys.stdout.getvalue())
+        title='We%27ll_escape_%5E%5F_%5E_special_chars%2E%2E%2E%40%7Bu%7D')
 
   def test_gerrit_reviewers_cmd_line(self):
     self._run_gerrit_upload_test(
@@ -1976,6 +1994,48 @@ class TestGitCl(TestCase):
       obj.update_reviewers(reviewers, tbrs)
       actual.append(obj.description)
     self.assertEqual(expected, actual)
+
+  def test_get_hash_tags(self):
+    cases = [
+      ('', []),
+      ('a', []),
+      ('[a]', ['a']),
+      ('[aa]', ['aa']),
+      ('[a ]', ['a']),
+      ('[a- ]', ['a']),
+      ('[a- b]', ['a-b']),
+      ('[a--b]', ['a-b']),
+      ('[a', []),
+      ('[a]x', ['a']),
+      ('[aa]x', ['aa']),
+      ('[a b]', ['a-b']),
+      ('[a  b]', ['a-b']),
+      ('[a__b]', ['a-b']),
+      ('[a] x', ['a']),
+      ('[a][b]', ['a', 'b']),
+      ('[a] [b]', ['a', 'b']),
+      ('[a][b]x', ['a', 'b']),
+      ('[a][b] x', ['a', 'b']),
+      ('[a]\n[b]', ['a']),
+      ('[a\nb]', []),
+      ('[a][', ['a']),
+      ('Revert "[a] feature"', ['a']),
+      ('Reland "[a] feature"', ['a']),
+      ('Revert: [a] feature', ['a']),
+      ('Reland: [a] feature', ['a']),
+      ('Revert "Reland: [a] feature"', ['a']),
+      ('Foo: feature', ['foo']),
+      ('Foo Bar: feature', ['foo-bar']),
+      ('Revert "Foo bar: feature"', ['foo-bar']),
+      ('Reland "Foo bar: feature"', ['foo-bar']),
+    ]
+    for desc, expected in cases:
+      change_desc = git_cl.ChangeDescription(desc)
+      actual = change_desc.get_hash_tags()
+      self.assertEqual(
+          actual,
+          expected,
+          'GetHashTags(%r) == %r, expected %r' % (desc, actual, expected))
 
   def test_get_target_ref(self):
     # Check remote or remote branch not present.
@@ -3514,7 +3574,7 @@ class TestGitCl(TestCase):
              },
              u'date': u'2017-03-15 20:08:45.000000000',
              u'id': u'f5a6c25ecbd3b3b54a43ae418ed97eff046dc50b',
-             u'message': u'Patch Set 1:\n\nDry run: CQ is trying da patch...',
+             u'message': u'Patch Set 1:\n\nDry run: CQ is trying the patch...',
              u'tag': u'autogenerated:cq:dry-run'
           },
           {

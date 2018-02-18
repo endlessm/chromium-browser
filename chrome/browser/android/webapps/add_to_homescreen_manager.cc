@@ -11,11 +11,11 @@
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequenced_worker_pool.h"
-#include "chrome/browser/android/banners/app_banner_manager_android.h"
 #include "chrome/browser/android/shortcut_helper.h"
 #include "chrome/browser/android/webapk/chrome_webapk_host.h"
 #include "chrome/browser/android/webapk/webapk_install_service.h"
 #include "chrome/browser/android/webapk/webapk_metrics.h"
+#include "chrome/browser/banners/app_banner_manager_android.h"
 #include "chrome/browser/banners/app_banner_settings_helper.h"
 #include "chrome/browser/installable/installable_manager.h"
 #include "content/public/browser/browser_thread.h"
@@ -39,9 +39,10 @@ const int kDataTimeoutInMilliseconds = 4000;
 
 }  // namespace
 
-jlong InitializeAndStart(JNIEnv* env,
-                         const JavaParamRef<jobject>& obj,
-                         const JavaParamRef<jobject>& java_web_contents) {
+jlong JNI_AddToHomescreenManager_InitializeAndStart(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& java_web_contents) {
   content::WebContents* web_contents =
       content::WebContents::FromJavaWebContents(java_web_contents);
   AddToHomescreenManager* manager = new AddToHomescreenManager(env, obj);

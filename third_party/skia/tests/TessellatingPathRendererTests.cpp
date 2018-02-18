@@ -379,8 +379,9 @@ static std::unique_ptr<GrFragmentProcessor> create_linear_gradient_processor(GrC
     SkColor colors[2] = { SK_ColorGREEN, SK_ColorBLUE };
     sk_sp<SkShader> shader = SkGradientShader::MakeLinear(
         pts, colors, nullptr, SK_ARRAY_COUNT(colors), SkShader::kClamp_TileMode);
-    SkShaderBase::AsFPArgs args(
-        ctx, &SkMatrix::I(), &SkMatrix::I(), SkFilterQuality::kLow_SkFilterQuality, nullptr);
+    GrColorSpaceInfo colorSpaceInfo(nullptr, kRGBA_8888_GrPixelConfig);
+    SkShaderBase::AsFPArgs args(ctx, &SkMatrix::I(), &SkMatrix::I(),
+                                SkFilterQuality::kLow_SkFilterQuality, &colorSpaceInfo);
     return as_SB(shader)->asFragmentProcessor(args);
 }
 
@@ -424,6 +425,7 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(TessellatingPathRendererTests, reporter, ctxInfo) {
                                                                   kRGBA_8888_GrPixelConfig,
                                                                   nullptr,
                                                                   0,
+                                                                  GrMipMapped::kNo,
                                                                   kTopLeft_GrSurfaceOrigin));
     if (!rtc) {
         return;

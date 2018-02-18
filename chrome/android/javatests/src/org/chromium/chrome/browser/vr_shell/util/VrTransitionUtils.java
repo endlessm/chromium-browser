@@ -17,7 +17,8 @@ import org.junit.Assert;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
-import org.chromium.chrome.browser.document.ChromeLauncherActivity;
+import org.chromium.chrome.browser.vr.VrMainActivity;
+import org.chromium.chrome.browser.vr_shell.TestVrShellDelegate;
 import org.chromium.chrome.browser.vr_shell.VrClassesWrapperImpl;
 import org.chromium.chrome.browser.vr_shell.VrIntentUtils;
 import org.chromium.chrome.browser.vr_shell.VrShellDelegate;
@@ -77,7 +78,7 @@ public class VrTransitionUtils {
         CriteriaHelper.pollUiThread(Criteria.equals(true, new Callable<Boolean>() {
             @Override
             public Boolean call() {
-                return VrShellDelegate.getInstanceForTesting().isVrEntryComplete();
+                return VrShellDelegateUtils.getDelegateInstance().isVrEntryComplete();
             }
         }), timeout, POLL_CHECK_INTERVAL_SHORT_MS);
     }
@@ -123,7 +124,7 @@ public class VrTransitionUtils {
         enterPresentation(cvc);
         Assert.assertTrue(VrTestFramework.pollJavaScriptBoolean(
                 "vrDisplay.isPresenting", POLL_TIMEOUT_LONG_MS, cvc.getWebContents()));
-        Assert.assertTrue(VrShellDelegate.getVrShellForTesting().getWebVrModeEnabled());
+        Assert.assertTrue(TestVrShellDelegate.getVrShellForTesting().getWebVrModeEnabled());
     }
 
     /**
@@ -135,7 +136,7 @@ public class VrTransitionUtils {
             @Override
             public void run() {
                 isBackButtonEnabled.set(
-                        VrShellDelegate.getVrShellForTesting().isBackButtonEnabled());
+                        TestVrShellDelegate.getVrShellForTesting().isBackButtonEnabled());
             }
         });
         return isBackButtonEnabled.get();
@@ -150,7 +151,7 @@ public class VrTransitionUtils {
             @Override
             public void run() {
                 isForwardButtonEnabled.set(
-                        VrShellDelegate.getVrShellForTesting().isForwardButtonEnabled());
+                        TestVrShellDelegate.getVrShellForTesting().isForwardButtonEnabled());
             }
         });
         return isForwardButtonEnabled.get();
@@ -163,7 +164,7 @@ public class VrTransitionUtils {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                VrShellDelegate.getVrShellForTesting().navigateBack();
+                TestVrShellDelegate.getVrShellForTesting().navigateBack();
             }
         });
     }
@@ -175,26 +176,33 @@ public class VrTransitionUtils {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                VrShellDelegate.getVrShellForTesting().navigateForward();
+                TestVrShellDelegate.getVrShellForTesting().navigateForward();
             }
         });
     }
 
     /**
-     * Sends an intent to Chrome telling it to autopresent the given URL. This
-     * is expected to fail unless the trusted intent check is disabled in VrShellDelegate.
+     * Sends an intent to Chrome telling it to launch in VR mode. If the given autopresent param is
+     * true, this is expected to fail unless the trusted intent check is disabled in
+     * VrShellDelegate.
      *
      * @param url String containing the URL to open
      * @param activity The activity to launch the intent from
+     * @param autopresent If this intent is expected to auto-present WebVR
      */
-    public static void sendDaydreamAutopresentIntent(String url, final Activity activity) {
-        // Create an intent that will launch Chrome at the specified URL with autopresent
+    public static void sendVrLaunchIntent(
+            String url, final Activity activity, boolean autopresent) {
+        // Create an intent that will launch Chrome at the specified URL.
         final Intent intent =
-                new Intent(ContextUtils.getApplicationContext(), ChromeLauncherActivity.class);
+                new Intent(ContextUtils.getApplicationContext(), VrMainActivity.class);
         intent.setData(Uri.parse(url));
         intent.putExtra(VrIntentUtils.DAYDREAM_VR_EXTRA, true);
         DaydreamApi.setupVrIntent(intent);
-        intent.removeCategory("com.google.intent.category.DAYDREAM");
+        if (autopresent) {
+            // Daydream removes this category for deep-linked URLs for legacy reasons.
+            intent.removeCategory(VrIntentUtils.DAYDREAM_CATEGORY);
+            intent.putExtra(VrIntentUtils.AUTOPRESENT_WEVBVR_EXTRA, true);
+        }
 
         final VrClassesWrapperImpl wrapper = new VrClassesWrapperImpl();
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {

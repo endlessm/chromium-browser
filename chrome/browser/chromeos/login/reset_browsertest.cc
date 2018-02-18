@@ -10,7 +10,7 @@
 #include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host_webui.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -26,7 +26,8 @@ namespace chromeos {
 
 namespace {
 
-const char kTestUser1[] = "test-user1@gmail.com";
+constexpr char kTestUser1[] = "test-user1@gmail.com";
+constexpr char kTestUser1GaiaId[] = "test-user1@gmail.com";
 
 }  // namespace
 
@@ -61,7 +62,7 @@ class ResetTest : public LoginManagerTest {
   }
 
   void RegisterSomeUser() {
-    RegisterUser(kTestUser1);
+    RegisterUser(AccountId::FromUserEmailGaiaId(kTestUser1, kTestUser1GaiaId));
     StartupUtils::MarkOobeCompleted();
   }
 

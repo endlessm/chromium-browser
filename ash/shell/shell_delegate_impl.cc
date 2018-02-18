@@ -8,15 +8,14 @@
 
 #include "ash/accessibility/default_accessibility_delegate.h"
 #include "ash/default_wallpaper_delegate.h"
-#include "ash/gpu_support_stub.h"
 #include "ash/keyboard/test_keyboard_ui.h"
-#include "ash/palette_delegate.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/shell/example_factory.h"
 #include "ash/shell/toplevel_window.h"
+#include "ash/test_screenshot_delegate.h"
 #include "ash/wm/window_state.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/user_manager/user_info_impl.h"
@@ -26,33 +25,10 @@
 
 namespace ash {
 namespace shell {
-namespace {
 
-class PaletteDelegateImpl : public PaletteDelegate {
- public:
-  PaletteDelegateImpl() {}
-  ~PaletteDelegateImpl() override {}
+ShellDelegateImpl::ShellDelegateImpl() = default;
 
-  // PaletteDelegate:
-  std::unique_ptr<EnableListenerSubscription> AddPaletteEnableListener(
-      const EnableListener& on_state_changed) override {
-    on_state_changed.Run(false);
-    return nullptr;
-  }
-  void CreateNote() override {}
-  bool HasNoteApp() override { return false; }
-  bool ShouldAutoOpenPalette() override { return false; }
-  bool ShouldShowPalette() override { return false; }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PaletteDelegateImpl);
-};
-
-}  // namespace
-
-ShellDelegateImpl::ShellDelegateImpl() {}
-
-ShellDelegateImpl::~ShellDelegateImpl() {}
+ShellDelegateImpl::~ShellDelegateImpl() = default;
 
 ::service_manager::Connector* ShellDelegateImpl::GetShellConnector() const {
   return nullptr;
@@ -84,6 +60,11 @@ NetworkingConfigDelegate* ShellDelegateImpl::GetNetworkingConfigDelegate() {
   return nullptr;
 }
 
+std::unique_ptr<ash::ScreenshotDelegate>
+ShellDelegateImpl::CreateScreenshotDelegate() {
+  return std::make_unique<TestScreenshotDelegate>();
+}
+
 std::unique_ptr<WallpaperDelegate>
 ShellDelegateImpl::CreateWallpaperDelegate() {
   return std::make_unique<DefaultWallpaperDelegate>();
@@ -91,15 +72,6 @@ ShellDelegateImpl::CreateWallpaperDelegate() {
 
 AccessibilityDelegate* ShellDelegateImpl::CreateAccessibilityDelegate() {
   return new DefaultAccessibilityDelegate;
-}
-
-std::unique_ptr<PaletteDelegate> ShellDelegateImpl::CreatePaletteDelegate() {
-  return std::make_unique<PaletteDelegateImpl>();
-}
-
-GPUSupport* ShellDelegateImpl::CreateGPUSupport() {
-  // Real GPU support depends on src/content, so just use a stub.
-  return new GPUSupportStub;
 }
 
 base::string16 ShellDelegateImpl::GetProductName() const {

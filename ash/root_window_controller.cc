@@ -14,6 +14,7 @@
 #include "ash/focus_cycler.h"
 #include "ash/high_contrast/high_contrast_controller.h"
 #include "ash/host/ash_window_tree_host.h"
+#include "ash/lock_screen_action/lock_screen_action_background_controller.h"
 #include "ash/login_status.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/config.h"
@@ -31,6 +32,7 @@
 #include "ash/shell_port.h"
 #include "ash/system/status_area_layout_manager.h"
 #include "ash/system/status_area_widget.h"
+#include "ash/touch/touch_devices_controller.h"
 #include "ash/touch/touch_hud_debug.h"
 #include "ash/touch/touch_hud_projection.h"
 #include "ash/touch/touch_observer_hud.h"
@@ -349,6 +351,14 @@ void RootWindowController::InitializeShelf() {
   shelf_->shelf_widget()->PostCreateShelf();
 }
 
+void RootWindowController::SetTouchHudProjectionEnabled(bool enable) {
+  // TouchHudProjection manages its own lifetime.
+  if (enable && !touch_hud_projection_)
+    touch_hud_projection_ = new TouchHudProjection(GetRootWindow());
+  else if (!enable && touch_hud_projection_)
+    touch_hud_projection_->Remove();
+}
+
 ShelfLayoutManager* RootWindowController::GetShelfLayoutManager() {
   return shelf_->shelf_layout_manager();
 }
@@ -477,8 +487,6 @@ void RootWindowController::OnWallpaperAnimationFinished(views::Widget* widget) {
 }
 
 void RootWindowController::Shutdown() {
-  Shell::Get()->RemoveShellObserver(this);
-
   touch_exploration_manager_.reset();
 
   ResetRootForNewWindowsIfNecessary();
@@ -496,6 +504,7 @@ void RootWindowController::Shutdown() {
     ash_host_->PrepareForShutdown();
 
   system_wallpaper_.reset();
+  lock_screen_action_background_controller_.reset();
   aura::client::SetScreenPositionClient(root_window, nullptr);
 }
 
@@ -567,8 +576,10 @@ void RootWindowController::InitTouchHuds() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kAshTouchHud))
     set_touch_hud_debug(new TouchHudDebug(GetRootWindow()));
-  if (Shell::Get()->is_touch_hud_projection_enabled())
-    EnableTouchHudProjection();
+
+  // Enable projection on newly attached displays if the pref is set.
+  SetTouchHudProjectionEnabled(
+      Shell::Get()->touch_devices_controller()->IsTouchHudProjectionEnabled());
 }
 
 aura::Window* RootWindowController::GetWindowForFullscreenMode() {
@@ -664,7 +675,10 @@ RootWindowController::RootWindowController(
       mus_window_tree_host_(window_tree_host),
       window_tree_host_(ash_host ? ash_host->AsWindowTreeHost()
                                  : window_tree_host),
-      shelf_(std::make_unique<Shelf>()) {
+      shelf_(std::make_unique<Shelf>()),
+      sidebar_(std::make_unique<Sidebar>()),
+      lock_screen_action_background_controller_(
+          LockScreenActionBackgroundController::Create()) {
   DCHECK((ash_host && !window_tree_host) || (!ash_host && window_tree_host));
 
   if (!root_window_controllers_)
@@ -699,8 +713,6 @@ void RootWindowController::Init(RootWindowType root_window_type) {
     GetSystemModalLayoutManager(nullptr)->CreateModalBackground();
   }
 
-  shell->AddShellObserver(this);
-
   root_window_layout_manager_->OnWindowResized();
   if (root_window_type == RootWindowType::PRIMARY) {
     if (Shell::GetAshConfig() != Config::MASH)
@@ -730,6 +742,7 @@ void RootWindowController::InitLayoutManagers() {
   DCHECK(!shelf_->shelf_widget());
   aura::Window* root = GetRootWindow();
   shelf_->CreateShelfWidget(root);
+  sidebar_->SetShelf(shelf_.get());
 
   root_window_layout_manager_ = new wm::RootWindowLayoutManager(root);
   root->SetLayoutManager(root_window_layout_manager_);
@@ -753,9 +766,12 @@ void RootWindowController::InitLayoutManagers() {
   aura::Window* lock_action_handler_container =
       GetContainer(kShellWindowId_LockActionHandlerContainer);
   DCHECK(lock_action_handler_container);
+  lock_screen_action_background_controller_->SetParentWindow(
+      lock_action_handler_container);
   lock_action_handler_container->SetLayoutManager(
-      new LockActionHandlerLayoutManager(lock_action_handler_container,
-                                         shelf_.get()));
+      new LockActionHandlerLayoutManager(
+          lock_action_handler_container, shelf_.get(),
+          lock_screen_action_background_controller_.get()));
 
   aura::Window* lock_container =
       GetContainer(kShellWindowId_LockScreenContainer);
@@ -870,9 +886,9 @@ void RootWindowController::CreateContainers() {
 
   // The shelf should be displayed on lock screen if md-based login/lock UI is
   // enabled.
-  aura::Window* shelf_container_parent = switches::IsUsingMdLogin()
-                                             ? lock_screen_related_containers
-                                             : non_lock_screen_containers;
+  aura::Window* shelf_container_parent = switches::IsUsingWebUiLock()
+                                             ? non_lock_screen_containers
+                                             : lock_screen_related_containers;
   aura::Window* shelf_container = CreateContainer(
       kShellWindowId_ShelfContainer, "ShelfContainer", shelf_container_parent);
   wm::SetSnapsChildrenToPhysicalPixelBoundary(shelf_container);
@@ -989,18 +1005,6 @@ void RootWindowController::CreateSystemWallpaper(
       new SystemWallpaperController(GetRootWindow(), color));
 }
 
-void RootWindowController::EnableTouchHudProjection() {
-  if (touch_hud_projection_)
-    return;
-  set_touch_hud_projection(new TouchHudProjection(GetRootWindow()));
-}
-
-void RootWindowController::DisableTouchHudProjection() {
-  if (!touch_hud_projection_)
-    return;
-  touch_hud_projection_->Remove();
-}
-
 void RootWindowController::ResetRootForNewWindowsIfNecessary() {
   // Change the target root window before closing child windows. If any child
   // being removed triggers a relayout of the shelf it will try to build a
@@ -1021,13 +1025,6 @@ void RootWindowController::OnMenuClosed() {
   menu_model_adapter_.reset();
   menu_model_.reset();
   shelf_->UpdateVisibilityState();
-}
-
-void RootWindowController::OnTouchHudProjectionToggled(bool enabled) {
-  if (enabled)
-    EnableTouchHudProjection();
-  else
-    DisableTouchHudProjection();
 }
 
 }  // namespace ash

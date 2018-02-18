@@ -12,33 +12,33 @@
 #ifndef V8VoidCallbackFunctionDictionaryArg_h
 #define V8VoidCallbackFunctionDictionaryArg_h
 
-#include "bindings/core/v8/NativeValueTraits.h"
 #include "core/CoreExport.h"
 #include "platform/bindings/CallbackFunctionBase.h"
-#include "platform/bindings/ScriptWrappable.h"
-#include "platform/bindings/TraceWrapperV8Reference.h"
-#include "platform/heap/Handle.h"
-#include "platform/wtf/text/WTFString.h"
 
 namespace blink {
 
+class ScriptWrappable;
 class TestDictionary;
 
 class CORE_EXPORT V8VoidCallbackFunctionDictionaryArg final : public CallbackFunctionBase {
  public:
-  static V8VoidCallbackFunctionDictionaryArg* Create(ScriptState*, v8::Local<v8::Value> callback);
+  static V8VoidCallbackFunctionDictionaryArg* Create(v8::Local<v8::Function> callback_function) {
+    return new V8VoidCallbackFunctionDictionaryArg(callback_function);
+  }
 
-  ~V8VoidCallbackFunctionDictionaryArg() = default;
+  ~V8VoidCallbackFunctionDictionaryArg() override = default;
 
-  bool call(ScriptWrappable* scriptWrappable, const TestDictionary& arg);
+  // Performs "invoke".
+  // https://heycam.github.io/webidl/#es-invoking-callback-functions
+  v8::Maybe<void> Invoke(ScriptWrappable* callback_this_value, const TestDictionary& arg) WARN_UNUSED_RESULT;
+
+  // Performs "invoke", and then reports an exception, if any, to the global
+  // error handler such as DevTools' console.
+  void InvokeAndReportException(ScriptWrappable* callback_this_value, const TestDictionary& arg);
 
  private:
-  V8VoidCallbackFunctionDictionaryArg(ScriptState*, v8::Local<v8::Function>);
-};
-
-template <>
-struct NativeValueTraits<V8VoidCallbackFunctionDictionaryArg> : public NativeValueTraitsBase<V8VoidCallbackFunctionDictionaryArg> {
-  CORE_EXPORT static V8VoidCallbackFunctionDictionaryArg* NativeValue(v8::Isolate*, v8::Local<v8::Value>, ExceptionState&);
+  explicit V8VoidCallbackFunctionDictionaryArg(v8::Local<v8::Function> callback_function)
+      : CallbackFunctionBase(callback_function) {}
 };
 
 }  // namespace blink

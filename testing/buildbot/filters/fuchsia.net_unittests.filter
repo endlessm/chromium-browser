@@ -4,12 +4,16 @@
 -DiskCacheTest.BlockFiles_Grow
 -DiskCacheBackendTest.SimpleCacheDeleteQuickly
 
-# getifaddrs() not implemented, ZX-766.
--NetworkInterfacesTest.GetNetworkList
-
 # Exceeds FD limit, ZX-1127.
 -ProxyScriptFetcherImplTest.Priority
 
 # base::MakeFileUnreadable() doesn't work. https://crbug.com/759853
 -HttpNetworkTransactionTest.UploadUnreadableFile
 -SpdyNetworkTransactionTest.UnreadableFilePost
+
+# These stress tests take a very long time on emulated ARM cores.
+-SupportedVersion/QuicConnectionTest.TooManySentPackets/*
+-RangeOfTreeSizes/CTLogVerifierTestUsingGenerator.VerifiesValidConsistencyProof/*
+
+# Flaky, https://crbug.com/784448.
+-DiskCacheBackendTest.InvalidEntry5

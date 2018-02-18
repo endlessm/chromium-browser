@@ -20,7 +20,6 @@
 #include <libaddressinput/address_validator.h>
 #include <libaddressinput/callback.h>
 #include <libaddressinput/supplier.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <cstddef>
 #include <memory>
@@ -30,11 +29,16 @@
 
 #include "lookup_key.h"
 #include "rule.h"
+#include "util/size.h"
 
 namespace i18n {
 namespace addressinput {
 
 class ValidationTaskTest : public testing::Test {
+ public:
+  ValidationTaskTest(const ValidationTaskTest&) = delete;
+  ValidationTaskTest& operator=(const ValidationTaskTest&) = delete;
+
  protected:
   ValidationTaskTest()
       : json_(),
@@ -70,9 +74,9 @@ class ValidationTaskTest : public testing::Test {
       USES_P_O_BOX
     };
 
-    for (size_t i = 0; i < arraysize(kFields); ++i) {
+    for (size_t i = 0; i < size(kFields); ++i) {
       AddressField field = kFields[i];
-      for (size_t j = 0; j < arraysize(kProblems); ++j) {
+      for (size_t j = 0; j < size(kProblems); ++j) {
         AddressProblem problem = kProblems[j];
         filter_.insert(std::make_pair(field, problem));
       }
@@ -85,7 +89,7 @@ class ValidationTaskTest : public testing::Test {
   }
 
   void Validate() {
-    Rule rule[arraysize(json_)];
+    Rule rule[size(LookupKey::kHierarchy)];
 
     ValidationTask* task = new ValidationTask(
         address_,
@@ -97,7 +101,8 @@ class ValidationTaskTest : public testing::Test {
 
     Supplier::RuleHierarchy hierarchy;
 
-    for (size_t i = 0; i < arraysize(json_) && json_[i] != nullptr; ++i) {
+    for (size_t i = 0;
+         i < size(LookupKey::kHierarchy) && json_[i] != nullptr; ++i) {
       ASSERT_TRUE(rule[i].ParseSerializedRule(json_[i]));
       hierarchy.rule[i] = &rule[i];
     }
@@ -105,7 +110,7 @@ class ValidationTaskTest : public testing::Test {
     (*task->supplied_)(success_, *task->lookup_key_, hierarchy);
   }
 
-  const char* json_[arraysize(LookupKey::kHierarchy)];
+  const char* json_[size(LookupKey::kHierarchy)];
   bool success_;
   AddressData address_;
   bool allow_postal_;
@@ -126,8 +131,6 @@ class ValidationTaskTest : public testing::Test {
   }
 
   const std::unique_ptr<const AddressValidator::Callback> validated_;
-
-  DISALLOW_COPY_AND_ASSIGN(ValidationTaskTest);
 };
 
 namespace {
@@ -257,7 +260,7 @@ TEST_F(ValidationTaskTest, MissingRequiredFieldRequireName) {
 }
 
 TEST_F(ValidationTaskTest, UnknownValueRuleNull) {
-  json_[0] = "{\"fmt\":\"%R%S\",\"require\":\"RS\",\"sub_keys\":\"aa~bb\"}";
+  json_[0] = R"({"fmt":"%R%S","require":"RS","sub_keys":"aa~bb"})";
 
   address_.region_code = "rrr";
   address_.administrative_area = "sss";
@@ -270,7 +273,7 @@ TEST_F(ValidationTaskTest, UnknownValueRuleNull) {
 }
 
 TEST_F(ValidationTaskTest, NoUnknownValueRuleNotNull) {
-  json_[0] = "{\"fmt\":\"%R%S\",\"require\":\"RS\",\"sub_keys\":\"aa~bb\"}";
+  json_[0] = R"({"fmt":"%R%S","require":"RS","sub_keys":"aa~bb"})";
   json_[1] = "{}";
 
   address_.region_code = "rrr";
@@ -282,7 +285,7 @@ TEST_F(ValidationTaskTest, NoUnknownValueRuleNotNull) {
 }
 
 TEST_F(ValidationTaskTest, PostalCodeUnrecognizedFormatTooShort) {
-  json_[0] = "{\"fmt\":\"%Z\",\"zip\":\"\\\\d{3}\"}";
+  json_[0] = R"({"fmt":"%Z","zip":"\\d{3}"})";
 
   address_.region_code = "rrr";
   address_.postal_code = "12";
@@ -295,7 +298,7 @@ TEST_F(ValidationTaskTest, PostalCodeUnrecognizedFormatTooShort) {
 }
 
 TEST_F(ValidationTaskTest, PostalCodeUnrecognizedFormatTooLong) {
-  json_[0] = "{\"fmt\":\"%Z\",\"zip\":\"\\\\d{3}\"}";
+  json_[0] = R"({"fmt":"%Z","zip":"\\d{3}"})";
 
   address_.region_code = "rrr";
   address_.postal_code = "1234";
@@ -308,7 +311,7 @@ TEST_F(ValidationTaskTest, PostalCodeUnrecognizedFormatTooLong) {
 }
 
 TEST_F(ValidationTaskTest, PostalCodeRecognizedFormat) {
-  json_[0] = "{\"fmt\":\"%Z\",\"zip\":\"\\\\d{3}\"}";
+  json_[0] = R"({"fmt":"%Z","zip":"\\d{3}"})";
 
   address_.region_code = "rrr";
   address_.postal_code = "123";
@@ -319,8 +322,8 @@ TEST_F(ValidationTaskTest, PostalCodeRecognizedFormat) {
 }
 
 TEST_F(ValidationTaskTest, PostalCodeMismatchingValue1) {
-  json_[0] = "{\"fmt\":\"%Z\",\"zip\":\"\\\\d{3}\"}";
-  json_[1] = "{\"zip\":\"1\"}";
+  json_[0] = R"({"fmt":"%Z","zip":"\\d{3}"})";
+  json_[1] = R"({"zip":"1"})";
 
   address_.region_code = "rrr";
   address_.postal_code = "000";
@@ -333,9 +336,9 @@ TEST_F(ValidationTaskTest, PostalCodeMismatchingValue1) {
 }
 
 TEST_F(ValidationTaskTest, PostalCodeMismatchingValue2) {
-  json_[0] = "{\"fmt\":\"%Z\",\"zip\":\"\\\\d{3}\"}";
-  json_[1] = "{\"zip\":\"1\"}";
-  json_[2] = "{\"zip\":\"12\"}";
+  json_[0] = R"({"fmt":"%Z","zip":"\\d{3}"})";
+  json_[1] = R"({"zip":"1"})";
+  json_[2] = R"({"zip":"12"})";
 
   address_.region_code = "rrr";
   address_.postal_code = "100";
@@ -348,10 +351,10 @@ TEST_F(ValidationTaskTest, PostalCodeMismatchingValue2) {
 }
 
 TEST_F(ValidationTaskTest, PostalCodeMismatchingValue3) {
-  json_[0] = "{\"fmt\":\"%Z\",\"zip\":\"\\\\d{3}\"}";
-  json_[1] = "{\"zip\":\"1\"}";
-  json_[2] = "{\"zip\":\"12\"}";
-  json_[3] = "{\"zip\":\"123\"}";
+  json_[0] = R"({"fmt":"%Z","zip":"\\d{3}"})";
+  json_[1] = R"({"zip":"1"})";
+  json_[2] = R"({"zip":"12"})";
+  json_[3] = R"({"zip":"123"})";
 
   address_.region_code = "rrr";
   address_.postal_code = "120";
@@ -364,10 +367,10 @@ TEST_F(ValidationTaskTest, PostalCodeMismatchingValue3) {
 }
 
 TEST_F(ValidationTaskTest, PostalCodeMatchingValue) {
-  json_[0] = "{\"fmt\":\"%Z\",\"zip\":\"\\\\d{3}\"}";
-  json_[1] = "{\"zip\":\"1\"}";
-  json_[2] = "{\"zip\":\"12\"}";
-  json_[3] = "{\"zip\":\"123\"}";
+  json_[0] = R"({"fmt":"%Z","zip":"\\d{3}"})";
+  json_[1] = R"({"zip":"1"})";
+  json_[2] = R"({"zip":"12"})";
+  json_[3] = R"({"zip":"123"})";
 
   address_.region_code = "rrr";
   address_.postal_code = "123";
@@ -378,8 +381,8 @@ TEST_F(ValidationTaskTest, PostalCodeMatchingValue) {
 }
 
 TEST_F(ValidationTaskTest, PostalCodePrefixMismatchingValue) {
-  json_[0] = "{\"fmt\":\"%Z\",\"zip\":\"\\\\d{5}\"}";
-  json_[1] = "{\"zip\":\"9[0-5]|96[01]\"}";
+  json_[0] = R"({"fmt":"%Z","zip":"\\d{5}"})";
+  json_[1] = R"({"zip":"9[0-5]|96[01]"})";
 
   address_.region_code = "rrr";
   address_.postal_code = "10960";
@@ -392,8 +395,8 @@ TEST_F(ValidationTaskTest, PostalCodePrefixMismatchingValue) {
 }
 
 TEST_F(ValidationTaskTest, PostalCodeFilterIgnoresMismatching) {
-  json_[0] = "{\"zip\":\"\\\\d{3}\"}";
-  json_[1] = "{\"zip\":\"1\"}";
+  json_[0] = R"({"zip":"\\d{3}"})";
+  json_[1] = R"({"zip":"1"})";
 
   address_.region_code = "rrr";
   address_.postal_code = "000";
@@ -409,7 +412,7 @@ TEST_F(ValidationTaskTest, PostalCodeFilterIgnoresMismatching) {
 }
 
 TEST_F(ValidationTaskTest, UsesPoBoxLanguageUnd) {
-  json_[0] = "{\"fmt\":\"%A\"}";
+  json_[0] = R"({"fmt":"%A"})";
 
   address_.region_code = "rrr";
   address_.address_line.push_back("aaa");
@@ -424,7 +427,7 @@ TEST_F(ValidationTaskTest, UsesPoBoxLanguageUnd) {
 }
 
 TEST_F(ValidationTaskTest, UsesPoBoxLanguageDa) {
-  json_[0] = "{\"fmt\":\"%A\",\"languages\":\"da\"}";
+  json_[0] = R"({"fmt":"%A","languages":"da"})";
 
   address_.region_code = "rrr";
   address_.address_line.push_back("aaa");
@@ -439,7 +442,7 @@ TEST_F(ValidationTaskTest, UsesPoBoxLanguageDa) {
 }
 
 TEST_F(ValidationTaskTest, UsesPoBoxLanguageDaNotMatchDe) {
-  json_[0] = "{\"fmt\":\"%A\",\"languages\":\"da\"}";
+  json_[0] = R"({"fmt":"%A","languages":"da"})";
 
   address_.region_code = "rrr";
   address_.address_line.push_back("aaa");
@@ -452,7 +455,7 @@ TEST_F(ValidationTaskTest, UsesPoBoxLanguageDaNotMatchDe) {
 }
 
 TEST_F(ValidationTaskTest, UsesPoBoxAllowPostal) {
-  json_[0] = "{\"fmt\":\"%A\"}";
+  json_[0] = R"({"fmt":"%A"})";
 
   address_.region_code = "rrr";
   address_.address_line.push_back("aaa");

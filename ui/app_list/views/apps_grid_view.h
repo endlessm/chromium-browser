@@ -11,14 +11,14 @@
 #include <string>
 #include <tuple>
 
+#include "ash/app_list/model/app_list_model.h"
+#include "ash/app_list/model/app_list_model_observer.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "ui/app_list/app_list_export.h"
-#include "ui/app_list/app_list_model.h"
-#include "ui/app_list/app_list_model_observer.h"
 #include "ui/app_list/pagination_model.h"
 #include "ui/app_list/pagination_model_observer.h"
 #include "ui/app_list/views/app_list_view.h"
@@ -30,6 +30,10 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/view.h"
 #include "ui/views/view_model.h"
+
+namespace ui {
+class AnimationMetricsReporter;
+}
 
 namespace views {
 class ButtonListener;
@@ -149,7 +153,7 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
 
   // Updates the visibility of app list items according to |app_list_state| and
   // |is_in_drag|.
-  void UpdateControlVisibility(AppListView::AppListState app_list_state,
+  void UpdateControlVisibility(AppListViewState app_list_state,
                                bool is_in_drag);
 
   // Overridden from ui::EventHandler:
@@ -443,6 +447,7 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
   void SelectedPageChanged(int old_selected, int new_selected) override;
   void TransitionStarted() override;
   void TransitionChanged() override;
+  void TransitionEnded() override;
 
   // Overridden from AppListModelObserver:
   void OnAppListModelStatusChanged() override;
@@ -644,6 +649,12 @@ class APP_LIST_EXPORT AppsGridView : public views::View,
 
   // True if it is the end gesture from shelf dragging.
   bool is_end_gesture_ = false;
+
+  // To obtain metrics of pagination animation performance and keep track of
+  // sequential compositor frame number.
+  const std::unique_ptr<ui::AnimationMetricsReporter>
+      pagination_animation_metrics_reporter_;
+  int pagination_animation_start_frame_number_;
 
   DISALLOW_COPY_AND_ASSIGN(AppsGridView);
 };

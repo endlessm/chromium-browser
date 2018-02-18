@@ -20,40 +20,48 @@ tr.b.unittest.testSuite(function() {
   const tidCompositor = 53;
   const tidAudio = 55;
 
-  function doLoadEvent(timestamp) {
-    return {name: 'WebMediaPlayerImpl::DoLoad', args: {},
+  function doLoadEvent(timestamp, opt_id) {
+    return {name: 'WebMediaPlayerImpl::DoLoad', args: {id: opt_id || 0},
       pid: procId, ts: timestamp, cat: 'media', tid: tidMain, ph: 'X'};
   }
 
-  function videoRenderEvent(timestamp) {
-    return {name: 'VideoRendererImpl::Render', args: {},
+  function videoRenderEvent(timestamp, opt_id) {
+    return {name: 'VideoRendererImpl::Render', args: {id: opt_id || 0},
       pid: procId, ts: timestamp, cat: 'media', tid: tidCompositor, ph: 'X'};
   }
 
-  function audioRenderEvent(timestamp) {
-    return {name: 'AudioRendererImpl::Render', args: {},
+  function audioRenderEvent(timestamp, opt_id) {
+    return {name: 'AudioRendererImpl::Render', args: {id: opt_id || 0},
       pid: procId, ts: timestamp, cat: 'media', tid: tidAudio, ph: 'X'};
   }
 
-  function videoFramesDroppedEvent(timestamp, frameCount) {
-    return {name: 'VideoFramesDropped', args: {count: frameCount},
+  function videoFramesDroppedEvent(timestamp, frameCount, opt_id) {
+    return {name: 'VideoFramesDropped',
+      args: {count: frameCount, id: opt_id || 0},
       pid: procId, ts: timestamp, cat: 'media', tid: tidCompositor, ph: 'X'};
   }
 
-  function onEndedEvent(timestamp, mediaDuration) {
+  function onEndedEvent(timestamp, mediaDuration, opt_id) {
     return {name: 'WebMediaPlayerImpl::OnEnded',
-      args: {'duration': mediaDuration},
+      args: {duration: mediaDuration, id: opt_id || 0},
       pid: procId, ts: timestamp, cat: 'media', tid: tidMain, ph: 'X'};
   }
 
-  function doSeekEvent(timestamp, targetTime) {
-    return {name: 'WebMediaPlayerImpl::DoSeek', args: {target: targetTime},
+  function doSeekEvent(timestamp, targetTime, opt_id) {
+    return {name: 'WebMediaPlayerImpl::DoSeek',
+      args: {target: targetTime, id: opt_id || 0},
       pid: procId, ts: timestamp, cat: 'media', tid: tidMain, ph: 'X'};
   }
 
-  function seekedEvent(timestamp, targetTime) {
+  function seekedEvent(timestamp, targetTime, opt_id) {
     return {name: 'WebMediaPlayerImpl::OnPipelineSeeked',
-      args: {target: targetTime},
+      args: {target: targetTime, id: opt_id || 0},
+      pid: procId, ts: timestamp, cat: 'media', tid: tidMain, ph: 'X'};
+  }
+
+  function bufferEnoughEvent(timestamp, opt_id) {
+    return {name: 'WebMediaPlayerImpl::BufferingHaveEnough',
+      args: {id: opt_id || 0},
       pid: procId, ts: timestamp, cat: 'media', tid: tidMain, ph: 'X'};
   }
 
@@ -76,6 +84,17 @@ tr.b.unittest.testSuite(function() {
     const statistics = value.running;
     assert.strictEqual(statistics.count, 1);
     assert.closeTo(statistics.mean, expectedValue, 1e-5);
+  }
+
+  function checkCloseToMultiple(histograms, histogramName, expectedCount,
+      expectedMin, expectedMean, expectedMax) {
+    assert.isDefined(histograms.getHistogramNamed(histogramName));
+    const value = histograms.getHistogramNamed(histogramName);
+    const statistics = value.running;
+    assert.strictEqual(statistics.count, expectedCount);
+    assert.closeTo(statistics.min, expectedMin, 1e-5);
+    assert.closeTo(statistics.mean, expectedMean, 1e-5);
+    assert.closeTo(statistics.max, expectedMax, 1e-5);
   }
 
   function checkEqual(histograms, histogramName, expectedValue) {
@@ -160,6 +179,7 @@ tr.b.unittest.testSuite(function() {
       onEndedEvent(10066666, 10),
       doSeekEvent(525, 1.2),
       seekedEvent(719, 1.2),
+      bufferEnoughEvent(825),
       mainThreadMarker,
       compositorThreadMarker,
     ];
@@ -182,21 +202,151 @@ tr.b.unittest.testSuite(function() {
     checkEqual(histograms, 'dropped_frame_count', 10);
   });
 
-  test('mediaMetric_seekTime', function() {
+  test('mediaMetric_droppedFrameCountZero', function() {
+    const histograms = new tr.v.HistogramSet();
+    const events = [
+      doLoadEvent(1000),
+      videoRenderEvent(1500),
+      mainThreadMarker,
+      compositorThreadMarker,
+    ];
+    tr.metrics.mediaMetric(histograms, makeModel(events));
+    checkEqual(histograms, 'dropped_frame_count', 0);
+  });
+
+  test('mediaMetric_droppedFrameCountNoVideo', function() {
+    const histograms = new tr.v.HistogramSet();
+    const events = [
+      doLoadEvent(1000),
+      audioRenderEvent(1500),
+      mainThreadMarker,
+      audioThreadMarker,
+    ];
+    tr.metrics.mediaMetric(histograms, makeModel(events));
+    assert.isUndefined(histograms.getHistogramNamed('dropped_frame_count'));
+  });
+
+  test('mediaMetric_seekTimeVideo', function() {
     const histograms = new tr.v.HistogramSet();
     const events = [
       doLoadEvent(1000),
       videoRenderEvent(1500),
       doSeekEvent(2000, 1.2),
       seekedEvent(2500, 1.2),
+      bufferEnoughEvent(3000),
       doSeekEvent(15000, 3.7),
       seekedEvent(75000, 3.7),
+      bufferEnoughEvent(95000),
       mainThreadMarker,
       compositorThreadMarker,
     ];
     tr.metrics.mediaMetric(histograms, makeModel(events));
-    checkCloseTo(histograms, 'seek_time_1_2', 0.5);
-    checkCloseTo(histograms, 'seek_time_3_7', 60);
+    checkCloseTo(histograms, 'pipeline_seek_time_1_2', 0.5);
+    checkCloseTo(histograms, 'seek_time_1_2', 1);
+    checkCloseTo(histograms, 'pipeline_seek_time_3_7', 60);
+    checkCloseTo(histograms, 'seek_time_3_7', 80);
+  });
+
+  test('mediaMetric_seekTimeAudio', function() {
+    const histograms = new tr.v.HistogramSet();
+    const events = [
+      doLoadEvent(1000),
+      audioRenderEvent(1500),
+      doSeekEvent(2000, 1.2),
+      seekedEvent(2500, 1.2),
+      bufferEnoughEvent(3000),
+      doSeekEvent(15000, 3.7),
+      seekedEvent(75000, 3.7),
+      bufferEnoughEvent(95000),
+      mainThreadMarker,
+      audioThreadMarker,
+    ];
+    tr.metrics.mediaMetric(histograms, makeModel(events));
+    checkCloseTo(histograms, 'pipeline_seek_time_1_2', 0.5);
+    checkCloseTo(histograms, 'seek_time_1_2', 1);
+    checkCloseTo(histograms, 'pipeline_seek_time_3_7', 60);
+    checkCloseTo(histograms, 'seek_time_3_7', 80);
+  });
+
+  test('mediaMetric_seekOverlap', function() {
+    const histograms = new tr.v.HistogramSet();
+    const events = [
+      doLoadEvent(1000),
+      videoRenderEvent(1500),
+      doSeekEvent(2000, 1.2),
+      seekedEvent(2500, 1.2),
+      doSeekEvent(2800, 3.7), // Out of order
+      bufferEnoughEvent(3000),
+      seekedEvent(75000, 3.7),
+      bufferEnoughEvent(95000),
+      mainThreadMarker,
+      compositorThreadMarker,
+    ];
+    tr.metrics.mediaMetric(histograms, makeModel(events));
+    assert.isDefined(histograms.getHistogramNamed('time_to_video_play'));
+    assert.isUndefined(histograms.getHistogramNamed('seek_time_1_2'));
+  });
+
+  test('mediaMetric_seekIncomplete', function() {
+    const histograms = new tr.v.HistogramSet();
+    const events = [
+      doLoadEvent(1000),
+      videoRenderEvent(1500),
+      doSeekEvent(2000, 1.2),
+      seekedEvent(2500, 1.2),
+      // Missing bufferEnoughEvent
+      mainThreadMarker,
+      compositorThreadMarker,
+    ];
+    tr.metrics.mediaMetric(histograms, makeModel(events));
+    assert.isDefined(histograms.getHistogramNamed('time_to_video_play'));
+    assert.isUndefined(histograms.getHistogramNamed('seek_time_1_2'));
+  });
+
+  test('mediaMetric_seekWrongTarget', function() {
+    const histograms = new tr.v.HistogramSet();
+    const events = [
+      doLoadEvent(1000),
+      videoRenderEvent(1500),
+      doSeekEvent(2000, 1.2),
+      seekedEvent(2500, 2.7), // Wrong target, should be 1.2
+      mainThreadMarker,
+      compositorThreadMarker,
+    ];
+    tr.metrics.mediaMetric(histograms, makeModel(events));
+    assert.isDefined(histograms.getHistogramNamed('time_to_video_play'));
+    assert.isUndefined(histograms.getHistogramNamed('seek_time_1_2'));
+  });
+
+  test('mediaMetric_multiplePlaybacks', function() {
+    const histograms = new tr.v.HistogramSet();
+    const events = [
+      doLoadEvent(1000, 0),
+      doLoadEvent(1100, 1),
+      videoRenderEvent(1400, 1),
+      videoRenderEvent(1500, 0),
+      doLoadEvent(2000, 2),
+      doSeekEvent(2000, 1.2, 0),
+      doSeekEvent(2100, 1.2, 1),
+      videoRenderEvent(2100, 2),
+      doSeekEvent(2200, 1.2, 2),
+      seekedEvent(2500, 1.2, 2),
+      seekedEvent(2600, 1.2, 1),
+      seekedEvent(2700, 1.2, 0),
+      bufferEnoughEvent(3000, 0),
+      bufferEnoughEvent(3100, 1),
+      bufferEnoughEvent(3800, 2),
+      mainThreadMarker,
+      compositorThreadMarker,
+    ];
+    tr.metrics.mediaMetric(histograms, makeModel(events));
+    // Values are 0.5, 0.3, 0.1, with min 0.1, mean 0.3, max 0.5.
+    checkCloseToMultiple(histograms, 'time_to_video_play', 3, 0.1, 0.3, 0.5);
+    // Values are 0.7, 0.5, 0.3, with min 0.3, mean 0.5, max 0.7.
+    checkCloseToMultiple(histograms,
+        'pipeline_seek_time_1_2', 3, 0.3, 0.5, 0.7);
+    // Values are 1, 1, 1.6, with min 1, mean 1.2, max 1.6
+    checkCloseToMultiple(histograms, 'seek_time_1_2', 3, 1, 1.2, 1.6);
   });
 
   // Scenario: Play mixed audio/video from start to finish
@@ -248,9 +398,11 @@ tr.b.unittest.testSuite(function() {
       videoRenderEvent(2040),
       doSeekEvent(5000, 0.5),
       seekedEvent(5200, 0.5),
+      bufferEnoughEvent(6000),
       videoFramesDroppedEvent(123456, 4),
       doSeekEvent(200000, 9),
       seekedEvent(210000, 9),
+      bufferEnoughEvent(220000),
       videoFramesDroppedEvent(234567, 2),
       onEndedEvent(300000, 10),
       mainThreadMarker,
@@ -262,8 +414,10 @@ tr.b.unittest.testSuite(function() {
     checkCloseTo(histograms, 'time_to_audio_play', 1.02);
     assert.isUndefined(histograms.getHistogramNamed('buffering_time'));
     checkEqual(histograms, 'dropped_frame_count', 6);
-    checkCloseTo(histograms, 'seek_time_0_5', 0.2);
-    checkCloseTo(histograms, 'seek_time_9', 10);
+    checkCloseTo(histograms, 'pipeline_seek_time_0_5', 0.2);
+    checkCloseTo(histograms, 'seek_time_0_5', 1);
+    checkCloseTo(histograms, 'pipeline_seek_time_9', 10);
+    checkCloseTo(histograms, 'seek_time_9', 20);
   });
 });
 </script>

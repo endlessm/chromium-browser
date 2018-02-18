@@ -47,29 +47,34 @@ namespace {
 const char* const kKnownSettings[] = {
     kAccountsPrefAllowGuest,
     kAccountsPrefAllowNewUser,
-    kAccountsPrefDeviceLocalAccounts,
     kAccountsPrefDeviceLocalAccountAutoLoginBailoutEnabled,
     kAccountsPrefDeviceLocalAccountAutoLoginDelay,
     kAccountsPrefDeviceLocalAccountAutoLoginId,
     kAccountsPrefDeviceLocalAccountPromptForNetworkWhenOffline,
+    kAccountsPrefDeviceLocalAccounts,
     kAccountsPrefEphemeralUsersEnabled,
+    kAccountsPrefLoginScreenDomainAutoComplete,
     kAccountsPrefShowUserNamesOnSignIn,
     kAccountsPrefSupervisedUsersEnabled,
     kAccountsPrefTransferSAMLCookies,
     kAccountsPrefUsers,
-    kAccountsPrefLoginScreenDomainAutoComplete,
     kAllowBluetooth,
-    kAllowRedeemChromeOsRegistrationOffers,
     kAllowedConnectionTypesForUpdate,
+    kAllowRedeemChromeOsRegistrationOffers,
     kAttestationForContentProtectionEnabled,
+    kCastReceiverName,
     kDeviceAttestationEnabled,
     kDeviceDisabled,
     kDeviceDisabledMessage,
+    kDeviceEnrollmentIdNeeded,
     kDeviceLoginScreenAppInstallList,
+    kDeviceLoginScreenInputMethods,
+    kDeviceLoginScreenLocales,
+    kDeviceOffHours,
     kDeviceOwner,
-    kDevicePrintersConfigurations,
     kDevicePrintersAccessMode,
     kDevicePrintersBlacklist,
+    kDevicePrintersConfigurations,
     kDevicePrintersWhitelist,
     kDeviceQuirksDownloadEnabled,
     kDeviceWallpaperImage,
@@ -79,6 +84,7 @@ const char* const kKnownSettings[] = {
     kHeartbeatFrequency,
     kLoginAuthenticationBehavior,
     kLoginVideoCaptureAllowedUrls,
+    kMinimumRequiredChromeVersion,
     kPolicyMissingMitigationMode,
     kRebootOnShutdown,
     kReleaseChannel,
@@ -102,12 +108,10 @@ const char* const kKnownSettings[] = {
     kSystemTimezonePolicy,
     kSystemUse24HourClock,
     kTargetVersionPrefix,
+    kTPMFirmwareUpdateSettings,
+    kUnaffiliatedArcAllowed,
     kUpdateDisabled,
     kVariationsRestrictParameter,
-    kDeviceLoginScreenLocales,
-    kDeviceLoginScreenInputMethods,
-    kDeviceOffHours,
-    kTPMFirmwareUpdateSettings,
 };
 
 void DecodeLoginPolicies(
@@ -380,8 +384,10 @@ void DecodeAutoUpdatePolicies(
          i != allowed_connection_types.end(); ++i) {
       list->AppendInteger(*i);
     }
-    new_values_cache->SetValue(kAllowedConnectionTypesForUpdate,
-                               std::move(list));
+    if (!list->empty()) {
+      new_values_cache->SetValue(kAllowedConnectionTypesForUpdate,
+                                 std::move(list));
+    }
   }
 }
 
@@ -585,6 +591,41 @@ void DecodeGenericPolicies(
     new_values_cache->SetValue(kTPMFirmwareUpdateSettings,
                                tpm_firmware_update::DecodeSettingsProto(
                                    policy.tpm_firmware_update_settings()));
+  }
+
+  if (policy.has_minimum_required_version()) {
+    const em::MinimumRequiredVersionProto& container(
+        policy.minimum_required_version());
+    if (container.has_chrome_version())
+      new_values_cache->SetString(kMinimumRequiredChromeVersion,
+                                  container.chrome_version());
+  }
+
+  if (policy.has_cast_receiver_name()) {
+    const em::CastReceiverNameProto& container(policy.cast_receiver_name());
+    if (container.has_name()) {
+      new_values_cache->SetValue(
+          kCastReceiverName, base::MakeUnique<base::Value>(container.name()));
+    }
+  }
+
+  if (policy.has_forced_reenrollment()) {
+    const em::ForcedReenrollmentProto& container(policy.forced_reenrollment());
+    if (container.has_enrollment_id_needed()) {
+      new_values_cache->SetValue(
+          kDeviceEnrollmentIdNeeded,
+          base::MakeUnique<base::Value>(container.enrollment_id_needed()));
+    }
+  }
+
+  if (policy.has_unaffiliated_arc_allowed()) {
+    const em::UnaffiliatedArcAllowedProto& container(
+        policy.unaffiliated_arc_allowed());
+    if (container.has_unaffiliated_arc_allowed()) {
+      new_values_cache->SetValue(
+          kUnaffiliatedArcAllowed,
+          base::MakeUnique<base::Value>(container.unaffiliated_arc_allowed()));
+    }
   }
 }
 

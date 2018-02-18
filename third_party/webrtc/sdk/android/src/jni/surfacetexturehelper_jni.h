@@ -17,7 +17,7 @@
 #include "rtc_base/refcount.h"
 #include "rtc_base/scoped_ref_ptr.h"
 #include "sdk/android/src/jni/jni_helpers.h"
-#include "sdk/android/src/jni/native_handle_impl.h"
+#include "sdk/android/src/jni/videoframe.h"
 
 namespace webrtc {
 namespace jni {
@@ -61,7 +61,6 @@ class SurfaceTextureHelper : public rtc::RefCountInterface {
 
  private:
   const ScopedGlobalRef<jobject> j_surface_texture_helper_;
-  const jmethodID j_return_texture_method_;
 };
 
 }  // namespace jni

@@ -129,7 +129,8 @@ content::PepperPluginInfo::PPP_ShutdownModuleFunc g_nacl_shutdown_module;
 #if defined(WIDEVINE_CDM_AVAILABLE_NOT_COMPONENT)
 bool IsWidevineAvailable(base::FilePath* adapter_path,
                          base::FilePath* cdm_path,
-                         std::vector<std::string>* codecs_supported) {
+                         std::vector<std::string>* codecs_supported,
+                         bool* is_persistent_license_supported) {
   static enum {
     NOT_CHECKED,
     FOUND,
@@ -154,6 +155,15 @@ bool IsWidevineAvailable(base::FilePath* adapter_path,
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
       codecs_supported->push_back(kCdmSupportedCodecAvc1);
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
+
+// TODO(crbug.com/767941): Push persistent-license support info here once
+// we check in a new CDM that supports it on Linux.
+#if defined(OS_CHROMEOS)
+      *is_persistent_license_supported = true;
+#else
+      *is_persistent_license_supported = false;
+#endif  // defined(OS_CHROMEOS)
+
       return true;
     }
   }
@@ -220,28 +230,40 @@ void ComputeBuiltInPlugins(std::vector<content::PepperPluginInfo>* plugins) {
   base::FilePath adapter_path;
   base::FilePath cdm_path;
   std::vector<std::string> codecs_supported;
-  if (IsWidevineAvailable(&adapter_path, &cdm_path, &codecs_supported)) {
-    content::PepperPluginInfo widevine_cdm;
-    widevine_cdm.is_out_of_process = true;
-    widevine_cdm.path = adapter_path;
-    widevine_cdm.name = kWidevineCdmDisplayName;
-    widevine_cdm.description =
+  bool is_persistent_license_supported;
+  if (IsWidevineAvailable(&adapter_path, &cdm_path, &codecs_supported,
+                          &is_persistent_license_supported)) {
+    content::PepperPluginInfo info;
+    info.is_out_of_process = true;
+    info.path = adapter_path;
+    info.name = kWidevineCdmDisplayName;
+    info.description =
         base::StringPrintf("%s (version: " WIDEVINE_CDM_VERSION_STRING ")",
                            kWidevineCdmDescription);
-    widevine_cdm.version = WIDEVINE_CDM_VERSION_STRING;
-    content::WebPluginMimeType widevine_cdm_mime_type(
-        kWidevineCdmPluginMimeType, kWidevineCdmPluginExtension,
-        kWidevineCdmPluginMimeTypeDescription);
+    info.version = WIDEVINE_CDM_VERSION_STRING;
+    info.permissions = kWidevineCdmPluginPermissions;
 
-    widevine_cdm_mime_type.additional_param_names.push_back(
-        base::ASCIIToUTF16(kCdmSupportedCodecsParamName));
-    widevine_cdm_mime_type.additional_param_values.push_back(base::ASCIIToUTF16(
-        base::JoinString(codecs_supported,
-                         std::string(1, kCdmSupportedCodecsValueDelimiter))));
+    content::WebPluginMimeType mime_type(kWidevineCdmPluginMimeType,
+                                         kWidevineCdmPluginExtension,
+                                         kWidevineCdmPluginMimeTypeDescription);
 
-    widevine_cdm.mime_types.push_back(widevine_cdm_mime_type);
-    widevine_cdm.permissions = kWidevineCdmPluginPermissions;
-    plugins->push_back(widevine_cdm);
+    // Put codec support string in additional param.
+    mime_type.additional_params.emplace_back(
+        base::ASCIIToUTF16(kCdmSupportedCodecsParamName),
+        base::ASCIIToUTF16(base::JoinString(
+            codecs_supported,
+            std::string(1, kCdmSupportedCodecsValueDelimiter))));
+
+    // Put persistent license support string in additional param.
+    mime_type.additional_params.emplace_back(
+        base::ASCIIToUTF16(kCdmPersistentLicenseSupportedParamName),
+        base::ASCIIToUTF16(is_persistent_license_supported
+                               ? kCdmFeatureSupported
+                               : kCdmFeatureNotSupported));
+
+    info.mime_types.push_back(mime_type);
+
+    plugins->push_back(info);
   }
 #endif  // defined(WIDEVINE_CDM_AVAILABLE_NOT_COMPONENT)
 }
@@ -259,7 +281,7 @@ content::PepperPluginInfo CreatePepperFlashInfo(const base::FilePath& path,
   plugin.is_out_of_process = true;
   plugin.name = content::kFlashPluginName;
   plugin.path = path;
-  plugin.permissions = chrome::kPepperFlashPermissions;
+  plugin.permissions = kPepperFlashPermissions;
   plugin.is_external = is_external;
 
   std::vector<std::string> flash_version_numbers = base::SplitString(
@@ -327,7 +349,7 @@ bool TryCreatePepperFlashInfo(const base::FilePath& flash_filename,
     return false;
 
   base::Version version;
-  if (!chrome::CheckPepperFlashManifest(*manifest, &version)) {
+  if (!CheckPepperFlashManifest(*manifest, &version)) {
     LOG(ERROR) << "Browser not compatible with given flash manifest.";
     return false;
   }
@@ -548,10 +570,13 @@ void ChromeContentClient::AddContentDecryptionModules(
     base::FilePath adapter_path;
     base::FilePath cdm_path;
     std::vector<std::string> codecs_supported;
-    if (IsWidevineAvailable(&adapter_path, &cdm_path, &codecs_supported)) {
+    bool is_persistent_license_supported;
+    if (IsWidevineAvailable(&adapter_path, &cdm_path, &codecs_supported,
+                            &is_persistent_license_supported)) {
       // CdmInfo needs |path| to be the actual Widevine library,
       // not the adapter, so adjust as necessary. It will be in the
       // same directory as the installed adapter.
+      // TODO(xhwang): Pass |is_persistent_license_supported| to CdmInfo.
       const base::Version version(WIDEVINE_CDM_VERSION_STRING);
       DCHECK(version.IsValid());
       cdms->push_back(
@@ -597,7 +622,7 @@ void ChromeContentClient::AddContentDecryptionModules(
 
 #if BUILDFLAG(ENABLE_CDM_HOST_VERIFICATION)
   if (cdm_host_file_paths)
-    chrome::AddCdmHostFilePaths(cdm_host_file_paths);
+    AddCdmHostFilePaths(cdm_host_file_paths);
 #endif
 }
 
@@ -631,7 +656,7 @@ void ChromeContentClient::AddAdditionalSchemes(Schemes* schemes) {
   // with them by third parties.
   schemes->secure_schemes.push_back(extensions::kExtensionScheme);
 
-  schemes->secure_origins = GetSecureOriginWhitelist();
+  schemes->secure_origins = secure_origin_whitelist::GetWhitelist();
 
   // chrome-native: is a scheme used for placeholder navigations that allow
   // UIs to be drawn with platform native widgets instead of HTML.  These pages

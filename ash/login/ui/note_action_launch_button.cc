@@ -62,7 +62,7 @@ class BubbleLayerDelegate : public views::BasePaintedLayerDelegate {
   BubbleLayerDelegate(SkColor color, int radius)
       : views::BasePaintedLayerDelegate(color), radius_(radius) {}
 
-  ~BubbleLayerDelegate() override {}
+  ~BubbleLayerDelegate() override = default;
 
   // views::BasePaintedLayerDelegate:
   gfx::RectF GetPaintedBounds() const override {
@@ -270,6 +270,9 @@ class NoteActionLaunchButton::ActionButton : public views::ImageButton,
 
   // views::ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override {
+    UserMetricsRecorder::RecordUserClick(
+        LoginMetricsRecorder::LockScreenUserClickTarget::
+            kLockScreenNoteActionButton);
     if (event.IsKeyEvent()) {
       Shell::Get()->tray_action()->RequestNewLockScreenNote(
           mojom::LockScreenNoteOrigin::kLockScreenButtonKeyboard);
@@ -339,11 +342,7 @@ const views::View* NoteActionLaunchButton::TestApi::BackgroundView() const {
 }
 
 NoteActionLaunchButton::NoteActionLaunchButton(
-    mojom::TrayActionState initial_note_action_state,
-    LoginDataDispatcher* login_data_dispatcher)
-    : login_data_observer_(this) {
-  login_data_observer_.Add(login_data_dispatcher);
-
+    mojom::TrayActionState initial_note_action_state) {
   SetLayoutManager(new views::FillLayout());
 
   background_ = new BackgroundView();
@@ -356,11 +355,6 @@ NoteActionLaunchButton::NoteActionLaunchButton(
 }
 
 NoteActionLaunchButton::~NoteActionLaunchButton() = default;
-
-void NoteActionLaunchButton::OnLockScreenNoteStateChanged(
-    mojom::TrayActionState state) {
-  UpdateVisibility(state);
-}
 
 void NoteActionLaunchButton::UpdateVisibility(
     mojom::TrayActionState action_state) {

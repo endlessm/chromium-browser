@@ -11,6 +11,7 @@
 #include "ash/shell.h"
 #include "ash/shell_test_api.h"
 #include "ash/system/power/power_button_controller.h"
+#include "ash/system/power/tablet_power_button_controller_test_api.h"
 #include "ash/wm/lock_state_controller.h"
 #include "ash/wm/lock_state_controller_test_api.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
@@ -79,11 +80,14 @@ void PowerButtonTestBase::InitPowerButtonControllerMembers(
     SendAccelerometerUpdate(kSidewaysVector, kUpVector);
     tablet_controller_ =
         power_button_controller_->tablet_power_button_controller_for_test();
-    tablet_test_api_ = std::make_unique<TabletPowerButtonController::TestApi>(
+    tablet_test_api_ = std::make_unique<TabletPowerButtonControllerTestApi>(
         tablet_controller_);
+    screenshot_controller_ =
+        power_button_controller_->screenshot_controller_for_test();
   } else {
     tablet_test_api_ = nullptr;
     tablet_controller_ = nullptr;
+    screenshot_controller_ = nullptr;
   }
 }
 
@@ -100,10 +104,8 @@ void PowerButtonTestBase::SendAccelerometerUpdate(
   power_button_controller_->OnAccelerometerUpdated(update);
   tablet_controller_ =
       power_button_controller_->tablet_power_button_controller_for_test();
-
-  if (tablet_test_api_ && tablet_test_api_->IsObservingAccelerometerReader(
-                              chromeos::AccelerometerReader::GetInstance()))
-    tablet_controller_->OnAccelerometerUpdated(update);
+  screenshot_controller_ =
+      power_button_controller_->screenshot_controller_for_test();
 }
 
 void PowerButtonTestBase::ForceClamshellPowerButton() {

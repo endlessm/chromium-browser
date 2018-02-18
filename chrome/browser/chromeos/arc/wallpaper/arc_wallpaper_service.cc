@@ -180,8 +180,8 @@ ArcWallpaperService* ArcWallpaperService::GetForBrowserContext(
 ArcWallpaperService::ArcWallpaperService(content::BrowserContext* context,
                                          ArcBridgeService* bridge_service)
     : arc_bridge_service_(bridge_service),
-      binding_(this),
       decode_request_sender_(std::make_unique<DecodeRequestSenderImpl>()) {
+  arc_bridge_service_->wallpaper()->SetHost(this);
   arc_bridge_service_->wallpaper()->AddObserver(this);
 }
 
@@ -192,23 +192,18 @@ ArcWallpaperService::~ArcWallpaperService() {
     wc->RemoveObserver(this);
 
   arc_bridge_service_->wallpaper()->RemoveObserver(this);
+  arc_bridge_service_->wallpaper()->SetHost(nullptr);
 }
 
-void ArcWallpaperService::OnInstanceReady() {
+void ArcWallpaperService::OnConnectionReady() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  mojom::WallpaperInstance* wallpaper_instance =
-      ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service_->wallpaper(), Init);
-  DCHECK(wallpaper_instance);
-  mojom::WallpaperHostPtr host_proxy;
-  binding_.Bind(mojo::MakeRequest(&host_proxy));
-  wallpaper_instance->Init(std::move(host_proxy));
   ash::WallpaperController* wc = GetWallpaperController();
   // TODO(mash): Support this functionality without ash::Shell access in Chrome.
   if (wc)
     wc->AddObserver(this);
 }
 
-void ArcWallpaperService::OnInstanceClosed() {
+void ArcWallpaperService::OnConnectionClosed() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   ash::WallpaperController* wc = GetWallpaperController();
   if (wc)
@@ -233,8 +228,8 @@ void ArcWallpaperService::SetDefaultWallpaper() {
   // ImageDecoder::ImageRequest.
   decode_request_.reset();
   const PrimaryAccount& account = GetPrimaryAccount();
-  chromeos::WallpaperManager::Get()->SetDefaultWallpaper(account.id,
-                                                         account.is_active);
+  chromeos::WallpaperManager::Get()->SetDefaultWallpaper(
+      account.id, account.is_active /* show_wallpaper */);
 }
 
 void ArcWallpaperService::GetWallpaper(GetWallpaperCallback callback) {

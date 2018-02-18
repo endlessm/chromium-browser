@@ -14,10 +14,10 @@
 #include "chrome/browser/chromeos/arc/arc_session_manager.h"
 #include "chrome/browser/sessions/session_restore_observer.h"
 #include "components/arc/common/boot_phase_monitor.mojom.h"
-#include "components/arc/instance_holder.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/signin/core/account_id/account_id.h"
-#include "mojo/public/cpp/bindings/binding.h"
+
+class BrowserContextKeyedServiceFactory;
 
 namespace content {
 class BrowserContext;
@@ -33,7 +33,6 @@ class ArcInstanceThrottle;
 // in response.
 class ArcBootPhaseMonitorBridge
     : public KeyedService,
-      public InstanceHolder<mojom::BootPhaseMonitorInstance>::Observer,
       public mojom::BootPhaseMonitorHost,
       public ArcSessionManager::Observer,
       public SessionRestoreObserver {
@@ -45,6 +44,9 @@ class ArcBootPhaseMonitorBridge
     virtual void DisableCpuRestriction() = 0;
     virtual void RecordFirstAppLaunchDelayUMA(base::TimeDelta delta) = 0;
   };
+
+  // Returns the factory instance for this class.
+  static BrowserContextKeyedServiceFactory* GetFactory();
 
   // Returns singleton instance for the given BrowserContext,
   // or nullptr if the browser |context| is not allowed to use ARC.
@@ -65,9 +67,6 @@ class ArcBootPhaseMonitorBridge
   ArcBootPhaseMonitorBridge(content::BrowserContext* context,
                             ArcBridgeService* bridge_service);
   ~ArcBootPhaseMonitorBridge() override;
-
-  // InstanceHolder<mojom::BootPhaseMonitorInstance>::Observer
-  void OnInstanceReady() override;
 
   // mojom::BootPhaseMonitorHost
   void OnBootCompleted() override;
@@ -103,7 +102,6 @@ class ArcBootPhaseMonitorBridge
   content::BrowserContext* const context_;
   ArcBridgeService* const arc_bridge_service_;  // Owned by ArcServiceManager.
   const AccountId account_id_;
-  mojo::Binding<mojom::BootPhaseMonitorHost> binding_;
   std::unique_ptr<Delegate> delegate_;
 
   // Indicates whether all extensions for the profile have been loaded.

@@ -19,7 +19,7 @@
 #include "components/exo/display.h"
 #include "components/exo/file_helper.h"
 #include "components/exo/wayland/server.h"
-#include "components/exo/wm_helper_ash.h"
+#include "components/exo/wm_helper.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/events/gesture_detection/gesture_configuration.h"
 #include "ui/wm/core/cursor_manager.h"
@@ -41,6 +41,8 @@ class AshTestEnvironmentWayland : public ash::AshTestEnvironment {
   DISALLOW_COPY_AND_ASSIGN(AshTestEnvironmentWayland);
 };
 
+// The ui message loop for running the wayland server. If it is not provided, we
+// will use external wayland server.
 base::MessageLoop* ui_message_loop_ = nullptr;
 
 class WaylandClientTest::WaylandWatcher
@@ -79,7 +81,9 @@ void WaylandClientTest::SetUIMessageLoop(base::MessageLoop* message_loop) {
 }
 
 void WaylandClientTest::SetUp() {
-  DCHECK(ui_message_loop_);
+  if (!ui_message_loop_)
+    return;
+
   DCHECK_NE(base::MessageLoop::current(), ui_message_loop_);
 
   base::WaitableEvent event(base::WaitableEvent::ResetPolicy::MANUAL,
@@ -91,6 +95,9 @@ void WaylandClientTest::SetUp() {
 }
 
 void WaylandClientTest::TearDown() {
+  if (!ui_message_loop_)
+    return;
+
   DCHECK(ui_message_loop_);
   DCHECK_NE(base::MessageLoop::current(), ui_message_loop_);
 
@@ -134,7 +141,7 @@ void WaylandClientTest::SetUpOnUIThread(base::WaitableEvent* event) {
   gesture_config->set_long_press_time_in_ms(1000);
   gesture_config->set_max_touch_move_in_pixels_for_click(5);
 
-  wm_helper_ = base::MakeUnique<WMHelperAsh>();
+  wm_helper_ = base::MakeUnique<WMHelper>();
   WMHelper::SetInstance(wm_helper_.get());
   display_ = base::MakeUnique<Display>(nullptr, nullptr);
   wayland_server_ = exo::wayland::Server::Create(display_.get());

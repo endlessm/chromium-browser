@@ -9,12 +9,12 @@
 #include "base/auto_reset.h"
 #include "base/feature_list.h"
 #include "build/build_config.h"
-#include "components/metrics/proto/omnibox_event.pb.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
+#include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "url/gurl.h"
 
 AutocompleteClassifier::AutocompleteClassifier(
@@ -43,8 +43,11 @@ int AutocompleteClassifier::DefaultOmniboxProviders() {
       // Custom search engines cannot be used on mobile.
       AutocompleteProvider::TYPE_KEYWORD |
 #endif
-#if !defined(OS_IOS)
-      // TODO(rohitrao): crbug.com/725120 ZeroSuggest is not yet enabled on iOS.
+#if defined(OS_IOS)
+      (base::FeatureList::IsEnabled(omnibox::kZeroSuggestProviderIOS)
+           ? AutocompleteProvider::TYPE_ZERO_SUGGEST
+           : 0) |
+#else
       AutocompleteProvider::TYPE_ZERO_SUGGEST |
 #endif
       (base::FeatureList::IsEnabled(omnibox::kEnableClipboardProvider)

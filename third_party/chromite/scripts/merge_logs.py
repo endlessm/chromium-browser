@@ -40,6 +40,8 @@ def GetParser():
                       help='Do not sort the results.')
   parser.add_argument('--base', type=str, action='store',
                       help='Base path to pre-pend to all files.')
+  parser.add_argument('--notrim_base', action='store_false', dest='trim_base',
+                      help='Do not trim the file path prefixes.')
   return parser
 
 
@@ -297,6 +299,8 @@ def ParseFileContents(filename, content):
 
 
 GS_RE = re.compile(r'gs://')
+
+
 def ParseURL(url):
   """Parse the files specified by a URL or filename.
 
@@ -304,7 +308,6 @@ def ParseURL(url):
 
   Args:
     url: a string of a GS URL or a flat filename.
-    content: a list of string of the log lines of the file.
 
   Returns:
     a list of Log namedtuples.
@@ -312,10 +315,17 @@ def ParseURL(url):
   logs = []
   if GS_RE.match(url):
     ctx = gs.GSContext()
-    files = ctx.LS(url)
+    try:
+      files = ctx.LS(url)
+    except gs.GSNoSuchKey:
+      files = []
     for filename in files:
-      content = ctx.Cat(filename)
-      logs.extend(ParseFileContents(filename, content))
+      try:
+        content = ctx.Cat(filename)
+        logs.extend(ParseFileContents(filename, content))
+      except gs.GSNoSuchKey:
+        logging.warning("Couldn't find file %s for url %s.", filename, url)
+
   else:
     with open(url) as f:
       content = f.read()
@@ -330,6 +340,19 @@ def PrintLog(log):
     log: a Log namedtuple.
   """
   print('%s: %s' % (log.filename, log.log))
+
+
+def TrimLogFilename(log, base):
+  """Removes the prefix |base| from |log|'s filename.
+
+  Args:
+    log: a Log namedtuple
+    base: a string prefix to trim the filenames by.
+  """
+  fname = log.filename
+  if fname.startswith(base):
+    fname = fname[len(base):]
+  return Log(fname, log.date, log.log)
 
 
 def PrintHtmlHeader():
@@ -373,7 +396,8 @@ def main(argv):
   files = options.files
   if options.filelist:
     with open(options.filelist) as f:
-      files.extend([l.strip() for l in f.readlines()])
+      found = [l.strip() for l in f.readlines()]
+    files.extend(filter(bool, found))
   if options.base:
     files = [os.path.join(options.base, f) for f in files]
 
@@ -384,6 +408,9 @@ def main(argv):
 
   if options.sort:
     logs.sort(key=lambda log: log.date)
+
+  if options.trim_base:
+    logs = [TrimLogFilename(log, options.base) for log in logs]
 
   # TODO(davidriley): This should dump JSON as well.
   if options.html:

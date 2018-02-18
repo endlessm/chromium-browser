@@ -49,7 +49,6 @@ class GNChromecastFlavorUtils(gn_android_flavor.GNAndroidFlavorUtils):
     extra_cflags = [
       '-I%s' % gles_dir.join('include'),
       '-DMESA_EGL_NO_X11_HEADERS',
-      '-DEGL_NO_IMAGE_EXTERNAL',
       "-DSK_NO_COMMAND_BUFFER",
       # Avoid unused warning with yyunput
       '-Wno-error=unused-function',
@@ -92,7 +91,7 @@ class GNChromecastFlavorUtils(gn_android_flavor.GNAndroidFlavorUtils):
 
     self._py('fetch-gn', self.m.vars.skia_dir.join('bin', 'fetch-gn'))
     self._run('gn gen', gn, 'gen', self.out_dir, '--args=' + gn_args)
-    self._run('ninja', ninja, '-C', self.out_dir, 'nanobench', 'dm')
+    self._run('ninja', ninja, '-k', '0', '-C', self.out_dir, 'nanobench', 'dm')
 
   def install(self):
     super(GNChromecastFlavorUtils, self).install()

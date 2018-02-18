@@ -55,6 +55,7 @@
 #include "chrome/browser/ui/browser_window_state.h"
 #include "chrome/browser/ui/extensions/hosted_app_browser_controller.h"
 #include "chrome/browser/ui/sync/bubble_sync_promo_delegate.h"
+#include "chrome/browser/ui/tabs/tab_features.h"
 #include "chrome/browser/ui/tabs/tab_menu_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_utils.h"
@@ -88,7 +89,8 @@
 #include "chrome/browser/ui/views/status_bubble_views.h"
 #include "chrome/browser/ui/views/tabs/browser_tab_strip_controller.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
-#include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "chrome/browser/ui/views/tabs/tab_strip_experimental.h"
+#include "chrome/browser/ui/views/tabs/tab_strip_impl.h"
 #include "chrome/browser/ui/views/toolbar/app_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 #include "chrome/browser/ui/views/toolbar/reload_button.h"
@@ -110,7 +112,7 @@
 #include "components/omnibox/browser/omnibox_view.h"
 #include "components/prefs/pref_service.h"
 #include "components/sessions/core/tab_restore_service.h"
-#include "components/signin/core/common/profile_management_switches.h"
+#include "components/signin/core/browser/profile_management_switches.h"
 #include "components/translate/core/browser/language_state.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
@@ -147,9 +149,8 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/ui/ash/ash_util.h"
-#endif  // defined(OS_CHROMEOS)
-
-#if !defined(OS_CHROMEOS)
+#include "chrome/browser/ui/views/location_bar/intent_picker_view.h"
+#else
 #include "chrome/browser/ui/signin_view_controller.h"
 #include "chrome/browser/ui/views/profiles/profile_chooser_view.h"
 #endif  // !defined(OS_CHROMEOS)
@@ -1167,6 +1168,26 @@ void BrowserView::ShowUpdateChromeDialog() {
   UpdateRecommendedMessageBox::Show(GetNativeWindow());
 }
 
+#if defined(OS_CHROMEOS)
+void BrowserView::ShowIntentPickerBubble(
+    std::vector<IntentPickerBubbleView::AppInfo> app_info,
+    IntentPickerResponse callback) {
+  toolbar_->ShowIntentPickerBubble(app_info, callback);
+}
+
+void BrowserView::SetIntentPickerViewVisibility(bool visible) {
+  LocationBarView* location_bar = GetLocationBarView();
+
+  if (!location_bar->intent_picker_view())
+    return;
+
+  if (location_bar->intent_picker_view()->visible() != visible) {
+    location_bar->intent_picker_view()->SetVisible(visible);
+    location_bar->Layout();
+  }
+}
+#endif  //  defined(OS_CHROMEOS)
+
 void BrowserView::ShowBookmarkBubble(const GURL& url, bool already_bookmarked) {
   toolbar_->ShowBookmarkBubble(url, already_bookmarked,
                                bookmark_bar_view_.get());
@@ -1189,6 +1210,7 @@ autofill::SaveCardBubbleView* BrowserView::ShowSaveCreditCardBubble(
 
   autofill::SaveCardBubbleViews* bubble = new autofill::SaveCardBubbleViews(
       anchor_view, gfx::Point(), web_contents, controller);
+  views::BubbleDialogDelegateView::CreateBubble(bubble);
   if (card_view)
     card_view->OnBubbleCreated(bubble);
   bubble->Show(user_gesture ? autofill::SaveCardBubbleViews::USER_GESTURE
@@ -1585,12 +1607,9 @@ base::string16 BrowserView::GetAccessibleTabLabel(bool include_app_name,
 
   base::string16 window_title =
       browser_->GetWindowTitleForTab(include_app_name, index);
-  const TabRendererData& data = tabstrip_->tab_at(index)->data();
-
   return chrome::AssembleTabAccessibilityLabel(
-      window_title, data.IsCrashed(),
-      data.network_state == TabRendererData::NETWORK_STATE_ERROR,
-      data.alert_state);
+      window_title, tabstrip_->IsTabCrashed(index),
+      tabstrip_->TabHasNetworkError(index), tabstrip_->GetTabAlertState(index));
 }
 
 void BrowserView::NativeThemeUpdated(const ui::NativeTheme* theme) {
@@ -2096,12 +2115,22 @@ void BrowserView::InitViews() {
   top_container_ = new TopContainerView(this);
   AddChildView(top_container_);
 
-  // TabStrip takes ownership of the controller.
-  BrowserTabStripController* tabstrip_controller =
-      new BrowserTabStripController(browser_->tab_strip_model(), this);
-  tabstrip_ = new TabStrip(tabstrip_controller);
-  top_container_->AddChildView(tabstrip_);
-  tabstrip_controller->InitFromModel(tabstrip_);
+#if defined(TOOLKIT_VIEWS)
+  if (IsExperimentalTabStripEnabled()) {
+    tabstrip_ = new TabStripExperimental(browser_->tab_strip_model());
+    top_container_->AddChildView(tabstrip_);  // Takes ownership.
+  } else
+#endif
+  {
+    // TabStrip takes ownership of the controller.
+    BrowserTabStripController* tabstrip_controller =
+        new BrowserTabStripController(browser_->tab_strip_model(), this);
+    TabStripImpl* tab_strip_impl = new TabStripImpl(
+        std::unique_ptr<TabStripController>(tabstrip_controller));
+    tabstrip_ = tab_strip_impl;
+    top_container_->AddChildView(tabstrip_);  // Takes ownership.
+    tabstrip_controller->InitFromModel(tab_strip_impl);
+  }
 
   toolbar_ = new ToolbarView(browser_.get());
   top_container_->AddChildView(toolbar_);
@@ -2519,14 +2548,14 @@ void BrowserView::ShowAvatarBubbleFromAvatarButton(
 
   profiles::BubbleViewMode bubble_view_mode;
   profiles::BubbleViewModeFromAvatarBubbleMode(mode, &bubble_view_mode);
-  if (SigninViewController::ShouldShowModalSigninForMode(bubble_view_mode)) {
-    browser_->signin_view_controller()->ShowModalSignin(
+  if (SigninViewController::ShouldShowSigninForMode(bubble_view_mode)) {
+    browser_->signin_view_controller()->ShowSignin(
         bubble_view_mode, browser_.get(), access_point);
   } else {
-    ProfileChooserView::ShowBubble(bubble_view_mode, manage_accounts_params,
-                                   access_point,
-                                   frame_->GetNewAvatarMenuButton(), browser(),
-                                   focus_first_profile_button);
+    ProfileChooserView::ShowBubble(
+        bubble_view_mode, manage_accounts_params, access_point,
+        frame_->GetNewAvatarMenuButton(), nullptr, gfx::Rect(), browser(),
+        focus_first_profile_button);
     ProfileMetrics::LogProfileOpenMethod(ProfileMetrics::ICON_AVATAR_BUBBLE);
   }
 #else

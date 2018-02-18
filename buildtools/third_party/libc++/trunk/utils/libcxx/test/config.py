@@ -108,6 +108,11 @@ class Configuration(object):
             return check_value(val, env_var)
         return check_value(conf_val, name)
 
+    def get_modules_enabled(self):
+        return self.get_lit_bool('enable_modules',
+                                default=False,
+                                env_var='LIBCXX_ENABLE_MODULES')
+
     def make_static_lib_name(self, name):
         """Return the full filename for the specified library name"""
         if self.is_windows:
@@ -254,6 +259,16 @@ class Configuration(object):
                            compile_flags=compile_flags,
                            link_flags=link_flags)
 
+    def _dump_macros_verbose(self, *args, **kwargs):
+        macros_or_error = self.cxx.dumpMacros(*args, **kwargs)
+        if isinstance(macros_or_error, tuple):
+            cmd, out, err, rc = macros_or_error
+            report = libcxx.util.makeReport(cmd, out, err, rc)
+            report += "Compiler failed unexpectedly when dumping macros!"
+            self.lit_config.fatal(report)
+            return None
+        assert isinstance(macros_or_error, dict)
+        return macros_or_error
 
     def configure_src_root(self):
         self.libcxx_src_root = self.get_lit_conf(
@@ -435,10 +450,13 @@ class Configuration(object):
             # C++17 aligned allocation.
             self.config.available_features.add('no-aligned-allocation')
 
+        if self.cxx.hasCompileFlag('-fdelayed-template-parsing'):
+            self.config.available_features.add('fdelayed-template-parsing')
+
         if self.get_lit_bool('has_libatomic', False):
             self.config.available_features.add('libatomic')
 
-        macros = self.cxx.dumpMacros()
+        macros = self._dump_macros_verbose()
         if '__cpp_if_constexpr' not in macros:
             self.config.available_features.add('libcpp-no-if-constexpr')
 
@@ -461,7 +479,7 @@ class Configuration(object):
         # Attempt to detect the glibc version by querying for __GLIBC__
         # in 'features.h'.
         macros = self.cxx.dumpMacros(flags=['-include', 'features.h'])
-        if macros is not None and '__GLIBC__' in macros:
+        if isinstance(macros, dict) and '__GLIBC__' in macros:
             maj_v, min_v = (macros['__GLIBC__'], macros['__GLIBC_MINOR__'])
             self.config.available_features.add('glibc')
             self.config.available_features.add('glibc-%s' % maj_v)
@@ -484,9 +502,13 @@ class Configuration(object):
         # Configure extra flags
         compile_flags_str = self.get_lit_conf('compile_flags', '')
         self.cxx.compile_flags += shlex.split(compile_flags_str)
-        # FIXME: Can we remove this?
         if self.is_windows:
+            # FIXME: Can we remove this?
             self.cxx.compile_flags += ['-D_CRT_SECURE_NO_WARNINGS']
+            # Required so that tests using min/max don't fail on Windows,
+            # and so that those tests don't have to be changed to tolerate
+            # this insanity.
+            self.cxx.compile_flags += ['-DNOMINMAX']
 
     def configure_default_compile_flags(self):
         # Try and get the std version from the command line. Fall back to
@@ -615,8 +637,8 @@ class Configuration(object):
         """
         # Parse the macro contents of __config_site by dumping the macros
         # using 'c++ -dM -E' and filtering the predefines.
-        predefines = self.cxx.dumpMacros()
-        macros = self.cxx.dumpMacros(header)
+        predefines = self._dump_macros_verbose()
+        macros = self._dump_macros_verbose(header)
         feature_macros_keys = set(macros.keys()) - set(predefines.keys())
         feature_macros = {}
         for k in feature_macros_keys:
@@ -627,16 +649,29 @@ class Configuration(object):
         # The __config_site header should be non-empty. Otherwise it should
         # have never been emitted by CMake.
         assert len(feature_macros) > 0
+        # FIXME: This is a hack that should be fixed using module maps (or something)
+        # If modules are enabled then we have to lift all of the definitions
+        # in __config_site onto the command line.
+        modules_enabled = self.get_modules_enabled()
+        self.cxx.compile_flags += ['-Wno-macro-redefined']
         # Transform each macro name into the feature name used in the tests.
         # Ex. _LIBCPP_HAS_NO_THREADS -> libcpp-has-no-threads
         for m in feature_macros:
+            if modules_enabled:
+                define = '-D%s' % m
+                if feature_macros[m]:
+                    define += '=%s' % (feature_macros[m])
+                self.cxx.compile_flags += [define]
             if m == '_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS':
                 continue
             if m == '_LIBCPP_ABI_VERSION':
                 self.config.available_features.add('libcpp-abi-version-v%s'
                     % feature_macros[m])
                 continue
-            assert m.startswith('_LIBCPP_HAS_') or m == '_LIBCPP_ABI_UNSTABLE'
+            if m == '_LIBCPP_NO_VCRUNTIME':
+                self.config.available_features.add('libcpp-no-vcruntime')
+                continue
+            assert m.startswith('_LIBCPP_HAS_') or m.startswith('_LIBCPP_ABI_')
             m = m.lower()[1:].replace('_', '-')
             self.config.available_features.add(m)
         return feature_macros
@@ -869,6 +904,7 @@ class Configuration(object):
         self.cxx.addWarningFlagIfSupported('-Wno-c++11-extensions')
         self.cxx.addWarningFlagIfSupported('-Wno-user-defined-literals')
         self.cxx.addWarningFlagIfSupported('-Wno-noexcept-type')
+        self.cxx.addWarningFlagIfSupported('-Wno-aligned-allocation-unavailable')
         # These warnings should be enabled in order to support the MSVC
         # team using the test suite; They enable the warnings below and
         # expect the test suite to be clean.
@@ -957,7 +993,7 @@ class Configuration(object):
 
     def configure_coroutines(self):
         if self.cxx.hasCompileFlag('-fcoroutines-ts'):
-            macros = self.cxx.dumpMacros(flags=['-fcoroutines-ts'])
+            macros = self._dump_macros_verbose(flags=['-fcoroutines-ts'])
             if '__cpp_coroutines' not in macros:
                 self.lit_config.warning('-fcoroutines-ts is supported but '
                     '__cpp_coroutines is not defined')
@@ -972,9 +1008,7 @@ class Configuration(object):
         if platform.system() != 'Darwin':
             modules_flags += ['-Xclang', '-fmodules-local-submodule-visibility']
         supports_modules = self.cxx.hasCompileFlag(modules_flags)
-        enable_modules = self.get_lit_bool('enable_modules',
-                                           default=False,
-                                           env_var='LIBCXX_ENABLE_MODULES')
+        enable_modules = self.get_modules_enabled()
         if enable_modules and not supports_modules:
             self.lit_config.fatal(
                 '-fmodules is enabled but not supported by the compiler')
@@ -998,6 +1032,7 @@ class Configuration(object):
         cxx_path = pipes.quote(self.cxx.path)
         # Configure compiler substitutions
         sub.append(('%cxx', cxx_path))
+        sub.append(('%libcxx_src_root', self.libcxx_src_root))
         # Configure flags substitutions
         flags_str = ' '.join([pipes.quote(f) for f in self.cxx.flags])
         compile_flags_str = ' '.join([pipes.quote(f) for f in self.cxx.compile_flags])

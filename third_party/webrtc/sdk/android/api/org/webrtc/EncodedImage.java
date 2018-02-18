@@ -34,9 +34,10 @@ public class EncodedImage {
       return nativeIndex;
     }
 
-    public static FrameType fromNative(int nativeIndex) {
+    @CalledByNative("FrameType")
+    static FrameType fromNativeIndex(int nativeIndex) {
       for (FrameType type : FrameType.values()) {
-        if (type.nativeIndex == nativeIndex) {
+        if (type.getNative() == nativeIndex) {
           return type;
         }
       }
@@ -54,6 +55,7 @@ public class EncodedImage {
   public final boolean completeFrame;
   public final Integer qp;
 
+  @CalledByNative
   private EncodedImage(ByteBuffer buffer, int encodedWidth, int encodedHeight, long captureTimeNs,
       FrameType frameType, int rotation, boolean completeFrame, Integer qp) {
     this.buffer = buffer;

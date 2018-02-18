@@ -84,6 +84,8 @@ public class AwAutofillProvider extends AutofillProvider {
                 child.setHtmlInfo(child.newHtmlInfoBuilder("input")
                                           .addAttribute("name", field.mName)
                                           .addAttribute("type", field.mType)
+                                          .addAttribute("label", field.mLabel)
+                                          .addAttribute("id", field.mId)
                                           .build());
                 switch (field.getControlType()) {
                     case FormFieldData.TYPE_LIST:
@@ -289,6 +291,27 @@ public class AwAutofillProvider extends AutofillProvider {
             mRequest.setFocusField(new FocusField(focusField.fieldIndex, absBound));
         }
         notifyVirtualValueChanged(index);
+    }
+
+    @Override
+    public void onTextFieldDidScroll(int index, float x, float y, float width, float height) {
+        // crbug.com/730764 - from P and above, Android framework listens to the onScrollChanged()
+        // and repositions the autofill UI automatically.
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.O_MR1) return;
+        if (mRequest == null) return;
+
+        short sIndex = (short) index;
+        FocusField focusField = mRequest.getFocusField();
+        if (focusField == null || sIndex != focusField.fieldIndex) return;
+
+        int virtualId = mRequest.getVirtualId(sIndex);
+        Rect absBound = transformToWindowBounds(new RectF(x, y, x + width, y + height));
+        // Notify the new position to the Android framework. Note that we do not call
+        // notifyVirtualViewExited() here intentionally to avoid flickering.
+        mAutofillManager.notifyVirtualViewEntered(mContainerView, virtualId, absBound);
+
+        // Update focus field position.
+        mRequest.setFocusField(new FocusField(focusField.fieldIndex, absBound));
     }
 
     private void notifyVirtualValueChanged(int index) {

@@ -40,7 +40,6 @@
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
@@ -97,6 +96,7 @@
 #include "components/sync_preferences/pref_model_associator.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "components/user_manager/fake_user_manager.h"
+#include "components/user_manager/scoped_user_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/test/test_utils.h"
@@ -387,12 +387,6 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
     app_list::AppListSyncableServiceFactory::SetUseInTesting();
 
     BrowserWithTestWindowTest::SetUp();
-
-    if (!profile_manager_) {
-      profile_manager_.reset(
-          new TestingProfileManager(TestingBrowserProcess::GetGlobal()));
-      ASSERT_TRUE(profile_manager_->SetUp());
-    }
 
     model_observer_ = std::make_unique<TestShelfModelObserver>();
     model_ = std::make_unique<ash::ShelfModel>();
@@ -1012,7 +1006,6 @@ class ChromeLauncherControllerTest : public BrowserWithTestWindowTest {
   std::unique_ptr<TestChromeLauncherController> launcher_controller_;
   std::unique_ptr<TestShelfModelObserver> model_observer_;
   std::unique_ptr<ash::ShelfModel> model_;
-  std::unique_ptr<TestingProfileManager> profile_manager_;
 
   FakeTabletModeController fake_tablet_mode_controller_;
   std::unique_ptr<TabletModeClient> tablet_mode_client_;
@@ -1162,23 +1155,18 @@ class MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest
 
   // Overwrite the Setup function to enable multi profile and needed objects.
   void SetUp() override {
-    profile_manager_.reset(
-        new TestingProfileManager(TestingBrowserProcess::GetGlobal()));
-
-    ASSERT_TRUE(profile_manager_->SetUp());
-
-    // AvatarMenu and multiple profiles works after user logged in.
-    profile_manager_->SetLoggedIn(true);
-
     // Initialize the UserManager singleton to a fresh FakeUserManager instance.
-    user_manager_enabler_.reset(new chromeos::ScopedUserManagerEnabler(
-        new chromeos::FakeChromeUserManager));
+    user_manager_enabler_ = std::make_unique<user_manager::ScopedUserManager>(
+        std::make_unique<chromeos::FakeChromeUserManager>());
 
     // Initialize the WallpaperManager singleton.
     chromeos::WallpaperManager::Initialize();
 
     // Initialize the rest.
     ChromeLauncherControllerTest::SetUp();
+
+    // AvatarMenu and multiple profiles works after user logged in.
+    profile_manager()->SetLoggedIn(true);
 
     // Ensure there are multiple profiles. User 0 is created during setup.
     CreateMultiUserProfile("user1");
@@ -1188,9 +1176,6 @@ class MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest
   void TearDown() override {
     ChromeLauncherControllerTest::TearDown();
     user_manager_enabler_.reset();
-    for (ProfileToNameMap::iterator it = created_profiles_.begin();
-         it != created_profiles_.end(); ++it)
-      profile_manager_->DeleteTestingProfile(it->second);
     chromeos::WallpaperManager::Shutdown();
 
     // A Task is leaked if we don't destroy everything, then run the message
@@ -1214,8 +1199,8 @@ class MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest
 
     // Remember the profile name so that we can destroy it upon destruction.
     created_profiles_[profile] = account_id.GetUserEmail();
-    if (chrome::MultiUserWindowManager::GetInstance())
-      chrome::MultiUserWindowManager::GetInstance()->AddUser(profile);
+    if (MultiUserWindowManager::GetInstance())
+      MultiUserWindowManager::GetInstance()->AddUser(profile);
     if (launcher_controller_)
       launcher_controller_->AdditionalUserAddedToSession(profile);
     return profile;
@@ -1224,11 +1209,11 @@ class MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest
   // Switch to another user.
   void SwitchActiveUser(const AccountId& account_id) {
     GetFakeUserManager()->SwitchActiveUser(account_id);
-    chrome::MultiUserWindowManagerChromeOS* manager =
-        static_cast<chrome::MultiUserWindowManagerChromeOS*>(
-            chrome::MultiUserWindowManager::GetInstance());
+    MultiUserWindowManagerChromeOS* manager =
+        static_cast<MultiUserWindowManagerChromeOS*>(
+            MultiUserWindowManager::GetInstance());
     manager->SetAnimationSpeedForTest(
-        chrome::MultiUserWindowManagerChromeOS::ANIMATION_SPEED_DISABLED);
+        MultiUserWindowManagerChromeOS::ANIMATION_SPEED_DISABLED);
     manager->ActiveUserChanged(GetFakeUserManager()->FindUser(account_id));
     launcher_controller_->browser_status_monitor_for_test()->ActiveUserChanged(
         account_id.GetUserEmail());
@@ -1270,24 +1255,16 @@ class MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest
   TestingProfile* CreateProfile() override {
     return CreateMultiUserProfile("user0");
   }
-  void DestroyProfile(TestingProfile* profile) override {
-    // Delete the profile through our profile manager.
-    ProfileToNameMap::iterator it = created_profiles_.find(profile);
-    DCHECK(it != created_profiles_.end());
-    profile_manager_->DeleteTestingProfile(it->second);
-    created_profiles_.erase(it);
-  }
 
  private:
   typedef std::map<Profile*, std::string> ProfileToNameMap;
-  TestingProfileManager* profile_manager() { return profile_manager_.get(); }
 
   chromeos::FakeChromeUserManager* GetFakeUserManager() {
     return static_cast<chromeos::FakeChromeUserManager*>(
         user_manager::UserManager::Get());
   }
 
-  std::unique_ptr<chromeos::ScopedUserManagerEnabler> user_manager_enabler_;
+  std::unique_ptr<user_manager::ScopedUserManager> user_manager_enabler_;
 
   ProfileToNameMap created_profiles_;
 
@@ -1679,10 +1656,10 @@ TEST_F(ChromeLauncherControllerTest, V1AppRunActivateClose) {
   EXPECT_NE(nullptr,
             launcher_controller_->GetItem(ash::ShelfID(extension1_->id())));
 
-  // Reporting an active status should just update the existing item.
-  launcher_controller_->SetV1AppStatus(extension1_->id(), ash::STATUS_ACTIVE);
+  // Reporting that the app is running again should have no effect.
+  launcher_controller_->SetV1AppStatus(extension1_->id(), ash::STATUS_RUNNING);
   EXPECT_EQ(3, model_->item_count());
-  EXPECT_EQ(ash::STATUS_ACTIVE, model_->items()[2].status);
+  EXPECT_EQ(ash::STATUS_RUNNING, model_->items()[2].status);
 
   // Reporting that the app is closed should remove its shelf item.
   launcher_controller_->SetV1AppStatus(extension1_->id(), ash::STATUS_CLOSED);
@@ -2505,8 +2482,7 @@ TEST_F(MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest,
   // Create a browser item in the LauncherController.
   InitLauncherController();
 
-  chrome::MultiUserWindowManager* manager =
-      chrome::MultiUserWindowManager::GetInstance();
+  MultiUserWindowManager* manager = MultiUserWindowManager::GetInstance();
 
   // First create an app when the user is active.
   std::string user2 = "user2";
@@ -2586,8 +2562,7 @@ TEST_F(MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest,
        TestLauncherActivationPullsBackWindow) {
   // Create a browser item in the LauncherController.
   InitLauncherController();
-  chrome::MultiUserWindowManager* manager =
-      chrome::MultiUserWindowManager::GetInstance();
+  MultiUserWindowManager* manager = MultiUserWindowManager::GetInstance();
 
   // Create a second test profile. The first is the one in profile() created in
   // BrowserWithTestWindowTest::SetUp().
@@ -3122,7 +3097,7 @@ TEST_F(MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest,
   CheckAppMenu(launcher_controller_.get(), item_browser, 1, one_menu_item2);
 
   // Transferred browsers of other users should not show up in the list.
-  chrome::MultiUserWindowManager::GetInstance()->ShowWindowForUser(
+  MultiUserWindowManager::GetInstance()->ShowWindowForUser(
       browser()->window()->GetNativeWindow(), account_id2);
   CheckAppMenu(launcher_controller_.get(), item_browser, 1, one_menu_item2);
 
@@ -3234,7 +3209,7 @@ TEST_F(MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest,
   CheckAppMenu(launcher_controller_.get(), item_gmail, 0, nullptr);
 
   // Transfer the browser of the first user - it should still not show up.
-  chrome::MultiUserWindowManager::GetInstance()->ShowWindowForUser(
+  MultiUserWindowManager::GetInstance()->ShowWindowForUser(
       browser()->window()->GetNativeWindow(), account_id2);
 
   CheckAppMenu(launcher_controller_.get(), item_browser, 0, nullptr);
@@ -3317,8 +3292,7 @@ TEST_F(MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest,
 TEST_F(MultiProfileMultiBrowserShelfLayoutChromeLauncherControllerTest,
        V2AppFollowsTeleportedWindow) {
   InitLauncherController();
-  chrome::MultiUserWindowManager* manager =
-      chrome::MultiUserWindowManager::GetInstance();
+  MultiUserWindowManager* manager = MultiUserWindowManager::GetInstance();
 
   // Create and add three users / profiles, and go to #1's desktop.
   TestingProfile* profile1 = CreateMultiUserProfile("user-1");

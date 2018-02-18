@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import collections
+import constants
 import cPickle
 
 from chromite.lib import buildbucket_lib
@@ -63,6 +64,55 @@ def CancelBuilds(buildbucket_ids, buildbucket_client,
                         "Please check the status of the build.",
                         buildbucket_id,
                         buildbucket_lib.GetErrorReason(result))
+
+
+def GetFailedMessages(statuses, failing):
+  """Gathers the BuildFailureMessages from the |failing| builders.
+
+  Args:
+    statuses: A dict mapping build config names to their BuilderStatus.
+    failing: Names of the builders that failed.
+
+  Returns:
+    A list of build_failure_message.BuildFailureMessage or NoneType objects.
+  """
+  return [statuses[x].message for x in failing]
+
+
+def GetBuildersWithNoneMessages(statuses, failing):
+  """Returns a list of failed builders with NoneType failure message.
+
+  Args:
+    statuses: A dict mapping build config names to their BuilderStatus.
+    failing: Names of the builders that failed.
+
+  Returns:
+    A list of builder names.
+  """
+  return [x for x in failing if statuses[x].message is None]
+
+
+def GetSlavesAbortedBySelfDestructedMaster(master_build_id, db):
+  """Get the build configs of the slaves aborted by self-destruction.
+
+  Args:
+    master_build_id: The build id of the master build to fetch information.
+    db: An instance of cidb.CIDBConnection.
+
+  Returns:
+    A set of build configs of the slaves recorded in CIDB. An empty set if no
+    db connection created.
+  """
+  if not db:
+    return set()
+
+  messages = db.GetBuildMessages(
+      master_build_id,
+      message_type=constants.MESSAGE_TYPE_IGNORED_REASON,
+      message_subtype=constants.MESSAGE_SUBTYPE_SELF_DESTRUCTION)
+  slave_build_ids = [int(m['message_value']) for m in messages]
+  build_statuses = db.GetBuildStatuses(slave_build_ids)
+  return set(b['build_config'] for b in build_statuses)
 
 
 class BuilderStatus(object):
@@ -143,8 +193,9 @@ class BuilderStatusManager(object):
   """Operations to manage BuilderStatus."""
 
   @classmethod
-  def CreateBuildFailureMessage(cls, build_config, overlays, dashboard_url,
-                                failure_messages):
+  def CreateBuildFailureMessage(cls, build_config, overlays,
+                                dashboard_url, failure_messages,
+                                aborted_by_self_destruction=False):
     """Creates a message summarizing the failures.
 
     Args:
@@ -153,6 +204,7 @@ class BuilderStatusManager(object):
       dashboard_url: The URL of the build.
       failure_messages: A list of stage failure messages (instances of
         StageFailureMessage or its sub-classes) of the given build.
+      aborted_by_self_destruction: Whether the build was canceled by master.
 
     Returns:
       A build_failure_message.BuildFailureMessage object.
@@ -168,6 +220,8 @@ class BuilderStatusManager(object):
 
     if not details:
       details = ['cbuildbot failed']
+      if aborted_by_self_destruction:
+        details = ['aborted by self-destruction']
 
     # reason does not include builder name or URL. This is mainly for
     # populating the "failure message" column in the stats sheet.
@@ -177,6 +231,34 @@ class BuilderStatusManager(object):
 
     return build_failure_message.BuildFailureMessage(
         msg_summary, failure_messages, internal, reason, build_config)
+
+  @classmethod
+  def AbortedBySelfDestruction(cls, db, build_id, master_build_id):
+    """Check CIDB for whether a specified build was aborted by master.
+
+    Args:
+      db: An instance of cidb.CIDBConnection.
+      build_id: The build ID (int) of the build to get status of
+      master_build_id: The build ID (int) of the master build which may
+        have aborted it.
+    Retuns:
+      A boolean for whether the build was canceled by master
+        during self-destruction.
+    """
+    if master_build_id is None:
+      # Builds without master_build_id can't be aborted by self-destruction.
+      return False
+
+    build_messages = db.GetBuildMessages(master_build_id)
+    build_messages = (
+        message for message in build_messages if message['message_value'] ==
+        str(build_id))
+    return any((
+        message['message_type'] ==
+        constants.MESSAGE_TYPE_IGNORED_REASON and
+        message['message_subtype'] ==
+        constants.MESSAGE_SUBTYPE_SELF_DESTRUCTION) for
+               message in build_messages)
 
   @classmethod
   def GetBuilderStatusFromCIDB(cls, db, build_config, version):
@@ -208,8 +290,12 @@ class BuilderStatusManager(object):
         stage_failure_messages = (
             failure_message_mgr.ConstructStageFailureMessages(stage_failures))
         overlays = site_config[build_config].overlays
+        aborted = BuilderStatusManager.AbortedBySelfDestruction(
+            db, build_id, build['master_build_id'])
         failure_message = BuilderStatusManager.CreateBuildFailureMessage(
-            build_config, overlays, dashboard_url, stage_failure_messages)
+            build_config, overlays, dashboard_url, stage_failure_messages,
+            aborted_by_self_destruction=aborted
+        )
 
       return BuilderStatus(status, failure_message,
                            dashboard_url=dashboard_url)
@@ -226,7 +312,7 @@ class SlaveBuilderStatus(object):
   """
 
   def __init__(self, master_build_id, db, config, metadata, buildbucket_client,
-               builders_array, dry_run):
+               builders_array, dry_run, exclude_experimental=True):
     """Create an instance of SlaveBuilderStatus for a given master build.
 
     Args:
@@ -238,6 +324,9 @@ class SlaveBuilderStatus(object):
       buildbucket_client: Instance of buildbucket_lib.buildbucket_client.
       builders_array: List of the expected and important slave builds.
       dry_run: Boolean indicating whether it's a dry run. Default to True.
+      exclude_experimental: Whether to exclude the builds which are important in
+        the config but are marked as experimental in the tree status. Default to
+        True.
     """
     self.master_build_id = master_build_id
     self.db = db
@@ -246,10 +335,12 @@ class SlaveBuilderStatus(object):
     self.buildbucket_client = buildbucket_client
     self.builders_array = builders_array
     self.dry_run = dry_run
+    self.exclude_experimental = exclude_experimental
 
     self.buildbucket_info_dict = None
     self.cidb_info_dict = None
     self.slave_failures_dict = None
+    self.aborted_slaves = None
     self._InitSlaveInfo()
 
   def _GetSlaveFailures(self, buildbucket_info_dict):
@@ -282,11 +373,27 @@ class SlaveBuilderStatus(object):
 
     return slave_failures_dict
 
+  def _GetSlavesAbortedBySelfDestruction(self, cidb_info_dict):
+    """Get slaves aborted by self-destruction of the master.
+
+    Args:
+    cidb_info_dict: A dict mapping slave build config names (strings) to their
+        cidb infos (in the format of CIDBStatusInfo).
+
+    Returns:
+      A set of build config names (strings) of slaves aborted by
+    self-destruction.
+    """
+    return set(build_config
+               for build_config, cidb_info in cidb_info_dict.iteritems()
+               if BuilderStatusManager.AbortedBySelfDestruction(
+                   self.db, cidb_info.build_id, self.master_build_id))
+
   def _InitSlaveInfo(self):
     """Init slave info including buildbucket info, cidb info and failures."""
     if config_lib.UseBuildbucketScheduler(self.config):
       scheduled_buildbucket_info_dict = buildbucket_lib.GetBuildInfoDict(
-          self.metadata)
+          self.metadata, exclude_experimental=self.exclude_experimental)
       self.buildbucket_info_dict = self.GetAllSlaveBuildbucketInfo(
           self.buildbucket_client, scheduled_buildbucket_info_dict,
           dry_run=self.dry_run)
@@ -297,6 +404,9 @@ class SlaveBuilderStatus(object):
 
     self.slave_failures_dict = self._GetSlaveFailures(
         self.buildbucket_info_dict)
+
+    self.aborted_slaves = self._GetSlavesAbortedBySelfDestruction(
+        self.cidb_info_dict)
 
   def _GetStatus(self, build_config, cidb_info_dict, buildbucket_info_dict):
     """Get status of a given build.
@@ -355,7 +465,7 @@ class SlaveBuilderStatus(object):
       return buildbucket_info_dict[build_config].url
 
   def _GetMessage(self, build_config, status, dashboard_url,
-                  slave_failures_dict):
+                  slave_failures_dict, aborted_slaves):
     """Get build_failure_message.BuildFailureMessage of a given build.
 
     Args:
@@ -364,6 +474,8 @@ class SlaveBuilderStatus(object):
       dashboard_url: The URL of the build.
       slave_failures_dict: A dict mapping the slave build config names (strings)
         to stage failure messages (See return type of _GetSlaveFailures)
+      aborted_slaves: A set of build config names (strings) of slaves aborted by
+        self-destruction.
 
     Returns:
       A build_failure_message.BuildFailureMessage object if the status is
@@ -372,9 +484,10 @@ class SlaveBuilderStatus(object):
     if status == constants.BUILDER_STATUS_FAILED:
       failure_messages = slave_failures_dict.get(build_config)
       overlays = site_config[build_config].overlays
-
+      aborted = build_config in aborted_slaves
       return BuilderStatusManager.CreateBuildFailureMessage(
-          build_config, overlays, dashboard_url, failure_messages)
+          build_config, overlays, dashboard_url, failure_messages,
+          aborted_by_self_destruction=aborted)
 
   def GetBuilderStatusForBuild(self, build_config):
     """Get BuilderStatus for a given build.
@@ -390,7 +503,8 @@ class SlaveBuilderStatus(object):
     dashboard_url = self._GetDashboardUrl(
         build_config, self.cidb_info_dict, self.buildbucket_info_dict)
     message = self._GetMessage(
-        build_config, status, dashboard_url, self.slave_failures_dict)
+        build_config, status, dashboard_url, self.slave_failures_dict,
+        self.aborted_slaves)
 
     return BuilderStatus(status, message, dashboard_url=dashboard_url)
 
@@ -415,7 +529,9 @@ class SlaveBuilderStatus(object):
       BuildbucketInfos (The BuildbucketInfo of the most recently retried one of
       there're multiple retries for a slave build config).
     """
-    assert buildbucket_client is not None, 'buildbucket_client is None'
+    #TODO(nxia): consider replacing this with a more elaborate fix
+    if buildbucket_client is None:
+      return {}
 
     all_buildbucket_info_dict = {}
     for build_config, build_info in scheduled_buildbucket_info_dict.iteritems():
@@ -473,3 +589,160 @@ class SlaveBuilderStatus(object):
           s['id'], s['status'], s['build_number']) for s in slave_statuses}
 
     return all_cidb_status_dict
+
+
+class BuilderStatusesFetcher(object):
+  """Class to fetch BuilderStatus of a build and its slave builds(if any)."""
+
+  def __init__(self, build_id, db, success, message, config, metadata,
+               buildbucket_client, builders_array=None,
+               exclude_experimental=True, dry_run=True):
+    """Initialize BuilderStatusesFetcher.
+
+    Args:
+      build_id: Build id of the build.
+      db: An instance of cidb.CIDBConnection.
+      success: Whether the build succeeded so far.
+      message: The failure message (see return type of
+        generic_stages.GetBuildFailureMessage) of the build.
+      config: Instance of config_lib.BuildConfig. Config dict of this build.
+      metadata: Instance of metadata_lib.CBuildbotMetadata. Metadata of this
+        build.
+      buildbucket_client: Instance of buildbucket_lib.buildbucket_client.
+      builders_array: List of the expected and slave builds, it also contains
+        the builds marked as experimental in the tree status. Default to None.
+      exclude_experimental: Whether to exclude the builds which are important in
+        the config but are marked as experimental in the tree status. Default to
+        True.
+      dry_run: Boolean indicating whether it's a dry run. Default to True.
+    """
+    self.build_id = build_id
+    self.db = db
+    self.success = success
+    self.message = message
+    self.config = config
+    self.metadata = metadata
+    self.buildbucket_client = buildbucket_client
+    self.dry_run = dry_run
+    self.exclude_experimental = exclude_experimental
+
+    self.builders_array = buildbucket_lib.FetchCurrentSlaveBuilders(
+        self.config, self.metadata, builders_array,
+        exclude_experimental=self.exclude_experimental)
+
+  def _FetchLocalBuilderStatus(self):
+    """Fetch the BuilderStatus of the local build.
+
+    Returns:
+      A dict mapping the bot_id of the build to its builder_status.
+    """
+    status = BuilderStatus.GetCompletedStatus(self.success)
+    status_obj = BuilderStatus(status, self.message)
+    return {self.config.name: status_obj}
+
+  def _FetchSlaveBuilderStatuses(self):
+    """Fetch the BuilderStatus of the slaves if the local build.
+
+    Returns:
+      A dict mapping build configs (strings) to their BuilderStatus instances.
+      It contains the statuses for builders marked as experimental in the tree
+      status.
+    """
+    if not self.builders_array:
+      return {}
+
+    slave_builder_statuses = SlaveBuilderStatus(
+        self.build_id, self.db, self.config, self.metadata,
+        self.buildbucket_client, self.builders_array, self.dry_run,
+        exclude_experimental=self.exclude_experimental)
+
+    slave_builder_status_dict = {}
+    for builder in self.builders_array:
+      logging.info('Creating BuilderStatus for builder %s', builder)
+      builder_status = slave_builder_statuses.GetBuilderStatusForBuild(builder)
+      slave_builder_status_dict[builder] = builder_status
+      message = (builder_status.message.BuildFailureMessageToStr()
+                 if builder_status.message is not None else None)
+      logging.info(
+          'Builder %s BuilderStatus.status %s BuilderStatus.message %s'
+          ' BuilderStatus.dashboard_url %s ' %
+          (builder, builder_status.status, message,
+           builder_status.dashboard_url))
+    return slave_builder_status_dict
+
+  def GetBuilderStatuses(self):
+    """Get BuilderStatus of a given build and its slave builds (if any).
+
+    Returns:
+      A pair of dict mapping build names (strings) to their BuilderStatus
+      instances. important_statuses only contains builds which are important and
+      not marked experimental in the tree status. experimental_statuses contains
+      builds marked as experimental in the tree status.
+    """
+    statuses = self._FetchLocalBuilderStatus()
+
+    if not self.config.master:
+      # The build returns its own status.
+      logging.info('The build is not a master.')
+
+      return statuses, {}
+
+    logging.info('Fetching BuilderStatus of slaves.')
+
+    statuses.update(self._FetchSlaveBuilderStatuses())
+
+    # Get builders marked as experimental in the tree status from metadata.
+    experimental_builders = self.metadata.GetValueWithDefault(
+        constants.METADATA_EXPERIMENTAL_BUILDERS, [])
+
+    if not experimental_builders:
+      return statuses, {}
+
+    important_statuses = {}
+    experimental_statuses = {}
+    for k, v in statuses.iteritems():
+      if k in experimental_builders:
+        experimental_statuses[k] = v
+      else:
+        important_statuses[k] = v
+
+    return important_statuses, experimental_statuses
+
+  @staticmethod
+  def GetFailingBuilds(statuses):
+    """Get the names of builds which are failed.
+
+    Args:
+      statuses: A dict mapping build config names to their BuilderStatus.
+
+    Returns:
+      A set of failed build config names.
+    """
+    return set(builder for builder, status in statuses.iteritems()
+               if status.Failed())
+
+  @staticmethod
+  def GetInflightBuilds(statuses):
+    """Get the names of builds which are inflight.
+
+    Args:
+      statuses: A dict mapping build config names to their BuilderStatus.
+
+    Returns:
+      A set of inflight build config names.
+    """
+    return set(builder for builder, status in statuses.iteritems()
+               if status.Inflight())
+
+  @staticmethod
+  def GetNostatBuilds(statuses):
+    """Get the names of builds which are missing.
+
+    Args:
+      statuses: A dict mapping build config names to their BuilderStatus.
+
+    Returns:
+      A set of missing build config names.
+    """
+    return set(builder for builder, status in statuses.iteritems()
+               if status.Missing())

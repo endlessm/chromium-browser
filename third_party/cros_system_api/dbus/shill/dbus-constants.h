@@ -38,7 +38,6 @@ const char kRequirePinFunction[] = "RequirePin";
 const char kEnterPinFunction[] = "EnterPin";
 const char kUnblockPinFunction[] = "UnblockPin";
 const char kChangePinFunction[] = "ChangePin";
-const char kProposeScanFunction[] = "ProposeScan";
 const char kRegisterFunction[] = "Register";
 const char kConfigureServiceFunction[] = "ConfigureService";
 const char kConfigureWifiServiceFunction[] = "ConfigureWifiService";
@@ -107,6 +106,7 @@ const char kWifiRoamThresholdProperty[] = "WiFi.RoamThreshold";
 const char kEapIdentityProperty[] = "EAP.Identity";
 const char kEapMethodProperty[] = "EAP.EAP";
 const char kEapPhase2AuthProperty[] = "EAP.InnerEAP";
+const char kEapTLSVersionMaxProperty[] = "EAP.TLSVersionMax";
 const char kEapAnonymousIdentityProperty[] = "EAP.AnonymousIdentity";
 const char kEapClientCertProperty[] = "EAP.ClientCert";
 const char kEapCertIdProperty[] = "EAP.CertID";
@@ -191,10 +191,13 @@ const char kImsiProperty[] = "Cellular.IMSI";
 const char kEsnProperty[] = "Cellular.ESN";
 const char kMdnProperty[] = "Cellular.MDN";
 const char kMinProperty[] = "Cellular.MIN";
+// TODO(ejcaruso): remove this when the correctly-cased name is used in chrome
 const char kModelIDProperty[] = "Cellular.ModelID";
+const char kModelIdProperty[] = "Cellular.ModelID";
 const char kManufacturerProperty[] = "Cellular.Manufacturer";
 const char kFirmwareRevisionProperty[] = "Cellular.FirmwareRevision";
 const char kHardwareRevisionProperty[] = "Cellular.HardwareRevision";
+const char kDeviceIdProperty[] = "Cellular.DeviceID";
 const char kPRLVersionProperty[] = "Cellular.PRLVersion";
 const char kSelectedNetworkProperty[] = "Cellular.SelectedNetwork";
 const char kSupportNetworkScanProperty[] = "Cellular.SupportNetworkScan";
@@ -258,6 +261,7 @@ const char kPaymentPortalPostData[] = "postdata";
 const char kOperatorNameKey[] = "name";
 const char kOperatorCodeKey[] = "code";
 const char kOperatorCountryKey[] = "country";
+const char kOperatorUuidKey[] = "uuid";
 
 // Flimflam network technology options.
 const char kNetworkTechnology1Xrtt[] = "1xRTT";
@@ -302,6 +306,11 @@ const char kEapPhase2AuthTTLSPAP[] = "auth=PAP";
 const char kEapPhase2AuthTTLSCHAP[] = "auth=CHAP";
 const char kEapPhase2AuthTTLSGTC[] = "auth=GTC";
 const char kEapPhase2AuthTTLSEAPGTC[] = "autheap=GTC";
+
+// Flimflam EAP TLS versions.
+const char kEapTLSVersion1p0[] = "1.0";
+const char kEapTLSVersion1p1[] = "1.1";
+const char kEapTLSVersion1p2[] = "1.2";
 
 // Flimflam VPN provider types.
 const char kProviderL2tpIpsec[] = "l2tpipsec";
@@ -601,11 +610,13 @@ const char kManagedCredentialsProperty[] = "ManagedCredentials";
 const char kOpenVPNCaCertPemProperty[] = "OpenVPN.CACertPEM";
 const char kOpenVPNCertProperty[] = "OpenVPN.Cert";
 const char kOpenVPNExtraCertPemProperty[] = "OpenVPN.ExtraCertPEM";
+const char kOpenVPNExtraHostsProperty[] = "OpenVPN.ExtraHosts";
 const char kOpenVPNKeyProperty[] = "OpenVPN.Key";
 const char kOpenVPNPingProperty[] = "OpenVPN.Ping";
 const char kOpenVPNPingExitProperty[] = "OpenVPN.PingExit";
 const char kOpenVPNPingRestartProperty[] = "OpenVPN.PingRestart";
 const char kOpenVPNTLSAuthProperty[] = "OpenVPN.TLSAuth";
+const char kOpenVPNTLSVersionMinProperty[] = "OpenVPN.TLSVersionMin";
 const char kOpenVPNTokenProperty[] = "OpenVPN.Token";
 const char kOpenVPNVerbProperty[] = "OpenVPN.Verb";
 const char kOpenVPNVerifyHashProperty[] = "OpenVPN.VerifyHash";

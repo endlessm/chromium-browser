@@ -21,14 +21,14 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using base::Bucket;
+using cast_channel::ChannelError;
+using ::testing::_;
+using testing::ElementsAre;
 using ::testing::Invoke;
 using ::testing::Return;
 using ::testing::SaveArg;
 using ::testing::WithArgs;
-using ::testing::_;
-using base::Bucket;
-using cast_channel::ChannelError;
-using testing::ElementsAre;
 
 namespace {
 
@@ -94,20 +94,26 @@ class CastMediaSinkServiceImplTest : public ::testing::Test {
  public:
   CastMediaSinkServiceImplTest()
       : thread_bundle_(content::TestBrowserThreadBundle::IO_MAINLOOP),
-        mock_cast_socket_service_(new cast_channel::MockCastSocketService()),
         mock_time_task_runner_(new base::TestMockTimeTaskRunner()),
+        mock_cast_socket_service_(
+            new cast_channel::MockCastSocketService(mock_time_task_runner_)),
         media_sink_service_impl_(mock_sink_discovered_cb_.Get(),
                                  mock_cast_socket_service_.get(),
                                  discovery_network_monitor_.get(),
-                                 nullptr /* url_request_context_getter */,
-                                 mock_time_task_runner_.get()) {}
+                                 nullptr /* url_request_context_getter */) {
+    mock_cast_socket_service_->SetTaskRunnerForTest(mock_time_task_runner_);
+  }
 
   void SetUp() override {
-    fake_network_info_.clear();
     auto mock_timer = base::MakeUnique<base::MockTimer>(
         true /*retain_user_task*/, false /*is_repeating*/);
     mock_timer_ = mock_timer.get();
     media_sink_service_impl_.SetTimerForTest(std::move(mock_timer));
+  }
+
+  void TearDown() override {
+    content::RunAllTasksUntilIdle();
+    fake_network_info_ = fake_ethernet_info_;
   }
 
  protected:
@@ -117,7 +123,6 @@ class CastMediaSinkServiceImplTest : public ::testing::Test {
         .WillOnce(Invoke(
             [socket](const auto& ip_endpoint, auto* net_log, auto open_cb) {
               std::move(open_cb).Run(socket);
-              return socket->id();
             }));
   }
 
@@ -126,42 +131,50 @@ class CastMediaSinkServiceImplTest : public ::testing::Test {
         media_sink_service_impl_);
   }
 
+  static const std::vector<DiscoveryNetworkInfo> fake_ethernet_info_;
+  static const std::vector<DiscoveryNetworkInfo> fake_wifi_info_;
+  static const std::vector<DiscoveryNetworkInfo> fake_unknown_info_;
+
   static std::vector<DiscoveryNetworkInfo> FakeGetNetworkInfo() {
     return fake_network_info_;
   }
 
   static std::vector<DiscoveryNetworkInfo> fake_network_info_;
 
-  std::vector<DiscoveryNetworkInfo> fake_ethernet_info_ = {
-      DiscoveryNetworkInfo{std::string("enp0s2"), std::string("ethernet1")}};
-  std::vector<DiscoveryNetworkInfo> fake_wifi_info_ = {
-      DiscoveryNetworkInfo{std::string("wlp3s0"), std::string("wifi1")},
-      DiscoveryNetworkInfo{std::string("wlp3s1"), std::string("wifi2")}};
-  std::vector<DiscoveryNetworkInfo> fake_unknown_info_ = {
-      DiscoveryNetworkInfo{std::string("enp0s2"), std::string()}};
-
+  const content::TestBrowserThreadBundle thread_bundle_;
+  scoped_refptr<base::TestMockTimeTaskRunner> mock_time_task_runner_;
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_ =
       base::WrapUnique(net::NetworkChangeNotifier::CreateMock());
-
-  const content::TestBrowserThreadBundle thread_bundle_;
-
   std::unique_ptr<DiscoveryNetworkMonitor> discovery_network_monitor_ =
       DiscoveryNetworkMonitor::CreateInstanceForTest(&FakeGetNetworkInfo);
 
-  base::MockCallback<MediaSinkService::OnSinksDiscoveredCallback>
-      mock_sink_discovered_cb_;
+  base::MockCallback<OnSinksDiscoveredCallback> mock_sink_discovered_cb_;
   std::unique_ptr<cast_channel::MockCastSocketService>
       mock_cast_socket_service_;
   base::MockTimer* mock_timer_;
-  scoped_refptr<base::TestMockTimeTaskRunner> mock_time_task_runner_;
   CastMediaSinkServiceImpl media_sink_service_impl_;
 
   DISALLOW_COPY_AND_ASSIGN(CastMediaSinkServiceImplTest);
 };
 
 // static
+const std::vector<DiscoveryNetworkInfo>
+    CastMediaSinkServiceImplTest::fake_ethernet_info_ = {
+        DiscoveryNetworkInfo{std::string("enp0s2"), std::string("ethernet1")}};
+// static
+const std::vector<DiscoveryNetworkInfo>
+    CastMediaSinkServiceImplTest::fake_wifi_info_ = {
+        DiscoveryNetworkInfo{std::string("wlp3s0"), std::string("wifi1")},
+        DiscoveryNetworkInfo{std::string("wlp3s1"), std::string("wifi2")}};
+// static
+const std::vector<DiscoveryNetworkInfo>
+    CastMediaSinkServiceImplTest::fake_unknown_info_ = {
+        DiscoveryNetworkInfo{std::string("enp0s2"), std::string()}};
+
+// static
 std::vector<DiscoveryNetworkInfo>
-    CastMediaSinkServiceImplTest::fake_network_info_;
+    CastMediaSinkServiceImplTest::fake_network_info_ =
+        CastMediaSinkServiceImplTest::fake_ethernet_info_;
 
 TEST_F(CastMediaSinkServiceImplTest, TestOnChannelOpenSucceeded) {
   auto cast_sink = CreateCastSink(1);
@@ -175,7 +188,7 @@ TEST_F(CastMediaSinkServiceImplTest, TestOnChannelOpenSucceeded) {
   // Verify sink content
   EXPECT_CALL(mock_sink_discovered_cb_,
               Run(std::vector<MediaSinkInternal>({cast_sink})));
-  media_sink_service_impl_.OnFetchCompleted();
+  media_sink_service_impl_.OnDiscoveryComplete();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, TestMultipleOnChannelOpenSucceeded) {
@@ -233,7 +246,7 @@ TEST_F(CastMediaSinkServiceImplTest, TestMultipleOnChannelOpenSucceeded) {
   // Verify sink content
   EXPECT_CALL(mock_sink_discovered_cb_,
               Run(std::vector<MediaSinkInternal>({cast_sink2, cast_sink3})));
-  media_sink_service_impl_.OnFetchCompleted();
+  media_sink_service_impl_.OnDiscoveryComplete();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, TestTimer) {
@@ -302,7 +315,6 @@ TEST_F(CastMediaSinkServiceImplTest, TestOpenChannelRetryOnce) {
   socket.SetErrorState(cast_channel::ChannelError::NONE);
   socket.SetErrorState(cast_channel::ChannelError::CAST_SOCKET_ERROR);
 
-  media_sink_service_impl_.SetTaskRunnerForTest(mock_time_task_runner_);
   std::unique_ptr<net::BackoffEntry> backoff_entry(
       new net::BackoffEntry(&media_sink_service_impl_.backoff_policy_));
   media_sink_service_impl_.retry_params_.max_retry_attempts = 3;
@@ -325,13 +337,10 @@ TEST_F(CastMediaSinkServiceImplTest, TestOpenChannelFails) {
   socket.SetIPEndpoint(ip_endpoint);
   socket.SetErrorState(cast_channel::ChannelError::CAST_SOCKET_ERROR);
 
-  media_sink_service_impl_.SetTaskRunnerForTest(mock_time_task_runner_);
-
   EXPECT_CALL(*mock_cast_socket_service_, OpenSocketInternal(ip_endpoint, _, _))
       .WillRepeatedly(
           Invoke([&](const auto& ip_endpoint1, auto* net_log, auto open_cb) {
             std::move(open_cb).Run(&socket);
-            return socket.id();
           }));
   media_sink_service_impl_.OpenChannel(
       ip_endpoint, cast_sink, nullptr,
@@ -406,7 +415,7 @@ TEST_F(CastMediaSinkServiceImplTest, TestMultipleOpenChannels) {
   EXPECT_CALL(mock_sink_discovered_cb_,
               Run(std::vector<MediaSinkInternal>(
                   {cast_sink1, cast_sink2, cast_sink3})));
-  media_sink_service_impl_.OnFetchCompleted();
+  media_sink_service_impl_.OnDiscoveryComplete();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, TestOnChannelOpenFailed) {
@@ -432,8 +441,6 @@ TEST_F(CastMediaSinkServiceImplTest,
   socket.set_id(1);
   socket.SetIPEndpoint(ip_endpoint1);
 
-  media_sink_service_impl_.SetTaskRunnerForTest(mock_time_task_runner_);
-
   // No op for CONNECTING cast channel.
   EXPECT_CALL(socket, ready_state())
       .WillOnce(Return(cast_channel::ReadyState::CONNECTING));
@@ -447,7 +454,7 @@ TEST_F(CastMediaSinkServiceImplTest,
   EXPECT_THAT(tester.GetAllSamples(CastAnalytics::kHistogramCastChannelError),
               ElementsAre(Bucket(
                   static_cast<int>(MediaRouterChannelError::UNKNOWN), 1)));
-  mock_time_task_runner_->RunUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, TestOnChannelErrorMayRetryForCastSink) {
@@ -458,8 +465,6 @@ TEST_F(CastMediaSinkServiceImplTest, TestOnChannelErrorMayRetryForCastSink) {
   socket.SetIPEndpoint(ip_endpoint1);
   socket.SetErrorState(cast_channel::ChannelError::CHANNEL_NOT_OPEN);
 
-  media_sink_service_impl_.SetTaskRunnerForTest(mock_time_task_runner_);
-
   // There is an existing cast sink in |current_sinks_map_|.
   media_sink_service_impl_.current_sinks_map_[ip_endpoint1] = cast_sink;
   EXPECT_CALL(socket, ready_state())
@@ -469,7 +474,6 @@ TEST_F(CastMediaSinkServiceImplTest, TestOnChannelErrorMayRetryForCastSink) {
       .WillRepeatedly(
           Invoke([&](const auto& ip_endpoint, auto* net_log, auto open_cb) {
             std::move(open_cb).Run(&socket);
-            return socket.id();
           }));
 
   media_sink_service_impl_.OnError(
@@ -488,8 +492,6 @@ TEST_F(CastMediaSinkServiceImplTest, TestOnChannelErrorNoRetryForMissingSink) {
   EXPECT_CALL(socket, ready_state())
       .WillOnce(Return(cast_channel::ReadyState::CLOSED));
 
-  media_sink_service_impl_.SetTaskRunnerForTest(mock_time_task_runner_);
-
   // There is no existing cast sink.
   media_sink_service_impl_.pending_for_open_ip_endpoints_.clear();
   media_sink_service_impl_.current_sinks_map_.clear();
@@ -500,7 +502,7 @@ TEST_F(CastMediaSinkServiceImplTest, TestOnChannelErrorNoRetryForMissingSink) {
   EXPECT_CALL(*mock_cast_socket_service_,
               OpenSocketInternal(ip_endpoint1, _, _))
       .Times(0);
-  mock_time_task_runner_->RunUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, TestOnDialSinkAdded) {
@@ -519,18 +521,14 @@ TEST_F(CastMediaSinkServiceImplTest, TestOnDialSinkAdded) {
   // Channel 1, 2 opened.
   EXPECT_CALL(*mock_cast_socket_service_,
               OpenSocketInternal(ip_endpoint1, _, _))
-      .WillOnce(DoAll(
-          WithArgs<2>(Invoke(
-              [&](const base::Callback<void(cast_channel::CastSocket * socket)>&
-                      callback) { std::move(callback).Run(&socket1); })),
-          Return(1)));
+      .WillOnce(WithArgs<2>(Invoke(
+          [&](const base::Callback<void(cast_channel::CastSocket * socket)>&
+                  callback) { std::move(callback).Run(&socket1); })));
   EXPECT_CALL(*mock_cast_socket_service_,
               OpenSocketInternal(ip_endpoint2, _, _))
-      .WillOnce(DoAll(
-          WithArgs<2>(Invoke(
-              [&](const base::Callback<void(cast_channel::CastSocket * socket)>&
-                      callback) { std::move(callback).Run(&socket2); })),
-          Return(2)));
+      .WillOnce(WithArgs<2>(Invoke(
+          [&](const base::Callback<void(cast_channel::CastSocket * socket)>&
+                  callback) { std::move(callback).Run(&socket2); })));
 
   // Invoke CastSocketService::OpenSocket on the IO thread.
   media_sink_service_impl_.OnDialSinkAdded(dial_sink1);
@@ -543,7 +541,79 @@ TEST_F(CastMediaSinkServiceImplTest, TestOnDialSinkAdded) {
   EXPECT_EQ(2u, media_sink_service_impl_.current_sinks_map_.size());
 }
 
-TEST_F(CastMediaSinkServiceImplTest, TestOnFetchCompleted) {
+TEST_F(CastMediaSinkServiceImplTest, TestOnDialSinkAddedSkipsIfNonCastDevice) {
+  MediaSinkInternal dial_sink1 = CreateDialSink(1);
+  net::IPEndPoint ip_endpoint1(dial_sink1.dial_data().ip_address,
+                               CastMediaSinkServiceImpl::kCastControlPort);
+
+  cast_channel::MockCastSocket socket1;
+  socket1.set_id(1);
+  socket1.SetErrorState(cast_channel::ChannelError::CONNECT_ERROR);
+
+  EXPECT_CALL(*mock_cast_socket_service_,
+              OpenSocketInternal(ip_endpoint1, _, _))
+      .Times(1)
+      .WillOnce(WithArgs<2>(Invoke(
+          [&socket1](
+              const base::Callback<void(cast_channel::CastSocket * socket)>&
+                  callback) { std::move(callback).Run(&socket1); })));
+  media_sink_service_impl_.OnDialSinkAdded(dial_sink1);
+
+  // We don't trigger retries, thus each iteration will only increment the
+  // failure count once.
+  for (int i = 0; i < CastMediaSinkServiceImpl::kMaxDialSinkFailureCount - 1;
+       ++i) {
+    EXPECT_CALL(*mock_cast_socket_service_,
+                OpenSocketInternal(ip_endpoint1, _, _))
+        .Times(1)
+        .WillOnce(WithArgs<2>(Invoke(
+            [&socket1](
+                const base::Callback<void(cast_channel::CastSocket * socket)>&
+                    callback) { std::move(callback).Run(&socket1); })));
+    media_sink_service_impl_.OnDialSinkAdded(dial_sink1);
+  }
+
+  auto& dial_sink_failure_count =
+      media_sink_service_impl_.dial_sink_failure_count_;
+  auto failure_count_it = dial_sink_failure_count.find(ip_endpoint1.address());
+  ASSERT_TRUE(failure_count_it != dial_sink_failure_count.end());
+  int failure_count = failure_count_it->second;
+  EXPECT_GE(failure_count, CastMediaSinkServiceImpl::kMaxDialSinkFailureCount);
+
+  // OnChannelOpenFailed too many times; next time OnDialSinkAdded is called,
+  // we won't attempt to open channel.
+  EXPECT_CALL(*mock_cast_socket_service_,
+              OpenSocketInternal(ip_endpoint1, _, _))
+      .Times(0);
+
+  media_sink_service_impl_.OnDialSinkAdded(dial_sink1);
+
+  EXPECT_EQ(0u, media_sink_service_impl_.current_sinks_map_.size());
+
+  // Same IP address as dial_sink1; thus it is considered to be the same device.
+  // The outcome of the channel does not matter here; the sink is considered a
+  // Cast device since it has been discovered via mDNS.
+  MediaSinkInternal cast_sink = CreateCastSink(1);
+  std::vector<MediaSinkInternal> cast_sinks = {cast_sink};
+  ASSERT_EQ(ip_endpoint1.address(),
+            cast_sink.cast_data().ip_endpoint.address());
+  EXPECT_CALL(*mock_cast_socket_service_,
+              OpenSocketInternal(cast_sink.cast_data().ip_endpoint, _, _))
+      .Times(1);
+  media_sink_service_impl_.OpenChannels(
+      cast_sinks, CastMediaSinkServiceImpl::SinkSource::kMdns);
+
+  failure_count_it = dial_sink_failure_count.find(ip_endpoint1.address());
+  ASSERT_TRUE(failure_count_it == dial_sink_failure_count.end());
+
+  // |dial_sink_failure_count| gets cleared on network change.
+  dial_sink_failure_count[ip_endpoint1.address()] = 6;
+
+  media_sink_service_impl_.OnNetworksChanged("anotherNetworkId");
+  EXPECT_TRUE(dial_sink_failure_count.empty());
+}
+
+TEST_F(CastMediaSinkServiceImplTest, TestOnDiscoveryComplete) {
   std::vector<MediaSinkInternal> sinks;
   EXPECT_CALL(mock_sink_discovered_cb_, Run(_)).WillOnce(SaveArg<0>(&sinks));
 
@@ -560,7 +630,7 @@ TEST_F(CastMediaSinkServiceImplTest, TestOnFetchCompleted) {
   media_sink_service_impl_.current_sinks_map_[ip_endpoint3] = cast_sink3;
 
   // Callback returns Cast sink 1, 2, 3
-  media_sink_service_impl_.OnFetchCompleted();
+  media_sink_service_impl_.OnDiscoveryComplete();
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(base::ContainsValue(sinks, cast_sink1));
@@ -589,10 +659,12 @@ TEST_F(CastMediaSinkServiceImplTest, TestAttemptConnection) {
 }
 
 TEST_F(CastMediaSinkServiceImplTest, CacheSinksForKnownNetwork) {
-  fake_network_info_ = fake_ethernet_info_;
-  net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
-      net::NetworkChangeNotifier::CONNECTION_ETHERNET);
+  media_sink_service_impl_.Start();
   content::RunAllTasksUntilIdle();
+  // We need to run the mock task runner for the network change callback, but
+  // the socket retries interfere with our normal expectations.  Instead we
+  // disable retries with this line.
+  media_sink_service_impl_.retry_params_.max_retry_attempts = 0;
 
   MediaSinkInternal sink1 = CreateCastSink(1);
   MediaSinkInternal sink2 = CreateCastSink(2);
@@ -617,11 +689,13 @@ TEST_F(CastMediaSinkServiceImplTest, CacheSinksForKnownNetwork) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   fake_network_info_ = fake_wifi_info_;
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_WIFI);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint1);
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint2);
 
@@ -642,6 +716,7 @@ TEST_F(CastMediaSinkServiceImplTest, CacheSinksForKnownNetwork) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   EXPECT_CALL(*mock_cast_socket_service_,
               OpenSocketInternal(ip_endpoint1, _, _));
@@ -651,13 +726,16 @@ TEST_F(CastMediaSinkServiceImplTest, CacheSinksForKnownNetwork) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_ETHERNET);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, CacheContainsOnlyResolvedSinks) {
-  fake_network_info_ = fake_ethernet_info_;
-  net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
-      net::NetworkChangeNotifier::CONNECTION_ETHERNET);
+  media_sink_service_impl_.Start();
   content::RunAllTasksUntilIdle();
+  // We need to run the mock task runner for the network change callback, but
+  // the socket retries interfere with our normal expectations.  Instead we
+  // disable retries with this line.
+  media_sink_service_impl_.retry_params_.max_retry_attempts = 0;
 
   MediaSinkInternal sink1 = CreateCastSink(1);
   MediaSinkInternal sink2 = CreateCastSink(2);
@@ -683,11 +761,13 @@ TEST_F(CastMediaSinkServiceImplTest, CacheContainsOnlyResolvedSinks) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   fake_network_info_ = fake_wifi_info_;
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_WIFI);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint1);
 
   MediaSinkInternal sink3 = CreateCastSink(3);
@@ -707,6 +787,7 @@ TEST_F(CastMediaSinkServiceImplTest, CacheContainsOnlyResolvedSinks) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   EXPECT_CALL(*mock_cast_socket_service_,
               OpenSocketInternal(ip_endpoint1, _, _));
@@ -717,13 +798,16 @@ TEST_F(CastMediaSinkServiceImplTest, CacheContainsOnlyResolvedSinks) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_ETHERNET);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, CacheUpdatedOnChannelOpenFailed) {
-  fake_network_info_ = fake_ethernet_info_;
-  net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
-      net::NetworkChangeNotifier::CONNECTION_ETHERNET);
+  media_sink_service_impl_.Start();
   content::RunAllTasksUntilIdle();
+  // We need to run the mock task runner for the network change callback, but
+  // the socket retries interfere with our normal expectations.  Instead we
+  // disable retries with this line.
+  media_sink_service_impl_.retry_params_.max_retry_attempts = 0;
 
   MediaSinkInternal sink1 = CreateCastSink(1);
   net::IPEndPoint ip_endpoint1 = CreateIPEndPoint(1);
@@ -744,11 +828,13 @@ TEST_F(CastMediaSinkServiceImplTest, CacheUpdatedOnChannelOpenFailed) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   fake_network_info_ = fake_wifi_info_;
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_WIFI);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   MediaSinkInternal sink2 = CreateCastSink(2);
   net::IPEndPoint ip_endpoint2 = CreateIPEndPoint(2);
@@ -768,17 +854,30 @@ TEST_F(CastMediaSinkServiceImplTest, CacheUpdatedOnChannelOpenFailed) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   EXPECT_CALL(*mock_cast_socket_service_, OpenSocketInternal(_, _, _)).Times(0);
   fake_network_info_ = fake_ethernet_info_;
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_ETHERNET);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, UnknownNetworkNoCache) {
-  // Without any network notification here, network ID will remain __unknown__
-  // and the cache shouldn't save any of these sinks.
+  media_sink_service_impl_.Start();
+  content::RunAllTasksUntilIdle();
+  // We need to run the mock task runner for the network change callback, but
+  // the socket retries interfere with our normal expectations.  Instead we
+  // disable retries with this line.
+  media_sink_service_impl_.retry_params_.max_retry_attempts = 0;
+
+  fake_network_info_ = fake_unknown_info_;
+  net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
+      net::NetworkChangeNotifier::CONNECTION_UNKNOWN);
+  content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
+
   MediaSinkInternal sink1 = CreateCastSink(1);
   MediaSinkInternal sink2 = CreateCastSink(2);
   net::IPEndPoint ip_endpoint1 = CreateIPEndPoint(1);
@@ -802,6 +901,7 @@ TEST_F(CastMediaSinkServiceImplTest, UnknownNetworkNoCache) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint1);
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint2);
 
@@ -823,19 +923,23 @@ TEST_F(CastMediaSinkServiceImplTest, UnknownNetworkNoCache) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_WIFI);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   // Similarly, disconnecting from the network shouldn't pull any cache items.
   fake_network_info_.clear();
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, CacheUpdatedForKnownNetwork) {
-  fake_network_info_ = fake_ethernet_info_;
-  net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
-      net::NetworkChangeNotifier::CONNECTION_ETHERNET);
+  media_sink_service_impl_.Start();
   content::RunAllTasksUntilIdle();
+  // We need to run the mock task runner for the network change callback, but
+  // the socket retries interfere with our normal expectations.  Instead we
+  // disable retries with this line.
+  media_sink_service_impl_.retry_params_.max_retry_attempts = 0;
 
   MediaSinkInternal sink1 = CreateCastSink(1);
   MediaSinkInternal sink2 = CreateCastSink(2);
@@ -860,11 +964,13 @@ TEST_F(CastMediaSinkServiceImplTest, CacheUpdatedForKnownNetwork) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   fake_network_info_ = fake_wifi_info_;
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_WIFI);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint1);
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint2);
 
@@ -885,6 +991,7 @@ TEST_F(CastMediaSinkServiceImplTest, CacheUpdatedForKnownNetwork) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint3);
 
@@ -897,6 +1004,7 @@ TEST_F(CastMediaSinkServiceImplTest, CacheUpdatedForKnownNetwork) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_ETHERNET);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   // A new sink is found on the ethernet network.
   MediaSinkInternal sink4 = CreateCastSink(4);
@@ -915,6 +1023,7 @@ TEST_F(CastMediaSinkServiceImplTest, CacheUpdatedForKnownNetwork) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint4);
 
   // Reconnect and expect only |sink4| to be cached.
@@ -924,13 +1033,16 @@ TEST_F(CastMediaSinkServiceImplTest, CacheUpdatedForKnownNetwork) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_ETHERNET);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, CacheDialDiscoveredSinks) {
-  fake_network_info_ = fake_ethernet_info_;
-  net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
-      net::NetworkChangeNotifier::CONNECTION_ETHERNET);
+  media_sink_service_impl_.Start();
   content::RunAllTasksUntilIdle();
+  // We need to run the mock task runner for the network change callback, but
+  // the socket retries interfere with our normal expectations.  Instead we
+  // disable retries with this line.
+  media_sink_service_impl_.retry_params_.max_retry_attempts = 0;
 
   MediaSinkInternal sink1_cast = CreateCastSink(1);
   MediaSinkInternal sink2_dial = CreateDialSink(2);
@@ -957,11 +1069,13 @@ TEST_F(CastMediaSinkServiceImplTest, CacheDialDiscoveredSinks) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   fake_network_info_ = fake_wifi_info_;
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_WIFI);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint1);
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint2);
 
@@ -990,6 +1104,7 @@ TEST_F(CastMediaSinkServiceImplTest, CacheDialDiscoveredSinks) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   EXPECT_CALL(*mock_cast_socket_service_,
               OpenSocketInternal(ip_endpoint1, _, _));
@@ -999,13 +1114,16 @@ TEST_F(CastMediaSinkServiceImplTest, CacheDialDiscoveredSinks) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_ETHERNET);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, DualDiscoveryDoesntDuplicateCacheItems) {
-  fake_network_info_ = fake_ethernet_info_;
-  net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
-      net::NetworkChangeNotifier::CONNECTION_ETHERNET);
+  media_sink_service_impl_.Start();
   content::RunAllTasksUntilIdle();
+  // We need to run the mock task runner for the network change callback, but
+  // the socket retries interfere with our normal expectations.  Instead we
+  // disable retries with this line.
+  media_sink_service_impl_.retry_params_.max_retry_attempts = 0;
 
   // The same sink will be discovered via dial and mdns.
   MediaSinkInternal sink1_cast = CreateCastSink(0);
@@ -1035,11 +1153,13 @@ TEST_F(CastMediaSinkServiceImplTest, DualDiscoveryDoesntDuplicateCacheItems) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   fake_network_info_ = fake_wifi_info_;
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_WIFI);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint1_cast);
   media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint1_dial);
 
@@ -1060,6 +1180,7 @@ TEST_F(CastMediaSinkServiceImplTest, DualDiscoveryDoesntDuplicateCacheItems) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_NONE);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
   EXPECT_CALL(*mock_cast_socket_service_,
               OpenSocketInternal(ip_endpoint1_cast, _, _));
@@ -1067,6 +1188,66 @@ TEST_F(CastMediaSinkServiceImplTest, DualDiscoveryDoesntDuplicateCacheItems) {
   net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
       net::NetworkChangeNotifier::CONNECTION_ETHERNET);
   content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
+}
+
+TEST_F(CastMediaSinkServiceImplTest, CacheSinksForDirectNetworkChange) {
+  media_sink_service_impl_.Start();
+  content::RunAllTasksUntilIdle();
+  // We need to run the mock task runner for the network change callback, but
+  // the socket retries interfere with our normal expectations.  Instead we
+  // disable retries with this line.
+  media_sink_service_impl_.retry_params_.max_retry_attempts = 0;
+
+  MediaSinkInternal sink1 = CreateCastSink(1);
+  MediaSinkInternal sink2 = CreateCastSink(2);
+  net::IPEndPoint ip_endpoint1 = CreateIPEndPoint(1);
+  net::IPEndPoint ip_endpoint2 = CreateIPEndPoint(2);
+  std::vector<MediaSinkInternal> sink_list1{sink1, sink2};
+
+  // Resolution will succeed for both sinks.
+  cast_channel::MockCastSocket socket1;
+  cast_channel::MockCastSocket socket2;
+  socket1.SetIPEndpoint(ip_endpoint1);
+  socket1.set_id(1);
+  socket2.SetIPEndpoint(ip_endpoint2);
+  socket2.set_id(2);
+  ExpectOpenSocketInternal(&socket1);
+  ExpectOpenSocketInternal(&socket2);
+  media_sink_service_impl_.OpenChannels(
+      sink_list1, CastMediaSinkServiceImpl::SinkSource::kMdns);
+
+  // Connect to a new network with different sinks.
+  fake_network_info_ = fake_wifi_info_;
+  net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
+      net::NetworkChangeNotifier::CONNECTION_WIFI);
+  content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
+  media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint1);
+  media_sink_service_impl_.OnChannelOpenFailed(ip_endpoint2);
+
+  MediaSinkInternal sink3 = CreateCastSink(3);
+  net::IPEndPoint ip_endpoint3 = CreateIPEndPoint(3);
+  std::vector<MediaSinkInternal> sink_list2{sink3};
+
+  cast_channel::MockCastSocket socket3;
+  socket3.SetIPEndpoint(ip_endpoint3);
+  socket3.set_id(3);
+  ExpectOpenSocketInternal(&socket3);
+  media_sink_service_impl_.OpenChannels(
+      sink_list2, CastMediaSinkServiceImpl::SinkSource::kMdns);
+
+  // Reconnecting to the previous ethernet network should restore the same sinks
+  // from the cache and attempt to resolve them.
+  EXPECT_CALL(*mock_cast_socket_service_,
+              OpenSocketInternal(ip_endpoint1, _, _));
+  EXPECT_CALL(*mock_cast_socket_service_,
+              OpenSocketInternal(ip_endpoint2, _, _));
+  fake_network_info_ = fake_ethernet_info_;
+  net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
+      net::NetworkChangeNotifier::CONNECTION_ETHERNET);
+  content::RunAllTasksUntilIdle();
+  mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 }
 
 TEST_F(CastMediaSinkServiceImplTest, TestCreateCastSocketOpenParams) {

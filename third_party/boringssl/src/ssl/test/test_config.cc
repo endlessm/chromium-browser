@@ -81,7 +81,8 @@ const Flag<bool> kBoolFlags[] = {
   { "-tls-unique", &TestConfig::tls_unique },
   { "-expect-ticket-renewal", &TestConfig::expect_ticket_renewal },
   { "-expect-no-session", &TestConfig::expect_no_session },
-  { "-expect-early-data-info", &TestConfig::expect_early_data_info },
+  { "-expect-ticket-supports-early-data",
+    &TestConfig::expect_ticket_supports_early_data },
   { "-use-ticket-callback", &TestConfig::use_ticket_callback },
   { "-renew-ticket", &TestConfig::renew_ticket },
   { "-enable-early-data", &TestConfig::enable_early_data },
@@ -121,6 +122,7 @@ const Flag<bool> kBoolFlags[] = {
   { "-expect-no-session-id", &TestConfig::expect_no_session_id },
   { "-expect-accept-early-data", &TestConfig::expect_accept_early_data },
   { "-expect-reject-early-data", &TestConfig::expect_reject_early_data },
+  { "-expect-no-offer-early-data", &TestConfig::expect_no_offer_early_data },
   { "-no-op-extra-handshake", &TestConfig::no_op_extra_handshake },
   { "-handshake-twice", &TestConfig::handshake_twice },
   { "-allow-unknown-alpn-protos", &TestConfig::allow_unknown_alpn_protos },
@@ -130,7 +132,6 @@ const Flag<bool> kBoolFlags[] = {
 
 const Flag<std::string> kStringFlags[] = {
   { "-write-settings", &TestConfig::write_settings },
-  { "-digest-prefs", &TestConfig::digest_prefs },
   { "-key-file", &TestConfig::key_file },
   { "-cert-file", &TestConfig::cert_file },
   { "-expect-server-name", &TestConfig::expected_server_name },

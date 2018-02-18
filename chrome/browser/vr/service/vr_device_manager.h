@@ -11,15 +11,19 @@
 #include <memory>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/vr/service/vr_service_impl.h"
 #include "device/vr/vr_device.h"
-#include "device/vr/vr_device_provider.h"
 #include "device/vr/vr_service.mojom.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
+
+namespace device {
+class VRDeviceProvider;
+}
 
 namespace vr {
 
@@ -53,6 +57,11 @@ class VRDeviceManager {
 
  private:
   void InitializeProviders();
+  void OnProviderInitialized();
+  bool AreAllProvidersInitialized();
+
+  void AddDevice(device::VRDevice* device);
+  void RemoveDevice(device::VRDevice* device);
 
   ProviderList providers_;
 
@@ -60,7 +69,8 @@ class VRDeviceManager {
   using DeviceMap = std::map<unsigned int, device::VRDevice*>;
   DeviceMap devices_;
 
-  bool vr_initialized_ = false;
+  bool providers_initialized_ = false;
+  size_t num_initialized_providers_ = 0;
 
   std::set<VRServiceImpl*> services_;
 

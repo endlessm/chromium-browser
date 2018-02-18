@@ -26,7 +26,7 @@
 <translation id="15373452373711364">مؤشر الماوس الكبير</translation>
 <translation id="1550523713251050646">انقر للحصول على المزيد من الخيارات</translation>
 <translation id="1621499497873603021">الوقت المتبقي حتى تصبح البطارية فارغة <ph name="TIME_LEFT" /></translation>
-<translation id="16620462294541761">عذرًا، ولكن تعذر التحقق من كلمة المرور. يُرجى المحاولة مرة أخرى.</translation>
+<translation id="1658406695958299976">عذرًا، لا يمكن التحقق من كلمة المرور حتى الآن. ملاحظة: في حال تغيير كلمة المرور مؤخرًا، سيتم تطبيق كلمة المرور الجديدة بعد تسجيل الخروج، يُرجى استخدام كلمة المرور القديمة هنا.</translation>
 <translation id="1677472565718498478">الوقت المتبقي <ph name="TIME" /></translation>
 <translation id="1698760176351776263">‏عنوان IPv6:‏ <ph name="ADDRESS" /></translation>
 <translation id="1734367976349034509">يخضع هذا الجهاز لإدارة المؤسسة</translation>
@@ -65,10 +65,12 @@
 <translation id="2391579633712104609">180 درجة</translation>
 <translation id="2429753432712299108">يريد جهاز بلوتوث "<ph name="DEVICE_NAME" />" الحصول على إذن للإقران. قبل القبول، يُرجى التأكد أن مفتاح المرور هذا يظهر في هذا الجهاز: <ph name="PASSKEY" /></translation>
 <translation id="2482878487686419369">الاشعارات</translation>
+<translation id="2484513351006226581">انقر على <ph name="KEYBOARD_SHORTCUT" /> لتبديل تنسيق لوحة المفاتيح.</translation>
 <translation id="2501920221385095727">مفاتيح الثبات</translation>
 <translation id="2509468283778169019">‏مفتاح CAPS LOCK قيد التشغيل</translation>
 <translation id="2532589005999780174">وضع التباين العالي</translation>
 <translation id="2597972630681408282">إضاءة ليلية: <ph name="NIGHT_LIGHT_STATUS" /></translation>
+<translation id="2617342710774726426">‏تم قفل شريحة SIM</translation>
 <translation id="2653659639078652383">إرسال</translation>
 <translation id="2675319268637823299">منع أحد المشرفين الدخول المتعدد لـ <ph name="USER_EMAIL" />.
     يجب على جميع المستخدمين تسجيل الخروج للمتابعة.</translation>
@@ -98,6 +100,7 @@
 <translation id="3126069444801937830">إعادة التشغيل للتحديث</translation>
 <translation id="3147142846278915599">‏Launcher (مزامنة التطبيقات...)</translation>
 <translation id="315116470104423982">بيانات الجوال</translation>
+<translation id="3153444934357957346">يمكنك الحصول فقط على ما يصل إلى <ph name="MULTI_PROFILE_USER_LIMIT" /> حساب في الدخول المتعدد.</translation>
 <translation id="3236488194889173876">ليست هناك شبكة جوّال متاحة</translation>
 <translation id="3294437725009624529">ضيف</translation>
 <translation id="332587331255250389">يُرجى استبدال البطارية</translation>
@@ -105,8 +108,11 @@
 <translation id="3368922792935385530">متصل</translation>
 <translation id="3371140690572404006">‏جهاز USB-C (المنفذ الأمامي الأيمن)</translation>
 <translation id="3400357268283240774">إعدادات إضافية</translation>
+<translation id="3413817803639110246">ليس لديك شيء للمشاهدة حتى الآن</translation>
 <translation id="3445925074670675829">‏جهاز USB-C</translation>
+<translation id="3465566417615315331">انقر على صورتك</translation>
 <translation id="3473479545200714844">مكبّر الشاشة</translation>
+<translation id="3477079411857374384">Control-Shift-Space</translation>
 <translation id="3510164367642747937">تمييز مؤشر الماوس</translation>
 <translation id="3573179567135747900">التغيير مرة أخرى إلى "<ph name="FROM_LOCALE" />" (يتطلب إعادة التشغيل)</translation>
 <translation id="3582792037806681688">تم منع الدخول المتعدد لمستخدم في هذه الجلسة</translation>
@@ -118,7 +124,6 @@
 <translation id="3712407551474845318">التقاط منطقة</translation>
 <translation id="371370241367527062">الميكروفون الأمامي</translation>
 <translation id="3771549900096082774">وضع التباين العالي</translation>
-<translation id="3775358506042162758">يُمكنك تسجيل الدخول المتعدد باستخدام ثلاثة حسابات كحد أقصى.</translation>
 <translation id="3783640748446814672">alt</translation>
 <translation id="3784455785234192852">قفل</translation>
 <translation id="3798670284305777884">سماعة (داخلية)</translation>
@@ -137,6 +142,7 @@
 <translation id="4338109981321384717">العدسة المكبرة</translation>
 <translation id="4351433414020964307">جارٍ تحميل المساعد...</translation>
 <translation id="4378551569595875038">جارٍ الاتصال...</translation>
+<translation id="4379531060876907730">هذه هي أدوات قلم الشاشة</translation>
 <translation id="4421231901400348175">مشاركة التحكم في شاشتك مع <ph name="HELPER_NAME" /> عن طريق المساعدة عن بُعد.</translation>
 <translation id="4430019312045809116">مستوى الصوت</translation>
 <translation id="4479639480957787382">إيثرنت</translation>
@@ -146,12 +152,12 @@
 <translation id="453661520163887813">يتبقى <ph name="TIME" /> حتى الاكتمال</translation>
 <translation id="4544944664594876241">لقد تغير اختصار قفل الشاشة. يُرجى استخدام <ph name="NEW_SHORTCUT" /> بدلاً من <ph name="OLD_SHORTCUT" />.</translation>
 <translation id="4659419629803378708">‏تم تمكين ChromeVox</translation>
-<translation id="4729904664295161097">لا يتوفر المساعد إلا للملفات الشخصية الأساسية.</translation>
 <translation id="4776917500594043016">كلمة مرور <ph name="USER_EMAIL_ADDRESS" /></translation>
 <translation id="479989351350248267">بحث</translation>
 <translation id="4804818685124855865">قطع الاتصال</translation>
 <translation id="4849058404725798627">تمييز الكائن باستخدام تركيز لوحة المفاتيح</translation>
 <translation id="4872237917498892622">‏Alt+مفتاح البحث أو Shift</translation>
+<translation id="4890187583552566966">‏تم إيقاف مساعد Google من قِبل المشرف.</translation>
 <translation id="4895488851634969361">البطارية مملوءة.</translation>
 <translation id="4905614135390995787">تم تغيير اختصار تشغيل وضع التباين العالي. يُرجى استخدام <ph name="NEW_SHORTCUT" /> بدلاً من <ph name="OLD_SHORTCUT" />.</translation>
 <translation id="4918086044614829423">قبول</translation>
@@ -171,7 +177,6 @@
 <translation id="5571066253365925590">تم تمكين البلوتوث</translation>
 <translation id="5597451508971090205"><ph name="SHORT_WEEKDAY" />، <ph name="DATE" /></translation>
 <translation id="5600837773213129531">‏اضغط على Ctrl + Alt + Z لتعطيل التعليقات والملاحظات المنطوقة</translation>
-<translation id="5612734644261457353">عذرًا، لا يزال التحقق من كلمة المرور متعذرًا. ملاحظة: في حالة تغيير كلمة المرور مؤخرًا، فإنه سيتم تطبيق كلمة المرور بعد الخروج، يُرجى استخدام كلمة المرور القديمة هنا.</translation>
 <translation id="5648021990716966815">مقبس الميكروفون</translation>
 <translation id="5673434351075758678">من "<ph name="FROM_LOCALE" />" إلى "<ph name="TO_LOCALE" />" بعد مزامنة الإعدادات.</translation>
 <translation id="5744083938413354016">السحب بعد النقر</translation>
@@ -195,6 +200,7 @@
 <translation id="6043994281159824495">الخروج الآن</translation>
 <translation id="6047696787498798094">سيتم إيقاف مشاركة الشاشة عند التبديل إلى مستخدم آخر. هل تريد المتابعة؟</translation>
 <translation id="6062360702481658777">سيتم تسجيل خروجك تلقائيًا في غضون <ph name="LOGOUT_TIME_LEFT" />.</translation>
+<translation id="6064337552080329342">عذرًا، ولكن لا يمكن التحقق من كلمة مرورك. يُرجى إعادة المحاولة.</translation>
 <translation id="607652042414456612">يمكن لأجهزة بلوتوث القريبة اكتشاف جهاز الكمبيوتر وسيظهر كـ "<ph name="NAME" />" بالعنوان <ph name="ADDRESS" /></translation>
 <translation id="6106745654298855237">جارٍ شحن <ph name="POWER_SOURCE" /></translation>
 <translation id="615957422585914272">إظهار لوحة مفاتيح على الشاشة</translation>
@@ -261,10 +267,12 @@
 <translation id="7658239707568436148">إلغاء</translation>
 <translation id="7692480393933218409">‏جارٍ شحن أجهزة USB-C المتصلة</translation>
 <translation id="776344839111254542">النقر لعرض تفاصيل التحديث</translation>
+<translation id="7796353162336583443">‏انقر على زر قلم الشاشة على الرف لتدوين ملاحظة أو الحصول على لقطة شاشة أو استخدام مساعد Google أو مؤشر الليزر أو العدسة المكبرة.</translation>
 <translation id="7798302898096527229">‏اضغط على مفتاح البحث أو المفتاح Shift للإلغاء.</translation>
 <translation id="7814236020522506259"><ph name="HOUR" /> و<ph name="MINUTE" /></translation>
 <translation id="7829386189513694949">إشارة قوية</translation>
 <translation id="7904094684485781019">لقد حظر مشرف هذا الحساب إمكانية الدخول المتعدد.</translation>
+<translation id="7933084174919150729">‏لا يتوفر مساعد Google إلا للملف الشخصي الأساسي.</translation>
 <translation id="7977927628060636163">جارٍ البحث عن شبكات الجوّال...</translation>
 <translation id="7982789257301363584">الشبكة</translation>
 <translation id="7994370417837006925">الدخول المتعدد</translation>
@@ -281,16 +289,17 @@
 <translation id="8261506727792406068">حذف</translation>
 <translation id="8308637677604853869">القائمة السابقة</translation>
 <translation id="8351131234907093545">إنشاء ملاحظة</translation>
-<translation id="8392234662362215700">‏انقر على Control-Shift-Space لتبديل تخطيط لوحة المفاتيح.</translation>
 <translation id="8428213095426709021">الإعدادات</translation>
 <translation id="8433186206711564395">إعدادات الشبكة</translation>
 <translation id="8433977262951327081">تم تغيير اختصار عرض الفقاعة التفسيرية لقائمة خيارات الإدخال في الرف. يُرجى استخدام <ph name="NEW_SHORTCUT" /> بدلاً من <ph name="OLD_SHORTCUT" />.</translation>
+<translation id="8452135315243592079">‏شريحة SIM مفقودة</translation>
 <translation id="8454013096329229812">‏تم تشغيل Wi-Fi.</translation>
 <translation id="847056008324733326">عرض إعدادات المقياس</translation>
 <translation id="8477270416194247200">‏اضغط على Alt+مفتاح البحث، أو اضغط على المفتاح Shift للإلغاء.</translation>
 <translation id="8484916590211895857"><ph name="NAME" /> : جارٍ إعادة الاتصال ...</translation>
 <translation id="8517041960877371778">قد يتعذر شحن <ph name="DEVICE_TYPE" /> أثناء التشغيل.</translation>
 <translation id="8639760480004882931">يتبقى <ph name="PERCENTAGE" /></translation>
+<translation id="8652175077544655965">غلق الإعدادات</translation>
 <translation id="8673028979667498656">270 درجة</translation>
 <translation id="8676770494376880701">تمّ توصيل شاحن منخفض الطاقة</translation>
 <translation id="8814190375133053267">‏لاسلكي، Wi-Fi</translation>

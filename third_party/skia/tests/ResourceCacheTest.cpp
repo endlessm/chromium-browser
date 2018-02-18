@@ -120,7 +120,7 @@ static sk_sp<GrRenderTarget> create_RT_with_SB(GrResourceProvider* provider,
 
 // This currently fails on ES3 ANGLE contexts
 DEF_GPUTEST_FOR_CONTEXTS(ResourceCacheStencilBuffers, &is_rendering_and_not_angle_es3, reporter,
-                         ctxInfo) {
+                         ctxInfo, nullptr) {
     GrContext* context = ctxInfo.grContext();
     if (context->caps()->avoidStencilBuffers()) {
         return;
@@ -214,6 +214,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceCacheWrappedResources, reporter, ctxI
                                                                 kW,
                                                                 kH,
                                                                 kRGBA_8888_GrPixelConfig,
+                                                                GrMipMapped::kNo,
                                                                 texHandles[0]);
     sk_sp<GrTexture> borrowed(context->resourceProvider()->wrapBackendTexture(
             backendTex1, kBorrow_GrWrapOwnership));
@@ -222,6 +223,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceCacheWrappedResources, reporter, ctxI
                                                                 kW,
                                                                 kH,
                                                                 kRGBA_8888_GrPixelConfig,
+                                                                GrMipMapped::kNo,
                                                                 texHandles[1]);
     sk_sp<GrTexture> adopted(context->resourceProvider()->wrapBackendTexture(
             backendTex2, kAdopt_GrWrapOwnership));
@@ -1594,7 +1596,7 @@ static void test_tags(skiatest::Reporter* reporter) {
 #endif
 }
 
-DEF_GPUTEST(ResourceCacheMisc, reporter, factory) {
+DEF_GPUTEST(ResourceCacheMisc, reporter, /* options */) {
     // The below tests create their own mock contexts.
     test_no_key(reporter);
     test_budgeting(reporter);

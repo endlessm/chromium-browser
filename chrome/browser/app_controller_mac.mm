@@ -6,6 +6,8 @@
 
 #include <stddef.h>
 
+#include <memory>
+
 #include "base/allocator/allocator_shim.h"
 #include "base/allocator/features.h"
 #include "base/auto_reset.h"
@@ -34,7 +36,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/command_updater.h"
+#include "chrome/browser/command_updater_impl.h"
 #include "chrome/browser/download/download_core_service.h"
 #include "chrome/browser/download/download_core_service_factory.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -175,7 +177,7 @@ void RecordLastRunAppBundlePath() {
   // real, user-visible app bundle directory. (The alternatives give either the
   // framework's path or the initial app's path, which may be an app mode shim
   // or a unit test.)
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   base::FilePath app_bundle_path =
       chrome::GetVersionedDirectory().DirName().DirName().DirName();
@@ -419,6 +421,18 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
   if (base::FeatureList::IsEnabled(features::kMacSystemShareMenu)) {
     // Initialize the share menu.
     [self initShareMenu];
+  }
+
+  // Remove "Enable Javascript in Apple Events" if the feature is disabled.
+  if (!base::FeatureList::IsEnabled(
+          features::kAppleScriptExecuteJavaScriptMenuItem)) {
+    NSMenu* mainMenu = [NSApp mainMenu];
+    NSMenu* viewMenu = [[mainMenu itemWithTag:IDC_VIEW_MENU] submenu];
+    NSMenu* devMenu = [[viewMenu itemWithTag:IDC_DEVELOPER_MENU] submenu];
+    NSMenuItem* javascriptAppleEventItem =
+        [devMenu itemWithTag:IDC_TOGGLE_JAVASCRIPT_APPLE_EVENTS];
+    if (javascriptAppleEventItem)
+      [devMenu removeItem:javascriptAppleEventItem];
   }
 }
 
@@ -1008,6 +1022,12 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
     return;
   }
 
+  // If not between -applicationDidFinishLaunching: and
+  // -applicationWillTerminate:, ignore. This can happen when events are sitting
+  // in the event queue while the browser is shutting down.
+  if (!keep_alive_)
+    return;
+
   NSInteger tag = [sender tag];
 
   // If there are no browser windows, and we are trying to open a browser
@@ -1231,7 +1251,7 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
 }
 
 - (void)initMenuState {
-  menuState_.reset(new CommandUpdater(NULL));
+  menuState_ = std::make_unique<CommandUpdaterImpl>(nullptr);
   menuState_->UpdateCommandEnabled(IDC_NEW_TAB, true);
   menuState_->UpdateCommandEnabled(IDC_NEW_WINDOW, true);
   menuState_->UpdateCommandEnabled(IDC_NEW_INCOGNITO_WINDOW, true);
@@ -1523,14 +1543,6 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
   return historyMenuBridge_.get();
 }
 
-- (void)addObserverForWorkAreaChange:(ui::WorkAreaWatcherObserver*)observer {
-  workAreaChangeObservers_.AddObserver(observer);
-}
-
-- (void)removeObserverForWorkAreaChange:(ui::WorkAreaWatcherObserver*)observer {
-  workAreaChangeObservers_.RemoveObserver(observer);
-}
-
 - (void)initAppShimMenuController {
   if (!appShimMenuController_)
     appShimMenuController_.reset([[AppShimMenuController alloc] init]);
@@ -1557,15 +1569,20 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
   [bookmarkItem setHidden:NO];
   lastProfile_ = profile;
 
-  auto it = profileBookmarkMenuBridgeMap_.find(profile->GetPath());
-  if (it == profileBookmarkMenuBridgeMap_.end()) {
+  auto& entry = profileBookmarkMenuBridgeMap_[profile->GetPath()];
+  if (!entry) {
+    // This creates a deep copy, but only the first 3 items in the root menu
+    // are really wanted. This can probably be optimized, but lazy-loading of
+    // the menu should reduce the impact in most flows.
     base::scoped_nsobject<NSMenu> submenu([[bookmarkItem submenu] copy]);
-    bookmarkMenuBridge_ = new BookmarkMenuBridge(profile, submenu);
-    profileBookmarkMenuBridgeMap_[profile->GetPath()] =
-        base::WrapUnique(bookmarkMenuBridge_);
-  } else {
-    bookmarkMenuBridge_ = it->second.get();
+    [submenu setDelegate:nil];  // The delegate is also copied. Remove it.
+
+    entry = std::make_unique<BookmarkMenuBridge>(profile, submenu);
+
+    // Clear bookmarks from the old profile.
+    entry->ClearBookmarkMenu();
   }
+  bookmarkMenuBridge_ = entry.get();
 
   // No need to |BuildMenu| here.  It is done lazily upon menu access.
   [bookmarkItem setSubmenu:bookmarkMenuBridge_->BookmarkMenu()];
@@ -1585,18 +1602,6 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
                      UpdateSharedCommandsForIncognitoAvailability,
                  menuState_.get(),
                  lastProfile_));
-}
-
-- (void)applicationDidChangeScreenParameters:(NSNotification*)notification {
-  // During this callback the working area is not always already updated. Defer.
-  [self performSelector:@selector(delayedScreenParametersUpdate)
-             withObject:nil
-             afterDelay:0];
-}
-
-- (void)delayedScreenParametersUpdate {
-  for (auto& observer : workAreaChangeObservers_)
-    observer.WorkAreaChanged();
 }
 
 - (BOOL)application:(NSApplication*)application

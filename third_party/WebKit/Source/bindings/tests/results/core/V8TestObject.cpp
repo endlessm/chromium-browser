@@ -10,6 +10,7 @@
 // clang-format off
 #include "V8TestObject.h"
 
+#include "base/memory/scoped_refptr.h"
 #include "bindings/core/v8/BindingSecurity.h"
 #include "bindings/core/v8/Dictionary.h"
 #include "bindings/core/v8/ExceptionState.h"
@@ -57,6 +58,7 @@
 #include "core/frame/UseCounter.h"
 #include "core/html/HTMLCollection.h"
 #include "core/html/HTMLTableRowsCollection.h"
+#include "core/html/custom/CEReactionsScope.h"
 #include "core/html/custom/V0CustomElementProcessingStack.h"
 #include "core/html/forms/HTMLDataListOptionsCollection.h"
 #include "core/html/forms/HTMLFormControlsCollection.h"
@@ -75,7 +77,6 @@
 #include "platform/bindings/V8PrivateProperty.h"
 #include "platform/runtime_enabled_features.h"
 #include "platform/wtf/GetPtr.h"
-#include "platform/wtf/RefPtr.h"
 
 namespace blink {
 
@@ -90,13 +91,12 @@ const WrapperTypeInfo V8TestObject::wrapperTypeInfo = {
     V8TestObject::domTemplate,
     V8TestObject::Trace,
     V8TestObject::TraceWrappers,
-    V8TestObject::preparePrototypeAndInterfaceObject,
+    V8TestObject::InstallConditionalFeatures,
     "TestObject",
     nullptr,
     WrapperTypeInfo::kWrapperTypeObjectPrototype,
     WrapperTypeInfo::kObjectClassId,
     WrapperTypeInfo::kNotInheritFromActiveScriptWrappable,
-    WrapperTypeInfo::kIndependent,
 };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && defined(__clang__)
 #pragma clang diagnostic pop
@@ -879,7 +879,7 @@ static void serializedScriptValueAttributeAttributeSetter(v8::Local<v8::Value> v
   ExceptionState exceptionState(isolate, ExceptionState::kSetterContext, "TestObject", "serializedScriptValueAttribute");
 
   // Prepare the value to be set.
-  RefPtr<SerializedScriptValue> cppValue = NativeValueTraits<SerializedScriptValue>::NativeValue(info.GetIsolate(), v8Value, SerializedScriptValue::SerializeOptions(SerializedScriptValue::kNotForStorage), exceptionState);
+  scoped_refptr<SerializedScriptValue> cppValue = NativeValueTraits<SerializedScriptValue>::NativeValue(info.GetIsolate(), v8Value, SerializedScriptValue::SerializeOptions(SerializedScriptValue::kNotForStorage), exceptionState);
   if (exceptionState.HadException())
     return;
 
@@ -5283,7 +5283,7 @@ static void voidMethodNullableSequenceLongArgMethod(const v8::FunctionCallbackIn
   }
 
   Nullable<Vector<int32_t>> longSequenceArg;
-  if (!IsUndefinedOrNull(info[0])) {
+  if (!info[0]->IsNullOrUndefined()) {
     longSequenceArg = NativeValueTraits<IDLSequence<IDLLong>>::NativeValue(info.GetIsolate(), info[0], exceptionState);
     if (exceptionState.HadException())
       return;
@@ -5579,12 +5579,13 @@ static void voidMethodTestCallbackInterfaceArgMethod(const v8::FunctionCallbackI
     return;
   }
 
-  TestCallbackInterface* testCallbackInterfaceArg;
-  if (info.Length() <= 0 || !info[0]->IsFunction()) {
+  V8TestCallbackInterface* testCallbackInterfaceArg;
+  if (info[0]->IsFunction()) {
+    testCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
+  } else {
     V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("voidMethodTestCallbackInterfaceArg", "TestObject", "The callback provided as parameter 1 is not a function."));
     return;
   }
-  testCallbackInterfaceArg = V8TestCallbackInterface::Create(v8::Local<v8::Function>::Cast(info[0]), ScriptState::Current(info.GetIsolate()));
 
   impl->voidMethodTestCallbackInterfaceArg(testCallbackInterfaceArg);
 }
@@ -5592,15 +5593,14 @@ static void voidMethodTestCallbackInterfaceArgMethod(const v8::FunctionCallbackI
 static void voidMethodOptionalTestCallbackInterfaceArgMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
-  TestCallbackInterface* optionalTestCallbackInterfaceArg;
-  if (!IsUndefinedOrNull(info[0])) {
-    if (!info[0]->IsFunction()) {
-      V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("voidMethodOptionalTestCallbackInterfaceArg", "TestObject", "The callback provided as parameter 1 is not a function."));
-      return;
-    }
-    optionalTestCallbackInterfaceArg = V8TestCallbackInterface::Create(v8::Local<v8::Function>::Cast(info[0]), ScriptState::Current(info.GetIsolate()));
-  } else {
+  V8TestCallbackInterface* optionalTestCallbackInterfaceArg;
+  if (info[0]->IsFunction()) {
+    optionalTestCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
+  } else if (info[0]->IsNullOrUndefined()) {
     optionalTestCallbackInterfaceArg = nullptr;
+  } else {
+    V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("voidMethodOptionalTestCallbackInterfaceArg", "TestObject", "The callback provided as parameter 1 is not a function."));
+    return;
   }
 
   impl->voidMethodOptionalTestCallbackInterfaceArg(optionalTestCallbackInterfaceArg);
@@ -5614,12 +5614,15 @@ static void voidMethodTestCallbackInterfaceOrNullArgMethod(const v8::FunctionCal
     return;
   }
 
-  TestCallbackInterface* testCallbackInterfaceArg;
-  if (info.Length() <= 0 || !(info[0]->IsFunction() || info[0]->IsNull())) {
+  V8TestCallbackInterface* testCallbackInterfaceArg;
+  if (info[0]->IsFunction()) {
+    testCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
+  } else if (0 < info.Length() && info[0]->IsNullOrUndefined()) {
+    testCallbackInterfaceArg = nullptr;
+  } else {
     V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("voidMethodTestCallbackInterfaceOrNullArg", "TestObject", "The callback provided as parameter 1 is not a function."));
     return;
   }
-  testCallbackInterfaceArg = info[0]->IsNull() ? nullptr : V8TestCallbackInterface::Create(v8::Local<v8::Function>::Cast(info[0]), ScriptState::Current(info.GetIsolate()));
 
   impl->voidMethodTestCallbackInterfaceOrNullArg(testCallbackInterfaceArg);
 }
@@ -5782,7 +5785,7 @@ static void promiseMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info)
   if (exceptionState.HadException())
     return;
 
-  if (!IsUndefinedOrNull(info[1]) && !info[1]->IsObject()) {
+  if (!info[1]->IsNullOrUndefined() && !info[1]->IsObject()) {
     exceptionState.ThrowTypeError("parameter 2 ('arg2') is not an object.");
     return;
   }
@@ -5819,7 +5822,7 @@ static void promiseMethodWithoutExceptionStateMethod(const v8::FunctionCallbackI
   }
 
   Dictionary arg1;
-  if (!IsUndefinedOrNull(info[0]) && !info[0]->IsObject()) {
+  if (!info[0]->IsNullOrUndefined() && !info[0]->IsObject()) {
     exceptionState.ThrowTypeError("parameter 1 ('arg1') is not an object.");
     return;
   }
@@ -5853,7 +5856,7 @@ static void voidMethodDictionaryArgMethod(const v8::FunctionCallbackInfo<v8::Val
   }
 
   Dictionary dictionaryArg;
-  if (!IsUndefinedOrNull(info[0]) && !info[0]->IsObject()) {
+  if (!info[0]->IsNullOrUndefined() && !info[0]->IsObject()) {
     exceptionState.ThrowTypeError("parameter 1 ('dictionaryArg') is not an object.");
     return;
   }
@@ -5906,7 +5909,7 @@ static void voidMethodSerializedScriptValueArgMethod(const v8::FunctionCallbackI
     return;
   }
 
-  RefPtr<SerializedScriptValue> serializedScriptValueArg;
+  scoped_refptr<SerializedScriptValue> serializedScriptValueArg;
   serializedScriptValueArg = NativeValueTraits<SerializedScriptValue>::NativeValue(info.GetIsolate(), info[0], SerializedScriptValue::SerializeOptions(SerializedScriptValue::kNotForStorage), exceptionState);
   if (exceptionState.HadException())
     return;
@@ -6260,7 +6263,7 @@ static void voidMethodOptionalDictionaryArgMethod(const v8::FunctionCallbackInfo
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
   Dictionary optionalDictionaryArg;
-  if (!IsUndefinedOrNull(info[0]) && !info[0]->IsObject()) {
+  if (!info[0]->IsNullOrUndefined() && !info[0]->IsObject()) {
     exceptionState.ThrowTypeError("parameter 1 ('optionalDictionaryArg') is not an object.");
     return;
   }
@@ -7158,7 +7161,7 @@ static void overloadedMethodJ2Method(const v8::FunctionCallbackInfo<v8::Value>& 
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
   TestDictionary testDictionaryArg;
-  if (!IsUndefinedOrNull(info[0]) && !info[0]->IsObject()) {
+  if (!info[0]->IsNullOrUndefined() && !info[0]->IsObject()) {
     exceptionState.ThrowTypeError("parameter 1 ('testDictionaryArg') is not an object.");
     return;
   }
@@ -7201,11 +7204,12 @@ static void overloadedMethodK1Method(const v8::FunctionCallbackInfo<v8::Value>& 
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
   ScriptValue functionArg;
-  if (!(info[0]->IsObject() && v8::Local<v8::Object>::Cast(info[0])->IsCallable())) {
+  if (info[0]->IsFunction()) {
+    functionArg = ScriptValue(ScriptState::Current(info.GetIsolate()), info[0]);
+  } else {
     V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("overloadedMethodK", "TestObject", "The callback provided as parameter 1 is not a function."));
     return;
   }
-  functionArg = ScriptValue(ScriptState::Current(info.GetIsolate()), info[0]);
 
   impl->overloadedMethodK(functionArg);
 }
@@ -7347,12 +7351,13 @@ static void overloadedMethodN1Method(const v8::FunctionCallbackInfo<v8::Value>& 
 static void overloadedMethodN2Method(const v8::FunctionCallbackInfo<v8::Value>& info) {
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
-  TestCallbackInterface* testCallbackInterfaceArg;
-  if (info.Length() <= 0 || !info[0]->IsFunction()) {
+  V8TestCallbackInterface* testCallbackInterfaceArg;
+  if (info[0]->IsFunction()) {
+    testCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
+  } else {
     V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("overloadedMethodN", "TestObject", "The callback provided as parameter 1 is not a function."));
     return;
   }
-  testCallbackInterfaceArg = V8TestCallbackInterface::Create(v8::Local<v8::Function>::Cast(info[0]), ScriptState::Current(info.GetIsolate()));
 
   impl->overloadedMethodN(testCallbackInterfaceArg);
 }
@@ -8186,6 +8191,73 @@ static void measureAsSameValueOverloadedMethodMethod(const v8::FunctionCallbackI
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
 }
 
+static void ceReactionsNotOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CEReactionsScope ceReactionsScope;
+
+  ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "ceReactionsNotOverloadedMethod");
+
+  TestObject* impl = V8TestObject::ToImpl(info.Holder());
+
+  if (UNLIKELY(info.Length() < 1)) {
+    exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
+    return;
+  }
+
+  bool arg;
+  arg = NativeValueTraits<IDLBoolean>::NativeValue(info.GetIsolate(), info[0], exceptionState);
+  if (exceptionState.HadException())
+    return;
+
+  impl->ceReactionsNotOverloadedMethod(arg);
+}
+
+static void ceReactionsOverloadedMethod1Method(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  TestObject* impl = V8TestObject::ToImpl(info.Holder());
+
+  impl->ceReactionsOverloadedMethod();
+}
+
+static void ceReactionsOverloadedMethod2Method(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CEReactionsScope ceReactionsScope;
+
+  ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "ceReactionsOverloadedMethod");
+
+  TestObject* impl = V8TestObject::ToImpl(info.Holder());
+
+  int32_t arg;
+  arg = NativeValueTraits<IDLLong>::NativeValue(info.GetIsolate(), info[0], exceptionState, kNormalConversion);
+  if (exceptionState.HadException())
+    return;
+
+  impl->ceReactionsOverloadedMethod(arg);
+}
+
+static void ceReactionsOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  bool isArityError = false;
+  switch (std::min(1, info.Length())) {
+    case 0:
+      if (true) {
+        ceReactionsOverloadedMethod1Method(info);
+        return;
+      }
+      break;
+    case 1:
+      if (true) {
+        ceReactionsOverloadedMethod2Method(info);
+        return;
+      }
+      break;
+    default:
+      isArityError = true;
+  }
+
+  ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "ceReactionsOverloadedMethod");
+
+  if (isArityError) {
+  }
+  exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
+}
+
 static void deprecateAsMeasureAsSameValueOverloadedMethod1Method(const v8::FunctionCallbackInfo<v8::Value>& info) {
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
@@ -8420,7 +8492,7 @@ static void postMessageImpl(const char* interfaceName, TestObject* instance, con
     }
   }
 
-  RefPtr<SerializedScriptValue> message;
+  scoped_refptr<SerializedScriptValue> message;
   if (instance->CanTransferArrayBuffersAndImageBitmaps()) {
     // This instance supports sending array buffers by move semantics.
     SerializedScriptValue::SerializeOptions options;
@@ -8548,12 +8620,13 @@ static void raisesExceptionVoidMethodTestCallbackInterfaceArgMethod(const v8::Fu
     return;
   }
 
-  TestCallbackInterface* testCallbackInterfaceArg;
-  if (info.Length() <= 0 || !info[0]->IsFunction()) {
+  V8TestCallbackInterface* testCallbackInterfaceArg;
+  if (info[0]->IsFunction()) {
+    testCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
+  } else {
     exceptionState.ThrowTypeError("The callback provided as parameter 1 is not a function.");
     return;
   }
-  testCallbackInterfaceArg = V8TestCallbackInterface::Create(v8::Local<v8::Function>::Cast(info[0]), ScriptState::Current(info.GetIsolate()));
 
   impl->raisesExceptionVoidMethodTestCallbackInterfaceArg(testCallbackInterfaceArg, exceptionState);
   if (exceptionState.HadException()) {
@@ -8566,15 +8639,14 @@ static void raisesExceptionVoidMethodOptionalTestCallbackInterfaceArgMethod(cons
 
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
-  TestCallbackInterface* optionalTestCallbackInterfaceArg;
-  if (!IsUndefinedOrNull(info[0])) {
-    if (!info[0]->IsFunction()) {
-      exceptionState.ThrowTypeError("The callback provided as parameter 1 is not a function.");
-      return;
-    }
-    optionalTestCallbackInterfaceArg = V8TestCallbackInterface::Create(v8::Local<v8::Function>::Cast(info[0]), ScriptState::Current(info.GetIsolate()));
-  } else {
+  V8TestCallbackInterface* optionalTestCallbackInterfaceArg;
+  if (info[0]->IsFunction()) {
+    optionalTestCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
+  } else if (info[0]->IsNullOrUndefined()) {
     optionalTestCallbackInterfaceArg = nullptr;
+  } else {
+    exceptionState.ThrowTypeError("The callback provided as parameter 1 is not a function.");
+    return;
   }
 
   impl->raisesExceptionVoidMethodOptionalTestCallbackInterfaceArg(optionalTestCallbackInterfaceArg, exceptionState);
@@ -9005,12 +9077,6 @@ static void RuntimeCallStatsCounterMethodMethod(const v8::FunctionCallbackInfo<v
   impl->RuntimeCallStatsCounterMethod();
 }
 
-static void serializerMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
-  TestObject* impl = V8TestObject::ToImpl(info.Holder());
-
-  V8SetReturnValueString(info, impl->serializerMethod(), info.GetIsolate());
-}
-
 static void clearMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "clear");
 
@@ -9067,11 +9133,12 @@ static void forEachMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
 
   ScriptValue callback;
   ScriptValue thisArg;
-  if (!(info[0]->IsObject() && v8::Local<v8::Object>::Cast(info[0])->IsCallable())) {
+  if (info[0]->IsFunction()) {
+    callback = ScriptValue(ScriptState::Current(info.GetIsolate()), info[0]);
+  } else {
     exceptionState.ThrowTypeError("The callback provided as parameter 1 is not a function.");
     return;
   }
-  callback = ScriptValue(ScriptState::Current(info.GetIsolate()), info[0]);
 
   thisArg = ScriptValue(ScriptState::Current(info.GetIsolate()), info[1]);
 
@@ -9185,7 +9252,10 @@ static void setMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
 static void toJSONMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
-  V8SetReturnValueString(info, impl->serializerMethod(), info.GetIsolate());
+  ScriptState* scriptState = ScriptState::ForRelevantRealm(info);
+
+  ScriptValue result = impl->toJSONForBinding(scriptState);
+  V8SetReturnValue(info, result.V8Value());
 }
 
 static void toStringMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -12659,6 +12729,18 @@ void V8TestObject::measureAsSameValueOverloadedMethodMethodCallback(const v8::Fu
   TestObjectV8Internal::measureAsSameValueOverloadedMethodMethod(info);
 }
 
+void V8TestObject::ceReactionsNotOverloadedMethodMethodCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  RUNTIME_CALL_TIMER_SCOPE_DISABLED_BY_DEFAULT(info.GetIsolate(), "Blink_TestObject_ceReactionsNotOverloadedMethod");
+
+  TestObjectV8Internal::ceReactionsNotOverloadedMethodMethod(info);
+}
+
+void V8TestObject::ceReactionsOverloadedMethodMethodCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  RUNTIME_CALL_TIMER_SCOPE_DISABLED_BY_DEFAULT(info.GetIsolate(), "Blink_TestObject_ceReactionsOverloadedMethod");
+
+  TestObjectV8Internal::ceReactionsOverloadedMethodMethod(info);
+}
+
 void V8TestObject::deprecateAsMeasureAsSameValueOverloadedMethodMethodCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
   RUNTIME_CALL_TIMER_SCOPE_DISABLED_BY_DEFAULT(info.GetIsolate(), "Blink_TestObject_deprecateAsMeasureAsSameValueOverloadedMethod");
 
@@ -12911,12 +12993,6 @@ void V8TestObject::newObjectTestInterfacePromiseMethodMethodCallback(const v8::F
 void V8TestObject::RuntimeCallStatsCounterMethodMethodCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
   RUNTIME_CALL_TIMER_SCOPE(info.GetIsolate(), RuntimeCallStats::CounterId::kRuntimeCallStatsCounterMethod);
   TestObjectV8Internal::RuntimeCallStatsCounterMethodMethod(info);
-}
-
-void V8TestObject::serializerMethodMethodCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
-  RUNTIME_CALL_TIMER_SCOPE_DISABLED_BY_DEFAULT(info.GetIsolate(), "Blink_TestObject_serializerMethod");
-
-  TestObjectV8Internal::serializerMethodMethod(info);
 }
 
 void V8TestObject::clearMethodCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -13590,6 +13666,8 @@ static const V8DOMConfiguration::MethodConfiguration V8TestObjectMethods[] = {
     {"DeprecateAsSameValueOverloadedMethod", V8TestObject::DeprecateAsSameValueOverloadedMethodMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"measureAsOverloadedMethod", V8TestObject::measureAsOverloadedMethodMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"measureAsSameValueOverloadedMethod", V8TestObject::measureAsSameValueOverloadedMethodMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
+    {"ceReactionsNotOverloadedMethod", V8TestObject::ceReactionsNotOverloadedMethodMethodCallback, 1, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
+    {"ceReactionsOverloadedMethod", V8TestObject::ceReactionsOverloadedMethodMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"deprecateAsMeasureAsSameValueOverloadedMethod", V8TestObject::deprecateAsMeasureAsSameValueOverloadedMethodMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"deprecateAsSameValueMeasureAsOverloadedMethod", V8TestObject::deprecateAsSameValueMeasureAsOverloadedMethodMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"deprecateAsSameValueMeasureAsSameValueOverloadedMethod", V8TestObject::deprecateAsSameValueMeasureAsSameValueOverloadedMethodMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
@@ -13621,7 +13699,6 @@ static const V8DOMConfiguration::MethodConfiguration V8TestObjectMethods[] = {
     {"newObjectTestInterfaceMethod", V8TestObject::newObjectTestInterfaceMethodMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"newObjectTestInterfacePromiseMethod", V8TestObject::newObjectTestInterfacePromiseMethodMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kDoNotCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"RuntimeCallStatsCounterMethod", V8TestObject::RuntimeCallStatsCounterMethodMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
-    {"serializerMethod", V8TestObject::serializerMethodMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"keys", V8TestObject::keysMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"values", V8TestObject::valuesMethodCallback, 0, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
     {"forEach", V8TestObject::forEachMethodCallback, 1, v8::None, V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kDoNotCheckAccess, V8DOMConfiguration::kAllWorlds},
@@ -13829,25 +13906,49 @@ TestObject* NativeValueTraits<TestObject>::NativeValue(v8::Isolate* isolate, v8:
   return nativeValue;
 }
 
-void V8TestObject::preparePrototypeAndInterfaceObject(v8::Local<v8::Context> context, const DOMWrapperWorld& world, v8::Local<v8::Object> prototypeObject, v8::Local<v8::Function> interfaceObject, v8::Local<v8::FunctionTemplate> interfaceTemplate) {
+void V8TestObject::InstallConditionalFeatures(
+    v8::Local<v8::Context> context,
+    const DOMWrapperWorld& world,
+    v8::Local<v8::Object> instanceObject,
+    v8::Local<v8::Object> prototypeObject,
+    v8::Local<v8::Function> interfaceObject,
+    v8::Local<v8::FunctionTemplate> interfaceTemplate) {
+  CHECK(!interfaceTemplate.IsEmpty());
+  DCHECK((!prototypeObject.IsEmpty() && !interfaceObject.IsEmpty()) ||
+         !instanceObject.IsEmpty());
+
   v8::Isolate* isolate = context->GetIsolate();
 
-  v8::Local<v8::Name> unscopablesSymbol(v8::Symbol::GetUnscopables(isolate));
-  v8::Local<v8::Object> unscopables;
-  if (V8CallBoolean(prototypeObject->HasOwnProperty(context, unscopablesSymbol)))
-    unscopables = prototypeObject->Get(context, unscopablesSymbol).ToLocalChecked().As<v8::Object>();
-  else
-    unscopables = v8::Object::New(isolate);
-  unscopables->CreateDataProperty(context, V8AtomicString(isolate, "unscopableLongAttribute"), v8::True(isolate)).FromJust();
-  unscopables->CreateDataProperty(context, V8AtomicString(isolate, "unscopableOriginTrialEnabledLongAttribute"), v8::True(isolate)).FromJust();
-  if (RuntimeEnabledFeatures::FeatureNameEnabled()) {
-    unscopables->CreateDataProperty(context, V8AtomicString(isolate, "unscopableRuntimeEnabledLongAttribute"), v8::True(isolate)).FromJust();
+  if (!prototypeObject.IsEmpty()) {
+    v8::Local<v8::Name> unscopablesSymbol(v8::Symbol::GetUnscopables(isolate));
+    v8::Local<v8::Object> unscopables;
+    bool has_unscopables;
+    if (prototypeObject->HasOwnProperty(context, unscopablesSymbol).To(&has_unscopables) && has_unscopables) {
+      unscopables = prototypeObject->Get(context, unscopablesSymbol).ToLocalChecked().As<v8::Object>();
+    } else {
+      unscopables = v8::Object::New(isolate);
+    }
+    unscopables->CreateDataProperty(
+        context, V8AtomicString(isolate, "unscopableLongAttribute"), v8::True(isolate))
+        .FromJust();
+    unscopables->CreateDataProperty(
+        context, V8AtomicString(isolate, "unscopableOriginTrialEnabledLongAttribute"), v8::True(isolate))
+        .FromJust();
+    if (RuntimeEnabledFeatures::FeatureNameEnabled()) {
+      unscopables->CreateDataProperty(
+          context, V8AtomicString(isolate, "unscopableRuntimeEnabledLongAttribute"), v8::True(isolate))
+          .FromJust();
+    }
+    if (RuntimeEnabledFeatures::FeatureNameEnabled()) {
+      unscopables->CreateDataProperty(
+          context, V8AtomicString(isolate, "unscopableRuntimeEnabledVoidMethod"), v8::True(isolate))
+          .FromJust();
+    }
+    unscopables->CreateDataProperty(
+        context, V8AtomicString(isolate, "unscopableVoidMethod"), v8::True(isolate))
+        .FromJust();
+    prototypeObject->CreateDataProperty(context, unscopablesSymbol, unscopables).FromJust();
   }
-  if (RuntimeEnabledFeatures::FeatureNameEnabled()) {
-    unscopables->CreateDataProperty(context, V8AtomicString(isolate, "unscopableRuntimeEnabledVoidMethod"), v8::True(isolate)).FromJust();
-  }
-  unscopables->CreateDataProperty(context, V8AtomicString(isolate, "unscopableVoidMethod"), v8::True(isolate)).FromJust();
-  prototypeObject->CreateDataProperty(context, unscopablesSymbol, unscopables).FromJust();
 }
 
 }  // namespace blink

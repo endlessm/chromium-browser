@@ -318,6 +318,10 @@ Profile* OffTheRecordProfileImpl::GetOriginalProfile() {
   return profile_;
 }
 
+const Profile* OffTheRecordProfileImpl::GetOriginalProfile() const {
+  return profile_;
+}
+
 ExtensionSpecialStoragePolicy*
     OffTheRecordProfileImpl::GetExtensionSpecialStoragePolicy() {
   return GetOriginalProfile()->GetExtensionSpecialStoragePolicy();
@@ -467,6 +471,15 @@ OffTheRecordProfileImpl::GetBrowsingDataRemoverDelegate() {
   return ChromeBrowsingDataRemoverDelegateFactory::GetForProfile(this);
 }
 
+media::VideoDecodePerfHistory*
+OffTheRecordProfileImpl::GetVideoDecodePerfHistory() {
+  // Defer to the original profile for VideoDecodePerfHistory. The incognito
+  // profile will have no history of its own (we don't save it for incognito)
+  // and the two profiles should have the same video performance. The history is
+  // not exposed directly to the web, so privacy is not compromised.
+  return GetOriginalProfile()->GetVideoDecodePerfHistory();
+}
+
 bool OffTheRecordProfileImpl::IsSameProfile(Profile* profile) {
   return (profile == this) || (profile == profile_);
 }
@@ -524,18 +537,6 @@ chrome_browser_net::Predictor* OffTheRecordProfileImpl::GetNetworkPredictor() {
   // We do not store information about websites visited in OTR profiles which
   // is necessary for a Predictor, so we do not have a Predictor at all.
   return NULL;
-}
-
-void OffTheRecordProfileImpl::ClearNetworkingHistorySince(
-    base::Time time,
-    const base::Closure& completion) {
-  // Nothing to do here, our transport security state is read-only.
-  // Still, fire the callback to indicate we have finished, otherwise the
-  // BrowsingDataRemover will never be destroyed and the dialog will never be
-  // closed. We must do this asynchronously in order to avoid reentrancy issues.
-  if (!completion.is_null()) {
-    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE, completion);
-  }
 }
 
 GURL OffTheRecordProfileImpl::GetHomePage() {

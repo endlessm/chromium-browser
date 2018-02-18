@@ -95,10 +95,10 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/users/mock_user_manager.h"
-#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_cryptohome_client.h"
 #include "components/signin/core/account_id/account_id.h"
+#include "components/user_manager/scoped_user_manager.h"
 #endif
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -401,7 +401,8 @@ class RemoveFaviconTester {
     SkBitmap bitmap;
     bitmap.allocN32Pixels(gfx::kFaviconSize, gfx::kFaviconSize);
     bitmap.eraseColor(SK_ColorBLUE);
-    favicon_service_->SetFavicons({page_url}, page_url, favicon_base::FAVICON,
+    favicon_service_->SetFavicons({page_url}, page_url,
+                                  favicon_base::IconType::kFavicon,
                                   gfx::Image::CreateFrom1xBitmap(bitmap));
   }
 
@@ -412,9 +413,7 @@ class RemoveFaviconTester {
     base::RunLoop run_loop;
     quit_closure_ = run_loop.QuitClosure();
     favicon_service_->GetRawFaviconForPageURL(
-        page_url,
-        favicon_base::FAVICON,
-        gfx::kFaviconSize,
+        page_url, {favicon_base::IconType::kFavicon}, gfx::kFaviconSize,
         base::Bind(&RemoveFaviconTester::SaveResultAndQuit,
                    base::Unretained(this)),
         &tracker_);
@@ -1428,7 +1427,8 @@ TEST_F(ChromeBrowsingDataRemoverDelegateTest,
       new testing::NiceMock<chromeos::MockUserManager>();
   mock_user_manager->SetActiveUser(
       AccountId::FromUserEmail("test@example.com"));
-  chromeos::ScopedUserManagerEnabler user_manager_enabler(mock_user_manager);
+  user_manager::ScopedUserManager user_manager_enabler(
+      base::WrapUnique(mock_user_manager));
 
   // Owned by DBusThreadManager.
   FakeCryptohomeClient* cryptohome_client = new FakeCryptohomeClient();
@@ -1870,14 +1870,13 @@ TEST_F(ChromeBrowsingDataRemoverDelegateTest, RemoveZoomLevel) {
 
   EXPECT_EQ(0u, zoom_map->GetAllZoomLevels().size());
 
-  auto test_clock = base::MakeUnique<base::SimpleTestClock>();
-  base::SimpleTestClock* clock = test_clock.get();
-  zoom_map->SetClockForTesting(std::move(test_clock));
+  base::SimpleTestClock test_clock;
+  zoom_map->SetClockForTesting(&test_clock);
 
   base::Time now = base::Time::Now();
   zoom_map->InitializeZoomLevelForHost(kTestRegisterableDomain1, 1.5,
                                        now - base::TimeDelta::FromHours(5));
-  clock->SetNow(now - base::TimeDelta::FromHours(2));
+  test_clock.SetNow(now - base::TimeDelta::FromHours(2));
   zoom_map->SetZoomLevelForHost(kTestRegisterableDomain3, 2.0);
   EXPECT_EQ(2u, zoom_map->GetAllZoomLevels().size());
 
@@ -1889,7 +1888,7 @@ TEST_F(ChromeBrowsingDataRemoverDelegateTest, RemoveZoomLevel) {
   // Nothing should be deleted as the zoomlevels were created earlier.
   EXPECT_EQ(2u, zoom_map->GetAllZoomLevels().size());
 
-  clock->SetNow(now);
+  test_clock.SetNow(now);
   zoom_map->SetZoomLevelForHost(kTestRegisterableDomain3, 2.0);
 
   // Remove everything changed during the last hour (domain3).
@@ -2249,8 +2248,7 @@ TEST_F(ChromeBrowsingDataRemoverDelegateTest,
 TEST_F(ChromeBrowsingDataRemoverDelegateTest,
        LanguageHistogramClearedOnClearingCompleteHistory) {
   language::UrlLanguageHistogram* language_histogram =
-      UrlLanguageHistogramFactory::GetInstance()->GetForBrowserContext(
-          GetProfile());
+      UrlLanguageHistogramFactory::GetForBrowserContext(GetProfile());
 
   // Simulate browsing.
   for (int i = 0; i < 100; i++) {

@@ -253,9 +253,8 @@ void PopulateAXState(arc::mojom::AccessibilityNodeInfoData* node,
   // These mappings were taken from accessibility utils (Android -> Chrome) and
   // BrowserAccessibilityAndroid. They do not completely match the above two
   // sources.
-  // The FOCUSABLE state is not mapped because Android places focusability on
-  // many ancestor nodes.
   MAP_STATE(AXBooleanProperty::EDITABLE, ui::AX_STATE_EDITABLE);
+  MAP_STATE(AXBooleanProperty::FOCUSABLE, ui::AX_STATE_FOCUSABLE);
   MAP_STATE(AXBooleanProperty::MULTI_LINE, ui::AX_STATE_MULTILINE);
   MAP_STATE(AXBooleanProperty::PASSWORD, ui::AX_STATE_PROTECTED);
   MAP_STATE(AXBooleanProperty::SELECTED, ui::AX_STATE_SELECTED);
@@ -501,8 +500,13 @@ void AXTreeSourceArc::SerializeNode(mojom::AccessibilityNodeInfoData* node,
           node, arc::mojom::AccessibilityBooleanProperty::SCROLLABLE)) {
     out_data->AddBoolAttribute(ui::AX_ATTR_SCROLLABLE, true);
   }
+  if (GetBooleanProperty(node,
+                         arc::mojom::AccessibilityBooleanProperty::CLICKABLE)) {
+    out_data->AddBoolAttribute(ui::AX_ATTR_CLICKABLE, true);
+  }
 
-  exo::WMHelper* wm_helper = exo::WMHelper::GetInstance();
+  exo::WMHelper* wm_helper =
+      exo::WMHelper::HasInstance() ? exo::WMHelper::GetInstance() : nullptr;
 
   // To get bounds of a node which can be passed to AXNodeData.location,
   // - Root node must exist.

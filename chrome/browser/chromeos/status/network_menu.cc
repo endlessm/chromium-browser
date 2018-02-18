@@ -13,13 +13,12 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/chromeos/login/ui/internet_detail_dialog.h"
 #include "chrome/browser/chromeos/mobile_config.h"
 #include "chrome/browser/chromeos/options/network_config_view.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/browser/chromeos/sim_dialog_delegate.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/webui/chromeos/internet_detail_dialog.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/network/device_state.h"
@@ -615,7 +614,7 @@ void MoreMenuModel::InitMenuItems(bool should_open_button_options) {
   }
 
   if (default_network) {
-    std::string ip_address = default_network->ip_address();
+    std::string ip_address = default_network->GetIpAddress();
     if (!ip_address.empty()) {
       address_items.push_back(MenuItem(
           ui::MenuModel::TYPE_COMMAND, base::ASCIIToUTF16(ip_address),

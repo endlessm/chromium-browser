@@ -5,7 +5,11 @@
 #include "chrome/browser/vr/test/ui_pixel_test.h"
 
 #include "base/memory/ptr_util.h"
+#include "build/build_config.h"
 #include "chrome/browser/vr/browser_ui_interface.h"
+#include "chrome/browser/vr/model/model.h"
+#include "chrome/browser/vr/test/animation_utils.h"
+#include "chrome/browser/vr/test/constants.h"
 #include "chrome/browser/vr/ui_browser_interface.h"
 #include "chrome/browser/vr/ui_input_manager.h"
 #include "chrome/browser/vr/ui_renderer.h"
@@ -15,22 +19,18 @@
 #include "third_party/skia/include/core/SkStream.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
-#include "ui/gl/test/gl_image_test_template.h"
+#include "ui/gl/test/gl_test_helper.h"
 
 namespace vr {
-
-namespace {
-
-// Resolution of Pixel Phone for one eye.
-static const gfx::Size kPixelHalfScreen(960, 1080);
-
-}  // namespace
 
 UiPixelTest::UiPixelTest() : frame_buffer_size_(kPixelHalfScreen) {}
 
 UiPixelTest::~UiPixelTest() = default;
 
 void UiPixelTest::SetUp() {
+// TODO(crbug/771794): Test temporarily disabled on Windows because it crashes
+// on trybots. Fix before enabling Windows support.
+#ifndef OS_WIN
   gl_test_environment_ =
       base::MakeUnique<GlTestEnvironment>(frame_buffer_size_);
 
@@ -40,22 +40,25 @@ void UiPixelTest::SetUp() {
   // with fake content.
   ASSERT_EQ(glGetError(), (GLenum)GL_NO_ERROR);
 
-  browser_ = base::MakeUnique<MockBrowserInterface>();
-  content_input_delegate_ = base::MakeUnique<MockContentInputDelegate>();
+  browser_ = base::MakeUnique<MockUiBrowserInterface>();
+#endif
 }
 
 void UiPixelTest::TearDown() {
+// TODO(crbug/771794): Test temporarily disabled on Windows because it crashes
+// on trybots. Fix before enabling Windows support.
+#ifndef OS_WIN
   ui_.reset();
   glDeleteTextures(1, &content_texture_);
   gl_test_environment_.reset();
+#endif
 }
 
 void UiPixelTest::MakeUi(const UiInitialState& ui_initial_state,
                          const ToolbarState& toolbar_state) {
-  ui_ = base::MakeUnique<Ui>(browser_.get(), content_input_delegate_.get(),
-                             ui_initial_state);
+  ui_ = base::MakeUnique<Ui>(browser_.get(), nullptr, ui_initial_state);
   ui_->OnGlInitialized(content_texture_,
-                       vr::UiElementRenderer::kTextureLocationLocal);
+                       vr::UiElementRenderer::kTextureLocationLocal, true);
   ui_->GetBrowserUiWeakPtr()->SetToolbarState(toolbar_state);
 }
 
@@ -66,36 +69,36 @@ void UiPixelTest::DrawUi(const gfx::Vector3dF& laser_direction,
                          const gfx::Transform& controller_transform,
                          const gfx::Transform& view_matrix,
                          const gfx::Transform& proj_matrix) {
-  ControllerInfo controller_info;
-  controller_info.transform = controller_transform;
-  controller_info.opacity = controller_opacity;
-  controller_info.laser_origin = laser_origin;
-  controller_info.touchpad_button_state = button_state;
-  controller_info.app_button_state = UiInputManager::ButtonState::UP;
-  controller_info.home_button_state = UiInputManager::ButtonState::UP;
+  ControllerModel controller_model;
+  controller_model.laser_direction = kForwardVector;
+  controller_model.transform = controller_transform;
+  controller_model.opacity = controller_opacity;
+  controller_model.laser_origin = laser_origin;
+  controller_model.touchpad_button_state = button_state;
+  controller_model.app_button_state = UiInputManager::ButtonState::UP;
+  controller_model.home_button_state = UiInputManager::ButtonState::UP;
   RenderInfo render_info;
   render_info.head_pose = view_matrix;
-  render_info.left_eye_info.view_matrix = view_matrix;
-  render_info.left_eye_info.proj_matrix = proj_matrix;
-  render_info.left_eye_info.view_proj_matrix = proj_matrix * view_matrix;
-  render_info.right_eye_info = render_info.left_eye_info;
+  render_info.left_eye_model.view_matrix = view_matrix;
+  render_info.left_eye_model.proj_matrix = proj_matrix;
+  render_info.left_eye_model.view_proj_matrix = proj_matrix * view_matrix;
+  render_info.right_eye_model = render_info.left_eye_model;
   render_info.surface_texture_size = frame_buffer_size_;
-  render_info.left_eye_info.viewport = {0, 0, frame_buffer_size_.width(),
-                                        frame_buffer_size_.height()};
-  render_info.right_eye_info.viewport = {0, 0, 0, 0};
+  render_info.left_eye_model.viewport = {0, 0, frame_buffer_size_.width(),
+                                         frame_buffer_size_.height()};
+  render_info.right_eye_model.viewport = {0, 0, 0, 0};
 
   GestureList gesture_list;
-  ui_->scene()->OnBeginFrame(
+  ReticleModel reticle_model;
+  EXPECT_TRUE(ui_->scene()->OnBeginFrame(
       base::TimeTicks(),
       gfx::Vector3dF(-render_info.head_pose.matrix().get(2, 0),
                      -render_info.head_pose.matrix().get(2, 1),
-                     -render_info.head_pose.matrix().get(2, 2)));
-  ui_->input_manager()->HandleInput(
-      gfx::Vector3dF(0.0f, 0.0f, -1.0f), controller_info.laser_origin,
-      controller_info.touchpad_button_state, &gesture_list,
-      &controller_info.target_point, &controller_info.reticle_render_target);
-
-  ui_->ui_renderer()->Draw(render_info, controller_info);
+                     -render_info.head_pose.matrix().get(2, 2))));
+  ui_->input_manager()->HandleInput(MsToTicks(1), controller_model,
+                                    &reticle_model, &gesture_list);
+  ui_->OnControllerUpdated(controller_model, reticle_model);
+  ui_->ui_renderer()->Draw(render_info);
 
   // We produce GL errors while rendering. Clear them all so that we can check
   // for errors of subsequent calls.

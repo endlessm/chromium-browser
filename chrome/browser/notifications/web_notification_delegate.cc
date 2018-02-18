@@ -14,7 +14,7 @@
 #include "chrome/browser/profiles/profile.h"
 
 WebNotificationDelegate::WebNotificationDelegate(
-    NotificationCommon::Type notification_type,
+    NotificationHandler::Type notification_type,
     Profile* profile,
     const std::string& notification_id,
     const GURL& origin)
@@ -25,48 +25,34 @@ WebNotificationDelegate::WebNotificationDelegate(
 
 WebNotificationDelegate::~WebNotificationDelegate() {}
 
-bool WebNotificationDelegate::SettingsClick() {
-#if !defined(OS_CHROMEOS)
-  NotificationCommon::OpenNotificationSettings(profile_);
-  return true;
+void WebNotificationDelegate::SettingsClick() {
+#if defined(OS_CHROMEOS)
+  NOTREACHED();
 #else
-  return false;
+  NotificationCommon::OpenNotificationSettings(profile_);
 #endif
 }
 
-bool WebNotificationDelegate::ShouldDisplaySettingsButton() {
-  return notification_type_ != NotificationCommon::EXTENSION;
-}
-
 void WebNotificationDelegate::DisableNotification() {
-  DCHECK_NE(notification_type_, NotificationCommon::EXTENSION);
+  DCHECK_NE(notification_type_, NotificationHandler::Type::EXTENSION);
   DesktopNotificationProfileUtil::DenyPermission(profile_, origin_);
-}
-
-bool WebNotificationDelegate::ShouldDisplayOverFullscreen() const {
-  NotificationDisplayService* display_service =
-      NotificationDisplayServiceFactory::GetForProfile(profile_);
-
-  return display_service->ShouldDisplayOverFullscreen(origin_,
-                                                      notification_type_);
 }
 
 void WebNotificationDelegate::Close(bool by_user) {
   auto* display_service =
       NotificationDisplayServiceFactory::GetForProfile(profile_);
   display_service->ProcessNotificationOperation(
-      NotificationCommon::CLOSE, notification_type_, origin().spec(),
-      notification_id_, base::nullopt /* action_index */,
-      base::nullopt /* reply */, by_user);
+      NotificationCommon::CLOSE, notification_type_, origin(), notification_id_,
+      base::nullopt /* action_index */, base::nullopt /* reply */, by_user);
 }
 
 void WebNotificationDelegate::Click() {
   auto* display_service =
       NotificationDisplayServiceFactory::GetForProfile(profile_);
   display_service->ProcessNotificationOperation(
-      NotificationCommon::CLICK, notification_type_, origin().spec(),
-      notification_id_, base::nullopt /* action_index */,
-      base::nullopt /* reply */, base::nullopt /* by_user */);
+      NotificationCommon::CLICK, notification_type_, origin(), notification_id_,
+      base::nullopt /* action_index */, base::nullopt /* reply */,
+      base::nullopt /* by_user */);
 }
 
 void WebNotificationDelegate::ButtonClick(int action_index) {
@@ -74,9 +60,8 @@ void WebNotificationDelegate::ButtonClick(int action_index) {
   auto* display_service =
       NotificationDisplayServiceFactory::GetForProfile(profile_);
   display_service->ProcessNotificationOperation(
-      NotificationCommon::CLICK, notification_type_, origin().spec(),
-      notification_id_, action_index, base::nullopt /* reply */,
-      base::nullopt /* by_user */);
+      NotificationCommon::CLICK, notification_type_, origin(), notification_id_,
+      action_index, base::nullopt /* reply */, base::nullopt /* by_user */);
 }
 
 void WebNotificationDelegate::ButtonClickWithReply(
@@ -85,6 +70,6 @@ void WebNotificationDelegate::ButtonClickWithReply(
   auto* display_service =
       NotificationDisplayServiceFactory::GetForProfile(profile_);
   display_service->ProcessNotificationOperation(
-      NotificationCommon::CLICK, notification_type_, origin().spec(),
-      notification_id_, action_index, reply, base::nullopt /* by_user */);
+      NotificationCommon::CLICK, notification_type_, origin(), notification_id_,
+      action_index, reply, base::nullopt /* by_user */);
 }

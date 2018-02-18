@@ -6,13 +6,13 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "content/child/web_url_loader_impl.h"
 #include "content/common/frame_messages.h"
 #include "content/common/navigation_params.h"
-#include "content/public/common/associated_interface_provider.h"
 #include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/resource_response.h"
 #include "content/public/test/mock_render_thread.h"
+#include "content/renderer/loader/web_url_loader_impl.h"
+#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 
 namespace content {
@@ -35,7 +35,9 @@ class MockFrameHost : public mojom::FrameHost {
   }
 
   bool CreateNewWindow(mojom::CreateNewWindowParamsPtr params,
+                       mojom::CreateNewWindowStatus* status,
                        mojom::CreateNewWindowReplyPtr* reply) override {
+    *status = mojom::CreateNewWindowStatus::kSuccess;
     *reply = mojom::CreateNewWindowReply::New();
     MockRenderThread* mock_render_thread =
         static_cast<MockRenderThread*>(RenderThread::Get());
@@ -60,14 +62,13 @@ class MockFrameHost : public mojom::FrameHost {
 
 // static
 RenderFrameImpl* TestRenderFrame::CreateTestRenderFrame(
-    const RenderFrameImpl::CreateParams& params) {
-  return new TestRenderFrame(params);
+    RenderFrameImpl::CreateParams params) {
+  return new TestRenderFrame(std::move(params));
 }
 
-TestRenderFrame::TestRenderFrame(const RenderFrameImpl::CreateParams& params)
-    : RenderFrameImpl(params),
-      mock_frame_host_(base::MakeUnique<MockFrameHost>()) {
-}
+TestRenderFrame::TestRenderFrame(RenderFrameImpl::CreateParams params)
+    : RenderFrameImpl(std::move(params)),
+      mock_frame_host_(std::make_unique<MockFrameHost>()) {}
 
 TestRenderFrame::~TestRenderFrame() {}
 
@@ -76,9 +77,10 @@ void TestRenderFrame::Navigate(const CommonNavigationParams& common_params,
                                const RequestNavigationParams& request_params) {
   // PlzNavigate
   if (IsBrowserSideNavigationEnabled()) {
-    OnCommitNavigation(ResourceResponseHead(), GURL(),
-                       FrameMsg_CommitDataNetworkService_Params(),
-                       common_params, request_params);
+    CommitNavigation(ResourceResponseHead(), GURL(), common_params,
+                     request_params, mojo::ScopedDataPipeConsumerHandle(),
+                     URLLoaderFactoryBundle(),
+                     base::UnguessableToken::Create());
   } else {
     OnNavigate(common_params, start_params, request_params);
   }
@@ -133,13 +135,6 @@ blink::WebNavigationPolicy TestRenderFrame::DecidePolicyForNavigation(
     info.url_request.SetCheckForBrowserSideNavigation(false);
   }
   return RenderFrameImpl::DecidePolicyForNavigation(info);
-}
-
-std::unique_ptr<blink::WebURLLoader> TestRenderFrame::CreateURLLoader(
-    const blink::WebURLRequest& request,
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
-  return base::MakeUnique<WebURLLoaderImpl>(
-      nullptr, base::ThreadTaskRunnerHandle::Get(), nullptr);
 }
 
 std::unique_ptr<FrameHostMsg_DidCommitProvisionalLoad_Params>

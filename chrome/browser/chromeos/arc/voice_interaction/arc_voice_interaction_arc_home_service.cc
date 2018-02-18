@@ -29,7 +29,7 @@
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_service_manager.h"
-#include "components/arc/instance_holder.h"
+#include "components/arc/connection_holder.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/accessibility/platform/ax_snapshot_node_android_platform.h"
@@ -68,10 +68,8 @@ mojom::VoiceInteractionStructurePtr CreateVoiceInteractionStructure(
   structure->rect = view_structure.rect;
 
   if (view_structure.has_selection) {
-    auto selection = mojom::TextSelection::New();
-    selection->start_selection = view_structure.start_selection;
-    selection->end_selection = view_structure.end_selection;
-    structure->selection = std::move(selection);
+    structure->selection = gfx::Range(view_structure.start_selection,
+                                      view_structure.end_selection);
   }
 
   for (auto& child : view_structure.children)
@@ -85,14 +83,24 @@ void RequestVoiceInteractionStructureCallback(
         callback,
     const gfx::Rect& bounds,
     const std::string& web_url,
+    const base::string16& title,
     const ui::AXTreeUpdate& update) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  // The assist structure starts with 2 dummy nodes: Url node and title
+  // node. Then we attach all nodes in view hierarchy.
   auto root = mojom::VoiceInteractionStructure::New();
   root->rect = bounds;
   root->class_name = "android.view.dummy.root.WebUrl";
   root->text = base::UTF8ToUTF16(web_url);
-  root->children.push_back(CreateVoiceInteractionStructure(
+
+  auto title_node = mojom::VoiceInteractionStructure::New();
+  title_node->rect = gfx::Rect(bounds.size());
+  title_node->class_name = "android.view.dummy.WebTitle";
+  title_node->text = title;
+  title_node->children.push_back(CreateVoiceInteractionStructure(
       *ui::AXSnapshotNodeAndroid::Create(update, false)));
+  root->children.push_back(std::move(title_node));
   std::move(callback).Run(std::move(root));
 }
 
@@ -149,8 +157,8 @@ ArcVoiceInteractionArcHomeService::ArcVoiceInteractionArcHomeService(
     : context_(context),
       arc_bridge_service_(bridge_service),
       assistant_started_timeout_(kAssistantStartedTimeout),
-      wizard_completed_timeout_(kWizardCompletedTimeout),
-      binding_(this) {
+      wizard_completed_timeout_(kWizardCompletedTimeout) {
+  arc_bridge_service_->voice_interaction_arc_home()->SetHost(this);
   arc_bridge_service_->voice_interaction_arc_home()->AddObserver(this);
   ArcSessionManager::Get()->AddObserver(this);
 }
@@ -161,6 +169,7 @@ ArcVoiceInteractionArcHomeService::~ArcVoiceInteractionArcHomeService() =
 void ArcVoiceInteractionArcHomeService::Shutdown() {
   ResetTimeouts();
   arc_bridge_service_->voice_interaction_arc_home()->RemoveObserver(this);
+  arc_bridge_service_->voice_interaction_arc_home()->SetHost(nullptr);
   ArcSessionManager::Get()->RemoveObserver(this);
 }
 
@@ -267,18 +276,7 @@ void ArcVoiceInteractionArcHomeService::OnWizardCompleteTimeout() {
   UnlockPai();
 }
 
-void ArcVoiceInteractionArcHomeService::OnInstanceReady() {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  mojom::VoiceInteractionArcHomeInstance* home_instance =
-      ARC_GET_INSTANCE_FOR_METHOD(
-          arc_bridge_service_->voice_interaction_arc_home(), Init);
-  DCHECK(home_instance);
-  mojom::VoiceInteractionArcHomeHostPtr host_proxy;
-  binding_.Bind(mojo::MakeRequest(&host_proxy));
-  home_instance->Init(std::move(host_proxy));
-}
-
-void ArcVoiceInteractionArcHomeService::OnInstanceClosed() {
+void ArcVoiceInteractionArcHomeService::OnConnectionClosed() {
   VLOG(1) << "Voice interaction instance is closed.";
   UnlockPai();
 }
@@ -324,7 +322,7 @@ void ArcVoiceInteractionArcHomeService::GetVoiceInteractionStructure(
       &RequestVoiceInteractionStructureCallback,
       base::Passed(std::move(callback)),
       gfx::ConvertRectToPixel(scale_factor, browser->window()->GetBounds()),
-      web_contents->GetLastCommittedURL().spec()));
+      web_contents->GetLastCommittedURL().spec(), web_contents->GetTitle()));
 }
 
 void ArcVoiceInteractionArcHomeService::OnVoiceInteractionOobeSetupComplete() {

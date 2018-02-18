@@ -121,6 +121,7 @@ TabletModeController::TabletModeController()
       lid_is_closed_(false),
       auto_hide_title_bars_(!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kAshDisableTabletAutohideTitlebars)),
+      binding_(this),
       scoped_session_observer_(this),
       weak_factory_(this) {
   Shell::Get()->AddShellObserver(this);
@@ -137,7 +138,7 @@ TabletModeController::TabletModeController()
   chromeos::PowerManagerClient* power_manager_client =
       chromeos::DBusThreadManager::Get()->GetPowerManagerClient();
   power_manager_client->AddObserver(this);
-  power_manager_client->GetSwitchStates(base::Bind(
+  power_manager_client->GetSwitchStates(base::BindOnce(
       &TabletModeController::OnGetSwitchStates, weak_factory_.GetWeakPtr()));
 }
 
@@ -201,7 +202,7 @@ void TabletModeController::AddWindow(aura::Window* window) {
 
 void TabletModeController::BindRequest(
     mojom::TabletModeControllerRequest request) {
-  bindings_.AddBinding(this, std::move(request));
+  binding_.Bind(std::move(request));
 }
 
 void TabletModeController::AddObserver(TabletModeObserver* observer) {
@@ -290,7 +291,8 @@ void TabletModeController::TabletModeEventReceived(
   }
 }
 
-void TabletModeController::SuspendImminent() {
+void TabletModeController::SuspendImminent(
+    power_manager::SuspendImminent::Reason reason) {
   // The system is about to suspend, so record TabletMode usage interval metrics
   // based on whether TabletMode mode is currently active.
   RecordTabletModeUsageInterval(CurrentTabletModeIntervalType());
@@ -388,7 +390,7 @@ void TabletModeController::LeaveTabletMode() {
 }
 
 void TabletModeController::FlushForTesting() {
-  bindings_.FlushForTesting();
+  binding_.FlushForTesting();
 }
 
 void TabletModeController::OnShellInitialized() {
@@ -472,10 +474,11 @@ void TabletModeController::OnChromeTerminating() {
 }
 
 void TabletModeController::OnGetSwitchStates(
-    chromeos::PowerManagerClient::LidState lid_state,
-    chromeos::PowerManagerClient::TabletMode tablet_mode) {
-  LidEventReceived(lid_state, base::TimeTicks::Now());
-  TabletModeEventReceived(tablet_mode, base::TimeTicks::Now());
+    base::Optional<chromeos::PowerManagerClient::SwitchStates> result) {
+  if (!result.has_value())
+    return;
+  LidEventReceived(result->lid_state, base::TimeTicks::Now());
+  TabletModeEventReceived(result->tablet_mode, base::TimeTicks::Now());
 }
 
 bool TabletModeController::WasLidOpenedRecently() const {

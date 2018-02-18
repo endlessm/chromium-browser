@@ -10,6 +10,7 @@
 // clang-format off
 #include "V8TestInterfaceConstructor.h"
 
+#include "base/memory/scoped_refptr.h"
 #include "bindings/core/v8/Dictionary.h"
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/IDLTypes.h"
@@ -24,7 +25,6 @@
 #include "platform/bindings/V8ObjectConstructor.h"
 #include "platform/bindings/V8PrivateProperty.h"
 #include "platform/wtf/GetPtr.h"
-#include "platform/wtf/RefPtr.h"
 
 namespace blink {
 
@@ -45,7 +45,6 @@ const WrapperTypeInfo V8TestInterfaceConstructor::wrapperTypeInfo = {
     WrapperTypeInfo::kWrapperTypeObjectPrototype,
     WrapperTypeInfo::kObjectClassId,
     WrapperTypeInfo::kNotInheritFromActiveScriptWrappable,
-    WrapperTypeInfo::kIndependent,
 };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && defined(__clang__)
 #pragma clang diagnostic pop
@@ -121,7 +120,7 @@ static void constructor2(const v8::FunctionCallbackInfo<v8::Value>& info) {
     return;
   }
 
-  if (!IsUndefinedOrNull(info[3]) && !info[3]->IsObject()) {
+  if (!info[3]->IsNullOrUndefined() && !info[3]->IsObject()) {
     exceptionState.ThrowTypeError("parameter 4 ('dictionaryArg') is not an object.");
     return;
   }
@@ -141,7 +140,7 @@ static void constructor2(const v8::FunctionCallbackInfo<v8::Value>& info) {
   if (exceptionState.HadException())
     return;
 
-  if (!IsUndefinedOrNull(info[7]) && !info[7]->IsObject()) {
+  if (!info[7]->IsNullOrUndefined() && !info[7]->IsObject()) {
     exceptionState.ThrowTypeError("parameter 8 ('optionalDictionaryArg') is not an object.");
     return;
   }
@@ -328,7 +327,6 @@ const WrapperTypeInfo V8TestInterfaceConstructorConstructor::wrapperTypeInfo = {
     WrapperTypeInfo::kWrapperTypeObjectPrototype,
     WrapperTypeInfo::kObjectClassId,
     WrapperTypeInfo::kNotInheritFromActiveScriptWrappable,
-    WrapperTypeInfo::kIndependent,
 };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && defined(__clang__)
 #pragma clang diagnostic pop

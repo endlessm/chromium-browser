@@ -158,13 +158,12 @@ class BlendMinMaxTest : public ANGLETest
     void SetUpFramebuffer(GLenum colorFormat)
     {
         glGenFramebuffers(1, &mFramebuffer);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mFramebuffer);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, mFramebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, mFramebuffer);
 
         glGenRenderbuffers(1, &mColorRenderbuffer);
         glBindRenderbuffer(GL_RENDERBUFFER, mColorRenderbuffer);
         glRenderbufferStorage(GL_RENDERBUFFER, colorFormat, getWindowWidth(), getWindowHeight());
-        glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, mColorRenderbuffer);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, mColorRenderbuffer);
 
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -202,13 +201,6 @@ TEST_P(BlendMinMaxTest, RGBA32F)
         return;
     }
 
-    // TODO(jmadill): Figure out why this is broken on Intel
-    if (IsIntel() && (GetParam() == ES2_D3D11() || GetParam() == ES2_D3D9()))
-    {
-        std::cout << "Test skipped on Intel OpenGL." << std::endl;
-        return;
-    }
-
     // TODO (bug 1284): Investigate RGBA32f D3D SDK Layers messages on D3D11_FL9_3
     if (IsD3D11_FL93())
     {
@@ -225,13 +217,6 @@ TEST_P(BlendMinMaxTest, RGBA16F)
     {
         std::cout << "Test skipped because ES3 or GL_EXT_color_buffer_half_float is not available."
                   << std::endl;
-        return;
-    }
-
-    // TODO(jmadill): figure out why this fails
-    if (IsIntel() && (GetParam() == ES2_D3D11() || GetParam() == ES2_D3D9()))
-    {
-        std::cout << "Test skipped on Intel due to failures." << std::endl;
         return;
     }
 

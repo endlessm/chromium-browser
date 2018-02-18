@@ -20,6 +20,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.WindowManager;
 import android.webkit.ClientCertRequest;
 import android.webkit.ConsoleMessage;
 import android.webkit.DownloadListener;
@@ -29,6 +30,7 @@ import android.webkit.JsPromptResult;
 import android.webkit.JsResult;
 import android.webkit.PermissionRequest;
 import android.webkit.RenderProcessGoneDetail;
+import android.webkit.SafeBrowsingResponse;
 import android.webkit.SslErrorHandler;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -295,8 +297,7 @@ class WebViewContentsClientAdapter extends AwContentsClient {
             return mRequest.requestHeaders;
         }
 
-        // TODO(mnaganov): Uncomment when we completely switch builds to the next API level.
-        //@Override
+        @Override
         public boolean isRedirect() {
             return mRequest.isRedirect;
         }
@@ -310,10 +311,12 @@ class WebViewContentsClientAdapter extends AwContentsClient {
             mError = error;
         }
 
+        @Override
         public int getErrorCode() {
             return mError.errorCode;
         }
 
+        @Override
         public CharSequence getDescription() {
             return mError.description;
         }
@@ -641,10 +644,32 @@ class WebViewContentsClientAdapter extends AwContentsClient {
 
     @Override
     public void onSafeBrowsingHit(AwWebResourceRequest request, int threatType,
-            Callback<AwSafeBrowsingResponse> callback) {
-        // TODO(ntfschr): invoke the WebViewClient method once the next SDK rolls
-        callback.onResult(new AwSafeBrowsingResponse(SafeBrowsingAction.SHOW_INTERSTITIAL,
-                /* reporting */ true));
+            final Callback<AwSafeBrowsingResponse> callback) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+            callback.onResult(new AwSafeBrowsingResponse(SafeBrowsingAction.SHOW_INTERSTITIAL,
+                    /* reporting */ true));
+            return;
+        }
+        mWebViewClient.onSafeBrowsingHit(mWebView, new WebResourceRequestImpl(request), threatType,
+                new SafeBrowsingResponse() {
+                    @Override
+                    public void showInterstitial(boolean allowReporting) {
+                        callback.onResult(new AwSafeBrowsingResponse(
+                                SafeBrowsingAction.SHOW_INTERSTITIAL, allowReporting));
+                    }
+
+                    @Override
+                    public void proceed(boolean report) {
+                        callback.onResult(
+                                new AwSafeBrowsingResponse(SafeBrowsingAction.PROCEED, report));
+                    }
+
+                    @Override
+                    public void backToSafety(boolean report) {
+                        callback.onResult(new AwSafeBrowsingResponse(
+                                SafeBrowsingAction.BACK_TO_SAFETY, report));
+                    }
+                });
     }
 
     @Override
@@ -926,8 +951,14 @@ class WebViewContentsClientAdapter extends AwContentsClient {
             Log.w(TAG, "Unable to create JsDialog without an Activity");
             return false;
         }
-        new JsDialogHelper(res, jsDialogType, defaultValue, message, url)
-            .showDialog(activityContext);
+        try {
+            new JsDialogHelper(res, jsDialogType, defaultValue, message, url)
+                    .showDialog(activityContext);
+        } catch (WindowManager.BadTokenException e) {
+            Log.w(TAG,
+                    "Unable to create JsDialog. Has this WebView outlived the Activity it was created with?");
+            return false;
+        }
         return true;
     }
 

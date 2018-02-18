@@ -16,7 +16,7 @@
 #include "ios/web/public/navigation_item.h"
 #include "ios/web/public/test/fakes/test_browser_state.h"
 #import "ios/web/public/web_client.h"
-#import "ios/web/test/fakes/crw_test_back_forward_list.h"
+#import "ios/web/test/fakes/crw_fake_back_forward_list.h"
 #include "ios/web/test/test_url_constants.h"
 #include "net/base/url_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -64,8 +64,9 @@ class MockNavigationManagerDelegate : public NavigationManagerDelegate {
 
   MOCK_METHOD0(ClearTransientContent, void());
   MOCK_METHOD0(RecordPageStateInNavigationItem, void());
-  MOCK_METHOD0(UpdateHtml5HistoryState, void());
   MOCK_METHOD1(WillLoadCurrentItemWithUrl, void(const GURL&));
+  MOCK_METHOD1(OnGoToIndexSameDocumentNavigation,
+               void(NavigationInitiationType type));
   MOCK_METHOD0(WillChangeUserAgentType, void());
   MOCK_METHOD0(LoadCurrentItem, void());
   MOCK_METHOD0(LoadIfNecessary, void());
@@ -89,7 +90,7 @@ class WKBasedNavigationManagerTest : public PlatformTest {
  protected:
   WKBasedNavigationManagerTest() : manager_(new WKBasedNavigationManagerImpl) {
     mock_web_view_ = OCMClassMock([WKWebView class]);
-    mock_wk_list_ = [[CRWTestBackForwardList alloc] init];
+    mock_wk_list_ = [[CRWFakeBackForwardList alloc] init];
     OCMStub([mock_web_view_ backForwardList]).andReturn(mock_wk_list_);
     delegate_.SetWebViewNavigationProxy(mock_web_view_);
 
@@ -101,7 +102,7 @@ class WKBasedNavigationManagerTest : public PlatformTest {
   }
 
   std::unique_ptr<NavigationManagerImpl> manager_;
-  CRWTestBackForwardList* mock_wk_list_;
+  CRWFakeBackForwardList* mock_wk_list_;
   id mock_web_view_;
   MockNavigationManagerDelegate delegate_;
 

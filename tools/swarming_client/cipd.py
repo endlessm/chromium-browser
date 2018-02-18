@@ -78,9 +78,8 @@ def add_cipd_options(parser):
            'Format is "<path>:<package_name>:<version>". '
            '"path" is installation directory relative to run_dir, '
            'defaults to ".". '
-           '"package_name" may have ${platform} and/or ${os_ver} parameters. '
-           '${platform} will be expanded to "<os>-<architecture>" and '
-           '${os_ver} will be expanded to OS version name. '
+           '"package_name" may have ${platform} parameter: it will be '
+           'expanded to "<os>-<architecture>". '
            'The option can be specified multiple times.',
       action='append',
       default=[])
@@ -233,66 +232,45 @@ class CipdClient(object):
 def get_platform():
   """Returns ${platform} parameter value.
 
-  Borrowed from
-  https://chromium.googlesource.com/infra/infra/+/aaf9586/build/build.py#204
+  The logic is similar to
+  https://chromium.googlesource.com/chromium/tools/build/+/6c5c7e9c/scripts/slave/infra_platform.py
   """
   # linux, mac or windows.
-  platform_variant = {
+  os_name = {
     'darwin': 'mac',
     'linux2': 'linux',
     'win32': 'windows',
   }.get(sys.platform)
-  if not platform_variant:
+  if not os_name:
     raise Error('Unknown OS: %s' % sys.platform)
 
-  # amd64, 386, etc.
-  machine = platform.machine().lower()
-  platform_arch = {
-    'amd64': 'amd64',
-    'i386': '386',
-    'i686': '386',
-    'x86': '386',
-    'x86_64': 'amd64',
-  }.get(machine)
-  if not platform_arch:
-    if machine.startswith('arm'):
-      platform_arch = 'armv6l'
-    else:
-      platform_arch = 'amd64' if sys.maxsize > 2**32 else '386'
-  return '%s-%s' % (platform_variant, platform_arch)
+  # Normalize machine architecture. Some architectures are identical or
+  # compatible with others. We collapse them into one.
+  arch = platform.machine().lower()
+  if arch in ('arm64', 'aarch64'):
+    arch = 'arm64'
+  elif arch.startswith('armv') and arch.endswith('l'):
+    # 32-bit ARM: Standardize on ARM v6 baseline.
+    arch = 'armv6l'
+  elif arch in ('amd64', 'x86_64'):
+    arch = 'amd64'
+  elif arch in ('i386', 'i686', 'x86'):
+    arch = '386'
 
+  # If using a 32-bit python on x86_64 kernel on Linux, "downgrade" the arch to
+  # 32-bit too (this is the bitness of the userland).
+  python_bits = 64 if sys.maxsize > 2**32 else 32
+  if os_name == 'linux' and arch == 'amd64' and python_bits == 32:
+    arch = '386'
 
-def get_os_ver():
-  """Returns ${os_ver} parameter value.
-
-  Examples: 'ubuntu14_04' or 'mac10_9' or 'win6_1'.
-
-  Borrowed from
-  https://chromium.googlesource.com/infra/infra/+/aaf9586/build/build.py#204
-  """
-  if sys.platform == 'darwin':
-    # platform.mac_ver()[0] is '10.9.5'.
-    dist = platform.mac_ver()[0].split('.')
-    return 'mac%s_%s' % (dist[0], dist[1])
-
-  if sys.platform == 'linux2':
-    # platform.linux_distribution() is ('Ubuntu', '14.04', ...).
-    dist = platform.linux_distribution()
-    return '%s%s' % (dist[0].lower(), dist[1].replace('.', '_'))
-
-  if sys.platform == 'win32':
-    # platform.version() is '6.1.7601'.
-    dist = platform.version().split('.')
-    return 'win%s_%s' % (dist[0], dist[1])
-  raise Error('Unknown OS: %s' % sys.platform)
+  return '%s-%s' % (os_name, arch)
 
 
 def render_package_name_template(template):
   """Expands template variables in a CIPD package name template."""
   return (template
       .lower()  # Package names are always lower case
-      .replace('${platform}', get_platform())
-      .replace('${os_ver}', get_os_ver()))
+      .replace('${platform}', get_platform()))
 
 
 def _check_response(res, fmt, *args):
@@ -403,8 +381,8 @@ def get_client(service_url, package_name, version, cache_dir, timeout=None):
   # Is it an instance id already? They look like HEX SHA1.
   if isolated_format.is_valid_hash(version, hashlib.sha1):
     instance_id = version
-  elif ':' in version: # it's an immutable tag
-    # version_cache is {version_digest -> instance id} mapping.
+  elif ':' in version:  # it's an immutable tag, cache the resolved version
+    # version_cache is {hash(package_name, tag) -> instance id} mapping.
     # It does not take a lot of disk space.
     version_cache = isolateserver.DiskCache(
         unicode(os.path.join(cache_dir, 'versions')),
@@ -413,9 +391,10 @@ def get_client(service_url, package_name, version, cache_dir, timeout=None):
         trim=True)
     with version_cache:
       version_cache.cleanup()
-      # Convert |version| to a string that may be used as a filename in disk
-      # cache by hashing it.
-      version_digest = hashlib.sha1(version).hexdigest()
+      # Convert (package_name, version) to a string that may be used as a
+      # filename in disk cache by hashing it.
+      version_digest = hashlib.sha1(
+          '%s\n%s' % (package_name, version)).hexdigest()
       try:
         with version_cache.getfileobj(version_digest) as f:
           instance_id = f.read()
@@ -423,7 +402,7 @@ def get_client(service_url, package_name, version, cache_dir, timeout=None):
         instance_id = resolve_version(
             service_url, package_name, version, timeout=timeoutfn())
         version_cache.write(version_digest, instance_id)
-  else: # it's a ref
+  else:  # it's a ref, hit the backend
     instance_id = resolve_version(
         service_url, package_name, version, timeout=timeoutfn())
 

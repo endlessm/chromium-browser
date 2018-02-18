@@ -9,18 +9,20 @@
 #include "ash/public/cpp/window_properties.h"
 #include "ash/public/cpp/window_state_type.h"
 #include "ash/public/interfaces/window_pin_type.mojom.h"
+#include "ash/public/interfaces/window_properties.mojom.h"
 #include "ash/public/interfaces/window_state_type.mojom.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
 #include "base/memory/ptr_util.h"
 #include "chrome/browser/chrome_browser_main.h"
+#include "chrome/browser/ui/ash/accessibility/accessibility_controller_client.h"
 #include "chrome/browser/ui/ash/ash_init.h"
 #include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/ash/cast_config_client_media_router.h"
 #include "chrome/browser/ui/ash/chrome_new_window_client.h"
 #include "chrome/browser/ui/ash/chrome_shell_content_state.h"
 #include "chrome/browser/ui/ash/ime_controller_client.h"
-#include "chrome/browser/ui/ash/lock_screen_client.h"
+#include "chrome/browser/ui/ash/login_screen_client.h"
 #include "chrome/browser/ui/ash/media_client.h"
 #include "chrome/browser/ui/ash/session_controller_client.h"
 #include "chrome/browser/ui/ash/system_tray_client.h"
@@ -66,6 +68,14 @@ void ChromeBrowserMainExtraPartsAsh::ServiceManagerConnectionStarted(
     aura::PropertyConverter* converter = delegate->GetPropertyConverter();
 
     converter->RegisterPrimitiveProperty(
+        ash::kCanConsumeSystemKeysKey,
+        ash::mojom::kCanConsumeSystemKeys_Property,
+        aura::PropertyConverter::CreateAcceptAnyValueCallback());
+    converter->RegisterPrimitiveProperty(
+        ash::kHideShelfWhenFullscreenKey,
+        ash::mojom::kHideShelfWhenFullscreen_Property,
+        aura::PropertyConverter::CreateAcceptAnyValueCallback());
+    converter->RegisterPrimitiveProperty(
         ash::kPanelAttachedKey,
         ui::mojom::WindowManager::kPanelAttached_Property,
         aura::PropertyConverter::CreateAcceptAnyValueCallback());
@@ -79,6 +89,10 @@ void ChromeBrowserMainExtraPartsAsh::ServiceManagerConnectionStarted(
     converter->RegisterPrimitiveProperty(
         ash::kWindowPinTypeKey, ash::mojom::kWindowPinType_Property,
         base::Bind(&ash::IsValidWindowPinType));
+    converter->RegisterPrimitiveProperty(
+        ash::kWindowPositionManagedTypeKey,
+        ash::mojom::kWindowPositionManaged_Property,
+        aura::PropertyConverter::CreateAcceptAnyValueCallback());
     converter->RegisterStringProperty(
         ash::kShelfIDKey, ui::mojom::WindowManager::kShelfID_Property);
 
@@ -110,6 +124,9 @@ void ChromeBrowserMainExtraPartsAsh::PreProfileInit() {
   session_controller_client_->Init();
 
   // Must be available at login screen, so initialize before profile.
+  accessibility_controller_client_ =
+      std::make_unique<AccessibilityControllerClient>();
+  accessibility_controller_client_->Init();
   system_tray_client_ = base::MakeUnique<SystemTrayClient>();
   ime_controller_client_ = base::MakeUnique<ImeControllerClient>(
       chromeos::input_method::InputMethodManager::Get());
@@ -137,7 +154,7 @@ void ChromeBrowserMainExtraPartsAsh::PostProfileInit() {
   cast_config_client_media_router_ =
       base::MakeUnique<CastConfigClientMediaRouter>();
   media_client_ = base::MakeUnique<MediaClient>();
-  lock_screen_client_ = base::MakeUnique<LockScreenClient>();
+  login_screen_client_ = base::MakeUnique<LoginScreenClient>();
 
   // TODO(mash): Port TabScrubber and keyboard initialization.
   if (ash_util::IsRunningInMash())
@@ -164,7 +181,8 @@ void ChromeBrowserMainExtraPartsAsh::PostMainMessageLoopRun() {
   new_window_client_.reset();
   ime_controller_client_.reset();
   system_tray_client_.reset();
-  lock_screen_client_.reset();
+  accessibility_controller_client_.reset();
+  login_screen_client_.reset();
   media_client_.reset();
   cast_config_client_media_router_.reset();
   session_controller_client_.reset();

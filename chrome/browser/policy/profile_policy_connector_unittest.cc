@@ -30,7 +30,7 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
+#include "components/user_manager/scoped_user_manager.h"
 #endif  // defined(OS_CHROMEOS)
 
 using testing::Return;
@@ -66,7 +66,8 @@ class ProfilePolicyConnectorTest : public testing::Test {
   std::unique_ptr<user_manager::User> CreateRegularUser(
       const AccountId& account_id) const {
     return base::WrapUnique<user_manager::User>(
-        user_manager::User::CreateRegularUser(account_id));
+        user_manager::User::CreateRegularUser(account_id,
+                                              user_manager::USER_TYPE_REGULAR));
   }
 
   // Needs to be the first member.
@@ -97,8 +98,8 @@ TEST_F(ProfilePolicyConnectorTest, IsManagedForManagedUsers) {
 
 #if defined(OS_CHROMEOS)
 TEST_F(ProfilePolicyConnectorTest, ManagedRealmForActiveDirectoryUsers) {
-  chromeos::ScopedUserManagerEnabler scoped_user_manager_enabler(
-      new chromeos::FakeChromeUserManager);
+  user_manager::ScopedUserManager scoped_user_manager_enabler(
+      std::make_unique<chromeos::FakeChromeUserManager>());
   ProfilePolicyConnector connector;
   const AccountId account_id =
       AccountId::AdFromUserEmailObjGuid("user@realm.example", "obj-guid");

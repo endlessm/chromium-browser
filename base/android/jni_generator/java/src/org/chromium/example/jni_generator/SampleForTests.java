@@ -15,7 +15,9 @@ import org.chromium.base.annotations.NativeClassQualifiedName;
 
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 // This class serves as a reference test for the bindings generator, and as example documentation
 // for how to use the jni generator.
@@ -66,9 +68,6 @@ import java.util.List;
 // - It's simpler to create thin wrappers with a well defined JNI interface than to
 // expose a lot of internal details. This is specially significant for system classes where it's
 // simpler to wrap factory methods and a few getters / setters than expose the entire class.
-//
-// - Use static factory functions annotated with @CalledByNative rather than calling the
-// constructors directly.
 //
 // - Iterate over containers where they are originally owned, then create inner structs or
 // directly call methods on the other side. It's much simpler than trying to amalgamate
@@ -146,6 +145,16 @@ class SampleForTests {
     @CalledByNative
     void packagePrivateJavaMethod() {
     }
+
+    // Method signature with generics in params.
+    @CalledByNative
+    public void methodWithGenericParams(
+            Map<String, Map<String, String>> foo, LinkedList<Integer> bar) {}
+
+    // Constructors will be exported to C++ as:
+    // Java_SampleForTests_Constructor(JNIEnv* env, jint foo, jint bar)
+    @CalledByNative
+    public SampleForTests(int foo, int bar) {}
 
     // Note the "Unchecked" suffix. By default, @CalledByNative will always generate bindings that
     // call CheckException(). With "@CalledByNativeUnchecked", the client C++ code is responsible to
@@ -316,5 +325,18 @@ class SampleForTests {
     static class InnerClass {
         @NativeCall("InnerClass")
         private static native int nativeGetInnerIntFunction();
+    }
+
+    interface InnerInterface {}
+    enum InnerEnum {}
+
+    @CalledByNative
+    static InnerInterface getInnerInterface() {
+        return null;
+    }
+
+    @CalledByNative
+    static InnerEnum getInnerEnum() {
+        return null;
     }
 }

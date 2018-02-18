@@ -247,7 +247,7 @@ class BootstrapStage(PatchChangesStage):
   def FilterArgsForTargetCbuildbot(cls, buildroot, cbuildbot_path, options):
     _, minor = cros_build_lib.GetTargetChromiteApiVersion(buildroot)
     args = [cbuildbot_path]
-    args.extend(options.build_targets)
+    args.append(options.build_config_name)
     args.extend(cls._FilterArgsForApi(options.parsed_args, minor))
 
     # Only pass down --cache-dir if it was specified. By default, we want
@@ -1492,7 +1492,7 @@ class PreCQLauncherStage(SyncStage):
 
     Args:
       build_id: build_id (string) of the pre-cq-launcher build.
-      db: An instance of cidb.CIDBConnection.
+      db: An instance of cidb.CIDBConnection or None.
       pool: An instance of ValidationPool.validation_pool.
       configs: A set of pre-cq config names to launch.
     """
@@ -1503,12 +1503,15 @@ class PreCQLauncherStage(SyncStage):
     if not config_buildbucket_id_map:
       return
 
-    # Update cidb buildRequestTable.
-    for config in configs:
-      if config in config_buildbucket_id_map:
-        db.InsertBuildRequest(
-            build_id, config, build_requests.REASON_SANITY_PRE_CQ,
-            request_buildbucket_id=config_buildbucket_id_map[config])
+    if db:
+      launched_build_reqs = []
+      for config in configs:
+        launched_build_reqs.append(build_requests.BuildRequest(
+            None, build_id, config, None, config_buildbucket_id_map[config],
+            build_requests.REASON_SANITY_PRE_CQ, None))
+
+      if launched_build_reqs:
+        db.InsertBuildRequests(launched_build_reqs)
 
   def GetDisjointTransactionsToTest(self, pool, progress_map):
     """Get the list of disjoint transactions to test.
@@ -1531,10 +1534,16 @@ class PreCQLauncherStage(SyncStage):
     # Create a list of disjoint transactions to test.
     manifest = git.ManifestCheckout.Cached(self._build_root)
     logging.info('Creating disjoint transactions.')
-    plans = pool.CreateDisjointTransactions(
+    plans, failed = pool.CreateDisjointTransactions(
         manifest, screened_changes,
         max_txn_length=self.MAX_PATCHES_PER_TRYBOT_RUN)
     logging.info('Created %s disjoint transactions.', len(plans))
+
+    # Note: |failed| is a list of cros_patch.PatchException instances.
+    logging.info('Failed to apply %s CLs. Marked them as failed.', len(failed))
+    for f in failed:
+      pool.UpdateCLPreCQStatus(f.patch, constants.CL_STATUS_FAILED)
+
     for plan in plans:
       # If any of the CLs in the plan is not yet screened, wait for them to
       # be screened.
@@ -1616,24 +1625,24 @@ class PreCQLauncherStage(SyncStage):
 
     Args:
       change: GerritPatch instance to process.
-      progress_map: As returned by clactions.GetCLPreCQProgress a dict mapping
-                    each change in |changes| to a dict mapping config names
-                    to (status, timestamp) tuples for the configs under test.
+      progress_map: See return type of clactions.GetPreCQProgressMap.
       pool: The current validation pool.
       current_time: datetime.datetime timestamp giving current database time.
     """
     timeout_statuses = (constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED,
                         constants.CL_PRECQ_CONFIG_STATUS_INFLIGHT)
     config_progress = progress_map[change]
-    for config, (config_status, timestamp, _) in config_progress.iteritems():
-      if not config_status in timeout_statuses:
+    for config, pre_cq_progress_tuple in config_progress.iteritems():
+      if not pre_cq_progress_tuple.status in timeout_statuses:
         continue
-      launched = config_status == constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED
+      launched = (pre_cq_progress_tuple.status ==
+                  constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED)
       timeout = self.LAUNCH_TIMEOUT if launched else self.INFLIGHT_TIMEOUT
       msg = (PRECQ_LAUNCH_TIMEOUT_MSG if launched
              else PRECQ_INFLIGHT_TIMEOUT_MSG) % (config, timeout)
 
-      if self._HasTimedOut(timestamp, current_time, timeout):
+      if self._HasTimedOut(pre_cq_progress_tuple.timestamp, current_time,
+                           timeout):
         pool.SendNotification(change, '%(details)s', details=msg)
         pool.RemoveReady(change, reason=config)
         pool.UpdateCLPreCQStatus(change, constants.CL_STATUS_FAILED)
@@ -1729,11 +1738,11 @@ class PreCQLauncherStage(SyncStage):
 
     Returns:
       A boolean indicating whether the consecutive failure counter of
-        build_config exceeds its health_threshold.
+        build_config exceeds its sanity_check_threshold.
     """
-    health_threshold = site_config[build_config].health_threshold
+    sanity_check_threshold = site_config[build_config].sanity_check_threshold
 
-    if health_threshold <= 0:
+    if sanity_check_threshold <= 0:
       return False
 
     streak_counter = 0
@@ -1743,7 +1752,7 @@ class PreCQLauncherStage(SyncStage):
       elif build['status'] == constants.BUILDER_STATUS_FAILED:
         streak_counter += 1
 
-      if streak_counter >= health_threshold:
+      if streak_counter >= sanity_check_threshold:
         return True
 
     return False
@@ -1924,7 +1933,7 @@ class PreCQLauncherStage(SyncStage):
 
     for change in inflight:
       if status_map[change] != constants.CL_STATUS_INFLIGHT:
-        build_ids = [x for _, _, x in progress_map[change].values()]
+        build_ids = [x.build_id for x in progress_map[change].values()]
         # Change the status to inflight.
         self.UpdateChangeStatuses([change], constants.CL_STATUS_INFLIGHT)
         build_dicts = db.GetBuildStatuses(build_ids)

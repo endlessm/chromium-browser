@@ -24,7 +24,10 @@ enum class TouchscreenEnabledSource {
   GLOBAL,
 };
 
-// Controls the enabled state of touchpad and touchscreen.
+// Controls the enabled state of touchpad and touchscreen. Also controls the
+// touch HUD, which draws a circle for each touch tap. The HUD is used for
+// demos/presentations because there is no visible cursor to show where taps
+// occur. Must be initialized after Shell and SessionController.
 class ASH_EXPORT TouchDevicesController : public SessionObserver {
  public:
   TouchDevicesController();
@@ -45,6 +48,9 @@ class ASH_EXPORT TouchDevicesController : public SessionObserver {
   // based on the requests of multiple sources.
   void SetTouchscreenEnabled(bool enabled, TouchscreenEnabledSource source);
 
+  bool IsTouchHudProjectionEnabled() const;
+  void SetTouchHudProjectionEnabled(bool enabled);
+
  private:
   // Overridden from SessionObserver:
   void OnSigninScreenPrefServiceInitialized(PrefService* prefs) override;
@@ -63,7 +69,7 @@ class ASH_EXPORT TouchDevicesController : public SessionObserver {
 
   // The touchscreen state which is associated with the global touchscreen
   // enabled source.
-  bool global_touchscreen_enabled_ = false;
+  bool global_touchscreen_enabled_ = true;
 
   // Observes user profile prefs for touch devices.
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;

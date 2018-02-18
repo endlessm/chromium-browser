@@ -5,6 +5,8 @@
 #include <memory>
 #include <string>
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
@@ -18,7 +20,6 @@
 #include "chrome/browser/chromeos/arc/auth/arc_auth_service.h"
 #include "chrome/browser/chromeos/arc/auth/arc_background_auth_code_fetcher.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service_builder.h"
@@ -39,6 +40,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/account_id/account_id.h"
 #include "components/signin/core/browser/fake_profile_oauth2_token_service.h"
+#include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user_manager.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -58,12 +60,19 @@ namespace arc {
 class FakeAuthInstance : public mojom::AuthInstance {
  public:
   // mojom::AuthInstance:
-  void Init(mojom::AuthHostPtr host) override { host_ = std::move(host); }
+  void InitDeprecated(mojom::AuthHostPtr host) override {
+    Init(std::move(host), base::BindOnce(&base::DoNothing));
+  }
+
+  void Init(mojom::AuthHostPtr host, InitCallback callback) override {
+    host_ = std::move(host);
+    std::move(callback).Run();
+  }
 
   void OnAccountInfoReady(mojom::AccountInfoPtr account_info,
                           mojom::ArcSignInStatus status) override {
     account_info_ = std::move(account_info);
-    base::ResetAndReturn(&done_closure_).Run();
+    std::move(done_closure_).Run();
   }
 
   void RequestAccountInfo(base::Closure done_closure) {
@@ -91,9 +100,8 @@ class ArcAuthServiceTest : public InProcessBrowserTest {
   }
 
   void SetUpOnMainThread() override {
-    user_manager_enabler_ =
-        std::make_unique<chromeos::ScopedUserManagerEnabler>(
-            new chromeos::FakeChromeUserManager());
+    user_manager_enabler_ = std::make_unique<user_manager::ScopedUserManager>(
+        std::make_unique<chromeos::FakeChromeUserManager>());
     // Init ArcSessionManager for testing.
     ArcServiceLauncher::Get()->ResetForTesting();
     ArcSessionManager::DisableUIForTesting();
@@ -178,7 +186,7 @@ class ArcAuthServiceTest : public InProcessBrowserTest {
   Profile* profile() { return profile_.get(); }
 
  private:
-  std::unique_ptr<chromeos::ScopedUserManagerEnabler> user_manager_enabler_;
+  std::unique_ptr<user_manager::ScopedUserManager> user_manager_enabler_;
   base::ScopedTempDir temp_dir_;
   std::unique_ptr<TestingProfile> profile_;
 

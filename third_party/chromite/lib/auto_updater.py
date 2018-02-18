@@ -185,13 +185,18 @@ class ChromiumOSFlashUpdater(BaseUpdater):
   REMOTE_UPDATE_ENGINE_PERF_RESULTS_PATH = '/var/log/perf_data_results.json'
 
   # `mode` parameter when copying payload files to the DUT.
-  PAYLOAD_MODE = 'scp'
+  PAYLOAD_MODE_PARALLEL = 'parallel'
+  PAYLOAD_MODE_SCP = 'scp'
 
+  # Related to crbug.com/276094: Restore to 5 mins once the 'host did not
+  # return from reboot' bug is solved.
+  REBOOT_TIMEOUT = 480
 
   def __init__(self, device, payload_dir, dev_dir='', tempdir=None,
                original_payload_dir=None, do_rootfs_update=True,
                do_stateful_update=True, reboot=True, disable_verification=False,
-               clobber_stateful=False, yes=False, payload_filename=None):
+               clobber_stateful=False, yes=False, payload_filename=None,
+               send_payload_in_parallel=False):
     """Initialize a ChromiumOSFlashUpdater for auto-update a chromium OS device.
 
     Args:
@@ -222,6 +227,8 @@ class ChromiumOSFlashUpdater(BaseUpdater):
       payload_filename: Filename of exact payload file to use for
           update instead of the default: update.gz. Defaults to None. Use
           only if you staged a payload by filename (i.e not artifact) first.
+      send_payload_in_parallel: whether to transfer payload in chunks
+          in parallel. The default is False.
     """
     super(ChromiumOSFlashUpdater, self).__init__(device, payload_dir)
     if tempdir is not None:
@@ -248,6 +255,10 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     self.stateful_update_bin = None
     # autoupdate_EndToEndTest uses exact payload filename for update
     self.payload_filename = payload_filename
+    if send_payload_in_parallel:
+      self.payload_mode = self.PAYLOAD_MODE_PARALLEL
+    else:
+      self.payload_mode = self.PAYLOAD_MODE_SCP
     self.perf_id = None
 
   @property
@@ -427,7 +438,7 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     status, = self.GetUpdateStatus(self.device)
     if status == UPDATE_STATUS_UPDATED_NEED_REBOOT:
       logging.info('Device needs to reboot before updating...')
-      self.device.Reboot()
+      self._Reboot('setup of Rootfs Update')
       status, = self.GetUpdateStatus(self.device)
 
     if status != UPDATE_STATUS_IDLE:
@@ -551,7 +562,7 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     payload_name = self._GetRootFsPayloadFileName()
     payload = os.path.join(self.payload_dir, payload_name)
     self.device.CopyToDevice(payload, device_payload_dir,
-                             mode=self.PAYLOAD_MODE,
+                             mode=self.payload_mode,
                              log_output=True, **self._cmd_kwargs)
 
     if self.is_au_endtoendtest:
@@ -599,19 +610,19 @@ class ChromiumOSFlashUpdater(BaseUpdater):
           self.original_payload_dir, ds_wrapper.STATEFUL_FILENAME)
       self._EnsureDeviceDirectory(self.device_restore_dir)
       self.device.CopyToDevice(original_payload, self.device_restore_dir,
-                               mode=self.PAYLOAD_MODE, log_output=True,
+                               mode=self.payload_mode, log_output=True,
                                **self._cmd_kwargs)
 
     logging.info('Copying target stateful payload to device...')
     payload = os.path.join(self.payload_dir, ds_wrapper.STATEFUL_FILENAME)
-    self.device.CopyToWorkDir(payload, mode=self.PAYLOAD_MODE,
+    self.device.CopyToWorkDir(payload, mode=self.payload_mode,
                               log_output=True, **self._cmd_kwargs)
 
   def RestoreStateful(self):
     """Restore stateful partition for device."""
     logging.warning('Restoring the stateful partition')
     self.RunUpdateStateful()
-    self.device.Reboot()
+    self._Reboot('stateful partition restoration')
     try:
       self._CheckDevserverCanRun()
       logging.info('Stateful partition restored.')
@@ -942,6 +953,16 @@ class ChromiumOSFlashUpdater(BaseUpdater):
               self.REMOTE_HOSTLOG_FILE_PATH), partial_filename])),
           **self._cmd_kwargs_omit_error)
 
+  def _Reboot(self, error_stage):
+    try:
+      self.device.Reboot(timeout_sec=self.REBOOT_TIMEOUT)
+    except cros_build_lib.DieSystemExit:
+      raise ChromiumOSUpdateError('%s cannot recover from reboot at %s' % (
+          self.device.hostname, error_stage))
+    except remote_access.SSHConnectionError:
+      raise ChromiumOSUpdateError('Failed to connect to %s at %s' % (
+          self.device.hostname, error_stage))
+
 
 class ChromiumOSUpdater(ChromiumOSFlashUpdater):
   """Used to auto-update Cros DUT with image.
@@ -955,14 +976,11 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
   """
   REMOTE_STATEFUL_PATH_TO_CHECK = ['/var', '/home', '/mnt/stateful_partition']
   REMOTE_STATEFUL_TEST_FILENAME = '.test_file_to_be_deleted'
-  REMOTE_UPDATED_MARKERFILE_PATH = '/var/run/update_engine_autoupdate_completed'
+  REMOTE_UPDATED_MARKERFILE_PATH = '/run/update_engine_autoupdate_completed'
   REMOTE_LAB_MACHINE_FILE_PATH = '/mnt/stateful_partition/.labmachine'
   KERNEL_A = {'name': 'KERN-A', 'kernel': 2, 'root': 3}
   KERNEL_B = {'name': 'KERN-B', 'kernel': 4, 'root': 5}
   KERNEL_UPDATE_TIMEOUT = 180
-  # Related to crbug.com/276094: Restore to 5 mins once the 'host did not
-  # return from reboot' bug is solved.
-  REBOOT_TIMEOUT = 480
 
   def __init__(self, device, build_name, payload_dir, dev_dir='',
                log_file=None, tempdir=None, original_payload_dir=None,
@@ -1232,8 +1250,9 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
          The file will be removed by stateful update or full install.
     """
     logging.debug('Start pre-setup for the whole CrOS update process...')
-    self._RetryCommand(['touch', self.REMOTE_PROVISION_FAILED_FILE_PATH],
-                       **self._cmd_kwargs)
+    if not self.is_au_endtoendtest:
+      self._RetryCommand(['touch', self.REMOTE_PROVISION_FAILED_FILE_PATH],
+                         **self._cmd_kwargs)
 
     # Related to crbug.com/360944.
     release_pattern = r'^.*-release/R[0-9]+-[0-9]+\.[0-9]+\.0$'
@@ -1263,7 +1282,7 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
   def PostCheckStatefulUpdate(self):
     """Post-check for stateful update for CrOS host."""
     logging.debug('Start post check for stateful update...')
-    self.device.Reboot(timeout_sec=self.REBOOT_TIMEOUT)
+    self._Reboot('post check of stateful update')
     if self._clobber_stateful:
       for folder in self.REMOTE_STATEFUL_PATH_TO_CHECK:
         test_file_path = os.path.join(folder,
@@ -1276,7 +1295,7 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
   def PreSetupRootfsUpdate(self):
     """Pre-setup for rootfs update for CrOS host."""
     logging.debug('Start pre-setup for rootfs update...')
-    self.device.Reboot(timeout_sec=self.REBOOT_TIMEOUT)
+    self._Reboot('pre-setup of rootfs update')
     self._RetryCommand(['sudo', 'stop', 'ap-update-manager'],
                        **self._cmd_kwargs_omit_error)
     self._ResetUpdateEngine()
@@ -1343,9 +1362,9 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
       # TPM state in theory might happen some time other than during
       # provisioning.  Also, the bad TPM state isn't supposed to happen at
       # all; this change is just papering over the real bug.
-      self._RetryCommand(['crossystem', 'clear_tpm_owner_request=1'],
+      self._RetryCommand('crossystem clear_tpm_owner_request=1',
                          **self._cmd_kwargs_omit_error)
-    self.device.Reboot(timeout_sec=self.REBOOT_TIMEOUT)
+    self._Reboot('post check of rootfs update')
 
   def PostCheckCrOSUpdate(self):
     """Post check for the whole auto-update process."""
@@ -1355,7 +1374,7 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
     autoreboot_cmd = ('FILE="%s" ; [ -f "$FILE" ] || '
                       '( touch "$FILE" ; start autoreboot )')
     self._RetryCommand(autoreboot_cmd % self.REMOTE_LAB_MACHINE_FILE_PATH,
-                       shell=True, **self._cmd_kwargs)
+                       **self._cmd_kwargs)
     self._VerifyBootExpectations(
         self.inactive_kernel, rollback_message=
         'Build %s failed to boot on %s; system rolled back to previous '

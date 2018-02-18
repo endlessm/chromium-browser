@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 var AutomationEvent = chrome.automation.AutomationEvent;
-var AutomationNode = chrome.automation.AutomationNode;
 var EventType = chrome.automation.EventType;
 var RoleType = chrome.automation.RoleType;
 
@@ -108,25 +107,158 @@ function getNodeState(node) {
 }
 
 /**
+ * Regular expression to find the start of the next word after a word boundary.
+ * We cannot use \b\W to find the next word because it does not match many
+ * unicode characters.
+ * @type {RegExp}
+ */
+const WORD_START_REGEXP = /\b\S/;
+
+/**
+ * Regular expression to find the end of the next word, which is followed by
+ * whitespace. We cannot use \w\b to find the end of the previous word because
+ * \w does not know about many unicode characters.
+ * @type {RegExp}
+ */
+const WORD_END_REGEXP = /\S\s/;
+
+/**
+ * Searches through text starting at an index to find the next word's
+ * start boundary.
+ * @param {string|undefined} text The string to search through
+ * @param {number} indexAfter The index into text at which to start
+ *      searching.
+ * @param {NodeGroupItem} nodeGroupItem The node whose name we are
+ *      searching through.
+ * @return {number} The index of the next word's start
+ */
+function getNextWordStart(text, indexAfter, nodeGroupItem) {
+  if (nodeGroupItem.node.wordStarts === undefined) {
+    // Try to parse using a regex, which is imperfect.
+    // Fall back to the given index if we can't find a match.
+    return nextWordHelper(text, indexAfter, WORD_START_REGEXP, indexAfter);
+  }
+  for (var i = 0; i < nodeGroupItem.node.wordStarts.length; i++) {
+    if (nodeGroupItem.node.wordStarts[i] + nodeGroupItem.startChar <
+        indexAfter) {
+      continue;
+    }
+    return nodeGroupItem.node.wordStarts[i] + nodeGroupItem.startChar;
+  }
+  // Default.
+  return indexAfter;
+}
+
+/**
+ * Searches through text starting at an index to find the next word's
+ * end boundary.
+ * @param {string|undefined} text The string to search through
+ * @param {number} indexAfter The index into text at which to start
+ *      searching.
+ * @param {NodeGroupItem} nodeGroupItem The node whose name we are
+ *      searching through.
+ * @return {number} The index of the next word's end
+ */
+function getNextWordEnd(text, indexAfter, nodeGroupItem) {
+  if (nodeGroupItem.node.wordEnds === undefined) {
+    // Try to parse using a regex, which is imperfect.
+    // Fall back to the full length of the text if we can't find a match.
+    return nextWordHelper(text, indexAfter, WORD_END_REGEXP, text.length - 1) +
+        1;
+  }
+  for (var i = 0; i < nodeGroupItem.node.wordEnds.length; i++) {
+    if (nodeGroupItem.node.wordEnds[i] + nodeGroupItem.startChar < indexAfter) {
+      continue;
+    }
+    return nodeGroupItem.node.wordEnds[i] + nodeGroupItem.startChar;
+  }
+  // Default.
+  return text.length;
+}
+
+/**
+ * Searches through text to find the first index of a regular expression
+ * after a given starting index. Returns a default value if no match is
+ * found.
+ * @param {string|undefined} text The string to search through
+ * @param {number} indexAfter The index at which to start searching
+ * @param {RegExp} re A regular expression to search for
+ * @param {number} defaultValue The default value to return if no
+                     match is found.
+ * @return {number} The index found by the regular expression, or -1
+ *                    if none found.
+ */
+function nextWordHelper(text, indexAfter, re, defaultValue) {
+  if (text === undefined) {
+    return defaultValue;
+  }
+  let result = re.exec(text.substr(indexAfter));
+  if (result != null && result.length > 0) {
+    return indexAfter + result.index;
+  }
+  return defaultValue;
+}
+
+/**
+ * Finds all nodes within the subtree rooted at |node| that overlap
+ * a given rectangle.
+ * @param {AutomationNode} node The starting node.
+ * @param {{left: number, top: number, width: number, height: number}} rect
+ *     The bounding box to search.
+ * @param {Array<AutomationNode>} nodes The matching node array to be
+ *     populated.
+ * @return {boolean} True if any matches are found.
+ */
+function findAllMatching(node, rect, nodes) {
+  var found = false;
+  for (var c = node.firstChild; c; c = c.nextSibling) {
+    if (findAllMatching(c, rect, nodes))
+      found = true;
+  }
+
+  if (found)
+    return true;
+
+  if (!node.name || !node.location || node.state.offscreen ||
+      node.state.invisible)
+    return false;
+
+  if (overlaps(node.location, rect)) {
+    if (!node.children || node.children.length == 0 ||
+        node.children[0].role != RoleType.INLINE_TEXT_BOX) {
+      // Only add a node if it has no inlineTextBox children. If
+      // it has text children, they will be more precisely bounded
+      // and specific, so no need to add the parent node.
+      nodes.push(node);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+
+/**
  * @constructor
  */
 var SelectToSpeak = function() {
-  /** @private { AutomationNode } */
+  /** @private {AutomationNode} */
   this.node_ = null;
 
-  /** @private { boolean } */
+  /** @private {boolean} */
   this.trackingMouse_ = false;
 
-  /** @private { boolean } */
+  /** @private {boolean} */
   this.didTrackMouse_ = false;
 
-  /** @private { boolean } */
+  /** @private {boolean} */
   this.isSearchKeyDown_ = false;
 
-  /** @private { !Set<number> } */
+  /** @private {!Set<number>} */
   this.keysCurrentlyDown_ = new Set();
 
-  /** @private { !Set<number> } */
+  /** @private {!Set<number>} */
   this.keysPressedTogether_ = new Set();
 
   /** @private {{x: number, y: number}} */
@@ -152,28 +284,43 @@ var SelectToSpeak = function() {
         true);
   }.bind(this));
 
-  /** @private { ?string } */
+  /** @private {?string} */
   this.voiceNameFromPrefs_ = null;
 
-  /** @private { ?string } */
+  /** @private {?string} */
   this.voiceNameFromLocale_ = null;
 
-  /** @private { Set<string> } */
+  /** @private {Set<string>} */
   this.validVoiceNames_ = new Set();
 
-  /** @private { number } */
+  /** @private {number} */
   this.speechRate_ = 1.0;
 
-  /** @const { string } */
+  /** @private {boolean} */
+  this.wordHighlight_ = false;
+
+  /** @const {string} */
   this.color_ = '#f73a98';
 
-  /** @private { ?AutomationNode } */
+  /** @private {string} */
+  this.highlightColor_ = '#5e9bff';
+
+  /** @private {?NodeGroupItem} */
   this.currentNode_ = null;
+
+  /** @private {number} */
+  this.currentNodeGroupIndex_ = -1;
+
+  /** @private {?Object} */
+  this.currentNodeWord_ = null;
+
+  /** @private {?AutomationNode} */
+  this.currentBlockParent_ = null;
 
   /**
    * The interval ID from a call to setInterval, which is set whenever
    * speech is in progress.
-   * @private { number|undefined }
+   * @private {number|undefined}
    */
   this.intervalId_;
 
@@ -293,9 +440,10 @@ SelectToSpeak.prototype = {
       // which is computed based on which window is the event handler for the
       // hit point, isn't the part of the tree that contains the actual
       // content. In such cases, use focus to get the root.
-      if (!this.findAllMatching_(root, rect, nodes) && focusedNode)
-        this.findAllMatching_(focusedNode.root, rect, nodes);
+      if (!findAllMatching(root, rect, nodes) && focusedNode)
+        findAllMatching(focusedNode.root, rect, nodes);
       this.startSpeechQueue_(nodes);
+      this.recordStartEvent_();
     }.bind(this));
   },
 
@@ -336,7 +484,7 @@ SelectToSpeak.prototype = {
         this.keysPressedTogether_.has(evt.keyCode) &&
         this.keysPressedTogether_.size == 1) {
       this.trackingMouse_ = false;
-      this.stopAll_();
+      chrome.tts.isSpeaking(this.cancelIfSpeaking_.bind(this));
     }
 
     this.keysCurrentlyDown_.delete(evt.keyCode);
@@ -367,6 +515,8 @@ SelectToSpeak.prototype = {
     this.clearFocusRing_();
     // Clear the node and also stop the interval testing.
     this.currentNode_ = null;
+    this.currentNodeGroupIndex_ = -1;
+    this.currentNodeWord_ = null;
     clearInterval(this.intervalId_);
     this.intervalId_ = undefined;
   },
@@ -377,6 +527,7 @@ SelectToSpeak.prototype = {
    */
   clearFocusRing_: function() {
     chrome.accessibilityPrivate.setFocusRing([]);
+    chrome.accessibilityPrivate.setHighlights([], this.highlightColor_);
   },
 
   /**
@@ -394,60 +545,53 @@ SelectToSpeak.prototype = {
   },
 
   /**
-   * Finds all nodes within the subtree rooted at |node| that overlap
-   * a given rectangle.
-   * @param {AutomationNode} node The starting node.
-   * @param {{left: number, top: number, width: number, height: number}} rect
-   *     The bounding box to search.
-   * @param {Array<AutomationNode>} nodes The matching node array to be
-   *     populated.
-   * @return {boolean} True if any matches are found.
-   */
-  findAllMatching_: function(node, rect, nodes) {
-    var found = false;
-    for (var c = node.firstChild; c; c = c.nextSibling) {
-      if (this.findAllMatching_(c, rect, nodes))
-        found = true;
-    }
-
-    if (found)
-      return true;
-
-    if (!node.name || !node.location)
-      return false;
-
-    if (overlaps(node.location, rect)) {
-      nodes.push(node);
-      return true;
-    }
-
-    return false;
-  },
-
-  /**
    * Enqueue speech commands for all of the given nodes.
    * @param {Array<AutomationNode>} nodes The nodes to speak.
    */
   startSpeechQueue_: function(nodes) {
     chrome.tts.stop();
-    if (this.intervalRef_ != undefined) {
+    if (this.intervalRef_ !== undefined) {
       clearInterval(this.intervalRef_);
     }
     this.intervalRef_ = setInterval(
         this.testCurrentNode_.bind(this),
         SelectToSpeak.NODE_STATE_TEST_INTERVAL_MS);
     for (var i = 0; i < nodes.length; i++) {
-      var node = nodes[i];
-      var isLast = (i == nodes.length - 1);
+      let node = nodes[i];
+      let textToSpeak = '';
+      let nodeGroup = buildNodeGroup(nodes, i);
+      // Advance i to the end of this group, to skip all nodes it contains.
+      i = nodeGroup.endIndex;
+      textToSpeak = nodeGroup.text;
+      let isLast = (i == nodes.length - 1);
+      if (nodeGroup.nodes.length == 0 && !isLast) {
+        continue;
+      }
 
-      var options = {
+      let options = {
         rate: this.speechRate_,
         'enqueue': true,
         onEvent:
-            (function(node, isLast, event) {
-              if (event.type == 'start') {
-                this.currentNode_ = node;
-                this.testCurrentNode_();
+            (function(nodeGroup, isLast, event) {
+              if (event.type == 'start' && nodeGroup.nodes.length > 0) {
+                if (nodeGroup.endIndex != nodeGroup.startIndex) {
+                  // The block parent only matters if the block has more
+                  // than one item in it.
+                  this.currentBlockParent_ = nodeGroup.blockParent;
+                } else {
+                  this.currentBlockParent_ = null;
+                }
+                this.currentNodeGroupIndex_ = 0;
+                this.currentNode_ =
+                    nodeGroup.nodes[this.currentNodeGroupIndex_];
+                if (this.wordHighlight_) {
+                  // At 'start', find the first word and highlight that.
+                  // Clear the previous word in the node.
+                  this.currentNodeWord_ = null;
+                  this.updateNodeHighlight_(nodeGroup.text, 0);
+                } else {
+                  this.testCurrentNode_();
+                }
               } else if (
                   event.type == 'interrupted' || event.type == 'cancelled') {
                 this.clearFocusRingAndNode_();
@@ -455,8 +599,38 @@ SelectToSpeak.prototype = {
                 if (isLast) {
                   this.clearFocusRingAndNode_();
                 }
+              } else if (event.type == 'word') {
+                console.debug(
+                    nodeGroup.text + ' (index ' + event.charIndex + ')');
+                console.debug('-'.repeat(event.charIndex) + '^');
+                if (this.currentNodeGroupIndex_ + 1 < nodeGroup.nodes.length) {
+                  let next = nodeGroup.nodes[this.currentNodeGroupIndex_ + 1];
+                  // Check if we've reached this next node yet using the
+                  // character index of the event. Add 1 for the space character
+                  // between words, and another to make it to the start of the
+                  // next node name.
+                  if (event.charIndex + 2 >= next.startChar) {
+                    // Move to the next node.
+                    this.currentNodeGroupIndex_ += 1;
+                    this.currentNode_ = next;
+                    // TODO: If the next node is a non-word character, like an
+                    // open or closed paren, we should keep moving.
+                    this.currentNodeWord_ = null;
+                    if (!this.wordHighlight_) {
+                      // If we are doing a per-word highlight, we will test the
+                      // node after figuring out what the currently highlighted
+                      // word is.
+                      this.testCurrentNode_();
+                    }
+                  }
+                }
+                if (this.wordHighlight_) {
+                  this.updateNodeHighlight_(nodeGroup.text, event.charIndex);
+                } else {
+                  this.currentNodeWord_ = null;
+                }
               }
-            }).bind(this, node, isLast)
+            }).bind(this, nodeGroup, isLast)
       };
 
       // Pick the voice name from prefs first, or the one that matches
@@ -464,15 +638,15 @@ SelectToSpeak.prototype = {
       // loaded. If no voices are found, leave the voiceName option
       // unset to let the browser try to route the speech request
       // anyway if possible.
-      console.log('Pref: ' + this.voiceNameFromPrefs_);
-      console.log('Locale: ' + this.voiceNameFromLocale_);
+      console.debug('Pref: ' + this.voiceNameFromPrefs_);
+      console.debug('Locale: ' + this.voiceNameFromLocale_);
       var valid = '';
       this.validVoiceNames_.forEach(function(voiceName) {
         if (valid)
           valid += ',';
         valid += voiceName;
       });
-      console.log('Valid: ' + valid);
+      console.debug('Valid: ' + valid);
       if (this.voiceNameFromPrefs_ &&
           this.validVoiceNames_.has(this.voiceNameFromPrefs_)) {
         options['voiceName'] = this.voiceNameFromPrefs_;
@@ -482,8 +656,36 @@ SelectToSpeak.prototype = {
         options['voiceName'] = this.voiceNameFromLocale_;
       }
 
-      chrome.tts.speak(node.name || '', options);
+      chrome.tts.speak(textToSpeak || '', options);
     }
+  },
+
+  /**
+   * Cancels the current speech queue if speech is in progress.
+   */
+  cancelIfSpeaking_: function(speaking) {
+    if (speaking) {
+      this.stopAll_();
+      this.recordCancelEvent_();
+    }
+  },
+
+  /**
+   * Records an event that Select-to-Speak has begun speaking.
+   */
+  recordStartEvent_: function() {
+    // TODO(katie): Add tracking for speech rate, how STS was activated,
+    // whether word highlighting is on or off (as histograms?).
+    chrome.metricsPrivate.recordUserAction(
+        'Accessibility.CrosSelectToSpeak.StartSpeech');
+  },
+
+  /**
+   * Records an event that Select-to-Speak speech has been canceled.
+   */
+  recordCancelEvent_: function() {
+    chrome.metricsPrivate.recordUserAction(
+        'Accessibility.CrosSelectToSpeak.CancelSpeech');
   },
 
   /**
@@ -492,21 +694,27 @@ SelectToSpeak.prototype = {
    * change.
    */
   initPreferences_: function() {
-    var updatePrefs = (function() {
-                        chrome.storage.sync.get(
-                            ['voice', 'rate'],
-                            (function(prefs) {
-                              if (prefs['voice']) {
-                                this.voiceNameFromPrefs_ = prefs['voice'];
-                              }
-                              if (prefs['rate']) {
-                                this.speechRate_ = parseFloat(prefs['rate']);
-                              } else {
-                                chrome.storage.sync.set(
-                                    {'rate': this.speechRate_});
-                              }
-                            }).bind(this));
-                      }).bind(this);
+    var updatePrefs =
+        (function() {
+          chrome.storage.sync.get(
+              ['voice', 'rate', 'wordHighlight', 'highlightColor'],
+              (function(prefs) {
+                if (prefs['voice']) {
+                  this.voiceNameFromPrefs_ = prefs['voice'];
+                }
+                if (prefs['rate']) {
+                  this.speechRate_ = parseFloat(prefs['rate']);
+                } else {
+                  chrome.storage.sync.set({'rate': this.speechRate_});
+                }
+                if (prefs['wordHighlight'] !== undefined) {
+                  this.wordHighlight_ = prefs['wordHighlight'];
+                }
+                if (prefs['highlightColor']) {
+                  this.highlightColor_ = prefs['highlightColor'];
+                }
+              }).bind(this));
+        }).bind(this);
 
     updatePrefs();
     chrome.storage.onChanged.addListener(updatePrefs);
@@ -526,7 +734,7 @@ SelectToSpeak.prototype = {
 
     chrome.tts.getVoices(
         (function(voices) {
-          console.log('updateDefaultVoice_ voices: ' + voices.length);
+          console.debug('updateDefaultVoice_ voices: ' + voices.length);
           this.validVoiceNames_ = new Set();
 
           if (voices.length == 0)
@@ -564,7 +772,7 @@ SelectToSpeak.prototype = {
   /**
    * Updates the speech and focus ring states based on a node's current state.
    *
-   * @param {AutomationNode} node The node to use for udpates
+   * @param {AutomationNode} node The node to use for updates
    * @param {boolean} inForeground Whether the node is in the foreground window.
    */
   updateFromNodeState_: function(node, inForeground) {
@@ -582,8 +790,35 @@ SelectToSpeak.prototype = {
       case NodeState.NODE_STATE_NORMAL:
       default:
         if (inForeground) {
-          chrome.accessibilityPrivate.setFocusRing(
-              [node.location], this.color_);
+          if (this.wordHighlight_ && this.currentNodeWord_ != null) {
+            // Only show the highlight if this is an inline text box.
+            // Otherwise we'd be highlighting entire nodes, like images.
+            // Highlight should be only for text.
+            // Note that boundsForRange doesn't work on staticText.
+            if (node.role == RoleType.INLINE_TEXT_BOX) {
+              chrome.accessibilityPrivate.setHighlights(
+                  [node.boundsForRange(
+                      this.currentNodeWord_.start, this.currentNodeWord_.end)],
+                  this.highlightColor_);
+            } else {
+              chrome.accessibilityPrivate.setHighlights(
+                  [], this.highlightColor_);
+            }
+          }
+          // Show the parent element of the currently verbalized node with the
+          // focus ring. This is a nicer user-facing behavior than jumping from
+          // node to node, as nodes may not correspond well to paragraphs or
+          // blocks.
+          // TODO: Better test: has no siblings in the group, highlight just
+          // the one node. if it has siblings, highlight the parent.
+          if (this.currentBlockParent_ != null &&
+              node.role == RoleType.INLINE_TEXT_BOX) {
+            chrome.accessibilityPrivate.setFocusRing(
+                [this.currentBlockParent_.location], this.color_);
+          } else {
+            chrome.accessibilityPrivate.setFocusRing(
+                [node.location], this.color_);
+          }
         } else {
           this.clearFocusRing_();
         }
@@ -597,18 +832,18 @@ SelectToSpeak.prototype = {
     if (this.currentNode_ == null) {
       return;
     }
-    if (this.currentNode_.location === undefined) {
+    if (this.currentNode_.node.location === undefined) {
       // Don't do the hit test because there is no location to test against.
       // Just directly update Select To Speak from node state.
-      this.updateFromNodeState_(this.currentNode_, false);
+      this.updateFromNodeState_(this.currentNode_.node, false);
     } else {
       // Do a hit test to make sure the node is not in a background window
       // or minimimized. On the result checkCurrentNodeMatchesHitTest_ will be
       // called, and we will use that result plus the currentNode's state to
       // deterimine how to set the focus and whether to stop speech.
       this.desktop_.hitTest(
-          this.currentNode_.location.left, this.currentNode_.location.top,
-          EventType.HOVER);
+          this.currentNode_.node.location.left,
+          this.currentNode_.node.location.top, EventType.HOVER);
     }
   },
 
@@ -621,9 +856,41 @@ SelectToSpeak.prototype = {
       return;
     }
     var parent = getNearestContainingWindow(evt.target);
-    var currentParent = getNearestContainingWindow(this.currentNode_);
+    var currentParent = getNearestContainingWindow(this.currentNode_.node);
     var inForeground =
         currentParent != null && parent != null && currentParent == parent;
-    this.updateFromNodeState_(this.currentNode_, inForeground);
+    this.updateFromNodeState_(this.currentNode_.node, inForeground);
+  },
+
+  /**
+   * Updates the currently highlighted node word based on the current text
+   * and the character index of an event.
+   * @param {string} text The current text
+   * @param {number} charIndex The index of a current event in the text.
+   */
+  updateNodeHighlight_: function(text, charIndex) {
+    if (charIndex >= text.length - 1) {
+      // No need to do work if we are at the end of the paragraph.
+      return;
+    }
+    // Get the next word based on the event's charIndex.
+    let nextWordStart = getNextWordStart(text, charIndex, this.currentNode_);
+    let nextWordEnd = getNextWordEnd(text, nextWordStart, this.currentNode_);
+    // Map the next word into the node's index from the text.
+    let nodeStart = nextWordStart - this.currentNode_.startChar;
+    let nodeEnd = Math.min(
+        nextWordEnd - this.currentNode_.startChar,
+        this.currentNode_.node.name.length);
+    if ((this.currentNodeWord_ == null ||
+         nodeStart >= this.currentNodeWord_.end) &&
+        nodeStart != nodeEnd) {
+      // Only update the bounds if they have increased from the
+      // previous node. Because tts may send multiple callbacks
+      // for the end of one word and the beginning of the next,
+      // checking that the current word has changed allows us to
+      // reduce extra work.
+      this.currentNodeWord_ = {'start': nodeStart, 'end': nodeEnd};
+      this.testCurrentNode_();
+    }
   }
 };

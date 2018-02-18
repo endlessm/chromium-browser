@@ -26,8 +26,10 @@ import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Queue;
+import java.util.ArrayDeque;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
@@ -50,7 +52,9 @@ public class PeerConnectionTest {
 
   @Before
   public void setUp() {
-    PeerConnectionFactory.initializeAndroidGlobals(InstrumentationRegistry.getContext(), true);
+    PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions
+                                         .builder(InstrumentationRegistry.getTargetContext())
+                                         .createInitializationOptions());
   }
 
   private static class ObserverExpectations
@@ -64,25 +68,21 @@ public class PeerConnectionTest {
     private int expectedHeight = 0;
     private int expectedFramesDelivered = 0;
     private int expectedTracksAdded = 0;
-    private LinkedList<SignalingState> expectedSignalingChanges = new LinkedList<SignalingState>();
-    private LinkedList<IceConnectionState> expectedIceConnectionChanges =
-        new LinkedList<IceConnectionState>();
-    private LinkedList<IceGatheringState> expectedIceGatheringChanges =
-        new LinkedList<IceGatheringState>();
-    private LinkedList<String> expectedAddStreamLabels = new LinkedList<String>();
-    private LinkedList<String> expectedRemoveStreamLabels = new LinkedList<String>();
-    private final LinkedList<IceCandidate> gotIceCandidates = new LinkedList<IceCandidate>();
-    private Map<MediaStream, WeakReference<VideoRenderer>> renderers =
-        new IdentityHashMap<MediaStream, WeakReference<VideoRenderer>>();
+    private Queue<SignalingState> expectedSignalingChanges = new ArrayDeque<>();
+    private Queue<IceConnectionState> expectedIceConnectionChanges = new ArrayDeque<>();
+    private Queue<IceGatheringState> expectedIceGatheringChanges = new ArrayDeque<>();
+    private Queue<String> expectedAddStreamLabels = new ArrayDeque<>();
+    private Queue<String> expectedRemoveStreamLabels = new ArrayDeque<>();
+    private final List<IceCandidate> gotIceCandidates = new ArrayList<>();
+    private Map<MediaStream, WeakReference<VideoRenderer>> renderers = new IdentityHashMap<>();
     private DataChannel dataChannel;
-    private LinkedList<DataChannel.Buffer> expectedBuffers = new LinkedList<DataChannel.Buffer>();
-    private LinkedList<DataChannel.State> expectedStateChanges =
-        new LinkedList<DataChannel.State>();
-    private LinkedList<String> expectedRemoteDataChannelLabels = new LinkedList<String>();
+    private Queue<DataChannel.Buffer> expectedBuffers = new ArrayDeque<>();
+    private Queue<DataChannel.State> expectedStateChanges = new ArrayDeque<>();
+    private Queue<String> expectedRemoteDataChannelLabels = new ArrayDeque<>();
     private int expectedOldStatsCallbacks = 0;
     private int expectedNewStatsCallbacks = 0;
-    private LinkedList<StatsReport[]> gotStatsReports = new LinkedList<StatsReport[]>();
-    private final HashSet<MediaStream> gotRemoteStreams = new HashSet<MediaStream>();
+    private List<StatsReport[]> gotStatsReports = new ArrayList<>();
+    private final HashSet<MediaStream> gotRemoteStreams = new HashSet<>();
     private int expectedFirstAudioPacket = 0;
     private int expectedFirstVideoPacket = 0;
 
@@ -90,6 +90,8 @@ public class PeerConnectionTest {
       this.name = name;
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void setDataChannel(DataChannel dataChannel) {
       assertNull(this.dataChannel);
       this.dataChannel = dataChannel;
@@ -97,11 +99,15 @@ public class PeerConnectionTest {
       assertNotNull(this.dataChannel);
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectIceCandidates(int count) {
       expectedIceCandidates += count;
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onIceCandidate(IceCandidate candidate) {
       --expectedIceCandidates;
 
@@ -117,16 +123,22 @@ public class PeerConnectionTest {
     @Override
     public void onIceCandidatesRemoved(IceCandidate[] candidates) {}
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void setExpectedResolution(int width, int height) {
       expectedWidth = width;
       expectedHeight = height;
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectFramesDelivered(int count) {
       expectedFramesDelivered += count;
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void renderFrame(VideoRenderer.I420Frame frame) {
       assertTrue(expectedWidth > 0);
       assertTrue(expectedHeight > 0);
@@ -136,20 +148,28 @@ public class PeerConnectionTest {
       VideoRenderer.renderFrameDone(frame);
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectSignalingChange(SignalingState newState) {
       expectedSignalingChanges.add(newState);
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onSignalingChange(SignalingState newState) {
-      assertEquals(expectedSignalingChanges.removeFirst(), newState);
+      assertEquals(expectedSignalingChanges.remove(), newState);
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectIceConnectionChange(IceConnectionState newState) {
       expectedIceConnectionChanges.add(newState);
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onIceConnectionChange(IceConnectionState newState) {
       // TODO(bemasc): remove once delivery of ICECompleted is reliable
       // (https://code.google.com/p/webrtc/issues/detail?id=3021).
@@ -162,19 +182,25 @@ public class PeerConnectionTest {
         return;
       }
 
-      assertEquals(expectedIceConnectionChanges.removeFirst(), newState);
+      assertEquals(expectedIceConnectionChanges.remove(), newState);
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onIceConnectionReceivingChange(boolean receiving) {
       System.out.println(name + "Got an ICE connection receiving change " + receiving);
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectIceGatheringChange(IceGatheringState newState) {
       expectedIceGatheringChanges.add(newState);
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onIceGatheringChange(IceGatheringState newState) {
       // It's fine to get a variable number of GATHERING messages before
       // COMPLETE fires (depending on how long the test runs) so we don't assert
@@ -185,16 +211,20 @@ public class PeerConnectionTest {
       if (expectedIceGatheringChanges.isEmpty()) {
         System.out.println(name + "Got an unexpected ICE gathering change " + newState);
       }
-      assertEquals(expectedIceGatheringChanges.removeFirst(), newState);
+      assertEquals(expectedIceGatheringChanges.remove(), newState);
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectAddStream(String label) {
       expectedAddStreamLabels.add(label);
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onAddStream(MediaStream stream) {
-      assertEquals(expectedAddStreamLabels.removeFirst(), stream.label());
+      assertEquals(expectedAddStreamLabels.remove(), stream.label());
       for (AudioTrack track : stream.audioTracks) {
         assertEquals("audio", track.kind());
       }
@@ -207,13 +237,17 @@ public class PeerConnectionTest {
       gotRemoteStreams.add(stream);
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectRemoveStream(String label) {
       expectedRemoveStreamLabels.add(label);
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onRemoveStream(MediaStream stream) {
-      assertEquals(expectedRemoveStreamLabels.removeFirst(), stream.label());
+      assertEquals(expectedRemoveStreamLabels.remove(), stream.label());
       WeakReference<VideoRenderer> renderer = renderers.remove(stream);
       assertNotNull(renderer);
       assertNotNull(renderer.get());
@@ -222,71 +256,97 @@ public class PeerConnectionTest {
       gotRemoteStreams.remove(stream);
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectDataChannel(String label) {
       expectedRemoteDataChannelLabels.add(label);
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onDataChannel(DataChannel remoteDataChannel) {
-      assertEquals(expectedRemoteDataChannelLabels.removeFirst(), remoteDataChannel.label());
+      assertEquals(expectedRemoteDataChannelLabels.remove(), remoteDataChannel.label());
       setDataChannel(remoteDataChannel);
       assertEquals(DataChannel.State.CONNECTING, dataChannel.state());
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectRenegotiationNeeded() {
       ++expectedRenegotiations;
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onRenegotiationNeeded() {
       assertTrue(--expectedRenegotiations >= 0);
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectAddTrack(int expectedTracksAdded) {
       this.expectedTracksAdded = expectedTracksAdded;
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onAddTrack(RtpReceiver receiver, MediaStream[] mediaStreams) {
       expectedTracksAdded--;
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectMessage(ByteBuffer expectedBuffer, boolean expectedBinary) {
       expectedBuffers.add(new DataChannel.Buffer(expectedBuffer, expectedBinary));
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onMessage(DataChannel.Buffer buffer) {
-      DataChannel.Buffer expected = expectedBuffers.removeFirst();
+      DataChannel.Buffer expected = expectedBuffers.remove();
       assertEquals(expected.binary, buffer.binary);
       assertTrue(expected.data.equals(buffer.data));
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onBufferedAmountChange(long previousAmount) {
       assertFalse(previousAmount == dataChannel.bufferedAmount());
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onStateChange() {
-      assertEquals(expectedStateChanges.removeFirst(), dataChannel.state());
+      assertEquals(expectedStateChanges.remove(), dataChannel.state());
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectStateChange(DataChannel.State state) {
       expectedStateChanges.add(state);
     }
 
     // Old getStats callback.
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onComplete(StatsReport[] reports) {
       if (--expectedOldStatsCallbacks < 0) {
-        throw new RuntimeException("Unexpected stats report: " + reports);
+        throw new RuntimeException("Unexpected stats report: " + Arrays.toString(reports));
       }
       gotStatsReports.add(reports);
     }
 
     // New getStats callback.
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onStatsDelivered(RTCStatsReport report) {
       if (--expectedNewStatsCallbacks < 0) {
         throw new RuntimeException("Unexpected stats report: " + report);
@@ -294,6 +354,8 @@ public class PeerConnectionTest {
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onFirstPacketReceived(MediaStreamTrack.MediaType mediaType) {
       if (mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO) {
         expectedFirstAudioPacket--;
@@ -305,27 +367,37 @@ public class PeerConnectionTest {
       }
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectFirstPacketReceived() {
       expectedFirstAudioPacket = 1;
       expectedFirstVideoPacket = 1;
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectOldStatsCallback() {
       ++expectedOldStatsCallbacks;
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void expectNewStatsCallback() {
       ++expectedNewStatsCallbacks;
     }
 
-    public synchronized LinkedList<StatsReport[]> takeStatsReports() {
-      LinkedList<StatsReport[]> got = gotStatsReports;
-      gotStatsReports = new LinkedList<StatsReport[]>();
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
+    public synchronized List<StatsReport[]> takeStatsReports() {
+      List<StatsReport[]> got = gotStatsReports;
+      gotStatsReports = new ArrayList<StatsReport[]>();
       return got;
     }
 
     // Return a set of expectations that haven't been satisfied yet, possibly
     // empty if no such expectations exist.
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized TreeSet<String> unsatisfiedExpectations() {
       TreeSet<String> stillWaitingForExpectations = new TreeSet<String>();
       if (expectedIceCandidates > 0) { // See comment in onIceCandidate.
@@ -430,7 +502,7 @@ public class PeerConnectionTest {
         while (gotIceCandidates.isEmpty()) {
           gotIceCandidates.wait();
         }
-        return new LinkedList<IceCandidate>(gotIceCandidates);
+        return new ArrayList<IceCandidate>(gotIceCandidates);
       }
     }
   }
@@ -445,6 +517,8 @@ public class PeerConnectionTest {
     }
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void renderFrame(VideoRenderer.I420Frame frame) {
       // Because different camera devices (fake & physical) produce different
       // resolutions, we only sanity-check the set sizes,
@@ -575,9 +649,12 @@ public class PeerConnectionTest {
   public void testCreationWithConfig() throws Exception {
     PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
     PeerConnectionFactory factory = new PeerConnectionFactory(options);
-    List<PeerConnection.IceServer> iceServers =
-        Arrays.asList(new PeerConnection.IceServer("stun:stun.l.google.com:19302"),
-            new PeerConnection.IceServer("turn:fake.example.com", "fakeUsername", "fakePassword"));
+    List<PeerConnection.IceServer> iceServers = Arrays.asList(
+        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+        PeerConnection.IceServer.builder("turn:fake.example.com")
+            .setUsername("fakeUsername")
+            .setPassword("fakePassword")
+            .createIceServer());
     PeerConnection.RTCConfiguration config = new PeerConnection.RTCConfiguration(iceServers);
 
     // Test configuration options.
@@ -604,10 +681,13 @@ public class PeerConnectionTest {
     MediaConstraints pcConstraints = new MediaConstraints();
     pcConstraints.mandatory.add(new MediaConstraints.KeyValuePair("DtlsSrtpKeyAgreement", "true"));
 
-    LinkedList<PeerConnection.IceServer> iceServers = new LinkedList<PeerConnection.IceServer>();
-    iceServers.add(new PeerConnection.IceServer("stun:stun.l.google.com:19302"));
+    List<PeerConnection.IceServer> iceServers = new ArrayList<>();
     iceServers.add(
-        new PeerConnection.IceServer("turn:fake.example.com", "fakeUsername", "fakePassword"));
+        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer());
+    iceServers.add(PeerConnection.IceServer.builder("turn:fake.example.com")
+                       .setUsername("fakeUsername")
+                       .setPassword("fakePassword")
+                       .createIceServer());
     ObserverExpectations offeringExpectations = new ObserverExpectations("PCTest:offerer");
     PeerConnection offeringPC =
         factory.createPeerConnection(iceServers, pcConstraints, offeringExpectations);
@@ -841,10 +921,13 @@ public class PeerConnectionTest {
     MediaConstraints pcConstraints = new MediaConstraints();
     pcConstraints.mandatory.add(new MediaConstraints.KeyValuePair("DtlsSrtpKeyAgreement", "true"));
 
-    LinkedList<PeerConnection.IceServer> iceServers = new LinkedList<PeerConnection.IceServer>();
-    iceServers.add(new PeerConnection.IceServer("stun:stun.l.google.com:19302"));
+    List<PeerConnection.IceServer> iceServers = new ArrayList<>();
     iceServers.add(
-        new PeerConnection.IceServer("turn:fake.example.com", "fakeUsername", "fakePassword"));
+        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer());
+    iceServers.add(PeerConnection.IceServer.builder("turn:fake.example.com")
+                       .setUsername("fakeUsername")
+                       .setPassword("fakePassword")
+                       .createIceServer());
     ObserverExpectations offeringExpectations = new ObserverExpectations("PCTest:offerer");
     PeerConnection offeringPC =
         factory.createPeerConnection(iceServers, pcConstraints, offeringExpectations);
@@ -993,8 +1076,9 @@ public class PeerConnectionTest {
     MediaConstraints pcConstraints = new MediaConstraints();
     pcConstraints.mandatory.add(new MediaConstraints.KeyValuePair("DtlsSrtpKeyAgreement", "true"));
 
-    LinkedList<PeerConnection.IceServer> iceServers = new LinkedList<PeerConnection.IceServer>();
-    iceServers.add(new PeerConnection.IceServer("stun:stun.l.google.com:19302"));
+    List<PeerConnection.IceServer> iceServers = new ArrayList<>();
+    iceServers.add(
+        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer());
 
     ObserverExpectations offeringExpectations = new ObserverExpectations("PCTest:offerer");
     PeerConnection offeringPC =
@@ -1187,7 +1271,7 @@ public class PeerConnectionTest {
 
     // This test is fine with default PC constraints and no ICE servers.
     MediaConstraints pcConstraints = new MediaConstraints();
-    LinkedList<PeerConnection.IceServer> iceServers = new LinkedList<PeerConnection.IceServer>();
+    List<PeerConnection.IceServer> iceServers = new ArrayList<>();
 
     // Use OfferToReceiveAudio/Video to ensure every offer has an audio and
     // video m= section. Simplifies the test because it means we don't have to
@@ -1351,6 +1435,7 @@ public class PeerConnectionTest {
     assertTrue(info.samples.size() > 0);
   }
 
+  @SuppressWarnings("deprecation") // TODO(sakal): getStats is deprecated
   private static void shutdownPC(PeerConnection pc, ObserverExpectations expectations) {
     if (expectations.dataChannel != null) {
       expectations.dataChannel.unregisterObserver();

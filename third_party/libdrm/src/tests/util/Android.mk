@@ -27,13 +27,12 @@ include $(CLEAR_VARS)
 include $(LOCAL_PATH)/Makefile.sources
 
 LOCAL_MODULE := libdrm_util
-LOCAL_MODULE_TAGS := optional
 
 LOCAL_SHARED_LIBRARIES := libdrm
 
-LOCAL_SRC_FILES := $(patsubst %.h, , $(UTIL_FILES))
+LOCAL_SRC_FILES := $(UTIL_FILES)
 
-# avoid name clashes by requiring users to include util/*.h
-LOCAL_EXPORT_C_INCLUDE_DIRS := $(dir $(LOCAL_PATH))
+LOCAL_EXPORT_C_INCLUDE_DIRS := $(LIBDRM_TOP)/tests
 
+include $(LIBDRM_COMMON_MK)
 include $(BUILD_STATIC_LIBRARY)

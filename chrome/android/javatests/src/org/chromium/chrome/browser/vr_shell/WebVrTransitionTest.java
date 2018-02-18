@@ -13,6 +13,8 @@ import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_V
 
 import android.app.Activity;
 import android.os.Build;
+import android.os.SystemClock;
+import android.support.test.filters.LargeTest;
 import android.support.test.filters.MediumTest;
 
 import org.junit.Assert;
@@ -101,6 +103,7 @@ public class WebVrTransitionTest {
     @Test
     @MediumTest
     @CommandLineFlags.Remove({"enable-webvr"})
+    @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
     public void testWebVrDisabledWithoutFlagSet() throws InterruptedException {
         // TODO(bsheedy): Remove this test once WebVR is on by default without
         // requiring an origin trial.
@@ -113,11 +116,12 @@ public class WebVrTransitionTest {
 
     /**
      * Tests that scanning the Daydream View NFC tag on supported devices fires the
-     * vrdisplayactivate event.
+     * vrdisplayactivate event and the event allows presentation without a user gesture.
      */
     @Test
-    @MediumTest
+    @LargeTest
     @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM)
+    @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
     public void testNfcFiresVrdisplayactivate() throws InterruptedException {
         mVrTestFramework.loadUrlAndAwaitInitialization(
                 VrTestFramework.getHtmlTestFile("test_nfc_fires_vrdisplayactivate"),
@@ -127,6 +131,11 @@ public class WebVrTransitionTest {
         NfcSimUtils.simNfcScan(mVrTestRule.getActivity());
         VrTestFramework.waitOnJavaScriptStep(mVrTestFramework.getFirstTabWebContents());
         VrTestFramework.endTest(mVrTestFramework.getFirstTabWebContents());
+        // VrCore has a 2000 ms debounce timeout on NFC scans. When run multiple times in different
+        // activities, it is possible for a latter test to be run in the 2 seconds after the
+        // previous test's NFC scan, causing it to fail flakily. So, wait 2 seconds to ensure that
+        // can't happen.
+        SystemClock.sleep(2000);
     }
 
     /**
@@ -136,6 +145,7 @@ public class WebVrTransitionTest {
     @Test
     @MediumTest
     @Restriction({RESTRICTION_TYPE_VIEWER_DAYDREAM, RESTRICTION_TYPE_DON_ENABLED})
+    @VrActivityRestriction({VrActivityRestriction.SupportedActivity.ALL})
     public void testPresentationPromiseUnresolvedDuringDon() throws InterruptedException {
         mVrTestFramework.loadUrlAndAwaitInitialization(
                 VrTestFramework.getHtmlTestFile("test_presentation_promise_unresolved_during_don"),
@@ -151,16 +161,16 @@ public class WebVrTransitionTest {
      */
     @Test
     @MediumTest
-    @CommandLineFlags.Add("enable-features=WebVrAutopresent")
+    @CommandLineFlags.Add("enable-features=WebVrAutopresentFromIntent")
     @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM)
     public void testTrustedIntentAllowsAutoPresent() throws InterruptedException {
         VrIntentUtils.setHandlerInstanceForTesting(new MockVrIntentHandler(
                 true /* useMockImplementation */, true /* treatIntentsAsTrusted */));
 
         // Send an autopresent intent, which will open the link in a CCT
-        VrTransitionUtils.sendDaydreamAutopresentIntent(
+        VrTransitionUtils.sendVrLaunchIntent(
                 VrTestFramework.getHtmlTestFile("test_webvr_autopresent"),
-                mVrTestRule.getActivity());
+                mVrTestRule.getActivity(), true /* autopresent */);
 
         // Wait until a CCT is opened due to the intent
         final AtomicReference<CustomTabActivity> cct = new AtomicReference<CustomTabActivity>();

@@ -40,6 +40,25 @@ class FakeUiElementRenderer : public UiElementRenderer {
                             int gridline_count,
                             float opacity) override;
 
+  void DrawController(ControllerMesh::State state,
+                      float opacity,
+                      const gfx::Transform& view_proj_matrix) override;
+
+  void DrawLaser(float opacity,
+                 const gfx::Transform& view_proj_matrix) override;
+
+  void DrawReticle(float opacity,
+                   const gfx::Transform& view_proj_matrix) override;
+
+  void DrawShadow(const gfx::Transform& model_view_proj_matrix,
+                  const gfx::SizeF& element_size,
+                  float x_padding,
+                  float y_padding,
+                  float y_offset,
+                  SkColor color,
+                  float opacity,
+                  float corner_radius) override;
+
  private:
   float opacity_ = -1.f;
   float called_ = false;

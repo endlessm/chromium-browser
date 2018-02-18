@@ -8,15 +8,13 @@
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "components/ntp_snippets/content_suggestions_service.h"
-#include "components/ntp_tiles/metrics.h"
-#include "components/ntp_tiles/ntp_tile_impression.h"
 #include "components/strings/grit/components_strings.h"
+#include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/content_suggestions/content_suggestions_alert_factory.h"
 #import "ios/chrome/browser/content_suggestions/content_suggestions_mediator.h"
 #import "ios/chrome/browser/content_suggestions/content_suggestions_metrics_recorder.h"
 #import "ios/chrome/browser/content_suggestions/ntp_home_metrics.h"
 #import "ios/chrome/browser/metrics/new_tab_page_uma.h"
-#include "ios/chrome/browser/tabs/tab_constants.h"
 #import "ios/chrome/browser/ui/alert_coordinator/alert_coordinator.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
@@ -26,6 +24,8 @@
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_most_visited_item.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller_audience.h"
+#import "ios/chrome/browser/ui/favicon/favicon_attributes.h"
+#include "ios/chrome/browser/ui/ntp/metrics.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
 #import "ios/chrome/browser/ui/ntp/notification_promo_whats_new.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
@@ -74,19 +74,48 @@ const char kRateThisAppCommand[] = "ratethisapp";
 @synthesize alertCoordinator = _alertCoordinator;
 @synthesize metricsRecorder = _metricsRecorder;
 
+- (void)dealloc {
+  if (_webState && _webStateObserver) {
+    _webState->RemoveObserver(_webStateObserver.get());
+    _webStateObserver.reset();
+    _webState = nullptr;
+  }
+}
+
 - (void)setUp {
+  DCHECK(!_webStateObserver);
   DCHECK(self.suggestionsService);
-  _webStateObserver =
-      base::MakeUnique<web::WebStateObserverBridge>(self.webState, self);
+
+  _webStateObserver = std::make_unique<web::WebStateObserverBridge>(self);
+  if (_webState) {
+    _webState->AddObserver(_webStateObserver.get());
+  }
 }
 
 - (void)shutdown {
-  _webStateObserver.reset();
+  DCHECK(_webStateObserver);
+  if (_webState) {
+    _webState->RemoveObserver(_webStateObserver.get());
+    _webStateObserver.reset();
+  }
+}
+
+#pragma mark - Properties.
+
+- (void)setWebState:(web::WebState*)webState {
+  if (_webState && _webStateObserver) {
+    _webState->RemoveObserver(_webStateObserver.get());
+  }
+  _webState = webState;
+  if (_webState && _webStateObserver) {
+    _webState->AddObserver(_webStateObserver.get());
+  }
 }
 
 #pragma mark - CRWWebStateObserver
 
 - (void)webState:(web::WebState*)webState didLoadPageWithSuccess:(BOOL)success {
+  DCHECK_EQ(_webState, webState);
   if (!success)
     return;
 
@@ -106,6 +135,12 @@ const char kRateThisAppCommand[] = "ratethisapp";
     // Update the constraints in case the omnibox needs to be moved.
     [self.suggestionsViewController updateConstraints];
   }
+}
+
+- (void)webStateDestroyed:(web::WebState*)webState {
+  DCHECK_EQ(_webState, webState);
+  _webState->RemoveObserver(_webStateObserver.get());
+  _webState = nullptr;
 }
 
 #pragma mark - ContentSuggestionsCommands
@@ -133,8 +168,8 @@ const char kRateThisAppCommand[] = "ratethisapp";
 
   // Use a referrer with a specific URL to mark this entry as coming from
   // ContentSuggestions.
-  web::Referrer referrer;
-  referrer.url = GURL(tab_constants::kDoNotConsiderForMostVisited);
+  const web::Referrer referrer(GURL(kNewTabPageReferrerURL),
+                               web::ReferrerPolicyDefault);
 
   [self.dispatcher loadURL:suggestionItem.URL
                   referrer:referrer
@@ -349,10 +384,9 @@ const char kRateThisAppCommand[] = "ratethisapp";
       recordAction:new_tab_page_uma::ACTION_OPENED_MOST_VISITED_ENTRY];
   base::RecordAction(base::UserMetricsAction("MobileNTPMostVisited"));
 
-  ntp_tiles::metrics::RecordTileClick(ntp_tiles::NTPTileImpression(
-      mostVisitedIndex, item.source, item.titleSource, [item tileType],
-      // TODO(crbug.com/763946): Plumb generation time.
-      base::Time(), GURL()));
+  // TODO(crbug.com/763946): Plumb generation time.
+  RecordNTPTileClick(mostVisitedIndex, item.source, item.titleSource,
+                     item.attributes, base::Time(), GURL());
 }
 
 // Shows a snackbar with an action to undo the removal of the most visited item

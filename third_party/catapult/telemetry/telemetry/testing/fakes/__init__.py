@@ -10,11 +10,13 @@ underscore are intended to be implementation details, and should not
 be subclassed; however, some, like _FakeBrowser, have public APIs that
 may need to be called in tests.
 """
+from telemetry.core import exceptions
 from telemetry.internal.backends.chrome_inspector import websocket
 from telemetry.internal.browser import browser_options
 from telemetry.internal.platform import system_info
 from telemetry.page import shared_page_state
 from telemetry.util import image_util
+from telemetry.util import wpr_modes
 from telemetry.testing.internal import fake_gpu_info
 from types import ModuleType
 
@@ -168,6 +170,23 @@ class FakeHTTPServer(object):
     return 'file:///foo'
 
 
+class FakeForwarder(object):
+  def Close(self):
+    pass
+
+
+class FakeForwarderFactory(object):
+  def __init__(self):
+    self.raise_exception_on_create = False
+    self.host_ip = '127.0.0.1'
+
+  def Create(self, port_pair):
+    del port_pair  # Unused.
+    if self.raise_exception_on_create:
+      raise exceptions.IntentionalException
+    return FakeForwarder()
+
+
 class FakePossibleBrowser(object):
   def __init__(self, execute_on_startup=None,
                execute_after_browser_creation=None):
@@ -177,6 +196,7 @@ class FakePossibleBrowser(object):
     self.is_remote = False
     self.execute_on_startup = execute_on_startup
     self.execute_after_browser_creation = execute_after_browser_creation
+    self.finder_options = None  # This is set in Create().
 
   @property
   def returned_browser(self):
@@ -186,7 +206,7 @@ class FakePossibleBrowser(object):
   def Create(self, finder_options):
     if self.execute_on_startup is not None:
       self.execute_on_startup()
-    del finder_options  # unused
+    self.finder_options = finder_options
     if self.execute_after_browser_creation is not None:
       self.execute_after_browser_creation(self._returned_browser)
     return self.returned_browser
@@ -360,37 +380,34 @@ class _FakeTracingController(object):
 class _FakeNetworkController(object):
   def __init__(self):
     self.wpr_mode = None
-    self.extra_wpr_args = None
-    self.is_initialized = False
-    self.is_open = False
-    self.use_live_traffic = None
 
-  def InitializeIfNeeded(self, use_live_traffic=False):
-    self.use_live_traffic = use_live_traffic
+  @property
+  def is_open(self):
+    return self.wpr_mode is not None
+
+  @property
+  def use_live_traffic(self):
+    return self.wpr_mode == wpr_modes.WPR_OFF
+
+  def Open(self, wpr_mode=None):
+    self.wpr_mode = wpr_mode if wpr_mode is not None else wpr_modes.WPR_REPLAY
 
   def UpdateTrafficSettings(
       self, round_trip_latency_ms=None,
       download_bandwidth_kbps=None, upload_bandwidth_kbps=None):
     pass
 
-  def Open(self, wpr_mode, extra_wpr_args):
-    self.wpr_mode = wpr_mode
-    self.extra_wpr_args = extra_wpr_args
-    self.is_open = True
-
   def Close(self):
+    self.StopReplay()
     self.wpr_mode = None
-    self.extra_wpr_args = None
-    self.is_initialized = False
-    self.is_open = False
 
-  def StartReplay(self, archive_path, make_javascript_deterministic=False):
-    del make_javascript_deterministic  # Unused.
+  def StartReplay(self, *args, **kwargs):
+    del args  # Unused.
+    del kwargs  # Unused.
     assert self.is_open
-    self.is_initialized = archive_path is not None
 
   def StopReplay(self):
-    self.is_initialized = False
+    pass
 
 
 class _FakeTab(object):

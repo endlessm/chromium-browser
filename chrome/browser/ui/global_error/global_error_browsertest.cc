@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/path_service.h"
+#include "base/run_loop.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -28,10 +29,6 @@
 #include "extensions/browser/mock_external_provider.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/feature_switch.h"
-
-#if defined(OS_WIN)
-#include "chrome/browser/safe_browsing/chrome_cleaner/srt_global_error_win.h"
-#endif
 
 #if !defined(OS_CHROMEOS)
 #include "chrome/browser/signin/signin_global_error.h"
@@ -148,7 +145,7 @@ void GlobalErrorBubbleTest::ShowDialog(const std::string& name) {
     // To trigger a bubble alert (rather than a menu alert), the extension must
     // come from the webstore, which needs the update to come from a signed crx.
     const char kExtensionWithUpdateUrl[] = "akjooamlhcgeopfifcmlggaebeocgokj";
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     base::ScopedTempDir temp_dir;
     base::FilePath crx_path = PackCRXInTempDir(
         &temp_dir, "update_from_webstore", "update_from_webstore.pem");
@@ -174,15 +171,6 @@ void GlobalErrorBubbleTest::ShowDialog(const std::string& name) {
   } else if (name == "SigninGlobalError") {
     SigninGlobalErrorFactory::GetForProfile(profile)->ShowBubbleView(browser());
 #endif
-#if defined(OS_WIN)
-  } else if (name == "SRTGlobalError") {
-    GlobalErrorService* global_error_service =
-        GlobalErrorServiceFactory::GetForProfile(profile);
-    global_error_service->AddGlobalError(
-        base::MakeUnique<safe_browsing::SRTGlobalError>(
-            global_error_service, base::FilePath().AppendASCII("nowhere")));
-    ShowPendingError(browser());
-#endif  // OS_WIN
   } else {
     ADD_FAILURE();
   }
@@ -224,13 +212,6 @@ IN_PROC_BROWSER_TEST_F(GlobalErrorBubbleTest,
 // Signin global errors never happon on ChromeOS.
 #if !defined(OS_CHROMEOS)
 IN_PROC_BROWSER_TEST_F(GlobalErrorBubbleTest, InvokeDialog_SigninGlobalError) {
-  RunDialog();
-}
-#endif
-
-// Software Removal Tool only exists for Windows.
-#if defined(OS_WIN)
-IN_PROC_BROWSER_TEST_F(GlobalErrorBubbleTest, InvokeDialog_SRTGlobalError) {
   RunDialog();
 }
 #endif

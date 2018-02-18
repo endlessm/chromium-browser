@@ -10,11 +10,8 @@
 // clang-format off
 #include "V8TestLegacyCallbackInterface.h"
 
-#include "bindings/core/v8/ScriptController.h"
 #include "bindings/core/v8/V8BindingForCore.h"
 #include "bindings/core/v8/V8DOMConfiguration.h"
-#include "core/dom/ExecutionContext.h"
-#include "platform/wtf/Assertions.h"
 
 namespace blink {
 
@@ -35,7 +32,6 @@ const WrapperTypeInfo V8TestLegacyCallbackInterface::wrapperTypeInfo = {
     WrapperTypeInfo::kWrapperTypeNoPrototype,
     WrapperTypeInfo::kObjectClassId,
     WrapperTypeInfo::kNotInheritFromActiveScriptWrappable,
-    WrapperTypeInfo::kDependent,
 };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && defined(__clang__)
 #pragma clang diagnostic pop

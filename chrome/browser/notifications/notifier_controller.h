@@ -8,14 +8,11 @@
 #include <memory>
 #include <vector>
 
+#include "ash/public/interfaces/ash_message_center_controller.mojom.h"
 #include "base/macros.h"
-#include "ui/message_center/notifier_settings.h"
+#include "ui/message_center/notifier_id.h"
 
 class Profile;
-
-namespace message_center {
-struct Notifier;
-}
 
 // An interface to control Notifiers, grouped by NotifierType. Controllers are
 // responsible for both collating display data and toggling settings in response
@@ -25,7 +22,7 @@ class NotifierController {
   class Observer {
    public:
     virtual void OnIconImageUpdated(const message_center::NotifierId& id,
-                                    const gfx::Image& image) = 0;
+                                    const gfx::ImageSkia& image) = 0;
     virtual void OnNotifierEnabledChanged(const message_center::NotifierId& id,
                                           bool enabled) = 0;
   };
@@ -36,8 +33,8 @@ class NotifierController {
   // Returns notifiers to display in the settings UI. Not all notifiers appear
   // in settings. If the source starts loading for icon images, it needs to call
   // Observer::OnIconImageUpdated after the icon is loaded.
-  virtual std::vector<std::unique_ptr<message_center::Notifier>>
-  GetNotifierList(Profile* profile) = 0;
+  virtual std::vector<ash::mojom::NotifierUiDataPtr> GetNotifierList(
+      Profile* profile) = 0;
 
   // Set notifier enabled. |notifier_id| must have notifier type that can be
   // handled by the source. It has responsibility to invoke
@@ -46,9 +43,10 @@ class NotifierController {
                                   const message_center::NotifierId& notifier_id,
                                   bool enabled) = 0;
 
-  // Release temporary resouces tagged with notifier list that is returned last
-  // time.
-  virtual void OnNotifierSettingsClosing() {}
+  // Called when the advanced settings button has been clicked.
+  virtual void OnNotifierAdvancedSettingsRequested(
+      Profile* profile,
+      const message_center::NotifierId& notifier_id) {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(NotifierController);

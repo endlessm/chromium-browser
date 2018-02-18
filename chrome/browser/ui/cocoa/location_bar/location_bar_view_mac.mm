@@ -17,6 +17,7 @@
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/api/omnibox/omnibox_api.h"
+#include "chrome/browser/extensions/extension_ui_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
@@ -191,11 +192,19 @@ void LocationBarViewMac::UpdateSaveCreditCardIcon() {
   autofill::SaveCardBubbleControllerImpl* controller =
       autofill::SaveCardBubbleControllerImpl::FromWebContents(web_contents);
   bool enabled = controller && controller->IsIconVisible();
-  command_updater()->UpdateCommandEnabled(IDC_SAVE_CREDIT_CARD_FOR_PAGE,
-                                          enabled);
+  if (!command_updater()->UpdateCommandEnabled(
+          IDC_SAVE_CREDIT_CARD_FOR_PAGE, enabled)) {
+    enabled = enabled && command_updater()->IsCommandEnabled(
+        IDC_SAVE_CREDIT_CARD_FOR_PAGE);
+  }
   save_credit_card_decoration_->SetIcon(IsLocationBarDark());
   save_credit_card_decoration_->SetVisible(enabled);
   OnDecorationsChanged();
+}
+
+void LocationBarViewMac::UpdateFindBarIconVisibility() {
+  // TODO(crbug/651643): Implement for mac.
+  NOTIMPLEMENTED();
 }
 
 void LocationBarViewMac::UpdateBookmarkStarVisibility() {
@@ -586,8 +595,9 @@ void LocationBarViewMac::UpdatePageInfoText() {
   PageInfoVerboseType type = GetPageInfoVerboseType();
   if (type == PageInfoVerboseType::kEVCert) {
     label = GetToolbarModel()->GetEVCertName();
-  } else if (type == PageInfoVerboseType::kExtension) {
-    label = GetExtensionName(GetToolbarModel()->GetURL(), GetWebContents());
+  } else if (type == PageInfoVerboseType::kExtension && GetWebContents()) {
+    label = extensions::ui_util::GetEnabledExtensionNameForUrl(
+        GetToolbarModel()->GetURL(), GetWebContents()->GetBrowserContext());
   } else if (type == PageInfoVerboseType::kChrome) {
     label = l10n_util::GetStringUTF16(IDS_SHORT_PRODUCT_NAME);
   } else if (type == PageInfoVerboseType::kSecurity &&
@@ -619,7 +629,10 @@ void LocationBarViewMac::UpdateTranslateDecoration() {
   translate::LanguageState& language_state =
       ChromeTranslateClient::FromWebContents(web_contents)->GetLanguageState();
   bool enabled = language_state.translate_enabled();
-  command_updater()->UpdateCommandEnabled(IDC_TRANSLATE_PAGE, enabled);
+  if (!command_updater()->UpdateCommandEnabled(IDC_TRANSLATE_PAGE, enabled)) {
+    enabled = enabled && command_updater()->IsCommandEnabled(
+        IDC_TRANSLATE_PAGE);
+  }
   translate_decoration_->SetVisible(enabled);
   translate_decoration_->SetLit(language_state.IsPageTranslated(),
                                 IsLocationBarDark());

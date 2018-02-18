@@ -7,17 +7,20 @@ package org.chromium.chrome.browser.ntp;
 import static android.graphics.BitmapFactory.decodeFile;
 
 import static org.chromium.base.test.util.UrlUtils.getTestFilePath;
+import static org.chromium.chrome.test.util.browser.offlinepages.FakeOfflinePageBridge.createOfflinePageItem;
 import static org.chromium.chrome.test.util.browser.suggestions.FakeMostVisitedSites.createSiteSuggestion;
 
 import android.graphics.Bitmap;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.chrome.browser.favicon.IconType;
 import org.chromium.chrome.browser.favicon.LargeIconBridge;
 import org.chromium.chrome.browser.ntp.snippets.KnownCategories;
 import org.chromium.chrome.browser.ntp.snippets.SnippetArticle;
 import org.chromium.chrome.browser.ntp.snippets.SuggestionsSource;
-import org.chromium.chrome.browser.suggestions.MostVisitedSites;
+import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
 import org.chromium.chrome.browser.suggestions.SiteSuggestion;
+import org.chromium.chrome.test.util.browser.offlinepages.FakeOfflinePageBridge;
 import org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils;
 import org.chromium.chrome.test.util.browser.suggestions.DummySuggestionsEventReporter;
 import org.chromium.chrome.test.util.browser.suggestions.FakeMostVisitedSites;
@@ -44,15 +47,24 @@ public class NtpUiCaptureTestData {
     private static final String SHOP_PUBLISHER = "Shop.rr";
     private static final String ENTERTAINMENT_PUBLISHER = "Now Entertainment";
 
+    private static final String QUERIES_SITE_URL = "https://example.com/queries";
+    private static final String SPORTS_SITE_URL = "https://example.com/sports";
+    private static final String MEME_SITE_URL = "https://example.com/meme";
+    private static final String FACTS_SITE_URL = "https://example.com/facts";
+    private static final String NEWS_SITE_URL = "https://example.com/news";
+    private static final String TECH_SITE_URL = "https://example.com/tech";
+    private static final String SHOP_SITE_URL = "https://example.com/shop";
+    private static final String ENTERTAINMENT_SITE_URL = "https://example.com/entertainment";
+
     private static final SiteSuggestion[] SITE_SUGGESTIONS = {
-            createSiteSuggestion(QUERIES_PUBLISHER, "queries"),
-            createSiteSuggestion(SPORTS_PUBLISHER, "sports"),
-            createSiteSuggestion(MEME_PUBLISHER, "meme"),
-            createSiteSuggestion(FACTS_PUBLISHER, "facts"),
-            createSiteSuggestion(NEWS_PUBLISHER, "news"),
-            createSiteSuggestion(TECH_PUBLISHER, "tech"),
-            createSiteSuggestion(SHOP_PUBLISHER, "shop"),
-            createSiteSuggestion(ENTERTAINMENT_PUBLISHER, "movies")};
+            createSiteSuggestion(QUERIES_PUBLISHER, QUERIES_SITE_URL),
+            createSiteSuggestion(SPORTS_PUBLISHER, SPORTS_SITE_URL),
+            createSiteSuggestion(MEME_PUBLISHER, MEME_SITE_URL),
+            createSiteSuggestion(FACTS_PUBLISHER, FACTS_SITE_URL),
+            createSiteSuggestion(NEWS_PUBLISHER, NEWS_SITE_URL),
+            createSiteSuggestion(TECH_PUBLISHER, TECH_SITE_URL),
+            createSiteSuggestion(SHOP_PUBLISHER, SHOP_SITE_URL),
+            createSiteSuggestion(ENTERTAINMENT_PUBLISHER, ENTERTAINMENT_SITE_URL)};
 
     /** Grey, the default fallback color as defined in fallback_icon_style.cc. */
     private static final int DEFAULT_ICON_COLOR = 0xff787878;
@@ -84,78 +96,66 @@ public class NtpUiCaptureTestData {
     private static final SnippetArticle[] FAKE_ARTICLE_SUGGESTIONS = new SnippetArticle[] {
             new SnippetArticle(KnownCategories.ARTICLES, "suggestion0",
                     "James Roderick to step down as conductor for Laville orchestra after 5 years",
-                    NEWS_PUBLISHER, "http://example.com", getTimestamp(2017, Calendar.JUNE, 1),
-                    0.0f, 0L, false, /* thumbnailDominantColor = */ null),
+                    NEWS_PUBLISHER, "http://example.com/conductor",
+                    getTimestamp(2017, Calendar.JUNE, 1), 0.0f, 0L, false,
+                    /* thumbnailDominantColor = */ 0xFF0C5077),
             new SnippetArticle(KnownCategories.ARTICLES, "suggestion1",
                     "Boy raises orphaned goat on love and pancakes", MEME_PUBLISHER,
-                    "http://example.com", getTimestamp(2017, Calendar.JANUARY, 30), 0.0f, 0L, false,
-                    /* thumbnailDominantColor = */ null),
+                    "http://example.com", getTimestamp(2017, Calendar.JANUARY, 30), 0.0f, 0L, true,
+                    /* thumbnailDominantColor = */ 0xFF78A683),
             new SnippetArticle(KnownCategories.ARTICLES, "suggestion2",
                     "Top gigs this week in your city", ENTERTAINMENT_PUBLISHER,
                     "http://example.com", getTimestamp(2017, Calendar.JANUARY, 30), 0.0f, 0L, false,
-                    /* thumbnailDominantColor = */ null),
+                    /* thumbnailDominantColor = */ 0xFF804438),
             new SnippetArticle(KnownCategories.ARTICLES, "suggestion3", "No, you can’t sit here",
                     MEME_PUBLISHER, "http://example.com", getTimestamp(2017, Calendar.JANUARY, 30),
-                    0.0f, 0L, false, /* thumbnailDominantColor = */ null),
+                    0.0f, 0L, false, /* thumbnailDominantColor = */ 0xFF6890BA),
             new SnippetArticle(KnownCategories.ARTICLES, "suggestion4",
                     "Army training more difficult than expected", FACTS_PUBLISHER,
                     "http://example.com", getTimestamp(2017, Calendar.JANUARY, 30), 0.0f, 0L, false,
-                    /* thumbnailDominantColor = */ null),
+                    /* thumbnailDominantColor = */ 0xFFF5F6F5),
             new SnippetArticle(KnownCategories.ARTICLES, "suggestion5",
                     "Classical music attracts smaller audiences", NEWS_PUBLISHER,
                     "http://example.com", getTimestamp(2017, Calendar.JANUARY, 30), 0.0f, 0L, false,
-                    /* thumbnailDominantColor = */ null),
+                    /* thumbnailDominantColor = */ 0xFF002F39),
             new SnippetArticle(KnownCategories.ARTICLES, "suggestion6",
-                    "Report finds that freelancers are happier", ENTERTAINMENT_PUBLISHER,
-                    "http://example.com", getTimestamp(2017, Calendar.JANUARY, 30), 0.0f, 0L, false,
-                    /* thumbnailDominantColor = */ null),
+                    "Report finds that freelancers are happier despite lack of financial security",
+                    ENTERTAINMENT_PUBLISHER, "http://example.com",
+                    getTimestamp(2017, Calendar.JANUARY, 30), 0.0f, 0L, true,
+                    /* thumbnailDominantColor = */ 0XFFBCD6F4),
             new SnippetArticle(KnownCategories.ARTICLES, "suggestion7",
                     "Dog denies eating the cookies", MEME_PUBLISHER, "http://example.com",
                     getTimestamp(2017, Calendar.JANUARY, 30), 0.0f, 0L, false,
-                    /* thumbnailDominantColor = */ null),
+                    /* thumbnailDominantColor = */ 0xFFAE9667),
             new SnippetArticle(KnownCategories.ARTICLES, "suggestion8",
                     "National train strike leads to massive delays for commuters", NEWS_PUBLISHER,
+                    "http://example.com", getTimestamp(2017, Calendar.JANUARY, 30), 0.0f, 0L, false,
+                    /* thumbnailDominantColor = */ 0xFFD4A360),
+            new SnippetArticle(KnownCategories.ARTICLES, "suggestion9",
+                    "National politician has cake, eats it, claims it was pie", NEWS_PUBLISHER,
                     "http://example.com", getTimestamp(2017, Calendar.JANUARY, 30), 0.0f, 0L, false,
                     /* thumbnailDominantColor = */ null),
     };
 
-    private static final SnippetArticle[] FAKE_BOOKMARK_SUGGESTIONS = new SnippetArticle[] {
-            new SnippetArticle(KnownCategories.BOOKMARKS, "bookmark0",
-                    "Light pollution worse than ever", FACTS_PUBLISHER, "http://example.com",
-                    getTimestamp(2017, Calendar.MARCH, 10), 0.0f, 0L, false,
-                    /* thumbnailDominantColor = */ null),
-            new SnippetArticle(KnownCategories.BOOKMARKS, "bookmark1",
-                    "Emergency services suffering further budget cuts", NEWS_PUBLISHER,
-                    "http://example.com", getTimestamp(2017, Calendar.FEBRUARY, 20), 0.0f, 0L,
-                    false, /* thumbnailDominantColor = */ null),
-            new SnippetArticle(KnownCategories.BOOKMARKS, "bookmark2",
-                    "Local election yields surprise winner", FACTS_PUBLISHER, "http://example.com",
-                    getTimestamp(2017, Calendar.MARCH, 30), 0.0f, 0L, false,
-                    /* thumbnailDominantColor = */ null),
-    };
-
-    public static void registerArticleSamples(FakeSuggestionsSource suggestionsSource) {
+    private static void registerArticleSamples(FakeSuggestionsSource suggestionsSource) {
         ContentSuggestionsTestUtils.registerCategory(suggestionsSource, KnownCategories.ARTICLES);
         suggestionsSource.setSuggestionsForCategory(
                 KnownCategories.ARTICLES, Arrays.asList(FAKE_ARTICLE_SUGGESTIONS));
         suggestionsSource.setFaviconForId("suggestion0", NEWS_ICON);
         suggestionsSource.setThumbnailForId("suggestion0", "/android/UiCapture/conductor.jpg");
+        suggestionsSource.setFaviconForId("suggestion1", MEME_ICON);
+        suggestionsSource.setThumbnailForId("suggestion1", "/android/UiCapture/goat.jpg");
         suggestionsSource.setFaviconForId("suggestion2", ENTERTAINMENT_ICON);
         suggestionsSource.setThumbnailForId("suggestion2", "/android/UiCapture/gig.jpg");
+        suggestionsSource.setFaviconForId("suggestion3", MEME_ICON);
         suggestionsSource.setThumbnailForId("suggestion3", "/android/UiCapture/bench.jpg");
+        suggestionsSource.setThumbnailForId("suggestion4", "/android/UiCapture/soldiers.jpg");
         suggestionsSource.setFaviconForId("suggestion5", NEWS_ICON);
         suggestionsSource.setThumbnailForId("suggestion5", "/android/UiCapture/violin.jpg");
         suggestionsSource.setFaviconForId("suggestion6", ENTERTAINMENT_ICON);
         suggestionsSource.setThumbnailForId("suggestion6", "/android/UiCapture/freelancer.jpg");
         suggestionsSource.setThumbnailForId("suggestion7", "/android/UiCapture/dog.jpg");
         suggestionsSource.setFaviconForId("suggestion8", NEWS_ICON);
-    }
-
-    public static void registerBookmarkSamples(FakeSuggestionsSource suggestionsSource) {
-        ContentSuggestionsTestUtils.registerCategory(suggestionsSource, KnownCategories.BOOKMARKS);
-        suggestionsSource.setSuggestionsForCategory(
-                KnownCategories.BOOKMARKS, Arrays.asList(FAKE_BOOKMARK_SUGGESTIONS));
-        suggestionsSource.setThumbnailForId("bookmark1", "/android/UiCapture/fire.jpg");
     }
 
     private static long getTimestamp(int year, int month, int day) {
@@ -167,11 +167,10 @@ public class NtpUiCaptureTestData {
     private static SuggestionsSource createSuggestionsSource() {
         FakeSuggestionsSource fakeSuggestionsSource = new FakeSuggestionsSource();
         registerArticleSamples(fakeSuggestionsSource);
-        registerBookmarkSamples(fakeSuggestionsSource);
         return fakeSuggestionsSource;
     }
 
-    private static MostVisitedSites createMostVisitedSites() {
+    private static FakeMostVisitedSites createMostVisitedSites() {
         FakeMostVisitedSites result = new FakeMostVisitedSites();
         result.setTileSuggestions(SITE_SUGGESTIONS);
         return result;
@@ -197,11 +196,20 @@ public class NtpUiCaptureTestData {
                 ThreadUtils.postOnUiThread(() -> {
                     int fallbackColor =
                             colorMap.containsKey(url) ? colorMap.get(url) : DEFAULT_ICON_COLOR;
-                    callback.onLargeIconAvailable(iconMap.get(url), fallbackColor, true);
+                    callback.onLargeIconAvailable(
+                            iconMap.get(url), fallbackColor, true, IconType.INVALID);
                 });
                 return true;
             }
         };
+    }
+
+    private static OfflinePageBridge createOfflinePageBridge() {
+        FakeOfflinePageBridge bridge = new FakeOfflinePageBridge();
+        bridge.setItems(Arrays.asList(createOfflinePageItem(SITE_SUGGESTIONS[6].url, 42L),
+                createOfflinePageItem(FAKE_ARTICLE_SUGGESTIONS[0].getUrl(), 43L)));
+        bridge.setIsOfflinePageModelLoaded(true);
+        return bridge;
     }
 
     public static SuggestionsDependenciesRule.TestFactory createFactory() {
@@ -211,6 +219,7 @@ public class NtpUiCaptureTestData {
         result.eventReporter = new DummySuggestionsEventReporter();
         result.largeIconBridge = createLargeIconBridge();
         result.mostVisitedSites = createMostVisitedSites();
+        result.offlinePageBridge = createOfflinePageBridge();
         return result;
     }
 

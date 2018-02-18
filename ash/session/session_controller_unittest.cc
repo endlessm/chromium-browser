@@ -40,7 +40,7 @@ namespace {
 class TestSessionObserver : public SessionObserver {
  public:
   TestSessionObserver() : active_account_id_(EmptyAccountId()) {}
-  ~TestSessionObserver() override {}
+  ~TestSessionObserver() override = default;
 
   // SessionObserver:
   void OnActiveUserSessionChanged(const AccountId& account_id) override {
@@ -94,8 +94,8 @@ void FillDefaultSessionInfo(mojom::SessionInfo* info) {
 
 class SessionControllerTest : public testing::Test {
  public:
-  SessionControllerTest() {}
-  ~SessionControllerTest() override {}
+  SessionControllerTest() = default;
+  ~SessionControllerTest() override = default;
 
   // testing::Test:
   void SetUp() override {
@@ -552,12 +552,11 @@ class CanSwitchUserTest : public AshTestBase {
     ACCEPT_DIALOG,   // A dialog should be shown and we should accept it.
     DECLINE_DIALOG,  // A dialog should be shown and we do not accept it.
   };
-  CanSwitchUserTest() {}
-  ~CanSwitchUserTest() override {}
+  CanSwitchUserTest() = default;
+  ~CanSwitchUserTest() override = default;
 
   void SetUp() override {
     AshTestBase::SetUp();
-    TrayItemView::DisableAnimationsForTest();
     SystemTray* system_tray = GetPrimarySystemTray();
     share_item_ = system_tray->GetScreenShareItem();
     capture_item_ = system_tray->GetScreenCaptureItem();

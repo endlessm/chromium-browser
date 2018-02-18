@@ -144,6 +144,9 @@ void DispatchObserverTimingCallbacks(
   if (new_timing.paint_timing->first_meaningful_paint &&
       !last_timing.paint_timing->first_meaningful_paint)
     observer->OnFirstMeaningfulPaintInMainFrameDocument(new_timing, extra_info);
+  if (new_timing.interactive_timing->interactive &&
+      !last_timing.interactive_timing->interactive)
+    observer->OnPageInteractive(new_timing, extra_info);
   if (new_timing.parse_timing->parse_start &&
       !last_timing.parse_timing->parse_start)
     observer->OnParseStart(new_timing, extra_info);
@@ -632,8 +635,9 @@ void PageLoadTracker::BroadcastEventToObservers(const void* const event_key) {
 
 void PageLoadTracker::UpdateFeaturesUsage(
     const mojom::PageLoadFeatures& new_features) {
+  PageLoadExtraInfo extra_info(ComputePageLoadExtraInfo());
   for (const auto& observer : observers_) {
-    observer->OnFeaturesUsageObserved(new_features);
+    observer->OnFeaturesUsageObserved(new_features, extra_info);
   }
 }
 

@@ -220,7 +220,7 @@ void ArcAppWindowLauncherController::OnWindowVisibilityChanged(
   // Attach window to multi-user manager now to let it manage visibility state
   // of the ARC window correctly.
   if (GetWindowTaskId(window) > 0) {
-    chrome::MultiUserWindowManager::GetInstance()->SetWindowOwner(
+    MultiUserWindowManager::GetInstance()->SetWindowOwner(
         window,
         user_manager::UserManager::Get()->GetPrimaryUser()->GetAccountId());
   }
@@ -452,14 +452,10 @@ void ArcAppWindowLauncherController::OnTaskSetActive(int32_t task_id) {
   ArcAppWindow* current_app_window = GetAppWindowForTask(task_id);
   if (current_app_window) {
     if (current_app_window->widget() && current_app_window->IsActive()) {
-      owner()->SetItemStatus(current_app_window->shelf_id(),
-                             ash::STATUS_ACTIVE);
       current_app_window->controller()->SetActiveWindow(
           current_app_window->GetNativeWindow());
-    } else {
-      owner()->SetItemStatus(current_app_window->shelf_id(),
-                             ash::STATUS_RUNNING);
     }
+    owner()->SetItemStatus(current_app_window->shelf_id(), ash::STATUS_RUNNING);
     // TODO(reveman): Figure out how to support fullscreen in interleaved
     // window mode.
     // if (new_active_app_it->second->widget()) {

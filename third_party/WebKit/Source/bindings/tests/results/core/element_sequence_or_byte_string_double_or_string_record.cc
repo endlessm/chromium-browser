@@ -16,6 +16,7 @@
 #include "bindings/core/v8/V8Element.h"
 #include "bindings/core/v8/double_or_string.h"
 #include "core/animation/ElementAnimation.h"
+#include "core/css/cssom/ElementComputedStyleMap.h"
 #include "core/dom/ChildNode.h"
 #include "core/dom/NonDocumentTypeChildNode.h"
 #include "core/dom/ParentNode.h"
@@ -63,7 +64,7 @@ ElementSequenceOrByteStringDoubleOrStringRecord::ElementSequenceOrByteStringDoub
 ElementSequenceOrByteStringDoubleOrStringRecord::~ElementSequenceOrByteStringDoubleOrStringRecord() = default;
 ElementSequenceOrByteStringDoubleOrStringRecord& ElementSequenceOrByteStringDoubleOrStringRecord::operator=(const ElementSequenceOrByteStringDoubleOrStringRecord&) = default;
 
-DEFINE_TRACE(ElementSequenceOrByteStringDoubleOrStringRecord) {
+void ElementSequenceOrByteStringDoubleOrStringRecord::Trace(blink::Visitor* visitor) {
   visitor->Trace(byte_string_double_or_string_record_);
   visitor->Trace(element_sequence_);
 }

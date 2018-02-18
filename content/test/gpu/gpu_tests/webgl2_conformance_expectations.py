@@ -48,6 +48,13 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     self.Skip('conformance/glsl/bugs/sampler-array-struct-function-arg.html',
         bug=757097)
 
+    # Failing on Windows and Linux with NVIDIA GPUs and OpenGL driver.
+    self.Fail('conformance/glsl/bugs/vector-scalar-arithmetic-inside-loop.html',
+        ['nvidia'], bug=772651)
+    self.Fail('conformance/glsl/bugs/' +
+        'vector-scalar-arithmetic-inside-loop-complex.html',
+        ['nvidia'], bug=772651)
+
     # All platforms.
     self.Flaky('conformance2/query/occlusion-query.html', bug=603168)
     self.Fail('conformance2/glsl3/tricky-loop-conditions.html', bug=483282)
@@ -100,87 +107,74 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     self.Flaky('deqp/functional/gles3/textureshadow/*.html',
         ['win', 'nvidia', 'd3d11'], bug=735464)
 
-    # Win10 / NVIDIA Quadro P400 / D3D11 flaky failures
+    # Win / NVIDIA Quadro P400 / D3D11 flaky failures
+    self.Fail('deqp/data/gles3/shaders/functions.html',
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
     self.Fail('deqp/functional/gles3/transformfeedback/' +
         'basic_types_interleaved_lines.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
     self.Fail('deqp/functional/gles3/transformfeedback/' +
         'basic_types_interleaved_triangles.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
     self.Fail('deqp/functional/gles3/transformfeedback/' +
         'basic_types_separate_lines.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
     self.Fail('deqp/functional/gles3/transformfeedback/' +
         'basic_types_separate_triangles.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
     self.Fail('deqp/functional/gles3/transformfeedback/' +
         'random_interleaved_lines.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
     self.Fail('deqp/functional/gles3/transformfeedback/' +
         'random_interleaved_triangles.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
     self.Fail('deqp/functional/gles3/transformfeedback/' +
         'random_separate_lines.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
     self.Fail('deqp/functional/gles3/transformfeedback/' +
         'random_separate_triangles.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
     self.Fail('deqp/functional/gles3/transformfeedback/interpolation_flat.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=680754)
     self.Flaky('conformance/textures/image_bitmap_from_video/' +
         'tex-2d-rgba-rgba-unsigned_short_5_5_5_1.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=728670)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=728670)
     self.Flaky('conformance/textures/image_bitmap_from_video/' +
         'tex-2d-rgba-rgba-unsigned_short_4_4_4_4.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=728670)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=728670)
     self.Flaky('conformance2/textures/video/*',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=728670)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=728670)
     self.Flaky('conformance2/textures/image_bitmap_from_video/*',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=728670)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=728670)
     self.Flaky('conformance/extensions/oes-texture-half-float-with-video.html',
-        ['win10', ('nvidia', 0x1cb3), 'd3d11'], bug=728670)
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=728670)
+    self.Flaky('conformance2/rendering/attrib-type-match.html',
+        ['win', ('nvidia', 0x1cb3), 'd3d11'], bug=782254)
 
-    # Win / NVIDIA / OpenGL
+    # WIN / OpenGL / NVIDIA failures
+    self.Fail('conformance2/textures/canvas_sub_rectangle/' +
+        'tex-2d-rgb565-rgb-unsigned_byte.html',
+        ['win', ('nvidia', 0x1cb3), 'opengl'], bug=781668)
+    self.Fail('conformance/limits/gl-max-texture-dimensions.html',
+        ['win', ('nvidia', 0x1cb3), 'opengl'], bug=715001)
+    self.Fail('conformance/textures/misc/texture-size.html',
+        ['win', ('nvidia', 0x1cb3), 'opengl'], bug=703779)
     self.Fail('conformance2/glsl3/vector-dynamic-indexing-nv-driver-bug.html',
         ['win', 'nvidia', 'opengl'], bug=693090)
     self.Fail('conformance2/glsl3/' +
         'vector-dynamic-indexing-swizzled-lvalue.html',
         ['win', 'nvidia', 'opengl'], bug=709874)
-    self.Fail('conformance2/state/gl-object-get-calls.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('conformance2/transform_feedback/transform_feedback.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('conformance2/transform_feedback/two-unreferenced-varyings.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('conformance2/transform_feedback/' +
-        'unwritten-output-defaults-to-zero.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/booleanstatequery.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/lifetime.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/negativeshaderapi.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/negativevertexarrayapi.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/shaderbuiltinvar.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/shadercommonfunction.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/shaderpackingfunction.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/shaderstatequery.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/transformfeedback/basic_types_*.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/transformfeedback/interpolation_*.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/transformfeedback/point_size.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/transformfeedback/position.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
-    self.Fail('deqp/functional/gles3/transformfeedback/random_*.html',
-        ['win', 'nvidia', 'opengl'], bug=773823)
+    self.Flaky('conformance2/rendering/attrib-type-match.html',
+        ['win', 'nvidia', 'opengl'], bug=782254)
+    self.Fail('conformance2/textures/canvas_sub_rectangle/' +
+        'tex-2d-rg16f-rg-half_float.html',
+        ['win', 'nvidia', 'opengl'], bug=784849)
+    self.Fail('conformance2/textures/canvas_sub_rectangle/' +
+        'tex-2d-r8-red-unsigned_byte.html',
+        ['win', 'nvidia', 'opengl'], bug=784849)
+    self.Fail('conformance2/textures/canvas_sub_rectangle/' +
+        'tex-2d-r16f-red-float.html',
+        ['win', 'nvidia', 'opengl'], bug=786716)
 
     # Win / AMD
     self.Fail('conformance2/rendering/blitframebuffer-stencil-only.html',
@@ -196,10 +190,6 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     self.Flaky('deqp/functional/gles3/multisample.html',
         ['win', ('amd', 0x6613)], bug=687374)
 
-    # Win / Intel
-    self.Fail('conformance2/glsl3/' +
-        'texture-offset-uniform-texture-coordinate.html',
-        ['win', 'intel', 'd3d11'], bug=662644) # WebGL 2.0.1
     self.Skip('conformance2/textures/misc/copy-texture-image.html',
         ['win', 'intel', 'd3d11'], bug=617449)
     # Seems to cause the harness to fail immediately afterward
@@ -217,14 +207,6 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     # until we can run them without GPU hangs and crashes.
     self.Skip('deqp/functional/gles3/textureshadow/2d_array_*.html',
         ['win', 'intel', 'd3d11'], bug=666392)
-
-    # Win 10 / Intel
-    self.Fail('deqp/functional/gles3/fbocolorbuffer/clear.html',
-        ['win10', 'intel', 'd3d11', 'no_passthrough'], bug=483282)
-
-    # Intel HD 530
-    self.Fail('conformance2/textures/misc/angle-stuck-depth-textures.html',
-        ['win', 'intel', 'no_passthrough', 'd3d11'], bug=680797)
 
     # It's unfortunate that these suppressions need to be so broad, but it
     # looks like the D3D11 device can be lost spontaneously on this
@@ -342,12 +324,35 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     self.Fail('conformance/textures/image_bitmap_from_video/' +
         'tex-2d-rgba-rgba-unsigned_short_5_5_5_1.html',
         ['linux', 'passthrough', 'opengl', 'nvidia'], bug=766918)
+    self.Fail('conformance/textures/image_bitmap_from_video/' +
+        'tex-2d-rgb-rgb-unsigned_short_5_6_5.html',
+        ['linux', 'passthrough', 'opengl', 'nvidia'], bug=766918)
 
     # Regressions in 10.12.4.
     self.Fail('conformance2/textures/misc/tex-base-level-bug.html',
         ['sierra'], bug=705865)
     self.Fail('conformance2/textures/misc/tex-mipmap-levels.html',
         ['sierra'], bug=705865)
+
+    # Regressions in 10.13
+    self.Fail('deqp/functional/gles3/fbocolorbuffer/tex2d_00.html',
+        ['highsierra', ('intel', 0xa2e)], bug=774826)
+    self.Fail('deqp/functional/gles3/fboinvalidate/format_00.html',
+        ['highsierra', ('intel', 0xa2e)], bug=774826)
+    self.Fail('deqp/functional/gles3/framebufferblit/' +
+        'default_framebuffer_05.html',
+        ['highsierra', ('intel', 0xa2e)], bug=774826)
+    self.Fail('conformance2/glsl3/array-assign.html',
+        ['highsierra', ('nvidia', 0xfe9)], bug=774827)
+    self.Fail('deqp/functional/gles3/fborender/resize_03.html',
+        ['highsierra', ('nvidia', 0xfe9)], bug=774827)
+    self.Fail('deqp/functional/gles3/shaderindexing/mat_00.html',
+        ['highsierra', ('nvidia', 0xfe9)], bug=774827)
+    self.Fail('deqp/functional/gles3/shaderindexing/mat_02.html',
+        ['highsierra', ('nvidia', 0xfe9)], bug=774827)
+    self.Fail('deqp/functional/gles3/texturespecification/' +
+        'teximage2d_pbo_cube_00.html',
+        ['highsierra', ('nvidia', 0xfe9)], bug=774827)
 
     # Fails on multiple GPU types.
     self.Fail('conformance2/glsl3/vector-dynamic-indexing-swizzled-lvalue.html',
@@ -748,6 +753,90 @@ class WebGL2ConformanceExpectations(WebGLConformanceExpectations):
     # This test causes a lost device and then the next test fails.
     self.Skip('conformance2/rendering/blitframebuffer-size-overflow.html',
         ['linux', ('nvidia', 0x1cb3)], bug=709320)
+    # Observed flaky on Swarmed bots. Some of these were directly
+    # observed, some not. We can't afford any flakes on the tryservers
+    # so mark them all flaky.
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'array_interleaved_lines.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'array_interleaved_points.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'array_interleaved_triangles.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'array_separate_lines.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'array_separate_points.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'array_separate_triangles.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'basic_types_interleaved_lines.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'basic_types_interleaved_points.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'basic_types_interleaved_triangles.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'basic_types_separate_lines.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'basic_types_separate_points.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'basic_types_separate_triangles.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'interpolation_centroid.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'interpolation_flat.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'interpolation_smooth.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'point_size.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'position.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'random_interleaved_lines.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'random_interleaved_points.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'random_interleaved_triangles.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'random_separate_lines.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'random_separate_points.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+    self.Flaky('deqp/functional/gles3/transformfeedback/' +
+        'random_separate_triangles.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=780706)
+
+    # Linux NVIDIA Quadro P400, OpenGL backend
+    self.Fail('conformance/limits/gl-max-texture-dimensions.html',
+        ['linux', ('nvidia', 0x1cb3)], bug=715001)
+    self.Fail('conformance/textures/misc/texture-size.html',
+        ['linux', ('nvidia', 0x1cb3), 'opengl'], bug=703779)
+    self.Fail('conformance/extensions/webgl-compressed-texture-size-limit.html',
+        ['linux', ('nvidia', 0x1cb3), 'opengl'], bug=703779)
+    self.Fail('conformance/textures/misc/texture-size-limit.html',
+        ['linux', ('nvidia', 0x1cb3), 'opengl'], bug=703779)
+    self.Fail('deqp/functional/gles3/fbocompleteness.html',
+        ['linux', ('nvidia', 0x1cb3), 'opengl'], bug=703779)
 
     # Linux Intel
     self.Fail('conformance2/extensions/ext-color-buffer-float.html',

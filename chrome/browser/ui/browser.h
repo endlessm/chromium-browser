@@ -67,22 +67,20 @@ class BrowserSyncedWindowDelegate;
 class BrowserToolbarModelDelegate;
 class BrowserLiveTabContext;
 class BrowserWindow;
+class FastUnloadController;
 class FindBarController;
 class Profile;
 class ScopedKeepAlive;
 class StatusBubble;
 class TabStripModel;
 class TabStripModelDelegate;
-class ValidationMessageBubble;
+class UnloadController;
 
 namespace chrome {
 class BrowserCommandController;
-class FastUnloadController;
-class UnloadController;
 }
 
 namespace content {
-class PageState;
 class SessionStorageNamespace;
 }
 
@@ -469,13 +467,6 @@ class Browser : public TabStripModelObserver,
   void HandleKeyboardEvent(
       content::WebContents* source,
       const content::NativeWebKeyboardEvent& event) override;
-  void ShowValidationMessage(content::WebContents* web_contents,
-                             const gfx::Rect& anchor_in_root_view,
-                             const base::string16& main_text,
-                             const base::string16& sub_text) override;
-  void HideValidationMessage(content::WebContents* web_contents) override;
-  void MoveValidationMessage(content::WebContents* web_contents,
-                             const gfx::Rect& anchor_in_root_view) override;
   bool PreHandleGestureEvent(content::WebContents* source,
                              const blink::WebGestureEvent& event) override;
   bool CanDragEnter(content::WebContents* source,
@@ -494,6 +485,8 @@ class Browser : public TabStripModelObserver,
                                          bool allowed_per_prefs,
                                          const url::Origin& origin,
                                          const GURL& resource_url) override;
+  void OnAudioStateChanged(content::WebContents* web_contents,
+                           bool is_audible) override;
 
   bool is_type_tabbed() const { return type_ == TYPE_TABBED; }
   bool is_type_popup() const { return type_ == TYPE_POPUP; }
@@ -529,11 +522,8 @@ class Browser : public TabStripModelObserver,
   FRIEND_TEST_ALL_PREFIXES(BrowserCommandControllerTest,
                            IsReservedCommandOrKeyIsApp);
   FRIEND_TEST_ALL_PREFIXES(BrowserCommandControllerTest, AppFullScreen);
-  FRIEND_TEST_ALL_PREFIXES(BrowserTest, NoTabsInPopups);
-  FRIEND_TEST_ALL_PREFIXES(BrowserTest, ConvertTabToAppShortcut);
   FRIEND_TEST_ALL_PREFIXES(BrowserTest, OpenAppWindowLikeNtp);
   FRIEND_TEST_ALL_PREFIXES(BrowserTest, AppIdSwitch);
-  FRIEND_TEST_ALL_PREFIXES(BrowserTest, ShouldShowLocationBar);
   FRIEND_TEST_ALL_PREFIXES(ExclusiveAccessBubbleWindowControllerTest,
                            DenyExitsFullscreen);
   FRIEND_TEST_ALL_PREFIXES(FullscreenControllerTest,
@@ -606,11 +596,6 @@ class Browser : public TabStripModelObserver,
                          bool proceed,
                          bool* proceed_to_fire_unload) override;
   bool ShouldFocusLocationBarByDefault(content::WebContents* source) override;
-  void ViewSourceForTab(content::WebContents* source,
-                        const GURL& page_url) override;
-  void ViewSourceForFrame(content::WebContents* source,
-                          const GURL& frame_url,
-                          const content::PageState& frame_page_state) override;
   void ShowRepostFormWarningDialog(content::WebContents* source) override;
   bool ShouldCreateWebContents(
       content::WebContents* web_contents,
@@ -830,9 +815,6 @@ class Browser : public TabStripModelObserver,
   // for the location bar does not mean it will be visible.
   bool SupportsLocationBar() const;
 
-  // Returns true if the Browser window should show the location bar.
-  bool ShouldShowLocationBar() const;
-
   // Implementation of SupportsWindowFeature and CanSupportWindowFeature. If
   // |check_fullscreen| is true, the set of features reflect the actual state of
   // the browser, otherwise the set of features reflect the possible state of
@@ -845,6 +827,10 @@ class Browser : public TabStripModelObserver,
   void UpdateBookmarkBarState(BookmarkBarStateChangeReason reason);
 
   bool ShouldHideUIForFullscreen() const;
+
+  // Indicates if we have called BrowserList::NotifyBrowserCloseStarted for the
+  // browser.
+  bool IsBrowserClosing() const;
 
   // Returns true if we can start the shutdown sequence for the browser, i.e.
   // the last browser window is being closed.
@@ -947,8 +933,8 @@ class Browser : public TabStripModelObserver,
   // Tracks when this browser is being created by session restore.
   bool is_session_restore_;
 
-  std::unique_ptr<chrome::UnloadController> unload_controller_;
-  std::unique_ptr<chrome::FastUnloadController> fast_unload_controller_;
+  std::unique_ptr<UnloadController> unload_controller_;
+  std::unique_ptr<FastUnloadController> fast_unload_controller_;
 
   std::unique_ptr<ChromeBubbleManager> bubble_manager_;
 
@@ -988,8 +974,6 @@ class Browser : public TabStripModelObserver,
 
   // True if the browser window has been shown at least once.
   bool window_has_shown_;
-
-  base::WeakPtr<ValidationMessageBubble> validation_message_bubble_;
 
 #if !defined(OS_CHROMEOS)
   SigninViewController signin_view_controller_;

@@ -13,7 +13,6 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -21,13 +20,13 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/titled_url_match.h"
 #include "components/bookmarks/test/test_bookmark_client.h"
-#include "components/metrics/proto/omnibox_event.pb.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/mock_autocomplete_provider_client.h"
 #include "components/omnibox/browser/test_scheme_classifier.h"
 #include "components/omnibox/browser/titled_url_match_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/metrics_proto/omnibox_event.pb.h"
 
 using bookmarks::BookmarkModel;
 using bookmarks::BookmarkNode;
@@ -95,8 +94,8 @@ std::string TestBookmarkPositionsAsString(
        i != positions.end(); ++i) {
     if (i != positions.begin())
       position_string += ", ";
-    position_string += "{" + base::SizeTToString(i->begin) + ", " +
-        base::SizeTToString(i->end) + "}";
+    position_string += "{" + base::NumberToString(i->begin) + ", " +
+                       base::NumberToString(i->end) + "}";
   }
   position_string += "}\n";
   return position_string;
@@ -173,7 +172,6 @@ class BookmarkProviderTest : public testing::Test {
  protected:
   void SetUp() override;
 
-  base::MessageLoop message_loop_;
   std::unique_ptr<MockAutocompleteProviderClient> provider_client_;
   std::unique_ptr<BookmarkModel> model_;
   scoped_refptr<BookmarkProvider> provider_;
@@ -376,7 +374,7 @@ TEST_F(BookmarkProviderTest, Rankings) {
         continue;
       EXPECT_EQ(query_data[i].matches[j],
                 base::UTF16ToUTF8(matches[j].description))
-          << "    Mismatch at [" << base::SizeTToString(j) << "] for query '"
+          << "    Mismatch at [" << base::NumberToString(j) << "] for query '"
           << query_data[i].query << "'.";
     }
   }

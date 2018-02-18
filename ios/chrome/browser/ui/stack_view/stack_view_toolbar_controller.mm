@@ -13,8 +13,8 @@
 #import "ios/chrome/browser/ui/image_util.h"
 #import "ios/chrome/browser/ui/rtl_geometry.h"
 #import "ios/chrome/browser/ui/toolbar/new_tab_button.h"
+#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_constants.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_controller+protected.h"
-#import "ios/chrome/browser/ui/toolbar/toolbar_controller_constants.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -43,7 +43,7 @@ const CGFloat kBackgroundViewColorAlpha = 0.95;
     _dispatcher = dispatcher;
     _stackViewToolbar =
         [[UIView alloc] initWithFrame:[self specificControlsArea]];
-    [_stackViewToolbar setAutoresizingMask:UIViewAutoresizingFlexibleHeight |
+    [_stackViewToolbar setAutoresizingMask:UIViewAutoresizingFlexibleTopMargin |
                                            UIViewAutoresizingFlexibleWidth];
 
     _openNewTabButton = [[NewTabButton alloc] initWithFrame:CGRectZero];

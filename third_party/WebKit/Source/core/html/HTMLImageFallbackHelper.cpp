@@ -23,8 +23,9 @@ namespace blink {
 using namespace HTMLNames;
 
 static bool NoImageSourceSpecified(const Element& element) {
-  bool no_src_specified =
-      !element.hasAttribute(srcAttr) || element.getAttribute(srcAttr).IsNull();
+  bool no_src_specified = !element.hasAttribute(srcAttr) ||
+                          element.getAttribute(srcAttr).IsNull() ||
+                          element.getAttribute(srcAttr).IsEmpty();
   bool no_srcset_specified = !element.hasAttribute(srcsetAttr) ||
                              element.getAttribute(srcsetAttr).IsNull();
   return no_src_specified && no_srcset_specified;
@@ -78,9 +79,9 @@ void HTMLImageFallbackHelper::CreateAltTextShadowTree(Element& element) {
   alt_text->AppendChild(text);
 }
 
-RefPtr<ComputedStyle> HTMLImageFallbackHelper::CustomStyleForAltText(
+scoped_refptr<ComputedStyle> HTMLImageFallbackHelper::CustomStyleForAltText(
     Element& element,
-    RefPtr<ComputedStyle> new_style) {
+    scoped_refptr<ComputedStyle> new_style) {
   // If we have an author shadow root or have not created the UA shadow root
   // yet, bail early. We can't use ensureUserAgentShadowRoot() here because that
   // would alter the DOM tree during style recalc.

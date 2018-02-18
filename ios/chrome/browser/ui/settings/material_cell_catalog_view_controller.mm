@@ -489,7 +489,8 @@ const CGFloat kCardIssuerNetworkIconDimension = 25.0;
   signinPromoItem.configurator =
       [[SigninPromoViewConfigurator alloc] initWithUserEmail:nil
                                                 userFullName:nil
-                                                   userImage:nil];
+                                                   userImage:nil
+                                              hasCloseButton:YES];
   return signinPromoItem;
 }
 
@@ -499,7 +500,8 @@ const CGFloat kCardIssuerNetworkIconDimension = 25.0;
   signinPromoItem.configurator = [[SigninPromoViewConfigurator alloc]
       initWithUserEmail:@"jonhdoe@example.com"
            userFullName:@"John Doe"
-              userImage:nil];
+              userImage:nil
+         hasCloseButton:NO];
   return signinPromoItem;
 }
 
@@ -558,7 +560,7 @@ const CGFloat kCardIssuerNetworkIconDimension = 25.0;
       [[PaymentsTextItem alloc] initWithType:ItemTypePaymentsDynamicHeight];
   item.text = @"If you want to display a long text that wraps to the next line "
               @"and may need to feature an image this is the cell to use.";
-  item.image = [UIImage imageNamed:@"app_icon_placeholder"];
+  item.leadingImage = [UIImage imageNamed:@"app_icon_placeholder"];
   return item;
 }
 

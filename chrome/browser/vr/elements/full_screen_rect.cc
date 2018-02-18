@@ -12,13 +12,16 @@ namespace vr {
 FullScreenRect::FullScreenRect() = default;
 FullScreenRect::~FullScreenRect() = default;
 
-void FullScreenRect::Render(
-    UiElementRenderer* renderer,
-    const gfx::Transform& model_view_proj_matrix) const {
+void FullScreenRect::Render(UiElementRenderer* renderer,
+                            const CameraModel& model) const {
   gfx::Transform m;
   m.Scale3d(2.0f, 2.0f, 1.0f);
   renderer->DrawGradientQuad(m, edge_color(), center_color(),
                              computed_opacity(), size(), corner_radius());
+}
+
+bool FullScreenRect::IsWorldPositioned() const {
+  return false;
 }
 
 }  // namespace vr

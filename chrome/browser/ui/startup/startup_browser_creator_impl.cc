@@ -330,8 +330,11 @@ bool StartupBrowserCreatorImpl::Launch(Profile* profile,
   if (OpenApplicationWindow(profile)) {
     RecordLaunchModeHistogram(LM_AS_WEBAPP);
   } else {
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kTryChromeAgain)) {
+    // Check the true process command line for --try-chrome-again=N rather than
+    // the one parsed for startup URLs and such.
+    if (!base::CommandLine::ForCurrentProcess()
+             ->GetSwitchValueNative(switches::kTryChromeAgain)
+             .empty()) {
       RecordLaunchModeHistogram(LM_USER_EXPERIMENT);
     } else {
       RecordLaunchModeHistogram(urls_to_open.empty() ? LM_TO_BE_DECIDED
@@ -587,9 +590,15 @@ void StartupBrowserCreatorImpl::DetermineURLsAndLaunch(
   bool is_incognito_or_guest =
       profile_->GetProfileType() != Profile::ProfileType::REGULAR_PROFILE;
   bool is_post_crash_launch = HasPendingUncleanExit(profile_);
+  const auto session_startup_pref =
+      StartupBrowserCreator::GetSessionStartupPref(command_line_, profile_);
+  // Both mandatory and recommended startup policies should skip promo pages.
+  bool are_startup_urls_managed =
+      session_startup_pref.TypeIsManaged(profile_->GetPrefs()) ||
+      session_startup_pref.TypeIsRecommended(profile_->GetPrefs());
   StartupTabs tabs = DetermineStartupTabs(
       StartupTabProviderImpl(), cmd_line_tabs, process_startup,
-      is_incognito_or_guest, is_post_crash_launch);
+      is_incognito_or_guest, is_post_crash_launch, are_startup_urls_managed);
 
   // Return immediately if we start an async restore, since the remainder of
   // that process is self-contained.
@@ -606,9 +615,8 @@ void StartupBrowserCreatorImpl::DetermineURLsAndLaunch(
   if (!cmd_line_tabs.empty())
     behavior_options |= HAS_CMD_LINE_TABS;
 
-  BrowserOpenBehavior behavior = DetermineBrowserOpenBehavior(
-      StartupBrowserCreator::GetSessionStartupPref(command_line_, profile_),
-      behavior_options);
+  BrowserOpenBehavior behavior =
+      DetermineBrowserOpenBehavior(session_startup_pref, behavior_options);
 
   SessionRestore::BehaviorBitmask restore_options = 0;
   if (behavior == BrowserOpenBehavior::SYNCHRONOUS_RESTORE) {
@@ -638,7 +646,8 @@ StartupTabs StartupBrowserCreatorImpl::DetermineStartupTabs(
     const StartupTabs& cmd_line_tabs,
     bool process_startup,
     bool is_incognito_or_guest,
-    bool is_post_crash_launch) {
+    bool is_post_crash_launch,
+    bool are_startup_urls_managed) {
   // Only the New Tab Page or command line URLs may be shown in incognito mode.
   // A similar policy exists for crash recovery launches, to prevent getting the
   // user stuck in a crash loop.
@@ -666,19 +675,23 @@ StartupTabs StartupBrowserCreatorImpl::DetermineStartupTabs(
   if (!distribution_tabs.empty())
     return distribution_tabs;
 
-  // This is a launch from a prompt presented to an inactive user who chose to
-  // open Chrome and is being brought to a specific URL for this one launch.
-  // Launch the browser with the desired welcome back URL in the foreground and
-  // the other ordinary URLs (e.g., a restored session) in the background.
-  StartupTabs welcome_back_tabs =
-      provider.GetWelcomeBackTabs(profile_, browser_creator_, process_startup);
-  AppendTabs(welcome_back_tabs, &tabs);
+  StartupTabs onboarding_tabs;
+  // Only do promos if the startup pref is not managed.
+  if (!are_startup_urls_managed) {
+    // This is a launch from a prompt presented to an inactive user who chose to
+    // open Chrome and is being brought to a specific URL for this one launch.
+    // Launch the browser with the desired welcome back URL in the foreground
+    // and the other ordinary URLs (e.g., a restored session) in the background.
+    StartupTabs welcome_back_tabs = provider.GetWelcomeBackTabs(
+        profile_, browser_creator_, process_startup);
+    AppendTabs(welcome_back_tabs, &tabs);
 
-  // Policies for onboarding (e.g., first run) may show promotional and
-  // introductory content depending on a number of system status factors,
-  // including OS and whether or not this is First Run.
-  StartupTabs onboarding_tabs = provider.GetOnboardingTabs(profile_);
-  AppendTabs(onboarding_tabs, &tabs);
+    // Policies for onboarding (e.g., first run) may show promotional and
+    // introductory content depending on a number of system status factors,
+    // including OS and whether or not this is First Run.
+    onboarding_tabs = provider.GetOnboardingTabs(profile_);
+    AppendTabs(onboarding_tabs, &tabs);
+  }
 
   // If the user has set the preference indicating URLs to show on opening,
   // read and add those.
@@ -791,7 +804,7 @@ void StartupBrowserCreatorImpl::AddInfoBarsIfNecessary(
       if (!is_first_run_ ||
           (browser_creator_ &&
            browser_creator_->is_default_browser_dialog_suppressed())) {
-        chrome::ShowDefaultBrowserPrompt(profile_);
+        ShowDefaultBrowserPrompt(profile_);
       }
     }
 #endif

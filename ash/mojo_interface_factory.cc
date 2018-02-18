@@ -7,13 +7,16 @@
 #include <utility>
 
 #include "ash/accelerators/accelerator_controller.h"
+#include "ash/accessibility/accessibility_controller.h"
 #include "ash/cast_config_controller.h"
 #include "ash/display/ash_display_controller.h"
 #include "ash/highlighter/highlighter_controller.h"
 #include "ash/ime/ime_controller.h"
-#include "ash/login/lock_screen_controller.h"
+#include "ash/login/login_screen_controller.h"
 #include "ash/media_controller.h"
+#include "ash/message_center/message_center_controller.h"
 #include "ash/new_window_controller.h"
+#include "ash/note_taking_controller.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/session/session_controller.h"
 #include "ash/shelf/shelf_controller.h"
@@ -25,6 +28,7 @@
 #include "ash/system/night_light/night_light_controller.h"
 #include "ash/system/tray/system_tray_controller.h"
 #include "ash/tray_action/tray_action.h"
+#include "ash/voice_interaction/voice_interaction_controller.h"
 #include "ash/wallpaper/wallpaper_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/bind.h"
@@ -44,6 +48,11 @@ void BindAcceleratorControllerRequestOnMainThread(
   Shell::Get()->accelerator_controller()->BindRequest(std::move(request));
 }
 
+void BindAccessibilityControllerRequestOnMainThread(
+    mojom::AccessibilityControllerRequest request) {
+  Shell::Get()->accessibility_controller()->BindRequest(std::move(request));
+}
+
 void BindAppListRequestOnMainThread(
     app_list::mojom::AppListRequest request) {
   Shell::Get()->app_list()->BindRequest(std::move(request));
@@ -52,6 +61,11 @@ void BindAppListRequestOnMainThread(
 void BindAshDisplayControllerRequestOnMainThread(
     mojom::AshDisplayControllerRequest request) {
   Shell::Get()->ash_display_controller()->BindRequest(std::move(request));
+}
+
+void BindAshMessageCenterControllerRequestOnMainThread(
+    mojom::AshMessageCenterControllerRequest request) {
+  Shell::Get()->message_center_controller()->BindRequest(std::move(request));
 }
 
 void BindCastConfigOnMainThread(mojom::CastConfigRequest request) {
@@ -73,8 +87,8 @@ void BindLocaleNotificationControllerOnMainThread(
       std::move(request));
 }
 
-void BindLockScreenRequestOnMainThread(mojom::LockScreenRequest request) {
-  Shell::Get()->lock_screen_controller()->BindRequest(std::move(request));
+void BindLockScreenRequestOnMainThread(mojom::LoginScreenRequest request) {
+  Shell::Get()->login_screen_controller()->BindRequest(std::move(request));
 }
 
 void BindMediaControllerRequestOnMainThread(
@@ -90,6 +104,11 @@ void BindNewWindowControllerRequestOnMainThread(
 void BindNightLightControllerRequestOnMainThread(
     mojom::NightLightControllerRequest request) {
   Shell::Get()->night_light_controller()->BindRequest(std::move(request));
+}
+
+void BindNoteTakingControllerRequestOnMainThread(
+    mojom::NoteTakingControllerRequest request) {
+  Shell::Get()->note_taking_controller()->BindRequest(std::move(request));
 }
 
 void BindSessionControllerRequestOnMainThread(
@@ -119,6 +138,11 @@ void BindTrayActionRequestOnMainThread(mojom::TrayActionRequest request) {
   Shell::Get()->tray_action()->BindRequest(std::move(request));
 }
 
+void BindVoiceInteractionControllerRequestOnMainThread(
+    mojom::VoiceInteractionControllerRequest request) {
+  Shell::Get()->voice_interaction_controller()->BindRequest(std::move(request));
+}
+
 void BindVpnListRequestOnMainThread(mojom::VpnListRequest request) {
   Shell::Get()->vpn_list()->BindRequest(std::move(request));
 }
@@ -136,10 +160,16 @@ void RegisterInterfaces(
   registry->AddInterface(
       base::Bind(&BindAcceleratorControllerRequestOnMainThread),
       main_thread_task_runner);
+  registry->AddInterface(
+      base::Bind(&BindAccessibilityControllerRequestOnMainThread),
+      main_thread_task_runner);
   registry->AddInterface(base::Bind(&BindAppListRequestOnMainThread),
                          main_thread_task_runner);
   registry->AddInterface(
       base::Bind(&BindAshDisplayControllerRequestOnMainThread),
+      main_thread_task_runner);
+  registry->AddInterface(
+      base::Bind(&BindAshMessageCenterControllerRequestOnMainThread),
       main_thread_task_runner);
   registry->AddInterface(base::Bind(&BindCastConfigOnMainThread),
                          main_thread_task_runner);
@@ -163,6 +193,9 @@ void RegisterInterfaces(
         base::Bind(&BindNightLightControllerRequestOnMainThread),
         main_thread_task_runner);
   }
+  registry->AddInterface(
+      base::Bind(&BindNoteTakingControllerRequestOnMainThread),
+      main_thread_task_runner);
   registry->AddInterface(base::Bind(&BindSessionControllerRequestOnMainThread),
                          main_thread_task_runner);
   registry->AddInterface(base::Bind(&BindShelfRequestOnMainThread),
@@ -175,6 +208,9 @@ void RegisterInterfaces(
                          main_thread_task_runner);
   registry->AddInterface(base::Bind(&BindTrayActionRequestOnMainThread),
                          main_thread_task_runner);
+  registry->AddInterface(
+      base::Bind(&BindVoiceInteractionControllerRequestOnMainThread),
+      main_thread_task_runner);
   registry->AddInterface(base::Bind(&BindVpnListRequestOnMainThread),
                          main_thread_task_runner);
   registry->AddInterface(base::Bind(&BindWallpaperRequestOnMainThread),

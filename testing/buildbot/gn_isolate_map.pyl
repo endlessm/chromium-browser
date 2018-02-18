@@ -220,8 +220,8 @@
     "label": "//media/capture:capture_unittests",
     "type": "windowed_test_launcher",
   },
-  "cast_alsa_cma_backend_unittests": {
-    "label": "//chromecast/media/cma/backend/alsa:cast_alsa_cma_backend_unittests",
+  "cast_audio_backend_unittests": {
+    "label": "//chromecast/media/cma/backend:cast_audio_backend_unittests",
     "type": "console_test_launcher",
   },
   "cast_base_unittests": {
@@ -235,6 +235,10 @@
   "cast_graphics_unittests": {
     "label": "//chromecast/graphics:cast_graphics_unittests",
     "type": "console_test_launcher",
+  },
+  "cast_junit_test_lists": {
+    "label": "//chromecast:cast_junit_test_lists",
+    "type": "additional_compile_target",
   },
   "cast_media_unittests": {
     "label": "//chromecast/media:cast_media_unittests",
@@ -255,6 +259,10 @@
   "cast_shell_unittests": {
     "label": "//chromecast:cast_shell_unittests",
     "type": "console_test_launcher",
+  },
+  "cast_test_lists": {
+    "label": "//chromecast:cast_test_lists",
+    "type": "additional_compile_target",
   },
   "cast_unittests": {
     "label": "//media/cast:cast_unittests",
@@ -307,6 +315,10 @@
   "chrome_sync_shell_test_apk": {
     "label": "//chrome/android:chrome_sync_shell_test_apk",
     "type": "console_test_launcher",
+  },
+  "chromedriver": {
+    "label": "//chrome/test/chromedriver:chromedriver",
+    "type": "additional_compile_target",
   },
   "chromedriver_unittests": {
     "label": "//chrome/test/chromedriver:chromedriver_unittests",
@@ -380,6 +392,10 @@
     "label": "//content/public/android:content_junit_tests",
     "type": "junit_test",
   },
+  "content_shell": {
+    "label": "//content/shell:content_shell",
+    "type": "raw",
+  },
   "content_shell_crash_test": {
     "label": "//content/shell:content_shell_crash_test",
     "type": "script",
@@ -395,6 +411,10 @@
   },
   "courgette_unittests": {
     "label": "//courgette:courgette_unittests",
+    "type": "console_test_launcher",
+  },
+  "crashpad_tests": {
+    "label": "//third_party/crashpad/crashpad:crashpad_tests",
     "type": "console_test_launcher",
   },
   "cronet_package": {
@@ -566,6 +586,11 @@
     "args": [
       "--snapshot-output-dir=${ISOLATED_OUTDIR}",
     ],
+  },
+  "ios_chrome_bookmarks_egtests": {
+    "label": "//ios/chrome/test/earl_grey:ios_chrome_bookmarks_egtests",
+    "type": "raw",
+    "args": [],
   },
   "ios_chrome_integration_egtests": {
     "label": "//ios/chrome/test/earl_grey:ios_chrome_integration_egtests",
@@ -814,6 +839,10 @@
     "label": "//ui/ozone/gl:ozone_gl_unittests",
     "type": "console_test_launcher",
   },
+  "pdf_fuzzers": {
+    "label": "//pdf/pdfium/fuzzers:pdf_fuzzers",
+    "type": "additional_compile_target",
+  },
   "pdf_unittests": {
     "label": "//pdf:pdf_unittests",
     "type": "console_test_launcher",
@@ -941,14 +970,6 @@
       "../../tools/perf/run_benchmark",
     ],
   },
-  "telemetry_perf_tests_new": {
-    "label": "//chrome/test:telemetry_perf_tests_new",
-    "type": "script",
-    "script": "//testing/scripts/run_multiple_telemetry_benchmarks_as_googletest.py",
-    "args": [
-      "../../tools/perf/run_benchmark",
-    ],
-  },
   "telemetry_perf_webview_tests": {
     "label": "//chrome/test:telemetry_perf_webview_tests",
     "type": "script",
@@ -1000,6 +1021,8 @@
     "script": "//testing/scripts/run_gtest_perf_test.py",
     "args": [
       "media_perftests",
+      "--single-process-tests",
+      "--test-launcher-retry-limit=0",
     ],
   },
   "load_library_perf_tests": {
@@ -1032,6 +1055,16 @@
       "src/third_party/android_tools/sdk/platform-tools/adb",
     ],
   },
+  "command_buffer_perftests": {
+    "label": "//gpu:command_buffer_perftests",
+    "type": "script",
+    "script": "//testing/scripts/run_gtest_perf_test.py",
+    "args": [
+      "command_buffer_perftests",
+      "--adb-path",
+      "src/third_party/android_tools/sdk/platform-tools/adb",
+    ],
+  },
   "angle_perftests": {
     "label": "//chrome/test:angle_perftests",
     "type": "script",
@@ -1039,8 +1072,19 @@
     "args": [
       "angle_perftests",
       "--test-launcher-print-test-stdio=always",
-      "--test-launcher-jobs=1"
+      "--test-launcher-jobs=1",
+      "--test-launcher-retry-limit=0",
     ],
+  },
+  "vr_common_perftests": {
+    "label": "//chrome/browser/vr:vr_common_perftests",
+    "type": "script",
+    "script": "//testing/scripts/run_gtest_perf_test.py",
+    "args": [
+      "vr_common_perftests",
+      "--adb-path",
+      "src/third_party/android_tools/sdk/platform-tools/adb",
+    ]
   },
   "performance_browser_tests": {
     "label": "//chrome/test:performance_browser_tests",
@@ -1049,6 +1093,10 @@
     "args": [
       "performance_browser_tests",
       "--test-launcher-print-test-stdio=always",
+      # TODO(crbug.com/759866): Figure out why CastV2PerformanceTest/0 sometimes
+      # takes 15-30 seconds to start up and, once fixed, remove this workaround
+      # (extends the watchdog timeout to 2 minutes, normally 30 seconds).
+      "--test-launcher-timeout=120000",
       "--gtest_filter=TabCapturePerformanceTest.*:CastV2PerformanceTest.*",
       "--test-launcher-jobs=1",
       "--enable-gpu"
@@ -1114,6 +1162,14 @@
   "vr_common_unittests": {
     "label": "//chrome/browser/vr:vr_common_unittests",
     "type": "console_test_launcher",
+  },
+  "vr_pixeltests": {
+    "label": "//chrome/browser/vr:vr_pixeltests",
+    "type": "console_test_launcher",
+  },
+  "vr_testapp": {
+    "label": "//chrome/browser/vr:vr_testapp",
+    "type": "additional_compile_target",
   },
   "wayland_client_perftests": {
     "label": "//components/exo/wayland:wayland_client_perftests",

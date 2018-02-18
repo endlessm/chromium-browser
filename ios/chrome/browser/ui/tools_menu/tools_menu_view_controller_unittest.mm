@@ -6,8 +6,8 @@
 
 #import "base/mac/scoped_nsobject.h"
 #include "ios/chrome/browser/experimental_flags.h"
+#import "ios/chrome/browser/ui/tools_menu/public/tools_menu_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_menu_configuration.h"
-#import "ios/chrome/browser/ui/tools_menu/tools_menu_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_menu_view_item.h"
 #include "ios/web/public/user_agent.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -21,8 +21,9 @@ class ToolsMenuViewControllerTest : public PlatformTest {
  protected:
   void SetUp() override {
     PlatformTest::SetUp();
-    configuration_.reset(
-        [[ToolsMenuConfiguration alloc] initWithDisplayView:nil]);
+    configuration_.reset([[ToolsMenuConfiguration alloc]
+        initWithDisplayView:nil
+         baseViewController:nil]);
     controller_.reset([[ToolsMenuViewController alloc] init]);
   }
 

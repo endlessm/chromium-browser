@@ -79,7 +79,7 @@ TEST_F(ShelfControllerTest, ShelfModelChangesWithoutSync) {
   TestShelfObserver observer;
   mojom::ShelfObserverAssociatedPtr observer_ptr;
   mojo::AssociatedBinding<mojom::ShelfObserver> binding(
-      &observer, mojo::MakeIsolatedRequest(&observer_ptr));
+      &observer, mojo::MakeRequestAssociatedWithDedicatedPipe(&observer_ptr));
   controller->AddObserver(observer_ptr.PassInterface());
 
   // The ShelfModel should be initialized with a single item for the AppList.
@@ -114,7 +114,7 @@ TEST_F(ShelfControllerTest, ShelfModelChangesWithSync) {
   TestShelfObserver observer;
   mojom::ShelfObserverAssociatedPtr observer_ptr;
   mojo::AssociatedBinding<mojom::ShelfObserver> binding(
-      &observer, mojo::MakeIsolatedRequest(&observer_ptr));
+      &observer, mojo::MakeRequestAssociatedWithDedicatedPipe(&observer_ptr));
   controller->AddObserver(observer_ptr.PassInterface());
   base::RunLoop().RunUntilIdle();
 
@@ -166,7 +166,7 @@ TEST_F(ShelfControllerTest, ShelfItemImageSync) {
   TestShelfObserver observer;
   mojom::ShelfObserverAssociatedPtr observer_ptr;
   mojo::AssociatedBinding<mojom::ShelfObserver> binding(
-      &observer, mojo::MakeIsolatedRequest(&observer_ptr));
+      &observer, mojo::MakeRequestAssociatedWithDedicatedPipe(&observer_ptr));
   controller->AddObserver(observer_ptr.PassInterface());
   base::RunLoop().RunUntilIdle();
 
@@ -355,6 +355,13 @@ TEST_F(ShelfControllerPrefsTest, ShelfSettingsInTabletMode) {
   // Verify after entering tablet mode, the shelf alignment is bottom and the
   // auto hide behavior is never.
   Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
+  EXPECT_EQ(SHELF_ALIGNMENT_BOTTOM, shelf->alignment());
+  EXPECT_EQ(SHELF_AUTO_HIDE_BEHAVIOR_NEVER, shelf->auto_hide_behavior());
+
+  // Verify that screen rotation does not change alignment or auto-hide.
+  display_manager()->SetDisplayRotation(
+      display::Screen::GetScreen()->GetPrimaryDisplay().id(),
+      display::Display::ROTATE_90, display::Display::ROTATION_SOURCE_ACTIVE);
   EXPECT_EQ(SHELF_ALIGNMENT_BOTTOM, shelf->alignment());
   EXPECT_EQ(SHELF_AUTO_HIDE_BEHAVIOR_NEVER, shelf->auto_hide_behavior());
 

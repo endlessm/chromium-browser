@@ -7,6 +7,7 @@
 
 #include "ash/ash_export.h"
 #include "base/macros.h"
+#include "ui/compositor/layer_animation_observer.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/view.h"
@@ -18,7 +19,6 @@ class ToggleImageButton;
 
 namespace message_center {
 class MessageCenter;
-class NotifierSettingsProvider;
 }  // namespace message_center
 
 namespace ash {
@@ -26,14 +26,14 @@ namespace ash {
 class MessageCenterView;
 
 // MessageCenterButtonBar is the class that shows the content outside the main
-// notification area - the label (or NotifierGroup switcher) and the buttons.
+// notification area - the label and the buttons.
 class MessageCenterButtonBar : public views::View,
-                               public views::ButtonListener {
+                               public views::ButtonListener,
+                               public ui::ImplicitAnimationObserver {
  public:
   MessageCenterButtonBar(
       MessageCenterView* message_center_view,
       message_center::MessageCenter* message_center,
-      message_center::NotifierSettingsProvider* notifier_settings_provider,
       bool settings_initially_visible,
       const base::string16& title);
   ~MessageCenterButtonBar() override;
@@ -42,9 +42,14 @@ class MessageCenterButtonBar : public views::View,
 
   // Overridden from views::View:
   void ChildVisibilityChanged(views::View* child) override;
+  void Layout() override;
+  gfx::Size CalculatePreferredSize() const override;
 
   // Overridden from views::ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
+
+  // Overridden from ui::ImplicitAnimationObserver:
+  void OnImplicitAnimationsCompleted() override;
 
   // Enables or disables all of the buttons in the center.  This is used to
   // prevent user clicks during the close-all animation.
@@ -66,10 +71,6 @@ class MessageCenterButtonBar : public views::View,
   void SetButtonsVisible(bool visible);
 
  private:
-  // Updates the layout manager which can have differing configuration
-  // depending on the visibility of different parts of the button bar.
-  void ViewVisibilityChanged();
-
   MessageCenterView* message_center_view() const {
     return message_center_view_;
   }
@@ -81,12 +82,14 @@ class MessageCenterButtonBar : public views::View,
   message_center::MessageCenter* message_center_;
 
   // Sub-views of the button bar.
-  views::ToggleImageButton* title_arrow_;
   views::Label* notification_label_;
   views::View* button_container_;
   views::ImageButton* close_all_button_;
   views::ImageButton* settings_button_;
   views::ToggleImageButton* quiet_mode_button_;
+  views::ImageButton* collapse_button_;
+
+  bool collapse_button_visible_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(MessageCenterButtonBar);
 };

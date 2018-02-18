@@ -232,7 +232,7 @@ class NetworkIconImageSource : public gfx::CanvasImageSource {
     return gfx::ImageSkia(base::WrapUnique(source), source->size());
   }
 
-  ~NetworkIconImageSource() override {}
+  ~NetworkIconImageSource() override = default;
 
   // gfx::CanvasImageSource:
   void Draw(gfx::Canvas* canvas) override {
@@ -540,7 +540,7 @@ bool NetworkIconImpl::UpdateWirelessStrengthIndex(const NetworkState* network) {
 bool NetworkIconImpl::UpdateCellularState(const NetworkState* network) {
   bool dirty = false;
   const Badge technology_badge = BadgeForNetworkTechnology(network, icon_type_);
-  if (technology_badge == technology_badge_) {
+  if (technology_badge != technology_badge_) {
     technology_badge_ = technology_badge;
     dirty = true;
   }
@@ -674,7 +674,7 @@ SignalStrengthImageSource::SignalStrengthImageSource(ImageType image_type,
                                 GetSizeForIconType(icon_type),
                                 signal_strength) {}
 
-SignalStrengthImageSource::~SignalStrengthImageSource() {}
+SignalStrengthImageSource::~SignalStrengthImageSource() = default;
 
 void SignalStrengthImageSource::set_color(SkColor color) {
   color_ = color;

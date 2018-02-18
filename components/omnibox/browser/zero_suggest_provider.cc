@@ -6,6 +6,9 @@
 
 #include <stddef.h>
 
+#include <string>
+#include <utility>
+
 #include "base/callback.h"
 #include "base/feature_list.h"
 #include "base/i18n/case_conversion.h"
@@ -20,8 +23,6 @@
 #include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/history/core/browser/top_sites.h"
-#include "components/metrics/proto/omnibox_event.pb.h"
-#include "components/metrics/proto/omnibox_input_type.pb.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
@@ -34,12 +35,15 @@
 #include "components/omnibox/browser/verbatim_match.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
+#include "components/search_engines/search_engine_type.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/url_formatter/url_formatter.h"
 #include "components/variations/net/variations_http_headers.h"
 #include "net/base/escape.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_status.h"
+#include "third_party/metrics_proto/omnibox_event.pb.h"
+#include "third_party/metrics_proto/omnibox_input_type.pb.h"
 #include "url/gurl.h"
 
 namespace {
@@ -82,6 +86,36 @@ const int kDefaultZeroSuggestRelevance = 100;
 
 // Used for testing whether zero suggest is ever available.
 constexpr char kArbitraryInsecureUrlString[] = "http://www.google.com/";
+
+// Used to determine whether or not Most Visited URLs will be displayed.
+// This is true in either of these two cases:
+//   1. The user is in zero suggest most visited field trial.
+//   2. The user is in zero suggest field trial that enables search-for
+//      queries as suggestions and the user is either not signed-in or they
+//      do not have Google set up as their default search engine.
+bool DisplayZeroSuggestMostVisitedURLs(
+    PrefService* prefs,
+    bool is_authenticated,
+    const TemplateURLService* template_url_service) {
+  if (OmniboxFieldTrial::InZeroSuggestMostVisitedFieldTrial(prefs))
+    return true;
+
+  if (OmniboxFieldTrial::InZeroSuggestPersonalizedFieldTrial(prefs)) {
+    if (!is_authenticated)
+      return true;
+
+    if (template_url_service != nullptr) {
+      const TemplateURL* default_provider =
+          template_url_service->GetDefaultSearchProvider();
+      return default_provider == nullptr ||
+             default_provider->GetEngineType(
+                 template_url_service->search_terms_data()) !=
+                 SEARCH_ENGINE_GOOGLE;
+    }
+  }
+
+  return false;
+}
 
 }  // namespace
 
@@ -167,8 +201,9 @@ void ZeroSuggestProvider::Start(const AutocompleteInput& input,
   // suggestions, if based on local browsing history.
   MaybeUseCachedSuggestions();
 
-  if (OmniboxFieldTrial::InZeroSuggestMostVisitedFieldTrial(
-          client()->GetPrefs())) {
+  if (DisplayZeroSuggestMostVisitedURLs(client()->GetPrefs(),
+                                        client()->IsAuthenticated(),
+                                        template_url_service)) {
     most_visited_urls_.clear();
     scoped_refptr<history::TopSites> ts = client()->GetTopSites();
     if (ts) {
@@ -349,8 +384,8 @@ bool ZeroSuggestProvider::StoreSuggestionResponse(
 
   // If we received an empty result list, we should update the display, as it
   // may be showing cached results that should not be shown.
-  const base::ListValue* root_list = NULL;
-  const base::ListValue* results_list = NULL;
+  const base::ListValue* root_list = nullptr;
+  const base::ListValue* results_list = nullptr;
   if (parsed_data.GetAsList(&root_list) &&
       root_list->GetList(1, &results_list) &&
       results_list->empty())
@@ -423,7 +458,7 @@ void ZeroSuggestProvider::ConvertResultsToAutocompleteMatches() {
   const TemplateURL* default_provider =
       template_url_service->GetDefaultSearchProvider();
   // Fail if we can't set the clickthrough URL for query suggestions.
-  if (default_provider == NULL ||
+  if (default_provider == nullptr ||
       !default_provider->SupportsReplacement(
           template_url_service->search_terms_data()))
     return;
@@ -439,8 +474,9 @@ void ZeroSuggestProvider::ConvertResultsToAutocompleteMatches() {
   UMA_HISTOGRAM_COUNTS("ZeroSuggest.AllResults", num_results);
 
   // Show Most Visited results after ZeroSuggest response is received.
-  if (OmniboxFieldTrial::InZeroSuggestMostVisitedFieldTrial(
-          client()->GetPrefs())) {
+  if (DisplayZeroSuggestMostVisitedURLs(client()->GetPrefs(),
+                                        client()->IsAuthenticated(),
+                                        template_url_service)) {
     if (!current_url_match_.destination_url.is_valid())
       return;
     matches_.push_back(current_url_match_);
@@ -500,7 +536,14 @@ AutocompleteMatch ZeroSuggestProvider::MatchForCurrentURL() {
 
 bool ZeroSuggestProvider::ShouldShowNonContextualZeroSuggest(
     const GURL& current_page_url) const {
-  if (!ZeroSuggestEnabled(current_page_classification_, client()))
+  // Don't show zero suggest on the NTP.
+  // TODO(hfung): Experiment with showing MostVisited zero suggest on NTP
+  // under the conditions described in crbug.com/305366.
+  if (IsNTPPage(current_page_classification_))
+    return false;
+
+  // Don't run if in incognito mode.
+  if (client()->IsOffTheRecord())
     return false;
 
   // If we cannot send URLs, then only the MostVisited and Personalized

@@ -125,75 +125,6 @@ TEST_F(PasswordControllerJsTest,
                                       @[ username2, password ]);
 }
 
-// Check that when instructed to fill a form named "bar", a form named "foo"
-// is not filled with generated password.
-TEST_F(PasswordControllerJsTest,
-       FillPasswordFormWithGeneratedPassword_FailsWhenFormNotFound) {
-  LoadHtmlAndInject(@"<html>"
-                     "  <body>"
-                     "    <form name=\"foo\">"
-                     "      <input type=\"password\" name=\"ps\">"
-                     "    </form>"
-                     "  </body"
-                     "</html>");
-  NSString* const formName = @"bar";
-  NSString* const password = @"abc";
-  EXPECT_NSEQ(@NO,
-              ExecuteJavaScriptWithFormat(
-                  @"__gCrWeb.fillPasswordFormWithGeneratedPassword('%@', '%@')",
-                  formName, password));
-}
-
-// Check that filling a form without password fields fails.
-TEST_F(PasswordControllerJsTest,
-       FillPasswordFormWithGeneratedPassword_FailsWhenNoFieldsFilled) {
-  LoadHtmlAndInject(@"<html>"
-                     "  <body>"
-                     "    <form name=\"foo\">"
-                     "      <input type=\"text\" name=\"user\">"
-                     "      <input type=\"submit\" name=\"go\">"
-                     "    </form>"
-                     "  </body"
-                     "</html>");
-  NSString* const formName = @"foo";
-  NSString* const password = @"abc";
-  EXPECT_NSEQ(@NO,
-              ExecuteJavaScriptWithFormat(
-                  @"__gCrWeb.fillPasswordFormWithGeneratedPassword('%@', '%@')",
-                  formName, password));
-}
-
-// Check that a matching and complete password form is successfully filled
-// with the generated password.
-TEST_F(PasswordControllerJsTest,
-       FillPasswordFormWithGeneratedPassword_SucceedsWhenFieldsFilled) {
-  LoadHtmlAndInject(@"<html>"
-                     "  <body>"
-                     "    <form name=\"foo\">"
-                     "      <input type=\"text\" id=\"user\" name=\"user\">"
-                     "      <input type=\"password\" id=\"ps1\" name=\"ps1\">"
-                     "      <input type=\"password\" id=\"ps2\" name=\"ps2\">"
-                     "      <input type=\"submit\" name=\"go\">"
-                     "    </form>"
-                     "  </body"
-                     "</html>");
-  NSString* const formName = @"foo";
-  NSString* const password = @"abc";
-  EXPECT_NSEQ(@YES,
-              ExecuteJavaScriptWithFormat(
-                  @"__gCrWeb.fillPasswordFormWithGeneratedPassword('%@', '%@')",
-                  formName, password));
-  EXPECT_NSEQ(@YES,
-              ExecuteJavaScriptWithFormat(
-                  @"document.getElementById('ps1').value == '%@'", password));
-  EXPECT_NSEQ(@YES,
-              ExecuteJavaScriptWithFormat(
-                  @"document.getElementById('ps2').value == '%@'", password));
-  EXPECT_NSEQ(@NO,
-              ExecuteJavaScriptWithFormat(
-                  @"document.getElementById('user').value == '%@'", password));
-}
-
 // Check that one password form is identified and serialized correctly.
 TEST_F(PasswordControllerJsTest,
        FindAndPreparePasswordFormsSingleFrameSingleForm) {
@@ -214,7 +145,7 @@ TEST_F(PasswordControllerJsTest,
            "\"origin\":\"%s\","
            "\"fields\":[{\"element\":\"name\",\"type\":\"text\"},"
            "{\"element\":\"password\",\"type\":\"password\"},"
-           "{\"element\":\"\",\"type\":\"submit\"}],"
+           "{\"element\":\"gChrome~field~2\",\"type\":\"submit\"}],"
            "\"usernameElement\":\"name\","
            "\"usernameValue\":\"\","
            "\"passwords\":[{\"element\":\"password\",\"value\":\"\"}]}]",
@@ -248,7 +179,7 @@ TEST_F(PasswordControllerJsTest,
            "\"origin\":\"%s\","
            "\"fields\":[{\"element\":\"name\",\"type\":\"text\"},"
            "{\"element\":\"password\",\"type\":\"password\"},"
-           "{\"element\":\"\",\"type\":\"submit\"}],"
+           "{\"element\":\"gChrome~field~2\",\"type\":\"submit\"}],"
            "\"usernameElement\":\"name\","
            "\"usernameValue\":\"\","
            "\"passwords\":[{\"element\":\"password\",\"value\":\"\"}]},"
@@ -257,7 +188,7 @@ TEST_F(PasswordControllerJsTest,
            "\"origin\":\"%s\","
            "\"fields\":[{\"element\":\"name2\",\"type\":\"text\"},"
            "{\"element\":\"password2\",\"type\":\"password\"},"
-           "{\"element\":\"\",\"type\":\"submit\"}],"
+           "{\"element\":\"gChrome~field~2\",\"type\":\"submit\"}],"
            "\"usernameElement\":\"name2\","
            "\"usernameValue\":\"\","
            "\"passwords\":[{\"element\":\"password2\",\"value\":\"\"}]}]",
@@ -286,7 +217,7 @@ TEST_F(PasswordControllerJsTest, GetPasswordFormData) {
            "\"origin\":\"%s\","
            "\"fields\":[{\"element\":\"name\",\"type\":\"text\"},"
            "{\"element\":\"password\",\"type\":\"password\"},"
-           "{\"element\":\"\",\"type\":\"submit\"}],"
+           "{\"element\":\"gChrome~field~2\",\"type\":\"submit\"}],"
            "\"usernameElement\":\"name\","
            "\"usernameValue\":\"\","
            "\"passwords\":[{\"element\":\"password\",\"value\":\"\"}]}",
@@ -317,7 +248,7 @@ TEST_F(PasswordControllerJsTest, FormActionIsNotSet) {
            "\"origin\":\"%s\","
            "\"fields\":[{\"element\":\"name\",\"type\":\"text\"},"
            "{\"element\":\"password\",\"type\":\"password\"},"
-           "{\"element\":\"\",\"type\":\"submit\"}],"
+           "{\"element\":\"gChrome~field~2\",\"type\":\"submit\"}],"
            "\"usernameElement\":\"name\","
            "\"usernameValue\":\"\","
            "\"passwords\":[{\"element\":\"password\",\"value\":\"\"}]}]",

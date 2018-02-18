@@ -2274,16 +2274,13 @@
     "isolated_scripts": [
       {
         "args": [
-          "system_health.memory_mobile",
+          "heap_profiling.mobile.disabled",
           "-v",
-          "--upload-results",
           "--output-format=chartjson",
-          "--browser=android-chromium",
-          "--story-filter=load:search:google",
-          "--extra-browser-args=\"--enable-heap-profiling\""
+          "--browser=android-chromium"
         ],
         "isolate_name": "telemetry_perf_tests",
-        "name": "system_health.memory_mobile",
+        "name": "heap_profiling.mobile.disabled",
         "swarming": {
           "can_use_on_swarming_builders": true,
           "dimension_sets": [
@@ -2292,7 +2289,56 @@
               "device_type": "hammerhead"
             }
           ],
-          "hard_timeout": 960
+          "expiration": 36000,
+          "hard_timeout": 10800,
+          "ignore_task_failure": false,
+          "io_timeout": 3600
+        }
+      },
+      {
+        "args": [
+          "heap_profiling.mobile.native",
+          "-v",
+          "--output-format=chartjson",
+          "--browser=android-chromium"
+        ],
+        "isolate_name": "telemetry_perf_tests",
+        "name": "heap_profiling.mobile.native",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "device_os": "KTU84P",
+              "device_type": "hammerhead"
+            }
+          ],
+          "expiration": 36000,
+          "hard_timeout": 10800,
+          "ignore_task_failure": false,
+          "io_timeout": 3600
+        }
+      },
+      {
+        "args": [
+          "heap_profiling.mobile.pseudo",
+          "-v",
+          "--output-format=chartjson",
+          "--browser=android-chromium"
+        ],
+        "isolate_name": "telemetry_perf_tests",
+        "name": "heap_profiling.mobile.pseudo",
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "dimension_sets": [
+            {
+              "device_os": "KTU84P",
+              "device_type": "hammerhead"
+            }
+          ],
+          "expiration": 36000,
+          "hard_timeout": 10800,
+          "ignore_task_failure": false,
+          "io_timeout": 3600
         }
       }
     ]
@@ -3543,6 +3589,79 @@
             }
           ],
           "shards": 6
+        },
+        "test": "webview_instrumentation_test_apk"
+      }
+    ]
+  },
+  "Oreo Phone Tester": {
+    "gtest_tests": [
+      {
+        "merge": {
+          "args": [
+            "--bucket",
+            "chromium-result-details",
+            "--test-name",
+            "chrome_public_test_apk"
+          ],
+          "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
+        },
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "cipd_packages": [
+            {
+              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
+              "location": "bin",
+              "revision": "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
+            }
+          ],
+          "dimension_sets": [
+            {
+              "device_os": "OPR3.170623.008",
+              "device_type": "marlin"
+            }
+          ],
+          "shards": 5
+        },
+        "test": "chrome_public_test_apk"
+      },
+      {
+        "merge": {
+          "args": [
+            "--bucket",
+            "chromium-result-details",
+            "--test-name",
+            "webview_instrumentation_test_apk"
+          ],
+          "script": "//build/android/pylib/results/presentation/test_results_presentation.py"
+        },
+        "swarming": {
+          "can_use_on_swarming_builders": true,
+          "cipd_packages": [
+            {
+              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
+              "location": "bin",
+              "revision": "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
+            }
+          ],
+          "dimension_sets": [
+            {
+              "device_os": "OPR3.170623.008",
+              "device_type": "marlin"
+            }
+          ],
+          "expiration": 10800,
+          "output_links": [
+            {
+              "link": [
+                "https://luci-logdog.appspot.com/v/?s",
+                "=android%2Fswarming%2Flogcats%2F",
+                "${TASK_ID}%2F%2B%2Funified_logcats"
+              ],
+              "name": "shard #${SHARD_INDEX} logcats"
+            }
+          ],
+          "shards": 5
         },
         "test": "webview_instrumentation_test_apk"
       }

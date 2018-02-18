@@ -19,7 +19,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "components/bookmarks/browser/bookmark_model.h"
-#include "components/metrics/proto/omnibox_event.pb.h"
 #include "components/navigation_metrics/navigation_metrics.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
@@ -38,8 +37,8 @@
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_prepopulate_data.h"
 #include "components/search_engines/template_url_service.h"
-#include "components/toolbar/toolbar_model.h"
 #include "components/url_formatter/url_fixer.h"
+#include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "ui/gfx/image/image.h"
 #include "url/url_util.h"
 
@@ -167,10 +166,11 @@ const OmniboxEditModel::State OmniboxEditModel::GetStateForTabSwitch() {
                keyword_mode_entry_method_, focus_state_, focus_source_, input_);
 }
 
-void OmniboxEditModel::RestoreState(const State* state) {
+void OmniboxEditModel::RestoreState(const base::string16& url,
+                                    const State* state) {
   // We need to update the permanent text correctly and revert the view
   // regardless of whether there is saved state.
-  permanent_text_ = controller_->GetToolbarModel()->GetFormattedURL(nullptr);
+  permanent_text_ = url;
   view_->RevertAll();
   // Restore the autocomplete controller's input, or clear it if this is a new
   // tab.
@@ -205,7 +205,7 @@ AutocompleteMatch OmniboxEditModel::CurrentMatch(
   return match;
 }
 
-bool OmniboxEditModel::UpdatePermanentText() {
+bool OmniboxEditModel::SetPermanentText(const base::string16& text) {
   // When there's new permanent text, and the user isn't interacting with the
   // omnibox, we want to revert the edit to show the new text.  We could simply
   // define "interacting" as "the omnibox has focus", but we still allow updates
@@ -218,13 +218,11 @@ bool OmniboxEditModel::UpdatePermanentText() {
   // always safe to change the text; this also prevents someone toggling "Show
   // URL" (which sounds as if it might be persistent) from seeing just that URL
   // forever afterwards.
-  base::string16 new_permanent_text =
-      controller_->GetToolbarModel()->GetFormattedURL(nullptr);
   const bool visibly_changed_permanent_text =
-      (permanent_text_ != new_permanent_text) &&
+      (permanent_text_ != text) &&
       (!has_focus() || (!user_input_in_progress_ && !PopupIsOpen()));
 
-  permanent_text_ = new_permanent_text;
+  permanent_text_ = text;
   return visibly_changed_permanent_text;
 }
 
@@ -694,7 +692,17 @@ void OmniboxEditModel::OpenMatch(AutocompleteMatch match,
     base::RecordAction(
         base::UserMetricsAction("OmniboxDestinationURLIsSearchOnDSP"));
   }
-
+  if (match.type == AutocompleteMatchType::TAB_SEARCH) {
+    // Only close the current tab if it's the new tab page.  Look at
+    // |permanent_text_| to do this identification.  If this fails (the
+    // previously found tab may have closed or navigated since) fall through and
+    // navigate to the URL normally.
+    // TODO(crbug.com/46623): We want to close all new tab pages (including
+    // those that are replaced by an extension), not just the built-in.
+    if (controller_->SwitchToTabWithURL(match.destination_url.spec(),
+                                        permanent_text_.empty()))
+      return;
+  }
   if (match.destination_url.is_valid()) {
     // This calls RevertAll again.
     base::AutoReset<bool> tmp(&in_revert_, true);
@@ -754,11 +762,11 @@ bool OmniboxEditModel::AcceptKeyword(
     has_temporary_text_ = true;
     const AutocompleteMatch& match = CurrentMatch(nullptr);
     original_url_ = match.destination_url;
-    view_->OnTemporaryTextMaybeChanged(
-        MaybeStripKeyword(match.fill_into_edit), save_original_selection,
-        true);
+    view_->OnTemporaryTextMaybeChanged(MaybeStripKeyword(match.fill_into_edit),
+                                       match, save_original_selection, true);
   } else {
-    view_->OnTemporaryTextMaybeChanged(user_text_, false, true);
+    const AutocompleteMatch& match = CurrentMatch(nullptr);
+    view_->OnTemporaryTextMaybeChanged(user_text_, match, false, true);
   }
 
   base::RecordAction(base::UserMetricsAction("AcceptedKeywordHint"));
@@ -1054,7 +1062,8 @@ void OmniboxEditModel::OnPopupDataChanged(
       // pressed, even though maybe it isn't any more.  There is no obvious
       // right answer here :(
     }
-    view_->OnTemporaryTextMaybeChanged(MaybeStripKeyword(text),
+    const AutocompleteMatch& match = CurrentMatch(nullptr);
+    view_->OnTemporaryTextMaybeChanged(MaybeStripKeyword(text), match,
                                        save_original_selection, true);
     return;
   }

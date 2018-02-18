@@ -1078,9 +1078,9 @@ IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, InputEvent_AcceptTouchEvent) {
                                  };
 
   for (size_t i = 0; i < arraysize(positive_tests); ++i) {
+    RunTest(positive_tests[i]);
     RenderViewHost* host = browser()->tab_strip_model()->
         GetActiveWebContents()->GetRenderViewHost();
-    RunTest(positive_tests[i]);
     EXPECT_TRUE(content::RenderViewHostTester::HasTouchEventHandler(host));
   }
 }
@@ -1272,7 +1272,7 @@ class PackagedAppTest : public ExtensionBrowserTest {
   void LaunchTestingApp(const std::string& extension_dirname) {
     base::FilePath data_dir;
     {
-      base::ThreadRestrictions::ScopedAllowIO allow_io;
+      base::ScopedAllowBlockingForTesting allow_blocking;
       ASSERT_TRUE(PathService::Get(chrome::DIR_GEN_TEST_DATA, &data_dir));
     }
     base::FilePath app_dir = data_dir.AppendASCII("ppapi")

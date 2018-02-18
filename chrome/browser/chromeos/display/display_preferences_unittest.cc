@@ -24,13 +24,14 @@
 #include "base/values.h"
 #include "chrome/browser/chromeos/display/display_configuration_observer.h"
 #include "chrome/browser/chromeos/login/users/mock_user_manager.h"
-#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/prefs/testing_pref_service.h"
+#include "components/user_manager/scoped_user_manager.h"
 #include "ui/display/display_layout_builder.h"
 #include "ui/display/manager/chromeos/display_configurator.h"
+#include "ui/display/manager/chromeos/test/touch_device_manager_test_api.h"
 #include "ui/display/manager/display_layout_store.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/display_manager_utilities.h"
@@ -50,10 +51,6 @@ const char kPositionKey[] = "position";
 const char kOffsetKey[] = "offset";
 const char kPlacementDisplayIdKey[] = "placement.display_id";
 const char kPlacementParentDisplayIdKey[] = "placement.parent_display_id";
-const char kTouchCalibrationMap[] = "touch_calibration_map";
-const char kTouchCalibrationWidth[] = "touch_calibration_width";
-const char kTouchCalibrationHeight[] = "touch_calibration_height";
-const char kTouchCalibrationPointPairs[] = "touch_calibration_point_pairs";
 
 // The mean acceleration due to gravity on Earth in m/s^2.
 const float kMeanGravity = -9.80665f;
@@ -62,12 +59,44 @@ bool IsRotationLocked() {
   return ash::Shell::Get()->screen_orientation_controller()->rotation_locked();
 }
 
+bool CompareTouchAssociations(
+    const display::TouchDeviceManager::TouchAssociationMap& map_1,
+    const display::TouchDeviceManager::TouchAssociationMap& map_2) {
+  if (map_1.size() != map_2.size())
+    return false;
+  // Each iterator instance |entry| is a pair of type
+  // std::pair<display::TouchDeviceIdentifier,
+  //           display::TouchDeviceManager::AssociationInfoMap>
+  for (const auto& entry : map_1) {
+    if (!map_2.count(entry.first))
+      return false;
+
+    const auto& association_info_map_1 = entry.second;
+    const auto& association_info_map_2 = map_2.at(entry.first);
+    if (association_info_map_1.size() != association_info_map_2.size())
+      return false;
+
+    // Each iterator instance is a pair of type:
+    // std::pair<int64_t, display::TouchDeviceManager::TouchAssociationInfo>
+    for (const auto& info_1 : association_info_map_1) {
+      if (!association_info_map_2.count(info_1.first))
+        return false;
+
+      const auto& info_2 = association_info_map_2.at(info_1.first);
+      if (!(info_1.second.timestamp == info_2.timestamp &&
+            info_1.second.calibration_data == info_2.calibration_data)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 class DisplayPreferencesTest : public ash::AshTestBase {
  protected:
   DisplayPreferencesTest()
       : mock_user_manager_(new MockUserManager),
-        user_manager_enabler_(mock_user_manager_) {
-  }
+        user_manager_enabler_(base::WrapUnique(mock_user_manager_)) {}
 
   ~DisplayPreferencesTest() override {}
 
@@ -136,7 +165,7 @@ class DisplayPreferencesTest : public ash::AshTestBase {
     DictionaryPrefUpdate update(&local_state_, prefs::kSecondaryDisplays);
     base::DictionaryValue* pref_data = update.Get();
 
-    base::Value* layout_value = pref_data->FindPath({name});
+    base::Value* layout_value = pref_data->FindKey(name);
     if (layout_value) {
       return static_cast<base::DictionaryValue*>(layout_value)
           ->Get(key, out_value);
@@ -152,7 +181,7 @@ class DisplayPreferencesTest : public ash::AshTestBase {
     DictionaryPrefUpdate update(&local_state_, prefs::kSecondaryDisplays);
     base::DictionaryValue* pref_data = update.Get();
 
-    base::Value* layout_value = pref_data->FindPath({name});
+    base::Value* layout_value = pref_data->FindKey(name);
     if (layout_value) {
       static_cast<base::DictionaryValue*>(layout_value)
           ->Set(key, std::move(value));
@@ -212,7 +241,7 @@ class DisplayPreferencesTest : public ash::AshTestBase {
 
  private:
   MockUserManager* mock_user_manager_;  // Not owned.
-  ScopedUserManagerEnabler user_manager_enabler_;
+  user_manager::ScopedUserManager user_manager_enabler_;
   TestingPrefServiceSimple local_state_;
   std::unique_ptr<ash::WindowTreeHostManager::Observer> observer_;
 
@@ -302,7 +331,8 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
                    .SetDisplayUIScale(id2, 1.25f));
 
   // Set touch calibration data for display |id2|.
-  constexpr uint32_t touch_device_identifier_1 = 1234;
+  uint32_t id_1 = 1234;
+  const display::TouchDeviceIdentifier touch_device_identifier_1(id_1);
   display::TouchCalibrationData::CalibrationPointPairQuad point_pair_quad_1 = {
       {std::make_pair(gfx::Point(10, 10), gfx::Point(11, 12)),
        std::make_pair(gfx::Point(190, 10), gfx::Point(195, 8)),
@@ -310,7 +340,8 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
        std::make_pair(gfx::Point(190, 90), gfx::Point(189, 88))}};
   gfx::Size touch_size_1(200, 150);
 
-  constexpr uint32_t touch_device_identifier_2 = 2345;
+  uint32_t id_2 = 2345;
+  const display::TouchDeviceIdentifier touch_device_identifier_2(id_2);
   display::TouchCalibrationData::CalibrationPointPairQuad point_pair_quad_2 = {
       {std::make_pair(gfx::Point(10, 10), gfx::Point(11, 12)),
        std::make_pair(gfx::Point(190, 10), gfx::Point(195, 8)),
@@ -370,10 +401,24 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   EXPECT_EQ(12, bottom);
   EXPECT_EQ(13, right);
 
+  display::TouchDeviceManager* tdm = display_manager()->touch_device_manager();
+  display::test::TouchDeviceManagerTestApi tdm_test_api(tdm);
+  display::TouchDeviceManager::TouchAssociationMap
+      expected_touch_associations_map = tdm->touch_associations();
+  tdm_test_api.ResetTouchDeviceManager();
+
+  EXPECT_FALSE(CompareTouchAssociations(expected_touch_associations_map,
+                                        tdm->touch_associations()));
+
+  LoadTouchAssociationPreferenceForTest();
+
+  display::TouchDeviceManager::TouchAssociationMap
+      actual_touch_associations_map = tdm->touch_associations();
+
+  EXPECT_TRUE(CompareTouchAssociations(actual_touch_associations_map,
+                                       expected_touch_associations_map));
+
   std::string touch_str;
-  const base::DictionaryValue* map_dictionary;
-  const base::DictionaryValue* data_dict;
-  EXPECT_FALSE(property->GetDictionary(kTouchCalibrationMap, &map_dictionary));
 
   EXPECT_TRUE(properties->GetDictionary(base::Int64ToString(id2), &property));
   EXPECT_TRUE(property->GetInteger("rotation", &rotation));
@@ -386,51 +431,6 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   EXPECT_FALSE(property->GetInteger("insets_bottom", &bottom));
   EXPECT_FALSE(property->GetInteger("insets_right", &right));
 
-  display::TouchCalibrationData::CalibrationPointPairQuad stored_pair_quad;
-
-  EXPECT_TRUE(property->GetDictionary(kTouchCalibrationMap, &map_dictionary));
-  EXPECT_TRUE(map_dictionary->GetDictionary(
-      base::UintToString(touch_device_identifier_1), &data_dict));
-  EXPECT_TRUE(data_dict->GetString(kTouchCalibrationPointPairs, &touch_str));
-  EXPECT_TRUE(ParseTouchCalibrationStringForTest(touch_str, &stored_pair_quad));
-
-  for (std::size_t row = 0; row < point_pair_quad_1.size(); row++) {
-    EXPECT_EQ(point_pair_quad_1[row].first.x(),
-              stored_pair_quad[row].first.x());
-    EXPECT_EQ(point_pair_quad_1[row].first.y(),
-              stored_pair_quad[row].first.y());
-    EXPECT_EQ(point_pair_quad_1[row].second.x(),
-              stored_pair_quad[row].second.x());
-    EXPECT_EQ(point_pair_quad_1[row].second.y(),
-              stored_pair_quad[row].second.y());
-  }
-  width = height = 0;
-  EXPECT_TRUE(data_dict->GetInteger(kTouchCalibrationWidth, &width));
-  EXPECT_TRUE(data_dict->GetInteger(kTouchCalibrationHeight, &height));
-  EXPECT_EQ(width, touch_size_1.width());
-  EXPECT_EQ(height, touch_size_1.height());
-
-  EXPECT_TRUE(map_dictionary->GetDictionary(
-      base::UintToString(touch_device_identifier_2), &data_dict));
-  EXPECT_TRUE(data_dict->GetString(kTouchCalibrationPointPairs, &touch_str));
-  EXPECT_TRUE(ParseTouchCalibrationStringForTest(touch_str, &stored_pair_quad));
-
-  for (std::size_t row = 0; row < point_pair_quad_2.size(); row++) {
-    EXPECT_EQ(point_pair_quad_2[row].first.x(),
-              stored_pair_quad[row].first.x());
-    EXPECT_EQ(point_pair_quad_2[row].first.y(),
-              stored_pair_quad[row].first.y());
-    EXPECT_EQ(point_pair_quad_2[row].second.x(),
-              stored_pair_quad[row].second.x());
-    EXPECT_EQ(point_pair_quad_2[row].second.y(),
-              stored_pair_quad[row].second.y());
-  }
-  width = height = 0;
-  EXPECT_TRUE(data_dict->GetInteger(kTouchCalibrationWidth, &width));
-  EXPECT_TRUE(data_dict->GetInteger(kTouchCalibrationHeight, &height));
-  EXPECT_EQ(width, touch_size_2.width());
-  EXPECT_EQ(height, touch_size_2.height());
-
   // Resolution is saved only when the resolution is set
   // by DisplayManager::SetDisplayMode
   width = 0;
@@ -438,10 +438,9 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   EXPECT_FALSE(property->GetInteger("width", &width));
   EXPECT_FALSE(property->GetInteger("height", &height));
 
-  scoped_refptr<display::ManagedDisplayMode> mode(
-      new display::ManagedDisplayMode(gfx::Size(300, 200), 60.0f, false, true,
-                                      1.0 /* ui_scale */,
-                                      1.25f /* device_scale_factor */));
+  display::ManagedDisplayMode mode(gfx::Size(300, 200), 60.0f, false, true,
+                                   1.0 /* ui_scale */,
+                                   1.25f /* device_scale_factor */);
   display_manager()->SetDisplayMode(id2, mode);
 
   window_tree_host_manager->SetPrimaryDisplayId(id2);
@@ -531,7 +530,7 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   // Set new display's selected resolution.
   display_manager()->RegisterDisplayProperty(
       id2 + 1, display::Display::ROTATE_0, 1.0f, nullptr, gfx::Size(500, 400),
-      1.0f, nullptr /* touch_calibration_data_map */);
+      1.0f);
 
   UpdateDisplay("200x200*2, 600x500#600x500|500x400");
 
@@ -557,7 +556,7 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   // Set yet another new display's selected resolution.
   display_manager()->RegisterDisplayProperty(
       id2 + 1, display::Display::ROTATE_0, 1.0f, nullptr, gfx::Size(500, 400),
-      1.0f, nullptr /* touch_calibration_data_map */);
+      1.0f);
   // Disconnect 2nd display first to generate new id for external display.
   UpdateDisplay("200x200*2");
   UpdateDisplay("200x200*2, 500x400#600x500|500x400%60.0f");
@@ -592,10 +591,8 @@ TEST_F(DisplayPreferencesTest, PreventStore) {
   // display preferences should not stored meanwhile.
   ash::Shell* shell = ash::Shell::Get();
 
-  scoped_refptr<display::ManagedDisplayMode> old_mode(
-      new display::ManagedDisplayMode(gfx::Size(400, 300)));
-  scoped_refptr<display::ManagedDisplayMode> new_mode(
-      new display::ManagedDisplayMode(gfx::Size(500, 400)));
+  display::ManagedDisplayMode old_mode(gfx::Size(400, 300));
+  display::ManagedDisplayMode new_mode(gfx::Size(500, 400));
   EXPECT_TRUE(shell->resolution_notification_controller()
                   ->PrepareNotificationAndSetDisplayMode(id, old_mode, new_mode,
                                                          base::Closure()));
@@ -620,8 +617,7 @@ TEST_F(DisplayPreferencesTest, PreventStore) {
   // Once the notification is removed, the specified resolution will be stored
   // by SetDisplayMode.
   ash::Shell::Get()->display_manager()->SetDisplayMode(
-      id, base::MakeRefCounted<display::ManagedDisplayMode>(
-              gfx::Size(300, 200), 60.0f, false, true));
+      id, display::ManagedDisplayMode(gfx::Size(300, 200), 60.0f, false, true));
   UpdateDisplay("300x200#500x400|400x300|300x200");
 
   property = nullptr;
@@ -1195,6 +1191,66 @@ TEST_F(DisplayPreferencesTest, AlreadyMirrorWhenEnterTableMode) {
   controller->EnableTabletModeWindowManager(false);
   ASSERT_FALSE(controller->IsTabletModeWindowManagerEnabled());
   EXPECT_TRUE(display_manager()->IsInMirrorMode());
+}
+
+TEST_F(DisplayPreferencesTest, LegacyTouchCalibrationDataSupport) {
+  UpdateDisplay("800x600,1200x800");
+  LoggedInAsUser();
+  int64_t id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
+  display::TouchCalibrationData::CalibrationPointPairQuad point_pair_quad = {
+      {std::make_pair(gfx::Point(10, 10), gfx::Point(11, 12)),
+       std::make_pair(gfx::Point(190, 10), gfx::Point(195, 8)),
+       std::make_pair(gfx::Point(10, 90), gfx::Point(12, 94)),
+       std::make_pair(gfx::Point(190, 90), gfx::Point(189, 88))}};
+  gfx::Size touch_size(200, 150);
+  display::TouchCalibrationData data(point_pair_quad, touch_size);
+
+  StoreLegacyTouchDataForTest(id, data);
+
+  display::TouchDeviceManager* tdm = display_manager()->touch_device_manager();
+  display::test::TouchDeviceManagerTestApi tdm_test_api(tdm);
+  tdm_test_api.ResetTouchDeviceManager();
+
+  LoadTouchAssociationPreferenceForTest();
+
+  const display::TouchDeviceManager::TouchAssociationMap& association_map =
+      tdm->touch_associations();
+
+  const display::TouchDeviceIdentifier& fallback_identifier =
+      display::TouchDeviceIdentifier::GetFallbackTouchDeviceIdentifier();
+
+  EXPECT_TRUE(association_map.count(fallback_identifier));
+  EXPECT_TRUE(association_map.at(fallback_identifier).count(id));
+  EXPECT_EQ(association_map.at(fallback_identifier).at(id).calibration_data,
+            data);
+
+  int64_t id_2 = display_manager()->GetSecondaryDisplay().id();
+  gfx::Size touch_size_2(300, 300);
+  display::TouchCalibrationData data_2(point_pair_quad, touch_size_2);
+
+  display::TouchDeviceIdentifier identifier(12345);
+  display_manager()->SetTouchCalibrationData(id_2, point_pair_quad,
+                                             touch_size_2, identifier);
+
+  EXPECT_TRUE(tdm->touch_associations().count(identifier));
+  EXPECT_TRUE(tdm->touch_associations().at(identifier).count(id_2));
+  EXPECT_EQ(tdm->touch_associations().at(identifier).at(id_2).calibration_data,
+            data_2);
+
+  tdm_test_api.ResetTouchDeviceManager();
+  EXPECT_TRUE(tdm->touch_associations().empty());
+
+  LoadTouchAssociationPreferenceForTest();
+
+  EXPECT_TRUE(tdm->touch_associations().count(fallback_identifier));
+  EXPECT_TRUE(tdm->touch_associations().at(fallback_identifier).count(id));
+  EXPECT_EQ(
+      tdm->touch_associations().at(fallback_identifier).at(id).calibration_data,
+      data);
+  EXPECT_TRUE(tdm->touch_associations().count(identifier));
+  EXPECT_TRUE(tdm->touch_associations().at(identifier).count(id_2));
+  EXPECT_EQ(tdm->touch_associations().at(identifier).at(id_2).calibration_data,
+            data_2);
 }
 
 }  // namespace chromeos

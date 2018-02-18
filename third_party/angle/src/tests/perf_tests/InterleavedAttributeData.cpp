@@ -61,7 +61,10 @@ class InterleavedAttributeDataBenchmark
     GLuint mPositionColorBuffer[2];
 
     // The buffers contain two floats and 3 unsigned bytes per point sprite
-    const size_t mBytesPerSprite = 2 * sizeof(float) + 3;
+    // Has to be aligned for float access on arm
+    const size_t mBytesPerSpriteUnaligned = 2 * sizeof(float) + 3;
+    const size_t mBytesPerSprite =
+        ((mBytesPerSpriteUnaligned + sizeof(float) - 1) / sizeof(float)) * sizeof(float);
 };
 
 InterleavedAttributeDataBenchmark::InterleavedAttributeDataBenchmark()
@@ -215,10 +218,10 @@ InterleavedAttributeDataParams D3D9Params()
     return params;
 }
 
-InterleavedAttributeDataParams OpenGLParams()
+InterleavedAttributeDataParams OpenGLOrGLESParams()
 {
     InterleavedAttributeDataParams params;
-    params.eglParameters = egl_platform::OPENGL();
+    params.eglParameters = egl_platform::OPENGL_OR_GLES(false);
     return params;
 }
 
@@ -226,6 +229,6 @@ ANGLE_INSTANTIATE_TEST(InterleavedAttributeDataBenchmark,
                        D3D11Params(),
                        D3D11_9_3Params(),
                        D3D9Params(),
-                       OpenGLParams());
+                       OpenGLOrGLESParams());
 
 }  // anonymous namespace

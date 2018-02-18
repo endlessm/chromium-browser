@@ -11,7 +11,6 @@
 #include <utility>
 #include <vector>
 
-#include "ash/accelerators/accelerator_controller_delegate_classic.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
@@ -32,6 +31,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/test_file_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
@@ -69,9 +69,6 @@
 #include "chrome/browser/policy/profile_policy_connector_factory.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/search/instant_service.h"
-#include "chrome/browser/search/instant_service_factory.h"
-#include "chrome/browser/search/search.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ssl/ssl_blocking_page.h"
 #include "chrome/browser/task_manager/task_manager_interface.h"
@@ -86,6 +83,9 @@
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/permission_bubble/mock_permission_prompt_factory.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/toolbar/component_toolbar_actions_factory.h"
+#include "chrome/browser/ui/toolbar/media_router_action_controller.h"
+#include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -119,7 +119,6 @@
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/policy_constants.h"
 #include "components/prefs/pref_service.h"
-#include "components/search/search.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/security_interstitials/content/security_interstitial_page.h"
@@ -183,6 +182,7 @@
 #include "media/media_features.h"
 #include "net/base/net_errors.h"
 #include "net/base/url_util.h"
+#include "net/dns/mock_host_resolver.h"
 #include "net/http/http_stream_factory.h"
 #include "net/http/transport_security_state.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -204,12 +204,9 @@
 #include "url/origin.h"
 
 #if defined(OS_CHROMEOS)
-#include "ash/accelerators/accelerator_controller.h"
-#include "ash/accelerators/accelerator_table.h"
-#include "ash/accessibility_types.h"
+#include "ash/public/cpp/accessibility_types.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/shell.h"
-#include "ash/shell_port_classic.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
 #include "chrome/browser/chromeos/arc/arc_session_manager.h"
@@ -240,12 +237,6 @@
 #include "extensions/browser/app_window/native_app_window.h"
 #include "ui/base/window_open_disposition.h"
 #endif
-
-#if !defined(OS_ANDROID)
-#include "chrome/browser/ui/toolbar/component_toolbar_actions_factory.h"
-#include "chrome/browser/ui/toolbar/media_router_action_controller.h"
-#include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
-#endif  // !defined(OS_ANDROID)
 
 using content::BrowserThread;
 using net::URLRequestMockHTTPJob;
@@ -302,29 +293,22 @@ const base::FilePath::CharType kUnpackedFullscreenAppName[] =
 const char kTestWebRtcUdpPortRange[] = "10000-10100";
 #endif
 
+void GetTestDataDirectory(base::FilePath* test_data_directory) {
+  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, test_data_directory));
+}
+
 // Filters requests to the hosts in |urls| and redirects them to the test data
 // dir through URLRequestMockHTTPJobs.
 void RedirectHostsToTestData(const char* const urls[], size_t size) {
   // Map the given hosts to the test data dir.
   net::URLRequestFilter* filter = net::URLRequestFilter::GetInstance();
   base::FilePath base_path;
-  PathService::Get(chrome::DIR_TEST_DATA, &base_path);
+  GetTestDataDirectory(&base_path);
   for (size_t i = 0; i < size; ++i) {
     const GURL url(urls[i]);
     EXPECT_TRUE(url.is_valid());
     filter->AddUrlInterceptor(
         url, URLRequestMockHTTPJob::CreateInterceptor(base_path));
-  }
-}
-
-// Remove filters for requests to the hosts in |urls|.
-void UndoRedirectHostsToTestData(const char* const urls[], size_t size) {
-  // Map the given hosts to the test data dir.
-  net::URLRequestFilter* filter = net::URLRequestFilter::GetInstance();
-  for (size_t i = 0; i < size; ++i) {
-    const GURL url(urls[i]);
-    EXPECT_TRUE(url.is_valid());
-    filter->RemoveUrlHandler(url);
   }
 }
 
@@ -386,9 +370,40 @@ class MakeRequestFail {
   const std::string host_;
 };
 
+// Registers a handler to respond to requests whose path matches |match_path|.
+// The response contents are generated from |template_file|, by replacing all
+// "${URL_PLACEHOLDER}" substrings in the file with the request URL excluding
+// filename, query values and fragment.
+void RegisterURLReplacingHandler(net::EmbeddedTestServer* test_server,
+                                 const std::string& match_path,
+                                 const base::FilePath& template_file) {
+  test_server->RegisterRequestHandler(base::Bind(
+      [](net::EmbeddedTestServer* test_server, const std::string& match_path,
+         const base::FilePath& template_file,
+         const net::test_server::HttpRequest& request)
+          -> std::unique_ptr<net::test_server::HttpResponse> {
+        GURL url = test_server->GetURL(request.relative_url);
+        if (url.path() != match_path)
+          return nullptr;
+
+        std::string contents;
+        CHECK(base::ReadFileToString(template_file, &contents));
+
+        GURL url_base = url.GetWithoutFilename();
+        base::ReplaceSubstringsAfterOffset(&contents, 0, "${URL_PLACEHOLDER}",
+                                           url_base.spec());
+
+        auto response = std::make_unique<net::test_server::BasicHttpResponse>();
+        response->set_content(contents);
+        response->set_content_type("text/plain");
+        return response;
+      },
+      base::Unretained(test_server), match_path, template_file));
+}
+
 // Verifies that the given url |spec| can be opened. This assumes that |spec|
 // points at empty.html in the test data dir.
-void CheckCanOpenURL(Browser* browser, const char* spec) {
+void CheckCanOpenURL(Browser* browser, const std::string& spec) {
   GURL url(spec);
   ui_test_utils::NavigateToURL(browser, url);
   content::WebContents* contents =
@@ -406,7 +421,7 @@ void CheckCanOpenURL(Browser* browser, const char* spec) {
 }
 
 // Verifies that access to the given url |spec| is blocked.
-void CheckURLIsBlocked(Browser* browser, const char* spec) {
+void CheckURLIsBlocked(Browser* browser, const std::string& spec) {
   GURL url(spec);
   ui_test_utils::NavigateToURL(browser, url);
   content::WebContents* contents =
@@ -437,12 +452,17 @@ void CheckURLIsBlocked(Browser* browser, const char* spec) {
 // must be empty.
 void DownloadAndVerifyFile(
     Browser* browser, const base::FilePath& dir, const base::FilePath& file) {
+  net::EmbeddedTestServer embedded_test_server;
+  base::FilePath test_data_directory;
+  GetTestDataDirectory(&test_data_directory);
+  embedded_test_server.ServeFilesFromDirectory(test_data_directory);
+  ASSERT_TRUE(embedded_test_server.Start());
   content::DownloadManager* download_manager =
       content::BrowserContext::GetDownloadManager(browser->profile());
   content::DownloadTestObserverTerminal observer(
       download_manager, 1,
       content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL);
-  GURL url(URLRequestMockHTTPJob::GetMockUrl(file.MaybeAsASCII()));
+  GURL url(embedded_test_server.GetURL("/" + file.MaybeAsASCII()));
   base::FilePath downloaded = dir.Append(file);
   EXPECT_FALSE(base::PathExists(downloaded));
   ui_test_utils::NavigateToURL(browser, url);
@@ -658,6 +678,7 @@ class PolicyTest : public InProcessBrowserTest {
   }
 
   void SetUpOnMainThread() override {
+    host_resolver()->AddRule("*", "127.0.0.1");
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
         base::BindOnce(chrome_browser_net::SetUrlRequestMocksEnabled, true));
@@ -665,18 +686,6 @@ class PolicyTest : public InProcessBrowserTest {
       extension_service()->updater()->SetExtensionCacheForTesting(
           test_extension_cache_.get());
     }
-  }
-
-  // Makes URLRequestMockHTTPJobs serve data from content::DIR_TEST_DATA
-  // instead of chrome::DIR_TEST_DATA.
-  void ServeContentTestData() {
-    base::FilePath root_http;
-    PathService::Get(content::DIR_TEST_DATA, &root_http);
-    BrowserThread::PostTaskAndReply(
-        BrowserThread::IO, FROM_HERE,
-        base::BindOnce(URLRequestMockHTTPJob::AddUrlHandlers, root_http),
-        base::MessageLoop::current()->QuitWhenIdleClosure());
-    content::RunMessageLoop();
   }
 
   void SetScreenshotPolicy(bool enabled) {
@@ -702,30 +711,16 @@ class PolicyTest : public InProcessBrowserTest {
   };
 
   void TestScreenshotFile(bool enabled) {
-    // AddObserver is an ash-specific method, so just replace the screenshot
-    // grabber with one we've created here.
-    std::unique_ptr<ChromeScreenshotGrabber> chrome_screenshot_grabber(
-        new ChromeScreenshotGrabber);
     // ScreenshotGrabber doesn't own this observer, so the observer's lifetime
     // is tied to the test instead.
-    chrome_screenshot_grabber->screenshot_grabber()->AddObserver(&observer_);
-    ash::ShellPortClassic::Get()
-        ->accelerator_controller_delegate()
-        ->SetScreenshotDelegate(std::move(chrome_screenshot_grabber));
-
+    ChromeScreenshotGrabber* grabber = ChromeScreenshotGrabber::Get();
+    grabber->screenshot_grabber()->AddObserver(&observer_);
     SetScreenshotPolicy(enabled);
-    ash::Shell::Get()->accelerator_controller()->PerformActionIfEnabled(
-        ash::TAKE_SCREENSHOT);
-
+    grabber->HandleTakeScreenshotForAllRootWindows();
     content::RunMessageLoop();
-    static_cast<ChromeScreenshotGrabber*>(
-        ash::ShellPortClassic::Get()
-            ->accelerator_controller_delegate()
-            ->screenshot_delegate())
-        ->screenshot_grabber()
-        ->RemoveObserver(&observer_);
+    grabber->screenshot_grabber()->RemoveObserver(&observer_);
   }
-#endif
+#endif  // defined(OS_CHROMEOS)
 
   ExtensionService* extension_service() {
     extensions::ExtensionSystem* system =
@@ -782,8 +777,7 @@ class PolicyTest : public InProcessBrowserTest {
       extensions::TestExtensionRegistryObserver observer(
           extensions::ExtensionRegistry::Get(browser()->profile()));
       extension_service()->UninstallExtension(
-          id, extensions::UNINSTALL_REASON_FOR_TESTING,
-          base::Bind(&base::DoNothing), NULL);
+          id, extensions::UNINSTALL_REASON_FOR_TESTING, NULL);
       observer.WaitForExtensionUninstalled();
     } else {
       content::WindowedNotificationObserver observer(
@@ -792,7 +786,6 @@ class PolicyTest : public InProcessBrowserTest {
       extension_service()->UninstallExtension(
           id,
           extensions::UNINSTALL_REASON_FOR_TESTING,
-          base::Bind(&base::DoNothing),
           NULL);
       observer.Wait();
     }
@@ -913,7 +906,7 @@ IN_PROC_BROWSER_TEST_F(LocalePolicyTest, ApplicationLocaleValue) {
   EXPECT_EQ(french_title, title);
 
   // Make sure this is really French and differs from the English title.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   std::string loaded =
       ui::ResourceBundle::GetSharedInstance().ReloadLocaleResources("en-US");
   EXPECT_EQ("en-US", loaded);
@@ -999,11 +992,9 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, DefaultSearchProvider) {
   // policy. Also checks that default search can be completely disabled.
   const base::string16 kKeyword(base::ASCIIToUTF16("testsearch"));
   const std::string kSearchURL("http://search.example/search?q={searchTerms}");
-  const std::string kInstantURL("http://does/not/exist");
   const std::string kAlternateURL0(
       "http://search.example/search#q={searchTerms}");
   const std::string kAlternateURL1("http://search.example/#q={searchTerms}");
-  const std::string kSearchTermsReplacementKey("zekey");
   const std::string kImageURL("http://test.com/searchbyimage/upload");
   const std::string kImageURLPostParams(
       "image_content=content,image_url=http://test.com/test.png");
@@ -1035,19 +1026,12 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, DefaultSearchProvider) {
   policies.Set(key::kDefaultSearchProviderSearchURL, POLICY_LEVEL_MANDATORY,
                POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
                base::MakeUnique<base::Value>(kSearchURL), nullptr);
-  policies.Set(key::kDefaultSearchProviderInstantURL, POLICY_LEVEL_MANDATORY,
-               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-               base::MakeUnique<base::Value>(kInstantURL), nullptr);
   std::unique_ptr<base::ListValue> alternate_urls(new base::ListValue);
   alternate_urls->AppendString(kAlternateURL0);
   alternate_urls->AppendString(kAlternateURL1);
   policies.Set(key::kDefaultSearchProviderAlternateURLs, POLICY_LEVEL_MANDATORY,
                POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
                std::move(alternate_urls), nullptr);
-  policies.Set(key::kDefaultSearchProviderSearchTermsReplacementKey,
-               POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-               base::MakeUnique<base::Value>(kSearchTermsReplacementKey),
-               nullptr);
   policies.Set(key::kDefaultSearchProviderImageURL, POLICY_LEVEL_MANDATORY,
                POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
                base::MakeUnique<base::Value>(kImageURL), nullptr);
@@ -1467,7 +1451,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, DownloadDirectory) {
   // Verifies that the download directory can be forced by policy.
 
   // Set the initial download directory.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir initial_dir;
   ASSERT_TRUE(initial_dir.CreateUniqueTempDir());
   browser()->profile()->GetPrefs()->SetFilePath(
@@ -1657,6 +1641,20 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, MAYBE_ExtensionInstallBlacklistWildcard) {
 IN_PROC_BROWSER_TEST_F(PolicyTest, ExtensionInstallBlacklistSharedModules) {
   // Verifies that shared_modules are not affected by the blacklist.
 
+  base::FilePath base_path;
+  GetTestDataDirectory(&base_path);
+  base::FilePath update_xml_template_path =
+      base_path.Append(kTestExtensionsDir)
+          .AppendASCII("policy_shared_module")
+          .AppendASCII("update_template.xml");
+
+  std::string update_xml_path =
+      "/" + base::FilePath(kTestExtensionsDir).MaybeAsASCII() +
+      "/policy_shared_module/gen_update.xml";
+  RegisterURLReplacingHandler(embedded_test_server(), update_xml_path,
+                              update_xml_template_path);
+  ASSERT_TRUE(embedded_test_server()->Start());
+
   const char kImporterId[] = "pchakhniekfaeoddkifplhnfbffomabh";
   const char kSharedModuleId[] = "nfgclafboonjbiafbllihiailjlhelpm";
 
@@ -1671,11 +1669,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ExtensionInstallBlacklistSharedModules) {
 
   // Mock the webstore update URL. This is where the shared module extension
   // will be installed from.
-  base::FilePath update_xml_path = base::FilePath(kTestExtensionsDir)
-                                       .AppendASCII("policy_shared_module")
-                                       .AppendASCII("update.xml");
-  GURL update_xml_url(
-      URLRequestMockHTTPJob::GetMockUrl(update_xml_path.MaybeAsASCII()));
+  GURL update_xml_url = embedded_test_server()->GetURL(update_xml_path);
   extension_test_util::SetGalleryUpdateURL(update_xml_url);
   ui_test_utils::NavigateToURL(browser(), update_xml_url);
 
@@ -1813,7 +1807,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ExtensionInstallForcelist) {
       service->GetExtensionById(kGoodCrxId, true)->version()->GetString();
 
   base::FilePath test_path;
-  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_path));
+  GetTestDataDirectory(&test_path);
 
   TestRequestInterceptor interceptor(
       "update.extension",
@@ -1969,7 +1963,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, MAYBE_ExtensionInstallSources) {
       URLRequestMockHTTPJob::GetMockUrl("extensions/*"));
   const GURL referrer_url(URLRequestMockHTTPJob::GetMockUrl("policy/*"));
 
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir download_directory;
   ASSERT_TRUE(download_directory.CreateUniqueTempDir());
   DownloadPrefs* download_prefs =
@@ -2025,7 +2019,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ExtensionMinimumVersionRequired) {
 
   // Setup interceptor for extension updates.
   base::FilePath test_path;
-  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_path));
+  GetTestDataDirectory(&test_path);
   TestRequestInterceptor interceptor(
       "update.extension",
       BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
@@ -2095,7 +2089,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, ExtensionMinimumVersionRequiredAlt) {
 
   // Setup interceptor for extension updates.
   base::FilePath test_path;
-  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_path));
+  GetTestDataDirectory(&test_path);
   TestRequestInterceptor interceptor(
       "update.extension",
       BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
@@ -2478,23 +2472,15 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, URLBlacklist) {
   // Checks that URLs can be blacklisted, and that exceptions can be made to
   // the blacklist.
 
-  // Filter |kURLS| on IO thread, so that requests to those hosts end up
-  // as URLRequestMockHTTPJobs.
-  const char* kURLS[] = {
-    "http://aaa.com/empty.html",
-    "http://bbb.com/empty.html",
-    "http://sub.bbb.com/empty.html",
-    "http://bbb.com/policy/blank.html",
-    "http://bbb.com./policy/blank.html",
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  const std::string kURLS[] = {
+      embedded_test_server()->GetURL("aaa.com", "/empty.html").spec(),
+      embedded_test_server()->GetURL("bbb.com", "/empty.html").spec(),
+      embedded_test_server()->GetURL("sub.bbb.com", "/empty.html").spec(),
+      embedded_test_server()->GetURL("bbb.com", "/policy/blank.html").spec(),
+      embedded_test_server()->GetURL("bbb.com.", "/policy/blank.html").spec(),
   };
-  {
-    base::RunLoop loop;
-    BrowserThread::PostTaskAndReply(
-        BrowserThread::IO, FROM_HERE,
-        base::BindOnce(RedirectHostsToTestData, kURLS, arraysize(kURLS)),
-        loop.QuitClosure());
-    loop.Run();
-  }
 
   // Verify that "bbb.com" opens before applying the blacklist.
   CheckCanOpenURL(browser(), kURLS[1]);
@@ -2524,34 +2510,13 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, URLBlacklist) {
   CheckCanOpenURL(browser(), kURLS[2]);
   CheckCanOpenURL(browser(), kURLS[3]);
   CheckCanOpenURL(browser(), kURLS[4]);
-
-  {
-    base::RunLoop loop;
-    BrowserThread::PostTaskAndReply(
-        BrowserThread::IO, FROM_HERE,
-        base::BindOnce(UndoRedirectHostsToTestData, kURLS, arraysize(kURLS)),
-        loop.QuitClosure());
-    loop.Run();
-  }
 }
 
 IN_PROC_BROWSER_TEST_F(PolicyTest, URLBlacklistAndWhitelist) {
   // Regression test for http://crbug.com/755256. Blacklisting * and
   // whitelisting an origin should work.
 
-  // Filter |kURLS| on IO thread, so that requests to those hosts end up
-  // as URLRequestMockHTTPJobs.
-  const char* kURLS[] = {
-      "http://aaa.com/empty.html",
-  };
-  {
-    base::RunLoop loop;
-    BrowserThread::PostTaskAndReply(
-        BrowserThread::IO, FROM_HERE,
-        base::BindOnce(RedirectHostsToTestData, kURLS, arraysize(kURLS)),
-        loop.QuitClosure());
-    loop.Run();
-  }
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   base::ListValue blacklist;
   blacklist.AppendString("*");
@@ -2565,17 +2530,21 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, URLBlacklistAndWhitelist) {
                POLICY_SOURCE_CLOUD, whitelist.CreateDeepCopy(), nullptr);
   UpdateProviderPolicy(policies);
   FlushBlacklistPolicy();
-  CheckCanOpenURL(browser(), kURLS[0]);
+  CheckCanOpenURL(
+      browser(),
+      embedded_test_server()->GetURL("aaa.com", "/empty.html").spec());
 }
 
 IN_PROC_BROWSER_TEST_F(PolicyTest, URLBlacklistSubresources) {
   // Checks that an image with a blacklisted URL is loaded, but an iframe with a
   // blacklisted URL is not.
 
+  ASSERT_TRUE(embedded_test_server()->Start());
+
   GURL main_url =
-      URLRequestMockHTTPJob::GetMockUrl("policy/blacklist-subresources.html");
-  GURL image_url = URLRequestMockHTTPJob::GetMockUrl("policy/pixel.png");
-  GURL subframe_url = URLRequestMockHTTPJob::GetMockUrl("policy/blank.html");
+      embedded_test_server()->GetURL("/policy/blacklist-subresources.html");
+  GURL image_url = embedded_test_server()->GetURL("/policy/pixel.png");
+  GURL subframe_url = embedded_test_server()->GetURL("/policy/blank.html");
 
   // Set a blacklist containing the image and the iframe which are used by the
   // main document.
@@ -2616,14 +2585,14 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, MAYBE_FileURLBlacklist) {
   // with URLblacklisting and URLwhitelisting.
 
   base::FilePath test_path;
-  PathService::Get(chrome::DIR_TEST_DATA, &test_path);
+  GetTestDataDirectory(&test_path);
   const std::string base_path = "file://" + test_path.AsUTF8Unsafe() +"/";
   const std::string folder_path = base_path + "apptest/";
   const std::string file_path1 = base_path + "title1.html";
   const std::string file_path2 = folder_path + "basic.html";
 
-  CheckCanOpenURL(browser(), file_path1.c_str());
-  CheckCanOpenURL(browser(), file_path2.c_str());
+  CheckCanOpenURL(browser(), file_path1);
+  CheckCanOpenURL(browser(), file_path2);
 
   // Set a blacklist for all the files.
   base::ListValue blacklist;
@@ -2634,8 +2603,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, MAYBE_FileURLBlacklist) {
   UpdateProviderPolicy(policies);
   FlushBlacklistPolicy();
 
-  CheckURLIsBlocked(browser(), file_path1.c_str());
-  CheckURLIsBlocked(browser(), file_path2.c_str());
+  CheckURLIsBlocked(browser(), file_path1);
+  CheckURLIsBlocked(browser(), file_path2);
 
   // Replace the URLblacklist with disabling the file scheme.
   blacklist.Remove(base::Value("file://*"), NULL);
@@ -2669,8 +2638,8 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, MAYBE_FileURLBlacklist) {
   UpdateProviderPolicy(policies);
   FlushBlacklistPolicy();
 
-  CheckCanOpenURL(browser(), file_path1.c_str());
-  CheckURLIsBlocked(browser(), file_path2.c_str());
+  CheckCanOpenURL(browser(), file_path1);
+  CheckURLIsBlocked(browser(), file_path2);
 }
 
 #if !defined(OS_MACOSX)
@@ -3292,14 +3261,17 @@ class MediaStreamDevicesControllerBrowserTest
       public testing::WithParamInterface<bool> {
  public:
   MediaStreamDevicesControllerBrowserTest()
-      : request_url_allowed_via_whitelist_(false),
-        request_url_("https://www.example.com/foo") {
+      : request_url_allowed_via_whitelist_(false) {
     policy_value_ = GetParam();
   }
   virtual ~MediaStreamDevicesControllerBrowserTest() {}
 
   void SetUpOnMainThread() override {
     PolicyTest::SetUpOnMainThread();
+
+    ASSERT_TRUE(embedded_test_server()->Start());
+    request_url_ = embedded_test_server()->GetURL("/simple.html");
+    request_pattern_ = request_url_.GetOrigin().spec();
     ui_test_utils::NavigateToURL(browser(), request_url_);
 
     // Testing both the new (PermissionManager) and old code-paths is not simple
@@ -3400,12 +3372,8 @@ class MediaStreamDevicesControllerBrowserTest
   bool policy_value_;
   bool request_url_allowed_via_whitelist_;
   GURL request_url_;
-  static const char kExampleRequestPattern[];
+  std::string request_pattern_;
 };
-
-// static
-const char MediaStreamDevicesControllerBrowserTest::kExampleRequestPattern[] =
-    "https://[*.]example.com/";
 
 IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
                        AudioCaptureAllowed) {
@@ -3438,11 +3406,11 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
   audio_devices.push_back(fake_audio_device);
 
   const char* allow_pattern[] = {
-    kExampleRequestPattern,
-    // This will set an allow-all policy whitelist.  Since we do not allow
-    // setting an allow-all entry in the whitelist, this entry should be ignored
-    // and therefore the request should be denied.
-    NULL,
+      request_pattern_.c_str(),
+      // This will set an allow-all policy whitelist.  Since we do not allow
+      // setting an allow-all entry in the whitelist, this entry should be
+      // ignored and therefore the request should be denied.
+      nullptr,
   };
 
   for (size_t i = 0; i < arraysize(allow_pattern); ++i) {
@@ -3496,11 +3464,11 @@ IN_PROC_BROWSER_TEST_P(MediaStreamDevicesControllerBrowserTest,
   video_devices.push_back(fake_video_device);
 
   const char* allow_pattern[] = {
-    kExampleRequestPattern,
-    // This will set an allow-all policy whitelist.  Since we do not allow
-    // setting an allow-all entry in the whitelist, this entry should be ignored
-    // and therefore the request should be denied.
-    NULL,
+      request_pattern_.c_str(),
+      // This will set an allow-all policy whitelist.  Since we do not allow
+      // setting an allow-all entry in the whitelist, this entry should be
+      // ignored and therefore the request should be denied.
+      nullptr,
   };
 
   for (size_t i = 0; i < arraysize(allow_pattern); ++i) {
@@ -3826,7 +3794,6 @@ IN_PROC_BROWSER_TEST_F(MediaRouterDisabledPolicyTest, MediaRouterDisabled) {
   EXPECT_FALSE(media_router::MediaRouterEnabled(browser()->profile()));
 }
 
-#if !defined(OS_ANDROID)
 template <bool enable>
 class MediaRouterActionPolicyTest : public PolicyTest {
  public:
@@ -3867,7 +3834,6 @@ IN_PROC_BROWSER_TEST_F(MediaRouterActionDisabledPolicyTest,
       MediaRouterActionController::IsActionShownByPolicy(browser()->profile()));
   EXPECT_FALSE(HasMediaRouterActionAtInit());
 }
-#endif  // !defined(OS_ANDROID)
 
 #if BUILDFLAG(ENABLE_WEBRTC)
 // Sets the proper policy before the browser is started.
@@ -4006,18 +3972,16 @@ update_client::CrxComponent ComponentUpdaterPolicyTest::MakeCrxComponent(
    public:
     MockInstaller() {}
 
-    // gMock does not support mocking functions with parameters which have
-    // move semantics. This function is a shim to work around it.
-    void Install(std::unique_ptr<base::DictionaryValue> manifest,
-                 const base::FilePath& unpack_path,
-                 const Callback& callback) {
-      return Install_(manifest, unpack_path, callback);
+    void Install(const base::FilePath& unpack_path,
+                 const std::string& public_key,
+                 Callback callback) {
+      DoInstall(unpack_path, public_key, std::move(callback));
     }
 
     MOCK_METHOD1(OnUpdateError, void(int error));
-    MOCK_METHOD3(Install_,
-                 void(const std::unique_ptr<base::DictionaryValue>& manifest,
-                      const base::FilePath& unpack_pat,
+    MOCK_METHOD3(DoInstall,
+                 void(const base::FilePath& unpack_path,
+                      const std::string& public_key,
                       const Callback& callback));
     MOCK_METHOD2(GetInstalledFile,
                  bool(const std::string& file, base::FilePath* installed_file));
@@ -4289,8 +4253,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, NativeMessagingWhitelist) {
 
 #endif  // !defined(CHROME_OS)
 
-
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+#if !defined(OS_CHROMEOS)
 // Sets the hardware acceleration mode policy before the browser is started.
 class HardwareAccelerationModePolicyTest : public PolicyTest {
  public:
@@ -4312,7 +4275,7 @@ IN_PROC_BROWSER_TEST_F(HardwareAccelerationModePolicyTest,
   EXPECT_FALSE(
       content::GpuDataManager::GetInstance()->HardwareAccelerationEnabled());
 }
-#endif  // !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+#endif  // !defined(OS_CHROMEOS)
 
 #if defined(OS_CHROMEOS)
 // Policy is only available in ChromeOS
@@ -4508,10 +4471,15 @@ IN_PROC_BROWSER_TEST_F(ArcPolicyTest, ArcLocationServiceEnabled) {
 
 class NetworkTimePolicyTest : public PolicyTest {
  public:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    content::EnableFeatureWithParam(network_time::kNetworkTimeServiceQuerying,
-                                    "FetchBehavior", "on-demand-only",
-                                    command_line);
+  NetworkTimePolicyTest() : PolicyTest() {}
+  ~NetworkTimePolicyTest() override {}
+
+  void SetUpOnMainThread() override {
+    std::map<std::string, std::string> parameters;
+    parameters["FetchBehavior"] = "on-demand-only";
+    scoped_feature_list_.InitAndEnableFeatureWithParameters(
+        network_time::kNetworkTimeServiceQuerying, parameters);
+    PolicyTest::SetUpOnMainThread();
   }
 
   // A request handler that returns a dummy response and counts the number of
@@ -4533,7 +4501,10 @@ class NetworkTimePolicyTest : public PolicyTest {
   uint32_t num_requests() { return num_requests_; }
 
  private:
+  base::test::ScopedFeatureList scoped_feature_list_;
   uint32_t num_requests_ = 0;
+
+  DISALLOW_COPY_AND_ASSIGN(NetworkTimePolicyTest);
 };
 
 IN_PROC_BROWSER_TEST_F(NetworkTimePolicyTest, NetworkTimeQueriesDisabled) {

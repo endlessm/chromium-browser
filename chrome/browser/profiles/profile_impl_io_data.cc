@@ -51,7 +51,7 @@
 #include "components/prefs/pref_filter.h"
 #include "components/prefs/pref_member.h"
 #include "components/prefs/pref_service.h"
-#include "components/previews/core/previews_io_data.h"
+#include "components/previews/content/previews_io_data.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -180,6 +180,7 @@ void ProfileImplIOData::Handle::Init(
       BrowserThread::GetTaskRunnerForThread(BrowserThread::IO)));
   PreviewsServiceFactory::GetForProfile(profile_)->Initialize(
       io_data_->previews_io_data(),
+      g_browser_process->optimization_guide_service(),
       BrowserThread::GetTaskRunnerForThread(BrowserThread::IO), profile_path);
 
   io_data_->set_data_reduction_proxy_io_data(
@@ -326,16 +327,6 @@ ProfileImplIOData::Handle::GetIsolatedMediaRequestContextGetter(
   isolated_media_request_context_getter_map_[descriptor] = context;
 
   return context;
-}
-
-void ProfileImplIOData::Handle::ClearNetworkingHistorySince(
-    base::Time time,
-    const base::Closure& completion) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-  content::BrowserContext::GetDefaultStoragePartition(profile_)
-      ->GetNetworkContext()
-      ->ClearNetworkingHistorySince(time, completion);
 }
 
 void ProfileImplIOData::Handle::LazyInitialize() const {

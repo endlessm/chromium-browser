@@ -23,6 +23,25 @@ Polymer({
       value: chrome.networkingPrivate,
     },
 
+    /** @private {!chrome.networkingPrivate.GlobalPolicy|undefined} */
+    globalPolicy_: Object,
+
+    /** @private */
+    shareAllowEnable_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('shareNetworkAllowEnable');
+      }
+    },
+
+    /** @private */
+    shareDefault_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('shareNetworkDefault');
+      }
+    },
+
     /**
      * The network GUID to configure, or empty when configuring a new network.
      * @private
@@ -30,10 +49,7 @@ Polymer({
     guid_: String,
 
     /** @private */
-    enableConnect_: String,
-
-    /** @private */
-    enableSave_: String,
+    enableConnect_: Boolean,
 
     /**
      * The current properties if an existing network is being configured, or
@@ -60,6 +76,12 @@ Polymer({
     };
 
     this.$.networkConfig.init();
+
+    this.networkingPrivate.getGlobalPolicy(policy => {
+      this.globalPolicy_ = policy;
+    });
+
+    /** @type {!CrDialogElement} */ (this.$.dialog).showModal();
   },
 
   /** @private */
@@ -71,19 +93,14 @@ Polymer({
    * @return {string}
    * @private
    */
-  getTitle_: function() {
-    return this.networkProperties_.Name ||
-        this.i18n('OncType' + this.networkProperties_.Type);
+  getDialogTitle_: function() {
+    var type = this.i18n('OncType' + this.networkProperties_.Type);
+    return this.i18n('internetJoinType', type);
   },
 
   /** @private */
   onCancelTap_: function() {
     this.close_();
-  },
-
-  /** @private */
-  onSaveTap_: function() {
-    this.$.networkConfig.saveOrConnect();
   },
 
   /** @private */

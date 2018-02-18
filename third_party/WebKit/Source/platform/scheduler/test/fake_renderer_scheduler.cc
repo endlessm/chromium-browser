@@ -40,6 +40,11 @@ FakeRendererScheduler::IdleTaskRunner() {
   return nullptr;
 }
 
+scoped_refptr<base::SingleThreadTaskRunner>
+FakeRendererScheduler::IPCTaskRunner() {
+  return nullptr;
+}
+
 std::unique_ptr<RenderWidgetSchedulingState>
 FakeRendererScheduler::NewRenderWidgetSchedulingState() {
   return nullptr;
@@ -107,10 +112,6 @@ void FakeRendererScheduler::RemoveTaskObserver(
 
 void FakeRendererScheduler::Shutdown() {}
 
-void FakeRendererScheduler::VirtualTimePaused() {}
-
-void FakeRendererScheduler::VirtualTimeResumed() {}
-
 void FakeRendererScheduler::SetStoppingWhenBackgroundedEnabled(bool enabled) {}
 
 void FakeRendererScheduler::SetTopLevelBlameContext(
@@ -124,6 +125,11 @@ bool FakeRendererScheduler::MainThreadSeemsUnresponsive(
 }
 
 void FakeRendererScheduler::SetRendererProcessType(RendererProcessType type) {}
+
+WebScopedVirtualTimePauser
+FakeRendererScheduler::CreateWebScopedVirtualTimePauser() {
+  return WebScopedVirtualTimePauser(nullptr);
+}
 
 }  // namespace scheduler
 }  // namespace blink

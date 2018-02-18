@@ -51,29 +51,34 @@ deps = {
   # Linux syscall support.
   "src/src/third_party/lss":
     "https://chromium.googlesource.com/linux-syscall-support/" +
-      "@a91633d172407f6c83dd69af11510b37afebb7f9",
+      "@e6527b0cd469e3ff5764785dadcb39bf7d787154",
 }
 
 hooks = [
-  {
-    # TODO(chrisha): Fix the GYP files so that they work without
-    # --no-circular-check.
-    "pattern": ".",
-    "action": ["python",
-               "src/src/tools/gyp/gyp_main.py",
-               "--no-circular-check",
-               "src/src/client/windows/breakpad_client.gyp"],
-  },
-  {
-    # XXX: this and above should all be wired into build/all.gyp ?
-    "action": ["python",
-               "src/src/tools/gyp/gyp_main.py",
-               "--no-circular-check",
-               "src/src/tools/windows/tools_windows.gyp"],
-  },
   {
     # Keep the manifest up to date.
     "action": ["python", "src/src/tools/python/deps-to-manifest.py",
                "src/DEPS", "src/default.xml"],
   },
 ]
+
+hooks_os = {
+  'win': [
+    {
+      # TODO(chrisha): Fix the GYP files so that they work without
+      # --no-circular-check.
+      "pattern": ".",
+      "action": ["python",
+                 "src/src/tools/gyp/gyp_main.py",
+                 "--no-circular-check",
+                 "src/src/client/windows/breakpad_client.gyp"],
+    },
+    {
+      # XXX: this and above should all be wired into build/all.gyp ?
+      "action": ["python",
+                 "src/src/tools/gyp/gyp_main.py",
+                 "--no-circular-check",
+                 "src/src/tools/windows/tools_windows.gyp"],
+    },
+  ],
+}

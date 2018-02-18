@@ -51,9 +51,6 @@ bool IsNewClearBrowsingDataUIEnabled();
 // Whether the page icon for downgraded HTTPS is enabled.
 bool IsPageIconForDowngradedHTTPSEnabled();
 
-// Whether password generation is enabled.
-bool IsPasswordGenerationEnabled();
-
 // Whether the Physical Web feature is enabled.
 bool IsPhysicalWebEnabled();
 
@@ -63,14 +60,8 @@ bool IsStartupCrashEnabled();
 // Whether viewing and copying passwords is enabled.
 bool IsViewCopyPasswordsEnabled();
 
-// Whether the Suggestions UI is enabled.
-bool IsSuggestionsUIEnabled();
-
 // Whether a new version of FeedbackKit is the preferred feedback UI provider.
 bool IsNewFeedbackKitEnabled();
-
-// Whether the WKBackForwardList based navigation manager is enabled.
-bool IsSlimNavigationManagerEnabled();
 
 // Whether the 3rd party keyboard omnibox workaround is enabled.
 bool IsThirdPartyKeyboardWorkaroundEnabled();

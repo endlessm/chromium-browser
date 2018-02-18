@@ -27,8 +27,8 @@ namespace ash {
 
 class AshPopupAlignmentDelegateTest : public AshTestBase {
  public:
-  AshPopupAlignmentDelegateTest() {}
-  ~AshPopupAlignmentDelegateTest() override {}
+  AshPopupAlignmentDelegateTest() = default;
+  ~AshPopupAlignmentDelegateTest() override = default;
 
   void SetUp() override {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
@@ -199,7 +199,7 @@ TEST_F(AshPopupAlignmentDelegateTest, TrayHeight) {
   alignment_delegate()->SetTrayBubbleHeight(kTrayHeight);
 
   EXPECT_EQ(origin_x, alignment_delegate()->GetToastOriginX(toast_size));
-  EXPECT_EQ(baseline - kTrayHeight - message_center::kMarginBetweenItems,
+  EXPECT_EQ(baseline - kTrayHeight - message_center::kMarginBetweenPopups,
             alignment_delegate()->GetBaseLine());
 }
 

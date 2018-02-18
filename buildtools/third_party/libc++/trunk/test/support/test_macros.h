@@ -81,8 +81,11 @@
 # define TEST_STD_VER 11
 #elif __cplusplus <= 201402L
 # define TEST_STD_VER 14
+#elif __cplusplus <= 201703L
+# define TEST_STD_VER 17
 #else
-# define TEST_STD_VER 16    // current year; greater than current standard
+# define TEST_STD_VER 99    // greater than current standard
+// This is deliberately different than _LIBCPP_STD_VER to discourage matching them up.
 #endif
 #endif
 
@@ -195,7 +198,7 @@ struct is_same<T, T> { enum {value = 1}; };
 
 #define ASSERT_SAME_TYPE(...) \
     static_assert((test_macros_detail::is_same<__VA_ARGS__>::value), \
-                 "Types differ uexpectedly")
+                 "Types differ unexpectedly")
 
 #ifndef TEST_HAS_NO_EXCEPTIONS
 #define TEST_THROW(...) throw __VA_ARGS__

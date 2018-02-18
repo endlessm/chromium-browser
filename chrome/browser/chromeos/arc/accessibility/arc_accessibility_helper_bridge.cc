@@ -17,6 +17,7 @@
 #include "components/arc/arc_service_manager.h"
 #include "components/exo/shell_surface.h"
 #include "components/exo/surface.h"
+#include "components/exo/wm_helper.h"
 #include "ui/arc/notification/arc_notification_surface.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
@@ -147,8 +148,8 @@ ArcAccessibilityHelperBridge::ArcAccessibilityHelperBridge(
     content::BrowserContext* browser_context,
     ArcBridgeService* arc_bridge_service)
     : profile_(Profile::FromBrowserContext(browser_context)),
-      arc_bridge_service_(arc_bridge_service),
-      binding_(this) {
+      arc_bridge_service_(arc_bridge_service) {
+  arc_bridge_service_->accessibility_helper()->SetHost(this);
   arc_bridge_service_->accessibility_helper()->AddObserver(this);
 
   // Null on testing.
@@ -193,23 +194,18 @@ void ArcAccessibilityHelperBridge::Shutdown() {
     app_list_prefs->RemoveObserver(this);
 
   arc_bridge_service_->accessibility_helper()->RemoveObserver(this);
+  arc_bridge_service_->accessibility_helper()->SetHost(nullptr);
 
   auto* surface_manager = ArcNotificationSurfaceManager::Get();
   if (surface_manager)
     surface_manager->RemoveObserver(this);
 }
 
-void ArcAccessibilityHelperBridge::OnInstanceReady() {
-  auto* instance = ARC_GET_INSTANCE_FOR_METHOD(
-      arc_bridge_service_->accessibility_helper(), Init);
-  DCHECK(instance);
-
-  mojom::AccessibilityHelperHostPtr host_proxy;
-  binding_.Bind(mojo::MakeRequest(&host_proxy));
-  instance->Init(std::move(host_proxy));
-
+void ArcAccessibilityHelperBridge::OnConnectionReady() {
   arc::mojom::AccessibilityFilterType filter_type =
       GetFilterTypeForProfile(profile_);
+  auto* instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_bridge_service_->accessibility_helper(), SetFilter);
   instance->SetFilter(filter_type);
 
   auto* surface_manager = ArcNotificationSurfaceManager::Get();
@@ -441,6 +437,7 @@ aura::Window* ArcAccessibilityHelperBridge::GetActiveWindow() {
 }
 
 void ArcAccessibilityHelperBridge::OnWindowActivated(
+    ActivationReason reason,
     aura::Window* gained_active,
     aura::Window* lost_active) {
   if (gained_active == lost_active)

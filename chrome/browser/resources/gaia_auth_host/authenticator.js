@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 // <include src="saml_handler.js">
+// Note: webview_event_manager.js is already included by saml_handler.js.
 
 /**
  * @fileoverview An UI component to authenciate to Chrome. The component hosts
@@ -91,6 +92,9 @@ cr.define('cr.login', function() {
     'menuGuestMode',             // Enables "Guest mode" menu item
     'menuKeyboardOptions',       // Enables "Keyboard options" menu item
     'menuEnterpriseEnrollment',  // Enables "Enterprise enrollment" menu item.
+    'lsbReleaseBoard',           // Chrome OS Release board name
+    'isFirstUser',               // True if this is non-enterprise device,
+                                 // and there are no users yet.
 
     // The email fields allow for the following possibilities:
     //
@@ -119,9 +123,6 @@ cr.define('cr.login', function() {
    * @constructor
    */
   function Authenticator(webview) {
-    this.webview_ = typeof webview == 'string' ? $(webview) : webview;
-    assert(this.webview_);
-
     this.isLoaded_ = false;
     this.email_ = null;
     this.password_ = null;
@@ -142,38 +143,19 @@ cr.define('cr.login', function() {
     this.gapsCookieSent_ = false;
     this.newGapsCookie_ = null;
     this.readyFired_ = false;
+    this.webviewEventManager_ = WebviewEventManager.create();
 
     this.clientId_ = null;
 
-    this.samlHandler_ = new cr.login.SamlHandler(this.webview_);
     this.confirmPasswordCallback = null;
     this.noPasswordCallback = null;
     this.insecureContentBlockedCallback = null;
     this.samlApiUsedCallback = null;
     this.missingGaiaInfoCallback = null;
     this.needPassword = true;
-    this.samlHandler_.addEventListener(
-        'insecureContentBlocked', this.onInsecureContentBlocked_.bind(this));
-    this.samlHandler_.addEventListener(
-        'authPageLoaded', this.onAuthPageLoaded_.bind(this));
-    this.samlHandler_.addEventListener(
-        'videoEnabled', this.onVideoEnabled_.bind(this));
-    this.samlHandler_.addEventListener(
-        'apiPasswordAdded', this.onSamlApiPasswordAdded_.bind(this));
 
-    this.webview_.addEventListener('droplink', this.onDropLink_.bind(this));
-    this.webview_.addEventListener('newwindow', this.onNewWindow_.bind(this));
-    this.webview_.addEventListener(
-        'contentload', this.onContentLoad_.bind(this));
-    this.webview_.addEventListener('loadabort', this.onLoadAbort_.bind(this));
-    this.webview_.addEventListener('loadcommit', this.onLoadCommit_.bind(this));
-    this.webview_.request.onCompleted.addListener(
-        this.onRequestCompleted_.bind(this),
-        {urls: ['<all_urls>'], types: ['main_frame']}, ['responseHeaders']);
-    this.webview_.request.onHeadersReceived.addListener(
-        this.onHeadersReceived_.bind(this),
-        {urls: ['<all_urls>'], types: ['main_frame', 'xmlhttprequest']},
-        ['responseHeaders']);
+    this.bindToWebview_(webview);
+
     window.addEventListener(
         'message', this.onMessageFromWebview_.bind(this), false);
     window.addEventListener('focus', this.onFocus_.bind(this), false);
@@ -211,6 +193,74 @@ cr.define('cr.login', function() {
   Authenticator.prototype.resetWebview = function() {
     if (this.webview_.src && this.webview_.src != BLANK_PAGE_URL)
       this.webview_.src = BLANK_PAGE_URL;
+  };
+
+  /**
+   * Binds this authenticator to the passed webview.
+   * @param {!Object} webview the new webview to be used by this Authenticator.
+   * @private
+   */
+  Authenticator.prototype.bindToWebview_ = function(webview) {
+    assert(!this.webview_);
+    assert(!this.samlHandler_);
+
+    this.webview_ = typeof webview == 'string' ? $(webview) : webview;
+
+    this.samlHandler_ = new cr.login.SamlHandler(this.webview_);
+    this.webviewEventManager_.addEventListener(
+        this.samlHandler_, 'insecureContentBlocked',
+        this.onInsecureContentBlocked_.bind(this));
+    this.webviewEventManager_.addEventListener(
+        this.samlHandler_, 'authPageLoaded', this.onAuthPageLoaded_.bind(this));
+    this.webviewEventManager_.addEventListener(
+        this.samlHandler_, 'videoEnabled', this.onVideoEnabled_.bind(this));
+    this.webviewEventManager_.addEventListener(
+        this.samlHandler_, 'apiPasswordAdded',
+        this.onSamlApiPasswordAdded_.bind(this));
+
+    this.webviewEventManager_.addEventListener(
+        this.webview_, 'droplink', this.onDropLink_.bind(this));
+    this.webviewEventManager_.addEventListener(
+        this.webview_, 'newwindow', this.onNewWindow_.bind(this));
+    this.webviewEventManager_.addEventListener(
+        this.webview_, 'contentload', this.onContentLoad_.bind(this));
+    this.webviewEventManager_.addEventListener(
+        this.webview_, 'loadabort', this.onLoadAbort_.bind(this));
+    this.webviewEventManager_.addEventListener(
+        this.webview_, 'loadcommit', this.onLoadCommit_.bind(this));
+
+    this.webviewEventManager_.addWebRequestEventListener(
+        this.webview_.request.onCompleted, this.onRequestCompleted_.bind(this),
+        {urls: ['<all_urls>'], types: ['main_frame']}, ['responseHeaders']);
+    this.webviewEventManager_.addWebRequestEventListener(
+        this.webview_.request.onHeadersReceived,
+        this.onHeadersReceived_.bind(this),
+        {urls: ['<all_urls>'], types: ['main_frame', 'xmlhttprequest']},
+        ['responseHeaders']);
+  };
+
+  /**
+   * Unbinds this Authenticator from the currently bound webview.
+   * @private
+   */
+  Authenticator.prototype.unbindFromWebview_ = function() {
+    assert(this.webview_);
+    assert(this.samlHandler_);
+
+    this.webviewEventManager_.removeAllListeners();
+
+    this.webview_ = undefined;
+    this.samlHandler_.unbindFromWebview();
+    this.samlHandler_ = undefined;
+  };
+
+  /**
+   * Re-binds to another webview.
+   * @param {Object} webview the new webview to be used by this Authenticator.
+   */
+  Authenticator.prototype.rebindWebview = function(webview) {
+    this.unbindFromWebview_();
+    this.bindToWebview_(webview);
   };
 
   /**
@@ -328,6 +378,11 @@ cr.define('cr.login', function() {
           mi += 'ee,';
         if (mi.length)
           url = appendParam(url, 'mi', mi);
+
+        if (data.lsbReleaseBoard)
+          url = appendParam(url, 'chromeos_board', data.lsbReleaseBoard);
+        if (data.isFirstUser)
+          url = appendParam(url, 'is_first_user', true);
       }
     } else {
       url = appendParam(url, 'continue', this.continueUrl_);

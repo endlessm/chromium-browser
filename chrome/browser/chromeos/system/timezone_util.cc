@@ -22,7 +22,6 @@
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/system/timezone_resolver_manager.h"
@@ -32,6 +31,7 @@
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/settings/timezone_settings.h"
 #include "chromeos/timezone/timezone_request.h"
+#include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
@@ -188,14 +188,23 @@ bool HasSystemTimezonePolicy() {
 }
 
 bool IsTimezonePrefsManaged(const std::string& pref_name) {
-  DCHECK(pref_name == prefs::kUserTimezone ||
-         pref_name == prefs::kResolveTimezoneByGeolocation);
+  DCHECK(pref_name == chromeos::kSystemTimezone ||
+         pref_name == prefs::kUserTimezone ||
+         pref_name == prefs::kResolveTimezoneByGeolocationMethod);
 
   std::string policy_timezone;
   if (CrosSettings::Get()->GetString(kSystemTimezonePolicy, &policy_timezone) &&
       !policy_timezone.empty()) {
     return true;
   }
+
+  // System time zone preference is managed only if kSystemTimezonePolicy
+  // present, which we checked above.
+  //
+  // kSystemTimezoneAutomaticDetectionPolicy (see below) controls only user
+  // time zone preference, and user time zone resolve preference.
+  if (pref_name == chromeos::kSystemTimezone)
+    return false;
 
   const PrefService* local_state = g_browser_process->local_state();
   if (!local_state->IsManagedPreference(
@@ -211,7 +220,7 @@ bool IsTimezonePrefsManaged(const std::string& pref_name) {
       return false;
     case enterprise_management::SystemTimezoneProto::DISABLED:
       // This only disables resolving.
-      return pref_name == prefs::kResolveTimezoneByGeolocation;
+      return pref_name == prefs::kResolveTimezoneByGeolocationMethod;
     case enterprise_management::SystemTimezoneProto::IP_ONLY:
     case enterprise_management::SystemTimezoneProto::SEND_WIFI_ACCESS_POINTS:
     case enterprise_management::SystemTimezoneProto::SEND_ALL_LOCATION_INFO:
@@ -335,6 +344,11 @@ void SetTimezoneFromUI(Profile* profile, const std::string& timezone_id) {
   }
   // Time zone UI should be blocked for non-primary users.
   NOTREACHED();
+}
+
+bool FineGrainedTimeZoneDetectionEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableFineGrainedTimeZoneDetection);
 }
 
 }  // namespace system

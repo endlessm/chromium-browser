@@ -18,6 +18,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/banners/app_banner_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/extension_util.h"
@@ -51,8 +52,8 @@
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/dom_distiller/core/dom_distiller_switches.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/core/browser/profile_management_switches.h"
 #include "components/signin/core/browser/signin_manager.h"
-#include "components/signin/core/common/profile_management_switches.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/zoom/zoom_controller.h"
 #include "components/zoom/zoom_event_manager.h"
@@ -188,7 +189,7 @@ void ToolsMenuModel::Build(Browser* browser) {
   if (extensions::util::IsNewBookmarkAppsEnabled() &&
       // If kExperimentalAppBanners is enabled, this is moved to the top level
       // menu.
-      !base::FeatureList::IsEnabled(features::kExperimentalAppBanners)) {
+      !banners::AppBannerManager::IsExperimentalAppBannersEnabled()) {
     AddItemWithStringId(IDC_CREATE_HOSTED_APP, IDS_ADD_TO_OS_LAUNCH_SURFACE);
   }
 
@@ -216,12 +217,19 @@ AppMenuModel::AppMenuModel(ui::AcceleratorProvider* provider, Browser* browser)
     : ui::SimpleMenuModel(this),
       uma_action_recorded_(false),
       provider_(provider),
-      browser_(browser) {
+      browser_(browser) {}
+
+AppMenuModel::~AppMenuModel() {
+  if (browser_)  // Null in Cocoa tests.
+    browser_->tab_strip_model()->RemoveObserver(this);
+}
+
+void AppMenuModel::Init() {
   Build();
   UpdateZoomControls();
 
   browser_zoom_subscription_ =
-      zoom::ZoomEventManager::GetForBrowserContext(browser->profile())
+      zoom::ZoomEventManager::GetForBrowserContext(browser_->profile())
           ->AddZoomLevelChangedCallback(base::Bind(
               &AppMenuModel::OnZoomLevelChanged, base::Unretained(this)));
 
@@ -229,11 +237,6 @@ AppMenuModel::AppMenuModel(ui::AcceleratorProvider* provider, Browser* browser)
 
   registrar_.Add(this, content::NOTIFICATION_NAV_ENTRY_COMMITTED,
                  content::NotificationService::AllSources());
-}
-
-AppMenuModel::~AppMenuModel() {
-  if (browser_)  // Null in tests.
-    browser_->tab_strip_model()->RemoveObserver(this);
 }
 
 bool AppMenuModel::DoesCommandIdDismissMenu(int command_id) const {
@@ -661,21 +664,6 @@ void AppMenuModel::Observe(int type,
   UpdateZoomControls();
 }
 
-// For testing.
-AppMenuModel::AppMenuModel()
-    : ui::SimpleMenuModel(this),
-      uma_action_recorded_(false),
-      provider_(nullptr),
-      browser_(nullptr) {}
-
-bool AppMenuModel::ShouldShowNewIncognitoWindowMenuItem() {
-  if (browser_->profile()->IsGuestSession())
-    return false;
-
-  return IncognitoModePrefs::GetAvailability(browser_->profile()->GetPrefs()) !=
-      IncognitoModePrefs::DISABLED;
-}
-
 // Note: When adding new menu items please place under an appropriate section.
 // Menu is organised as follows:
 // - Extension toolbar overflow.
@@ -727,7 +715,7 @@ void AppMenuModel::Build() {
 
   AddItemWithStringId(IDC_FIND, IDS_FIND);
   if (extensions::util::IsNewBookmarkAppsEnabled() &&
-      base::FeatureList::IsEnabled(features::kExperimentalAppBanners)) {
+      banners::AppBannerManager::IsExperimentalAppBannersEnabled()) {
     AddItemWithStringId(IDC_CREATE_HOSTED_APP, IDS_ADD_TO_OS_LAUNCH_SURFACE);
   }
 
@@ -764,32 +752,6 @@ void AppMenuModel::Build() {
     AddItemWithStringId(IDC_EXIT, IDS_EXIT);
   }
   uma_action_recorded_ = false;
-}
-
-bool AppMenuModel::AddGlobalErrorMenuItems() {
-  // TODO(sail): Currently we only build the app menu once per browser
-  // window. This means that if a new error is added after the menu is built
-  // it won't show in the existing app menu. To fix this we need to some
-  // how update the menu if new errors are added.
-  const GlobalErrorService::GlobalErrorList& errors =
-      GlobalErrorServiceFactory::GetForProfile(browser_->profile())->errors();
-  bool menu_items_added = false;
-  for (GlobalErrorService::GlobalErrorList::const_iterator
-       it = errors.begin(); it != errors.end(); ++it) {
-    GlobalError* error = *it;
-    DCHECK(error);
-    if (error->HasMenuItem()) {
-      AddItem(error->MenuItemCommandID(), error->MenuItemLabel());
-      SetIcon(GetIndexOfCommandId(error->MenuItemCommandID()),
-              error->MenuItemIcon());
-      menu_items_added = true;
-      if (IDC_SHOW_SIGNIN_ERROR == error->MenuItemCommandID()) {
-        base::RecordAction(
-            base::UserMetricsAction("Signin_Impression_FromMenu"));
-      }
-    }
-  }
-  return menu_items_added;
 }
 
 void AppMenuModel::CreateActionToolbarOverflowMenu() {
@@ -856,6 +818,40 @@ void AppMenuModel::UpdateZoomControls() {
                        ->GetZoomPercent();
   }
   zoom_label_ = base::FormatPercent(zoom_percent);
+}
+
+bool AppMenuModel::ShouldShowNewIncognitoWindowMenuItem() {
+  if (browser_->profile()->IsGuestSession())
+    return false;
+
+  return IncognitoModePrefs::GetAvailability(browser_->profile()->GetPrefs()) !=
+         IncognitoModePrefs::DISABLED;
+}
+
+bool AppMenuModel::AddGlobalErrorMenuItems() {
+  // TODO(sail): Currently we only build the app menu once per browser
+  // window. This means that if a new error is added after the menu is built
+  // it won't show in the existing app menu. To fix this we need to some
+  // how update the menu if new errors are added.
+  const GlobalErrorService::GlobalErrorList& errors =
+      GlobalErrorServiceFactory::GetForProfile(browser_->profile())->errors();
+  bool menu_items_added = false;
+  for (GlobalErrorService::GlobalErrorList::const_iterator it = errors.begin();
+       it != errors.end(); ++it) {
+    GlobalError* error = *it;
+    DCHECK(error);
+    if (error->HasMenuItem()) {
+      AddItem(error->MenuItemCommandID(), error->MenuItemLabel());
+      SetIcon(GetIndexOfCommandId(error->MenuItemCommandID()),
+              error->MenuItemIcon());
+      menu_items_added = true;
+      if (IDC_SHOW_SIGNIN_ERROR == error->MenuItemCommandID()) {
+        base::RecordAction(
+            base::UserMetricsAction("Signin_Impression_FromMenu"));
+      }
+    }
+  }
+  return menu_items_added;
 }
 
 void AppMenuModel::OnZoomLevelChanged(

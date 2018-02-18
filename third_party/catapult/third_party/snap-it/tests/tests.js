@@ -78,23 +78,23 @@ QUnit.test('iframeIndex: multiple layers', function(assert) {
   assert.equal(serializer.iframeIndex(grandChildFrame2.contentWindow), 1);
 });
 
-QUnit.test('iframeFullyQualifiedName: single layer', function(assert) {
+QUnit.test('iframeQualifiedName: single layer', function(assert) {
   var serializer = new HTMLSerializer();
   var fixture = document.getElementById('qunit-fixture');
   var childFrame1 = document.createElement('iframe');
   var childFrame2 = document.createElement('iframe');
   fixture.appendChild(childFrame1);
   fixture.appendChild(childFrame2);
-  assert.equal(serializer.iframeFullyQualifiedName(window), '0');
+  assert.equal(serializer.iframeQualifiedName(window), '0');
   assert.equal(
-      serializer.iframeFullyQualifiedName(childFrame1.contentWindow),
+      serializer.iframeQualifiedName(childFrame1.contentWindow),
       '0.0');
   assert.equal(
-      serializer.iframeFullyQualifiedName(childFrame2.contentWindow),
+      serializer.iframeQualifiedName(childFrame2.contentWindow),
       '0.1');
 });
 
-QUnit.test('iframeFullyQualifiedName: multiple layers', function(assert) {
+QUnit.test('iframeQualifiedName: multiple layers', function(assert) {
   var serializer = new HTMLSerializer();
   var fixture = document.getElementById('qunit-fixture');
   var childFrame = document.createElement('iframe');
@@ -105,11 +105,114 @@ QUnit.test('iframeFullyQualifiedName: multiple layers', function(assert) {
   childFrameBody.appendChild(grandChildFrame1);
   childFrameBody.appendChild(grandChildFrame2);
   assert.equal(
-      serializer.iframeFullyQualifiedName(grandChildFrame1.contentWindow),
+      serializer.iframeQualifiedName(grandChildFrame1.contentWindow),
       '0.0.0');
   assert.equal(
-      serializer.iframeFullyQualifiedName(grandChildFrame2.contentWindow),
+      serializer.iframeQualifiedName(grandChildFrame2.contentWindow),
       '0.0.1');
+});
+
+QUnit.test('processTree: background-image with no local rewrite', function(assert) {
+  var fixture = document.getElementById('qunit-fixture');
+  var node = document.createElement('div');
+  node.id = 'targetId';
+  node.style.backgroundImage = "url('https://www.images.com/foo.png')";
+  node.appendChild(document.createTextNode('test'));
+  fixture.appendChild(node);
+  var serializer = new HTMLSerializer();
+  serializer.processTree(node);
+  assert.deepEqual(serializer.externalImages, [['targetId',
+      'https://www.images.com/foo.png']]);
+  assert.equal(serializer.idToStyleMap['targetId']['background-image'],
+      'url("https://www.images.com/foo.png")');
+});
+
+QUnit.test('processTree: background-image with local rewrite', function(assert) {
+  var fixture = document.getElementById('qunit-fixture');
+  var node = document.createElement('div');
+  node.id = 'targetId';
+  node.style.backgroundImage = "url('https://www.images.com/foo.png')";
+  node.appendChild(document.createTextNode('test'));
+  fixture.appendChild(node);
+  var serializer = new HTMLSerializer();
+  serializer.setLocalImagePath('local/');
+  serializer.processTree(node);
+  assert.deepEqual(serializer.externalImages, [['targetId',
+      'https://www.images.com/foo.png']]);
+  assert.equal(serializer.idToStyleMap['targetId']['background-image'],
+      'url("local/targetId.png")');
+});
+
+QUnit.test('processTree: background-image with data url and local rewrite', function(assert) {
+  var fixture = document.getElementById('qunit-fixture');
+  var node = document.createElement('div');
+  node.id = 'targetId';
+  node.style.backgroundImage = "url('data:image/gif;base64,R0lGODlhAQABAIAAAA" +
+      "UEBAAAACwAAAAAAQABAAACAkQBADs=')";
+  node.appendChild(document.createTextNode('test'));
+  fixture.appendChild(node);
+  var serializer = new HTMLSerializer();
+  serializer.setLocalImagePath('local/');
+  serializer.processTree(node);
+  assert.equal(0, serializer.externalImages.length);
+  assert.equal(serializer.idToStyleMap['targetId']['background-image'],
+      'url("data:image/gif;base64,R0lGODlhAQABAIAAAA' +
+      'UEBAAAACwAAAAAAQABAAACAkQBADs=")');
+});
+
+QUnit.test('processTree: background-image with multiple images and local rewrite',
+  function(assert) {
+  var fixture = document.getElementById('qunit-fixture');
+  var node = document.createElement('div');
+  node.id = 'targetId';
+  node.style.backgroundImage = 'url("https://www.images.com/foo.png"),' +
+      'url("https://www.images.com/bar.png")';
+  node.appendChild(document.createTextNode('test'));
+  fixture.appendChild(node);
+  var serializer = new HTMLSerializer();
+  serializer.setLocalImagePath('local/');
+  serializer.processTree(node);
+  // TODO(wkorman): Currently this produces not-useful output (two
+  // entries with the same rewritten file name) as we don't support
+  // having multiple external images associated with a single element
+  // id. Look at tacking an optional incrementing per-element image
+  // number onto the name (which will need to be passed along in
+  // externalImages as well somehow).
+  assert.deepEqual(serializer.externalImages, [['targetId',
+      'https://www.images.com/foo.png'],
+      ['targetId', 'https://www.images.com/bar.png']]);
+  assert.equal(serializer.idToStyleMap['targetId']['background-image'],
+      'url("local/targetId.png"),url("local/targetId.png")');
+});
+
+QUnit.test('processTree: background-image with complex multiple images and local rewrite',
+  function(assert) {
+  var fixture = document.getElementById('qunit-fixture');
+  var node = document.createElement('div');
+  node.id = 'targetId';
+  node.style.backgroundImage = 'url("https://www.images.com/foo.png"),' +
+      'url("data:image/gif;base64,R0lGODlhAQABAIAAAA"),' +
+      'url("https://www.images.com/bar.png"),' +
+      'linear-gradient(to right top,red,rgb(240, 109, 6)),' +
+      'url("https://www.images.com/baz.png")';
+  node.appendChild(document.createTextNode('test'));
+  fixture.appendChild(node);
+  var serializer = new HTMLSerializer();
+  serializer.setLocalImagePath('local/');
+  serializer.processTree(node);
+  // TODO(wkorman): The actual external images produce duplicate
+  // filenames for same reason as above unit test. However, we should
+  // successfully pass through the other urls.
+  assert.deepEqual(serializer.externalImages, [
+      ['targetId', 'https://www.images.com/foo.png'],
+      ['targetId', 'https://www.images.com/bar.png'],
+      ['targetId', 'https://www.images.com/baz.png']]);
+  assert.equal(serializer.idToStyleMap['targetId']['background-image'],
+               'url("local/targetId.png"),' +
+               'url("data:image/gif;base64,R0lGODlhAQABAIAAAA"),' +
+               'url("local/targetId.png"),' +
+               'linear-gradient(to right top,red,rgb(240,109,6)),' +
+               'url("local/targetId.png")');
 });
 
 QUnit.test('processSimpleAttribute: top window', function(assert) {
@@ -170,11 +273,19 @@ QUnit.test('processHoleAttribute: nested window', function(assert) {
   assert.equal(serializer.html[5], '&amp;quot; ');
 });
 
-QUnit.test('fullyQualifiedURL', function(assert) {
+QUnit.test('qualifiedUrlForElement', function(assert) {
   var serializer = new HTMLSerializer();
   var iframe = document.createElement('iframe');
   iframe.setAttribute('src', 'page.html');
-  var url = serializer.fullyQualifiedURL(iframe);
+  var url = serializer.qualifiedUrlForElement(iframe);
+  var href = window.location.href;
+  var path = href.slice(0, href.lastIndexOf('/'));
+  assert.equal(path + '/page.html', url.href);
+});
+
+QUnit.test('qualifiedUrl', function(assert) {
+  var serializer = new HTMLSerializer();
+  var url = serializer.qualifiedUrl('page.html');
   var href = window.location.href;
   var path = href.slice(0, href.lastIndexOf('/'));
   assert.equal(path + '/page.html', url.href);
@@ -228,7 +339,20 @@ QUnit.test('processSrcAttribute: img (external)', function(assert) {
   var img = document.createElement('img');
   img.setAttribute('src', 'https://www.images.com/foo.png');
   serializer.processSrcAttribute(img, 'targetId');
-  assert.deepEqual(serializer.externalImages, [['targetId', 'https://www.images.com/foo.png']]);
+  assert.deepEqual(serializer.externalImages, [['targetId',
+      'https://www.images.com/foo.png']]);
+});
+
+QUnit.test('processSrcAttribute: img (external) with local rewrite',
+    function(assert) {
+  var serializer = new HTMLSerializer();
+  serializer.setLocalImagePath('local/');
+  var img = document.createElement('img');
+  img.setAttribute('src', 'https://www.images.com/foo.png');
+  serializer.processSrcAttribute(img, 'targetId');
+  assert.deepEqual(serializer.externalImages, [['targetId',
+      'https://www.images.com/foo.png']]);
+  assert.equal(serializer.html[0], 'src="local/targetId.png" ');
 });
 
 QUnit.test('processTree: single node', function(assert) {
@@ -331,6 +455,34 @@ QUnit.test(
     assert.notOk(styleText.includes(' width: 5px;'));
   }
 );
+
+QUnit.test('processAttributes: img with data url', function(assert) {
+  var serializer = new HTMLSerializer();
+  var fixture = document.getElementById('qunit-fixture');
+  var img = document.createElement('img');
+  img.setAttribute('height', 1);
+  img.setAttribute('width', 1);
+  var dataUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAA' +
+      'UEBAAAACwAAAAAAQABAAACAkQBADs=';
+  img.setAttribute('src', dataUrl);
+  fixture.appendChild(img);
+  serializer.processAttributes(img, 'id');
+  assert.ok(serializer.html[4].includes(dataUrl));
+});
+
+QUnit.test('isImageDataUrl', function(assert) {
+  var serializer = new HTMLSerializer();
+  assert.ok(serializer.isImageDataUrl('data:image/png'));
+  assert.ok(serializer.isImageDataUrl('data:image/png;base64,'));
+  assert.ok(serializer.isImageDataUrl('data:image/png;base64,F00='));
+  assert.ok(serializer.isImageDataUrl('data:image/jpg'));
+  assert.ok(serializer.isImageDataUrl('data:image/j'));
+  assert.notOk(serializer.isImageDataUrl('data:image'));
+  assert.notOk(serializer.isImageDataUrl('data:image/'));
+  assert.notOk(serializer.isImageDataUrl(''));
+  assert.notOk(serializer.isImageDataUrl('data:'));
+  assert.notOk(serializer.isImageDataUrl('foo'));
+});
 
 QUnit.test('processText: simple text node', function(assert) {
   var serializer = new HTMLSerializer();
@@ -460,28 +612,28 @@ QUnit.test('escapedUnicodeString: css', function(assert) {
       'i \\2665 sf');
 });
 
-QUnit.test('fullyQualifiedFontURL', function(assert) {
+QUnit.test('qualifiedFontUrl', function(assert) {
   var serializer = new HTMLSerializer();
   var href = 'http://www.example.com/path/page/';
   var url1 = '/hello/world/';
   assert.equal(
-      serializer.fullyQualifiedFontURL(href, url1),
+      serializer.qualifiedFontUrl(href, url1),
       'http://www.example.com/hello/world/');
   var url2 = './hello/world/';
   assert.equal(
-      serializer.fullyQualifiedFontURL(href, url2),
+      serializer.qualifiedFontUrl(href, url2),
       'http://www.example.com/path/./hello/world/');
   var url3 = '../hello/world/';
   assert.equal(
-      serializer.fullyQualifiedFontURL(href, url3),
+      serializer.qualifiedFontUrl(href, url3),
       'http://www.example.com/path/../hello/world/');
   var url4 = 'http://www.google.com/';
   assert.equal(
-      serializer.fullyQualifiedFontURL(href, url4),
+      serializer.qualifiedFontUrl(href, url4),
       'http://www.google.com/');
   var url5 = 'hello/world/';
   assert.equal(
-      serializer.fullyQualifiedFontURL(href, url5),
+      serializer.qualifiedFontUrl(href, url5),
       'http://www.example.com/path/hello/world/');
 });
 
@@ -603,7 +755,7 @@ QUnit.test('serialize tree: end-to-end, no style', function(assert) {
     },
     'windowHeight': serializer.windowHeight,
     'windowWidth': serializer.windowWidth,
-    'frameIndex': serializer.iframeFullyQualifiedName(win)
+    'frameIndex': serializer.iframeQualifiedName(win)
   };
   var html = unescapeHTML(outputHTMLString([message]), 1);
   assert.equal(html, '<div id="snap-it0" >hello world</div>');
@@ -648,7 +800,7 @@ QUnit.test('serialize tree: end-to-end, style', function(assert) {
     },
     'windowHeight': serializer.windowHeight,
     'windowWidth': serializer.windowWidth,
-    'frameIndex': serializer.iframeFullyQualifiedName(win)
+    'frameIndex': serializer.iframeQualifiedName(win)
   };
   var html = unescapeHTML(outputHTMLString([message]), 1);
   assert.equal(
@@ -901,4 +1053,54 @@ QUnit.test('minimizeStyles: pseudo elements', function(assert) {
   assert.equal(
       message.html[3],
       '<style>#divId::before{ content: hello; }</style>');
+});
+
+QUnit.test('getExternalImageUrl: no local image path', function(assert) {
+  var serializer = new HTMLSerializer();
+  var urlWithSuffix = 'http://foo.com/img.png';
+  assert.equal(serializer.getExternalImageUrl('id', urlWithSuffix),
+      urlWithSuffix);
+  assert.equal(serializer.getExternalImageUrl('id', ''), '');
+  var urlNoSuffix = 'http://foo.com/img';
+  assert.equal(serializer.getExternalImageUrl('id', urlNoSuffix), urlNoSuffix);
+});
+
+QUnit.test('getExternalImageUrl: local image path', function(assert) {
+  var serializer = new HTMLSerializer();
+  serializer.setLocalImagePath('local/');
+  var urlWithSuffix = 'http://foo.com/img.png';
+  assert.equal(serializer.getExternalImageUrl('id', urlWithSuffix),
+      'local/id.png');
+  var urlNoSuffix = 'http://foo.com/img';
+  assert.equal(serializer.getExternalImageUrl('id', urlNoSuffix), 'local/id');
+});
+
+QUnit.test('getExternalImageUrl: fileSuffix', function(assert) {
+  var serializer = new HTMLSerializer();
+  assert.equal(serializer.fileSuffix(''), '');
+  assert.equal(serializer.fileSuffix('/'), '');
+  assert.equal(serializer.fileSuffix('foo'), '');
+  assert.equal(serializer.fileSuffix('.'), '');
+  assert.equal(serializer.fileSuffix('.png'), 'png');
+  assert.equal(serializer.fileSuffix('foo.png'), 'png');
+  assert.equal(serializer.fileSuffix('foo..png'), 'png');
+  assert.equal(serializer.fileSuffix('/foo.png'), 'png');
+  assert.equal(serializer.fileSuffix('a/foo.png'), 'png');
+  assert.equal(serializer.fileSuffix('http://foo.com/foo'), '');
+  assert.equal(serializer.fileSuffix('http://foo.com/foo.png'), 'png');
+  assert.equal(serializer.fileSuffix('http://foo.com/foo..png'), 'png');
+  assert.equal(serializer.fileSuffix('http://foo.com/foo.png?'), 'png');
+  assert.equal(serializer.fileSuffix('http://foo.com/foo.png?v=w'), 'png');
+});
+
+QUnit.test('wrapUrl', function(assert) {
+  var serializer = new HTMLSerializer();
+  assert.equal(serializer.wrapUrl(''), 'url("")');
+  assert.equal(serializer.wrapUrl('http://www.foo.com'),
+      'url("http://www.foo.com")');
+  var dataUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAA' +
+      'UEBAAAACwAAAAAAQABAAACAkQBADs=';
+  assert.equal(serializer.wrapUrl(dataUrl),
+      'url("data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAk' +
+      'QBADs=")');
 });

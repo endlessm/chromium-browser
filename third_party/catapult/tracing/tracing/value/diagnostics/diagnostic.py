@@ -4,10 +4,18 @@
 
 import uuid
 
+from py_utils import slots_metaclass
+
 from tracing.value.diagnostics import all_diagnostics
 
 
 class Diagnostic(object):
+  __slots__ = '_guid',
+
+  # Ensure that new subclasses remember to specify __slots__ in order to prevent
+  # regressing memory consumption:
+  __metaclass__ = slots_metaclass.SlotsMetaclass
+
   def __init__(self):
     self._guid = None
 
@@ -64,11 +72,9 @@ class Diagnostic(object):
     """
     self._guid = None
 
-  def CanAddDiagnostic(self, unused_other_diagnostic, unused_name,
-                       unused_parent_hist, unused_other_parent_hist):
+  def CanAddDiagnostic(self, unused_other_diagnostic):
     return False
 
-  def AddDiagnostic(self, unused_other_diagnostic, unused_name,
-                    unused_parent_hist, unused_other_parent_hist):
+  def AddDiagnostic(self, unused_other_diagnostic):
     raise Exception('Abstract virtual method: subclasses must override '
                     'this method if they override canAddDiagnostic')

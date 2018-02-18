@@ -18,7 +18,6 @@
 #include <libaddressinput/null_storage.h>
 #include <libaddressinput/preload_supplier.h>
 #include <libaddressinput/region_data.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <memory>
 #include <string>
@@ -37,6 +36,10 @@ using i18n::addressinput::RegionDataBuilder;
 using i18n::addressinput::TestdataSource;
 
 class RegionDataBuilderTest : public testing::Test {
+ public:
+  RegionDataBuilderTest(const RegionDataBuilderTest&) = delete;
+  RegionDataBuilderTest& operator=(const RegionDataBuilderTest&) = delete;
+
  protected:
   RegionDataBuilderTest()
       : supplier_(new TestdataSource(true),
@@ -57,8 +60,6 @@ class RegionDataBuilderTest : public testing::Test {
     ASSERT_LT(0, num_rules);
     ASSERT_TRUE(supplier_.IsLoaded(region_code));
   }
-
-  DISALLOW_COPY_AND_ASSIGN(RegionDataBuilderTest);
 };
 
 TEST_F(RegionDataBuilderTest, BuildUsRegionTree) {
@@ -104,9 +105,7 @@ TEST_F(RegionDataBuilderTest,
   const RegionData& tree = builder_.Build("KR", "ko-Latn", &best_language_);
   EXPECT_EQ("ko-Latn", best_language_);
   ASSERT_FALSE(tree.sub_regions().empty());
-  EXPECT_EQ(
-      "\xEA\xB0\x95\xEC\x9B\x90\xEB\x8F\x84",  /* "강원도" */
-      tree.sub_regions().front()->key());
+  EXPECT_EQ(u8"강원도", tree.sub_regions().front()->key());
   EXPECT_EQ("Gangwon", tree.sub_regions().front()->name());
 }
 
@@ -115,12 +114,8 @@ TEST_F(RegionDataBuilderTest, KrWithKoKrLanguageHasKoreanKeysAndNames) {
   const RegionData& tree = builder_.Build("KR", "ko-KR", &best_language_);
   EXPECT_EQ("ko", best_language_);
   ASSERT_FALSE(tree.sub_regions().empty());
-  EXPECT_EQ(
-      "\xEA\xB0\x95\xEC\x9B\x90\xEB\x8F\x84",  /* "강원도" */
-      tree.sub_regions().front()->key());
-  EXPECT_EQ(
-      "\xEA\xB0\x95\xEC\x9B\x90",  /* "강원" */
-      tree.sub_regions().front()->name());
+  EXPECT_EQ(u8"강원도", tree.sub_regions().front()->key());
+  EXPECT_EQ(u8"강원", tree.sub_regions().front()->name());
 }
 
 }  // namespace

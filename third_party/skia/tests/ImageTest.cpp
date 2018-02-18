@@ -436,10 +436,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_makeTextureImage, reporter, contextIn
         // Create a texture image.
         [context] { return create_gpu_image(context); },
         // Create a texture image in a another GrContext.
-        [testContext, otherContextInfo] {
-            otherContextInfo.testContext()->makeCurrent();
+        [otherContextInfo] {
+            auto restore = otherContextInfo.testContext()->makeCurrentAndAutoRestore();
             sk_sp<SkImage> otherContextImage = create_gpu_image(otherContextInfo.grContext());
-            testContext->makeCurrent();
+            otherContextInfo.grContext()->flush();
             return otherContextImage;
         }
     };
@@ -487,7 +487,6 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_makeTextureImage, reporter, contextIn
             }
         }
 
-        testContext->makeCurrent();
         context->flush();
     }
 }
@@ -776,6 +775,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(SkImage_NewFromTextureRelease, reporter, c
                                                                kWidth,
                                                                kHeight,
                                                                kRGBA_8888_GrPixelConfig,
+                                                               GrMipMapped::kNo,
                                                                backendTexHandle);
 
     TextureReleaseChecker releaseChecker;
@@ -809,13 +809,10 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(SkImage_NewFromTextureRelease, reporter, c
     ctxInfo.grContext()->getGpu()->deleteTestingOnlyBackendTexture(backendTexHandle);
 }
 
-DEF_GPUTEST(SkImage_MakeCrossContextRelease, reporter, /*factory*/) {
-    GrContextFactory testFactory;
-
-    sk_sp<SkData> data = GetResourceAsData("mandrill_128.png");
-    SkASSERT(data.get());
-
+static void test_cross_context_image(skiatest::Reporter* reporter, const GrContextOptions& options,
+                                     std::function<sk_sp<SkImage>(GrContext*)> imageMaker) {
     for (int i = 0; i < GrContextFactory::kContextTypeCnt; ++i) {
+        GrContextFactory testFactory(options);
         GrContextFactory::ContextType ctxType = static_cast<GrContextFactory::ContextType>(i);
         ContextInfo ctxInfo = testFactory.getContextInfo(ctxType);
         GrContext* ctx = ctxInfo.grContext();
@@ -840,7 +837,7 @@ DEF_GPUTEST(SkImage_MakeCrossContextRelease, reporter, /*factory*/) {
 
         // Case #1: Create image, free image
         {
-            sk_sp<SkImage> refImg(SkImage::MakeCrossContextFromEncoded(ctx, data, false, nullptr));
+            sk_sp<SkImage> refImg(imageMaker(ctx));
             refImg.reset(nullptr); // force a release of the image
         }
 
@@ -850,7 +847,7 @@ DEF_GPUTEST(SkImage_MakeCrossContextRelease, reporter, /*factory*/) {
 
         // Case #2: Create image, draw, flush, free image
         {
-            sk_sp<SkImage> refImg(SkImage::MakeCrossContextFromEncoded(ctx, data, false, nullptr));
+            sk_sp<SkImage> refImg(imageMaker(ctx));
 
             canvas->drawImage(refImg, 0, 0);
             canvas->flush();
@@ -860,7 +857,7 @@ DEF_GPUTEST(SkImage_MakeCrossContextRelease, reporter, /*factory*/) {
 
         // Case #3: Create image, draw, free image, flush
         {
-            sk_sp<SkImage> refImg(SkImage::MakeCrossContextFromEncoded(ctx, data, false, nullptr));
+            sk_sp<SkImage> refImg(imageMaker(ctx));
 
             canvas->drawImage(refImg, 0, 0);
             refImg.reset(nullptr); // force a release of the image
@@ -886,7 +883,7 @@ DEF_GPUTEST(SkImage_MakeCrossContextRelease, reporter, /*factory*/) {
         // Case #4: Create image, draw*, flush*, free image
         {
             testContext->makeCurrent();
-            sk_sp<SkImage> refImg(SkImage::MakeCrossContextFromEncoded(ctx, data, false, nullptr));
+            sk_sp<SkImage> refImg(imageMaker(ctx));
 
             otherTestContext->makeCurrent();
             canvas->drawImage(refImg, 0, 0);
@@ -899,7 +896,7 @@ DEF_GPUTEST(SkImage_MakeCrossContextRelease, reporter, /*factory*/) {
         // Case #5: Create image, draw*, free image, flush*
         {
             testContext->makeCurrent();
-            sk_sp<SkImage> refImg(SkImage::MakeCrossContextFromEncoded(ctx, data, false, nullptr));
+            sk_sp<SkImage> refImg(imageMaker(ctx));
 
             otherTestContext->makeCurrent();
             canvas->drawImage(refImg, 0, 0);
@@ -922,7 +919,7 @@ DEF_GPUTEST(SkImage_MakeCrossContextRelease, reporter, /*factory*/) {
         // Case #6: Verify that only one context can be using the image at a time
         {
             testContext->makeCurrent();
-            sk_sp<SkImage> refImg(SkImage::MakeCrossContextFromEncoded(ctx, data, false, nullptr));
+            sk_sp<SkImage> refImg(imageMaker(ctx));
 
             // Any context should be able to borrow the texture at this point
             sk_sp<SkColorSpace> texColorSpace;
@@ -957,6 +954,25 @@ DEF_GPUTEST(SkImage_MakeCrossContextRelease, reporter, /*factory*/) {
             refImg.reset(nullptr);
         }
     }
+}
+
+DEF_GPUTEST(SkImage_MakeCrossContextFromEncodedRelease, reporter, options) {
+    sk_sp<SkData> data = GetResourceAsData("mandrill_128.png");
+    SkASSERT(data.get());
+
+    test_cross_context_image(reporter, options, [&data](GrContext* ctx) {
+        return SkImage::MakeCrossContextFromEncoded(ctx, data, false, nullptr);
+    });
+}
+
+DEF_GPUTEST(SkImage_MakeCrossContextFromPixmapRelease, reporter, options) {
+    SkBitmap bitmap;
+    SkPixmap pixmap;
+    SkAssertResult(GetResourceAsBitmap("mandrill_128.png", &bitmap) && bitmap.peekPixels(&pixmap));
+
+    test_cross_context_image(reporter, options, [&pixmap](GrContext* ctx) {
+        return SkImage::MakeCrossContextFromPixmap(ctx, pixmap, false, nullptr);
+    });
 }
 
 static void check_images_same(skiatest::Reporter* reporter, const SkImage* a, const SkImage* b) {
@@ -1128,6 +1144,93 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DeferredTextureImage, reporter, ctxInfo) {
         }
 
         testContext->makeCurrent();
+        context->flush();
+    }
+}
+
+static uint32_t GetIdForBackendObject(GrContext* ctx, GrBackendObject object) {
+    if (!object) {
+        return 0;
+    }
+
+    if (ctx->contextPriv().getBackend() != kOpenGL_GrBackend) {
+        return 0;
+    }
+
+    return reinterpret_cast<const GrGLTextureInfo*>(object)->fID;
+}
+
+static uint32_t GetIdForBackendTexture(GrBackendTexture texture) {
+    if (!texture.isValid()) {
+        return 0;
+    }
+
+    if (texture.backend() != kOpenGL_GrBackend) {
+        return 0;
+    }
+
+    return texture.getGLTextureInfo()->fID;
+}
+
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(makeBackendTexture, reporter, ctxInfo) {
+    GrContext* context = ctxInfo.grContext();
+    sk_gpu_test::TestContext* testContext = ctxInfo.testContext();
+    sk_sp<GrContextThreadSafeProxy> proxy = context->threadSafeProxy();
+
+    GrContextFactory otherFactory;
+    ContextInfo otherContextInfo = otherFactory.getContextInfo(ctxInfo.type());
+
+    testContext->makeCurrent();
+    REPORTER_ASSERT(reporter, proxy);
+    auto createLarge = [context] {
+        return create_image_large(context->caps()->maxTextureSize());
+    };
+    struct {
+        std::function<sk_sp<SkImage> ()>                      fImageFactory;
+        bool                                                  fExpectation;
+        bool                                                  fCanTakeDirectly;
+    } testCases[] = {
+        { create_image, true, false },
+        { create_codec_image, true, false },
+        { create_data_image, true, false },
+        { create_picture_image, true, false },
+        { [context] { return create_gpu_image(context); }, true, true },
+        // Create a texture image in a another GrContext.
+        { [otherContextInfo] {
+            auto restore = otherContextInfo.testContext()->makeCurrentAndAutoRestore();
+            sk_sp<SkImage> otherContextImage = create_gpu_image(otherContextInfo.grContext());
+            otherContextInfo.grContext()->flush();
+            return otherContextImage;
+          }, false, false },
+        // Create an image that is too large to be texture backed.
+        { createLarge, false, false }
+    };
+
+    for (auto testCase : testCases) {
+        sk_sp<SkImage> image(testCase.fImageFactory());
+        if (!image) {
+            ERRORF(reporter, "Failed to create image!");
+            continue;
+        }
+
+        uint32_t originalID = GetIdForBackendObject(context, image->getTextureHandle(true, nullptr));
+        GrBackendTexture texture;
+        SkImage::BackendTextureReleaseProc proc;
+        bool result =
+                SkImage::MakeBackendTextureFromSkImage(context, std::move(image), &texture, &proc);
+        if (result != testCase.fExpectation) {
+            static const char *const kFS[] = { "fail", "succeed" };
+            ERRORF(reporter, "This image was expected to %s but did not.",
+            kFS[testCase.fExpectation]);
+        }
+
+        bool tookDirectly = result && originalID == GetIdForBackendTexture(texture);
+        if (testCase.fCanTakeDirectly != tookDirectly) {
+            static const char *const kExpectedState[] = { "not expected", "expected" };
+            ERRORF(reporter, "This backend texture was %s to be taken directly.",
+            kExpectedState[testCase.fCanTakeDirectly]);
+        }
+
         context->flush();
     }
 }

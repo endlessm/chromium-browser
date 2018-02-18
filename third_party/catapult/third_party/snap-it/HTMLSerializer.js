@@ -187,6 +187,13 @@ var HTMLSerializer = class {
      * @private {string} The assigned id of the html element.
      */
     this.rootId;
+
+    /**
+     * @private {?string} An optional string representing the path
+     *     under which any external images fetched and stored locally
+     *     will reside.
+     */
+    this.localImagePath = null;
   }
 
   /**
@@ -203,7 +210,7 @@ var HTMLSerializer = class {
       this.html.push('<!DOCTYPE html>\n');
     }
 
-    if (this.iframeFullyQualifiedName(doc.defaultView) == '0') {
+    if (this.iframeQualifiedName(doc.defaultView) == '0') {
       this.html.push(
           `<!-- Original window height: ${this.windowHeight}. -->\n`);
       this.html.push(`<!-- Original window width: ${this.windowWidth}. -->\n`);
@@ -259,6 +266,7 @@ var HTMLSerializer = class {
       }
       this.processAttributes(node, id);
       this.processPseudoElements(node, id);
+      this.processBackgroundImageStyle(node, id);
       this.html.push('>');
 
       if (tagName == 'HEAD') {
@@ -339,6 +347,58 @@ var HTMLSerializer = class {
   }
 
   /**
+   * Processes the 'background-image' style for the given element,
+   * noting any external images in |this.externalImages| and
+   * potentially mutating their url to allow for local storage as
+   * appropriate.
+   *
+   * @param {Element} element The Element to serialize.
+   * @param {string} id The id of the Element being serialized.
+   * @private
+   */
+  processBackgroundImageStyle(element, id) {
+    var imageStyle = this.idToStyleMap[id]['background-image'];
+    if (!imageStyle || imageStyle == 'none')
+      return;
+
+    // TODO(wkorman): Create helper method to reduce win code redundancy.
+    var imageUrls = imageStyle.split(',');
+    var outImageUrls = [];
+    var urlRegex = /\s*url\("([^)]*)"\)/;
+    // TODO(wkorman): Finish support for multiple images in a single
+    // element's background-image style. See also the unit test for
+    // background-image with multiple images.
+    for (var i = 0; i < imageUrls.length; i++) {
+      var rawImageUrl = imageUrls[i].trim();
+      var matches = rawImageUrl.match(urlRegex);
+      // If it doesn't look like a url, leave it alone.
+      if (!matches) {
+        outImageUrls.push(rawImageUrl);
+        continue;
+      }
+
+      var parsedUrl = matches[1];
+      var url = this.qualifiedUrl(parsedUrl);
+
+      if (this.isImageDataUrl(url.href)) {
+        // Just pass the url through as it will render directly.
+        outImageUrls.push(wrapUrl(url.href));
+      } else {
+        // TODO(wkorman): For same-origin images, consider creating a
+        // "hole" and processing it somehow. For now we just punt and
+        // treat same-origin images as external images, which is
+        // inefficient, but should generally work.
+        this.externalImages.push([id, url.href]);
+        var wrappedUrl = this.wrapUrl(this.getExternalImageUrl(id, url.href));
+        outImageUrls.push(wrappedUrl);
+      }
+    }
+
+    var processedImageStyle = outImageUrls.join(',');
+    this.idToStyleMap[id]['background-image'] = processedImageStyle;
+  }
+
+  /**
    * Takes an html element, and populates this object's fields with the
    * appropriate attribute names and values.
    *
@@ -383,10 +443,59 @@ var HTMLSerializer = class {
       //              will always have attributes.
       if (element.tagName == 'IFRAME' && element.attributes.src) {
         var valueIndex = this.processHoleAttribute(win, 'srcdoc');
-        var iframeName = this.iframeFullyQualifiedName(element.contentWindow);
+        var iframeName = this.iframeQualifiedName(element.contentWindow);
         this.frameHoles[valueIndex] = iframeName;
       }
     }
+  }
+
+  /**
+   * @return {boolean} whether the given url is a data url with an image media
+   *     type.
+   * @private
+   */
+  isImageDataUrl(url) {
+    // We could parse the mime type and scrutinize components to
+    // ensure validity, but we live with simple string checks for now.
+    return url.startsWith('data:image/') &&
+        url.indexOf('/') < (url.length - 1);
+  }
+
+  /**
+   * @return {string} the url for the external image with the given
+   *     element id
+   * @param {string} id The element id
+   * @param {string} url The image element source url
+   * @private
+   */
+  getExternalImageUrl(id, url) {
+    // Pass through external image urls unmodified if we've not
+    // got a local image path set, thus connoting that we won't
+    // be fetching external images for local storage.
+    if (!this.localImagePath)
+      return url;
+    var localUrl = this.localImagePath + id;
+    var suffix = this.fileSuffix(url);
+    if (suffix.length > 0)
+        localUrl += '.' + suffix;
+    return localUrl;
+  }
+
+  /**
+   * @return {string} the suffix string (sans the '.' prefix) for the
+   *     given file name or the empty string if no suffix was identified
+   * @param {string} name The file name
+   * @private
+   */
+  fileSuffix(name) {
+    var slashParts = name.split('/');
+    var baseName = slashParts.pop();
+    var parts = baseName.split('.');
+    if (parts.length == 1)
+        return '';
+    var suffix = parts.pop();
+    var questionIndex = suffix.indexOf('?');
+    return (questionIndex == -1) ? suffix : suffix.slice(0, questionIndex);
   }
 
   /**
@@ -397,9 +506,9 @@ var HTMLSerializer = class {
    * @param {string} id The id of the Element being serialized.
    * @private
    */
-    processSrcAttribute(element, id) {
+  processSrcAttribute(element, id) {
     var win = element.ownerDocument.defaultView;
-    var url = this.fullyQualifiedURL(element);
+    var url = this.qualifiedUrlForElement(element);
     var sameOrigin = window.location.host == url.host;
     switch (element.tagName) {
       case 'IFRAME':
@@ -419,11 +528,19 @@ var HTMLSerializer = class {
         }
         break;
       case 'IMG':
-        if (sameOrigin) {
+        // Our method for calculating same-origin can be incorrect in
+        // the presence of data urls loaded from (for example)
+        // localhost, so check for and handle them explicitly. This
+        // also avoids unnecessarily processing them asynchronously.
+        if (this.isImageDataUrl(url.href)) {
+          // Just pass the url through as it will render directly.
+          this.processSimpleAttribute(win, 'src', url.href);
+        } else if (sameOrigin) {
           this.processSrcHole(element);
         } else {
           this.externalImages.push([id, url.href]);
-          this.processSimpleAttribute(win, 'src', url.href);
+          this.processSimpleAttribute(win, 'src',
+              this.getExternalImageUrl(id, url.href));
         }
         break;
       default:
@@ -432,17 +549,29 @@ var HTMLSerializer = class {
   }
 
   /**
-   * Get a URL object for the value of the |element|'s src attribute.
+   * Get a URL object with a fully qualified url for the value of the
+   * |element|'s src attribute.
    *
    * @param {Element} element The element for which to retrieve the URL.
    * @return {URL} The URL object.
    */
-  fullyQualifiedURL(element) {
-    var url = element.attributes.src.value;
-    var a = document.createElement('a');
-    a.href = url;
-    url = a.href; // Retrieve fully qualified URL.
-    return new URL(url);
+  qualifiedUrlForElement(element) {
+    return this.qualifiedUrl(element.attributes.src.value);
+  }
+
+  /**
+   * Get a URL object with a fully qualified url for the given raw url
+   * string.
+   *
+   * @param {Element} element The element for which to retrieve the URL.
+   * @return {URL} The URL object.
+   */
+  qualifiedUrl(rawUrl) {
+    var anchor = document.createElement('a');
+    anchor.href = rawUrl;
+    // Retrieve fully qualified URL string from the anchor.
+    var anchorUrl = anchor.href;
+    return new URL(anchorUrl);
   }
 
   /**
@@ -455,7 +584,7 @@ var HTMLSerializer = class {
   processSrcHole(element) {
     var win = element.ownerDocument.defaultView;
     var valueIndex = this.processHoleAttribute(win, 'src');
-    this.srcHoles[valueIndex] = this.fullyQualifiedURL(element).href;
+    this.srcHoles[valueIndex] = this.qualifiedUrlForElement(element).href;
   }
 
   /**
@@ -510,6 +639,18 @@ var HTMLSerializer = class {
   }
 
   /**
+   * Simple convenience method to wrap a raw url string with the
+   * required CSS uri syntax.
+   *
+   * @param {string} url The raw url string.
+   * @return {string} the wrapped url string.
+   * @private
+   */
+  wrapUrl(url) {
+    return 'url("' + url + '")';
+  }
+
+  /**
    * Takes a string representing CSS and parses it to find any fonts that are
    * declared.  If any fonts are declared, it processes them so that they
    * can be used in the serialized document and adds them to |this.fontCSS|.
@@ -528,8 +669,8 @@ var HTMLSerializer = class {
         // Convert url specified in font to fully qualified url.
         var font = fonts[i].replace(/url\("(.*?)"\)/g, function(match, url) {
           // If href is null the url must be a fully qualified url.
-          url = href ? serializer.fullyQualifiedFontURL(href, url) : url;
-          return 'url("' + url + '")';
+          url = href ? serializer.qualifiedFontUrl(href, url) : url;
+          return serializer.wrapUrl(url);
         }).
         replace(/"/g, escapedQuote);
         this.fontCSS.push(font);
@@ -540,23 +681,23 @@ var HTMLSerializer = class {
   /**
    * Computes the fully qualified url at which a font can be loaded.
    * TODO(sfine): Make this method sufficiently robust, so that it can replace
-   *              the current implementation of fullyQualifiedURL.
+   *              the current implementation of qualifiedUrl.
    *
    * @param {string} href The url at which the CSS stylesheet containing the
    *     font is located.
    * @param {string} url The url listed in the font declaration.
    */
-  fullyQualifiedFontURL(href, url) {
+  qualifiedFontUrl(href, url) {
     if (href.charAt(href.length-1) == '/') {
       href = href.slice(0, href.length-1);
     }
-    var hrefURL = new URL(href);
+    var hrefUrl = new URL(href);
     if (url.includes('://')) {
       return url;
     } else if (url.startsWith('//')) {
-      return hrefURL.protocol + url;
+      return hrefUrl.protocol + url;
     } else if (url.startsWith('/')) {
-      return hrefURL.origin + url;
+      return hrefUrl.origin + url;
     } else {
       href = href.slice(0, href.lastIndexOf('/'));
       return href + '/' + url;
@@ -582,19 +723,19 @@ var HTMLSerializer = class {
   }
 
   /**
-   * Computes the full path of the frame in the root document. Nested layers
-   * are seperated by '.'.
+   * Computes the fully qualified path of the frame in the root
+   * document. Nested layers are separated by '.'.
    *
    * @param {Window} win The window to use in the calculation.
    * @return {string} The full path.
    */
-  iframeFullyQualifiedName(win) {
+  iframeQualifiedName(win) {
     if (this.iframeIndex(win) < 0) {
       return '0';
     } else {
-      var fullyQualifiedName = this.iframeFullyQualifiedName(win.parent);
+      var qualifiedName = this.iframeQualifiedName(win.parent);
       var index = this.iframeIndex(win);
-      return fullyQualifiedName + '.' + index;
+      return qualifiedName + '.' + index;
     }
   }
 
@@ -670,7 +811,7 @@ var HTMLSerializer = class {
    * @return {number} The nesting depth of the window in the frame trees.
    */
   windowDepth(win) {
-    return this.iframeFullyQualifiedName(win).split('.').length - 1;
+    return this.iframeQualifiedName(win).split('.').length - 1;
   }
 
   /**
@@ -678,7 +819,7 @@ var HTMLSerializer = class {
    */
   asDict() {
     var result = {
-      'frameIndex': htmlSerializer.iframeFullyQualifiedName(window),
+      'frameIndex': htmlSerializer.iframeQualifiedName(window),
       'unusedId': htmlSerializer.generateId(document)
     };
     var copyFields = [
@@ -794,5 +935,17 @@ var HTMLSerializer = class {
         serializer.fillSrcHoles(callback);
       });
     }
+  }
+
+  /**
+   * Sets the path to the directory under which any external images
+   * found in the page will be fetched and stored locally. If
+   * non-null, the urls for any such images will be rewritten to be
+   * relative to this path.
+   *
+   * @param {string=} opt_path The directory path.
+   */
+  setLocalImagePath(opt_path) {
+    this.localImagePath = opt_path;
   }
 }

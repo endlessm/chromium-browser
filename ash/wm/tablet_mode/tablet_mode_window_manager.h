@@ -70,7 +70,8 @@ class ASH_EXPORT TabletModeWindowManager
                                intptr_t old) override;
   void OnWindowBoundsChanged(aura::Window* window,
                              const gfx::Rect& old_bounds,
-                             const gfx::Rect& new_bounds) override;
+                             const gfx::Rect& new_bounds,
+                             ui::PropertyChangeReason reason) override;
   void OnWindowVisibilityChanged(aura::Window* window, bool visible) override;
 
   // display::DisplayObserver:
@@ -112,8 +113,10 @@ class ASH_EXPORT TabletModeWindowManager
   // immediately.
   void MaximizeAndTrackWindow(aura::Window* window);
 
-  // Remove a window from our tracking list.
-  void ForgetWindow(aura::Window* window);
+  // Remove a window from our tracking list. If the window is going to be
+  // destroyed, do not restore its old previous window state object as it will
+  // send unneccessary window state change event.
+  void ForgetWindow(aura::Window* window, bool destroyed);
 
   // Returns true when the given window should be modified in any way by us.
   bool ShouldHandleWindow(aura::Window* window);

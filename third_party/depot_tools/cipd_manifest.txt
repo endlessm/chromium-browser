@@ -2,8 +2,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+$VerifiedPlatform linux-386 linux-amd64 linux-arm64 linux-armv6l linux-mips64
+$VerifiedPlatform linux-ppc64 linux-ppc64le linux-s390x
+$VerifiedPlatform mac-amd64
+$VerifiedPlatform windows-386 windows-amd64
+
 # vpython.
-infra/tools/luci/vpython/${platform}  git_revision:bbb30ff0932ace4c6bed7ca1ba14e8a1ccc819cb
+infra/tools/luci/vpython/${platform}  git_revision:a3d636052088db3daa48413b3e209eed4f5cb4ad
 
 # LUCI editor
-infra/tools/luci/led/${platform}  git_revision:0aa5e4d06ec4d3b90980fcb0d0b7c34a5e65b9e1
+infra/tools/luci/led/${platform}  git_revision:9010ba713ba6fc9982c412161150a5cd70d5b623
+
+# Mac toolchain installer
+infra/tools/mac_toolchain/${os=mac}-${arch} git_revision:2b69be6203f56a970202d9b5984557c0453b4eb0

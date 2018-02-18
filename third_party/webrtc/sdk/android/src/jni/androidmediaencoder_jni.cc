@@ -18,9 +18,6 @@
 #include <string>
 #include <utility>
 
-#include "third_party/libyuv/include/libyuv/convert.h"
-#include "third_party/libyuv/include/libyuv/convert_from.h"
-#include "third_party/libyuv/include/libyuv/video_common.h"
 #include "api/video_codecs/video_encoder.h"
 #include "common_types.h"  // NOLINT(build/include)
 #include "common_video/h264/h264_bitstream_parser.h"
@@ -43,8 +40,11 @@
 #include "sdk/android/src/jni/androidmediacodeccommon.h"
 #include "sdk/android/src/jni/classreferenceholder.h"
 #include "sdk/android/src/jni/jni_helpers.h"
-#include "sdk/android/src/jni/native_handle_impl.h"
+#include "sdk/android/src/jni/videoframe.h"
 #include "system_wrappers/include/field_trial.h"
+#include "third_party/libyuv/include/libyuv/convert.h"
+#include "third_party/libyuv/include/libyuv/convert_from.h"
+#include "third_party/libyuv/include/libyuv/video_common.h"
 
 using rtc::Bind;
 using rtc::Thread;
@@ -67,20 +67,20 @@ namespace jni {
 #define TAG_ENCODER "MediaCodecVideoEncoder"
 #ifdef TRACK_BUFFER_TIMING
 #define ALOGV(...)
-  __android_log_print(ANDROID_LOG_VERBOSE, TAG_ENCODER, __VA_ARGS__)
+__android_log_print(ANDROID_LOG_VERBOSE, TAG_ENCODER, __VA_ARGS__)
 #else
 #define ALOGV(...)
 #endif
-#define ALOGD LOG_TAG(rtc::LS_INFO, TAG_ENCODER)
-#define ALOGW LOG_TAG(rtc::LS_WARNING, TAG_ENCODER)
-#define ALOGE LOG_TAG(rtc::LS_ERROR, TAG_ENCODER)
+#define ALOGD RTC_LOG_TAG(rtc::LS_INFO, TAG_ENCODER)
+#define ALOGW RTC_LOG_TAG(rtc::LS_WARNING, TAG_ENCODER)
+#define ALOGE RTC_LOG_TAG(rtc::LS_ERROR, TAG_ENCODER)
 
-namespace {
-// Maximum time limit between incoming frames before requesting a key frame.
-const size_t kFrameDiffThresholdMs = 350;
-const int kMinKeyFrameInterval = 6;
-const char kH264HighProfileFieldTrial[] = "WebRTC-H264HighProfile";
-const char kCustomQPThresholdsFieldTrial[] = "WebRTC-CustomQPThresholds";
+    namespace {
+  // Maximum time limit between incoming frames before requesting a key frame.
+  const size_t kFrameDiffThresholdMs = 350;
+  const int kMinKeyFrameInterval = 6;
+  const char kH264HighProfileFieldTrial[] = "WebRTC-H264HighProfile";
+  const char kCustomQPThresholdsFieldTrial[] = "WebRTC-CustomQPThresholds";
 }  // namespace
 
 // MediaCodecVideoEncoder is a VideoEncoder implementation that uses
@@ -230,7 +230,6 @@ class MediaCodecVideoEncoder : public VideoEncoder {
   jfieldID j_info_is_key_frame_field_;
   jfieldID j_info_presentation_timestamp_us_field_;
 
-  const JavaVideoFrameFactory video_frame_factory_;
   ScopedGlobalRef<jclass> j_video_frame_texture_buffer_class_;
 
   // State that is valid only between InitEncode() and the next Release().
@@ -342,7 +341,6 @@ MediaCodecVideoEncoder::MediaCodecVideoEncoder(JNIEnv* jni,
                                      *j_media_codec_video_encoder_class_,
                                      "<init>",
                                      "()V"))),
-      video_frame_factory_(jni),
       j_video_frame_texture_buffer_class_(
           jni,
           FindClass(jni, "org/webrtc/VideoFrame$TextureBuffer")),
@@ -518,11 +516,21 @@ bool MediaCodecVideoEncoder::EncodeTask::Run() {
   return false;
 }
 
+bool IsFormatSupported(
+    const std::vector<webrtc::SdpVideoFormat>& supported_formats,
+    const std::string& name) {
+  for (const webrtc::SdpVideoFormat& supported_format : supported_formats) {
+    if (cricket::CodecNamesEq(name, supported_format.name))
+      return true;
+  }
+  return false;
+}
+
 bool MediaCodecVideoEncoder::ProcessHWError(
     bool reset_if_fallback_unavailable) {
   ALOGE << "ProcessHWError";
-  if (FindMatchingCodec(cricket::InternalEncoderFactory().supported_codecs(),
-                        codec_)) {
+  if (IsFormatSupported(InternalEncoderFactory().GetSupportedFormats(),
+                        codec_.name)) {
     ALOGE << "Fallback to SW encoder.";
     sw_fallback_required_ = true;
     return false;
@@ -638,7 +646,7 @@ int32_t MediaCodecVideoEncoder::InitEncodeInternal(int width,
         encoder_fourcc_ = libyuv::FOURCC_NV12;
         break;
       default:
-        LOG(LS_ERROR) << "Wrong color format.";
+        RTC_LOG(LS_ERROR) << "Wrong color format.";
         ProcessHWError(false /* reset_if_fallback_unavailable */);
         return WEBRTC_VIDEO_CODEC_ERROR;
     }
@@ -801,9 +809,9 @@ int32_t MediaCodecVideoEncoder::Encode(
         encode_status = EncodeTexture(jni, key_frame, input_frame);
         break;
       case AndroidVideoFrameBuffer::AndroidType::kJavaBuffer:
-        encode_status = EncodeJavaFrame(
-            jni, key_frame, video_frame_factory_.ToJavaFrame(jni, input_frame),
-            j_input_buffer_index);
+        encode_status =
+            EncodeJavaFrame(jni, key_frame, NativeToJavaFrame(jni, input_frame),
+                            j_input_buffer_index);
         break;
       default:
         RTC_NOTREACHED();

@@ -54,7 +54,7 @@ class TEST_RUNNER_EXPORT WebFrameTestProxyBase {
 template <class Base, typename P>
 class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
  public:
-  explicit WebFrameTestProxy(P p) : Base(p) {}
+  explicit WebFrameTestProxy(P p) : Base(std::move(p)) {}
 
   virtual ~WebFrameTestProxy() {}
 
@@ -239,14 +239,6 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
       return policy;
 
     return Base::DecidePolicyForNavigation(info);
-  }
-
-  blink::WebUserMediaClient* UserMediaClient() override {
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kUseFakeUIForMediaStream)) {
-      return Base::UserMediaClient();
-    }
-    return test_client()->UserMediaClient();
   }
 
   void PostAccessibilityEvent(const blink::WebAXObject& object,

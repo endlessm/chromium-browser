@@ -259,7 +259,7 @@ public:
     size_type find(value_type c, size_type pos = 0) const noexcept;
 
     size_type rfind(const basic_string& str, size_type pos = npos) const noexcept;
-    size_type ffind(basic_string_view<charT, traits> sv, size_type pos = 0) const noexcept;
+    size_type rfind(basic_string_view<charT, traits> sv, size_type pos = npos) const noexcept;
     size_type rfind(const value_type* s, size_type pos, size_type n) const noexcept;
     size_type rfind(const value_type* s, size_type pos = npos) const noexcept;
     size_type rfind(value_type c, size_type pos = npos) const noexcept;
@@ -271,7 +271,7 @@ public:
     size_type find_first_of(value_type c, size_type pos = 0) const noexcept;
 
     size_type find_last_of(const basic_string& str, size_type pos = npos) const noexcept;
-    size_type find_last_of(basic_string_view<charT, traits> sv, size_type pos = 0) const noexcept;
+    size_type find_last_of(basic_string_view<charT, traits> sv, size_type pos = npos) const noexcept;
     size_type find_last_of(const value_type* s, size_type pos, size_type n) const noexcept;
     size_type find_last_of(const value_type* s, size_type pos = npos) const noexcept;
     size_type find_last_of(value_type c, size_type pos = npos) const noexcept;
@@ -283,7 +283,7 @@ public:
     size_type find_first_not_of(value_type c, size_type pos = 0) const noexcept;
 
     size_type find_last_not_of(const basic_string& str, size_type pos = npos) const noexcept;
-    size_type find_last_not_of(basic_string_view<charT, traits> sv, size_type pos = 0) const noexcept;
+    size_type find_last_not_of(basic_string_view<charT, traits> sv, size_type pos = npos) const noexcept;
     size_type find_last_not_of(const value_type* s, size_type pos, size_type n) const noexcept;
     size_type find_last_not_of(const value_type* s, size_type pos = npos) const noexcept;
     size_type find_last_not_of(value_type c, size_type pos = npos) const noexcept;
@@ -484,13 +484,15 @@ basic_string<char32_t> operator "" s( const char32_t *str, size_t len ); // C++1
 #include <cstdint>
 #endif
 
-#include <__undef_min_max>
-
 #include <__debug>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -554,6 +556,8 @@ template<class _CharT, class _Traits, class _Allocator>
 basic_string<_CharT, _Traits, _Allocator>
 operator+(const basic_string<_CharT, _Traits, _Allocator>& __x, _CharT __y);
 
+_LIBCPP_EXTERN_TEMPLATE(_LIBCPP_FUNC_VIS string operator+<char, char_traits<char>, allocator<char> >(char const*, string const&))
+
 template <bool>
 class _LIBCPP_TEMPLATE_VIS __basic_string_common
 {
@@ -576,14 +580,7 @@ __basic_string_common<__b>::__throw_out_of_range() const
     _VSTD::__throw_out_of_range("basic_string");
 }
 
-#ifdef _LIBCPP_MSVC
-#pragma warning( push )
-#pragma warning( disable: 4231 )
-#endif // _LIBCPP_MSVC
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __basic_string_common<true>)
-#ifdef _LIBCPP_MSVC
-#pragma warning( pop )
-#endif // _LIBCPP_MSVC
 
 #ifdef _LIBCPP_NO_EXCEPTIONS
 template <class _Iter>
@@ -673,12 +670,12 @@ private:
         size_type __cap_;
     };
 
-#if _LIBCPP_BIG_ENDIAN
-    enum {__short_mask = 0x01};
-    enum {__long_mask  = 0x1ul};
+#ifdef _LIBCPP_BIG_ENDIAN
+    static const size_type __short_mask = 0x01;
+    static const size_type __long_mask  = 0x1ul;
 #else  // _LIBCPP_BIG_ENDIAN
-    enum {__short_mask = 0x80};
-    enum {__long_mask  = ~(size_type(~0) >> 1)};
+    static const size_type __short_mask = 0x80;
+    static const size_type __long_mask  = ~(size_type(~0) >> 1);
 #endif  // _LIBCPP_BIG_ENDIAN
 
     enum {__min_cap = (sizeof(__long) - 1)/sizeof(value_type) > 2 ?
@@ -703,12 +700,12 @@ private:
         pointer   __data_;
     };
 
-#if _LIBCPP_BIG_ENDIAN
-    enum {__short_mask = 0x80};
-    enum {__long_mask  = ~(size_type(~0) >> 1)};
+#ifdef _LIBCPP_BIG_ENDIAN
+    static const size_type __short_mask = 0x80;
+    static const size_type __long_mask  = ~(size_type(~0) >> 1);
 #else  // _LIBCPP_BIG_ENDIAN
-    enum {__short_mask = 0x01};
-    enum {__long_mask  = 0x1ul};
+    static const size_type __short_mask = 0x01;
+    static const size_type __long_mask  = 0x1ul;
 #endif  // _LIBCPP_BIG_ENDIAN
 
     enum {__min_cap = (sizeof(__long) - 1)/sizeof(value_type) > 2 ?
@@ -899,7 +896,7 @@ public:
     void resize(size_type __n, value_type __c);
     _LIBCPP_INLINE_VISIBILITY void resize(size_type __n) {resize(__n, value_type());}
 
-    void reserve(size_type res_arg = 0);
+    void reserve(size_type __res_arg = 0);
     _LIBCPP_INLINE_VISIBILITY
     void shrink_to_fit() _NOEXCEPT {reserve();}
     _LIBCPP_INLINE_VISIBILITY
@@ -985,9 +982,9 @@ public:
     basic_string& assign(const basic_string& __str) { return *this = __str; }
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
-    basic_string& assign(basic_string&& str)
+    basic_string& assign(basic_string&& __str)
         _NOEXCEPT_((__noexcept_move_assign_container<_Allocator, __alloc_traits>::value))
-        {*this = _VSTD::move(str); return *this;}
+        {*this = _VSTD::move(__str); return *this;}
 #endif
     basic_string& assign(const basic_string& __str, size_type __pos, size_type __n=npos);
     template <class _Tp>
@@ -997,7 +994,7 @@ public:
             __can_be_converted_to_string_view<_CharT, _Traits, _Tp>::value,
             basic_string&
         >::type
-                  assign(const _Tp & __t, size_type pos, size_type n=npos);
+                  assign(const _Tp & __t, size_type __pos, size_type __n=npos);
     basic_string& assign(const value_type* __s, size_type __n);
     basic_string& assign(const value_type* __s);
     basic_string& assign(size_type __n, value_type __c);
@@ -1150,7 +1147,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     size_type rfind(const basic_string& __str, size_type __pos = npos) const _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
-    size_type rfind(__self_view __sv, size_type __pos = 0) const _NOEXCEPT;
+    size_type rfind(__self_view __sv, size_type __pos = npos) const _NOEXCEPT;
     size_type rfind(const value_type* __s, size_type __pos, size_type __n) const _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
     size_type rfind(const value_type* __s, size_type __pos = npos) const _NOEXCEPT;
@@ -1169,7 +1166,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     size_type find_last_of(const basic_string& __str, size_type __pos = npos) const _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
-    size_type find_last_of(__self_view __sv, size_type __pos = 0) const _NOEXCEPT;
+    size_type find_last_of(__self_view __sv, size_type __pos = npos) const _NOEXCEPT;
     size_type find_last_of(const value_type* __s, size_type __pos, size_type __n) const _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
     size_type find_last_of(const value_type* __s, size_type __pos = npos) const _NOEXCEPT;
@@ -1189,7 +1186,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     size_type find_last_not_of(const basic_string& __str, size_type __pos = npos) const _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
-    size_type find_last_not_of(__self_view __sv, size_type __pos = 0) const _NOEXCEPT;
+    size_type find_last_not_of(__self_view __sv, size_type __pos = npos) const _NOEXCEPT;
     size_type find_last_not_of(const value_type* __s, size_type __pos, size_type __n) const _NOEXCEPT;
     _LIBCPP_INLINE_VISIBILITY
     size_type find_last_not_of(const value_type* __s, size_type __pos = npos) const _NOEXCEPT;
@@ -1244,7 +1241,7 @@ private:
 
     _LIBCPP_INLINE_VISIBILITY
     void __set_short_size(size_type __s) _NOEXCEPT
-#   if _LIBCPP_BIG_ENDIAN
+#   ifdef _LIBCPP_BIG_ENDIAN
         {__r_.first().__s.__size_ = (unsigned char)(__s << 1);}
 #   else
         {__r_.first().__s.__size_ = (unsigned char)(__s);}
@@ -1252,7 +1249,7 @@ private:
 
     _LIBCPP_INLINE_VISIBILITY
     size_type __get_short_size() const _NOEXCEPT
-#   if _LIBCPP_BIG_ENDIAN
+#   ifdef _LIBCPP_BIG_ENDIAN
         {return __r_.first().__s.__size_ >> 1;}
 #   else
         {return __r_.first().__s.__size_;}
@@ -1262,7 +1259,7 @@ private:
 
     _LIBCPP_INLINE_VISIBILITY
     void __set_short_size(size_type __s) _NOEXCEPT
-#   if _LIBCPP_BIG_ENDIAN
+#   ifdef _LIBCPP_BIG_ENDIAN
         {__r_.first().__s.__size_ = (unsigned char)(__s);}
 #   else
         {__r_.first().__s.__size_ = (unsigned char)(__s << 1);}
@@ -1270,7 +1267,7 @@ private:
 
     _LIBCPP_INLINE_VISIBILITY
     size_type __get_short_size() const _NOEXCEPT
-#   if _LIBCPP_BIG_ENDIAN
+#   ifdef _LIBCPP_BIG_ENDIAN
         {return __r_.first().__s.__size_;}
 #   else
         {return __r_.first().__s.__size_ >> 1;}
@@ -2873,7 +2870,7 @@ typename basic_string<_CharT, _Traits, _Allocator>::size_type
 basic_string<_CharT, _Traits, _Allocator>::max_size() const _NOEXCEPT
 {
     size_type __m = __alloc_traits::max_size(__alloc());
-#if _LIBCPP_BIG_ENDIAN
+#ifdef _LIBCPP_BIG_ENDIAN
     return (__m <= ~__long_mask ? __m : __m/2) - __alignment;
 #else
     return __m - __alignment;
@@ -4002,6 +3999,9 @@ basic_string<_CharT, _Traits, _Allocator>::__subscriptable(const const_iterator*
 
 #endif  // _LIBCPP_DEBUG_LEVEL >= 2
 
+_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_string<char>)
+_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_string<wchar_t>)
+
 #if _LIBCPP_STD_VER > 11 
 // Literal suffixes for basic_string [basic.string.literals]
 inline namespace literals
@@ -4035,10 +4035,8 @@ inline namespace literals
 }
 #endif
 
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_string<char>)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_string<wchar_t>)
-_LIBCPP_EXTERN_TEMPLATE(string operator+<char, char_traits<char>, allocator<char> >(char const*, string const&))
-
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif  // _LIBCPP_STRING

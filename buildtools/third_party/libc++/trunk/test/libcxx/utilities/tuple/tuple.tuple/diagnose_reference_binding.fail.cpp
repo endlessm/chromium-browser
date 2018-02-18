@@ -22,7 +22,7 @@
 int main() {
     std::allocator<void> alloc;
 
-    // expected-error@tuple:* 4 {{static_assert failed "Attempted to construct a reference element in a tuple with an rvalue"}}
+    // expected-error-re@tuple:* 4 {{static_assert failed{{.*}} "Attempted to construct a reference element in a tuple with an rvalue"}}
 
     // bind lvalue to rvalue
     std::tuple<int const&> t(42); // expected-note {{requested here}}
@@ -34,7 +34,7 @@ int main() {
     // FIXME: The below warnings may get emitted as an error, a warning, or not emitted at all
     // depending on the flags used to compile this test.
   {
-    // expected-warning@tuple:* 0+ {{binding reference member 'value' to a temporary value}}
-    // expected-error@tuple:* 0+ {{binding reference member 'value' to a temporary value}}
+    // expected-warning@tuple:* 0+ {{binding reference member '__value_' to a temporary value}}
+    // expected-error@tuple:* 0+ {{binding reference member '__value_' to a temporary value}}
   }
 }

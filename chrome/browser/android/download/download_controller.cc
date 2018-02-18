@@ -21,6 +21,7 @@
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/download/download_stats.h"
 #include "chrome/browser/infobars/infobar_service.h"
+#include "chrome/browser/offline_pages/android/offline_page_bridge.h"
 #include "chrome/browser/permissions/permission_update_infobar_delegate_android.h"
 #include "chrome/browser/ui/android/view_android_helper.h"
 #include "chrome/browser/vr/vr_tab_helper.h"
@@ -107,6 +108,9 @@ void CreateContextMenuDownload(
   if (!is_link && extra_headers.empty())
     dl_params->set_prefer_cache(true);
   dl_params->set_prompt(false);
+  dl_params->set_request_origin(
+      offline_pages::android::OfflinePageBridge::GetEncodedOriginApp(
+          web_contents));
   RecordDownloadSource(DOWNLOAD_INITIATED_BY_CONTEXT_MENU);
   dlm->DownloadUrl(std::move(dl_params));
 }
@@ -196,7 +200,7 @@ void OnStoragePermissionDecided(
 
 }  // namespace
 
-static void OnAcquirePermissionResult(
+static void JNI_DownloadController_OnAcquirePermissionResult(
     JNIEnv* env,
     const JavaParamRef<jclass>& clazz,
     jlong callback_id,
@@ -289,8 +293,6 @@ void DownloadController::AcquireFileAccessPermission(
 void DownloadController::CreateAndroidDownload(
     const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
     const DownloadInfo& info) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       base::Bind(&DownloadController::StartAndroidDownload,

@@ -248,9 +248,7 @@ class _BlinkPerfMeasurement(legacy_page_test.LegacyPageTest):
         # reference builds.
         # --disable-gesture-requirement-for-media-playback is the old one and
         # can be removed after M60 goes to stable.
-        '--enable-experimental-canvas-features',
-        # TODO(qinmin): After fixing crbug.com/592017, remove this command line.
-        '--reduce-security-for-testing'
+        '--enable-experimental-canvas-features'
     ])
 
   def SetOptions(self, options):
@@ -276,7 +274,17 @@ class _BlinkPerfMeasurement(legacy_page_test.LegacyPageTest):
     tab.browser.platform.tracing_controller.StartTracing(config)
     tab.EvaluateJavaScript('testRunner.scheduleTestRun()')
     tab.WaitForJavaScriptCondition('testRunner.isDone')
-    return tab.browser.platform.tracing_controller.StopTracing()
+
+    trace_data = tab.browser.platform.tracing_controller.StopTracing()
+
+    # TODO(charliea): This is part of a three-sided Chromium/Telemetry patch
+    # where we're changing the return type of StopTracing from a TraceValue to a
+    # (TraceValue, nonfatal_exception_list) tuple. Once the tuple return value
+    # lands in Chromium, the non-tuple logic should be deleted.
+    if isinstance(trace_data, tuple):
+      trace_data = trace_data[0]
+
+    return trace_data
 
 
   def PrintAndCollectTraceEventMetrics(self, trace_cpu_time_metrics, results):
@@ -425,6 +433,16 @@ class BlinkPerfCanvas(_BlinkPerfBenchmark):
         # pylint: disable=line-too-long
         self.DisableStory('draw-static-canvas-2d-to-hw-accelerated-canvas-2d.html',
             [story.expectations.ANDROID_NEXUS6], 'crbug.com/765799')
+        self.DisableStory(
+            'draw-static-canvas-2d-to-hw-accelerated-canvas-2d.html',
+            [story.expectations.ANDROID_NEXUS5,
+             story.expectations.ANDROID_NEXUS5X],
+            'crbug.com/784540')
+        self.DisableStory(
+            'draw-dynamic-canvas-2d-to-hw-accelerated-canvas-2d.html',
+            [story.expectations.ANDROID_NEXUS5,
+             story.expectations.ANDROID_NEXUS5X],
+            'crbug.com/784540')
     return StoryExpectations()
 
 @benchmark.Owner(emails=['jbroman@chromium.org',

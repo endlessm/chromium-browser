@@ -22,10 +22,12 @@
 #include "chrome/common/features.h"
 #include "chrome/test/base/testing_browser_process_platform_part.h"
 #include "components/network_time/network_time_tracker.h"
+#include "components/optimization_guide/optimization_guide_service.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/prefs/pref_service.h"
 #include "components/subresource_filter/content/browser/content_ruleset_service.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/common/network_connection_tracker.h"
 #include "extensions/features/features.h"
 #include "media/media_features.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -54,6 +56,25 @@
 #include "components/keep_alive_registry/keep_alive_registry.h"
 #endif
 
+namespace {
+
+class MockNetworkConnectionTracker : public content::NetworkConnectionTracker {
+ public:
+  MockNetworkConnectionTracker() : content::NetworkConnectionTracker() {}
+  ~MockNetworkConnectionTracker() override {}
+
+  bool GetConnectionType(network::mojom::ConnectionType* type,
+                         ConnectionTypeCallback callback) override {
+    *type = network::mojom::ConnectionType::CONNECTION_UNKNOWN;
+    return true;
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(MockNetworkConnectionTracker);
+};
+
+}  // namespace
+
 // static
 TestingBrowserProcess* TestingBrowserProcess::GetGlobal() {
   return static_cast<TestingBrowserProcess*>(g_browser_process);
@@ -81,7 +102,6 @@ TestingBrowserProcess::TestingBrowserProcess()
       io_thread_(nullptr),
       system_request_context_(nullptr),
       rappor_service_(nullptr),
-      ukm_recorder_(nullptr),
       platform_part_(new TestingBrowserProcessPlatformPart()) {
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   extensions_browser_client_.reset(
@@ -134,10 +154,6 @@ rappor::RapporServiceImpl* TestingBrowserProcess::rappor_service() {
   return rappor_service_;
 }
 
-ukm::UkmRecorder* TestingBrowserProcess::ukm_recorder() {
-  return ukm_recorder_;
-}
-
 IOThread* TestingBrowserProcess::io_thread() {
   return io_thread_;
 }
@@ -145,6 +161,15 @@ IOThread* TestingBrowserProcess::io_thread() {
 SystemNetworkContextManager*
 TestingBrowserProcess::system_network_context_manager() {
   return nullptr;
+}
+
+content::NetworkConnectionTracker*
+TestingBrowserProcess::network_connection_tracker() {
+  if (!network_connection_tracker_) {
+    network_connection_tracker_ =
+        std::make_unique<MockNetworkConnectionTracker>();
+  }
+  return network_connection_tracker_.get();
 }
 
 WatchDogThread* TestingBrowserProcess::watchdog_thread() {
@@ -246,6 +271,11 @@ TestingBrowserProcess::safe_browsing_detection_service() {
 subresource_filter::ContentRulesetService*
 TestingBrowserProcess::subresource_filter_ruleset_service() {
   return subresource_filter_ruleset_service_.get();
+}
+
+optimization_guide::OptimizationGuideService*
+TestingBrowserProcess::optimization_guide_service() {
+  return optimization_guide_service_.get();
 }
 
 net::URLRequestContextGetter* TestingBrowserProcess::system_request_context() {
@@ -361,10 +391,6 @@ TestingBrowserProcess::component_updater() {
   return nullptr;
 }
 
-CRLSetFetcher* TestingBrowserProcess::crl_set_fetcher() {
-  return nullptr;
-}
-
 component_updater::SupervisedUserWhitelistInstaller*
 TestingBrowserProcess::supervised_user_whitelist_installer() {
   return nullptr;
@@ -433,6 +459,11 @@ void TestingBrowserProcess::SetSystemRequestContext(
   system_request_context_ = context_getter;
 }
 
+void TestingBrowserProcess::SetNetworkConnectionTracker(
+    std::unique_ptr<content::NetworkConnectionTracker> tracker) {
+  network_connection_tracker_ = std::move(tracker);
+}
+
 void TestingBrowserProcess::SetNotificationUIManager(
     std::unique_ptr<NotificationUIManager> notification_ui_manager) {
   notification_ui_manager_.swap(notification_ui_manager);
@@ -483,13 +514,15 @@ void TestingBrowserProcess::SetRulesetService(
   subresource_filter_ruleset_service_.swap(content_ruleset_service);
 }
 
+void TestingBrowserProcess::SetOptimizationGuideService(
+    std::unique_ptr<optimization_guide::OptimizationGuideService>
+        optimization_guide_service) {
+  optimization_guide_service_.swap(optimization_guide_service);
+}
+
 void TestingBrowserProcess::SetRapporServiceImpl(
     rappor::RapporServiceImpl* rappor_service) {
   rappor_service_ = rappor_service;
-}
-
-void TestingBrowserProcess::SetUkmRecorder(ukm::UkmRecorder* ukm_recorder) {
-  ukm_recorder_ = ukm_recorder;
 }
 
 void TestingBrowserProcess::SetShuttingDown(bool is_shutting_down) {

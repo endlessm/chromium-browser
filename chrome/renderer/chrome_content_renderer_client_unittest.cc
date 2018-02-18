@@ -93,9 +93,8 @@ void AddContentTypeHandler(content::WebPluginInfo* info,
                            const char* manifest_url) {
   content::WebPluginMimeType mime_type_info;
   mime_type_info.mime_type = mime_type;
-  mime_type_info.additional_param_names.push_back(base::UTF8ToUTF16("nacl"));
-  mime_type_info.additional_param_values.push_back(
-      base::UTF8ToUTF16(manifest_url));
+  mime_type_info.additional_params.emplace_back(
+      base::UTF8ToUTF16("nacl"), base::UTF8ToUTF16(manifest_url));
   info->mime_types.push_back(mime_type_info);
 }
 
@@ -375,6 +374,8 @@ TEST_F(ChromeContentRendererClientTest, AllowPepperMediaStreamAPI) {
 #endif
 }
 
+// SearchBouncer doesn't exist on Android.
+#if !defined(OS_ANDROID)
 TEST_F(ChromeContentRendererClientTest, ShouldSuppressErrorPage) {
   ChromeContentRendererClient client;
   SearchBouncer::GetInstance()->SetNewTabPageURL(GURL("http://example.com/n"));
@@ -384,6 +385,15 @@ TEST_F(ChromeContentRendererClientTest, ShouldSuppressErrorPage) {
                                              GURL("http://example.com/n")));
   SearchBouncer::GetInstance()->SetNewTabPageURL(GURL::EmptyGURL());
 }
+
+TEST_F(ChromeContentRendererClientTest, ShouldTrackUseCounter) {
+  ChromeContentRendererClient client;
+  SearchBouncer::GetInstance()->SetNewTabPageURL(GURL("http://example.com/n"));
+  EXPECT_TRUE(client.ShouldTrackUseCounter(GURL("http://example.com")));
+  EXPECT_FALSE(client.ShouldTrackUseCounter(GURL("http://example.com/n")));
+  SearchBouncer::GetInstance()->SetNewTabPageURL(GURL::EmptyGURL());
+}
+#endif
 
 TEST_F(ChromeContentRendererClientTest, AddImageContextMenuPropertiesForLoFi) {
   ChromeContentRendererClient client;

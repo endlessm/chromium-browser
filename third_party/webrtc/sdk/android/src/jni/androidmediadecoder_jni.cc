@@ -17,9 +17,6 @@
 // androidmediacodeccommon.h to avoid build errors.
 #include "sdk/android/src/jni/androidmediadecoder_jni.h"
 
-#include "third_party/libyuv/include/libyuv/convert.h"
-#include "third_party/libyuv/include/libyuv/convert_from.h"
-#include "third_party/libyuv/include/libyuv/video_common.h"
 #include "common_video/h264/h264_bitstream_parser.h"
 #include "common_video/include/i420_buffer_pool.h"
 #include "modules/video_coding/include/video_codec_interface.h"
@@ -32,8 +29,11 @@
 #include "rtc_base/timeutils.h"
 #include "sdk/android/src/jni/androidmediacodeccommon.h"
 #include "sdk/android/src/jni/classreferenceholder.h"
-#include "sdk/android/src/jni/native_handle_impl.h"
 #include "sdk/android/src/jni/surfacetexturehelper_jni.h"
+#include "sdk/android/src/jni/videoframe.h"
+#include "third_party/libyuv/include/libyuv/convert.h"
+#include "third_party/libyuv/include/libyuv/convert_from.h"
+#include "third_party/libyuv/include/libyuv/video_common.h"
 
 using rtc::Bind;
 using rtc::Thread;
@@ -50,9 +50,9 @@ namespace jni {
 #else
 #define ALOGV(...)
 #endif
-#define ALOGD LOG_TAG(rtc::LS_INFO, TAG_DECODER)
-#define ALOGW LOG_TAG(rtc::LS_WARNING, TAG_DECODER)
-#define ALOGE LOG_TAG(rtc::LS_ERROR, TAG_DECODER)
+#define ALOGD RTC_LOG_TAG(rtc::LS_INFO, TAG_DECODER)
+#define ALOGW RTC_LOG_TAG(rtc::LS_WARNING, TAG_DECODER)
+#define ALOGE RTC_LOG_TAG(rtc::LS_ERROR, TAG_DECODER)
 
 enum { kMaxWarningLogFrames = 2 };
 
@@ -651,14 +651,14 @@ int32_t MediaCodecVideoDecoder::DecodeOnCodecThread(
   if (codecType_ == kVideoCodecVP8) {
     int qp_int;
     if (vp8::GetQp(inputImage._buffer, inputImage._length, &qp_int)) {
-      qp = rtc::Optional<uint8_t>(qp_int);
+      qp = qp_int;
     }
   } else if (codecType_ == kVideoCodecH264) {
     h264_bitstream_parser_.ParseBitstream(inputImage._buffer,
                                           inputImage._length);
     int qp_int;
     if (h264_bitstream_parser_.GetLastSliceQp(&qp_int)) {
-      qp = rtc::Optional<uint8_t>(qp_int);
+      qp = qp_int;
     }
   }
   pending_frame_qps_.push_back(qp);
@@ -898,8 +898,7 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
 
     rtc::Optional<uint8_t> qp = pending_frame_qps_.front();
     pending_frame_qps_.pop_front();
-    callback_->Decoded(decoded_frame, rtc::Optional<int32_t>(decode_time_ms),
-                       qp);
+    callback_->Decoded(decoded_frame, decode_time_ms, qp);
   }
   return true;
 }

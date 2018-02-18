@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/arc/voice_interaction/highlighter_controller_client.h"
 
+#include <utility>
+
 #include "ash/public/interfaces/constants.mojom.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/arc/voice_interaction/arc_voice_interaction_framework_service.h"
@@ -34,11 +36,6 @@ void HighlighterControllerClient::Detach() {
   binding_.Close();
 }
 
-void HighlighterControllerClient::SetControllerForTesting(
-    ash::mojom::HighlighterControllerPtr controller) {
-  highlighter_controller_ = std::move(controller);
-}
-
 void HighlighterControllerClient::SimulateSelectionTimeoutForTesting() {
   DCHECK(delay_timer_ && delay_timer_->IsRunning());
   delay_timer_->user_task().Run();
@@ -49,14 +46,17 @@ void HighlighterControllerClient::FlushMojoForTesting() {
   highlighter_controller_.FlushForTesting();
 }
 
-void HighlighterControllerClient::ConnectToHighlighterController() {
-  // Tests may bind to their own HighlighterController.
-  if (highlighter_controller_)
-    return;
+void HighlighterControllerClient::Exit() {
+  highlighter_controller_->ExitHighlighterMode();
+}
 
-  content::ServiceManagerConnection::GetForProcess()
-      ->GetConnector()
-      ->BindInterface(ash::mojom::kServiceName, &highlighter_controller_);
+void HighlighterControllerClient::ConnectToHighlighterController() {
+  // Connector can be overridden for testing.
+  if (!connector_) {
+    connector_ =
+        content::ServiceManagerConnection::GetForProcess()->GetConnector();
+  }
+  connector_->BindInterface(ash::mojom::kServiceName, &highlighter_controller_);
 }
 
 void HighlighterControllerClient::HandleSelection(const gfx::Rect& rect) {

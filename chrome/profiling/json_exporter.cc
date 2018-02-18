@@ -90,17 +90,48 @@ const char* StringForAllocatorType(uint32_t type) {
   }
 }
 
+std::string ProcessNameFromProcessType(mojom::ProcessType process_type) {
+  switch (process_type) {
+    case mojom::ProcessType::BROWSER:
+      return "Browser";
+    case mojom::ProcessType::RENDERER:
+      return "Renderer";
+    case mojom::ProcessType::GPU:
+      return "Gpu";
+    case mojom::ProcessType::OTHER:
+      return "Other";
+  }
+  return "Unknown";
+}
+
+std::string ProcessMainThreadNameFromProcessType(
+    mojom::ProcessType process_type) {
+  switch (process_type) {
+    case mojom::ProcessType::BROWSER:
+      return "CrBrowserMain";
+    case mojom::ProcessType::RENDERER:
+      return "CrRendererMain";
+    case mojom::ProcessType::GPU:
+      return "CrGpuMain";
+    case mojom::ProcessType::OTHER:
+      return "CrOtherMain";
+  }
+  return "CrUnknownMain";
+}
+
 // Writes a dummy process name entry given a PID. When we have more information
 // on a process it can be filled in here. But for now the tracing tools expect
 // this entry since everything is associated with a PID.
-void WriteProcessName(int pid, std::ostream& out) {
+void WriteProcessName(int pid, const ExportParams& params, std::ostream& out) {
   out << "{ \"pid\":" << pid << ", \"ph\":\"M\", \"name\":\"process_name\", "
-      << "\"args\":{\"name\":\"Browser\"}},";
+      << "\"args\":{\"name\":\""
+      << ProcessNameFromProcessType(params.process_type) << "\"}},";
 
   // Catapult needs a thread named "CrBrowserMain" to recognize Chrome browser.
   out << "{ \"pid\":" << pid << ", \"ph\":\"M\", \"name\":\"thread_name\", "
       << "\"tid\": 1,"
-      << "\"args\":{\"name\":\"CrBrowserMain\"}},";
+      << "\"args\":{\"name\":\""
+      << ProcessMainThreadNameFromProcessType(params.process_type) << "\"}},";
 
   // At least, one event must be present on the thread to avoid being pruned.
   out << "{ \"name\": \"MemlogTraceEvent\", \"cat\": \"memlog\", "
@@ -192,12 +223,10 @@ void WriteHeapsV2Footer(std::ostream& out) {
   out << "}";  // heaps_v2
 }
 
-void WriteMemoryMaps(
-    const std::vector<memory_instrumentation::mojom::VmRegionPtr>& maps,
-    std::ostream& out) {
+void WriteMemoryMaps(const ExportParams& params, std::ostream& out) {
   base::trace_event::TracedValue traced_value;
-  memory_instrumentation::TracingObserver::MemoryMapsAsValueInto(maps,
-                                                                 &traced_value);
+  memory_instrumentation::TracingObserver::MemoryMapsAsValueInto(
+      params.maps, &traced_value, params.is_argument_filtering_enabled);
   out << "\"process_mmaps\":" << traced_value.ToString();
 }
 
@@ -410,7 +439,7 @@ void ExportAllocationEventSetToJSON(
     std::unique_ptr<base::DictionaryValue> metadata_dict,
     std::ostream& out) {
   out << "{ \"traceEvents\": [";
-  WriteProcessName(pid, out);
+  WriteProcessName(pid, params, out);
   out << ",\n";
   WriteDumpsHeader(pid, out);
   ExportMemoryMapsAndV2StackTraceToJSON(params, out);
@@ -432,7 +461,7 @@ void ExportMemoryMapsAndV2StackTraceToJSON(const ExportParams& params,
   // Start dictionary.
   out << "{\n";
 
-  WriteMemoryMaps(params.maps, out);
+  WriteMemoryMaps(params, out);
   out << ",\n";
 
   // Write level of detail.

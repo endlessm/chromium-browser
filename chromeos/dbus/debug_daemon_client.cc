@@ -56,44 +56,54 @@ class PipeReaderWrapper : public base::SupportsWeakPtr<PipeReaderWrapper> {
  public:
   explicit PipeReaderWrapper(const DebugDaemonClient::GetLogsCallback& callback)
       : pipe_reader_(base::CreateTaskRunnerWithTraits(
-                         {base::MayBlock(),
-                          base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN}),
-                     base::Bind(&PipeReaderWrapper::OnIOComplete, AsWeakPtr())),
+            {base::MayBlock(),
+             base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})),
         callback_(callback) {}
 
-  base::ScopedFD Initialize() { return pipe_reader_.StartIO(); }
+  base::ScopedFD Initialize() {
+    return pipe_reader_.StartIO(
+        base::BindOnce(&PipeReaderWrapper::OnIOComplete, AsWeakPtr()));
+  }
 
-  void OnIOComplete() {
-    std::string pipe_data;
-    pipe_reader_.GetData(&pipe_data);
-    JSONStringValueDeserializer json_reader(pipe_data);
-
-    std::map<std::string, std::string> data;
-    const base::DictionaryValue* dictionary = nullptr;
-    std::unique_ptr<base::Value> logs_value =
-        json_reader.Deserialize(nullptr, nullptr);
-    if (!logs_value.get() || !logs_value->GetAsDictionary(&dictionary)) {
-      VLOG(1) << "Failed to deserialize the JSON logs.";
-      callback_.Run(false, data);
-      delete this;
+  void OnIOComplete(base::Optional<std::string> result) {
+    if (!result.has_value()) {
+      VLOG(1) << "Failed to read data.";
+      RunCallbackAndDestroy(base::nullopt);
       return;
     }
 
-    base::DictionaryValue::Iterator itr(*dictionary);
-    for (; !itr.IsAtEnd(); itr.Advance()) {
-      std::string value;
-      itr.value().GetAsString(&value);
-      data[itr.key()] = value;
+    JSONStringValueDeserializer json_reader(result.value());
+    std::unique_ptr<base::DictionaryValue> logs =
+        base::DictionaryValue::From(json_reader.Deserialize(nullptr, nullptr));
+    if (!logs.get()) {
+      VLOG(1) << "Failed to deserialize the JSON logs.";
+      RunCallbackAndDestroy(base::nullopt);
+      return;
     }
 
-    callback_.Run(true, data);
+    std::map<std::string, std::string> data;
+    for (const auto& entry : *logs)
+      data[entry.first] = entry.second->GetString();
+    RunCallbackAndDestroy(std::move(data));
+  }
+
+  void TerminateStream() {
+    VLOG(1) << "Terminated";
+    RunCallbackAndDestroy(base::nullopt);
+  }
+
+ private:
+  void RunCallbackAndDestroy(
+      base::Optional<std::map<std::string, std::string>> result) {
+    if (result.has_value()) {
+      callback_.Run(true, result.value());
+    } else {
+      callback_.Run(false, std::map<std::string, std::string>());
+    }
     delete this;
   }
 
-  void TerminateStream() { pipe_reader_.OnDataReady(-1); }
-
- private:
-  PipeReaderForString pipe_reader_;
+  PipeReader pipe_reader_;
   DebugDaemonClient::GetLogsCallback callback_;
 
   DISALLOW_COPY_AND_ASSIGN(PipeReaderWrapper);
@@ -106,12 +116,12 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
  public:
   DebugDaemonClientImpl() : debugdaemon_proxy_(NULL), weak_ptr_factory_(this) {}
 
-  ~DebugDaemonClientImpl() override {}
+  ~DebugDaemonClientImpl() override = default;
 
   // DebugDaemonClient override.
   void DumpDebugLogs(bool is_compressed,
                      int file_descriptor,
-                     const GetDebugLogsCallback& callback) override {
+                     VoidDBusMethodCallback callback) override {
     // Issue the dbus request to get debug logs.
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kDumpDebugLogs);
@@ -120,25 +130,26 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
     writer.AppendFileDescriptor(file_descriptor);
     debugdaemon_proxy_->CallMethod(
         &method_call, kBigLogsDBusTimeoutMS,
-        base::BindOnce(&DebugDaemonClientImpl::OnGetDebugLogs,
-                       weak_ptr_factory_.GetWeakPtr(), callback));
+        base::BindOnce(&DebugDaemonClientImpl::OnVoidMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void SetDebugMode(const std::string& subsystem,
-                    const SetDebugModeCallback& callback) override {
+                    VoidDBusMethodCallback callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kSetDebugMode);
     dbus::MessageWriter writer(&method_call);
     writer.AppendString(subsystem);
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&DebugDaemonClientImpl::OnSetDebugMode,
-                       weak_ptr_factory_.GetWeakPtr(), callback));
+        base::BindOnce(&DebugDaemonClientImpl::OnVoidMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void GetRoutes(bool numeric,
-                 bool ipv6,
-                 const GetRoutesCallback& callback) override {
+  void GetRoutes(
+      bool numeric,
+      bool ipv6,
+      DBusMethodCallback<std::vector<std::string>> callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kGetRoutes);
     dbus::MessageWriter writer(&method_call);
@@ -157,50 +168,49 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
         base::BindOnce(&DebugDaemonClientImpl::OnGetRoutes,
-                       weak_ptr_factory_.GetWeakPtr(), callback));
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void GetNetworkStatus(const GetNetworkStatusCallback& callback) override {
+  void GetNetworkStatus(DBusMethodCallback<std::string> callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kGetNetworkStatus);
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&DebugDaemonClientImpl::OnGetNetworkStatus,
-                       weak_ptr_factory_.GetWeakPtr(), callback));
+        base::BindOnce(&DebugDaemonClientImpl::OnStringMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void GetModemStatus(const GetModemStatusCallback& callback) override {
+  void GetModemStatus(DBusMethodCallback<std::string> callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kGetModemStatus);
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&DebugDaemonClientImpl::OnGetModemStatus,
-                       weak_ptr_factory_.GetWeakPtr(), callback));
+        base::BindOnce(&DebugDaemonClientImpl::OnStringMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void GetWiMaxStatus(const GetWiMaxStatusCallback& callback) override {
+  void GetWiMaxStatus(DBusMethodCallback<std::string> callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kGetWiMaxStatus);
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&DebugDaemonClientImpl::OnGetWiMaxStatus,
-                       weak_ptr_factory_.GetWeakPtr(), callback));
+        base::BindOnce(&DebugDaemonClientImpl::OnStringMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void GetNetworkInterfaces(
-      const GetNetworkInterfacesCallback& callback) override {
+  void GetNetworkInterfaces(DBusMethodCallback<std::string> callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kGetInterfaces);
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&DebugDaemonClientImpl::OnGetNetworkInterfaces,
-                       weak_ptr_factory_.GetWeakPtr(), callback));
+        base::BindOnce(&DebugDaemonClientImpl::OnStringMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void GetPerfOutput(base::TimeDelta duration,
                      const std::vector<std::string>& perf_args,
                      int file_descriptor,
-                     const DBusMethodErrorCallback& error_callback) override {
+                     VoidDBusMethodCallback callback) override {
     DCHECK(file_descriptor);
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kGetPerfOutputFd);
@@ -209,11 +219,10 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
     writer.AppendArrayOfStrings(perf_args);
     writer.AppendFileDescriptor(file_descriptor);
 
-    debugdaemon_proxy_->CallMethodWithErrorCallback(
+    debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        dbus::ObjectProxy::EmptyResponseCallback(),
-        base::BindOnce(&DebugDaemonClientImpl::OnDBusMethodError,
-                       weak_ptr_factory_.GetWeakPtr(), error_callback));
+        base::BindOnce(&DebugDaemonClientImpl::OnVoidMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void GetScrubbedLogs(const GetLogsCallback& callback) override {
@@ -266,13 +275,13 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
   }
 
   void GetLog(const std::string& log_name,
-              const GetLogCallback& callback) override {
+              DBusMethodCallback<std::string> callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface, debugd::kGetLog);
     dbus::MessageWriter(&method_call).AppendString(log_name);
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&DebugDaemonClientImpl::OnGetLog,
-                       weak_ptr_factory_.GetWeakPtr(), log_name, callback));
+        base::BindOnce(&DebugDaemonClientImpl::OnStringMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   // base::trace_event::TracingAgent implementation.
@@ -306,20 +315,18 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
       return;
     }
 
-    pipe_reader_.reset(
-        new PipeReaderForString(stop_agent_tracing_task_runner_,
-                                base::Bind(&DebugDaemonClientImpl::OnIOComplete,
-                                           weak_ptr_factory_.GetWeakPtr())));
+    pipe_reader_ =
+        std::make_unique<PipeReader>(stop_agent_tracing_task_runner_);
+    callback_ = callback;
+    base::ScopedFD pipe_write_end = pipe_reader_->StartIO(base::BindOnce(
+        &DebugDaemonClientImpl::OnIOComplete, weak_ptr_factory_.GetWeakPtr()));
 
-    base::ScopedFD pipe_write_end = pipe_reader_->StartIO();
     DCHECK(pipe_write_end.is_valid());
     // Issue the dbus request to stop system tracing
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kSystraceStop);
     dbus::MessageWriter writer(&method_call);
     writer.AppendFileDescriptor(pipe_write_end.get());
-
-    callback_ = callback;
 
     DVLOG(1) << "Requesting a systrace stop";
     debugdaemon_proxy_->CallMethod(
@@ -452,8 +459,7 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
       const std::string& name,
       const std::string& uri,
       const std::string& ppd_contents,
-      const DebugDaemonClient::CupsAddPrinterCallback& callback,
-      const base::Closure& error_callback) override {
+      DebugDaemonClient::CupsAddPrinterCallback callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kCupsAddManuallyConfiguredPrinter);
     dbus::MessageWriter writer(&method_call);
@@ -466,15 +472,13 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
         base::BindOnce(&DebugDaemonClientImpl::OnPrinterAdded,
-                       weak_ptr_factory_.GetWeakPtr(), callback,
-                       error_callback));
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void CupsAddAutoConfiguredPrinter(
       const std::string& name,
       const std::string& uri,
-      const DebugDaemonClient::CupsAddPrinterCallback& callback,
-      const base::Closure& error_callback) override {
+      DebugDaemonClient::CupsAddPrinterCallback callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kCupsAddAutoConfiguredPrinter);
     dbus::MessageWriter writer(&method_call);
@@ -484,8 +488,7 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
         base::BindOnce(&DebugDaemonClientImpl::OnPrinterAdded,
-                       weak_ptr_factory_.GetWeakPtr(), callback,
-                       error_callback));
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void CupsRemovePrinter(
@@ -512,78 +515,22 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
   }
 
  private:
-  // Called when a response for GetDebugLogs() is received.
-  void OnGetDebugLogs(const GetDebugLogsCallback& callback,
-                      dbus::Response* response) {
+  void OnGetRoutes(DBusMethodCallback<std::vector<std::string>> callback,
+                   dbus::Response* response) {
     if (!response) {
-      LOG(ERROR) << "Failed to get debug logs";
-      callback.Run(false);
+      std::move(callback).Run(base::nullopt);
       return;
     }
-    callback.Run(true);
-  }
 
-  // Called when a response for SetDebugMode() is received.
-  void OnSetDebugMode(const SetDebugModeCallback& callback,
-                      dbus::Response* response) {
-    if (!response) {
-      LOG(ERROR) << "Failed to change debug mode";
-      callback.Run(false);
-    } else {
-      callback.Run(true);
-    }
-  }
-
-  void OnGetRoutes(const GetRoutesCallback& callback,
-                   dbus::Response* response) {
     std::vector<std::string> routes;
-    if (response) {
-      dbus::MessageReader reader(response);
-      if (reader.PopArrayOfStrings(&routes)) {
-        callback.Run(true, routes);
-      } else {
-        LOG(ERROR) << "Got non-array response from GetRoutes";
-        callback.Run(false, routes);
-      }
-    } else {
-      callback.Run(false, routes);
+    dbus::MessageReader reader(response);
+    if (!reader.PopArrayOfStrings(&routes)) {
+      LOG(ERROR) << "Got non-array response from GetRoutes";
+      std::move(callback).Run(base::nullopt);
+      return;
     }
-  }
 
-  void OnGetNetworkStatus(const GetNetworkStatusCallback& callback,
-                          dbus::Response* response) {
-    std::string status;
-    if (response && dbus::MessageReader(response).PopString(&status))
-      callback.Run(true, status);
-    else
-      callback.Run(false, "");
-  }
-
-  void OnGetModemStatus(const GetModemStatusCallback& callback,
-                        dbus::Response* response) {
-    std::string status;
-    if (response && dbus::MessageReader(response).PopString(&status))
-      callback.Run(true, status);
-    else
-      callback.Run(false, "");
-  }
-
-  void OnGetWiMaxStatus(const GetWiMaxStatusCallback& callback,
-                        dbus::Response* response) {
-    std::string status;
-    if (response && dbus::MessageReader(response).PopString(&status))
-      callback.Run(true, status);
-    else
-      callback.Run(false, "");
-  }
-
-  void OnGetNetworkInterfaces(const GetNetworkInterfacesCallback& callback,
-                              dbus::Response* response) {
-    std::string status;
-    if (response && dbus::MessageReader(response).PopString(&status))
-      callback.Run(true, status);
-    else
-      callback.Run(false, "");
+    std::move(callback).Run(std::move(routes));
   }
 
   void OnGetAllLogs(const GetLogsCallback& callback,
@@ -614,17 +561,6 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
     return OnGetAllLogs(callback, response);
   }
 
-  void OnGetLog(const std::string& log_name,
-                const GetLogCallback& callback,
-                dbus::Response* response) {
-    std::string result;
-    if (!response || !dbus::MessageReader(response).PopString(&result)) {
-      callback.Run(false, result);
-      return;
-    }
-    callback.Run(true, result);
-  }
-
   void OnBigFeedbackLogsResponse(base::WeakPtr<PipeReaderWrapper> pipe_reader,
                                  dbus::Response* response) {
     if (!response && pipe_reader.get()) {
@@ -642,18 +578,29 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
     }
   }
 
-  void OnDBusMethodError(DBusMethodErrorCallback error_callback,
-                         dbus::ErrorResponse* response) {
-    // Error response has optional error message argument.
-    std::string error_name = "<unknown>";
-    std::string error_message = "<empty>";
-    if (response) {
-      dbus::MessageReader reader(response);
-      error_name = response->GetErrorName();
-      reader.PopString(&error_message);
+  // Called when D-Bus method call which does not return the result is
+  // completed or on its error.
+  void OnVoidMethod(VoidDBusMethodCallback callback, dbus::Response* response) {
+    std::move(callback).Run(response);
+  }
+
+  // Called when D-Bus method call which returns a string is completed or on
+  // its error.
+  void OnStringMethod(DBusMethodCallback<std::string> callback,
+                      dbus::Response* response) {
+    if (!response) {
+      std::move(callback).Run(base::nullopt);
+      return;
     }
-    VLOG(1) << "DBus method error: " << error_name << ": " << error_message;
-    error_callback.Run(error_name, error_message);
+
+    dbus::MessageReader reader(response);
+    std::string result;
+    if (!reader.PopString(&result)) {
+      std::move(callback).Run(base::nullopt);
+      return;
+    }
+
+    std::move(callback).Run(std::move(result));
   }
 
   void OnEnableDebuggingFeatures(
@@ -695,8 +642,13 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
       LOG(ERROR) << "Failed to request systrace stop";
       // If debugd crashes or completes I/O before this message is processed
       // then pipe_reader_ can be NULL, see OnIOComplete().
-      if (pipe_reader_.get())
-        pipe_reader_->OnDataReady(-1);  // terminate data stream
+      if (pipe_reader_.get()) {
+        pipe_reader_.reset();
+        base::ResetAndReturn(&callback_)
+            .Run(GetTracingAgentName(), GetTraceEventLabel(),
+                 scoped_refptr<base::RefCountedString>(
+                     new base::RefCountedString()));
+      }
     }
     // NB: requester is signaled when i/o completes
   }
@@ -710,12 +662,13 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
   }
 
   // Called when pipe i/o completes; pass data on and delete the instance.
-  void OnIOComplete() {
-    std::string pipe_data;
-    pipe_reader_->GetData(&pipe_data);
-    callback_.Run(GetTracingAgentName(), GetTraceEventLabel(),
-                  base::RefCountedString::TakeString(&pipe_data));
+  void OnIOComplete(base::Optional<std::string> result) {
     pipe_reader_.reset();
+    std::string pipe_data =
+        result.has_value() ? std::move(result).value() : std::string();
+    base::ResetAndReturn(&callback_)
+        .Run(GetTracingAgentName(), GetTraceEventLabel(),
+             base::RefCountedString::TakeString(&pipe_data));
   }
 
   void OnSetOomScoreAdj(const SetOomScoreAdjCallback& callback,
@@ -727,15 +680,14 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
       callback.Run(false, "");
   }
 
-  void OnPrinterAdded(const CupsAddPrinterCallback& callback,
-                      const base::Closure& error_callback,
+  void OnPrinterAdded(CupsAddPrinterCallback callback,
                       dbus::Response* response) {
     int32_t result;
     dbus::MessageReader reader(response);
     if (response && reader.PopInt32(&result)) {
-      callback.Run(result);
+      std::move(callback).Run(result);
     } else {
-      error_callback.Run();
+      std::move(callback).Run(base::nullopt);
     }
   }
 
@@ -752,7 +704,7 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
   }
 
   dbus::ObjectProxy* debugdaemon_proxy_;
-  std::unique_ptr<PipeReaderForString> pipe_reader_;
+  std::unique_ptr<PipeReader> pipe_reader_;
   StopAgentTracingCallback callback_;
   scoped_refptr<base::TaskRunner> stop_agent_tracing_task_runner_;
   base::WeakPtrFactory<DebugDaemonClientImpl> weak_ptr_factory_;
@@ -760,11 +712,9 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
   DISALLOW_COPY_AND_ASSIGN(DebugDaemonClientImpl);
 };
 
-DebugDaemonClient::DebugDaemonClient() {
-}
+DebugDaemonClient::DebugDaemonClient() = default;
 
-DebugDaemonClient::~DebugDaemonClient() {
-}
+DebugDaemonClient::~DebugDaemonClient() = default;
 
 // static
 DebugDaemonClient::StopAgentTracingCallback

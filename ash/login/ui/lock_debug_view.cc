@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include "ash/login/lock_screen_controller.h"
+#include "ash/login/login_screen_controller.h"
 #include "ash/login/ui/layout_util.h"
 #include "ash/login/ui/lock_contents_view.h"
 #include "ash/login/ui/lock_screen.h"
@@ -16,6 +16,8 @@
 #include "ash/login/ui/non_accessible_view.h"
 #include "ash/shell.h"
 #include "base/strings/utf_string_conversions.h"
+#include "ui/base/ime/chromeos/ime_keyboard.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/view.h"
@@ -28,6 +30,11 @@ constexpr const char* kDebugUserNames[] = {
     "Debbie Craig",     "Stella Wong",  "Stephanie Wade",
 };
 
+constexpr const char kDebugOsVersion[] =
+    "Chromium 64.0.3279.0 (Platform 10146.0.0 dev-channel peppy test)";
+constexpr const char kDebugEnterpriseInfo[] = "Asset ID: 1111";
+constexpr const char kDebugBluetoothName[] = "Bluetooth adapter";
+
 // Additional state for a user that the debug UI needs to reference.
 struct UserMetadata {
   explicit UserMetadata(const mojom::UserInfoPtr& user_info)
@@ -35,6 +42,9 @@ struct UserMetadata {
 
   AccountId account_id;
   bool enable_pin = false;
+  bool enable_click_to_unlock = false;
+  mojom::EasyUnlockIconId easy_unlock_id = mojom::EasyUnlockIconId::NONE;
+
   views::View* view = nullptr;
 };
 
@@ -108,6 +118,60 @@ class LockDebugView::DebugDataDispatcherTransformer
                                            debug_user->enable_pin);
   }
 
+  // Enables click to auth for the user at |user_index|.
+  void CycleEasyUnlockForUserIndex(size_t user_index) {
+    DCHECK(user_index >= 0 && user_index < debug_users_.size());
+    UserMetadata* debug_user = &debug_users_[user_index];
+
+    // EasyUnlockIconId state transition.
+    auto get_next_id = [](mojom::EasyUnlockIconId id) {
+      switch (id) {
+        case mojom::EasyUnlockIconId::NONE:
+          return mojom::EasyUnlockIconId::SPINNER;
+        case mojom::EasyUnlockIconId::SPINNER:
+          return mojom::EasyUnlockIconId::LOCKED;
+        case mojom::EasyUnlockIconId::LOCKED:
+          return mojom::EasyUnlockIconId::LOCKED_TO_BE_ACTIVATED;
+        case mojom::EasyUnlockIconId::LOCKED_TO_BE_ACTIVATED:
+          return mojom::EasyUnlockIconId::LOCKED_WITH_PROXIMITY_HINT;
+        case mojom::EasyUnlockIconId::LOCKED_WITH_PROXIMITY_HINT:
+          return mojom::EasyUnlockIconId::HARDLOCKED;
+        case mojom::EasyUnlockIconId::HARDLOCKED:
+          return mojom::EasyUnlockIconId::UNLOCKED;
+        case mojom::EasyUnlockIconId::UNLOCKED:
+          return mojom::EasyUnlockIconId::NONE;
+      }
+      return mojom::EasyUnlockIconId::NONE;
+    };
+    debug_user->easy_unlock_id = get_next_id(debug_user->easy_unlock_id);
+
+    // Enable/disable click to unlock.
+    debug_user->enable_click_to_unlock =
+        debug_user->easy_unlock_id == mojom::EasyUnlockIconId::UNLOCKED;
+
+    // Prepare icon that we will show.
+    auto icon = mojom::EasyUnlockIconOptions::New();
+    icon->icon = debug_user->easy_unlock_id;
+    if (icon->icon == mojom::EasyUnlockIconId::SPINNER) {
+      icon->aria_label = base::ASCIIToUTF16("Icon is spinning");
+    } else if (icon->icon == mojom::EasyUnlockIconId::LOCKED ||
+               icon->icon == mojom::EasyUnlockIconId::LOCKED_TO_BE_ACTIVATED) {
+      icon->autoshow_tooltip = true;
+      icon->tooltip = base::ASCIIToUTF16(
+          "This is a long message to trigger overflow. This should show up "
+          "automatically. icon_id=" +
+          std::to_string(static_cast<int>(icon->icon)));
+    } else {
+      icon->tooltip =
+          base::ASCIIToUTF16("This should not show up automatically.");
+    }
+
+    // Show icon and enable/disable click to unlock.
+    debug_dispatcher_.ShowEasyUnlockIcon(debug_user->account_id, icon);
+    debug_dispatcher_.SetClickToUnlockEnabledForUser(
+        debug_user->account_id, debug_user->enable_click_to_unlock);
+  }
+
   void ToggleLockScreenNoteButton() {
     if (lock_screen_note_state_ == mojom::TrayActionState::kAvailable) {
       lock_screen_note_state_ = mojom::TrayActionState::kNotAvailable;
@@ -116,6 +180,16 @@ class LockDebugView::DebugDataDispatcherTransformer
     }
 
     debug_dispatcher_.SetLockScreenNoteState(lock_screen_note_state_);
+  }
+
+  void ToggleLockScreenDevChannelInfo() {
+    show_dev_channel_info_ = !show_dev_channel_info_;
+    if (show_dev_channel_info_) {
+      debug_dispatcher_.SetDevChannelInfo(kDebugOsVersion, kDebugEnterpriseInfo,
+                                          kDebugBluetoothName);
+    } else {
+      debug_dispatcher_.SetDevChannelInfo("", "", "");
+    }
   }
 
   // LoginDataDispatcher::Observer:
@@ -140,9 +214,25 @@ class LockDebugView::DebugDataDispatcherTransformer
       }
     }
   }
+  void OnClickToUnlockEnabledForUserChanged(const AccountId& user,
+                                            bool enabled) override {
+    // Forward notification only if the user is currently being shown.
+    for (size_t i = 0u; i < debug_users_.size(); ++i) {
+      if (debug_users_[i].account_id == user) {
+        debug_users_[i].enable_click_to_unlock = enabled;
+        debug_dispatcher_.SetClickToUnlockEnabledForUser(user, enabled);
+        break;
+      }
+    }
+  }
   void OnLockScreenNoteStateChanged(mojom::TrayActionState state) override {
     lock_screen_note_state_ = state;
     debug_dispatcher_.SetLockScreenNoteState(state);
+  }
+  void OnShowEasyUnlockIcon(
+      const AccountId& user,
+      const mojom::EasyUnlockIconOptionsPtr& icon) override {
+    debug_dispatcher_.ShowEasyUnlockIcon(user, icon);
   }
 
  private:
@@ -160,6 +250,9 @@ class LockDebugView::DebugDataDispatcherTransformer
 
   // The current lock screen note action state.
   mojom::TrayActionState lock_screen_note_state_;
+
+  // If the dev channel info is being shown.
+  bool show_dev_channel_info_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(DebugDataDispatcherTransformer);
 };
@@ -191,9 +284,11 @@ LockDebugView::LockDebugView(mojom::TrayActionState initial_note_action_state,
 
   toggle_blur_ = AddButton("Blur");
   toggle_note_action_ = AddButton("Toggle note action");
+  toggle_dev_channel_info_ = AddButton("Toggle dev channel info");
+  toggle_caps_lock_ = AddButton("Toggle caps lock");
   add_user_ = AddButton("Add user");
   remove_user_ = AddButton("Remove user");
-  toggle_auth_ = AddButton("Force fail auth");
+  toggle_auth_ = AddButton("Auth (allowed)");
 
   RebuildDebugUserColumn();
 }
@@ -215,8 +310,23 @@ void LockDebugView::ButtonPressed(views::Button* sender,
     return;
   }
 
+  // Enable or disable note action.
   if (sender == toggle_note_action_) {
     debug_data_dispatcher_->ToggleLockScreenNoteButton();
+    return;
+  }
+
+  // Enable or disable dev channel info.
+  if (sender == toggle_dev_channel_info_) {
+    debug_data_dispatcher_->ToggleLockScreenDevChannelInfo();
+    return;
+  }
+
+  // Enable or disable caps lock.
+  if (sender == toggle_caps_lock_) {
+    chromeos::input_method::ImeKeyboard* keyboard =
+        chromeos::input_method::InputMethodManager::Get()->GetImeKeyboard();
+    keyboard->SetCapsLockEnabled(!keyboard->CapsLockIsEnabled());
     return;
   }
 
@@ -238,11 +348,34 @@ void LockDebugView::ButtonPressed(views::Button* sender,
   // Linux Desktop builds, where the cryptohome dbus stub accepts all passwords
   // as valid.
   if (sender == toggle_auth_) {
-    force_fail_auth_ = !force_fail_auth_;
-    toggle_auth_->SetText(base::ASCIIToUTF16(
-        force_fail_auth_ ? "Allow auth" : "Force fail auth"));
+    auto get_next_auth_state = [](LoginScreenController::ForceFailAuth auth) {
+      switch (auth) {
+        case LoginScreenController::ForceFailAuth::kOff:
+          return LoginScreenController::ForceFailAuth::kImmediate;
+        case LoginScreenController::ForceFailAuth::kImmediate:
+          return LoginScreenController::ForceFailAuth::kDelayed;
+        case LoginScreenController::ForceFailAuth::kDelayed:
+          return LoginScreenController::ForceFailAuth::kOff;
+      }
+      NOTREACHED();
+      return LoginScreenController::ForceFailAuth::kOff;
+    };
+    auto get_auth_label = [](LoginScreenController::ForceFailAuth auth) {
+      switch (auth) {
+        case LoginScreenController::ForceFailAuth::kOff:
+          return "Auth (allowed)";
+        case LoginScreenController::ForceFailAuth::kImmediate:
+          return "Auth (immediate fail)";
+        case LoginScreenController::ForceFailAuth::kDelayed:
+          return "Auth (delayed fail)";
+      }
+      NOTREACHED();
+      return "Auth (allowed)";
+    };
+    force_fail_auth_ = get_next_auth_state(force_fail_auth_);
+    toggle_auth_->SetText(base::ASCIIToUTF16(get_auth_label(force_fail_auth_)));
     Shell::Get()
-        ->lock_screen_controller()
+        ->login_screen_controller()
         ->set_force_fail_auth_for_debug_overlay(force_fail_auth_);
     return;
   }
@@ -252,17 +385,36 @@ void LockDebugView::ButtonPressed(views::Button* sender,
     if (per_user_action_column_toggle_pin_[i] == sender)
       debug_data_dispatcher_->TogglePinStateForUserIndex(i);
   }
+
+  // Cycle easy unlock.
+  for (size_t i = 0u;
+       i < per_user_action_column_cycle_easy_unlock_state_.size(); ++i) {
+    if (per_user_action_column_cycle_easy_unlock_state_[i] == sender)
+      debug_data_dispatcher_->CycleEasyUnlockForUserIndex(i);
+  }
 }
 
 void LockDebugView::RebuildDebugUserColumn() {
   per_user_action_column_->RemoveAllChildViews(true /*delete_children*/);
   per_user_action_column_toggle_pin_.clear();
+  per_user_action_column_cycle_easy_unlock_state_.clear();
 
   for (size_t i = 0u; i < num_users_; ++i) {
+    auto* row = new NonAccessibleView();
+    row->SetLayoutManager(new views::BoxLayout(views::BoxLayout::kHorizontal));
+
     views::View* toggle_pin =
         AddButton("Toggle PIN", false /*add_to_debug_row*/);
     per_user_action_column_toggle_pin_.push_back(toggle_pin);
-    per_user_action_column_->AddChildView(toggle_pin);
+    row->AddChildView(toggle_pin);
+
+    views::View* toggle_click_auth =
+        AddButton("Cycle easy unlock", false /*add_to_debug_row*/);
+    per_user_action_column_cycle_easy_unlock_state_.push_back(
+        toggle_click_auth);
+    row->AddChildView(toggle_click_auth);
+
+    per_user_action_column_->AddChildView(row);
   }
 }
 

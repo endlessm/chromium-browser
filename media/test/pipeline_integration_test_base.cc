@@ -13,21 +13,30 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "media/base/media_log.h"
+#include "media/base/media_switches.h"
 #include "media/base/media_tracks.h"
 #include "media/base/test_data_util.h"
+#include "media/filters/file_data_source.h"
+#include "media/filters/memory_data_source.h"
+#include "media/media_features.h"
+#include "media/renderers/audio_renderer_impl.h"
+#include "media/renderers/renderer_impl.h"
+#include "media/test/fake_encrypted_media.h"
+#include "media/test/mock_media_source.h"
+#include "third_party/libaom/av1_features.h"
+
 #if !defined(MEDIA_DISABLE_FFMPEG)
 #include "media/filters/ffmpeg_audio_decoder.h"
 #include "media/filters/ffmpeg_demuxer.h"
 #include "media/filters/ffmpeg_video_decoder.h"
 #endif
-#include "media/filters/file_data_source.h"
-#include "media/filters/memory_data_source.h"
-#include "media/renderers/audio_renderer_impl.h"
-#include "media/renderers/renderer_impl.h"
-#include "media/test/fake_encrypted_media.h"
-#include "media/test/mock_media_source.h"
+
 #if !defined(MEDIA_DISABLE_LIBVPX)
 #include "media/filters/vpx_video_decoder.h"
+#endif
+
+#if BUILDFLAG(ENABLE_AV1_DECODER)
+#include "media/filters/aom_video_decoder.h"
 #endif
 
 using ::testing::_;
@@ -53,13 +62,18 @@ static std::vector<std::unique_ptr<VideoDecoder>> CreateVideoDecodersForTest(
   }
 
 #if !defined(MEDIA_DISABLE_LIBVPX)
-  video_decoders.push_back(base::MakeUnique<VpxVideoDecoder>());
+  video_decoders.push_back(std::make_unique<OffloadingVpxVideoDecoder>());
+#endif  // !defined(MEDIA_DISABLE_LIBVPX)
+
+#if BUILDFLAG(ENABLE_AV1_DECODER)
+  if (base::FeatureList::IsEnabled(kAv1Decoder))
+    video_decoders.push_back(base::MakeUnique<AomVideoDecoder>(media_log));
 #endif  // !defined(MEDIA_DISABLE_LIBVPX)
 
 // Android does not have an ffmpeg video decoder.
 #if !defined(MEDIA_DISABLE_FFMPEG) && !defined(OS_ANDROID) && \
     !defined(DISABLE_FFMPEG_VIDEO_DECODERS)
-  video_decoders.push_back(base::MakeUnique<FFmpegVideoDecoder>(media_log));
+  video_decoders.push_back(std::make_unique<FFmpegVideoDecoder>(media_log));
 #endif
   return video_decoders;
 }
@@ -77,7 +91,7 @@ static std::vector<std::unique_ptr<AudioDecoder>> CreateAudioDecodersForTest(
 
 #if !defined(MEDIA_DISABLE_FFMPEG)
   audio_decoders.push_back(
-      base::MakeUnique<FFmpegAudioDecoder>(media_task_runner, media_log));
+      std::make_unique<FFmpegAudioDecoder>(media_task_runner, media_log));
 #endif
   return audio_decoders;
 }
@@ -89,7 +103,7 @@ class RendererFactoryImpl final : public PipelineTestRendererFactory {
  public:
   explicit RendererFactoryImpl(PipelineIntegrationTestBase* integration_test)
       : integration_test_(integration_test) {}
-  ~RendererFactoryImpl() override {}
+  ~RendererFactoryImpl() override = default;
 
   // PipelineTestRendererFactory implementation.
   std::unique_ptr<Renderer> CreateRenderer(
@@ -310,7 +324,7 @@ PipelineStatus PipelineIntegrationTestBase::Start(
 PipelineStatus PipelineIntegrationTestBase::Start(const uint8_t* data,
                                                   size_t size,
                                                   uint8_t test_type) {
-  return StartInternal(base::MakeUnique<MemoryDataSource>(data, size), nullptr,
+  return StartInternal(std::make_unique<MemoryDataSource>(data, size), nullptr,
                        test_type);
 }
 

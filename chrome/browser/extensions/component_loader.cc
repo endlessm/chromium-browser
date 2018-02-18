@@ -19,8 +19,6 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/pdf/pdf_extension_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/search/hotword_service.h"
-#include "chrome/browser/search/hotword_service_factory.h"
 #include "chrome/browser/ui/webui/md_bookmarks/md_bookmarks_ui.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_paths.h"
@@ -172,7 +170,7 @@ std::unique_ptr<base::DictionaryValue> ComponentLoader::ParseManifest(
   JSONStringValueDeserializer deserializer(manifest_contents);
   std::unique_ptr<base::Value> manifest = deserializer.Deserialize(NULL, NULL);
 
-  if (!manifest.get() || !manifest->IsType(base::Value::Type::DICTIONARY)) {
+  if (!manifest.get() || !manifest->is_dict()) {
     LOG(ERROR) << "Failed to parse extension manifest.";
     return std::unique_ptr<base::DictionaryValue>();
   }
@@ -326,8 +324,9 @@ void ComponentLoader::AddGalleryExtension() {
 void ComponentLoader::AddZipArchiverExtension() {
 #if defined(OS_CHROMEOS)
   base::FilePath resources_path;
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kEnableZipArchiverOnFileManager) &&
+  if ((base::CommandLine::ForCurrentProcess()->HasSwitch(
+           chromeos::switches::kEnableZipArchiverPacker) ||
+       chromeos::switches::IsZipArchiverUnpackerEnabled()) &&
       PathService::Get(chrome::DIR_RESOURCES, &resources_path)) {
     AddWithNameAndDescriptionFromDir(
         resources_path.Append(extension_misc::kZipArchiverExtensionPath),
@@ -352,24 +351,6 @@ void ComponentLoader::AddHangoutServicesExtension() {
 #if BUILDFLAG(ENABLE_HANGOUT_SERVICES_EXTENSION)
   Add(IDR_HANGOUT_SERVICES_MANIFEST,
       base::FilePath(FILE_PATH_LITERAL("hangout_services")));
-#endif
-}
-
-void ComponentLoader::AddHotwordAudioVerificationApp() {
-#if defined(ENABLE_HOTWORDING)
-  if (HotwordServiceFactory::IsAlwaysOnAvailable()) {
-    Add(IDR_HOTWORD_AUDIO_VERIFICATION_MANIFEST,
-        base::FilePath(FILE_PATH_LITERAL("hotword_audio_verification")));
-  }
-#endif
-}
-
-void ComponentLoader::AddHotwordHelperExtension() {
-#if defined(ENABLE_HOTWORDING)
-  if (HotwordServiceFactory::IsHotwordAllowed(profile_)) {
-    Add(IDR_HOTWORD_MANIFEST,
-        base::FilePath(FILE_PATH_LITERAL("hotword")));
-  }
 #endif
 }
 
@@ -579,8 +560,6 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
     AddWebstoreWidgetExtension();
 
     AddHangoutServicesExtension();
-    AddHotwordAudioVerificationApp();
-    AddHotwordHelperExtension();
     AddImageLoaderExtension();
 
     bool install_feedback = enable_background_extensions_during_testing;

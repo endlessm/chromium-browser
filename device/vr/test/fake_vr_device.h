@@ -7,36 +7,35 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "device/vr/vr_device.h"
+#include "device/vr/vr_device_base.h"
 #include "device/vr/vr_device_provider.h"
 #include "device/vr/vr_export.h"
 
 namespace device {
 
 // TODO(mthiesse, crbug.com/769373): Remove DEVICE_VR_EXPORT.
-class DEVICE_VR_EXPORT FakeVRDevice : public VRDevice {
+class DEVICE_VR_EXPORT FakeVRDevice : public VRDeviceBase {
  public:
-  explicit FakeVRDevice();
+  FakeVRDevice();
   ~FakeVRDevice() override;
 
-  void InitBasicDevice();
-
-  void SetVRDevice(const mojom::VRDisplayInfoPtr& device);
-
-  // VRDevice
-  mojom::VRDisplayInfoPtr GetVRDisplayInfo() override;
   void RequestPresent(
       VRDisplayImpl* display,
       mojom::VRSubmitFrameClientPtr submit_client,
       mojom::VRPresentationProviderRequest request,
       mojom::VRDisplayHost::RequestPresentCallback callback) override;
   void ExitPresent() override;
-  void GetPose(mojom::VRMagicWindowProvider::GetPoseCallback callback) override;
+
+  void SetPose(mojom::VRPosePtr pose) { pose_ = std::move(pose); }
 
  private:
+  void OnMagicWindowPoseRequest(
+      mojom::VRMagicWindowProvider::GetPoseCallback callback) override;
+
+  mojom::VRDisplayInfoPtr InitBasicDevice();
   mojom::VREyeParametersPtr InitEye(float fov, float offset, uint32_t size);
 
-  mojom::VRDisplayInfoPtr display_info_;
+  mojom::VRPosePtr pose_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeVRDevice);
 };

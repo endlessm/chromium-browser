@@ -5,6 +5,8 @@
 #include "chrome/browser/component_updater/pnacl_component_installer.h"
 
 #include <stdint.h>
+
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -19,6 +21,7 @@
 #include "base/json/json_file_value_serializer.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/task_scheduler/post_task.h"
@@ -99,7 +102,7 @@ base::DictionaryValue* ReadJSONManifest(const base::FilePath& manifest_path) {
   std::unique_ptr<base::Value> root = deserializer.Deserialize(NULL, &error);
   if (!root.get())
     return NULL;
-  if (!root->IsType(base::Value::Type::DICTIONARY))
+  if (!root->is_dict())
     return NULL;
   return static_cast<base::DictionaryValue*>(root.release());
 }
@@ -171,6 +174,7 @@ class PnaclComponentInstallerPolicy : public ComponentInstallerPolicy {
   update_client::CrxInstaller::Result OnCustomInstall(
       const base::DictionaryValue& manifest,
       const base::FilePath& install_dir) override;
+  void OnCustomUninstall() override;
   bool VerifyInstallation(const base::DictionaryValue& manifest,
                           const base::FilePath& install_dir) const override;
   void ComponentReady(const base::Version& version,
@@ -203,6 +207,8 @@ PnaclComponentInstallerPolicy::OnCustomInstall(
     const base::FilePath& install_dir) {
   return update_client::CrxInstaller::Result(0);  // Nothing custom here.
 }
+
+void PnaclComponentInstallerPolicy::OnCustomUninstall() {}
 
 bool PnaclComponentInstallerPolicy::VerifyInstallation(
     const base::DictionaryValue& manifest,
@@ -249,10 +255,10 @@ std::vector<std::string> PnaclComponentInstallerPolicy::GetMimeTypes() const {
 }  // namespace
 
 void RegisterPnaclComponent(ComponentUpdateService* cus) {
-  // |cus| will take ownership of |installer| during installer->Register(cus).
-  ComponentInstaller* installer =
-      new ComponentInstaller(base::MakeUnique<PnaclComponentInstallerPolicy>());
-  installer->Register(cus, base::Closure());
+  // |cus| takes ownership of |installer| through the CrxComponent instance.
+  auto installer = base::MakeRefCounted<ComponentInstaller>(
+      std::make_unique<PnaclComponentInstallerPolicy>());
+  installer->Register(cus, base::OnceClosure());
 }
 
 }  // namespace component_updater

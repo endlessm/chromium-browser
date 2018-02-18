@@ -5,8 +5,8 @@
 #ifndef ASH_ACCESSIBILITY_ACCESSIBILITY_DELEGATE_H_
 #define ASH_ACCESSIBILITY_ACCESSIBILITY_DELEGATE_H_
 
-#include "ash/accessibility_types.h"
 #include "ash/ash_export.h"
+#include "ash/public/cpp/accessibility_types.h"
 #include "base/time/time.h"
 #include "ui/accessibility/ax_enums.h"
 
@@ -45,12 +45,6 @@ class ASH_EXPORT AccessibilityDelegate {
 
   // Returns if the a11y virtual keyboard is enabled.
   virtual bool IsVirtualKeyboardEnabled() const = 0;
-
-  // Invoked to enable or disable the mono audio output.
-  virtual void SetMonoAudioEnabled(bool enabled) = 0;
-
-  // Returns if the mono audio output is enabled.
-  virtual bool IsMonoAudioEnabled() const = 0;
 
   // Invoked to enable or disable caret highlighting.
   virtual void SetCaretHighlightEnabled(bool enabled) = 0;
@@ -109,12 +103,6 @@ class ASH_EXPORT AccessibilityDelegate {
   // Gets a saved value of the zoom scale of full screen magnifier. If a value
   // is not saved, return a negative value.
   virtual double GetSavedScreenMagnifierScale() = 0;
-
-  // Triggers an accessibility alert to give the user feedback.
-  virtual void TriggerAccessibilityAlert(AccessibilityAlert alert) = 0;
-
-  // Gets the last accessibility alert that was triggered.
-  virtual AccessibilityAlert GetLastAccessibilityAlert() = 0;
 
   // Called when we first detect two fingers are held down, which can be
   // used to toggle spoken feedback on some touch-only devices.

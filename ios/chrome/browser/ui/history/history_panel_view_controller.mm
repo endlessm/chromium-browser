@@ -188,6 +188,11 @@ CGFloat kShadowOpacity = 0.2f;
   return NO;
 }
 
+- (void)didRotateFromInterfaceOrientation:(UIInterfaceOrientation)orient {
+  [super didRotateFromInterfaceOrientation:orient];
+  [_clearBrowsingBar updateHeight];
+}
+
 #pragma mark - Status bar
 
 - (BOOL)modalPresentationCapturesStatusBarAppearance {
@@ -325,7 +330,7 @@ CGFloat kShadowOpacity = 0.2f;
   [self exitSearchMode];
   base::RecordAction(
       base::UserMetricsAction("HistoryPage_InitClearBrowsingData"));
-  [self.dispatcher showClearBrowsingDataSettings];
+  [self.dispatcher showClearBrowsingDataSettingsFromViewController:self];
 }
 
 - (void)enterEditingMode {

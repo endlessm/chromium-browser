@@ -29,20 +29,19 @@ void TestWebState::RemoveObserver(WebStateObserver* observer) {
 
 TestWebState::TestWebState()
     : browser_state_(nullptr),
-      web_usage_enabled_(false),
+      web_usage_enabled_(true),
       is_loading_(false),
       is_visible_(false),
       is_crashed_(false),
       is_evicted_(false),
       has_opener_(false),
       trust_level_(kAbsolute),
-      content_is_html_(true) {}
+      content_is_html_(true),
+      web_view_proxy_(nil) {}
 
 TestWebState::~TestWebState() {
   for (auto& observer : observers_)
-    observer.WebStateDestroyed();
-  for (auto& observer : observers_)
-    observer.ResetWebState();
+    observer.WebStateDestroyed(this);
 };
 
 WebStateDelegate* TestWebState::GetDelegate() {
@@ -78,13 +77,13 @@ UIView* TestWebState::GetView() {
 void TestWebState::WasShown() {
   is_visible_ = true;
   for (auto& observer : observers_)
-    observer.WasShown();
+    observer.WasShown(this);
 }
 
 void TestWebState::WasHidden() {
   is_visible_ = false;
   for (auto& observer : observers_)
-    observer.WasHidden();
+    observer.WasHidden(this);
 }
 
 const NavigationManager* TestWebState::GetNavigationManager() const {
@@ -128,8 +127,12 @@ void TestWebState::SetIsEvicted(bool value) {
   is_evicted_ = value;
 }
 
+void TestWebState::SetWebViewProxy(CRWWebViewProxyType web_view_proxy) {
+  web_view_proxy_ = web_view_proxy;
+}
+
 CRWJSInjectionReceiver* TestWebState::GetJSInjectionReceiver() const {
-  return nullptr;
+  return injection_receiver_;
 }
 
 void TestWebState::ExecuteJavaScript(const base::string16& javascript) {}
@@ -174,6 +177,11 @@ void TestWebState::SetBrowserState(BrowserState* browser_state) {
   browser_state_ = browser_state;
 }
 
+void TestWebState::SetJSInjectionReceiver(
+    CRWJSInjectionReceiver* injection_receiver) {
+  injection_receiver_ = injection_receiver;
+}
+
 void TestWebState::SetContentIsHTML(bool content_is_html) {
   content_is_html_ = content_is_html;
 }
@@ -214,32 +222,51 @@ void TestWebState::SetLoading(bool is_loading) {
 
   if (is_loading) {
     for (auto& observer : observers_)
-      observer.DidStartLoading();
+      observer.DidStartLoading(this);
   } else {
     for (auto& observer : observers_)
-      observer.DidStopLoading();
+      observer.DidStopLoading(this);
   }
 }
 
 void TestWebState::OnPageLoaded(
     PageLoadCompletionStatus load_completion_status) {
   for (auto& observer : observers_)
-    observer.PageLoaded(load_completion_status);
+    observer.PageLoaded(this, load_completion_status);
 }
 
 void TestWebState::OnNavigationStarted(NavigationContext* navigation_context) {
   for (auto& observer : observers_)
-    observer.DidStartNavigation(navigation_context);
+    observer.DidStartNavigation(this, navigation_context);
 }
 
 void TestWebState::OnNavigationFinished(NavigationContext* navigation_context) {
   for (auto& observer : observers_)
-    observer.DidFinishNavigation(navigation_context);
+    observer.DidFinishNavigation(this, navigation_context);
 }
 
 void TestWebState::OnRenderProcessGone() {
   for (auto& observer : observers_)
-    observer.RenderProcessGone();
+    observer.RenderProcessGone(this);
+}
+
+void TestWebState::OnFormActivity(const FormActivityParams& params) {
+  for (auto& observer : observers_) {
+    observer.FormActivityRegistered(this, params);
+  }
+}
+
+void TestWebState::OnDocumentSubmitted(const std::string& form_name,
+                                       bool user_initiated) {
+  for (auto& observer : observers_) {
+    observer.DocumentSubmitted(this, form_name, user_initiated);
+  }
+}
+
+void TestWebState::OnVisibleSecurityStateChanged() {
+  for (auto& observer : observers_) {
+    observer.DidChangeVisibleSecurityState(this);
+  }
 }
 
 void TestWebState::ShowTransientContentView(CRWContentView* content_view) {
@@ -260,12 +287,16 @@ void TestWebState::SetCurrentURL(const GURL& url) {
   url_ = url;
 }
 
+void TestWebState::SetVisibleURL(const GURL& url) {
+  url_ = url;
+}
+
 void TestWebState::SetTrustLevel(URLVerificationTrustLevel trust_level) {
   trust_level_ = trust_level;
 }
 
 CRWWebViewProxyType TestWebState::GetWebViewProxy() const {
-  return nullptr;
+  return web_view_proxy_;
 }
 
 WebStateInterfaceProvider* TestWebState::GetWebStateInterfaceProvider() {

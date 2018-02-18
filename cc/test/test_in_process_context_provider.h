@@ -40,7 +40,7 @@ class TestInProcessContextProvider : public viz::ContextProvider {
   explicit TestInProcessContextProvider(
       TestInProcessContextProvider* shared_context);
 
-  bool BindToCurrentThread() override;
+  gpu::ContextResult BindToCurrentThread() override;
   gpu::gles2::GLES2Interface* ContextGL() override;
   gpu::ContextSupport* ContextSupport() override;
   class GrContext* GrContext() override;
@@ -49,8 +49,8 @@ class TestInProcessContextProvider : public viz::ContextProvider {
   base::Lock* GetLock() override;
   const gpu::Capabilities& ContextCapabilities() const override;
   const gpu::GpuFeatureInfo& GetGpuFeatureInfo() const override;
-  void SetLostContextCallback(
-      const LostContextCallback& lost_context_callback) override;
+  void AddObserver(viz::ContextLostObserver* obs) override {}
+  void RemoveObserver(viz::ContextLostObserver* obs) override {}
   void SetSupportTextureNorm16(bool support) {
     capabilities_texture_norm16_ = support;
   }

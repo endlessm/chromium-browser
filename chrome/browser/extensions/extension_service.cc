@@ -30,7 +30,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/content_settings/content_settings_internal_extension_provider.h"
 #include "chrome/browser/extensions/api/content_settings/content_settings_custom_extension_provider.h"
 #include "chrome/browser/extensions/api/content_settings/content_settings_service.h"
 #include "chrome/browser/extensions/app_data_migrator.h"
@@ -180,9 +179,8 @@ void ExtensionService::CheckExternalUninstall(const std::string& id) {
                  << "with id: " << id;
     return;
   }
-  UninstallExtension(id,
-                     extensions::UNINSTALL_REASON_ORPHANED_EXTERNAL_EXTENSION,
-                     base::Bind(&base::DoNothing), nullptr);
+  UninstallExtension(
+      id, extensions::UNINSTALL_REASON_ORPHANED_EXTERNAL_EXTENSION, nullptr);
 }
 
 void ExtensionService::ClearProvidersForTesting() {
@@ -299,8 +297,7 @@ bool ExtensionService::UninstallExtensionHelper(
   // The following call to UninstallExtension will not allow an uninstall of a
   // policy-controlled extension.
   base::string16 error;
-  if (!extensions_service->UninstallExtension(
-          extension_id, reason, base::Bind(&base::DoNothing), &error)) {
+  if (!extensions_service->UninstallExtension(extension_id, reason, &error)) {
     LOG(WARNING) << "Cannot uninstall extension with id " << extension_id
                  << ": " << error;
     return false;
@@ -491,8 +488,12 @@ void ExtensionService::EnableZipUnpackerExtension() {
   // by some reason, and cannot re-enable it in any UI. crbug.com/643060
   const std::string& id = extension_misc::kZIPUnpackerExtensionId;
   const Extension* extension = registry_->disabled_extensions().GetByID(id);
-  if (extension && CanEnableExtension(extension))
+  if (extension && CanEnableExtension(extension)) {
+    UMA_HISTOGRAM_SPARSE_SLOWLY(
+        "ExtensionService.ZipUnpackerDisabledReason",
+        extension_prefs_->GetDisableReasons(extension->id()));
     EnableExtension(id);
+  }
 #endif
 }
 
@@ -784,7 +785,6 @@ bool ExtensionService::UninstallExtension(
     // to become invalid. Instead, use |extenson->id()|.
     const std::string& transient_extension_id,
     extensions::UninstallReason reason,
-    const base::Closure& deletion_done_callback,
     base::string16* error) {
   CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
@@ -844,8 +844,7 @@ bool ExtensionService::UninstallExtension(
       NOTREACHED();
   }
 
-  extensions::DataDeleter::StartDeleting(
-      profile_, extension.get(), deletion_done_callback);
+  extensions::DataDeleter::StartDeleting(profile_, extension.get());
 
   extension_registrar_.UntrackTerminatedExtension(extension->id());
 
@@ -964,6 +963,9 @@ void ExtensionService::UnblockAllExtensions() {
     registry_->RemoveBlocked(extension->id());
     AddExtension(extension.get());
   }
+  // While extensions are blocked, we won't display any external install
+  // warnings. Now that they are unblocked, we should update the error.
+  external_install_manager_->UpdateExternalExtensionAlert();
 }
 
 void ExtensionService::GrantPermissionsAndEnableExtension(
@@ -1847,11 +1849,6 @@ void ExtensionService::RegisterContentSettings(
   TRACE_EVENT0("browser,startup", "ExtensionService::RegisterContentSettings");
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   host_content_settings_map->RegisterProvider(
-      HostContentSettingsMap::INTERNAL_EXTENSION_PROVIDER,
-      std::unique_ptr<content_settings::ObservableProvider>(
-          new content_settings::InternalExtensionProvider(original_profile)));
-
-  host_content_settings_map->RegisterProvider(
       HostContentSettingsMap::CUSTOM_EXTENSION_PROVIDER,
       std::unique_ptr<content_settings::ObservableProvider>(
           new content_settings::CustomExtensionProvider(
@@ -2422,7 +2419,7 @@ void ExtensionService::UninstallMigratedExtensions() {
   for (const std::string& extension_id : kMigratedExtensionIds) {
     if (installed_extensions->Contains(extension_id)) {
       UninstallExtension(extension_id, extensions::UNINSTALL_REASON_MIGRATED,
-                         base::Bind(&base::DoNothing), nullptr);
+                         nullptr);
     }
   }
 }

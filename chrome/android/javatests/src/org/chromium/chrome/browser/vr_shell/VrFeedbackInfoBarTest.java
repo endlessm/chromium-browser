@@ -37,8 +37,7 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
-        ChromeActivityTestRule.DISABLE_NETWORK_PREDICTION_FLAG, "enable-features=VrShell",
-        "enable-webvr"})
+        ChromeActivityTestRule.DISABLE_NETWORK_PREDICTION_FLAG, "enable-webvr"})
 @Restriction(RESTRICTION_TYPE_DEVICE_DAYDREAM)
 @RetryOnFailure(message = "These tests have a habit of hitting a race condition, preventing "
                 + "VR entry. See crbug.com/762724")
@@ -135,7 +134,7 @@ public class VrFeedbackInfoBarTest {
         VrTransitionUtils.enterPresentationAndWait(
                 mVrTestFramework.getFirstTabCvc(), mVrTestFramework.getFirstTabWebContents());
         assertState(true /* isInVr */, false /* isInfobarVisible  */);
-        Assert.assertTrue(VrShellDelegate.getVrShellForTesting().getWebVrModeEnabled());
+        Assert.assertTrue(TestVrShellDelegate.getVrShellForTesting().getWebVrModeEnabled());
 
         // Exiting VR should not prompt for feedback since the no VR browsing was performed.
         VrTransitionUtils.forceExitVr();
@@ -156,7 +155,7 @@ public class VrFeedbackInfoBarTest {
         VrTransitionUtils.enterPresentationAndWait(
                 mVrTestFramework.getFirstTabCvc(), mVrTestFramework.getFirstTabWebContents());
         assertState(true /* isInVr */, false /* isInfobarVisible  */);
-        Assert.assertTrue(VrShellDelegate.getVrShellForTesting().getWebVrModeEnabled());
+        Assert.assertTrue(TestVrShellDelegate.getVrShellForTesting().getWebVrModeEnabled());
 
         // Exit presentation mode by navigating to a different url.
         ChromeTabUtils.waitForTabPageLoaded(

@@ -17,7 +17,6 @@
 #include <libaddressinput/callback.h>
 #include <libaddressinput/null_storage.h>
 #include <libaddressinput/storage.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <cstddef>
 #include <memory>
@@ -56,6 +55,10 @@ const char kStaleWrappedData[] = "timestamp=" OLD_TIMESTAMP "\n"
 
 // Tests for Retriever object.
 class RetrieverTest : public testing::Test {
+ public:
+  RetrieverTest(const RetrieverTest&) = delete;
+  RetrieverTest& operator=(const RetrieverTest&) = delete;
+
  protected:
   RetrieverTest()
       : retriever_(new TestdataSource(false), new NullStorage),
@@ -78,8 +81,6 @@ class RetrieverTest : public testing::Test {
     key_ = key;
     data_ = data;
   }
-
-  DISALLOW_COPY_AND_ASSIGN(RetrieverTest);
 };
 
 TEST_F(RetrieverTest, RetrieveData) {
@@ -125,28 +126,28 @@ TEST_F(RetrieverTest, FaultySource) {
 // The storage that always returns stale data.
 class StaleStorage : public Storage {
  public:
+  StaleStorage(const StaleStorage&) = delete;
+  StaleStorage& operator=(const StaleStorage&) = delete;
+
   StaleStorage() : data_updated_(false) {}
-  virtual ~StaleStorage() {}
+  ~StaleStorage() override {}
 
   // Storage implementation.
-  virtual void Get(const std::string& key, const Callback& data_ready) const {
+  void Get(const std::string& key, const Callback& data_ready) const override {
     data_ready(true, key, new std::string(kStaleWrappedData));
   }
 
-  virtual void Put(const std::string& key, std::string* value) {
+  void Put(const std::string& key, std::string* value) override {
     ASSERT_TRUE(value != nullptr);
     data_updated_ = true;
     delete value;
   }
 
   bool data_updated_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(StaleStorage);
 };
 
 TEST_F(RetrieverTest, UseStaleDataWhenSourceFails) {
-  // Owned by |resilient_retriver|.
+  // Owned by |resilient_retriever|.
   StaleStorage* stale_storage = new StaleStorage;
   // An empty MockSource will fail for any request.
   Retriever resilient_retriever(new MockSource, stale_storage);
@@ -160,7 +161,7 @@ TEST_F(RetrieverTest, UseStaleDataWhenSourceFails) {
 }
 
 TEST_F(RetrieverTest, DoNotUseStaleDataWhenSourceSucceeds) {
-  // Owned by |resilient_retriver|.
+  // Owned by |resilient_retriever|.
   StaleStorage* stale_storage = new StaleStorage;
   Retriever resilient_retriever(new TestdataSource(false), stale_storage);
 

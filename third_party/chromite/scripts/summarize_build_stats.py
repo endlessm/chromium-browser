@@ -10,7 +10,6 @@ from __future__ import print_function
 import datetime
 import itertools
 import numpy
-import operator
 import re
 import sys
 
@@ -74,9 +73,9 @@ class CLStatsEngine(object):
 
     Returns:
       A list of canonicalized URLs for bugs or CLs that appear in the blame
-      string. Canonicalized form will be 'crbug.com/1234',
-      'crosreview.com/1234', 'b/1234', 't/1234', or 'crosreview.com/i/1234' as
-      applicable.
+      string. Canonicalized form will be 'crbug.com/1234', 'crrev.com/c/1234',
+      'crosreview.com/1234', 'b/1234', 't/1234', 'crrev.com/i/1234', or
+      'crosreview.com/i/1234' as applicable.
     """
     urls = []
     tokens = blame_string.split()
@@ -89,9 +88,9 @@ class CLStatsEngine(object):
 
     crbug = general_regex % r'crbug.com|bugs.chromium.org'
     internal_review = general_regex % (
-        r'chrome-internal-review.googlesource.com|crosreview.com/i')
+        r'crosreview.com/i|chrome-internal-review.googlesource.com|crrev.com/i')
     external_review = general_regex % (
-        r'crosreview.com|chromium-review.googlesource.com')
+        r'crosreview.com|chromium-review.googlesource.com|crrev.com/c')
     guts = general_regex % r't/|gutsv\d.corp.google.com/#ticket/'
     chromium_review = general_regex % r'codereview.chromium.org'
 
@@ -310,11 +309,6 @@ class CLStatsEngine(object):
           for x in blames:
             patch_blame_counts[x] = patch_blame_counts.get(x, 0) + 1
 
-    patch_reason_html = ''
-    for k, v in reversed(sorted(patch_reason_counts.iteritems(),
-                                key=operator.itemgetter(1))):
-      patch_reason_html += '<tr><td>%s</td><td>%d</td></tr>\n' % (k, v)
-
     good_patch_count = len(self.claction_history.GetSubmittedPatches(False))
     false_rejection_count = {}
     bad_cl_candidates = {}
@@ -409,7 +403,6 @@ class CLStatsEngine(object):
         'false_rejection_cq': false_rejection_count[constants.CQ],
         'build_blame_counts': build_blame_counts,
         'patch_blame_counts': patch_blame_counts,
-        'patch_reason_html': patch_reason_html,
     }
 
     s = summary
@@ -587,6 +580,9 @@ ReportHTMLTemplate = """
   th, td {{padding: 5px}}
   td {{text-align: left}}
   replace {{background-color: red; font-style: bold}}
+  badcl {{background-color: darkgreen; color: white}}
+  bugtot {{background-color: darkslateblue; color:white}}
+  infra {{background-color: darkred; color:white}}
   #note {{background-color: green; font-style: italic}}
 </style>
 <title>Summary of CQ Performance for the past week</title>
@@ -621,27 +617,17 @@ The pre-CQ <b>rejected {bad_cl_precq_rejected} changes this week</b>, which woul
 
 <h2>CL handling times</h2>
 <p>
-The CL handling time was <b>{cl_handling_time_50:.2f} hours</b> 50%ile <b>{cl_handling_time_90:.2f} hours</b> 90%ile <a href="http://shortn/_bBdiNj0d83">history</a>.<br>
-Time spent in the CQ was <b>{cq_time_50:.2f} hours</b> 50%ile <b>{cq_time_90:.2f} hours</b> 90%ile <a href="http://shortn/_tuzlLWNWGy">history</a>.<br>
-Time spent waiting was <b>{wait_time_50:.2f} hours</b> 50%ile <b>{wait_time_90:.2f} hours</b> 90%ile <a href="http://shortn/_SzdPv7k7Ka">history</a>.<br>
-CQ run time was <b>{cq_run_time_50:.2f} hours</b> 50%ile <b>{cq_run_time_90:.2f} hours</b> 90%ile <a href="http://shortn/_aKsMeOcmJW">history</a>.<br>
-Pre-cq times available on <a href="http://shortn/_XK6xDPTof1">monarch history</a>.<br>
+(New!) See also <a href="http://shortn/_cN4FAtq4sP">CQ Weekly Summary Dashboard</a>.<br>
+The CL handling time was <b>{cl_handling_time_50:.2f} hours</b> 50%ile <b>{cl_handling_time_90:.2f} hours</b> 90%ile <a href="http://shortn/_DfXfGnzqow">history</a>.<br>
+Time spent in the CQ was <b>{cq_time_50:.2f} hours</b> 50%ile <b>{cq_time_90:.2f} hours</b> 90%ile <a href="http://shortn/_2yYTGswEKh">history</a>.<br>
+Time spent waiting was <b>{wait_time_50:.2f} hours</b> 50%ile <b>{wait_time_90:.2f} hours</b> 90%ile <a href="http://shortn/_e9vKXdSOjH">history</a>.<br>
+CQ run time was <b>{cq_run_time_50:.2f} hours</b> 50%ile <b>{cq_run_time_90:.2f} hours</b> 90%ile <a href="http://shortn/_STokpvKTaS">history</a>.<br>
+Pre-cq times available on <a href="http://shortn/_ZP8ivoYPUZ">monarch history</a>.<br>
+(New!) Wall-clock times times available on <a href="http://shortn/_qXixBiSDUA">monarch history</a>.<br>
 </p>
 
 <h2>Slowest Passing Slaves</h2>
-(this determination based on last-to-complete in otherwise passing builds)
-<table>
-  <tr>
-    <th>Slave</th>
-    <th>Times Slowest Slave</th>
-    <th>Median Time (hours)</th>
-    <th>90th Percentile (hours)</th>
-  </tr>
-{slow_slaves_html}
-</table>
-</p>
-
-A more accurate determination (which accounts for CQ self-destruct, relevance detection, and history-aware-submit logic) is available as a <A href="http://shortn/_RBQNer8DDk">monarch history</A>.
+The slowest passing slaves (accounting for CQ self-destruct, relevance detection, and history-aware-submit logic) are available as a <A href="http://shortn/_RBQNer8DDk">monarch history</A>.
 
 
 <h2>False rejections</h2>
@@ -651,11 +637,6 @@ The probability of a good patch being incorrectly rejected by the CQ or Pre-CQ i
 
 
 </p>
-
-<h2>Top reasons that good changes were rejected</h2>
-<table>
-{patch_reason_html}
-</table>
 
 <h2>Which issues or CLs caused the most false rejections this week?</h2>
 <i>Note: test flake may be caused by flake in the test itself, or flake in the product.</i><br>
@@ -680,24 +661,18 @@ def GenerateReport(file_out, summary):
   report = summary.copy()
   report['datetime'] = str(datetime.datetime.now())
 
-  slow_slaves_html = ''
-  for slave, count, per_50, per_90 in summary['slowest_cq_slaves']:
-    slow_slaves_html += '  <tr>\n'
-    slow_slaves_html += '    <td>{}</td>\n'.format(slave)
-    slow_slaves_html += '    <td>{:d}</td>\n'.format(count)
-    slow_slaves_html += '    <td>{:.2f}</td>\n'.format(per_50)
-    slow_slaves_html += '    <td>{:.2f}</td>\n'.format(per_90)
-    slow_slaves_html += '  </tr>\n'
-  report['slow_slaves_html'] = slow_slaves_html
-
   sorted_blame_counts = sorted([(v, k) for (k, v) in
                                 summary['patch_blame_counts'].iteritems()],
                                reverse=True)
+
+  category_pick = ('_<replace>Pick a category</replace>_ <badcl>Bad CL</badcl>'
+                   ' <bugtot>Product</bugtot> <infra>Infra</infra>')
+
   false_rejections = [{'id': blame, 'rejections': rejs}
                       for rejs, blame in sorted_blame_counts]
   flake_fmt = ('  <li><a href="http://{id}">{id}</a> (<b>{rejections} </b> '
-               'false rejections): _<replace>Brief explanation of bug. If '
-               'fixed, or describe workarounds</replace>_</li>')
+               'false rejections): %s _<replace>Brief explanation of bug. If '
+               'fixed, or describe workarounds</replace>_</li>' % category_pick)
   report['false_rejections_html'] = '\n'.join([flake_fmt.format(**x)
                                                for x in false_rejections])
 
@@ -707,8 +682,8 @@ def GenerateReport(file_out, summary):
   build_fails = [{'id': blame, 'fails': fails}
                  for fails, blame in sorted_fails]
   cl_flake_fmt = ('  <li><a href="http://{id}">{id}</a> '
-                  '(<b>{fails}</b> build failures): '
-                  '_<replace>explanation</replace>_</li>')
+                  '(<b>{fails}</b> build failures): %s '
+                  '_<replace>explanation</replace>_</li>' % category_pick)
   report['build_failures_html'] = '\n'.join([cl_flake_fmt.format(**x)
                                              for x in build_fails])
 

@@ -23,7 +23,6 @@
 #include "media/media_features.h"
 
 class BackgroundModeManager;
-class CRLSetFetcher;
 class DownloadRequestLimiter;
 class DownloadStatusUpdater;
 class GpuModeManager;
@@ -42,6 +41,10 @@ class WatchDogThread;
 #if BUILDFLAG(ENABLE_WEBRTC)
 class WebRtcLogUploader;
 #endif
+
+namespace content {
+class NetworkConnectionTracker;
+}
 
 namespace safe_browsing {
 class SafeBrowsingService;
@@ -92,6 +95,10 @@ namespace network_time {
 class NetworkTimeTracker;
 }
 
+namespace optimization_guide {
+class OptimizationGuideService;
+}
+
 namespace physical_web {
 class PhysicalWebDataSource;
 }
@@ -123,10 +130,6 @@ namespace safe_browsing {
 class ClientSideDetectionService;
 }
 
-namespace ukm {
-class UkmRecorder;
-}
-
 // NOT THREAD SAFE, call only from the main thread.
 // These functions shouldn't return NULL unless otherwise noted.
 class BrowserProcess {
@@ -155,7 +158,6 @@ class BrowserProcess {
   // Services: any of these getters may return NULL
   virtual metrics::MetricsService* metrics_service() = 0;
   virtual rappor::RapporServiceImpl* rappor_service() = 0;
-  virtual ukm::UkmRecorder* ukm_recorder() = 0;
   virtual ProfileManager* profile_manager() = 0;
   virtual PrefService* local_state() = 0;
   virtual net::URLRequestContextGetter* system_request_context() = 0;
@@ -190,6 +192,10 @@ class BrowserProcess {
   // is enabled. When the network service is not enabled, its NetworkContext is
   // backed by the IOThread's URLRequestContext.
   virtual SystemNetworkContextManager* system_network_context_manager() = 0;
+
+  // Returns a NetworkConnectionTracker that can be used to subscribe for
+  // network change events.
+  virtual content::NetworkConnectionTracker* network_connection_tracker() = 0;
 
   // Returns the thread that is used for health check of all browser threads.
   virtual WatchDogThread* watchdog_thread() = 0;
@@ -257,6 +263,11 @@ class BrowserProcess {
   virtual subresource_filter::ContentRulesetService*
   subresource_filter_ruleset_service() = 0;
 
+  // Returns the service used to provide hints for what optimizations can be
+  // performed on slow page loads.
+  virtual optimization_guide::OptimizationGuideService*
+  optimization_guide_service() = 0;
+
 #if (defined(OS_WIN) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
   // This will start a timer that, if Chrome is in persistent mode, will check
   // whether an update is available, and if that's the case, restart the
@@ -271,8 +282,6 @@ class BrowserProcess {
   virtual net_log::ChromeNetLog* net_log() = 0;
 
   virtual component_updater::ComponentUpdateService* component_updater() = 0;
-
-  virtual CRLSetFetcher* crl_set_fetcher() = 0;
 
   virtual component_updater::SupervisedUserWhitelistInstaller*
   supervised_user_whitelist_installer() = 0;

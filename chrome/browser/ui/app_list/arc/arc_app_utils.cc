@@ -27,7 +27,7 @@
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_util.h"
 #include "components/arc/common/intent_helper.mojom.h"
-#include "components/crx_file/id_util.h"
+#include "components/arc/intent_helper/arc_intent_helper_bridge.h"
 #include "ui/aura/window.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -55,10 +55,11 @@ namespace arc {
 
 namespace {
 
+// TODO(djacobo): Evaluate to build these strings by using
+// ArcIntentHelperBridge::AppendStringToIntentHelperPackageName.
 // Intent helper strings.
 constexpr char kIntentHelperClassName[] =
     "org.chromium.arc.intent_helper.SettingsReceiver";
-constexpr char kIntentHelperPackageName[] = "org.chromium.arc.intent_helper";
 constexpr char kSetInTouchModeIntent[] =
     "org.chromium.arc.intent_helper.SET_IN_TOUCH_MODE";
 constexpr char kShowTalkbackSettingsIntent[] =
@@ -118,8 +119,9 @@ bool Launch(content::BrowserContext* context,
     std::string extras_string;
     base::JSONWriter::Write(extras, &extras_string);
     intent_helper_instance->SendBroadcast(
-        kSetInTouchModeIntent, kIntentHelperPackageName, kIntentHelperClassName,
-        extras_string);
+        kSetInTouchModeIntent,
+        ArcIntentHelperBridge::kArcIntentHelperPackageName,
+        kIntentHelperClassName, extras_string);
   }
 
   if (app_info->shortcut || intent.has_value()) {
@@ -159,6 +161,9 @@ const char kPlayStorePackage[] = "com.android.vending";
 const char kPlayStoreActivity[] = "com.android.vending.AssetBrowserActivity";
 const char kSettingsAppId[] = "mconboelelhjpkbdhhiijkgcimoangdj";
 const char kInitialStartParam[] = "S.org.chromium.arc.start_type=initialStart";
+constexpr char kSettingsAppPackage[] = "com.android.settings";
+const char kSettingsAppDomainUrlActivity[] =
+    "com.android.settings.Settings$ManageDomainUrlsActivity";
 
 bool ShouldShowInLauncher(const std::string& app_id) {
   for (auto* const id : kAppIdsHiddenInLauncher) {
@@ -283,6 +288,16 @@ bool LaunchAppWithIntent(content::BrowserContext* context,
   return Launch(context, app_id, launch_intent, event_flags, display_id);
 }
 
+bool LaunchSettingsAppActivity(content::BrowserContext* context,
+                               const std::string& activity,
+                               int event_flags,
+                               int64_t display_id) {
+  const std::string launch_intent = GetLaunchIntent(
+      kSettingsAppPackage, activity, std::vector<std::string>());
+  return LaunchAppWithIntent(context, kSettingsAppId, launch_intent,
+                             event_flags, display_id);
+}
+
 void SetTaskActive(int task_id) {
   arc::mojom::AppInstance* app_instance = GET_APP_INSTANCE(SetTaskActive);
   if (!app_instance)
@@ -303,9 +318,10 @@ void ShowTalkBackSettings() {
   if (!intent_helper_instance)
     return;
 
-  intent_helper_instance->SendBroadcast(kShowTalkbackSettingsIntent,
-                                        kIntentHelperPackageName,
-                                        kIntentHelperClassName, "{}");
+  intent_helper_instance->SendBroadcast(
+      kShowTalkbackSettingsIntent,
+      ArcIntentHelperBridge::kArcIntentHelperPackageName,
+      kIntentHelperClassName, "{}");
 }
 
 void StartPaiFlow() {
@@ -378,11 +394,9 @@ bool ShowPackageInfo(const std::string& package_name,
 bool IsArcItem(content::BrowserContext* context, const std::string& id) {
   DCHECK(context);
 
-  // Some unit tests use empty id; some ids are not valid crx ids.
-  if (id.empty() || !crx_file::id_util::IdIsValid(id)) {
-    DLOG_IF(WARNING, !id.empty()) << "Invalid crx app id: " << id;
+  // Some unit tests use empty id.
+  if (id.empty())
     return false;
-  }
 
   const ArcAppListPrefs* const arc_prefs = ArcAppListPrefs::Get(context);
   if (!arc_prefs)

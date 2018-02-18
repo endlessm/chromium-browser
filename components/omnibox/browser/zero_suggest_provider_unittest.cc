@@ -4,13 +4,15 @@
 
 #include "components/omnibox/browser/zero_suggest_provider.h"
 
+#include <map>
+#include <string>
+
 #include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_task_environment.h"
 #include "components/history/core/browser/top_sites.h"
-#include "components/metrics/proto/omnibox_event.pb.h"
 #include "components/omnibox/browser/autocomplete_provider_listener.h"
 #include "components/omnibox/browser/mock_autocomplete_provider_client.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
@@ -25,6 +27,7 @@
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/metrics_proto/omnibox_event.pb.h"
 
 namespace {
 class FakeEmptyTopSites : public history::TopSites {
@@ -216,7 +219,6 @@ void ZeroSuggestProviderTest::ResetFieldTrialList() {
 
 void ZeroSuggestProviderTest::CreatePersonalizedFieldTrial() {
   std::map<std::string, std::string> params;
-  params[std::string(OmniboxFieldTrial::kZeroSuggestRule)] = "true";
   params[std::string(OmniboxFieldTrial::kZeroSuggestVariantRule)] =
       "Personalized";
   variations::AssociateVariationParams(
@@ -227,7 +229,6 @@ void ZeroSuggestProviderTest::CreatePersonalizedFieldTrial() {
 
 void ZeroSuggestProviderTest::CreateMostVisitedFieldTrial() {
   std::map<std::string, std::string> params;
-  params[std::string(OmniboxFieldTrial::kZeroSuggestRule)] = "true";
   params[std::string(OmniboxFieldTrial::kZeroSuggestVariantRule)] =
       "MostVisitedWithoutSERP";
   variations::AssociateVariationParams(
@@ -332,6 +333,8 @@ TEST_F(ZeroSuggestProviderTest, TestMostVisitedNavigateToSearchPage) {
 
 TEST_F(ZeroSuggestProviderTest, TestPsuggestZeroSuggestCachingFirstRun) {
   CreatePersonalizedFieldTrial();
+  EXPECT_CALL(*client_.get(), IsAuthenticated())
+      .WillRepeatedly(testing::Return(true));
 
   // Ensure the cache is empty.
   PrefService* prefs = client_->GetPrefs();
@@ -367,6 +370,8 @@ TEST_F(ZeroSuggestProviderTest, TestPsuggestZeroSuggestCachingFirstRun) {
 
 TEST_F(ZeroSuggestProviderTest, TestPsuggestZeroSuggestHasCachedResults) {
   CreatePersonalizedFieldTrial();
+  EXPECT_CALL(*client_.get(), IsAuthenticated())
+      .WillRepeatedly(testing::Return(true));
 
   std::string url("http://www.cnn.com/");
   AutocompleteInput input(base::ASCIIToUTF16(url),
@@ -414,6 +419,8 @@ TEST_F(ZeroSuggestProviderTest, TestPsuggestZeroSuggestHasCachedResults) {
 
 TEST_F(ZeroSuggestProviderTest, TestPsuggestZeroSuggestReceivedEmptyResults) {
   CreatePersonalizedFieldTrial();
+  EXPECT_CALL(*client_.get(), IsAuthenticated())
+      .WillRepeatedly(testing::Return(true));
 
   std::string url("http://www.cnn.com/");
   AutocompleteInput input(base::ASCIIToUTF16(url),

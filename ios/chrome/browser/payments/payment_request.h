@@ -37,6 +37,8 @@ namespace payments {
 class AutofillPaymentInstrument;
 class CurrencyFormatter;
 class PaymentDetails;
+class PaymentDetailsModifier;
+class PaymentItem;
 class PaymentShippingOption;
 }  // namespace payments
 
@@ -145,6 +147,15 @@ class PaymentRequest : public PaymentOptionsProvider,
 
   // Returns the JourneyLogger for this instance.
   JourneyLogger& journey_logger() { return journey_logger_; }
+
+  // Returns the total object of this payment request, taking into account the
+  // applicable modifier for |selected_instrument|, if any.
+  const PaymentItem& GetTotal(PaymentInstrument* selected_instrument) const;
+
+  // Returns the display items for this payment request, taking into account the
+  // applicable modifier for |selected_instrument|, if any.
+  std::vector<PaymentItem> GetDisplayItems(
+      PaymentInstrument* selected_instrument) const;
 
   // Updates the payment details of the |web_payment_request_|. It also updates
   // the cached references to the shipping options in |web_payment_request_| as
@@ -280,6 +291,16 @@ class PaymentRequest : public PaymentOptionsProvider,
   // Returns whether the current PaymentRequest can be used to make a payment.
   bool CanMakePayment() const;
 
+  // Returns YES if there's a selected payment method. If shipping is requested,
+  // there must be a selected shipping address and a shipping option, otherwise
+  // returns NO. If contact info is requeted, there must be a selected contact
+  // info, otherwise returns NO.
+  bool IsAbleToPay();
+
+  // Returns YES if either payer's name, phone number, or email address are
+  // requested and NO otherwise.
+  bool RequestContactInfo();
+
   // Invokes the appropriate payment app for the selected payment method.
   void InvokePaymentApp(id<PaymentResponseHelperConsumer> consumer);
 
@@ -290,6 +311,11 @@ class PaymentRequest : public PaymentOptionsProvider,
   void RecordUseStats();
 
  protected:
+  // Returns the first applicable modifier in the Payment Request for the
+  // |selected_instrument|.
+  const PaymentDetailsModifier* GetApplicableModifier(
+      PaymentInstrument* selected_instrument) const;
+
   // Fetches the autofill profiles for this user from the PersonalDataManager,
   // and stores copies of them, owned by this PaymentRequest, in profile_cache_.
   void PopulateProfileCache();

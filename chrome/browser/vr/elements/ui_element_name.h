@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_VR_ELEMENTS_UI_ELEMENT_NAME_H_
 #define CHROME_BROWSER_VR_ELEMENTS_UI_ELEMENT_NAME_H_
 
+#include <string>
+
 namespace vr {
 
 // These identifiers serve as stable, semantic identifiers for UI elements.
@@ -19,10 +21,22 @@ enum UiElementName {
   kWebVrRoot,
   kWebVrViewportAwareRoot,
   kContentQuad,
+  kControllerRoot,
+  kControllerGroup,
+  kLaser,
+  kController,
+  kReticle,
   kBackplane,
   kCeiling,
   kFloor,
   kUrlBar,
+  kOmniboxRoot,
+  kOmniboxContainer,
+  kOmniboxTextField,
+  kOmniboxClearTextFieldButton,
+  kOmniboxCloseButton,
+  kOmniboxSuggestions,
+  k2dBrowsingVisibiltyControlForOmnibox,
   kIndicatorLayout,
   kAudioCaptureIndicator,
   kVideoCaptureIndicator,
@@ -30,11 +44,16 @@ enum UiElementName {
   kLocationAccessIndicator,
   kBluetoothConnectedIndicator,
   kLoadingIndicator,
+  kLoadingIndicatorForeground,
   kCloseButton,
+  kVoiceSearchButton,
   kScreenDimmer,
   kExitWarning,
   kExitPrompt,
   kExitPromptBackplane,
+  kAudioPermissionPrompt,
+  kAudioPermissionPromptShadow,
+  kAudioPermissionPromptBackplane,
   kWebVrUrlToastTransientParent,
   kWebVrUrlToast,
   kExclusiveScreenToastTransientParent,
@@ -53,7 +72,31 @@ enum UiElementName {
   kBackgroundTop,
   kBackgroundBottom,
   kUnderDevelopmentNotice,
+  kWebVrTimeoutSpinner,
+  kWebVrTimeoutSpinnerBackground,
+  kWebVrTimeoutMessage,
+  kWebVrTimeoutMessageLayout,
+  kWebVrTimeoutMessageIcon,
+  kWebVrTimeoutMessageText,
+  kWebVrTimeoutMessageButton,
+  kWebVrTimeoutMessageButtonText,
+  kSpeechRecognitionRoot,
+  kSpeechRecognitionResult,
+  kSpeechRecognitionResultText,
+  kSpeechRecognitionResultCircle,
+  kSpeechRecognitionResultMicrophoneIcon,
+  kSpeechRecognitionResultBackplane,
+  kSpeechRecognitionListening,
+  kSpeechRecognitionListeningGrowingCircle,
+  kSpeechRecognitionListeningInnerCircle,
+  kSpeechRecognitionListeningMicrophoneIcon,
+  kSpeechRecognitionListeningCloseButton,
+
+  // This must be last.
+  kNumUiElementNames,
 };
+
+std::string UiElementNameToString(UiElementName name);
 
 }  // namespace vr
 

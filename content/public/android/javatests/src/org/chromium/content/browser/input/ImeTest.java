@@ -8,10 +8,16 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.res.Configuration;
+import android.graphics.Color;
 import android.support.test.filters.MediumTest;
 import android.support.test.filters.SmallTest;
 import android.text.InputType;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.BackgroundColorSpan;
+import android.text.style.UnderlineSpan;
 import android.view.KeyEvent;
+import android.view.ViewConfiguration;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 
@@ -22,6 +28,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content.browser.test.ContentJUnit4ClassRunner;
@@ -29,15 +36,18 @@ import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
 import org.chromium.content.browser.test.util.JavaScriptUtils;
+import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.ime.TextInputType;
 
 import java.util.ArrayList;
 import java.util.concurrent.Callable;
+import java.util.concurrent.TimeoutException;
 
 /**
  * IME (input method editor) and text input tests.
  */
 @RunWith(ContentJUnit4ClassRunner.class)
+@CommandLineFlags.Add({"expose-internals-for-testing"})
 public class ImeTest {
     @Rule
     public ImeActivityTestRule mRule = new ImeActivityTestRule();
@@ -172,6 +182,9 @@ public class ImeTest {
         mRule.waitAndVerifyUpdateSelection(2, 3, 3, 2, 3);
 
         // Unexpected selection change occurs, e.g., the user clicks on an area.
+        // There was already one click during test setup; we have to wait out the double-tap
+        // timeout or the test will be flaky.
+        Thread.sleep(ViewConfiguration.getDoubleTapTimeout());
         DOMUtils.clickNode(mRule.getContentViewCore(), "textarea2");
         mRule.waitAndVerifyUpdateSelection(3, 5, 5, 2, 3);
         // Keyboard app finishes composition. We emulate this in TestInputMethodManagerWrapper.
@@ -700,6 +713,7 @@ public class ImeTest {
     @Test
     @SmallTest
     @Feature({"TextInput"})
+    @SuppressWarnings("TryFailThrowable") // TODO(tedchoc): Remove after fixing timeout.
     public void testPhysicalKeyboard_AttachDetach() throws Throwable {
         attachPhysicalKeyboard();
         // We still call showSoftKeyboard, which will be ignored by physical keyboard.
@@ -1252,12 +1266,37 @@ public class ImeTest {
     @SmallTest
     @Feature({"TextInput", "Main"})
     public void testDpadKeyCodesWhileSwipingText() throws Throwable {
+        int showCount = mRule.getInputMethodManagerWrapper().getShowSoftInputCounter();
         mRule.focusElement("textarea");
 
-        // DPAD_CENTER should cause keyboard to appear
+        // focusElement() calls showSoftInput().
+        CriteriaHelper.pollUiThread(Criteria.equals(showCount + 1, new Callable<Integer>() {
+            @Override
+            public Integer call() {
+                return mRule.getInputMethodManagerWrapper().getShowSoftInputCounter();
+            }
+        }));
+
+        // DPAD_CENTER should cause keyboard to appear on keyup.
         mRule.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER));
 
-        // TODO(changwan): should really check this.
+        // Should not have called showSoftInput() on keydown.
+        CriteriaHelper.pollUiThread(Criteria.equals(showCount + 1, new Callable<Integer>() {
+            @Override
+            public Integer call() {
+                return mRule.getInputMethodManagerWrapper().getShowSoftInputCounter();
+            }
+        }));
+
+        mRule.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER));
+
+        // Should have called showSoftInput() on keyup.
+        CriteriaHelper.pollUiThread(Criteria.equals(showCount + 2, new Callable<Integer>() {
+            @Override
+            public Integer call() {
+                return mRule.getInputMethodManagerWrapper().getShowSoftInputCounter();
+            }
+        }));
     }
 
     @Test
@@ -1615,4 +1654,117 @@ public class ImeTest {
         }));
     }
 
+    @Test
+    @MediumTest
+    @Feature({"TextInput"})
+    public void testBackgroundAndUnderlineSpans() throws Throwable {
+        mRule.fullyLoadUrl("data:text/html, <div contenteditable id=\"div\" />");
+
+        WebContents webContents = mRule.getContentViewCore().getWebContents();
+        DOMUtils.focusNode(webContents, "div");
+
+        SpannableString textToCommit = new SpannableString("hello world");
+        BackgroundColorSpan backgroundColorSpan = new BackgroundColorSpan(Color.MAGENTA);
+        UnderlineSpan underlineSpan = new UnderlineSpan();
+        textToCommit.setSpan(backgroundColorSpan, 0, 5, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        textToCommit.setSpan(underlineSpan, 6, 11, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        mRule.commitText(textToCommit, 1);
+
+        // Wait for renderer to acknowledge commitText(). ImeActivityTestRule.commitText() blocks
+        // and waits for the IME thread to finish, but the communication between the IME thread and
+        // the renderer is asynchronous, so if we try to run JavaScript right away, the text won't
+        // necessarily have been committed yet.
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
+            @Override
+            public boolean isSatisfied() {
+                try {
+                    return DOMUtils.getNodeContents(webContents, "div").equals("hello world");
+                } catch (InterruptedException | TimeoutException e) {
+                    return false;
+                }
+            }
+        });
+
+        Assert.assertEquals("2",
+                JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents,
+                        "internals.markerCountForNode("
+                                + "  document.getElementById('div').firstChild, "
+                                + "  'composition')"));
+
+        // Colors come back as ARGB.
+        Assert.assertEquals(0xFFFF00FFL,
+                (long) Double.parseDouble(
+                        JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents,
+                                "internals.markerBackgroundColorForNode("
+                                        + "  document.getElementById('div').firstChild, "
+                                        + "  'composition', 0)")));
+
+        Assert.assertEquals(0x0000000L,
+                (long) Double.parseDouble(
+                        JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents,
+                                "internals.markerBackgroundColorForNode("
+                                        + "  document.getElementById('div').firstChild, "
+                                        + "  'composition', 1)")));
+
+        Assert.assertEquals(0x0000000L,
+                (long) Double.parseDouble(
+                        JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents,
+                                "internals.markerUnderlineColorForNode("
+                                        + "  document.getElementById('div').firstChild, "
+                                        + "  'composition', 0)")));
+
+        Assert.assertEquals(0xFF000000L,
+                (long) Double.parseDouble(
+                        JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents,
+                                "internals.markerUnderlineColorForNode("
+                                        + "  document.getElementById('div').firstChild, "
+                                        + "  'composition', 1)")));
+
+        Assert.assertEquals("0",
+                JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents,
+                        "internals.markerRangeForNode("
+                                + "  document.getElementById('div').firstChild, "
+                                + "  'composition', 0).startOffset"));
+
+        Assert.assertEquals("5",
+                JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents,
+                        "internals.markerRangeForNode("
+                                + "  document.getElementById('div').firstChild, "
+                                + "  'composition', 0).endOffset"));
+
+        Assert.assertEquals("6",
+                JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents,
+                        "internals.markerRangeForNode("
+                                + "  document.getElementById('div').firstChild, "
+                                + "  'composition', 1).startOffset"));
+
+        Assert.assertEquals("11",
+                JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents,
+                        "internals.markerRangeForNode("
+                                + "  document.getElementById('div').firstChild, "
+                                + "  'composition', 1).endOffset"));
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"TextInput"})
+    public void testAutocorrectAttribute() throws Exception {
+        // Autocorrect should be on for a text field that doesn't have an autocorrect attribute.
+        mRule.focusElement("input_text");
+        Assert.assertEquals(EditorInfo.TYPE_TEXT_FLAG_AUTO_CORRECT,
+                mRule.getConnectionFactory().getOutAttrs().inputType
+                        & EditorInfo.TYPE_TEXT_FLAG_AUTO_CORRECT);
+
+        // Autocorrect should be on for a text field that has autocorrect="on" set.
+        mRule.focusElement("autocorrect_on");
+        Assert.assertEquals(EditorInfo.TYPE_TEXT_FLAG_AUTO_CORRECT,
+                mRule.getConnectionFactory().getOutAttrs().inputType
+                        & EditorInfo.TYPE_TEXT_FLAG_AUTO_CORRECT);
+
+        // Autocorrect should be off for a text field that has autocorrect="off" set.
+        mRule.focusElement("autocorrect_off");
+        Assert.assertEquals(0,
+                mRule.getConnectionFactory().getOutAttrs().inputType
+                        & EditorInfo.TYPE_TEXT_FLAG_AUTO_CORRECT);
+    }
 }

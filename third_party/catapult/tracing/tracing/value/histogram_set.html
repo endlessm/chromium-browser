@@ -76,18 +76,27 @@ tr.exportTo('tr.v', function() {
     }
 
     /**
-     * Add a Diagnostic to all Histograms in this HistogramSet in such a way
-     * that it will only be serialized once rather than once per Histogram.
+     * Add a Diagnostic to all Histograms so that it will only be serialized
+     * once per HistogramSet rather than once per Histogram that contains it.
      *
      * @param {string} name
      * @param {!tr.v.d.Diagnostic} diagnostic
      */
-    addSharedDiagnostic(name, diagnostic) {
-      this.sharedDiagnosticsByGuid_.set(diagnostic.guid, diagnostic);
-
+    addSharedDiagnosticToAllHistograms(name, diagnostic) {
+      this.addSharedDiagnostic(diagnostic);
       for (const hist of this) {
         hist.diagnostics.set(name, diagnostic);
       }
+    }
+
+    /**
+     * Add a Diagnostic to this HistogramSet so that it will only be serialized
+     * once per HistogramSet rather than once per Histogram that contains it.
+     *
+     * @param {!tr.v.d.Diagnostic} diagnostic
+     */
+    addSharedDiagnostic(diagnostic) {
+      this.sharedDiagnosticsByGuid_.set(diagnostic.guid, diagnostic);
     }
 
     get length() {
@@ -159,8 +168,6 @@ tr.exportTo('tr.v', function() {
       };
 
       for (const hist of this) {
-        hist.diagnostics.resolveSharedDiagnostics(this);
-
         handleDiagnosticMap(hist.diagnostics);
 
         for (const dm of hist.nanDiagnosticMaps) {
@@ -188,7 +195,9 @@ tr.exportTo('tr.v', function() {
           this.sharedDiagnosticsByGuid_.set(dict.guid,
               tr.v.d.Diagnostic.fromDict(dict));
         } else {
-          this.addHistogram(tr.v.Histogram.fromDict(dict));
+          const hist = tr.v.Histogram.fromDict(dict);
+          this.addHistogram(hist);
+          hist.diagnostics.resolveSharedDiagnostics(this, true);
         }
       }
     }
@@ -217,7 +226,25 @@ tr.exportTo('tr.v', function() {
      * @return {!Array.<!tr.v.Histogram>}
      */
     get sourceHistograms() {
-      const sourceHistograms = new Map(this.histogramsByGuid_);
+      const diagnosticNames = new Set();
+      for (const hist of this) {
+        for (const diagnostic of hist.diagnostics.values()) {
+          if (!(diagnostic instanceof tr.v.d.RelatedNameMap)) continue;
+          for (const name of diagnostic.values()) {
+            diagnosticNames.add(name);
+          }
+        }
+      }
+
+      const sourceHistograms = new Map();
+      for (const hist of this) {
+        if (!diagnosticNames.has(hist.name)) {
+          sourceHistograms.set(hist.guid, hist);
+        }
+      }
+
+      // TODO(#3761) Remove the rest of this function with RelatedHistogramMap.
+
       // If a Histogram is in a RelatedHistogramMap,
       // which can be owned either by Histograms or by numeric samples, then it
       // is not a source Histogram.
@@ -302,7 +329,11 @@ tr.exportTo('tr.v', function() {
 
       for (const hist of this) {
         for (const [name, candidate] of hist.diagnostics) {
-          if (candidate.equals === undefined) continue;
+          // TODO(#3695): Remove this check once equality is smoke-tested.
+          if (candidate.equals === undefined) {
+            this.sharedDiagnosticsByGuid_.set(candidate.guid, candidate);
+            continue;
+          }
 
           diagnosticsToHistograms.set(candidate, hist);
 
@@ -314,28 +345,25 @@ tr.exportTo('tr.v', function() {
       }
 
       for (const [name, candidates] of namesToCandidates) {
-        const diagnosticsToCounts = new Map();
+        const deduplicatedDiagnostics = new Set();
 
         for (const candidate of candidates) {
           let found = false;
-          for (const [test, count] of diagnosticsToCounts) {
+          for (const test of deduplicatedDiagnostics) {
             if (candidate.equals(test)) {
               const hist = diagnosticsToHistograms.get(candidate);
               hist.diagnostics.set(name, test);
-              diagnosticsToCounts.set(test, count + 1);
               found = true;
               break;
             }
           }
           if (!found) {
-            diagnosticsToCounts.set(candidate, 1);
+            deduplicatedDiagnostics.add(candidate);
           }
         }
 
-        for (const [diagnostic, count] of diagnosticsToCounts) {
-          if (count > 1) {
-            this.sharedDiagnosticsByGuid_.set(diagnostic.guid, diagnostic);
-          }
+        for (const diagnostic of deduplicatedDiagnostics) {
+          this.sharedDiagnosticsByGuid_.set(diagnostic.guid, diagnostic);
         }
       }
     }

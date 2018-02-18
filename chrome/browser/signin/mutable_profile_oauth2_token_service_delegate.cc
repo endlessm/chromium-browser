@@ -11,10 +11,10 @@
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "components/signin/core/browser/profile_management_switches.h"
 #include "components/signin/core/browser/signin_client.h"
 #include "components/signin/core/browser/signin_metrics.h"
 #include "components/signin/core/browser/webdata/token_web_data.h"
-#include "components/signin/core/common/profile_management_switches.h"
 #include "components/webdata/common/web_data_service_base.h"
 #include "google_apis/gaia/gaia_auth_fetcher.h"
 #include "google_apis/gaia/gaia_auth_util.h"
@@ -282,8 +282,7 @@ void MutableProfileOAuth2TokenServiceDelegate::LoadCredentials(
   }
 
   load_credentials_state_ = LOAD_CREDENTIALS_IN_PROGRESS;
-  if (primary_account_id.empty() &&
-      !signin::IsAccountConsistencyDiceEnabled()) {
+  if (primary_account_id.empty() && !signin::IsDicePrepareMigrationEnabled()) {
     load_credentials_state_ = LOAD_CREDENTIALS_FINISHED_WITH_SUCCESS;
     FireRefreshTokensLoaded();
     return;
@@ -344,7 +343,7 @@ void MutableProfileOAuth2TokenServiceDelegate::OnWebDataServiceRequestDone(
   // map.  The entry could be missing if there is a corruption in the token DB
   // while this profile is connected to an account.
   DCHECK(!loading_primary_account_id_.empty() ||
-         signin::IsAccountConsistencyDiceEnabled());
+         signin::IsDicePrepareMigrationEnabled());
   if (!loading_primary_account_id_.empty() &&
       refresh_tokens_.count(loading_primary_account_id_) == 0) {
     refresh_tokens_[loading_primary_account_id_].reset(new AccountStatus(
@@ -432,7 +431,7 @@ void MutableProfileOAuth2TokenServiceDelegate::LoadAllCredentialsIntoMemory(
 
         // Only load secondary accounts when account consistency is enabled.
         if (account_id == loading_primary_account_id_ ||
-            signin::IsAccountConsistencyDiceEnabled() ||
+            signin::IsDicePrepareMigrationEnabled() ||
             signin::IsAccountConsistencyMirrorEnabled()) {
           refresh_tokens_[account_id].reset(new AccountStatus(
               signin_error_controller_, account_id, refresh_token));

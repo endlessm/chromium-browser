@@ -134,7 +134,7 @@ bool MatchOutputCodeTest::compileWithSettings(ShShaderOutput output,
                                               std::string *translatedCode,
                                               std::string *infoLog)
 {
-    return compileTestShader(mShaderType, SH_GLES3_SPEC, output, shaderString, &mResources,
+    return compileTestShader(mShaderType, SH_GLES3_1_SPEC, output, shaderString, &mResources,
                              compileOptions, translatedCode, infoLog);
 }
 
@@ -153,6 +153,29 @@ size_t MatchOutputCodeTest::findInCode(ShShaderOutput output, const char *string
     }
 
     return code->second.find(stringToFind);
+}
+
+bool MatchOutputCodeTest::foundInCodeInOrder(ShShaderOutput output,
+                                             std::vector<const char *> stringsToFind)
+{
+    const auto code = mOutputCode.find(output);
+    EXPECT_NE(mOutputCode.end(), code);
+    if (code == mOutputCode.end())
+    {
+        return false;
+    }
+
+    size_t currentPos = 0;
+    for (const char *stringToFind : stringsToFind)
+    {
+        auto position = code->second.find(stringToFind, currentPos);
+        if (position == std::string::npos)
+        {
+            return false;
+        }
+        currentPos = position + strlen(stringToFind);
+    }
+    return true;
 }
 
 bool MatchOutputCodeTest::foundInCode(ShShaderOutput output,
@@ -197,6 +220,18 @@ bool MatchOutputCodeTest::foundInCode(const char *stringToFind, const int expect
     for (auto &code : mOutputCode)
     {
         if (!foundInCode(code.first, stringToFind, expectedOccurrences))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool MatchOutputCodeTest::foundInCodeInOrder(std::vector<const char *> stringsToFind)
+{
+    for (auto &code : mOutputCode)
+    {
+        if (!foundInCodeInOrder(code.first, stringsToFind))
         {
             return false;
         }

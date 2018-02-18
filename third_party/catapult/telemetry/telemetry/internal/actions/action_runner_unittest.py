@@ -40,7 +40,8 @@ class ActionRunnerInteractionTest(tab_test_case.TabTestCase):
     with action_runner.CreateInteraction('InteractionName',
                                          **interaction_kwargs):
       pass
-    trace_data = self._browser.platform.tracing_controller.StopTracing()
+    trace_data, errors = self._browser.platform.tracing_controller.StopTracing()
+    self.assertEqual(errors, [])
 
     records = self.GetInteractionRecords(trace_data)
     self.assertEqual(
@@ -82,7 +83,9 @@ class ActionRunnerMeasureMemoryTest(tab_test_case.TabTestCase):
     try:
       dump_id = self.action_runner.MeasureMemory(deterministic_mode)
     finally:
-      trace_data = self._browser.platform.tracing_controller.StopTracing()
+      trace_data, errors = (
+          self._browser.platform.tracing_controller.StopTracing())
+      self.assertEqual(errors, [])
 
     # If successful, i.e. we haven't balied out due to an exception, check
     # that we can find our dump in the trace.
@@ -448,6 +451,24 @@ class ActionRunnerTest(tab_test_case.TabTestCase):
     self._tab.WaitForJavaScriptCondition(
         'document.querySelector("textarea").value === "This is interesting"',
         timeout=1)
+
+  @decorators.Enabled('chromeos')
+  def testOverviewMode(self):
+    action_runner = action_runner_module.ActionRunner(
+        self._tab, skip_waits=True)
+    # TODO(chiniforooshan): Currently, there is no easy way to verify that the
+    # browser has actually entered to/exited from the overview mode. For now, we
+    # just make sure that the actions do not raise exception.
+    #
+    # One could at least try to capture screenshots before and after entering
+    # overview mode and check if they are different, showing that something has
+    # happened. But, for some reason taking CrOS screenshots is not properly
+    # working.
+    #
+    # https://github.com/catapult-project/catapult/issues/4043
+
+    action_runner.EnterOverviewMode()
+    action_runner.ExitOverviewMode()
 
 
 class InteractionTest(unittest.TestCase):

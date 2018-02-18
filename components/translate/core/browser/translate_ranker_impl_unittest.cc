@@ -14,24 +14,25 @@
 #include "base/task_scheduler/post_task.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_task_environment.h"
-#include "components/machine_intelligence/proto/ranker_model.pb.h"
-#include "components/machine_intelligence/proto/translate_ranker_model.pb.h"
-#include "components/machine_intelligence/ranker_model.h"
-#include "components/metrics/proto/translate_event.pb.h"
-#include "components/metrics/proto/ukm/source.pb.h"
+#include "components/assist_ranker/proto/ranker_model.pb.h"
+#include "components/assist_ranker/proto/translate_ranker_model.pb.h"
+#include "components/assist_ranker/ranker_model.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "components/ukm/ukm_source.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_request_test_util.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/metrics_proto/translate_event.pb.h"
+#include "third_party/metrics_proto/ukm/source.pb.h"
 #include "url/gurl.h"
 
 namespace {
 
-using translate::kTranslateRankerEnforcement;
-using translate::kTranslateRankerQuery;
 using translate::kTranslateRankerAutoBlacklistOverride;
+using translate::kTranslateRankerEnforcement;
 using translate::kTranslateRankerPreviousLanguageMatchesOverride;
+using translate::kTranslateRankerQuery;
 using translate::TranslateRankerFeatures;
 using translate::TranslateRankerImpl;
 
@@ -74,10 +75,10 @@ class TranslateRankerImplTest : public ::testing::Test {
       CreateTranslateEvent("es", "de", "de", 4, 5, 6);
 
  private:
-  ukm::TestAutoSetUkmRecorder test_ukm_recorder_;
-
   // Sets up the task scheduling/task-runner environment for each test.
   base::test::ScopedTaskEnvironment scoped_task_environment_;
+
+  ukm::TestAutoSetUkmRecorder test_ukm_recorder_;
 
   // Manages the enabling/disabling of features within the scope of a test.
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -95,11 +96,11 @@ void TranslateRankerImplTest::InitFeatures(
 
 std::unique_ptr<TranslateRankerImpl> TranslateRankerImplTest::GetRankerForTest(
     float threshold) {
-  auto model = base::MakeUnique<machine_intelligence::RankerModel>();
+  auto model = base::MakeUnique<assist_ranker::RankerModel>();
   model->mutable_proto()->mutable_translate()->set_version(kModelVersion);
   auto* details = model->mutable_proto()
                       ->mutable_translate()
-                      ->mutable_logistic_regression_model();
+                      ->mutable_translate_logistic_regression_model();
   if (threshold > 0.0) {
     details->set_threshold(threshold);
   }
@@ -368,13 +369,21 @@ TEST_F(TranslateRankerImplTest, RecordAndFlushEvents) {
   ranker->FlushTranslateEvents(&flushed_events);
   EXPECT_EQ(0U, flushed_events.size());
 
-  ASSERT_EQ(2U, GetTestUkmRecorder()->sources_count());
-  EXPECT_EQ(
-      url0.spec(),
-      GetTestUkmRecorder()->GetSourceForUrl(url0.spec().c_str())->url().spec());
-  EXPECT_EQ(
-      url1.spec(),
-      GetTestUkmRecorder()->GetSourceForUrl(url1.spec().c_str())->url().spec());
+  const auto& entries = GetTestUkmRecorder()->GetEntriesByName(
+      ukm::builders::Translate::kEntryName);
+  EXPECT_EQ(2u, entries.size());
+  bool has_url0 = false;
+  bool has_url1 = false;
+  for (const auto* entry : entries) {
+    const ukm::UkmSource* source =
+        GetTestUkmRecorder()->GetSourceForSourceId(entry->source_id);
+    if (source && source->url() == url0)
+      has_url0 = true;
+    else if (source && source->url() == url1)
+      has_url1 = true;
+  }
+  EXPECT_TRUE(has_url0);
+  EXPECT_TRUE(has_url1);
 }
 
 TEST_F(TranslateRankerImplTest, EnableLogging) {

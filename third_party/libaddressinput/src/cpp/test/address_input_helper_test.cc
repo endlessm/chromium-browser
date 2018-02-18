@@ -18,7 +18,6 @@
 #include <libaddressinput/callback.h>
 #include <libaddressinput/null_storage.h>
 #include <libaddressinput/preload_supplier.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <memory>
 #include <string>
@@ -34,13 +33,16 @@ namespace {
 using i18n::addressinput::AddressData;
 using i18n::addressinput::AddressInputHelper;
 using i18n::addressinput::BuildCallback;
-using i18n::addressinput::Callback;
 using i18n::addressinput::MockSource;
 using i18n::addressinput::NullStorage;
 using i18n::addressinput::PreloadSupplier;
 using i18n::addressinput::TestdataSource;
 
 class AddressInputHelperTest : public testing::Test {
+ public:
+  AddressInputHelperTest(const AddressInputHelperTest&) = delete;
+  AddressInputHelperTest& operator=(const AddressInputHelperTest&) = delete;
+
  protected:
   AddressInputHelperTest()
       // Our PreloadSupplier loads all data for a country at a time.
@@ -65,7 +67,6 @@ class AddressInputHelperTest : public testing::Test {
   PreloadSupplier supplier_;
   const AddressInputHelper address_input_helper_;
   const std::unique_ptr<const PreloadSupplier::Callback> loaded_;
-  DISALLOW_COPY_AND_ASSIGN(AddressInputHelperTest);
 };
 
 TEST_F(AddressInputHelperTest, AddressWithMissingPostalCode) {
@@ -106,11 +107,11 @@ TEST_F(AddressInputHelperTest, AddressWithPostalCodeMatchingLowerLevel) {
   address.region_code = "TW";
   address.postal_code = "53012";
 
-  /* This matches 二水鄉 - Ershuei Township. */
+  // This matches 二水鄉 - Ershuei Township.
   AddressData expected = address;
-  /* This locality is in 彰化縣 - Changhua County. */
-  expected.administrative_area = "\xE5\xBD\xB0\xE5\x8C\x96\xE7\xB8\xA3";
-  expected.locality = "\xE4\xBA\x8C\xE6\xB0\xB4\xE9\x84\x89";
+  // This locality is in 彰化縣 - Changhua County.
+  expected.administrative_area = u8"彰化縣";
+  expected.locality = u8"二水鄉";
   FillAddress(&address);
   EXPECT_EQ(expected, address);
 
@@ -129,9 +130,9 @@ TEST_F(AddressInputHelperTest, AddressWithPostalCodeMatchingLowerLevelLatin) {
   address.postal_code = "53012";
   address.language_code = "zh-Latn";
 
-  /* This matches 二水鄉 - Ershuei Township. */
+  // This matches 二水鄉 - Ershuei Township.
   AddressData expected = address;
-  /* This locality is in 彰化縣 - Changhua County. */
+  // This locality is in 彰化縣 - Changhua County.
   expected.locality = "Ershuei Township";
   expected.administrative_area = "Changhua County";
   FillAddress(&address);
@@ -153,12 +154,12 @@ TEST_F(AddressInputHelperTest, AddressWithPostalCodeMatchingDependentLocality) {
   address.postal_code = "425-111";
 
   AddressData expected = address;
-  /* The province is Gyeonggi - 경기도. */
-  expected.administrative_area = "\xEA\xB2\xBD\xEA\xB8\xB0\xEB\x8F\x84";
-  /* The city is Ansan-si - 안산시. */
-  expected.locality = "\xEC\x95\x88\xEC\x82\xB0\xEC\x8B\x9C";
-  /* The district is Danwon-gu - 단원구 */
-  expected.dependent_locality = "\xEB\x8B\xA8\xEC\x9B\x90\xEA\xB5\xAC";
+  // The province is Gyeonggi - 경기도.
+  expected.administrative_area = u8"경기도";
+  // The city is Ansan-si - 안산시.
+  expected.locality = u8"안산시";
+  // The district is Danwon-gu - 단원구
+  expected.dependent_locality = u8"단원구";
 
   FillAddress(&address);
   EXPECT_EQ(expected, address);
@@ -166,14 +167,14 @@ TEST_F(AddressInputHelperTest, AddressWithPostalCodeMatchingDependentLocality) {
   AddressData address_ko_latn;
   address_ko_latn.region_code = "KR";
   address_ko_latn.postal_code = "425-111";
-  address_ko_latn.language_code = "ko-latn";
+  address_ko_latn.language_code = "ko-Latn";
 
   expected = address_ko_latn;
-  /* The province is Gyeonggi - 경기도. */
+  // The province is Gyeonggi - 경기도.
   expected.administrative_area = "Gyeonggi";
-  /* The city is Ansan-si - 안산시. */
+  // The city is Ansan-si - 안산시.
   expected.locality = "Ansan-si";
-  /* The district is Danwon-gu - 단원구 */
+  // The district is Danwon-gu - 단원구
   expected.dependent_locality = "Danwon-gu";
 
   FillAddress(&address_ko_latn);
@@ -187,10 +188,9 @@ TEST_F(AddressInputHelperTest, AddressWithPostalCodeMatchingMultipleValues) {
   address.postal_code = "527-111";
 
   AddressData expected = address;
-  /* The province, Jeonnam - 전라남도 - is known, but we have several locality
-   * matches so none of them are populated. */
-  expected.administrative_area =
-      "\xEC\xA0\x84\xEB\x9D\xBC\xEB\x82\xA8\xEB\x8F\x84";
+  // The province, Jeonnam - 전라남도 - is known, but we have several locality
+  // matches so none of them are populated.
+  expected.administrative_area = u8"전라남도";
   FillAddress(&address);
   EXPECT_EQ(expected, address);
 }
@@ -251,6 +251,12 @@ TEST_F(AddressInputHelperTest, RegionWithUnusedAdminAreaNames) {
 }
 
 class AddressInputHelperMockDataTest : public testing::Test {
+ public:
+  AddressInputHelperMockDataTest(
+      const AddressInputHelperMockDataTest&) = delete;
+  AddressInputHelperMockDataTest& operator=(
+      const AddressInputHelperMockDataTest&) = delete;
+
  protected:
   AddressInputHelperMockDataTest()
       : source_(new MockSource),
@@ -278,7 +284,6 @@ class AddressInputHelperMockDataTest : public testing::Test {
   PreloadSupplier supplier_;
   const AddressInputHelper address_input_helper_;
   const std::unique_ptr<const PreloadSupplier::Callback> loaded_;
-  DISALLOW_COPY_AND_ASSIGN(AddressInputHelperMockDataTest);
 };
 
 TEST_F(AddressInputHelperMockDataTest,
@@ -289,18 +294,18 @@ TEST_F(AddressInputHelperMockDataTest,
       // We use KR since we need a country where we format all fields down to
       // dependent locality, or the hierarchy won't be loaded.
       "data/KR",
-      "{\"data/KR\": "
+      R"({"data/KR": )"
       // The top-level ZIP expression must be present for sub-key matches to be
       // evaluated.
-      "{\"id\":\"data/KR\", \"sub_keys\":\"A~B\", \"zip\":\"\\\\d{5}\"}, "
-      "\"data/KR/A\": "
-      "{\"id\":\"data/KR/A\", \"sub_keys\":\"A1\"}, "
-      "\"data/KR/A/A1\": "
-      "{\"id\":\"data/KR/A/A1\", \"zip\":\"1\"}, "
-      "\"data/KR/B\": "
-      "{\"id\":\"data/KR/B\", \"sub_keys\":\"B1\"}, "
-      "\"data/KR/B/B1\": "
-      "{\"id\":\"data/KR/B/B1\", \"zip\":\"12\"}}"));
+      R"({"id":"data/KR", "sub_keys":"A~B", "zip":"\\d{5}"}, )"
+      R"("data/KR/A": )"
+      R"({"id":"data/KR/A", "sub_keys":"A1"}, )"
+      R"("data/KR/A/A1": )"
+      R"({"id":"data/KR/A/A1", "zip":"1"}, )"
+      R"("data/KR/B": )"
+      R"({"id":"data/KR/B", "sub_keys":"B1"}, )"
+      R"("data/KR/B/B1": )"
+      R"({"id":"data/KR/B/B1", "zip":"12"}})"));
 
   AddressData address;
   address.region_code = "KR";
@@ -323,25 +328,25 @@ TEST_F(AddressInputHelperMockDataTest,
       // We use KR since we need a country where we format all fields down to
       // dependent locality, or the hierarchy won't be loaded.
       "data/KR",
-      "{\"data/KR\": "
+      R"({"data/KR": )"
       // The top-level ZIP expression must be present for sub-key matches to be
       // evaluated.
-      "{\"id\":\"data/KR\", \"sub_keys\":\"A~B\", \"zip\":\"\\\\d{5}\"}, "
-      "\"data/KR/A\": "
-      "{\"id\":\"data/KR/A\", \"sub_keys\":\"A1~A2\"}, "
-      "\"data/KR/A/A1\": "
-      "{\"id\":\"data/KR/A/A1\", \"sub_keys\":\"A1a\", \"zip\":\"1\"}, "
+      R"({"id":"data/KR", "sub_keys":"A~B", "zip":"\\d{5}"}, )"
+      R"("data/KR/A": )"
+      R"({"id":"data/KR/A", "sub_keys":"A1~A2"}, )"
+      R"("data/KR/A/A1": )"
+      R"({"id":"data/KR/A/A1", "sub_keys":"A1a", "zip":"1"}, )"
       // This key matches the ZIP code.
-      "\"data/KR/A/A1/A1a\": "
-      "{\"id\":\"data/KR/A/A1/A1a\", \"zip\":\"12\"}, "
-      "\"data/KR/A/A2\": "
-      "{\"id\":\"data/KR/A/A2\", \"sub_keys\":\"A2a\", \"zip\":\"1\"}, "
+      R"("data/KR/A/A1/A1a": )"
+      R"({"id":"data/KR/A/A1/A1a", "zip":"12"}, )"
+      R"("data/KR/A/A2": )"
+      R"({"id":"data/KR/A/A2", "sub_keys":"A2a", "zip":"1"}, )"
       // This key, also in state A, but in city A2, matches the ZIP code.
-      "\"data/KR/A/A2/A2a\": "
-      "{\"id\":\"data/KR/A/A2/A2a\", \"zip\":\"123\"}, "
+      R"("data/KR/A/A2/A2a": )"
+      R"({"id":"data/KR/A/A2/A2a", "zip":"123"}, )"
       // This key, in state B, does not match the ZIP code.
-      "\"data/KR/B\": "
-      "{\"id\":\"data/KR/B\", \"zip\":\"2\"}}"));
+      R"("data/KR/B": )"
+      R"({"id":"data/KR/B", "zip":"2"}})"));
 
   AddressData address;
   address.region_code = "KR";

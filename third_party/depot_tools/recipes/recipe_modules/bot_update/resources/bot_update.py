@@ -29,7 +29,6 @@ import os.path as path
 # How many bytes at a time to read from pipes.
 BUF_SIZE = 256
 
-
 # Define a bunch of directory paths.
 # Relative to this script's filesystem path.
 THIS_DIR = path.dirname(path.abspath(__file__))
@@ -51,7 +50,6 @@ COMMIT_ORIGINAL_POSITION_FOOTER_KEY = 'Cr-Original-Commit-Position'
 
 # Regular expression to parse gclient's revinfo entries.
 REVINFO_RE = re.compile(r'^([^:]+):\s+([^@]+)@(.+)$')
-
 
 # Copied from scripts/recipes/chromium.py.
 GOT_REVISION_MAPPINGS = {
@@ -152,7 +150,7 @@ def call(*args, **kwargs):  # pragma: no cover
     print '===Injecting Environment Variables==='
     for k, v in sorted(new_env.items()):
       print '%s: %s' % (k, v)
-  print '===Running %s===' % (' '.join(args),)
+  print '===Running %s ===' % (' '.join(args),)
   print 'In directory: %s' % cwd
   start_time = time.time()
   proc = subprocess.Popen(args, **kwargs)
@@ -185,13 +183,13 @@ def call(*args, **kwargs):  # pragma: no cover
   elapsed_time = ((time.time() - start_time) / 60.0)
   outval = out.getvalue()
   if code:
-    print '===Failed in %.1f mins===' % elapsed_time
+    print '===Failed in %.1f mins of %s ===' % (elapsed_time, ' '.join(args))
     print
     raise SubprocessFailed('%s failed with code %d in %s.' %
                            (' '.join(args), code, cwd),
                            code, outval)
 
-  print '===Succeeded in %.1f mins===' % elapsed_time
+  print '===Succeeded in %.1f mins of %s ===' % (elapsed_time, ' '.join(args))
   print
   return outval
 
@@ -364,7 +362,32 @@ def gclient_revinfo():
   return call_gclient('revinfo', '-a') or ''
 
 
-def create_manifest():
+def normalize_git_url(url):
+  """Normalize a git url to be consistent.
+
+  This recognizes urls to the googlesoruce.com domain.  It ensures that
+  the url:
+  * Do not end in .git
+  * Do not contain /a/ in their path.
+  """
+  try:
+    p = urlparse.urlparse(url)
+  except Exception:
+    # Not a url, just return it back.
+    return url
+  if not p.netloc.endswith('.googlesource.com'):
+    # Not a googlesource.com URL, can't normalize this, just return as is.
+    return url
+  upath = p.path
+  if upath.startswith('/a'):
+    upath = upath[len('/a'):]
+  if upath.endswith('.git'):
+    upath = upath[:-len('.git')]
+  return 'https://%s%s' % (p.netloc, upath)
+
+
+# TODO(hinoka): Remove this once all downstream recipes stop using this format.
+def create_manifest_old():
   manifest = {}
   output = gclient_revinfo()
   for line in output.strip().splitlines():
@@ -376,6 +399,54 @@ def create_manifest():
       }
     else:
       print "WARNING: Couldn't match revinfo line:\n%s" % line
+  return manifest
+
+
+# TODO(hinoka): Include patch revision.
+def create_manifest(gclient_output, patch_root, gerrit_ref):
+  """Return the JSONPB equivilent of the source manifest proto.
+
+  The source manifest proto is defined here:
+  https://chromium.googlesource.com/infra/luci/recipes-py/+/master/recipe_engine/source_manifest.proto
+
+  This is based off of:
+  * The gclient_output (from calling gclient.py --output-json) which contains
+    the directory -> repo:revision mapping.
+  * Gerrit Patch info which contains info about patched revisions.
+
+  We normalize the URLs such that if they are googlesource.com urls, they:
+  """
+  manifest = {
+      'version': 0,  # Currently the only valid version is 0.
+  }
+  dirs = {}
+  if patch_root:
+    patch_root = patch_root.strip('/')  # Normalize directory names.
+  for directory, info in gclient_output.get('solutions', {}).iteritems():
+    directory = directory.strip('/')  # Normalize the directory name.
+    # There are two places to the the revision from, we do it in this order:
+    # 1. In the "revision" field
+    # 2. At the end of the URL, after @
+    repo = ''
+    revision = info.get('revision', '')
+    # The format of the url is "https://repo.url/blah.git@abcdefabcdef" or
+    # just "https://repo.url/blah.git"
+    url_split = info.get('url', '').split('@')
+    if not revision and len(url_split) == 2:
+      revision = url_split[1]
+    if url_split:
+      repo = normalize_git_url(url_split[0])
+    if repo:
+      dirs[directory] = {
+        'git_checkout': {
+          'repo_url': repo,
+          'revision': revision,
+        }
+      }
+      if patch_root == directory:
+        dirs[directory]['git_checkout']['patch_fetch_ref'] = gerrit_ref
+
+  manifest['directories'] = dirs
   return manifest
 
 
@@ -436,24 +507,27 @@ def get_total_disk_space():
     return (total, free)
 
 
-def get_target_revision(folder_name, git_url, revisions):
-  normalized_name = folder_name.strip('/')
+def _get_target_branch_and_revision(solution_name, git_url, revisions):
+  normalized_name = solution_name.strip('/')
   if normalized_name in revisions:
-    return revisions[normalized_name]
-  if git_url in revisions:
-    return revisions[git_url]
-  return None
+    configured = revisions[normalized_name]
+  elif git_url in revisions:
+    configured = revisions[git_url]
+  else:
+    return 'master', 'HEAD'
 
-
-def force_revision(folder_name, revision):
-  split_revision = revision.split(':', 1)
-  branch = 'master'
-  if len(split_revision) == 2:
+  parts = configured.split(':', 1)
+  if len(parts) == 2:
     # Support for "branch:revision" syntax.
-    branch, revision = split_revision
+    return parts
+  return 'master', configured
 
+
+def force_solution_revision(solution_name, git_url, revisions, cwd):
+  branch, revision = _get_target_branch_and_revision(
+      solution_name, git_url, revisions)
   if revision and revision.upper() != 'HEAD':
-    git('checkout', '--force', revision, cwd=folder_name)
+    treeish = revision
   else:
     # TODO(machenbach): This won't work with branch-heads, as Gerrit's
     # destination branch would be e.g. refs/branch-heads/123. But here
@@ -461,8 +535,12 @@ def force_revision(folder_name, revision):
     # This will also not work if somebody passes a local refspec like
     # refs/heads/master. It needs to translate to refs/remotes/origin/master
     # first. See also https://crbug.com/740456 .
-    ref = branch if branch.startswith('refs/') else 'origin/%s' % branch
-    git('checkout', '--force', ref, cwd=folder_name)
+    treeish = branch if branch.startswith('refs/') else 'origin/%s' % branch
+
+  # Note that -- argument is necessary to ensure that git treats `treeish`
+  # argument as revision or ref, and not as a file/directory which happens to
+  # have the exact same name.
+  git('checkout', '--force', treeish, '--', cwd=cwd)
 
 
 def is_broken_repo_dir(repo_dir):
@@ -470,118 +548,122 @@ def is_broken_repo_dir(repo_dir):
   return not path.exists(os.path.join(repo_dir, '.git', 'config'))
 
 
-def _maybe_break_locks(checkout_path):
+def _maybe_break_locks(checkout_path, tries=3):
   """This removes all .lock files from this repo's .git directory.
 
   In particular, this will cleanup index.lock files, as well as ref lock
   files.
   """
-  git_dir = os.path.join(checkout_path, '.git')
-  for dirpath, _, filenames in os.walk(git_dir):
-    for filename in filenames:
-      if filename.endswith('.lock'):
-        to_break = os.path.join(dirpath, filename)
-        print 'breaking lock: %s' % to_break
-        try:
-          os.remove(to_break)
-        except OSError as ex:
-          print 'FAILED to break lock: %s: %s' % (to_break, ex)
-          raise
+  def attempt():
+    git_dir = os.path.join(checkout_path, '.git')
+    for dirpath, _, filenames in os.walk(git_dir):
+      for filename in filenames:
+        if filename.endswith('.lock'):
+          to_break = os.path.join(dirpath, filename)
+          print 'breaking lock: %s' % to_break
+          try:
+            os.remove(to_break)
+          except OSError as ex:
+            print 'FAILED to break lock: %s: %s' % (to_break, ex)
+            raise
+
+  for _ in xrange(tries):
+    try:
+      attempt()
+      return
+    except Exception:
+      pass
 
 
-def git_checkout(solutions, revisions, shallow, refs, git_cache_dir,
-                 cleanup_dir):
+
+def git_checkouts(solutions, revisions, shallow, refs, git_cache_dir,
+                  cleanup_dir):
   build_dir = os.getcwd()
-  # Before we do anything, break all git_cache locks.
-  if path.isdir(git_cache_dir):
-    git('cache', 'unlock', '-vv', '--force', '--all',
-        '--cache-dir', git_cache_dir)
-    for item in os.listdir(git_cache_dir):
-      filename = os.path.join(git_cache_dir, item)
-      if item.endswith('.lock'):
-        raise Exception('%s exists after cache unlock' % filename)
   first_solution = True
   for sln in solutions:
-    # Just in case we're hitting a different git server than the one from
-    # which the target revision was polled, we retry some.
-    done = False
-    deadline = time.time() + 60  # One minute (5 tries with exp. backoff).
-    tries = 0
-    while not done:
-      name = sln['name']
-      url = sln['url']
-      if url == CHROMIUM_SRC_URL or url + '.git' == CHROMIUM_SRC_URL:
-        # Experiments show there's little to be gained from
-        # a shallow clone of src.
-        shallow = False
-      sln_dir = path.join(build_dir, name)
-      s = ['--shallow'] if shallow else []
-      populate_cmd = (['cache', 'populate', '--ignore_locks', '-v',
-                       '--cache-dir', git_cache_dir] + s + [url])
-      for ref in refs:
-        populate_cmd.extend(['--ref', ref])
-      git(*populate_cmd)
-      mirror_dir = git(
-          'cache', 'exists', '--quiet',
-          '--cache-dir', git_cache_dir, url).strip()
-      clone_cmd = (
-          'clone', '--no-checkout', '--local', '--shared', mirror_dir, sln_dir)
-
-      try:
-        # If repo deletion was aborted midway, it may have left .git in broken
-        # state.
-        if path.exists(sln_dir) and is_broken_repo_dir(sln_dir):
-          print 'Git repo %s appears to be broken, removing it' % sln_dir
-          remove(sln_dir, cleanup_dir)
-
-        # Use "tries=1", since we retry manually in this loop.
-        if not path.isdir(sln_dir):
-          git(*clone_cmd)
-        else:
-          git('remote', 'set-url', 'origin', mirror_dir, cwd=sln_dir)
-          git('fetch', 'origin', cwd=sln_dir)
-        for ref in refs:
-          refspec = '%s:%s' % (ref, ref.lstrip('+'))
-          git('fetch', 'origin', refspec, cwd=sln_dir)
-
-        # Windows sometimes has trouble deleting files.
-        # This can make git commands that rely on locks fail.
-        # Try a few times in case Windows has trouble again (and again).
-        if sys.platform.startswith('win'):
-          tries = 3
-          while tries:
-            try:
-              _maybe_break_locks(sln_dir)
-              break
-            except Exception:
-              tries -= 1
-
-        revision = get_target_revision(name, url, revisions) or 'HEAD'
-        force_revision(sln_dir, revision)
-        done = True
-      except SubprocessFailed as e:
-        # Exited abnormally, theres probably something wrong.
-        print 'Something failed: %s.' % str(e)
-
-        if time.time() > deadline:
-          overrun = time.time() - deadline
-          print 'Ran %s seconds past deadline. Aborting.' % overrun
-          raise
-
-        # Lets wipe the checkout and try again.
-        tries += 1
-        sleep_secs = 2**tries
-        print 'waiting %s seconds and trying again...' % sleep_secs
-        time.sleep(sleep_secs)
-        remove(sln_dir, cleanup_dir)
-
-    git('clean', '-dff', cwd=sln_dir)
-
+    sln_dir = path.join(build_dir, sln['name'])
+    _git_checkout(sln, sln_dir, revisions, shallow, refs, git_cache_dir,
+                  cleanup_dir)
     if first_solution:
       git_ref = git('log', '--format=%H', '--max-count=1',
-                    cwd=sln_dir).strip()
+                    cwd=path.join(build_dir, sln['name'])
+                ).strip()
     first_solution = False
   return git_ref
+
+
+def _git_checkout(sln, sln_dir, revisions, shallow, refs, git_cache_dir,
+                  cleanup_dir):
+  name = sln['name']
+  url = sln['url']
+  if url == CHROMIUM_SRC_URL or url + '.git' == CHROMIUM_SRC_URL:
+    # Experiments show there's little to be gained from
+    # a shallow clone of src.
+    shallow = False
+  s = ['--shallow'] if shallow else []
+  populate_cmd = (['cache', 'populate', '--ignore_locks', '-v',
+                   '--cache-dir', git_cache_dir] + s + [url])
+  for ref in refs:
+    populate_cmd.extend(['--ref', ref])
+
+  # Just in case we're hitting a different git server than the one from
+  # which the target revision was polled, we retry some.
+
+  # One minute (5 tries with exp. backoff). We retry at least once regardless
+  # of deadline in case initial fetch takes longer than the deadline but does
+  # not contain the required revision.
+  deadline = time.time() + 60
+  tries = 0
+  while True:
+    git(*populate_cmd)
+    mirror_dir = git(
+        'cache', 'exists', '--quiet',
+        '--cache-dir', git_cache_dir, url).strip()
+
+    try:
+      # If repo deletion was aborted midway, it may have left .git in broken
+      # state.
+      if path.exists(sln_dir) and is_broken_repo_dir(sln_dir):
+        print 'Git repo %s appears to be broken, removing it' % sln_dir
+        remove(sln_dir, cleanup_dir)
+
+      # Use "tries=1", since we retry manually in this loop.
+      if not path.isdir(sln_dir):
+        git('clone', '--no-checkout', '--local', '--shared', mirror_dir,
+            sln_dir)
+      else:
+        git('remote', 'set-url', 'origin', mirror_dir, cwd=sln_dir)
+        git('fetch', 'origin', cwd=sln_dir)
+      for ref in refs:
+        refspec = '%s:%s' % (ref, ref.lstrip('+'))
+        git('fetch', 'origin', refspec, cwd=sln_dir)
+
+      # Windows sometimes has trouble deleting files.
+      # This can make git commands that rely on locks fail.
+      # Try a few times in case Windows has trouble again (and again).
+      if sys.platform.startswith('win'):
+        _maybe_break_locks(sln_dir, tries=3)
+
+      force_solution_revision(name, url, revisions, sln_dir)
+      git('clean', '-dff', cwd=sln_dir)
+      return
+    except SubprocessFailed as e:
+      # Exited abnormally, theres probably something wrong.
+      print 'Something failed: %s.' % str(e)
+
+      # Only kick in deadline after trying once, in case the revision hasn't
+      # yet propagated.
+      if tries >= 1 and time.time() > deadline:
+        overrun = time.time() - deadline
+        print 'Ran %s seconds past deadline. Aborting.' % overrun
+        raise
+
+      # Lets wipe the checkout and try again.
+      tries += 1
+      sleep_secs = 2**tries
+      print 'waiting %s seconds and trying again...' % sleep_secs
+      time.sleep(sleep_secs)
+      remove(sln_dir, cleanup_dir)
 
 
 def _download(url):
@@ -755,8 +837,8 @@ def ensure_checkout(solutions, revisions, first_sln, target_os, target_os_only,
   # invoking DEPS.
   print 'Fetching Git checkout'
 
-  git_ref = git_checkout(solutions, revisions, shallow, refs, git_cache_dir,
-                         cleanup_dir)
+  git_ref = git_checkouts(solutions, revisions, shallow, refs, git_cache_dir,
+                          cleanup_dir)
 
   print '===Processing patch solutions==='
   already_patched = []
@@ -947,6 +1029,9 @@ def parse_args():
     with open(options.spec_path, 'r') as fd:
       options.specs = fd.read()
 
+  if not options.output_json:
+    parse.error('--output_json is required')
+
   if not options.git_cache_dir:
     parse.error('--git-cache-dir is required')
 
@@ -999,8 +1084,6 @@ def prepare(options, git_slns, active):
   step_text = '[%dGB/%dGB used (%d%%)]' % (used_disk_space_gb,
                                            total_disk_space_gb,
                                            percent_used)
-  if not options.output_json:
-    print '@@@STEP_TEXT@%s@@@' % step_text
   shallow = (total_disk_space < SHALLOW_CLONE_THRESHOLD
              and not options.no_shallow)
 
@@ -1062,17 +1145,16 @@ def checkout(options, git_slns, specs, revisions, step_text, shallow):
       ensure_no_checkout(dir_names, options.cleanup_dir)
       gclient_output = ensure_checkout(**checkout_parameters)
   except PatchFailed as e:
-    if options.output_json:
-      # Tell recipes information such as root, got_revision, etc.
-      emit_json(options.output_json,
-                did_run=True,
-                root=first_sln,
-                patch_apply_return_code=e.code,
-                patch_root=options.patch_root,
-                patch_failure=True,
-                failed_patch_body=e.output,
-                step_text='%s PATCH FAILED' % step_text,
-                fixed_revisions=revisions)
+    # Tell recipes information such as root, got_revision, etc.
+    emit_json(options.output_json,
+              did_run=True,
+              root=first_sln,
+              patch_apply_return_code=e.code,
+              patch_root=options.patch_root,
+              patch_failure=True,
+              failed_patch_body=e.output,
+              step_text='%s PATCH FAILED' % step_text,
+              fixed_revisions=revisions)
     raise
 
   # Take care of got_revisions outputs.
@@ -1095,16 +1177,17 @@ def checkout(options, git_slns, specs, revisions, step_text, shallow):
     got_revisions = { 'got_revision': 'BOT_UPDATE_NO_REV_FOUND' }
     #raise Exception('No got_revision(s) found in gclient output')
 
-  if options.output_json:
-    # Tell recipes information such as root, got_revision, etc.
-    emit_json(options.output_json,
-              did_run=True,
-              root=first_sln,
-              patch_root=options.patch_root,
-              step_text=step_text,
-              fixed_revisions=revisions,
-              properties=got_revisions,
-              manifest=create_manifest())
+  # Tell recipes information such as root, got_revision, etc.
+  emit_json(options.output_json,
+            did_run=True,
+            root=first_sln,
+            patch_root=options.patch_root,
+            step_text=step_text,
+            fixed_revisions=revisions,
+            properties=got_revisions,
+            manifest=create_manifest_old(),
+            source_manifest=create_manifest(
+                gclient_output, options.patch_root, options.gerrit_ref))
 
 
 def print_debug_info():

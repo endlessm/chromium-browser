@@ -71,6 +71,7 @@ class PreSigninPolicyFetcher : public CloudPolicyClient::Observer {
   PreSigninPolicyFetcher(chromeos::CryptohomeClient* cryptohome_client,
                          chromeos::SessionManagerClient* session_manager_client,
                          std::unique_ptr<CloudPolicyClient> cloud_policy_client,
+                         bool is_active_directory_managed,
                          const AccountId& account_id,
                          const cryptohome::KeyDefinition& auth_key);
   ~PreSigninPolicyFetcher() override;
@@ -93,15 +94,15 @@ class PreSigninPolicyFetcher : public CloudPolicyClient::Observer {
                                 const std::string& mount_hash);
 
   void OnCachedPolicyRetrieved(
-      const std::string& policy_blob,
-      RetrievePolicyResponseType retrieve_policy_response);
+      RetrievePolicyResponseType retrieve_policy_response,
+      const std::string& policy_blob);
 
-  void OnPolicyKeyLoaded(const std::string& policy_blob,
-                         RetrievePolicyResponseType retrieve_policy_response);
+  void OnPolicyKeyLoaded(RetrievePolicyResponseType retrieve_policy_response,
+                         const std::string& policy_blob);
 
   void OnUnmountTemporaryUserHome(
-      const std::string& policy_blob,
       RetrievePolicyResponseType retrieve_policy_response,
+      const std::string& policy_blob,
       base::Optional<bool> unmount_success);
 
   void OnCachedPolicyValidated(UserCloudPolicyValidator* validator);
@@ -133,6 +134,7 @@ class PreSigninPolicyFetcher : public CloudPolicyClient::Observer {
   chromeos::CryptohomeClient* const cryptohome_client_;
   chromeos::SessionManagerClient* const session_manager_client_;
   const std::unique_ptr<CloudPolicyClient> cloud_policy_client_;
+  const bool is_active_directory_managed_;
   const AccountId account_id_;
   const cryptohome::KeyDefinition auth_key_;
   scoped_refptr<base::SequencedTaskRunner> task_runner_;

@@ -7,13 +7,11 @@
 #include "base/run_loop.h"
 #include "base/strings/string_split.h"
 #include "chrome/browser/notifications/message_center_notification_manager.h"
-#include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chrome/test/base/testing_profile_manager.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/portal_detector/mock_network_portal_detector.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
@@ -24,15 +22,16 @@
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/message_center/fake_message_center_tray_delegate.h"
+#include "ui/message_center/fake_ui_delegate.h"
 #include "ui/message_center/message_center.h"
+#include "ui/message_center/notification.h"
 
 using testing::_;
 using testing::AtLeast;
 using testing::Invoke;
+using testing::NiceMock;
 using testing::Return;
 using testing::SaveArg;
-using testing::StrictMock;
 
 namespace chromeos {
 
@@ -44,16 +43,10 @@ class HatsNotificationControllerTest : public BrowserWithTestWindowTest {
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
 
-    profile_manager_.reset(
-        new TestingProfileManager(TestingBrowserProcess::GetGlobal()));
-    ASSERT_TRUE(profile_manager_->SetUp());
-
     MessageCenterNotificationManager* manager =
         static_cast<MessageCenterNotificationManager*>(
             g_browser_process->notification_ui_manager());
-    manager->SetMessageCenterTrayDelegateForTest(
-        new message_center::FakeMessageCenterTrayDelegate(
-            message_center::MessageCenter::Get()));
+    manager->SetUiDelegateForTest(new message_center::FakeUiDelegate());
 
     network_portal_detector::InitializeForTesting(
         &mock_network_portal_detector_);
@@ -64,7 +57,6 @@ class HatsNotificationControllerTest : public BrowserWithTestWindowTest {
     // The notifications may be deleted async.
     base::RunLoop loop;
     loop.RunUntilIdle();
-    profile_manager_.reset();
     network_portal_detector::InitializeForTesting(nullptr);
     BrowserWithTestWindowTest::TearDown();
   }
@@ -73,7 +65,7 @@ class HatsNotificationControllerTest : public BrowserWithTestWindowTest {
     // The initialization will fail since the function IsNewDevice() will return
     // true.
     scoped_refptr<HatsNotificationController> hats_notification_controller =
-        new HatsNotificationController(&profile_);
+        new HatsNotificationController(profile());
 
     // HatsController::IsNewDevice() is run on a blocking thread.
     content::RunAllTasksUntilIdle();
@@ -95,18 +87,15 @@ class HatsNotificationControllerTest : public BrowserWithTestWindowTest {
     return hats_notification_controller;
   }
 
-  TestingProfile profile_;
-  StrictMock<MockNetworkPortalDetector> mock_network_portal_detector_;
+  NiceMock<MockNetworkPortalDetector> mock_network_portal_detector_;
 
  private:
-  std::unique_ptr<TestingProfileManager> profile_manager_;
-
   DISALLOW_COPY_AND_ASSIGN(HatsNotificationControllerTest);
 };
 
 TEST_F(HatsNotificationControllerTest, NewDevice_ShouldNotShowNotification) {
   int64_t initial_timestamp = base::Time::Now().ToInternalValue();
-  PrefService* pref_service = profile_.GetPrefs();
+  PrefService* pref_service = profile()->GetPrefs();
   pref_service->SetInt64(prefs::kHatsLastInteractionTimestamp,
                          initial_timestamp);
 
@@ -126,9 +115,9 @@ TEST_F(HatsNotificationControllerTest, NewDevice_ShouldNotShowNotification) {
               RemoveObserver(hats_notification_controller.get()))
       .Times(1);
 
-  const Notification* notification =
+  const message_center::Notification* notification =
       g_browser_process->notification_ui_manager()->FindById(
-          HatsNotificationController::kNotificationId, &profile_);
+          HatsNotificationController::kNotificationId, profile());
   EXPECT_FALSE(notification);
 }
 
@@ -149,9 +138,9 @@ TEST_F(HatsNotificationControllerTest, OldDevice_ShouldShowNotification) {
   hats_notification_controller->Initialize(false);
 
   // Finally check if notification was launched to confirm initialization.
-  const Notification* notification =
+  const message_center::Notification* notification =
       g_browser_process->notification_ui_manager()->FindById(
-          HatsNotificationController::kNotificationId, &profile_);
+          HatsNotificationController::kNotificationId, profile());
   EXPECT_TRUE(notification != nullptr);
 }
 
@@ -182,15 +171,15 @@ TEST_F(HatsNotificationControllerTest, NoInternet_DoNotShowNotification) {
   hats_notification_controller->OnPortalDetectionCompleted(&network_state,
                                                            online_state);
 
-  const Notification* notification =
+  const message_center::Notification* notification =
       g_browser_process->notification_ui_manager()->FindById(
-          HatsNotificationController::kNotificationId, &profile_);
+          HatsNotificationController::kNotificationId, profile());
   EXPECT_FALSE(notification);
 }
 
 TEST_F(HatsNotificationControllerTest, DismissNotification_ShouldUpdatePref) {
   int64_t now_timestamp = base::Time::Now().ToInternalValue();
-  PrefService* pref_service = profile_.GetPrefs();
+  PrefService* pref_service = profile()->GetPrefs();
   pref_service->SetInt64(prefs::kHatsLastInteractionTimestamp, now_timestamp);
 
   auto hats_notification_controller = InstantiateHatsController();

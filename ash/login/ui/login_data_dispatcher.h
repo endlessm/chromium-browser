@@ -46,8 +46,23 @@ class ASH_EXPORT LoginDataDispatcher {
     virtual void OnPinEnabledForUserChanged(const AccountId& user,
                                             bool enabled);
 
+    // Called when the given user can click their pod to unlock.
+    virtual void OnClickToUnlockEnabledForUserChanged(const AccountId& user,
+                                                      bool enabled);
+
     // Called when the lock screen note state changes.
     virtual void OnLockScreenNoteStateChanged(mojom::TrayActionState state);
+
+    // Called when an easy unlock icon should be displayed.
+    virtual void OnShowEasyUnlockIcon(
+        const AccountId& user,
+        const mojom::EasyUnlockIconOptionsPtr& icon);
+
+    // Called when the info shown for dev and canary channels are changed.
+    virtual void OnDevChannelInfoChanged(
+        const std::string& os_version_label_text,
+        const std::string& enterprise_info_text,
+        const std::string& bluetooth_name);
   };
 
   LoginDataDispatcher();
@@ -57,10 +72,14 @@ class ASH_EXPORT LoginDataDispatcher {
   void RemoveObserver(Observer* observer);
 
   void NotifyUsers(const std::vector<mojom::LoginUserInfoPtr>& users);
-
   void SetPinEnabledForUser(const AccountId& user, bool enabled);
-
+  void SetClickToUnlockEnabledForUser(const AccountId& user, bool enabled);
   void SetLockScreenNoteState(mojom::TrayActionState state);
+  void ShowEasyUnlockIcon(const AccountId& user,
+                          const mojom::EasyUnlockIconOptionsPtr& icon);
+  void SetDevChannelInfo(const std::string& os_version_label_text,
+                         const std::string& enterprise_info_text,
+                         const std::string& bluetooth_name);
 
  private:
   base::ObserverList<Observer> observers_;

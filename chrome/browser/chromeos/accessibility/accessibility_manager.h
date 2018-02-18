@@ -7,7 +7,7 @@
 
 #include <set>
 
-#include "ash/accessibility_types.h"
+#include "ash/public/cpp/accessibility_types.h"
 #include "ash/shell_observer.h"
 #include "base/callback_forward.h"
 #include "base/callback_list.h"
@@ -317,7 +317,7 @@ class AccessibilityManager
   void UpdateAutoclickFromPref();
   void UpdateAutoclickDelayFromPref();
   void UpdateVirtualKeyboardFromPref();
-  void UpdateMonoAudioFromPref();
+  void OnMonoAudioChanged();
   void UpdateCaretHighlightFromPref();
   void UpdateCursorHighlightFromPref();
   void UpdateFocusHighlightFromPref();
@@ -392,7 +392,6 @@ class AccessibilityManager
   bool autoclick_enabled_;
   base::TimeDelta autoclick_delay_ms_;
   bool virtual_keyboard_enabled_;
-  bool mono_audio_enabled_;
   bool caret_highlight_enabled_;
   bool cursor_highlight_enabled_;
   bool focus_highlight_enabled_;

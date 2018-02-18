@@ -17,8 +17,8 @@
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
-#import "ios/chrome/browser/ui/commands/show_signin_command.h"
 #import "ios/chrome/browser/ui/material_components/activity_indicator.h"
+#import "ios/chrome/browser/ui/settings/sync_utils/sync_presenter.h"
 #import "ios/chrome/browser/ui/settings/sync_utils/sync_util.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_switcher_model.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
@@ -88,15 +88,18 @@ const CGFloat kSubtitleMinimunLineHeight = 24.0;
 }
 
 @synthesize overlayType = _overlayType;
+@synthesize presenter = _presenter;
 @synthesize dispatcher = _dispatcher;
 
 - (instancetype)initWithFrame:(CGRect)frame
                  browserState:(ios::ChromeBrowserState*)browserState
+                    presenter:(id<SigninPresenter, SyncPresenter>)presenter
                    dispatcher:
                        (id<ApplicationCommands, BrowserCommands>)dispatcher {
   self = [super initWithFrame:frame];
   if (self) {
     _browserState = browserState;
+    _presenter = presenter;
     _dispatcher = dispatcher;
     // Create and add container. Will be vertically and horizontally centered.
     _container = [[UIView alloc] initWithFrame:CGRectZero];
@@ -222,6 +225,14 @@ const CGFloat kSubtitleMinimunLineHeight = 24.0;
   }
 }
 
+- (void)wasShown {
+  [_signinPromoViewMediator signinPromoViewVisible];
+}
+
+- (void)wasHidden {
+  [_signinPromoViewMediator signinPromoViewHidden];
+}
+
 #pragma mark - Private
 
 // Creates the sign-in view and its mediator if it doesn't exist.
@@ -252,7 +263,7 @@ const CGFloat kSubtitleMinimunLineHeight = 24.0;
       initWithBrowserState:_browserState
                accessPoint:signin_metrics::AccessPoint::
                                ACCESS_POINT_TAB_SWITCHER
-                dispatcher:self.dispatcher];
+                 presenter:self.presenter /* id<SigninPresenter> */];
   _signinPromoView.delegate = _signinPromoViewMediator;
   _signinPromoViewMediator.consumer = self;
   [[_signinPromoViewMediator createConfigurator]
@@ -453,15 +464,11 @@ const CGFloat kSubtitleMinimunLineHeight = 24.0;
   SyncSetupService::SyncServiceState syncState =
       GetSyncStateForBrowserState(_browserState);
   if (ShouldShowSyncSignin(syncState)) {
-    [self.dispatcher
-        showSignin:[[ShowSigninCommand alloc]
-                       initWithOperation:AUTHENTICATION_OPERATION_REAUTHENTICATE
-                             accessPoint:signin_metrics::AccessPoint::
-                                             ACCESS_POINT_UNKNOWN]];
+    [self.presenter showReauthenticateSignin];
   } else if (ShouldShowSyncSettings(syncState)) {
-    [self.dispatcher showSyncSettings];
+    [self.presenter showSyncSettings];
   } else if (ShouldShowSyncPassphraseSettings(syncState)) {
-    [self.dispatcher showSyncPassphraseSettings];
+    [self.presenter showSyncPassphraseSettings];
   }
 }
 

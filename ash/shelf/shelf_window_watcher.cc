@@ -61,11 +61,13 @@ void UpdateShelfItemForWindow(ShelfItem* item, aura::Window* window) {
   item->type = GetShelfItemType(window);
   item->title = window->GetTitle();
 
-  item->status = STATUS_RUNNING;
-  if (wm::IsActiveWindow(window))
-    item->status = STATUS_ACTIVE;
-  else if (window->GetProperty(aura::client::kDrawAttentionKey))
+  // Active windows don't draw attention because the user is looking at them.
+  if (window->GetProperty(aura::client::kDrawAttentionKey) &&
+      !wm::IsActiveWindow(window)) {
     item->status = STATUS_ATTENTION;
+  } else {
+    item->status = STATUS_RUNNING;
+  }
 
   // Prefer app icons over window icons, they're typically larger.
   gfx::ImageSkia* image = window->GetProperty(aura::client::kAppIconKey);
@@ -89,7 +91,8 @@ ShelfWindowWatcher::ContainerWindowObserver::ContainerWindowObserver(
     ShelfWindowWatcher* window_watcher)
     : window_watcher_(window_watcher) {}
 
-ShelfWindowWatcher::ContainerWindowObserver::~ContainerWindowObserver() {}
+ShelfWindowWatcher::ContainerWindowObserver::~ContainerWindowObserver() =
+    default;
 
 void ShelfWindowWatcher::ContainerWindowObserver::OnWindowHierarchyChanged(
     const HierarchyChangeParams& params) {
@@ -112,7 +115,7 @@ ShelfWindowWatcher::UserWindowObserver::UserWindowObserver(
     ShelfWindowWatcher* window_watcher)
     : window_watcher_(window_watcher) {}
 
-ShelfWindowWatcher::UserWindowObserver::~UserWindowObserver() {}
+ShelfWindowWatcher::UserWindowObserver::~UserWindowObserver() = default;
 
 void ShelfWindowWatcher::UserWindowObserver::OnWindowPropertyChanged(
     aura::Window* window,

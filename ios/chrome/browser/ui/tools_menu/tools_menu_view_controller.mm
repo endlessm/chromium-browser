@@ -19,9 +19,9 @@
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_menu_notification_delegate.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_menu_notifier.h"
+#import "ios/chrome/browser/ui/tools_menu/public/tools_menu_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/reading_list_menu_view_item.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_menu_configuration.h"
-#import "ios/chrome/browser/ui/tools_menu/tools_menu_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_menu_model.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_menu_view_item.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_menu_view_tools_cell.h"
@@ -592,7 +592,15 @@ NS_INLINE void AnimateInViews(NSArray* views,
         // menu, is no longer supported.
         DCHECK([menuItem tag] < 0);
         [_delegate commandWasSelected:[menuItem tag]];
-        [menuItem executeCommandWithDispatcher:self.dispatcher];
+
+        // The menuItem will handle executing the command if it can.
+        // Otherwise, the dispatching should have been handled by the preceding
+        // -commandWasSelected: call on |_delegate|.
+        // This is so that a baseViewController can be sent with the dispatch
+        // command.
+        if ([menuItem canExecuteCommand]) {
+          [menuItem executeCommandWithDispatcher:self.dispatcher];
+        }
       });
 }
 

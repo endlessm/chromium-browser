@@ -8,10 +8,12 @@
 #import <Foundation/Foundation.h>
 
 #import "ios/chrome/browser/ui/commands/activity_service_commands.h"
+#import "ios/chrome/browser/ui/commands/external_search_commands.h"
 #import "ios/chrome/browser/ui/commands/history_popup_commands.h"
 #import "ios/chrome/browser/ui/commands/page_info_commands.h"
 #import "ios/chrome/browser/ui/commands/qr_scanner_commands.h"
 #import "ios/chrome/browser/ui/commands/snackbar_commands.h"
+#import "ios/chrome/browser/ui/commands/tools_menu_commands.h"
 
 @class OpenNewTabCommand;
 @class ReadingListAddCommand;
@@ -20,10 +22,12 @@
 // which in practice is the BrowserViewController instance displaying the tab.
 @protocol BrowserCommands<NSObject,
                           ActivityServiceCommands,
+                          ExternalSearchCommands,
                           PageInfoCommands,
                           QRScannerCommands,
                           SnackbarCommands,
-                          TabHistoryPopupCommands>
+                          TabHistoryPopupCommands,
+                          ToolsMenuCommands>
 
 // Closes the current tab.
 - (void)closeCurrentTab;
@@ -42,9 +46,6 @@
 
 // Bookmarks the current page.
 - (void)bookmarkPage;
-
-// Shows the tools menu.
-- (void)showToolsMenu;
 
 // Opens a new tab as specified by |newTabCommand|.
 - (void)openNewTab:(OpenNewTabCommand*)newTabCommand;

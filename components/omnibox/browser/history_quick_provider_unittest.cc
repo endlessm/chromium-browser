@@ -97,7 +97,7 @@ class GetURLTask : public history::HistoryDBTask {
 
   bool RunOnDBThread(history::HistoryBackend* backend,
                      history::HistoryDatabase* db) override {
-    *result_storage_ = backend->GetURL(url_, NULL);
+    *result_storage_ = backend->GetURL(url_, nullptr);
     return true;
   }
 
@@ -197,7 +197,7 @@ class HistoryQuickProviderTest : public testing::Test {
 };
 
 void HistoryQuickProviderTest::SetUp() {
-  client_.reset(new FakeAutocompleteProviderClient());
+  client_ = std::make_unique<FakeAutocompleteProviderClient>();
   ASSERT_TRUE(client_->GetHistoryService());
   ASSERT_NO_FATAL_FAILURE(FillData());
 
@@ -218,14 +218,8 @@ void HistoryQuickProviderTest::SetUp() {
 
 void HistoryQuickProviderTest::TearDown() {
   provider_ = nullptr;
-  // The InMemoryURLIndex must be explicitly shut down or it will DCHECK() in
-  // its destructor.
-  client_->GetInMemoryURLIndex()->Shutdown();
-  client_->set_in_memory_url_index(nullptr);
-  // History index rebuild task is created from main thread during SetUp,
-  // performed on DB thread and must be deleted on main thread.
-  // Run main loop to process delete task, to prevent leaks.
-  base::RunLoop().RunUntilIdle();
+  client_.reset();
+  scoped_task_environment_.RunUntilIdle();
 }
 
 std::vector<HistoryQuickProviderTest::TestURLInfo>

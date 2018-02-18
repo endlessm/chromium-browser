@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -9,7 +10,6 @@
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "chromeos/network/network_profile_handler.h"
@@ -38,7 +38,7 @@ std::unique_ptr<base::Value> ConvertStringToValue(const std::string& str,
   } else {
     value = base::JSONReader::Read(str);
   }
-  if (value && value->GetType() != type)
+  if (value && value->type() != type)
     return nullptr;
 
   return value;
@@ -229,6 +229,9 @@ void ShillToONCTranslator::TranslateEthernet() {
   if (shill_network_type == shill::kTypeEthernetEap)
     onc_auth = ::onc::ethernet::k8021X;
   onc_object_->SetKey(::onc::ethernet::kAuthentication, base::Value(onc_auth));
+
+  if (shill_network_type == shill::kTypeEthernetEap)
+    TranslateAndAddNestedObject(::onc::ethernet::kEAP);
 }
 
 void ShillToONCTranslator::TranslateOpenVPN() {
@@ -728,13 +731,7 @@ void ShillToONCTranslator::SetNestedOncValue(
     const std::string& onc_dictionary_name,
     const std::string& onc_field_name,
     const base::Value& value) {
-  base::DictionaryValue* nested = nullptr;
-  if (!onc_object_->GetDictionaryWithoutPathExpansion(onc_dictionary_name,
-                                                      &nested)) {
-    nested = onc_object_->SetDictionaryWithoutPathExpansion(
-        onc_dictionary_name, base::MakeUnique<base::DictionaryValue>());
-  }
-  nested->SetKey(onc_field_name, value.Clone());
+  onc_object_->SetPath({onc_dictionary_name, onc_field_name}, value.Clone());
 }
 
 void ShillToONCTranslator::TranslateAndAddListOfObjects(
@@ -800,10 +797,10 @@ void ShillToONCTranslator::CopyProperty(
     return;
   }
 
-  if (shill_value->GetType() != field_signature->value_signature->onc_type) {
+  if (shill_value->type() != field_signature->value_signature->onc_type) {
     LOG(ERROR) << "Shill property '" << shill_property_name << "' with value "
                << *shill_value << " has base::Value::Type "
-               << shill_value->GetType() << " but ONC field '"
+               << shill_value->type() << " but ONC field '"
                << field_signature->onc_field_name << "' requires type "
                << field_signature->value_signature->onc_type << ": "
                << GetName();

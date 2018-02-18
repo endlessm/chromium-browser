@@ -254,9 +254,10 @@ void ChromePasswordProtectionService::ShowModalWarning(
                               prefs::kSafeBrowsingUnhandledSyncPasswordReuses);
   // Since base::Value doesn't support int64_t type, we convert the navigation
   // ID to string format and store it in the preference dictionary.
-  update->SetKey(Origin(web_contents->GetLastCommittedURL()).Serialize(),
-                 base::Value(base::Int64ToString(
-                     GetLastCommittedNavigationID(web_contents))));
+  update->SetKey(
+      Origin::Create(web_contents->GetLastCommittedURL()).Serialize(),
+      base::Value(
+          base::Int64ToString(GetLastCommittedNavigationID(web_contents))));
 
   // Starts preparing post-warning report.
   MaybeStartThreatDetailsCollection(web_contents, verdict_token);
@@ -349,20 +350,13 @@ bool ChromePasswordProtectionService::IsIncognito() {
 }
 
 bool ChromePasswordProtectionService::IsPingingEnabled(
-    const base::Feature& feature,
+    LoginReputationClientRequest::TriggerType trigger_type,
     RequestOutcome* reason) {
   if (!IsSafeBrowsingEnabled())
     return false;
 
-  DCHECK(feature.name == kProtectedPasswordEntryPinging.name ||
-         feature.name == kPasswordFieldOnFocusPinging.name);
-  if (!base::FeatureList::IsEnabled(feature)) {
-    *reason = DISABLED_DUE_TO_FEATURE_DISABLED;
-    return false;
-  }
-
   // Protected password entry pinging is enabled for all users.
-  if (feature.name == kProtectedPasswordEntryPinging.name)
+  if (trigger_type == LoginReputationClientRequest::PASSWORD_REUSE_EVENT)
     return true;
 
   // Password field on focus pinging is enabled for !incognito &&
@@ -448,7 +442,7 @@ void ChromePasswordProtectionService::LogPasswordReuseDialogInteraction(
   user_event_service->RecordUserEvent(std::move(specifics));
 }
 
-PasswordProtectionService::SyncAccountType
+LoginReputationClientRequest::PasswordReuseEvent::SyncAccountType
 ChromePasswordProtectionService::GetSyncAccountType() {
   const AccountInfo account_info = GetAccountInfo();
   if (account_info.account_id.empty() || account_info.hosted_domain.empty()) {
@@ -618,6 +612,28 @@ void ChromePasswordProtectionService::UpdateSecurityState(
                                     /*is_pending=*/true, threat_type);
 }
 
+void ChromePasswordProtectionService::
+    RemoveUnhandledSyncPasswordReuseOnURLsDeleted(
+        bool all_history,
+        const history::URLRows& deleted_rows) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  DCHECK(all_history || !deleted_rows.empty());
+
+  DictionaryPrefUpdate unhandled_sync_password_reuses(
+      profile_->GetPrefs(), prefs::kSafeBrowsingUnhandledSyncPasswordReuses);
+  if (all_history) {
+    unhandled_sync_password_reuses->Clear();
+    return;
+  }
+
+  for (const history::URLRow& row : deleted_rows) {
+    if (!row.url().SchemeIsHTTPOrHTTPS())
+      continue;
+    unhandled_sync_password_reuses->RemoveKey(
+        Origin::Create(row.url()).Serialize());
+  }
+}
+
 void ChromePasswordProtectionService::CheckGaiaPasswordChange() {
   std::string new_gaia_password_hash = profile_->GetPrefs()->GetString(
       password_manager::prefs::kSyncPasswordHash);
@@ -691,7 +707,7 @@ GURL ChromePasswordProtectionService::GetChangePasswordURL() {
 void ChromePasswordProtectionService::HandleUserActionOnModalWarning(
     content::WebContents* web_contents,
     PasswordProtectionService::WarningAction action) {
-  const Origin origin(web_contents->GetLastCommittedURL());
+  const Origin origin = Origin::Create(web_contents->GetLastCommittedURL());
   int64_t navigation_id =
       GetNavigationIDFromPrefsByOrigin(profile_->GetPrefs(), origin);
   if (action == PasswordProtectionService::CHANGE_PASSWORD) {
@@ -723,7 +739,7 @@ void ChromePasswordProtectionService::HandleUserActionOnPageInfo(
     content::WebContents* web_contents,
     PasswordProtectionService::WarningAction action) {
   GURL url = web_contents->GetLastCommittedURL();
-  const Origin origin(url);
+  const Origin origin = Origin::Create(url);
 
   if (action == PasswordProtectionService::CHANGE_PASSWORD) {
     LogPasswordReuseDialogInteraction(

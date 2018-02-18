@@ -59,6 +59,22 @@ class SmoothnessTop25(_Smoothness):
         self.DisableStory('https://mail.google.com/mail/',
                           [story_module.expectations.ALL_WIN],
                           'crbug.com/750147')
+        self.DisableStory('Docs  (1 open document tab)',
+                          [story_module.expectations.ALL_WIN],
+                          'crbug.com/762165')
+        self.DisableStory('http://www.youtube.com',
+                          [story_module.expectations.ALL_WIN],
+                          'crbug.com/762165')
+        self.DisableStory('https://plus.google.com/110031535020051778989/posts',
+                          [story_module.expectations.ALL_WIN],
+                          'crbug.com/762165')
+        self.DisableStory('https://www.google.com/calendar/',
+                          [story_module.expectations.ALL_WIN],
+                          'crbug.com/762165')
+        self.DisableStory('https://www.google.com/search?q=cats&tbm=isch',
+                          [story_module.expectations.ALL_WIN],
+                          'crbug.com/762165')
+
     return StoryExpectations()
 
 
@@ -73,13 +89,6 @@ class SmoothnessToughFiltersCases(_Smoothness):
   @classmethod
   def Name(cls):
     return 'smoothness.tough_filters_cases'
-
-  def GetExpectations(self):
-    class StoryExpectations(story_module.expectations.StoryExpectations):
-      def SetExpectations(self):
-        self.DisableBenchmark([story_module.expectations.ANDROID_NEXUS6],
-                              'crbug.com/624032')
-    return StoryExpectations()
 
 
 @benchmark.Owner(emails=['senorblanco@chromium.org'])
@@ -131,6 +140,16 @@ class SmoothnessToughCanvasCases(_Smoothness):
         self.DisableStory('tough_canvas_cases/canvas_toBlob.html',
                           [story_module.expectations.ANDROID_ONE],
                           'crbug.com/755657')
+        self.DisableStory('http://www.kevs3d.co.uk/dev/canvask3d/k3d_test.html',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785485')
+        self.DisableStory('http://www.effectgames.com/demos/canvascycle/',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785286')
+        self.DisableStory('http://www.smashcat.org/av/canvas_test/',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785286')
+
     return StoryExpectations()
 
 
@@ -150,7 +169,7 @@ class SmoothnessToughWebGLCases(_Smoothness):
 
 
 @benchmark.Owner(emails=['kbr@chromium.org', 'zmo@chromium.org'])
-class SmoothnessMaps(perf_benchmark.PerfBenchmark):
+class SmoothnessMaps(_Smoothness):
   page_set = page_sets.MapsPageSet
 
   @classmethod
@@ -268,6 +287,10 @@ class SmoothnessKeySilkCases(_Smoothness):
             'inbox_app.html?slide_drawer', [story_module.expectations.ALL],
             'Story contains multiple interaction records. Not supported in '
             'smoothness benchmarks.')
+        self.DisableStory(
+            'https://polymer-topeka.appspot.com/',
+            [story_module.expectations.ALL],
+            'crbug.com/780525')
     return StoryExpectations()
 
 
@@ -277,7 +300,8 @@ class SmoothnessGpuRasterizationTop25(_Smoothness):
   """
   tag = 'gpu_rasterization'
   page_set = page_sets.Top25SmoothPageSet
-  SUPPORTED_PLATFORMS = [story_module.expectations.ALL_MOBILE]
+  SUPPORTED_PLATFORMS = [story_module.expectations.ALL_MOBILE,
+                         story_module.expectations.ALL_CHROMEOS]
 
   def SetExtraBrowserOptions(self, options):
     silk_flags.CustomizeBrowserOptionsForGpuRasterization(options)
@@ -608,7 +632,36 @@ class SmoothnessToughScrollingCases(_Smoothness):
   def GetExpectations(self):
     class StoryExpectations(story_module.expectations.StoryExpectations):
       def SetExpectations(self):
-        pass # Nothing.
+        self.DisableStory('canvas_05000_pixels_per_second',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785473')
+        self.DisableStory('canvas_10000_pixels_per_second',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785473')
+        self.DisableStory('canvas_15000_pixels_per_second',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785473')
+        self.DisableStory('canvas_20000_pixels_per_second',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785473')
+        self.DisableStory('canvas_30000_pixels_per_second',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785473')
+        self.DisableStory('canvas_40000_pixels_per_second',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785473')
+        self.DisableStory('canvas_50000_pixels_per_second',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785473')
+        self.DisableStory('canvas_60000_pixels_per_second',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785473')
+        self.DisableStory('canvas_75000_pixels_per_second',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785473')
+        self.DisableStory('canvas_90000_pixels_per_second',
+                          [story_module.expectations.ANDROID_WEBVIEW],
+                          'crbug.com/785473')
     return StoryExpectations()
 
 

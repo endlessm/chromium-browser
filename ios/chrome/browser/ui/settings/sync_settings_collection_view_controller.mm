@@ -596,14 +596,16 @@ typedef NS_ENUM(NSInteger, ItemType) {
       GetSyncStateForBrowserState(_browserState);
   if (ShouldShowSyncSignin(syncState)) {
     [self.dispatcher
-        showSignin:[[ShowSigninCommand alloc]
-                       initWithOperation:AUTHENTICATION_OPERATION_REAUTHENTICATE
-                             accessPoint:signin_metrics::AccessPoint::
-                                             ACCESS_POINT_UNKNOWN]];
+                showSignin:[[ShowSigninCommand alloc]
+                               initWithOperation:
+                                   AUTHENTICATION_OPERATION_REAUTHENTICATE
+                                     accessPoint:signin_metrics::AccessPoint::
+                                                     ACCESS_POINT_UNKNOWN]
+        baseViewController:self];
   } else if (ShouldShowSyncSettings(syncState)) {
-    [self.dispatcher showSyncSettings];
+    [self.dispatcher showSyncSettingsFromViewController:self];
   } else if (ShouldShowSyncPassphraseSettings(syncState)) {
-    [self.dispatcher showSyncPassphraseSettings];
+    [self.dispatcher showSyncPassphraseSettingsFromViewController:self];
   }
 }
 

@@ -7,10 +7,10 @@
 
 #include <vector>
 
+#include "ash/app_list/model/app_list_model.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/app_list/app_list_export.h"
-#include "ui/app_list/app_list_model.h"
 #include "ui/app_list/views/app_list_page.h"
 #include "ui/app_list/views/search_result_container_view.h"
 
@@ -46,7 +46,6 @@ class APP_LIST_EXPORT SearchResultPageView
   void OnAnimationUpdated(double progress,
                           AppListModel::State from_state,
                           AppListModel::State to_state) override;
-  int GetSearchBoxZHeight() const override;
   void OnHidden() override;
   gfx::Rect GetSearchBoxBounds() const override;
   views::View* GetSelectedView() const override;
@@ -80,8 +79,6 @@ class APP_LIST_EXPORT SearchResultPageView
 
   // -1 indicates no selection.
   int selected_index_;
-
-  const bool is_fullscreen_app_list_enabled_;
 
   // Whether the app list focus is enabled.
   const bool is_app_list_focus_enabled_;

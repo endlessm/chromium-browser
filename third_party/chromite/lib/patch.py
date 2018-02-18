@@ -253,10 +253,32 @@ class EbuildConflict(ApplyPatchException):
 
   def ShortExplanation(self):
     return ('deletes an ebuild that is not present anymore. For this reason, '
-            'we refuse to merge your change.\n\n'
+            'we refuse to submit your change.\n\n'
             'When you rebase your change, please take into account that the '
             'following ebuilds have been uprevved or deleted:\n\n'
             '%s' % (self._StringifyFilenames()))
+
+
+class ForbiddenMerge(PatchException):
+  """Thrown if a merge commit doesn't meet criteria to be handled."""
+
+
+class NonMainlineMerge(ForbiddenMerge):
+  """Thrown in a merge commit has no parents that are already in mainline."""
+
+  def __init__(self, patch):
+    msg = ('Neither parent of this merge commit is already submitted in '
+           'the destination branch. The CQ can only handle merge commits '
+           'that meet this criteria.')
+    super(NonMainlineMerge, self).__init__(patch, message=msg)
+
+
+class PatchNoParents(PatchException):
+  """Thrown when attempting to handle a patch with no parents."""
+
+  def __init__(self, patch):
+    msg = 'This patch has no parents, and therefore cannot be applied.'
+    super(PatchNoParents, self).__init__(patch, message=msg)
 
 
 class PatchIsEmpty(ApplyPatchException):
@@ -360,8 +382,8 @@ class ChangeNotInManifest(PatchException):
     return 'could not be found in the repo manifest.'
 
 
-class PatchNotMergeable(PatchException):
-  """Raised if a patch is not mergeable."""
+class PatchNotSubmittable(PatchException):
+  """Raised if a patch is not submittable."""
 
   def __init__(self, patch, reason):
     PatchException.__init__(self, patch)
@@ -781,6 +803,9 @@ class GitRepoPatch(PatchQuery):
     self.git_remote_url = '%s/%s' % (
         site_config.params.GIT_REMOTES.get(remote), project)
     self.project_url = project_url
+    self._project = project
+    self._tracking_branch = tracking_branch
+    self._remote = remote
     self.commit_message = None
     self._subject_line = None
     self.ref = ref
@@ -1002,6 +1027,42 @@ class GitRepoPatch(PatchQuery):
     git.RunGit(git_repo, ['commit', '--amend', '-m', self.commit_message])
     self.sha1 = ParseSHA1(self._PullData('HEAD', git_repo)[0], error_ok=False)
 
+  # pylint: disable=unused-argument
+  def Merge(self, git_repo, trivial=False, inflight=False, leave_dirty=False):
+    """Attempts to merge the given rev into branch.
+
+    Note: This method is intended to present the same interface as CherryPick.
+    However, it's behavior is simpler and not all of the arguments actually
+    do anything.
+
+    Args:
+      git_repo: The git repository to operate upon.
+      trivial: [ignored]
+      inflight: [ignored]
+      leave_dirty: [ignored]
+
+    Raises:
+      A ApplyPatchException if the request couldn't be handled.
+    """
+    cmd = ['merge', self.sha1]
+
+    # TODO(akeshet): Amend the original merge's commit message before merging
+    # it.
+
+    reset_target = 'HEAD'
+    try:
+      git.RunGit(git_repo, cmd, capture_output=False)
+      reset_target = None
+      return
+    except cros_build_lib.RunCommandError:
+      # TODO(akeshet): Add more specialized or grandular error handling.
+      # TODO(akeshet): Use an exception class other than ApplyPatchException,
+      # for merge commits.
+      raise ApplyPatchException(self, 'Unable to merge this CL.')
+    finally:
+      if reset_target:
+        git.RunGit(git_repo, ['reset', '--hard', reset_target])
+
   def CherryPick(self, git_repo, trivial=False, inflight=False,
                  leave_dirty=False):
     """Attempts to cherry-pick the given rev into branch.
@@ -1094,7 +1155,7 @@ class GitRepoPatch(PatchQuery):
 
     self.Fetch(git_repo)
 
-    logging.info('Attempting to cherry-pick change %s', self)
+    logging.info('Attempting to apply change %s', self)
 
     # If the patch branch exists use it, otherwise create it and switch to it.
     if git.DoesCommitExistInRepo(git_repo, constants.PATCH_BRANCH):
@@ -1115,9 +1176,27 @@ class GitRepoPatch(PatchQuery):
 
     self._FindEbuildConflicts(git_repo, upstream, inflight=inflight)
 
+    parents = self._GetParents(git_repo)
+    if len(parents) == 1:
+      use_merge = False
+    elif len(parents) == 2:
+      self._ValidateMergeCommit(git_repo, upstream, parents)
+      use_merge = True
+    else:
+      raise PatchNoParents(self)
+
+    return self._ApplyHelper(git_repo, upstream, trivial, inflight, use_merge)
+
+  def _ApplyHelper(self, git_repo, upstream, trivial, inflight,
+                   use_merge=False):
+    via = 'merge' if use_merge else 'cherry-pick'
+    logging.info('Applying via %s.', via)
+
+    do_apply = self.Merge if use_merge else self.CherryPick
+
     do_checkout = True
     try:
-      self.CherryPick(git_repo, trivial=trivial, inflight=inflight)
+      do_apply(git_repo, trivial=trivial, inflight=inflight)
       do_checkout = False
       return
     except ApplyPatchException:
@@ -1125,7 +1204,7 @@ class GitRepoPatch(PatchQuery):
         raise
       git.RunGit(git_repo, ['checkout', '-f', '--detach', upstream])
 
-      self.CherryPick(git_repo, trivial=trivial, inflight=False)
+      do_apply(git_repo, trivial=trivial, inflight=False)
       # Making it here means that it was an inflight issue; throw the original.
       raise
     finally:
@@ -1133,6 +1212,63 @@ class GitRepoPatch(PatchQuery):
       if do_checkout:
         git.RunGit(git_repo, ['checkout', '-f', constants.PATCH_BRANCH],
                    error_code_ok=True)
+
+  # pylint: disable=protected-access
+  def _ValidateMergeCommit(self, git_repo, upstream, parents):
+    """If this patch is a merge commit, validate that it meets restrictions.
+
+    Args:
+      git_repo: The git repo to work in.
+      upstream: Current sha1 of upstream branch.
+      parents: List (length 2) of the two parents of this patch.
+
+    Raises:
+      ForbiddenMerge if the merge does not meet criteria.
+    """
+    # We do not support patches with a history like this:
+    #
+    # *   E [new merge patch being handled]
+    # |\
+    # | * D [branchline commit]
+    # * | C [mainline commit, not yet submitted]
+    # |/
+    # | * B CURRENT_UPSTREAM, [mainline commit, submitted]
+    # |/
+    # *   A [common ancestor on mainline]
+    #
+    # because of potential complications if C is cherry-picked into mainline in
+    # the same CQ run as we are attempting to merge E.
+    #
+    # We prevent this by limiting ourselves to handle E only if at least 1
+    # parent is already in the history of CURRENT_UPSTREAM.
+
+    upstream_as_patch = self._FromSha1(upstream)
+    parent1 = self._FromSha1(parents[0])
+    parent2 = self._FromSha1(parents[1])
+
+    parent_is_ancestor = (parent1._IsAncestorOf(git_repo, upstream_as_patch) or
+                          parent2._IsAncestorOf(git_repo, upstream_as_patch))
+
+    if not parent_is_ancestor:
+      raise NonMainlineMerge(self)
+
+    # TODO(akeshet): We should also validate that the "branchline" commits are
+    # not in the current validation pool, otherwise we could end up with CLs.
+    # being duplicated if the CQ both cherry-picks them and brings them in via
+    # merge.
+    #
+    # The user instructions for the merge feature will make it clear that
+    # "branchline" CLs should not be reviewed or CQ'd in the same way, but it
+    # shouldn't be too hard to add a check here.
+
+  def _FromSha1(self, sha1):
+    """Return a new GitRepoPatch instance with same upstream, for other sha1.
+
+    This is a useful helper method to convert sha1 values into GitRepoPatch
+    objects if needed, to make use of the GitRepoPatch methods.
+    """
+    return GitRepoPatch(self.project_url, self._project, self.ref,
+                        self._tracking_branch, self._remote, sha1=sha1)
 
   def ApplyAgainstManifest(self, manifest, trivial=False):
     """Applies the patch against the specified manifest.
@@ -1354,6 +1490,48 @@ class GitRepoPatch(PatchQuery):
       return output[0]
     elif len(output) > 1:
       raise BrokenChangeID(self, 'Duplicate change ID')
+
+  def _GetParents(self, git_repo):
+    """Get the parent sha1s of this patch.
+
+    Args:
+      git_repo: The path to the repo.
+
+    Returns:
+      A list of sha1s. For normal commits, this will be a length=1 list. For
+      merge commits, this will be a length=2 list. For commits with no parent
+      (i.e. the initial commit of a repo) this will be an empty list.
+    """
+    self.Fetch(git_repo)
+
+    cmd = ['show', '--format=%P', '-s', self.sha1]
+    parents = git.RunGit(git_repo, cmd).output.split()
+    return parents
+
+  def _IsAncestorOf(self, git_repo, other_patch):
+    """Determine whether this patch is ancestor of |other_patch|.
+
+    Args:
+      git_repo: The git repository to fetch into.
+      other_patch: A GitRepoPatch representing the other patch.
+
+    Returns:
+      True if this patch is ancestor of |other_patch|. False otherwise.
+    """
+    self.Fetch(git_repo)
+    other_patch.Fetch(git_repo)
+
+    cmd = ['merge-base', '--is-ancestor', self.sha1, other_patch.sha1]
+    try:
+      git.RunGit(git_repo, cmd)
+      # Exit code 0 means yes.
+      return True
+    except cros_build_lib.RunCommandError as e:
+      if e.result.returncode == 1:
+        # Exit code 1 means no.
+        return False
+      # Other return codes are exceptions
+      raise
 
 
 class LocalPatch(GitRepoPatch):
@@ -1868,7 +2046,7 @@ class GerritPatch(GerritFetchOnlyPatch):
     If the change is in fact mergeable, return None.
     """
     if self.IsDraft():
-      return PatchNotMergeable(self, 'is a draft.')
+      return PatchNotSubmittable(self, 'is a draft.')
 
     if self.status != 'NEW':
       statuses = {
@@ -1877,18 +2055,18 @@ class GerritPatch(GerritFetchOnlyPatch):
           'ABANDONED': 'is abandoned.',
       }
       message = statuses.get(self.status, 'has status %s.' % self.status)
-      return PatchNotMergeable(self, message)
+      return PatchNotSubmittable(self, message)
 
     if self.HasApproval('VRIF', '-1'):
-      return PatchNotMergeable(self, 'is marked as Verified=-1.')
+      return PatchNotSubmittable(self, 'is marked as Verified=-1.')
     elif self.HasApproval('CRVW', '-2'):
-      return PatchNotMergeable(self, 'is marked as Code-Review=-2.')
+      return PatchNotSubmittable(self, 'is marked as Code-Review=-2.')
     elif not self.HasApproval('CRVW', '2'):
-      return PatchNotMergeable(self, 'is not marked Code-Review=+2.')
+      return PatchNotSubmittable(self, 'is not marked Code-Review=+2.')
     elif not self.HasApproval('VRIF', '1'):
-      return PatchNotMergeable(self, 'is not marked Verified=+1.')
+      return PatchNotSubmittable(self, 'is not marked Verified=+1.')
     elif not self.HasApproval('COMR', ('1', '2')):
-      return PatchNotMergeable(self, 'is not marked Commit-Queue>=+1.')
+      return PatchNotSubmittable(self, 'is not marked Commit-Queue>=+1.')
 
   def GetLatestApproval(self, field):
     """Return most recent value of specific field on the current patchset.

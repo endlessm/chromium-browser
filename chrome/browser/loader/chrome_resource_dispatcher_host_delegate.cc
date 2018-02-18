@@ -19,6 +19,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/client_hints/client_hints.h"
 #include "chrome/browser/component_updater/component_updater_resource_throttle.h"
 #include "chrome/browser/download/download_request_limiter.h"
 #include "chrome/browser/download/download_resource_throttle.h"
@@ -35,6 +36,7 @@
 #include "chrome/browser/prerender/prerender_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_io_data.h"
+#include "chrome/browser/renderer_host/chrome_navigation_ui_data.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/signin/chrome_signin_helper.h"
 #include "chrome/browser/tab_contents/tab_util.h"
@@ -42,6 +44,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/features.h"
 #include "chrome/common/url_constants.h"
+#include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_data.h"
@@ -50,10 +53,13 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_util.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/nacl/common/features.h"
+#include "components/offline_pages/core/request_header/offline_page_navigation_ui_data.h"
 #include "components/offline_pages/features/features.h"
 #include "components/policy/core/common/cloud/policy_header_io_helper.h"
+#include "components/previews/content/previews_content_util.h"
+#include "components/previews/content/previews_io_data.h"
 #include "components/previews/core/previews_experiments.h"
-#include "components/previews/core/previews_io_data.h"
+#include "components/previews/core/previews_user_data.h"
 #include "components/variations/net/variations_http_headers.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_data.h"
@@ -80,6 +86,7 @@
 #include "net/http/http_response_headers.h"
 #include "net/ssl/client_cert_store.h"
 #include "net/url_request/url_request.h"
+#include "third_party/WebKit/common/page/page_visibility_state.mojom.h"
 #include "third_party/protobuf/src/google/protobuf/repeated_field.h"
 
 #if BUILDFLAG(ENABLE_NACL)
@@ -262,8 +269,8 @@ void AppendComponentUpdaterThrottles(
     content::ResourceContext* resource_context,
     ResourceType resource_type,
     std::vector<std::unique_ptr<content::ResourceThrottle>>* throttles) {
-  bool is_prerendering =
-      info.GetVisibilityState() == blink::kWebPageVisibilityStatePrerender;
+  bool is_prerendering = info.GetVisibilityState() ==
+                         blink::mojom::PageVisibilityState::kPrerender;
   if (is_prerendering)
     return;
 
@@ -452,6 +459,8 @@ void ChromeResourceDispatcherHostDelegate::RequestBeginning(
     std::vector<std::unique_ptr<content::ResourceThrottle>>* throttles) {
   if (safe_browsing_.get())
     safe_browsing_->OnResourceRequest(request);
+  ProfileIOData* io_data = ProfileIOData::FromResourceContext(resource_context);
+  client_hints::RequestBeginning(request, io_data->GetCookieSettings());
 
   const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
 
@@ -464,9 +473,6 @@ void ChromeResourceDispatcherHostDelegate::RequestBeginning(
                                          info->GetWebContentsGetterForRequest(),
                                          info->GetResourceType()));
 #endif  // BUILDFLAG(ENABLE_OFFLINE_PAGES)
-
-  ProfileIOData* io_data = ProfileIOData::FromResourceContext(
-      resource_context);
 
 #if defined(OS_ANDROID)
   if (resource_type != content::RESOURCE_TYPE_MAIN_FRAME)
@@ -669,7 +675,8 @@ void ChromeResourceDispatcherHostDelegate::AppendStandardResourceThrottles(
 #endif
 
   const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
-  if (info->GetVisibilityState() == blink::kWebPageVisibilityStatePrerender) {
+  if (info->GetVisibilityState() ==
+      blink::mojom::PageVisibilityState::kPrerender) {
     throttles->push_back(
         base::MakeUnique<prerender::PrerenderResourceThrottle>(request));
   }
@@ -795,6 +802,25 @@ void ChromeResourceDispatcherHostDelegate::OnResponseStarted(
     io_data->loading_predictor_observer()->OnResponseStarted(
         request, info->GetWebContentsGetterForRequest());
 
+  // Update the PreviewsState for main frame response if needed.
+  // TODO(dougarnett): Add more comprehensive update for crbug.com/782922
+  if (info->GetResourceType() == content::RESOURCE_TYPE_MAIN_FRAME &&
+      request->url().SchemeIsHTTPOrHTTPS()) {
+    content::PreviewsState previews_state = response->head.previews_state;
+    if (previews_state != 0) {
+      if (!request->url().SchemeIs(url::kHttpsScheme)) {
+        // Clear https-only previews types.
+        previews_state &= ~(content::NOSCRIPT_ON);
+      }
+      // Update previews state in response to renderer.
+      response->head.previews_state = previews_state;
+      // Update previews state in nav data to UI.
+      ChromeNavigationData* data =
+          ChromeNavigationData::GetDataAndCreateIfNecessary(request);
+      data->set_previews_state(previews_state);
+    }
+  }
+
   mod_pagespeed::RecordMetrics(info->GetResourceType(), request->url(),
                                request->response_headers());
 }
@@ -883,8 +909,9 @@ void ChromeResourceDispatcherHostDelegate::RequestComplete(
           std::move(load_timing_info)));
 }
 
-content::PreviewsState ChromeResourceDispatcherHostDelegate::GetPreviewsState(
-    const net::URLRequest& url_request,
+content::PreviewsState
+ChromeResourceDispatcherHostDelegate::DeterminePreviewsState(
+    net::URLRequest* url_request,
     content::ResourceContext* resource_context,
     content::PreviewsState previews_to_allow) {
   ProfileIOData* io_data = ProfileIOData::FromResourceContext(resource_context);
@@ -895,27 +922,21 @@ content::PreviewsState ChromeResourceDispatcherHostDelegate::GetPreviewsState(
 
   previews::PreviewsIOData* previews_io_data = io_data->previews_io_data();
   if (data_reduction_proxy_io_data && previews_io_data) {
-    if (data_reduction_proxy_io_data->ShouldEnableLoFi(url_request,
+    previews::PreviewsUserData::Create(url_request,
+                                       previews_io_data->GeneratePageId());
+    if (data_reduction_proxy_io_data->ShouldEnableLoFi(*url_request,
                                                        previews_io_data)) {
       previews_state |= content::SERVER_LOFI_ON;
     }
-    if (data_reduction_proxy_io_data->ShouldEnableLitePages(url_request,
+    if (data_reduction_proxy_io_data->ShouldEnableLitePages(*url_request,
                                                             previews_io_data)) {
       previews_state |= content::SERVER_LITE_PAGE_ON;
     }
 
-    // Check that data saver is enabled and the user is eligible for Lo-Fi
-    // previews. If the user is not transitioned fully to the blacklist, respect
-    // the old prefs rules.
-    if (data_reduction_proxy_io_data->IsEnabled() &&
-        (!data_reduction_proxy_io_data->config()->lofi_off() ||
-         data_reduction_proxy::params::IsBlackListEnabledForServerPreviews()) &&
-        previews::params::IsClientLoFiEnabled() &&
-        previews_io_data->ShouldAllowPreviewAtECT(
-            url_request, previews::PreviewsType::LOFI,
-            previews::params::EffectiveConnectionTypeThresholdForClientLoFi(),
-            previews::params::GetBlackListedHostsForClientLoFiFieldTrial())) {
-      previews_state |= content::CLIENT_LOFI_ON;
+    // Check for enabled client-side previews if data saver is enabled.
+    if (data_reduction_proxy_io_data->IsEnabled()) {
+      previews_state |= previews::DetermineClientPreviewsState(
+          *url_request, previews_io_data);
     }
   }
 
@@ -949,13 +970,6 @@ ChromeResourceDispatcherHostDelegate::GetNavigationData(
   if (!request)
     return data;
 
-  // Update the previews state from the navigation data.
-  const content::ResourceRequestInfo* info =
-      content::ResourceRequestInfo::ForRequest(request);
-  if (info) {
-    data->set_previews_state(info->GetPreviewsState());
-  }
-
   data_reduction_proxy::DataReductionProxyData* data_reduction_proxy_data =
       data_reduction_proxy::DataReductionProxyData::GetData(*request);
   // DeepCopy the DataReductionProxyData from the URLRequest to prevent the
@@ -964,6 +978,12 @@ ChromeResourceDispatcherHostDelegate::GetNavigationData(
   // when content makes a clone of NavigationData for the UI thread.
   if (data_reduction_proxy_data)
     data->SetDataReductionProxyData(data_reduction_proxy_data->DeepCopy());
+
+  previews::PreviewsUserData* previews_user_data =
+      previews::PreviewsUserData::GetData(*request);
+  if (previews_user_data)
+    data->set_previews_user_data(previews_user_data->DeepCopy());
+
   return data;
 }
 
@@ -972,4 +992,21 @@ ChromeResourceDispatcherHostDelegate::CreateClientCertStore(
     content::ResourceContext* resource_context) {
   return ProfileIOData::FromResourceContext(resource_context)->
       CreateClientCertStore();
+}
+
+bool ChromeResourceDispatcherHostDelegate::AllowRenderingMhtmlOverHttp(
+    net::URLRequest* request) const {
+#if BUILDFLAG(ENABLE_OFFLINE_PAGES)
+  // It is OK to load the saved offline copy, in MHTML format.
+  const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
+  ChromeNavigationUIData* navigation_data =
+      static_cast<ChromeNavigationUIData*>(info->GetNavigationUIData());
+  if (!navigation_data)
+    return false;
+  offline_pages::OfflinePageNavigationUIData* offline_page_data =
+      navigation_data->GetOfflinePageNavigationUIData();
+  return offline_page_data && offline_page_data->is_offline_page();
+#else
+  return false;
+#endif
 }

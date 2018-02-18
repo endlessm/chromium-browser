@@ -18,24 +18,23 @@ namespace scheduler {
 
 class FakeWebTaskRunner::Data : public WTF::ThreadSafeRefCounted<Data> {
  public:
-  Data() : time_(0.0) {}
+  Data() {}
 
-  void PostTask(base::OnceClosure task, base::TimeDelta delay) {
-    task_queue_.push_back(
-        std::make_pair(std::move(task), time_ + delay.InSecondsF()));
+  void PostDelayedTask(base::OnceClosure task, base::TimeDelta delay) {
+    task_queue_.emplace_back(std::move(task), time_ + delay);
   }
 
-  using QueueItem = std::pair<base::OnceClosure, double>;
-  std::deque<QueueItem>::iterator FindRunnableTask() {
+  using PendingTask = FakeWebTaskRunner::PendingTask;
+  std::deque<PendingTask>::iterator FindRunnableTask() {
     // TODO(tkent): This should return an item which has the minimum |second|.
     return std::find_if(
         task_queue_.begin(), task_queue_.end(),
-        [&](const QueueItem& item) { return item.second <= time_; });
+        [&](const PendingTask& item) { return item.second <= time_; });
   }
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
-  std::deque<QueueItem> task_queue_;
-  double time_;
+  std::deque<PendingTask> task_queue_;
+  base::TimeTicks time_;
 
  private:
   ~Data() {}
@@ -44,61 +43,24 @@ class FakeWebTaskRunner::Data : public WTF::ThreadSafeRefCounted<Data> {
   DISALLOW_COPY_AND_ASSIGN(Data);
 };
 
-class FakeWebTaskRunner::BaseTaskRunner : public base::SingleThreadTaskRunner {
- public:
-  explicit BaseTaskRunner(RefPtr<Data> data) : data_(std::move(data)) {}
+FakeWebTaskRunner::FakeWebTaskRunner() : data_(base::AdoptRef(new Data)) {}
 
-  bool PostDelayedTask(const base::Location& from_here,
-                       base::OnceClosure task,
-                       base::TimeDelta delay) override {
-    data_->PostTask(std::move(task), delay);
-    return true;
-  }
-
-  bool PostNonNestableDelayedTask(const base::Location& from_here,
-                                  base::OnceClosure task,
-                                  base::TimeDelta delay) override {
-    data_->PostTask(std::move(task), delay);
-    return true;
-  }
-
-  bool RunsTasksInCurrentSequence() const { return true; }
-
- private:
-  RefPtr<Data> data_;
-};
-
-FakeWebTaskRunner::FakeWebTaskRunner()
-    : data_(WTF::AdoptRef(new Data)),
-      base_task_runner_(new BaseTaskRunner(data_)) {}
-
-FakeWebTaskRunner::FakeWebTaskRunner(
-    RefPtr<Data> data,
-    scoped_refptr<BaseTaskRunner> base_task_runner)
-    : data_(std::move(data)), base_task_runner_(std::move(base_task_runner)) {}
+FakeWebTaskRunner::FakeWebTaskRunner(scoped_refptr<Data> data)
+    : data_(std::move(data)) {}
 
 FakeWebTaskRunner::~FakeWebTaskRunner() {
 }
 
-void FakeWebTaskRunner::SetTime(double new_time) {
+void FakeWebTaskRunner::SetTime(base::TimeTicks new_time) {
   data_->time_ = new_time;
 }
 
-bool FakeWebTaskRunner::RunsTasksInCurrentSequence() {
+bool FakeWebTaskRunner::RunsTasksInCurrentSequence() const {
   return true;
 }
 
-double FakeWebTaskRunner::VirtualTimeSeconds() const {
-  return data_->time_;
-}
-
 double FakeWebTaskRunner::MonotonicallyIncreasingVirtualTimeSeconds() const {
-  return data_->time_;
-}
-
-scoped_refptr<base::SingleThreadTaskRunner>
-FakeWebTaskRunner::ToSingleThreadTaskRunner() {
-  return base_task_runner_;
+  return (data_->time_ - base::TimeTicks()).InSecondsF();
 }
 
 void FakeWebTaskRunner::RunUntilIdle() {
@@ -111,8 +73,8 @@ void FakeWebTaskRunner::RunUntilIdle() {
   }
 }
 
-void FakeWebTaskRunner::AdvanceTimeAndRun(double delta_seconds) {
-  data_->time_ += delta_seconds;
+void FakeWebTaskRunner::AdvanceTimeAndRun(base::TimeDelta delta) {
+  data_->time_ += delta;
   for (auto it = data_->FindRunnableTask(); it != data_->task_queue_.end();
        it = data_->FindRunnableTask()) {
     base::OnceClosure task = std::move(*it).first;
@@ -121,7 +83,7 @@ void FakeWebTaskRunner::AdvanceTimeAndRun(double delta_seconds) {
   }
 }
 
-std::deque<std::pair<base::OnceClosure, double>>
+std::deque<std::pair<base::OnceClosure, base::TimeTicks>>
 FakeWebTaskRunner::TakePendingTasksForTesting() {
   return std::move(data_->task_queue_);
 }
@@ -129,7 +91,16 @@ FakeWebTaskRunner::TakePendingTasksForTesting() {
 bool FakeWebTaskRunner::PostDelayedTask(const base::Location& location,
                                         base::OnceClosure task,
                                         base::TimeDelta delay) {
-  return base_task_runner_->PostDelayedTask(location, std::move(task), delay);
+  data_->PostDelayedTask(std::move(task), delay);
+  return true;
+}
+
+bool FakeWebTaskRunner::PostNonNestableDelayedTask(
+    const base::Location& location,
+    base::OnceClosure task,
+    base::TimeDelta delay) {
+  data_->PostDelayedTask(std::move(task), delay);
+  return true;
 }
 
 }  // namespace scheduler

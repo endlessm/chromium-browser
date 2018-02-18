@@ -9,11 +9,11 @@
 #include <pk11pub.h>
 
 #include <algorithm>
+#include <memory>
 
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/task_scheduler/post_task.h"
@@ -73,6 +73,8 @@ bool ContainsValue(const std::vector<T>& vector, const T& value) {
 }
 
 // Returns true if a private key for certificate |cert| is installed.
+// Note that HasPrivateKey is not a cheap operation: it iterates all tokens and
+// attempts to look up the private key.
 bool HasPrivateKey(CERTCertificate* cert) {
   PK11SlotInfo* slot = PK11_KeyForCertExists(cert, nullptr, nullptr);
   if (!slot)
@@ -121,9 +123,13 @@ struct MatchCertWithPattern {
 
   bool operator()(const CertAndIssuer& cert_and_issuer) {
     if (!pattern.issuer().Empty() || !pattern.subject().Empty()) {
+      // Allow UTF-8 inside PrintableStrings in client certificates. See
+      // crbug.com/770323 and crbug.com/788655.
+      net::X509Certificate::UnsafeCreateOptions options;
+      options.printable_string_is_utf8 = true;
       scoped_refptr<net::X509Certificate> x509_cert =
           net::x509_util::CreateX509CertificateFromCERTCertificate(
-              cert_and_issuer.cert.get());
+              cert_and_issuer.cert.get(), {}, options);
       if (!x509_cert)
         return false;
       if (!pattern.issuer().Empty() &&
@@ -180,14 +186,21 @@ std::vector<CertAndIssuer> CreateSortedCertAndIssuerList(
     base::Time now) {
   // Filter all client certs and determines each certificate's issuer, which is
   // required for the pattern matching.
+  // TODO(pmarko): Consider moving the filtering of client certs into
+  // CertLoader. It should not be in ClientCertResolver's responsibility to
+  // decide if a certificate is a valid client certificate or not. Other
+  // consumers of CertLoader could also use a pre-filtered list (e.g.
+  // NetworkCertMigrator). See crbug.com/781693.
   std::vector<CertAndIssuer> client_certs;
   for (net::ScopedCERTCertificateList::iterator it = certs.begin();
        it != certs.end(); ++it) {
     CERTCertificate* cert = it->get();
     base::Time not_after;
+    // HasPrivateKey should be invoked after IsCertificateHardwareBacked for
+    // performance reasons.
     if (!net::x509_util::GetValidityTimes(cert, nullptr, &not_after) ||
-        now > not_after || !HasPrivateKey(cert) ||
-        !CertLoader::IsCertificateHardwareBacked(cert)) {
+        now > not_after || !CertLoader::IsCertificateHardwareBacked(cert) ||
+        !HasPrivateKey(cert)) {
       continue;
     }
     std::string pem_encoded_issuer = GetPEMEncodedIssuer(cert);
@@ -207,7 +220,7 @@ std::unique_ptr<NetworkCertMatches> FindCertificateMatches(
     std::vector<NetworkAndCertPattern>* networks,
     base::Time now) {
   std::unique_ptr<NetworkCertMatches> matches =
-      base::MakeUnique<NetworkCertMatches>();
+      std::make_unique<NetworkCertMatches>();
 
   std::vector<CertAndIssuer> all_client_certs(
       CreateSortedCertAndIssuerList(std::move(all_certs), now));

@@ -9,13 +9,13 @@
 #include <string>
 
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/browser/notifications/notification_handler.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_event_dispatcher.h"
+#include "ui/message_center/notification.h"
 #include "ui/message_center/notification_delegate.h"
 
 namespace {
@@ -28,34 +28,36 @@ namespace {
 class PassThroughDelegate : public message_center::NotificationDelegate {
  public:
   PassThroughDelegate(Profile* profile,
-                      const Notification& notification,
-                      NotificationCommon::Type notification_type)
+                      const message_center::Notification& notification,
+                      NotificationHandler::Type notification_type)
       : profile_(profile),
         notification_(notification),
-        notification_type_(notification_type) {}
+        notification_type_(notification_type) {
+    DCHECK_NE(notification_type, NotificationHandler::Type::TRANSIENT);
+  }
 
   void Close(bool by_user) override {
     NotificationDisplayServiceFactory::GetForProfile(profile_)
         ->ProcessNotificationOperation(
             NotificationCommon::CLOSE, notification_type_,
-            notification_.origin_url().possibly_invalid_spec(),
-            notification_.id(), base::nullopt, base::nullopt, by_user);
+            notification_.origin_url(), notification_.id(), base::nullopt,
+            base::nullopt, by_user);
   }
 
   void Click() override {
     NotificationDisplayServiceFactory::GetForProfile(profile_)
         ->ProcessNotificationOperation(
             NotificationCommon::CLICK, notification_type_,
-            notification_.origin_url().possibly_invalid_spec(),
-            notification_.id(), base::nullopt, base::nullopt, base::nullopt);
+            notification_.origin_url(), notification_.id(), base::nullopt,
+            base::nullopt, base::nullopt);
   }
 
   void ButtonClick(int button_index) override {
     NotificationDisplayServiceFactory::GetForProfile(profile_)
         ->ProcessNotificationOperation(
             NotificationCommon::CLICK, notification_type_,
-            notification_.origin_url().possibly_invalid_spec(),
-            notification_.id(), button_index, base::nullopt, base::nullopt);
+            notification_.origin_url(), notification_.id(), button_index,
+            base::nullopt, base::nullopt);
   }
 
  protected:
@@ -63,8 +65,8 @@ class PassThroughDelegate : public message_center::NotificationDelegate {
 
  private:
   Profile* profile_;
-  Notification notification_;
-  NotificationCommon::Type notification_type_;
+  message_center::Notification notification_;
+  NotificationHandler::Type notification_type_;
 
   DISALLOW_COPY_AND_ASSIGN(PassThroughDelegate);
 };
@@ -77,14 +79,9 @@ MessageCenterDisplayService::MessageCenterDisplayService(Profile* profile)
 MessageCenterDisplayService::~MessageCenterDisplayService() {}
 
 void MessageCenterDisplayService::Display(
-    NotificationCommon::Type notification_type,
-    const std::string& notification_id,
-    const Notification& notification,
+    NotificationHandler::Type notification_type,
+    const message_center::Notification& notification,
     std::unique_ptr<NotificationCommon::Metadata> metadata) {
-  // TODO(miguelg): MCDS should stop relying on the |notification|'s delegate
-  // for Close/Click operations once the Notification object becomes a mojom
-  // type.
-
   // This can be called when the browser is shutting down and the
   // NotificationUiManager has already destructed.
   NotificationUIManager* ui_manager =
@@ -93,27 +90,25 @@ void MessageCenterDisplayService::Display(
     return;
 
   NotificationHandler* handler = GetNotificationHandler(notification_type);
-  handler->OnShow(profile_, notification_id);
+  if (handler)
+    handler->OnShow(profile_, notification.id());
 
-  if (notification.delegate()) {
+  if (notification.delegate() ||
+      notification_type == NotificationHandler::Type::TRANSIENT) {
     ui_manager->Add(notification, profile_);
     return;
   }
 
   // If there's no delegate, replace it with a PassThroughDelegate so clicks
   // go back to the appropriate handler.
-  Notification notification_with_delegate(
-      notification.type(), notification.id(), notification.title(),
-      notification.message(), notification.icon(), notification.notifier_id(),
-      notification.display_source(), notification.origin_url(),
-      notification.tag(), notification.rich_notification_data(),
-      base::WrapRefCounted(
-          new PassThroughDelegate(profile_, notification, notification_type)));
+  message_center::Notification notification_with_delegate(notification);
+  notification_with_delegate.set_delegate(base::WrapRefCounted(
+      new PassThroughDelegate(profile_, notification, notification_type)));
   ui_manager->Add(notification_with_delegate, profile_);
 }
 
 void MessageCenterDisplayService::Close(
-    NotificationCommon::Type notification_type,
+    NotificationHandler::Type notification_type,
     const std::string& notification_id) {
   // This can be called when the browser is shutting down and the
   // NotificationUiManager has already destructed.

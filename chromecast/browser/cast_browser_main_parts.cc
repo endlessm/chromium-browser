@@ -9,6 +9,7 @@
 
 #include <string>
 
+#include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
@@ -21,6 +22,7 @@
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "cc/base/switches.h"
 #include "chromecast/base/cast_constants.h"
 #include "chromecast/base/cast_features.h"
 #include "chromecast/base/cast_paths.h"
@@ -36,7 +38,6 @@
 #include "chromecast/browser/cast_memory_pressure_monitor.h"
 #include "chromecast/browser/cast_net_log.h"
 #include "chromecast/browser/devtools/remote_debugging_server.h"
-#include "chromecast/browser/geolocation/cast_access_token_store.h"
 #include "chromecast/browser/media/media_caps_impl.h"
 #include "chromecast/browser/metrics/cast_metrics_prefs.h"
 #include "chromecast/browser/metrics/cast_metrics_service_client.h"
@@ -60,8 +61,6 @@
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
-#include "device/geolocation/geolocation_delegate.h"
-#include "device/geolocation/geolocation_provider.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "media/base/media.h"
 #include "media/base/media_switches.h"
@@ -82,6 +81,10 @@
 #include "net/android/network_change_notifier_factory_android.h"
 #else
 #include "chromecast/net/network_change_notifier_factory_cast.h"
+#endif
+
+#if defined(OS_FUCHSIA)
+#include "chromecast/net/fake_connectivity_checker.h"
 #endif
 
 #if defined(USE_AURA)
@@ -196,22 +199,6 @@ namespace shell {
 
 namespace {
 
-// A provider of services for Geolocation.
-class CastGeolocationDelegate : public device::GeolocationDelegate {
- public:
-  explicit CastGeolocationDelegate(CastBrowserContext* context)
-      : context_(context) {}
-
-  scoped_refptr<device::AccessTokenStore> CreateAccessTokenStore() override {
-    return new CastAccessTokenStore(context_);
-  }
-
- private:
-  CastBrowserContext* context_;
-
-  DISALLOW_COPY_AND_ASSIGN(CastGeolocationDelegate);
-};
-
 struct DefaultCommandLineSwitch {
   const char* const switch_name;
   const char* const switch_value;
@@ -235,6 +222,7 @@ const DefaultCommandLineSwitch kDefaultSwitches[] = {
     {switches::kDisableGpuVsync, ""},
     {switches::kSkipGpuDataLoading, ""},
     {switches::kDisableGpuCompositing, ""},
+    {cc::switches::kDisableThreadedAnimation, ""},
 #endif  // defined(OS_ANDROID)
 #endif  // BUILDFLAG(IS_CAST_AUDIO_ONLY)
 #if defined(OS_LINUX)
@@ -279,13 +267,6 @@ void AddDefaultCommandLineSwitches(base::CommandLine* command_line) {
     } else {
       VLOG(2) << "Skip setting default switch '" << name << "', already set";
     }
-  }
-
-  // If browser-side navigation is not explicitly enabled or disabled, disable
-  // it.
-  if (!command_line->HasSwitch(switches::kDisableBrowserSideNavigation) &&
-      !command_line->HasSwitch(switches::kEnableBrowserSideNavigation)) {
-    command_line->AppendSwitch(switches::kDisableBrowserSideNavigation);
   }
 }
 
@@ -425,8 +406,7 @@ int CastBrowserMainParts::PreCreateThreads() {
   breakpad::CrashDumpObserver::Create();
   breakpad::CrashDumpObserver::GetInstance()->RegisterClient(
       base::MakeUnique<breakpad::ChildProcessCrashObserver>(
-          crash_dumps_dir, kAndroidMinidumpDescriptor,
-          base::Bind(&base::DoNothing)));
+          crash_dumps_dir, kAndroidMinidumpDescriptor));
 #else
   base::FilePath home_dir;
   CHECK(PathService::Get(DIR_CAST_HOME, &home_dir));
@@ -486,10 +466,17 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
   cast_browser_process_->SetNetLog(net_log_.get());
   url_request_context_factory_->InitializeOnUIThread(net_log_.get());
 
+#if defined(OS_FUCHSIA)
+  // TODO(777973): Switch to using the real ConnectivityChecker once setup works
+  // properly.
+  LOG(WARNING) << "Using FakeConnectivityChecker.";
+  cast_browser_process_->SetConnectivityChecker(new FakeConnectivityChecker());
+#else
   cast_browser_process_->SetConnectivityChecker(ConnectivityChecker::Create(
       content::BrowserThread::GetTaskRunnerForThread(
           content::BrowserThread::IO),
       url_request_context_factory_->GetSystemGetter()));
+#endif  // defined(OS_FUCHSIA)
 
   cast_browser_process_->SetBrowserContext(
       base::MakeUnique<CastBrowserContext>(url_request_context_factory_));
@@ -517,8 +504,9 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
                  base::Unretained(video_plane_controller_.get())));
 #endif
 
-  window_manager_ =
-      CastWindowManager::Create(CAST_IS_DEBUG_BUILD() /* enable input */);
+  window_manager_ = CastWindowManager::Create(
+      CAST_IS_DEBUG_BUILD() ||
+      GetSwitchValueBoolean(switches::kEnableInput, false));
 
   cast_browser_process_->SetCastService(
       cast_browser_process_->browser_client()->CreateCastService(
@@ -533,9 +521,6 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
 #endif
   ::media::InitializeMediaLibrary();
   media_caps_->Initialize();
-
-  device::GeolocationProvider::SetGeolocationDelegate(
-      new CastGeolocationDelegate(cast_browser_process_->browser_context()));
 
   // Initializing metrics service and network delegates must happen after cast
   // service is intialized because CastMetricsServiceClient and

@@ -104,15 +104,14 @@ ArcFileSystemBridge::ArcFileSystemBridge(content::BrowserContext* context,
                                          ArcBridgeService* bridge_service)
     : profile_(Profile::FromBrowserContext(context)),
       bridge_service_(bridge_service),
-      binding_(this),
       weak_ptr_factory_(this) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  bridge_service_->file_system()->AddObserver(this);
+  bridge_service_->file_system()->SetHost(this);
 }
 
 ArcFileSystemBridge::~ArcFileSystemBridge() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  bridge_service_->file_system()->RemoveObserver(this);
+  bridge_service_->file_system()->SetHost(nullptr);
 }
 
 // static
@@ -214,17 +213,6 @@ void ArcFileSystemBridge::OpenFileToRead(const std::string& url,
                           std::move(callback)));
 }
 
-void ArcFileSystemBridge::OnInstanceReady() {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  auto* file_system_instance =
-      ARC_GET_INSTANCE_FOR_METHOD(bridge_service_->file_system(), Init);
-  if (file_system_instance) {
-    mojom::FileSystemHostPtr host_proxy;
-    binding_.Bind(mojo::MakeRequest(&host_proxy));
-    file_system_instance->Init(std::move(host_proxy));
-  }
-}
-
 void ArcFileSystemBridge::OpenFileToReadAfterGetFileSize(
     const GURL& url_decoded,
     OpenFileToReadCallback callback,
@@ -272,19 +260,26 @@ bool ArcFileSystemBridge::HandleReadRequest(const std::string& id,
                                             int64_t size,
                                             base::ScopedFD pipe_write_end) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  auto it = id_to_url_.find(id);
-  if (it == id_to_url_.end()) {
+  auto it_url = id_to_url_.find(id);
+  if (it_url == id_to_url_.end()) {
     LOG(ERROR) << "Invalid ID: " << id;
     return false;
   }
-  const GURL& url = it->second;
+
+  // Add a new element to the list, and get an iterator.
+  // NOTE: std::list iterators never get invalidated as long as the pointed
+  // element is alive.
+  file_stream_forwarders_.emplace_front();
+  auto it_forwarder = file_stream_forwarders_.begin();
+
+  const GURL& url = it_url->second;
   scoped_refptr<storage::FileSystemContext> context =
       GetFileSystemContext(profile_, url);
-  file_stream_forwarders_[id] = FileStreamForwarderPtr(new FileStreamForwarder(
+  *it_forwarder = FileStreamForwarderPtr(new FileStreamForwarder(
       context, GetFileSystemURL(context, url), offset, size,
       std::move(pipe_write_end),
       base::BindOnce(&ArcFileSystemBridge::OnReadRequestCompleted,
-                     weak_ptr_factory_.GetWeakPtr(), id)));
+                     weak_ptr_factory_.GetWeakPtr(), id, it_forwarder)));
   return true;
 }
 
@@ -292,11 +287,13 @@ bool ArcFileSystemBridge::HandleIdReleased(const std::string& id) {
   return id_to_url_.erase(id) != 0;
 }
 
-void ArcFileSystemBridge::OnReadRequestCompleted(const std::string& id,
-                                                 bool result) {
+void ArcFileSystemBridge::OnReadRequestCompleted(
+    const std::string& id,
+    std::list<FileStreamForwarderPtr>::iterator it,
+    bool result) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   LOG_IF(ERROR, !result) << "Failed to read " << id;
-  file_stream_forwarders_.erase(id);
+  file_stream_forwarders_.erase(it);
 }
 
 }  // namespace arc

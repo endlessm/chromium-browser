@@ -90,34 +90,6 @@
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
       "/path/to/tmp/json",
-      "rmtree",
-      "[CUSTOM_[SWARM_OUT_DIR]]/dm"
-    ],
-    "infra_step": true,
-    "name": "rmtree dm"
-  },
-  {
-    "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
-      "--json-output",
-      "/path/to/tmp/json",
-      "ensure-directory",
-      "--mode",
-      "0777",
-      "[CUSTOM_[SWARM_OUT_DIR]]/dm"
-    ],
-    "infra_step": true,
-    "name": "makedirs dm"
-  },
-  {
-    "cmd": [
-      "python",
-      "-u",
-      "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
-      "--json-output",
-      "/path/to/tmp/json",
       "ensure-directory",
       "--mode",
       "0777",
@@ -219,7 +191,9 @@
       "gitHash",
       "abc123",
       "builder",
-      "Test-Win2016-MSVC-GCE-CPU-AVX2-x86_64-Release",
+      "Test-Win2k8-MSVC-GCE-CPU-AVX2-x86_64-Release-All",
+      "buildbucket_build_id",
+      "123454321",
       "issue",
       "456789",
       "patchset",
@@ -246,7 +220,7 @@
       "model",
       "GCE",
       "os",
-      "Win2016",
+      "Win2k8",
       "--uninterestingHashesFile",
       "[START_DIR]/tmp/uninteresting_hashes.txt",
       "--writePath",
@@ -461,7 +435,15 @@
       "serialize-8888",
       "gm",
       "_",
+      "all_bitmap_configs",
+      "serialize-8888",
+      "gm",
+      "_",
       "makecolorspace",
+      "serialize-8888",
+      "gm",
+      "_",
+      "analytic_antialias_convex",
       "serialize-8888",
       "gm",
       "_",
@@ -610,6 +592,7 @@
       "gm",
       "_",
       "complexclip4_aa",
+      "--nonativeFonts",
       "--verbose"
     ],
     "env": {

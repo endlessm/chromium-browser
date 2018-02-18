@@ -15,7 +15,7 @@
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/supervised/supervised_user_authentication.h"
 #include "chrome/browser/chromeos/login/supervised/supervised_user_test_base.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host_webui.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/supervised_user_manager.h"
@@ -107,7 +107,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserPasswordTest,
 // place.
 IN_PROC_BROWSER_TEST_F(SupervisedUserPasswordTest, PasswordChangeFromUserTest) {
   EXPECT_CALL(*mock_homedir_methods_, MountEx(_, _, _, _)).Times(1);
-  EXPECT_CALL(*mock_homedir_methods_, UpdateKeyEx(_, _, _, _, _)).Times(1);
+  EXPECT_CALL(*mock_homedir_methods_, UpdateKeyEx(_, _, _, _)).Times(1);
   SigninAsSupervisedUser(false, 0, kTestSupervisedUserDisplayName);
   testing::Mock::VerifyAndClearExpectations(mock_homedir_methods_);
 }
@@ -134,7 +134,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserPasswordTest,
 
   SigninAsManager(1);
 
-  EXPECT_CALL(*mock_homedir_methods_, AddKeyEx(_, _, _, _, _)).Times(1);
+  EXPECT_CALL(*mock_homedir_methods_, AddKeyEx(_, _, _, _)).Times(1);
 
   std::string sync_id =
       ChromeUserManager::Get()->GetSupervisedUserManager()->GetUserSyncId(
@@ -171,7 +171,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserPasswordTest,
 IN_PROC_BROWSER_TEST_F(SupervisedUserPasswordTest,
                        PasswordChangeFromManagerTest) {
   EXPECT_CALL(*mock_homedir_methods_, MountEx(_, _, _, _)).Times(1);
-  EXPECT_CALL(*mock_homedir_methods_, UpdateKeyEx(_, _, _, _, _)).Times(0);
+  EXPECT_CALL(*mock_homedir_methods_, UpdateKeyEx(_, _, _, _)).Times(0);
   SigninAsSupervisedUser(false, 1, kTestSupervisedUserDisplayName);
   testing::Mock::VerifyAndClearExpectations(mock_homedir_methods_);
 }
@@ -223,7 +223,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserPasswordTest,
 
   SigninAsManager(1);
 
-  EXPECT_CALL(*mock_homedir_methods_, AddKeyEx(_, _, _, _, _)).Times(1);
+  EXPECT_CALL(*mock_homedir_methods_, AddKeyEx(_, _, _, _)).Times(1);
 
   std::string sync_id =
       ChromeUserManager::Get()->GetSupervisedUserManager()->GetUserSyncId(
@@ -261,7 +261,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserPasswordTest,
 IN_PROC_BROWSER_TEST_F(SupervisedUserPasswordTest,
                        PasswordChangeUserAndManagerTest) {
   EXPECT_CALL(*mock_homedir_methods_, MountEx(_, _, _, _)).Times(1);
-  EXPECT_CALL(*mock_homedir_methods_, UpdateKeyEx(_, _, _, _, _)).Times(0);
+  EXPECT_CALL(*mock_homedir_methods_, UpdateKeyEx(_, _, _, _)).Times(0);
   SigninAsSupervisedUser(false, 1, kTestSupervisedUserDisplayName);
   testing::Mock::VerifyAndClearExpectations(mock_homedir_methods_);
 }

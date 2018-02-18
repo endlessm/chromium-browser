@@ -83,6 +83,14 @@ void SetShelfAlignmentFromPrefs() {
 
 // Set each Shelf's auto-hide behavior and alignment from the per-display prefs.
 void SetShelfBehaviorsFromPrefs() {
+  // The shelf should always be bottom-aligned and not hidden in tablet mode;
+  // alignment and auto-hide are assigned from prefs when tablet mode is exited.
+  if (Shell::Get()
+          ->tablet_mode_controller()
+          ->IsTabletModeWindowManagerEnabled()) {
+    return;
+  }
+
   SetShelfAutoHideFromPrefs();
   SetShelfAlignmentFromPrefs();
 }
@@ -123,10 +131,9 @@ ShelfController::~ShelfController() {
 
 // static
 void ShelfController::RegisterProfilePrefs(PrefRegistrySimple* registry) {
-  // These prefs are marked PUBLIC for use by Chrome, they're currently only
-  // needed for ChromeLauncherController::ShelfBoundsChangesProbablyWithUser
-  // and ChromeLauncherPrefsObserver. See the pref names definitions for an
-  // explanation of the synced, local, and per-display behavior of these prefs.
+  // These prefs are public for ChromeLauncherController's OnIsSyncingChanged
+  // and ShelfBoundsChangesProbablyWithUser. See the pref names definitions for
+  // explanations of the synced, local, and per-display behaviors.
   registry->RegisterStringPref(
       prefs::kShelfAutoHideBehavior, kShelfAutoHideBehaviorNever,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF | PrefRegistry::PUBLIC);
@@ -322,6 +329,9 @@ void ShelfController::OnTabletModeStarted() {
   for (const auto& display : display::Screen::GetScreen()->GetAllDisplays()) {
     Shelf* shelf = GetShelfForDisplay(display.id());
     if (shelf) {
+      // Only animate into tablet mode if the shelf alignment will not change.
+      if (shelf->IsHorizontalAlignment())
+        shelf->set_is_tablet_mode_animation_running(true);
       shelf->SetAutoHideBehavior(SHELF_AUTO_HIDE_BEHAVIOR_NEVER);
       shelf->SetAlignment(SHELF_ALIGNMENT_BOTTOM);
     }
@@ -330,6 +340,12 @@ void ShelfController::OnTabletModeStarted() {
 
 void ShelfController::OnTabletModeEnded() {
   SetShelfBehaviorsFromPrefs();
+  // Only animate out of tablet mode if the shelf alignment will not change.
+  for (const auto& display : display::Screen::GetScreen()->GetAllDisplays()) {
+    Shelf* shelf = GetShelfForDisplay(display.id());
+    if (shelf && shelf->IsHorizontalAlignment())
+      shelf->set_is_tablet_mode_animation_running(true);
+  }
 }
 
 void ShelfController::OnDisplayConfigurationChanged() {

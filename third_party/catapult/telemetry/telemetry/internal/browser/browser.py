@@ -12,7 +12,6 @@ from telemetry.core import profiling_controller
 from telemetry import decorators
 from telemetry.internal import app
 from telemetry.internal.backends import browser_backend
-from telemetry.internal.browser import browser_credentials
 from telemetry.internal.browser import extension_dict
 from telemetry.internal.browser import tab_list
 from telemetry.internal.browser import web_contents
@@ -30,31 +29,14 @@ class Browser(app.App):
     with browser_to_create.Create(options) as browser:
       ... do all your operations on browser here
   """
-  def __init__(self, backend, platform_backend, credentials_path):
+  def __init__(self, backend, platform_backend):
     super(Browser, self).__init__(app_backend=backend,
                                   platform_backend=platform_backend)
     try:
       self._browser_backend = backend
       self._platform_backend = platform_backend
       self._tabs = tab_list.TabList(backend.tab_list_backend)
-      self.credentials = browser_credentials.BrowserCredentials()
-      self.credentials.credentials_path = credentials_path
       self._platform_backend.DidCreateBrowser(self, self._browser_backend)
-      browser_options = self._browser_backend.browser_options
-      self.platform.FlushDnsCache()
-      if browser_options.clear_sytem_cache_for_browser_and_profile_on_start:
-        if self.platform.CanFlushIndividualFilesFromSystemCache():
-          self.platform.FlushSystemCacheForDirectory(
-              self._browser_backend.profile_directory)
-          self.platform.FlushSystemCacheForDirectory(
-              self._browser_backend.browser_directory)
-        elif self.platform.SupportFlushEntireSystemCache():
-          self.platform.FlushEntireSystemCache()
-        else:
-          logging.warning(
-              'Flush system cache is not supported. ' +
-              'Did not flush system cache.')
-
       self._browser_backend.SetBrowser(self)
       self._browser_backend.Start()
       self._LogBrowserInfo()
@@ -186,49 +168,6 @@ class Browser(app.App):
             del v[k]
       del v['ProcessCount']
     result['ProcessCount'] = process_count
-    return result
-
-  @property
-  def memory_stats(self):
-    """Returns a dict of memory statistics for the browser:
-    { 'Browser': {
-        'VM': R,
-        'VMPeak': S,
-        'WorkingSetSize': T,
-        'WorkingSetSizePeak': U,
-        'ProportionalSetSize': V,
-        'PrivateDirty': W
-      },
-      'Gpu': {
-        'VM': R,
-        'VMPeak': S,
-        'WorkingSetSize': T,
-        'WorkingSetSizePeak': U,
-        'ProportionalSetSize': V,
-        'PrivateDirty': W
-      },
-      'Renderer': {
-        'VM': R,
-        'VMPeak': S,
-        'WorkingSetSize': T,
-        'WorkingSetSizePeak': U,
-        'ProportionalSetSize': V,
-        'PrivateDirty': W
-      },
-      'SystemCommitCharge': X,
-      'SystemTotalPhysicalMemory': Y,
-      'ProcessCount': Z,
-    }
-    Any of the above keys may be missing on a per-platform basis.
-    """
-    self._platform_backend.PurgeUnpinnedMemory()
-    result = self._GetStatsCommon(self._platform_backend.GetMemoryStats)
-    commit_charge = self._platform_backend.GetSystemCommitCharge()
-    if commit_charge:
-      result['SystemCommitCharge'] = commit_charge
-    total = self._platform_backend.GetSystemTotalPhysicalMemory()
-    if total:
-      result['SystemTotalPhysicalMemory'] = total
     return result
 
   @property
@@ -374,6 +313,18 @@ class Browser(app.App):
       self, pressure_level, timeout=web_contents.DEFAULT_WEB_CONTENTS_TIMEOUT):
     self._browser_backend.SimulateMemoryPressureNotification(
         pressure_level, timeout)
+
+  @property
+  def supports_overview_mode(self): # pylint: disable=invalid-name
+    return self._browser_backend.supports_overview_mode
+
+  def EnterOverviewMode(
+      self, timeout=web_contents.DEFAULT_WEB_CONTENTS_TIMEOUT):
+    self._browser_backend.EnterOverviewMode(timeout)
+
+  def ExitOverviewMode(
+      self, timeout=web_contents.DEFAULT_WEB_CONTENTS_TIMEOUT):
+    self._browser_backend.ExitOverviewMode(timeout)
 
   @property
   def supports_cpu_metrics(self):

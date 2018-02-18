@@ -122,6 +122,20 @@ def _BotDimensionsFromBotName(bot_name):
   return dimensions
 
 
+def ParseStatisticNameFromChart(chart_name):
+  statistic_types = [
+      'avg', 'min', 'max', 'sum', 'std', 'count'
+  ]
+
+  chart_name_parts = chart_name.split('_')
+  statistic_name = ''
+
+  if chart_name_parts[-1] in statistic_types:
+    chart_name = '_'.join(chart_name_parts[:-1])
+    statistic_name = chart_name_parts[-1]
+  return chart_name, statistic_name
+
+
 def PinpointParamsFromPerfTryParams(params):
   """Takes parameters from Dashboard's pinpoint-perf-job-dialog and returns
   a dict with parameters for a new Pinpoint job.
@@ -202,7 +216,7 @@ def PinpointParamsFromPerfTryParams(params):
       'end_repository': end_repository,
       'start_git_hash': start_git_hash,
       'end_git_hash': end_git_hash,
-      'extra_test_args': json.dumps(extra_test_args),
+      'extra_test_args': extra_test_args,
       'bug_id': '',
       'auto_explore': '0',
       'target': target,
@@ -292,12 +306,16 @@ def PinpointParamsFromBisectParams(params):
 
   browser = start_try_job.GuessBrowserName(bot_name)
 
+  # Histogram names don't include the statistic, so split these
+  chart_name, statistic_name = ParseStatisticNameFromChart(chart_name)
+
   return {
       'configuration': bot_name,
       'browser': browser,
       'benchmark': suite,
       'trace': trace_name,
       'chart': chart_name,
+      'statistic': statistic_name,
       'tir_label': tir_label,
       'story': story_filter,
       'start_repository': start_repository,

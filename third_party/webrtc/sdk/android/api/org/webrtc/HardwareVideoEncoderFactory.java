@@ -42,9 +42,16 @@ public class HardwareVideoEncoderFactory implements VideoEncoderFactory {
   private final EglBase14.Context sharedContext;
   private final boolean enableIntelVp8Encoder;
   private final boolean enableH264HighProfile;
+  private final boolean fallbackToSoftware;
 
   public HardwareVideoEncoderFactory(
       EglBase.Context sharedContext, boolean enableIntelVp8Encoder, boolean enableH264HighProfile) {
+    this(
+        sharedContext, enableIntelVp8Encoder, enableH264HighProfile, true /* fallbackToSoftware */);
+  }
+
+  HardwareVideoEncoderFactory(EglBase.Context sharedContext, boolean enableIntelVp8Encoder,
+      boolean enableH264HighProfile, boolean fallbackToSoftware) {
     // Texture mode requires EglBase14.
     if (sharedContext instanceof EglBase14.Context) {
       this.sharedContext = (EglBase14.Context) sharedContext;
@@ -54,6 +61,7 @@ public class HardwareVideoEncoderFactory implements VideoEncoderFactory {
     }
     this.enableIntelVp8Encoder = enableIntelVp8Encoder;
     this.enableH264HighProfile = enableH264HighProfile;
+    this.fallbackToSoftware = fallbackToSoftware;
   }
 
   @Deprecated
@@ -67,7 +75,15 @@ public class HardwareVideoEncoderFactory implements VideoEncoderFactory {
     MediaCodecInfo info = findCodecForType(type);
 
     if (info == null) {
-      return null; // No support for this type.
+      // No hardware support for this type.
+      // TODO(andersc): This is for backwards compatibility. Remove when clients have migrated to
+      // new DefaultVideoEncoderFactory.
+      if (fallbackToSoftware) {
+        SoftwareVideoEncoderFactory softwareVideoEncoderFactory = new SoftwareVideoEncoderFactory();
+        return softwareVideoEncoderFactory.createEncoder(input);
+      } else {
+        return null;
+      }
     }
 
     String codecName = info.getName();
@@ -76,6 +92,16 @@ public class HardwareVideoEncoderFactory implements VideoEncoderFactory {
         MediaCodecUtils.TEXTURE_COLOR_FORMATS, info.getCapabilitiesForType(mime));
     Integer yuvColorFormat = MediaCodecUtils.selectColorFormat(
         MediaCodecUtils.ENCODER_COLOR_FORMATS, info.getCapabilitiesForType(mime));
+
+    if (type == VideoCodecType.H264) {
+      boolean isHighProfile = isSameH264Profile(input.params, getCodecProperties(type, true))
+          && isH264HighProfileSupported(info);
+      boolean isBaselineProfile = isSameH264Profile(input.params, getCodecProperties(type, false));
+
+      if (!isHighProfile && !isBaselineProfile) {
+        return null;
+      }
+    }
 
     return new HardwareVideoEncoder(codecName, type, surfaceColorFormat, yuvColorFormat,
         input.params, getKeyFrameIntervalSec(type), getForcedKeyFrameIntervalMs(type, codecName),
@@ -93,12 +119,23 @@ public class HardwareVideoEncoderFactory implements VideoEncoderFactory {
       if (codec != null) {
         String name = type.name();
         if (type == VideoCodecType.H264 && isH264HighProfileSupported(codec)) {
-          supportedCodecInfos.add(new VideoCodecInfo(0, name, getCodecProperties(type, true)));
+          supportedCodecInfos.add(new VideoCodecInfo(name, getCodecProperties(type, true)));
         }
 
-        supportedCodecInfos.add(new VideoCodecInfo(0, name, getCodecProperties(type, false)));
+        supportedCodecInfos.add(new VideoCodecInfo(name, getCodecProperties(type, false)));
       }
     }
+
+    // TODO(andersc): This is for backwards compatibility. Remove when clients have migrated to
+    // new DefaultVideoEncoderFactory.
+    if (fallbackToSoftware) {
+      for (VideoCodecInfo info : SoftwareVideoEncoderFactory.supportedCodecs()) {
+        if (!supportedCodecInfos.contains(info)) {
+          supportedCodecInfos.add(info);
+        }
+      }
+    }
+
     return supportedCodecInfos.toArray(new VideoCodecInfo[supportedCodecInfos.size()]);
   }
 
@@ -242,4 +279,7 @@ public class HardwareVideoEncoderFactory implements VideoEncoderFactory {
         throw new IllegalArgumentException("Unsupported codec: " + type);
     }
   }
+
+  private static native boolean isSameH264Profile(
+      Map<String, String> params1, Map<String, String> params2);
 }

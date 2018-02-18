@@ -32,8 +32,9 @@
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/policy_constants.h"
 #include "components/prefs/pref_service.h"
-#include "components/safe_json/safe_json_parser.h"
+#include "content/public/common/service_manager_connection.h"
 #include "crypto/sha2.h"
+#include "services/data_decoder/public/cpp/safe_json_parser.h"
 
 namespace arc {
 
@@ -53,7 +54,7 @@ void MapBoolToBool(const std::string& arc_policy_name,
   const base::Value* const policy_value = policy_map.GetValue(policy_name);
   if (!policy_value)
     return;
-  if (!policy_value->IsType(base::Value::Type::BOOLEAN)) {
+  if (!policy_value->is_bool()) {
     NOTREACHED() << "Policy " << policy_name << " is not a boolean.";
     return;
   }
@@ -73,7 +74,7 @@ void MapIntToBool(const std::string& arc_policy_name,
   const base::Value* const policy_value = policy_map.GetValue(policy_name);
   if (!policy_value)
     return;
-  if (!policy_value->IsType(base::Value::Type::INTEGER)) {
+  if (!policy_value->is_int()) {
     NOTREACHED() << "Policy " << policy_name << " is not an integer.";
     return;
   }
@@ -314,53 +315,41 @@ ArcPolicyBridge* ArcPolicyBridge::GetForBrowserContext(
 
 ArcPolicyBridge::ArcPolicyBridge(content::BrowserContext* context,
                                  ArcBridgeService* bridge_service)
-    : context_(context),
-      arc_bridge_service_(bridge_service),
-      binding_(this),
-      weak_ptr_factory_(this) {
-  VLOG(2) << "ArcPolicyBridge::ArcPolicyBridge";
-  arc_bridge_service_->policy()->AddObserver(this);
-}
+    : ArcPolicyBridge(context, bridge_service, nullptr /* policy_service */) {}
 
 ArcPolicyBridge::ArcPolicyBridge(content::BrowserContext* context,
                                  ArcBridgeService* bridge_service,
                                  policy::PolicyService* policy_service)
     : context_(context),
       arc_bridge_service_(bridge_service),
-      binding_(this),
       policy_service_(policy_service),
       weak_ptr_factory_(this) {
-  VLOG(2) << "ArcPolicyBridge::ArcPolicyBridge(bridge_service, policy_service)";
+  VLOG(2) << "ArcPolicyBridge::ArcPolicyBridge";
+  arc_bridge_service_->policy()->SetHost(this);
   arc_bridge_service_->policy()->AddObserver(this);
 }
 
 ArcPolicyBridge::~ArcPolicyBridge() {
   VLOG(2) << "ArcPolicyBridge::~ArcPolicyBridge";
   arc_bridge_service_->policy()->RemoveObserver(this);
+  arc_bridge_service_->policy()->SetHost(nullptr);
 }
 
 void ArcPolicyBridge::OverrideIsManagedForTesting(bool is_managed) {
   is_managed_ = is_managed;
 }
 
-void ArcPolicyBridge::OnInstanceReady() {
-  VLOG(1) << "ArcPolicyBridge::OnPolicyInstanceReady";
+void ArcPolicyBridge::OnConnectionReady() {
+  VLOG(1) << "ArcPolicyBridge::OnConnectionReady";
   if (policy_service_ == nullptr) {
     InitializePolicyService();
   }
   policy_service_->AddObserver(policy::POLICY_DOMAIN_CHROME, this);
   initial_policies_hash_ = GetPoliciesHash(GetCurrentJSONPolicies());
-
-  mojom::PolicyInstance* const policy_instance =
-      ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service_->policy(), Init);
-  DCHECK(policy_instance);
-  mojom::PolicyHostPtr host_proxy;
-  binding_.Bind(mojo::MakeRequest(&host_proxy));
-  policy_instance->Init(std::move(host_proxy));
 }
 
-void ArcPolicyBridge::OnInstanceClosed() {
-  VLOG(1) << "ArcPolicyBridge::OnPolicyInstanceClosed";
+void ArcPolicyBridge::OnConnectionClosed() {
+  VLOG(1) << "ArcPolicyBridge::OnConnectionClosed";
   policy_service_->RemoveObserver(policy::POLICY_DOMAIN_CHROME, this);
   policy_service_ = nullptr;
   initial_policies_hash_.clear();
@@ -378,7 +367,8 @@ void ArcPolicyBridge::ReportCompliance(const std::string& request,
   // the callee interface.
   auto repeating_callback =
       base::AdaptCallbackForRepeating(std::move(callback));
-  safe_json::SafeJsonParser::Parse(
+  data_decoder::SafeJsonParser::Parse(
+      content::ServiceManagerConnection::GetForProcess()->GetConnector(),
       request,
       base::Bind(&ArcPolicyBridge::OnReportComplianceParseSuccess,
                  weak_ptr_factory_.GetWeakPtr(), repeating_callback),

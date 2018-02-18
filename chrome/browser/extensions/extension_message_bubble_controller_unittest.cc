@@ -333,6 +333,7 @@ class ExtensionMessageBubbleTest : public BrowserWithTestWindowTest {
   }
 
   void Init() {
+    ExtensionErrorReporter::Init(true);
     // The two lines of magical incantation required to get the extension
     // service to work inside a unit test and access the extension prefs.
     static_cast<TestExtensionSystem*>(ExtensionSystem::Get(profile()))
@@ -362,6 +363,35 @@ class ExtensionMessageBubbleTest : public BrowserWithTestWindowTest {
     ExtensionMessageBubbleController::set_should_ignore_learn_more_for_testing(
         false);
     BrowserWithTestWindowTest::TearDown();
+  }
+
+  void ShowAndDismissBubbleByDeactivation(
+      TestExtensionMessageBubbleController* controller,
+      const std::string& extension_name) {
+    controller->SetIsActiveBubble();
+    EXPECT_TRUE(controller->ShouldShow());
+    std::vector<base::string16> override_extensions =
+        controller->GetExtensionList();
+    ASSERT_EQ(1U, override_extensions.size());
+    EXPECT_EQ(base::UTF8ToUTF16(extension_name), override_extensions[0]);
+    EXPECT_EQ(0U, controller->link_click_count());
+    EXPECT_EQ(0U, controller->dismiss_click_count());
+    EXPECT_EQ(0U, controller->action_click_count());
+
+    // Simulate showing the bubble and dismissing it by clicking outside of the
+    // bubble.
+    FakeExtensionMessageBubble bubble;
+    bubble.set_action_on_show(
+        FakeExtensionMessageBubble::BUBBLE_ACTION_DISMISS_DEACTIVATION);
+    EXPECT_TRUE(controller->ShouldShow());
+    bubble.set_controller(controller);
+    bubble.Show();
+    EXPECT_EQ(0U, controller->link_click_count());
+    EXPECT_EQ(0U, controller->action_click_count());
+    EXPECT_EQ(1U, controller->dismiss_click_count());
+
+    // Since no action was taken, the bubble should still be showable.
+    EXPECT_FALSE(controller->ShouldShow());
   }
 
  protected:
@@ -439,7 +469,7 @@ TEST_P(ExtensionMessageBubbleTestWithParam,
 
     controller.reset(new TestExtensionMessageBubbleController(
         new ProxyOverriddenBubbleDelegate(browser()->profile()), browser()));
-    controller->ClearProfileListForTesting();
+    controller->delegate()->ClearProfileSetForTesting();
     controller->SetIsActiveBubble();
     EXPECT_FALSE(controller->ShouldShow());
   } else {
@@ -455,7 +485,7 @@ TEST_P(ExtensionMessageBubbleTestWithParam,
     // The bubble shouldn't show again for the same profile (we don't want to
     // be annoying).
     EXPECT_FALSE(controller->ShouldShow());
-    controller->ClearProfileListForTesting();
+    controller->delegate()->ClearProfileSetForTesting();
     EXPECT_TRUE(controller->ShouldShow());
     // Explicitly click the dismiss button. The extension should be
     // acknowledged.
@@ -468,8 +498,7 @@ TEST_P(ExtensionMessageBubbleTestWithParam,
 
   // Uninstall the current ntp-controlling extension, allowing the other to
   // take control.
-  service_->UninstallExtension(kId2, UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing), nullptr);
+  service_->UninstallExtension(kId2, UNINSTALL_REASON_FOR_TESTING, nullptr);
 
   // Even though we already showed for the given profile, we should show
   // again, because it's a different extension.
@@ -521,7 +550,7 @@ TEST_F(ExtensionMessageBubbleTest, WipeoutControllerTest) {
           new SuspiciousExtensionBubbleDelegate(browser()->profile()),
           browser()));
   controller->SetIsActiveBubble();
-  controller->ClearProfileListForTesting();
+  controller->delegate()->ClearProfileSetForTesting();
   EXPECT_TRUE(controller->ShouldShow());
   suspicious_extensions = controller->GetExtensionList();
   ASSERT_EQ(1U, suspicious_extensions.size());
@@ -547,7 +576,7 @@ TEST_F(ExtensionMessageBubbleTest, WipeoutControllerTest) {
           new SuspiciousExtensionBubbleDelegate(browser()->profile()),
           browser()));
   controller->SetIsActiveBubble();
-  controller->ClearProfileListForTesting();
+  controller->delegate()->ClearProfileSetForTesting();
   EXPECT_TRUE(controller->ShouldShow());
   suspicious_extensions = controller->GetExtensionList();
   ASSERT_EQ(2U, suspicious_extensions.size());
@@ -615,7 +644,7 @@ TEST_F(ExtensionMessageBubbleTest, DevModeControllerTest) {
   // mode extensions can't be (persistently) acknowledged, this isn't the case
   // for the dev mode bubble, and we should only show once per profile.
   EXPECT_FALSE(controller->ShouldShow());
-  controller->ClearProfileListForTesting();
+  controller->delegate()->ClearProfileSetForTesting();
   EXPECT_TRUE(controller->ShouldShow());
   dev_mode_extensions = controller->GetExtensionList();
   EXPECT_EQ(2U, dev_mode_extensions.size());
@@ -639,7 +668,7 @@ TEST_F(ExtensionMessageBubbleTest, DevModeControllerTest) {
           new DevModeBubbleDelegate(browser()->profile()),
           browser()));
   controller->SetIsActiveBubble();
-  controller->ClearProfileListForTesting();
+  controller->delegate()->ClearProfileSetForTesting();
   EXPECT_TRUE(controller->ShouldShow());
   dev_mode_extensions = controller->GetExtensionList();
   EXPECT_EQ(2U, dev_mode_extensions.size());
@@ -660,7 +689,7 @@ TEST_F(ExtensionMessageBubbleTest, DevModeControllerTest) {
           new DevModeBubbleDelegate(browser()->profile()),
           browser()));
   controller->SetIsActiveBubble();
-  controller->ClearProfileListForTesting();
+  controller->delegate()->ClearProfileSetForTesting();
   EXPECT_FALSE(controller->ShouldShow());
   dev_mode_extensions = controller->GetExtensionList();
   EXPECT_EQ(0U, dev_mode_extensions.size());
@@ -805,15 +834,12 @@ TEST_F(ExtensionMessageBubbleTest, MAYBE_SettingsApiControllerTest) {
     // Clean up after ourselves.
     service_->UninstallExtension(kId1,
                                  extensions::UNINSTALL_REASON_FOR_TESTING,
-                                 base::Bind(&base::DoNothing),
                                  NULL);
     service_->UninstallExtension(kId2,
                                  extensions::UNINSTALL_REASON_FOR_TESTING,
-                                 base::Bind(&base::DoNothing),
                                  NULL);
     service_->UninstallExtension(kId3,
                                  extensions::UNINSTALL_REASON_FOR_TESTING,
-                                 base::Bind(&base::DoNothing),
                                  NULL);
   }
 }
@@ -841,8 +867,7 @@ TEST_F(ExtensionMessageBubbleTest,
   EXPECT_FALSE(bubble.is_closed());
 
   // Uninstall the extension.
-  service_->UninstallExtension(kId1, UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing), nullptr);
+  service_->UninstallExtension(kId1, UNINSTALL_REASON_FOR_TESTING, nullptr);
   ASSERT_EQ(0U, controller->GetExtensionList().size());
 
   // The bubble should be closed after the extension is uninstalled.
@@ -883,7 +908,7 @@ TEST_F(ExtensionMessageBubbleTest,
   controller.reset(new TestExtensionMessageBubbleController(
       new SuspiciousExtensionBubbleDelegate(browser()->profile()), browser()));
   controller->SetIsActiveBubble();
-  controller->ClearProfileListForTesting();
+  controller->delegate()->ClearProfileSetForTesting();
   EXPECT_TRUE(controller->ShouldShow());
   suspicious_extensions = controller->GetExtensionList();
   ASSERT_EQ(1U, suspicious_extensions.size());
@@ -895,8 +920,7 @@ TEST_F(ExtensionMessageBubbleTest,
   EXPECT_FALSE(bubble.is_closed());
 
   // Uninstall the extension.
-  service_->UninstallExtension(kId1, UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing), nullptr);
+  service_->UninstallExtension(kId1, UNINSTALL_REASON_FOR_TESTING, nullptr);
   ASSERT_EQ(0U, controller->GetExtensionList().size());
 
   // The bubble should be closed after the extension is uninstalled.
@@ -932,18 +956,15 @@ TEST_F(ExtensionMessageBubbleTest, TestBubbleShownForMultipleExtensions) {
   EXPECT_FALSE(bubble.is_closed());
 
   // Uninstall one of the three extensions.
-  service_->UninstallExtension(kId1, UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing), nullptr);
+  service_->UninstallExtension(kId1, UNINSTALL_REASON_FOR_TESTING, nullptr);
   ASSERT_EQ(2U, controller->GetExtensionList().size());
 
   // The bubble should still be shown for the remaining installed extensions.
   EXPECT_FALSE(bubble.is_closed());
 
   // Uninstall the remaining two extensions.
-  service_->UninstallExtension(kId2, UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing), nullptr);
-  service_->UninstallExtension(kId3, UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing), nullptr);
+  service_->UninstallExtension(kId2, UNINSTALL_REASON_FOR_TESTING, nullptr);
+  service_->UninstallExtension(kId3, UNINSTALL_REASON_FOR_TESTING, nullptr);
   ASSERT_EQ(0U, controller->GetExtensionList().size());
 
   // Since all the bubble's associated extensions are uninstalled, the bubble
@@ -1055,15 +1076,49 @@ TEST_F(ExtensionMessageBubbleTest, NtpOverriddenControllerTest) {
   // Clean up after ourselves.
   service_->UninstallExtension(kId1,
                                extensions::UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing),
                                NULL);
   service_->UninstallExtension(kId2,
                                extensions::UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing),
                                NULL);
   service_->UninstallExtension(kId3,
                                extensions::UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing),
+                               NULL);
+}
+
+// Tests that the NTP override bubble is shown (on the new tab page) each time
+// an NTP overriding extension is installed for a single profile. Note that the
+// NTP bubble is only implemented on Windows and ChromeOs, but this test should
+// still pass on Linux and Mac.
+TEST_F(ExtensionMessageBubbleTest, ShowNtpBubblePerProfilePerExtensionTest) {
+  Init();
+  ASSERT_TRUE(LoadExtensionOverridingNtp("1", kId1, Manifest::UNPACKED));
+  std::unique_ptr<TestExtensionMessageBubbleController> controller(
+      std::make_unique<TestExtensionMessageBubbleController>(
+          new NtpOverriddenBubbleDelegate(browser()->profile()), browser()));
+  ShowAndDismissBubbleByDeactivation(controller.get(), "Extension 1");
+
+  ASSERT_TRUE(LoadExtensionOverridingNtp("2", kId2, Manifest::UNPACKED));
+  controller = std::make_unique<TestExtensionMessageBubbleController>(
+      new NtpOverriddenBubbleDelegate(browser()->profile()), browser());
+  ShowAndDismissBubbleByDeactivation(controller.get(), "Extension 2");
+
+  ASSERT_TRUE(LoadExtensionOverridingNtp("3", kId3, Manifest::UNPACKED));
+  controller = std::make_unique<TestExtensionMessageBubbleController>(
+      new NtpOverriddenBubbleDelegate(browser()->profile()), browser());
+  ShowAndDismissBubbleByDeactivation(controller.get(), "Extension 3");
+
+  // No extension should have become disabled.
+  ExtensionRegistry* registry = ExtensionRegistry::Get(profile());
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId1));
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId2));
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId3));
+
+  // Clean up after ourselves.
+  service_->UninstallExtension(kId1, extensions::UNINSTALL_REASON_FOR_TESTING,
+                               NULL);
+  service_->UninstallExtension(kId2, extensions::UNINSTALL_REASON_FOR_TESTING,
+                               NULL);
+  service_->UninstallExtension(kId3, extensions::UNINSTALL_REASON_FOR_TESTING,
                                NULL);
 }
 
@@ -1202,15 +1257,12 @@ TEST_F(ExtensionMessageBubbleTest, MAYBE_ProxyOverriddenControllerTest) {
   // Clean up after ourselves.
   service_->UninstallExtension(kId1,
                                extensions::UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing),
                                NULL);
   service_->UninstallExtension(kId2,
                                extensions::UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing),
                                NULL);
   service_->UninstallExtension(kId3,
                                extensions::UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing),
                                NULL);
 }
 
@@ -1260,7 +1312,7 @@ TEST_F(ExtensionMessageBubbleTest,
   EXPECT_TRUE(model->is_highlighting());
   set_browser(nullptr);
   service_->UninstallExtension(kId1, extensions::UNINSTALL_REASON_FOR_TESTING,
-                               base::Bind(&base::DoNothing), nullptr);
+                               nullptr);
   EXPECT_FALSE(model->is_highlighting());
   controller.reset();
 }
@@ -1303,9 +1355,9 @@ TEST_F(ExtensionMessageBubbleTest, TestShouldShowMethod) {
       new TestExtensionMessageBubbleController(
           new NtpOverriddenBubbleDelegate(browser()->profile()), browser()));
 
-  EXPECT_TRUE(ntp_bubble_controller->ShouldShow());
   ASSERT_EQ(1u, ntp_bubble_controller->GetExtensionIdList().size());
   EXPECT_EQ(kId1, ntp_bubble_controller->GetExtensionIdList()[0]);
+  EXPECT_TRUE(ntp_bubble_controller->ShouldShow());
 
   // Disable the extension for being from outside the webstore.
   service_->DisableExtension(kId1,

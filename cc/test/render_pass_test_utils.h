@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#include "cc/base/filter_operations.h"
+#include "cc/paint/filter_operations.h"
 #include "cc/resources/display_resource_provider.h"
 #include "cc/resources/layer_tree_resource_provider.h"
 #include "cc/resources/resource_provider.h"
@@ -33,6 +33,15 @@ viz::RenderPass* AddRenderPass(viz::RenderPassList* pass_list,
                                const gfx::Rect& output_rect,
                                const gfx::Transform& root_transform,
                                const FilterOperations& filters);
+
+// Adds a new render pass with the provided properties to the given
+// render pass list.
+viz::RenderPass* AddRenderPassWithDamage(viz::RenderPassList* pass_list,
+                                         int render_pass_id,
+                                         const gfx::Rect& output_rect,
+                                         const gfx::Rect& damage_rect,
+                                         const gfx::Transform& root_transform,
+                                         const FilterOperations& filters);
 
 // Adds a solid quad to a given render pass.
 viz::SolidColorDrawQuad* AddQuad(viz::RenderPass* pass,

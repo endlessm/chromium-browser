@@ -153,10 +153,15 @@ class TestWebGraphicsContext3D {
   virtual void deleteShader(GLuint id);
 
   virtual void texStorage2DEXT(GLenum target,
-                               GLint levels,
-                               GLuint internalformat,
-                               GLint width,
-                               GLint height) {}
+                               GLsizei levels,
+                               GLenum internalformat,
+                               GLsizei width,
+                               GLsizei height) {}
+  virtual void texStorage2DImageCHROMIUM(GLenum target,
+                                         GLenum internalformat,
+                                         GLenum bufferusage,
+                                         GLsizei width,
+                                         GLsizei height) {}
 
   virtual GLuint createQueryEXT();
   virtual void deleteQueryEXT(GLuint query) {}
@@ -187,13 +192,10 @@ class TestWebGraphicsContext3D {
                              const void* pixels) {}
 
   virtual void genMailboxCHROMIUM(GLbyte* mailbox);
-  virtual void produceTextureCHROMIUM(GLenum target,
-                                      const GLbyte* mailbox) { }
+  virtual void produceTextureCHROMIUM(GLenum target, const GLbyte* mailbox) {}
   virtual void produceTextureDirectCHROMIUM(GLuint texture,
                                             GLenum target,
                                             const GLbyte* mailbox) {}
-  virtual void consumeTextureCHROMIUM(GLenum target,
-                                      const GLbyte* mailbox) { }
   virtual GLuint createAndConsumeTextureCHROMIUM(GLenum target,
                                                  const GLbyte* mailbox);
 
@@ -255,8 +257,7 @@ class TestWebGraphicsContext3D {
                           const void* data,
                           GLenum usage);
   virtual void pixelStorei(GLenum pname, GLint param);
-  virtual void* mapBufferCHROMIUM(GLenum target,
-                                  GLenum access);
+  virtual void* mapBufferCHROMIUM(GLenum target, GLenum access);
   virtual GLboolean unmapBufferCHROMIUM(GLenum target);
 
   virtual GLuint createImageCHROMIUM(ClientBuffer buffer,
@@ -362,6 +363,9 @@ class TestWebGraphicsContext3D {
   void set_support_multisample_compatibility(bool support) {
     test_capabilities_.multisample_compatibility = support;
   }
+  void set_support_texture_storage_image(bool support) {
+    test_capabilities_.texture_storage_image = support;
+  }
 
   // When this context is lost, all contexts in its share group are also lost.
   void add_share_group_context(TestWebGraphicsContext3D* context3d) {
@@ -402,6 +406,9 @@ class TestWebGraphicsContext3D {
   gfx::Rect update_rect() const { return update_rect_; }
 
   UpdateType last_update_type() { return last_update_type_; }
+
+  size_t NumFramebuffers() const;
+  size_t NumRenderbuffers() const;
 
  protected:
   struct TextureTargets {

@@ -162,8 +162,8 @@ TestMockTimeTaskRunner::TestOrderedPendingTask::TestOrderedPendingTask(
                             nestability),
       ordinal(ordinal) {}
 
-TestMockTimeTaskRunner::TestOrderedPendingTask::~TestOrderedPendingTask() {
-}
+TestMockTimeTaskRunner::TestOrderedPendingTask::~TestOrderedPendingTask() =
+    default;
 
 TestMockTimeTaskRunner::TestOrderedPendingTask&
 TestMockTimeTaskRunner::TestOrderedPendingTask::operator=(
@@ -203,14 +203,13 @@ TestMockTimeTaskRunner::TestMockTimeTaskRunner(Time start_time,
   }
 }
 
-TestMockTimeTaskRunner::~TestMockTimeTaskRunner() {
-}
+TestMockTimeTaskRunner::~TestMockTimeTaskRunner() = default;
 
 void TestMockTimeTaskRunner::FastForwardBy(TimeDelta delta) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_GE(delta, TimeDelta());
 
-  const TimeTicks original_now_ticks = now_ticks_;
+  const TimeTicks original_now_ticks = NowTicks();
   ProcessAllTasksNoLaterThan(delta);
   ForwardClocksUntilTickTime(original_now_ticks + delta);
 }
@@ -233,12 +232,12 @@ void TestMockTimeTaskRunner::ClearPendingTasks() {
 }
 
 Time TestMockTimeTaskRunner::Now() const {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  AutoLock scoped_lock(tasks_lock_);
   return now_;
 }
 
 TimeTicks TestMockTimeTaskRunner::NowTicks() const {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  AutoLock scoped_lock(tasks_lock_);
   return now_ticks_;
 }
 
@@ -279,7 +278,7 @@ size_t TestMockTimeTaskRunner::GetPendingTaskCount() const {
 TimeDelta TestMockTimeTaskRunner::NextPendingTaskDelay() const {
   DCHECK(thread_checker_.CalledOnValidThread());
   return tasks_.empty() ? TimeDelta::Max()
-                        : tasks_.top().GetTimeToRun() - now_ticks_;
+                        : tasks_.top().GetTimeToRun() - NowTicks();
 }
 
 // TODO(gab): Combine |thread_checker_| with a SequenceToken to differentiate
@@ -331,7 +330,7 @@ void TestMockTimeTaskRunner::ProcessAllTasksNoLaterThan(TimeDelta max_delta) {
     undo_override = ThreadTaskRunnerHandle::OverrideForTesting(this);
   }
 
-  const TimeTicks original_now_ticks = now_ticks_;
+  const TimeTicks original_now_ticks = NowTicks();
   while (!quit_run_loop_) {
     OnBeforeSelectingTask();
     TestPendingTask task_info;
@@ -348,11 +347,14 @@ void TestMockTimeTaskRunner::ProcessAllTasksNoLaterThan(TimeDelta max_delta) {
 
 void TestMockTimeTaskRunner::ForwardClocksUntilTickTime(TimeTicks later_ticks) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  if (later_ticks <= now_ticks_)
-    return;
+  {
+    AutoLock scoped_lock(tasks_lock_);
+    if (later_ticks <= now_ticks_)
+      return;
 
-  now_ += later_ticks - now_ticks_;
-  now_ticks_ = later_ticks;
+    now_ += later_ticks - now_ticks_;
+    now_ticks_ = later_ticks;
+  }
   OnAfterTimePassed();
 }
 

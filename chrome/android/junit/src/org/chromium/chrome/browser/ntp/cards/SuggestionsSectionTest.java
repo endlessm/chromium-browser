@@ -26,13 +26,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import static org.chromium.chrome.browser.ntp.cards.ContentSuggestionsUnitTestUtils.bindViewHolders;
+import static org.chromium.chrome.test.util.browser.offlinepages.FakeOfflinePageBridge.createOfflinePageItem;
 import static org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.createDummySuggestions;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -58,6 +59,8 @@ import org.chromium.chrome.browser.suggestions.SuggestionsRanker;
 import org.chromium.chrome.browser.suggestions.SuggestionsUiDelegate;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.util.browser.Features;
+import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
+import org.chromium.chrome.test.util.browser.offlinepages.FakeOfflinePageBridge;
 import org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.CategoryInfoBuilder;
 import org.chromium.chrome.test.util.browser.suggestions.FakeSuggestionsSource;
 import org.chromium.testing.local.LocalRobolectricTestRunner;
@@ -66,6 +69,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -76,13 +80,13 @@ import java.util.TreeSet;
 @RunWith(LocalRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 // TODO(bauerb): Enable these tests with chrome home enabled.
-@Features({ @Features.Register(value = ChromeFeatureList.CHROME_HOME, enabled = false) })
+@DisableFeatures(ChromeFeatureList.CHROME_HOME)
 public class SuggestionsSectionTest {
     @Rule
     public DisableHistogramsRule mDisableHistogramsRule = new DisableHistogramsRule();
 
     @Rule
-    public Features.Processor mFeatureProcessor = new Features.Processor();
+    public TestRule mFeatureProcessor = new Features.JUnitProcessor();
 
     private static final int TEST_CATEGORY_ID = 42;
 
@@ -474,7 +478,9 @@ public class SuggestionsSectionTest {
                 .showIfEmpty()
                 .build());
         section.setStatus(CategoryStatus.AVAILABLE);
-        section.appendSuggestions(createDummySuggestions(suggestionCount, REMOTE_TEST_CATEGORY),
+        List<SnippetArticle> suggestions =
+                createDummySuggestions(suggestionCount, REMOTE_TEST_CATEGORY);
+        section.appendSuggestions(suggestions,
                 /* keepSectionSize = */ true, /* reportPrefetchedSuggestionsCount = */ false);
         assertEquals(ActionItem.State.BUTTON, section.getActionItemForTesting().getState());
         assertEquals(10, section.getSuggestionsCount());
@@ -482,9 +488,7 @@ public class SuggestionsSectionTest {
 
         // Dismiss all suggestions.
         for (int i = 0; i < suggestionCount; i++) {
-            // Bind the first suggestion - indicate that it is being viewed.
-            // Indices in section are off-by-one (index 0 is the header).
-            bindViewHolders(section, 1, 2);
+            suggestions.get(i).mExposed = true;
             @SuppressWarnings("unchecked")
             Callback<String> callback = mock(Callback.class);
             section.dismissItem(1, callback);
@@ -493,7 +497,7 @@ public class SuggestionsSectionTest {
 
         // Tap the button -- we handle this case explicitly here to avoid complexity in
         // verifyAction().
-        section.getActionItemForTesting().performAction(mUiDelegate, null);
+        section.getActionItemForTesting().performAction(mUiDelegate, null, null);
         verify(mUiDelegate.getSuggestionsSource(), times(1)).fetchRemoteSuggestions();
 
         // Simulate the arrival of new data.
@@ -524,7 +528,8 @@ public class SuggestionsSectionTest {
 
         // Tap the button, providing a Runnable for when it fails.
         Runnable sectionOnFailureRunnable = mock(Runnable.class);
-        section.getActionItemForTesting().performAction(mUiDelegate, sectionOnFailureRunnable);
+        section.getActionItemForTesting()
+                .performAction(mUiDelegate, sectionOnFailureRunnable, null);
 
         // Ensure the tap leads to a fetch request on the source with a (potentially different)
         // failure Runnable.
@@ -541,6 +546,40 @@ public class SuggestionsSectionTest {
         // Ensure we're back to the button and the section's failure runnable has been run.
         assertEquals(ActionItem.State.BUTTON, section.getActionItemForTesting().getState());
         verify(sectionOnFailureRunnable, times(1)).run();
+    }
+
+    @Test
+    @Feature("Ntp")
+    public void testFetchMoreNoSuggestions() {
+        SuggestionsSection section = createSection(new CategoryInfoBuilder(REMOTE_TEST_CATEGORY)
+                .withAction(ContentSuggestionsAdditionalAction.FETCH)
+                .showIfEmpty()
+                .build());
+        section.setStatus(CategoryStatus.AVAILABLE);
+        section.appendSuggestions(createDummySuggestions(10, REMOTE_TEST_CATEGORY),
+                /* keepSectionSize = */ true, /* reportPrefetchedSuggestionsCount = */ false);
+        assertEquals(ActionItem.State.BUTTON, section.getActionItemForTesting().getState());
+        assertTrue(section.getCategoryInfo().isRemote());
+
+        // Tap the button, providing a Runnable for when it succeeds with no suggestions.
+        Runnable sectionOnNoNewSuggestionsRunnable = mock(Runnable.class);
+        section.getActionItemForTesting()
+                .performAction(mUiDelegate, null, sectionOnNoNewSuggestionsRunnable);
+
+        // Ensure the tap leads to a fetch request on the source with a (potentially different)
+        // failure Runnable.
+        ArgumentCaptor<Callback> sourceOnSuccessCallback = ArgumentCaptor.forClass(Callback.class);
+        verify(mUiDelegate.getSuggestionsSource(), times(1)).fetchSuggestions(
+                eq(REMOTE_TEST_CATEGORY), any(), sourceOnSuccessCallback.capture(), any());
+
+        // Check the runnable isn't called if we return suggestions.
+        sourceOnSuccessCallback.getValue().onResult(
+                createDummySuggestions(2, REMOTE_TEST_CATEGORY));
+        verify(sectionOnNoNewSuggestionsRunnable, times(0)).run();
+
+        // Check the runnable is called when we return no suggestions.
+        sourceOnSuccessCallback.getValue().onResult(new LinkedList<SnippetArticle>());
+        verify(sectionOnNoNewSuggestionsRunnable, times(1)).run();
     }
 
     /**
@@ -599,9 +638,7 @@ public class SuggestionsSectionTest {
                 createSectionWithSuggestions(new ArrayList<>(snippets));
         assertEquals(4, section.getSuggestionsCount());
 
-        // Bind the first suggestion - indicate that it is being viewed.
-        // Indices in section are off-by-one (index 0 is the header).
-        bindViewHolders(section, 1, 2);
+        snippets.get(0).mExposed = true;
 
         List<SnippetArticle> newSnippets =
                 mSuggestionsSource.createAndSetSuggestions(3, TEST_CATEGORY_ID, "new");
@@ -633,9 +670,8 @@ public class SuggestionsSectionTest {
                 createSectionWithSuggestions(new ArrayList<>(snippets));
         assertEquals(4, section.getSuggestionsCount());
 
-        // Bind the first two suggestions - indicate that they are being viewed.
-        // Indices in section are off-by-one (index 0 is the header).
-        bindViewHolders(section, 1, 3);
+        snippets.get(0).mExposed = true;
+        snippets.get(1).mExposed = true;
 
         List<SnippetArticle> newSnippets =
                 mSuggestionsSource.createAndSetSuggestions(3, TEST_CATEGORY_ID, "new");
@@ -665,9 +701,9 @@ public class SuggestionsSectionTest {
                 createSectionWithSuggestions(new ArrayList<>(snippets));
         assertEquals(4, section.getSuggestionsCount());
 
-        // Bind the first two suggestions - indicate that they are being viewed.
-        // Indices in section are off-by-one (index 0 is the header).
-        bindViewHolders(section, 1, 3);
+        // Mark first two suggestions as seen.
+        snippets.get(0).mExposed = true;
+        snippets.get(1).mExposed = true;
 
         mSuggestionsSource.createAndSetSuggestions(1, TEST_CATEGORY_ID);
         section.updateSuggestions();
@@ -694,9 +730,9 @@ public class SuggestionsSectionTest {
         SuggestionsSection section = createSectionWithSuggestions(new ArrayList<>(snippets));
         assertEquals(4, section.getSuggestionsCount());
 
-        // Bind the first two suggestions - indicate that they are being viewed.
-        // Indices in section are off-by-one (index 0 is the header).
-        bindViewHolders(section, 1, 3);
+        // Mark first two suggestions as seen.
+        snippets.get(0).mExposed = true;
+        snippets.get(1).mExposed = true;
 
         // Remove the first item (already seen) and the last item (not yet seen).
         List<SnippetArticle> sectionSuggestions = getSuggestions(section);
@@ -726,44 +762,6 @@ public class SuggestionsSectionTest {
     }
 
     /**
-     * Tests that the UI does not update any items of the section if the current list is shorter
-     * than what has been viewed.
-     */
-    @Test
-    @Feature({"Ntp"})
-    public void testUpdateSectionDoesNothingWhenCurrentListIsShorterThanItemsSeen() {
-        List<SnippetArticle> snippets = createDummySuggestions(3, TEST_CATEGORY_ID, "old");
-        // Copy the list when passing to the section - it may alter it but we later need it.
-        SuggestionsSection section =
-                createSectionWithSuggestions(new ArrayList<>(snippets));
-        assertEquals(3, section.getSuggestionsCount());
-
-        // Bind the first two suggestions - indicate that they are being viewed.
-        // Indices in section are off-by-one (index 0 is the header).
-        bindViewHolders(section, 1, 3);
-
-        // Remove last two items.
-        List<SnippetArticle> sectionSuggestions = getSuggestions(section);
-        section.removeSuggestionById(sectionSuggestions.get(2).mIdWithinCategory);
-        section.removeSuggestionById(sectionSuggestions.get(1).mIdWithinCategory);
-        reset(mParent);
-
-        assertEquals(1, section.getSuggestionsCount());
-
-        mSuggestionsSource.setSuggestionsForCategory(
-                TEST_CATEGORY_ID, createDummySuggestions(4, TEST_CATEGORY_ID));
-        section.updateSuggestions();
-        // We do not touch the current list if all has been seen.
-        sectionSuggestions = getSuggestions(section);
-        verify(mParent, never()).onItemRangeRemoved(any(TreeNode.class), anyInt(), anyInt());
-        verify(mParent, never()).onItemRangeInserted(any(TreeNode.class), anyInt(), anyInt());
-        assertEquals(1, section.getSuggestionsCount());
-        assertEquals(snippets.get(0), sectionSuggestions.get(0));
-
-        assertTrue(section.isDataStale());
-    }
-
-    /**
      * Tests that the UI does not update when the section has been viewed.
      */
     @Test
@@ -773,8 +771,7 @@ public class SuggestionsSectionTest {
         SuggestionsSection section = createSectionWithSuggestions(snippets);
         assertEquals(4, section.getSuggestionsCount());
 
-        // Bind all the suggestions - indicate that they are being viewed.
-        bindViewHolders(section);
+        for (SnippetArticle snippet : snippets) snippet.mExposed = true;
 
         mSuggestionsSource.setSuggestionsForCategory(
                 TEST_CATEGORY_ID, createDummySuggestions(3, TEST_CATEGORY_ID));
@@ -950,14 +947,10 @@ public class SuggestionsSectionTest {
         return section;
     }
 
-    private OfflinePageItem createOfflinePageItem(String url, long offlineId) {
-        return new OfflinePageItem(url, offlineId, "", "", "", "", 0, 0, 0, 0, "");
-    }
-
     private void verifyAction(
             SuggestionsSection section, @ContentSuggestionsAdditionalAction int action) {
         if (action != ContentSuggestionsAdditionalAction.NONE) {
-            section.getActionItemForTesting().performAction(mUiDelegate, null);
+            section.getActionItemForTesting().performAction(mUiDelegate, null, null);
         }
 
         verify(section.getCategoryInfo(),

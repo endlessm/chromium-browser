@@ -39,7 +39,6 @@
 #include "ash/wm/workspace_controller_test_api.h"
 #include "base/command_line.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_feature_list.h"
 #include "chromeos/audio/chromeos_sounds.h"
 #include "ui/app_list/app_list_features.h"
 #include "ui/aura/client/aura_constants.h"
@@ -74,7 +73,7 @@ class MaximizeDelegateView : public views::WidgetDelegateView {
  public:
   explicit MaximizeDelegateView(const gfx::Rect& initial_bounds)
       : initial_bounds_(initial_bounds) {}
-  ~MaximizeDelegateView() override {}
+  ~MaximizeDelegateView() override = default;
 
   bool GetSavedWindowPlacement(const views::Widget* widget,
                                gfx::Rect* bounds,
@@ -121,7 +120,9 @@ display::Display GetDisplayNearestWindow(aura::Window* window) {
 
 void EnableStickyKeyboard() {
   keyboard::KeyboardController::ResetInstance(new keyboard::KeyboardController(
-      std::make_unique<keyboard::FakeKeyboardUI>(), nullptr));
+      std::make_unique<keyboard::TestKeyboardUI>(
+          Shell::Get()->window_tree_host_manager()->input_method()),
+      nullptr));
   keyboard::KeyboardController::GetInstance()->set_keyboard_locked(true);
 }
 
@@ -984,7 +985,7 @@ WorkspaceLayoutManager* GetWorkspaceLayoutManager(aura::Window* container) {
 class WorkspaceLayoutManagerBackdropTest : public AshTestBase {
  public:
   WorkspaceLayoutManagerBackdropTest() : default_container_(nullptr) {}
-  ~WorkspaceLayoutManagerBackdropTest() override {}
+  ~WorkspaceLayoutManagerBackdropTest() override = default;
 
   void SetUp() override {
     AshTestBase::SetUp();
@@ -1399,12 +1400,6 @@ TEST_F(WorkspaceLayoutManagerBackdropTest,
       true);
   EXPECT_TRUE(secondary_test_helper.GetBackdropWindow());
 
-  // Enable fullscreen app list.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      app_list::features::kEnableFullscreenAppList);
-  EXPECT_TRUE(app_list::features::IsFullscreenAppListEnabled());
-
   // Showing the app list on the primary display should not hide the backdrop on
   // the secondary display.
   EXPECT_TRUE(primary_test_helper.GetBackdropWindow());
@@ -1413,36 +1408,6 @@ TEST_F(WorkspaceLayoutManagerBackdropTest,
   app_list_presenter_impl.ShowAndRunLoop(GetPrimaryDisplay().id());
   EXPECT_FALSE(primary_test_helper.GetBackdropWindow());
   EXPECT_TRUE(secondary_test_helper.GetBackdropWindow());
-}
-
-// The non-fullscreen app list should not affect the backdrop.
-TEST_F(WorkspaceLayoutManagerBackdropTest,
-       BackdropIgnoresNonFullscreenAppListVisibilityNotification) {
-  // TODO(newcomer): this test needs to be reevaluated for the fullscreen app
-  // list (http://crbug.com/759779).
-  if (app_list::features::IsFullscreenAppListEnabled())
-    return;
-
-  WorkspaceController* wc = ShellTestApi(Shell::Get()).workspace_controller();
-  WorkspaceControllerTestApi test_helper(wc);
-
-  std::unique_ptr<aura::Window> window(
-      CreateTestWindow(gfx::Rect(0, 0, 100, 100)));
-  EXPECT_FALSE(test_helper.GetBackdropWindow());
-
-  // Turn the top window backdrop on.
-  ShowTopWindowBackdropForContainer(default_container(), true);
-  EXPECT_TRUE(test_helper.GetBackdropWindow());
-  EXPECT_FALSE(app_list::features::IsFullscreenAppListEnabled());
-
-  // Showing the non-fullscreen app list should have no effect for the backdrop.
-  TestAppListPresenterImpl app_list_presenter_impl;
-  app_list_presenter_impl.ShowAndRunLoop(GetPrimaryDisplay().id());
-  EXPECT_TRUE(test_helper.GetBackdropWindow());
-
-  // There should also be no change when the app list is hidden.
-  app_list_presenter_impl.DismissAndRunLoop();
-  EXPECT_TRUE(test_helper.GetBackdropWindow());
 }
 
 // Fullscreen app list changes to visible should hide the backdrop, otherwise,
@@ -1460,12 +1425,7 @@ TEST_F(WorkspaceLayoutManagerBackdropTest,
   ShowTopWindowBackdropForContainer(default_container(), true);
   EXPECT_TRUE(test_helper.GetBackdropWindow());
 
-  // Enable fullscreen app list.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      app_list::features::kEnableFullscreenAppList);
   EXPECT_TRUE(test_helper.GetBackdropWindow());
-  EXPECT_TRUE(app_list::features::IsFullscreenAppListEnabled());
   // Showing the fullscreen app list should hide the backdrop.
   TestAppListPresenterImpl app_list_presenter_impl;
   app_list_presenter_impl.ShowAndRunLoop(GetPrimaryDisplay().id());
@@ -1525,7 +1485,7 @@ TEST_F(WorkspaceLayoutManagerBackdropTest, SpokenFeedbackForArc) {
 class WorkspaceLayoutManagerKeyboardTest : public AshTestBase {
  public:
   WorkspaceLayoutManagerKeyboardTest() : layout_manager_(nullptr) {}
-  ~WorkspaceLayoutManagerKeyboardTest() override {}
+  ~WorkspaceLayoutManagerKeyboardTest() override = default;
 
   void SetUp() override {
     AshTestBase::SetUp();
@@ -1726,25 +1686,32 @@ TEST_F(WorkspaceLayoutManagerBackdropTest, BackdropForSplitScreenTest) {
   ShowTopWindowBackdropForContainer(default_container(), true);
   Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
 
+  class SplitViewTestWindowDelegate : public aura::test::TestWindowDelegate {
+   public:
+    SplitViewTestWindowDelegate() = default;
+    ~SplitViewTestWindowDelegate() override = default;
+
+    // aura::test::TestWindowDelegate:
+    void OnWindowDestroying(aura::Window* window) override { window->Hide(); }
+    void OnWindowDestroyed(aura::Window* window) override { delete this; }
+  };
+
+  auto CreateWindow = [this](const gfx::Rect& bounds) {
+    aura::Window* window = CreateTestWindowInShellWithDelegate(
+        new SplitViewTestWindowDelegate, -1, bounds);
+    return window;
+  };
+
   SplitViewController* split_view_controller =
       Shell::Get()->split_view_controller();
 
-  // Windows in tablet mode are created with immersive mode on. In mash,
-  // immersive mode creates a new widget to render the title area. This will
-  // cause some differences in the test in mash configuration and non-mash
-  // configuration.
-  const bool is_mash = Shell::GetAshConfig() == Config::MASH;
-
   const gfx::Rect bounds(0, 0, 400, 400);
-  std::unique_ptr<aura::Window> window1(CreateTestWindow(bounds));
+  std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
   window1->Show();
 
-  // In mash, with one window, there is a extra child, the title area renderer
-  // of |window1|.
-  size_t expected_size = is_mash ? 3U : 2U;
   // Test that backdrop window is visible and is the second child in the
   // container. Its bounds should be the same as the container bounds.
-  ASSERT_EQ(expected_size, default_container()->children().size());
+  EXPECT_EQ(2U, default_container()->children().size());
   for (auto* child : default_container()->children())
     EXPECT_TRUE(child->IsVisible());
   EXPECT_EQ(window1.get(), default_container()->children()[1]);
@@ -1755,7 +1722,7 @@ TEST_F(WorkspaceLayoutManagerBackdropTest, BackdropForSplitScreenTest) {
   // and is the second child in the container. Its bounds should still be the
   // same as the container bounds.
   split_view_controller->SnapWindow(window1.get(), SplitViewController::LEFT);
-  ASSERT_EQ(expected_size, default_container()->children().size());
+  EXPECT_EQ(2U, default_container()->children().size());
   for (auto* child : default_container()->children())
     EXPECT_TRUE(child->IsVisible());
   EXPECT_EQ(window1.get(), default_container()->children()[1]);
@@ -1765,35 +1732,27 @@ TEST_F(WorkspaceLayoutManagerBackdropTest, BackdropForSplitScreenTest) {
   // Now snap another window to right. Test that the backdrop window is still
   // visible but is now the third window in the container. Its bounds should
   // still be the same as the container bounds.
-  std::unique_ptr<aura::Window> window2(CreateTestWindow(bounds));
+  std::unique_ptr<aura::Window> window2(CreateWindow(bounds));
   split_view_controller->SnapWindow(window2.get(), SplitViewController::RIGHT);
 
-  // In mash, with two windows, there are two extra children, the title area
-  // renderer of |window1| and |window2|.
-  expected_size = is_mash ? 5U : 3U;
-  const int expected_second_window_index = is_mash ? 3 : 2;
-
-  ASSERT_EQ(expected_size, default_container()->children().size());
+  EXPECT_EQ(3U, default_container()->children().size());
   for (auto* child : default_container()->children())
     EXPECT_TRUE(child->IsVisible());
   EXPECT_EQ(window1.get(), default_container()->children()[1]);
-  EXPECT_EQ(window2.get(),
-            default_container()->children()[expected_second_window_index]);
+  EXPECT_EQ(window2.get(), default_container()->children()[2]);
   EXPECT_EQ(default_container()->bounds(),
             default_container()->children()[0]->bounds());
 
   // Test activation change correctly updates the backdrop.
   wm::ActivateWindow(window1.get());
-  EXPECT_EQ(window1.get(),
-            default_container()->children()[expected_second_window_index]);
+  EXPECT_EQ(window1.get(), default_container()->children()[2]);
   EXPECT_EQ(window2.get(), default_container()->children()[1]);
   EXPECT_EQ(default_container()->bounds(),
             default_container()->children()[0]->bounds());
 
   wm::ActivateWindow(window2.get());
   EXPECT_EQ(window1.get(), default_container()->children()[1]);
-  EXPECT_EQ(window2.get(),
-            default_container()->children()[expected_second_window_index]);
+  EXPECT_EQ(window2.get(), default_container()->children()[2]);
   EXPECT_EQ(default_container()->bounds(),
             default_container()->children()[0]->bounds());
 }

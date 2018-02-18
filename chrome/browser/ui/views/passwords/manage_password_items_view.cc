@@ -18,6 +18,7 @@
 #include "components/password_manager/core/common/password_manager_ui.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/range/range.h"
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/image_button.h"
@@ -43,12 +44,8 @@ void BuildColumnSetIfNeeded(views::GridLayout* layout, int column_set_id) {
   views::ColumnSet* column_set = layout->AddColumnSet(column_set_id);
 
   // The username/"Deleted!"/Border field.
-  column_set->AddColumn(views::GridLayout::FILL,
-                        views::GridLayout::FILL,
-                        1,
-                        views::GridLayout::USE_PREF,
-                        0,
-                        0);
+  column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1,
+                        views::GridLayout::USE_PREF, 0, kMinUsernameWidth);
 
   const int column_divider = ChromeLayoutProvider::Get()->GetDistanceMetric(
       views::DISTANCE_RELATED_CONTROL_HORIZONTAL);
@@ -129,6 +126,8 @@ std::unique_ptr<views::Textfield> CreateUsernameEditable(
   editable->SetText(form.username_value);
   editable->SetAccessibleName(
       l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_USERNAME_LABEL));
+  // In case of long username, ensure that the beginning of value is visible.
+  editable->SelectRange(gfx::Range(0));
   return editable;
 }
 
@@ -139,14 +138,13 @@ std::unique_ptr<views::Label> CreatePasswordLabel(
       form.federation_origin.unique()
           ? form.password_value
           : l10n_util::GetStringFUTF16(
-                IDS_PASSWORDS_VIA_FEDERATION,
+                IDS_PASSWORD_MANAGER_SIGNIN_VIA_FEDERATION,
                 base::UTF8ToUTF16(form.federation_origin.host()));
   auto label = base::MakeUnique<views::Label>(text, CONTEXT_BODY_TEXT_LARGE,
                                               STYLE_SECONDARY);
   label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   if (form.federation_origin.unique() && !is_password_visible)
     label->SetObscured(true);
-  label->SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
   return label;
 }
 
@@ -230,37 +228,14 @@ void ManagePasswordItemsView::PasswordFormRow::AddCredentialsRow(
   ResetControls();
   BuildColumnSetIfNeeded(layout, THREE_COLUMN_SET);
   layout->StartRow(0, THREE_COLUMN_SET);
-  std::unique_ptr<views::Label> username_label(
-      CreateUsernameLabel(*password_form_));
-  std::unique_ptr<views::Label> password_label(
-      CreatePasswordLabel(*password_form_, false));
   delete_button_ = CreateDeleteButton(this).release();
-  // TODO(https://crbug.com/761767): Remove this workaround once the grid layout
-  // bug is fixed.
-  const int username_width = username_label->CalculatePreferredSize().width();
-  const int password_width = password_label->CalculatePreferredSize().width();
-  const int available_width =
-      host_->bubble_width_ - delete_button_->CalculatePreferredSize().width() -
-      2 * ChromeLayoutProvider::Get()->GetDistanceMetric(
-              views::DISTANCE_RELATED_CONTROL_HORIZONTAL);
-  if (username_width > available_width && password_width < available_width) {
-    layout->AddView(username_label.release(), 1, 1, views::GridLayout::FILL,
-                    views::GridLayout::FILL, available_width, fixed_height_);
-    layout->AddView(password_label.release(), 1, 1, views::GridLayout::FILL,
-                    views::GridLayout::FILL, 0, fixed_height_);
-  } else if (username_width < available_width &&
-             password_width > available_width) {
-    layout->AddView(username_label.release(), 1, 1, views::GridLayout::FILL,
-                    views::GridLayout::FILL, username_width, fixed_height_);
-    layout->AddView(password_label.release(), 1, 1, views::GridLayout::FILL,
-                    views::GridLayout::FILL, available_width - username_width,
-                    fixed_height_);
-  } else {
-    layout->AddView(username_label.release(), 1, 1, views::GridLayout::FILL,
-                    views::GridLayout::FILL, 0, fixed_height_);
-    layout->AddView(password_label.release(), 1, 1, views::GridLayout::FILL,
-                    views::GridLayout::FILL, 0, fixed_height_);
-  }
+
+  layout->AddView(CreateUsernameLabel(*password_form_).release(), 1, 1,
+                  views::GridLayout::FILL, views::GridLayout::FILL, 0,
+                  fixed_height_);
+  layout->AddView(CreatePasswordLabel(*password_form_, false).release(), 1, 1,
+                  views::GridLayout::FILL, views::GridLayout::FILL, 0,
+                  fixed_height_);
   layout->AddView(delete_button_, 1, 1, views::GridLayout::TRAILING,
                   views::GridLayout::FILL, 0, fixed_height_);
 }
@@ -303,9 +278,8 @@ void ManagePasswordItemsView::PasswordFormRow::ResetControls() {
 // ManagePasswordItemsView
 ManagePasswordItemsView::ManagePasswordItemsView(
     ManagePasswordsBubbleModel* manage_passwords_bubble_model,
-    const std::vector<autofill::PasswordForm>* password_forms,
-    int bubble_width)
-    : model_(manage_passwords_bubble_model), bubble_width_(bubble_width) {
+    const std::vector<autofill::PasswordForm>* password_forms)
+    : model_(manage_passwords_bubble_model) {
   DCHECK_EQ(password_manager::ui::MANAGE_STATE, model_->state());
   int fixed_height = PasswordFormRow::GetFixedHeight(model_->state());
   for (const auto& password_form : *password_forms) {
@@ -321,6 +295,7 @@ void ManagePasswordItemsView::AddRows() {
   const int vertical_padding = ChromeLayoutProvider::Get()->GetDistanceMetric(
       views::DISTANCE_RELATED_CONTROL_VERTICAL);
   views::GridLayout* layout = views::GridLayout::CreateAndInstall(this);
+  layout->set_honors_min_width(true);
   SetLayoutManager(layout);
   for (const std::unique_ptr<PasswordFormRow>& row : password_forms_rows_) {
     if (row != password_forms_rows_[0])

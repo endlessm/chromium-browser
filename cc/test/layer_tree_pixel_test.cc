@@ -20,7 +20,6 @@
 #include "cc/trees/layer_tree_impl.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
-#include "components/viz/common/quads/texture_mailbox.h"
 #include "components/viz/service/display/software_output_device.h"
 #include "components/viz/test/paths.h"
 #include "components/viz/test/test_layer_tree_frame_sink.h"
@@ -136,10 +135,10 @@ scoped_refptr<SolidColorLayer> LayerTreePixelTest::CreateSolidColorLayer(
 }
 
 void LayerTreePixelTest::EndTest() {
-  // Drop TextureMailboxes on the main thread so that they can be cleaned up and
+  // Drop textures on the main thread so that they can be cleaned up and
   // the pending callbacks will fire.
   for (size_t i = 0; i < texture_layers_.size(); ++i) {
-    texture_layers_[i]->SetTextureMailbox(viz::TextureMailbox(), nullptr);
+    texture_layers_[i]->ClearTexture();
   }
 
   TryEndTest();
@@ -192,7 +191,7 @@ void LayerTreePixelTest::RunPixelTest(
     base::FilePath file_name) {
   test_type_ = test_type;
   content_root_ = content_root;
-  readback_target_ = NULL;
+  readback_target_ = nullptr;
   ref_file_ = file_name;
   RunTest(CompositorMode::THREADED);
 }
@@ -203,7 +202,7 @@ void LayerTreePixelTest::RunSingleThreadedPixelTest(
     base::FilePath file_name) {
   test_type_ = test_type;
   content_root_ = content_root;
-  readback_target_ = NULL;
+  readback_target_ = nullptr;
   ref_file_ = file_name;
   RunTest(CompositorMode::SINGLE_THREADED);
 }
@@ -228,31 +227,20 @@ void LayerTreePixelTest::SetupTree() {
   LayerTreeTest::SetupTree();
 }
 
-SkBitmap LayerTreePixelTest::CopyTextureMailboxToBitmap(
+SkBitmap LayerTreePixelTest::CopyMailboxToBitmap(
     const gfx::Size& size,
-    const viz::TextureMailbox& texture_mailbox) {
-  DCHECK(texture_mailbox.IsTexture());
-
+    const gpu::Mailbox& mailbox,
+    const gpu::SyncToken& sync_token) {
   SkBitmap bitmap;
-  if (!texture_mailbox.IsTexture())
-    return bitmap;
-
   std::unique_ptr<gpu::GLInProcessContext> context =
       CreateTestInProcessContext();
   GLES2Interface* gl = context->GetImplementation();
 
-  if (texture_mailbox.sync_token().HasData())
-    gl->WaitSyncTokenCHROMIUM(texture_mailbox.sync_token().GetConstData());
+  if (sync_token.HasData())
+    gl->WaitSyncTokenCHROMIUM(sync_token.GetConstData());
 
-  GLuint texture_id = 0;
-  gl->GenTextures(1, &texture_id);
-  gl->BindTexture(GL_TEXTURE_2D, texture_id);
-  gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  gl->ConsumeTextureCHROMIUM(texture_mailbox.target(), texture_mailbox.name());
-  gl->BindTexture(GL_TEXTURE_2D, 0);
+  GLuint texture_id =
+      gl->CreateAndConsumeTextureCHROMIUM(GL_TEXTURE_2D, mailbox.name);
 
   GLuint fbo = 0;
   gl->GenFramebuffers(1, &fbo);

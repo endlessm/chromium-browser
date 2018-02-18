@@ -28,10 +28,12 @@ PACKAGE_FILTER = [
     "libXtst.so",
     "libasound.so",
     "libatk-1.0.so",
+    "libatk-bridge-2.0.so",
     "libc.so",
     "libcairo.so",
     "libcups.so",
     "libdbus-1.so",
+    "libdconf.so",
     "libdl.so",
     "libexpat.so",
     "libfontconfig.so",
@@ -57,7 +59,7 @@ PACKAGE_FILTER = [
     "libxcb.so",
 ]
 
-SUPPORTED_FEDORA_RELEASES = ['25', '26']
+SUPPORTED_FEDORA_RELEASES = ['25', '26', '27']
 SUPPORTED_OPENSUSE_LEAP_RELEASES = ['42.2', '42.3']
 
 COMMON_NS = "http://linux.duke.edu/metadata/common"

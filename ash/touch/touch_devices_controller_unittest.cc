@@ -37,7 +37,10 @@ bool GetGlobalTouchscreenEnabled() {
       TouchscreenEnabledSource::GLOBAL);
 }
 
-}  // namespace
+PrefService* GetPrefs(const std::string& email) {
+  return Shell::Get()->session_controller()->GetUserPrefServiceForUser(
+      AccountId::FromUserEmail(email));
+}
 
 class TouchDevicesControllerTest : public NoSessionAshTestBase {
  public:
@@ -91,22 +94,62 @@ TEST_F(TouchDevicesControllerTest, ToggleTouchpad) {
 // Tests that touchscreen enabled user pref works properly under debug
 // accelerator.
 TEST_F(TouchDevicesControllerTest, SetTouchscreenEnabled) {
-  const bool kInitialGlobalTouchscreenEnabled = GetGlobalTouchscreenEnabled();
+  ASSERT_TRUE(GetGlobalTouchscreenEnabled());
   ASSERT_TRUE(GetUserPrefTouchscreenEnabled());
+
   debug::PerformDebugActionIfEnabled(DEBUG_TOGGLE_TOUCH_SCREEN);
+  EXPECT_TRUE(GetGlobalTouchscreenEnabled());
   EXPECT_FALSE(GetUserPrefTouchscreenEnabled());
-  EXPECT_EQ(kInitialGlobalTouchscreenEnabled, GetGlobalTouchscreenEnabled());
 
   // Switch to user 2 and switch back.
   SwitchActiveUser(kUser2Email);
   EXPECT_TRUE(GetUserPrefTouchscreenEnabled());
   SwitchActiveUser(kUser1Email);
+  EXPECT_TRUE(GetGlobalTouchscreenEnabled());
   EXPECT_FALSE(GetUserPrefTouchscreenEnabled());
-  EXPECT_EQ(kInitialGlobalTouchscreenEnabled, GetGlobalTouchscreenEnabled());
 
   debug::PerformDebugActionIfEnabled(DEBUG_TOGGLE_TOUCH_SCREEN);
   EXPECT_TRUE(GetUserPrefTouchscreenEnabled());
-  EXPECT_EQ(kInitialGlobalTouchscreenEnabled, GetGlobalTouchscreenEnabled());
+  EXPECT_TRUE(GetGlobalTouchscreenEnabled());
+
+  // The global setting should be preserved when switching users.
+  Shell::Get()->touch_devices_controller()->SetTouchscreenEnabled(
+      false, TouchscreenEnabledSource::GLOBAL);
+  EXPECT_FALSE(GetGlobalTouchscreenEnabled());
+  SwitchActiveUser(kUser2Email);
+  EXPECT_FALSE(GetGlobalTouchscreenEnabled());
 }
 
+TEST_F(TouchDevicesControllerTest, TouchHudProjection) {
+  TouchDevicesController* controller = Shell::Get()->touch_devices_controller();
+
+  // Projection is off by default.
+  EXPECT_FALSE(controller->IsTouchHudProjectionEnabled());
+
+  // Projection can be toggled.
+  controller->SetTouchHudProjectionEnabled(true);
+  EXPECT_TRUE(controller->IsTouchHudProjectionEnabled());
+  controller->SetTouchHudProjectionEnabled(false);
+  EXPECT_FALSE(controller->IsTouchHudProjectionEnabled());
+
+  // Enable for the first user.
+  controller->SetTouchHudProjectionEnabled(true);
+  EXPECT_TRUE(controller->IsTouchHudProjectionEnabled());
+
+  // Switch users. Projection is off for user 2.
+  SwitchActiveUser(kUser2Email);
+  EXPECT_FALSE(controller->IsTouchHudProjectionEnabled());
+
+  // Switch back to user 1. Projection is back on.
+  SwitchActiveUser(kUser1Email);
+  EXPECT_TRUE(controller->IsTouchHudProjectionEnabled());
+
+  // Preferences are set for each user.
+  EXPECT_TRUE(
+      GetPrefs(kUser1Email)->GetBoolean(prefs::kTouchHudProjectionEnabled));
+  EXPECT_FALSE(
+      GetPrefs(kUser2Email)->GetBoolean(prefs::kTouchHudProjectionEnabled));
+}
+
+}  // namespace
 }  // namespace ash

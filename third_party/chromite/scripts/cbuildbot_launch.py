@@ -114,10 +114,6 @@ def PreParseArguments(argv):
   if not options.buildroot:
     cros_build_lib.Die('--buildroot is a required option.')
 
-  if len(options.build_targets) != 1:
-    cros_build_lib.Die('Exactly one build target required, got: %s',
-                       ', '.join(options.build_targets) or 'None')
-
   return options
 
 
@@ -295,40 +291,6 @@ def RunCbuildbot(buildroot, depot_tools_path, argv):
   return result.returncode
 
 
-def _InstallSystemCrcmodIfNeeded():
-  """Install Crcmod binary extension if needed.
-
-  If the build host has python-crcmod installed without the binary extension,
-  that breaks some versions of gsutil. In that case, this function installs
-  a new copy of the module with the extension.
-
-  Newer branches workaround this in gs.py, and hopefully future versions of
-  gsutil will work around this in gsutil, however, older branches will always
-  have this problem.
-
-  So... this method will always be required unless/until we chose to solve this
-  through configuration management of hosts.
-
-  http://crbug.com/763438 covers this in detail.
-  """
-  try:
-    import crcmod
-    # If crcmod exists on the system, but doesn't have the binary extension,
-    # gsutil behaves badly. Override the system module with one that contains
-    # the binary extension. This depends on /usr/local/lib overridding /usr/lib.
-    if not (getattr(crcmod, 'crcmod', None) and
-            getattr(crcmod.crcmod, '_usingExtension', None)):
-      logging.warn('FORCING CRCMOD INSTALL to workaround crbug.com/763438.')
-      cmd = ['pip', 'install', '--ignore-installed', 'crcmod']
-      result = cros_build_lib.SudoRunCommand(
-          cmd, error_code_ok=True, mute_output=True)
-      logging.warn('CRCMOD INSTALL RETURNED :%d', result.returncode)
-  except ImportError:
-    # If crcmod doesn't exist on the system, gs.py will properly use its
-    # version in the cache.
-    pass
-
-
 def ConfigureGlobalEnvironment():
   """Setup process wide environmental changes."""
   # Set umask to 022 so files created by buildbot are readable.
@@ -346,8 +308,6 @@ def ConfigureGlobalEnvironment():
   # This variable is required for repo sync's to work in all cases.
   os.environ['LANG'] = 'en_US.UTF-8'
 
-  _InstallSystemCrcmodIfNeeded()
-
 
 def _main(argv):
   """main method of script.
@@ -364,11 +324,10 @@ def _main(argv):
   root = options.buildroot
   buildroot = os.path.join(root, 'repository')
   depot_tools_path = os.path.join(buildroot, constants.DEPOT_TOOLS_SUBPATH)
-  build_config = options.build_targets[0]
 
   metrics_fields = {
       'branch_name': branchname,
-      'build_config': build_config,
+      'build_config': options.build_config_name,
       'tryjob': options.remote_trybot,
   }
 

@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "ash/message_center/message_center_button_bar.h"
+#include "ash/message_center/message_center_style.h"
 #include "ash/message_center/message_list_view.h"
 #include "ash/test/ash_test_base.h"
 #include "base/logging.h"
@@ -21,7 +22,7 @@
 #include "ui/message_center/notification_list.h"
 #include "ui/message_center/notification_types.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
-#include "ui/message_center/views/message_center_controller.h"
+#include "ui/message_center/views/message_view_delegate.h"
 #include "ui/message_center/views/notification_view.h"
 #include "ui/views/animation/bounds_animator_observer.h"
 #include "ui/views/widget/widget.h"
@@ -29,10 +30,9 @@
 namespace ash {
 
 using message_center::FakeMessageCenter;
-using message_center::kMarginBetweenItems;
 using message_center::MessageCenter;
-using message_center::MessageCenterController;
-using message_center::MessageCenterTray;
+using message_center::MessageViewDelegate;
+using message_center::UiController;
 using message_center::MessageView;
 using message_center::Notification;
 using message_center::NotificationList;
@@ -52,7 +52,7 @@ enum CallType { GET_PREFERRED_SIZE, GET_HEIGHT_FOR_WIDTH, LAYOUT };
 class DummyEvent : public ui::Event {
  public:
   DummyEvent() : Event(ui::ET_UNKNOWN, base::TimeTicks(), 0) {}
-  ~DummyEvent() override {}
+  ~DummyEvent() override = default;
 };
 
 /* Instrumented/Mock NotificationView subclass ********************************/
@@ -64,7 +64,7 @@ class MockNotificationView : public NotificationView {
     virtual void RegisterCall(CallType type) = 0;
   };
 
-  explicit MockNotificationView(MessageCenterController* controller,
+  explicit MockNotificationView(MessageViewDelegate* controller,
                                 const Notification& notification,
                                 Test* test);
   ~MockNotificationView() override;
@@ -79,12 +79,12 @@ class MockNotificationView : public NotificationView {
   DISALLOW_COPY_AND_ASSIGN(MockNotificationView);
 };
 
-MockNotificationView::MockNotificationView(MessageCenterController* controller,
+MockNotificationView::MockNotificationView(MessageViewDelegate* controller,
                                            const Notification& notification,
                                            Test* test)
     : NotificationView(controller, notification), test_(test) {}
 
-MockNotificationView::~MockNotificationView() {}
+MockNotificationView::~MockNotificationView() = default;
 
 gfx::Size MockNotificationView::CalculatePreferredSize() const {
   test_->RegisterCall(GET_PREFERRED_SIZE);
@@ -116,10 +116,8 @@ class FakeMessageCenterImpl : public FakeMessageCenter {
     if (type == RemoveType::NON_PINNED)
       remove_all_closable_notification_called_ = true;
   }
-  bool IsLockedState() const override { return locked_; }
   bool remove_all_closable_notification_called_ = false;
   NotificationList::Notifications visible_notifications_;
-  bool locked_ = false;
 };
 
 // This is the class we are testing, but we need to override some functions
@@ -127,7 +125,7 @@ class FakeMessageCenterImpl : public FakeMessageCenter {
 class MockMessageCenterView : public MessageCenterView {
  public:
   MockMessageCenterView(MessageCenter* message_center,
-                        MessageCenterTray* tray,
+                        UiController* ui_controller,
                         int max_height,
                         bool initially_settings_visible);
 
@@ -140,11 +138,11 @@ class MockMessageCenterView : public MessageCenterView {
 };
 
 MockMessageCenterView::MockMessageCenterView(MessageCenter* message_center,
-                                             MessageCenterTray* tray,
+                                             UiController* ui_controller,
                                              int max_height,
                                              bool initially_settings_visible)
     : MessageCenterView(message_center,
-                        tray,
+                        ui_controller,
                         max_height,
                         initially_settings_visible) {}
 
@@ -166,7 +164,7 @@ void MockMessageCenterView::PreferredSizeChanged() {
 
 class MessageCenterViewTest : public AshTestBase,
                               public MockNotificationView::Test,
-                              public MessageCenterController,
+                              public MessageViewDelegate,
                               views::BoundsAnimatorObserver {
  public:
   // Expose the private enum class MessageCenter::Mode for this test.
@@ -193,15 +191,15 @@ class MessageCenterViewTest : public AshTestBase,
   void UpdateNotification(const std::string& notification_id,
                           std::unique_ptr<Notification> notification);
 
-  // Overridden from MessageCenterController
+  // Overridden from MessageViewDelegate
   void ClickOnNotification(const std::string& notification_id) override;
   void RemoveNotification(const std::string& notification_id,
                           bool by_user) override;
-  std::unique_ptr<ui::MenuModel> CreateMenuModel(
-      const Notification& notification) override;
-  bool HasClickedListener(const std::string& notification_id) override;
   void ClickOnNotificationButton(const std::string& notification_id,
                                  int button_index) override;
+  void ClickOnNotificationButtonWithReply(const std::string& notification_id,
+                                          int button_index,
+                                          const base::string16& reply) override;
   void ClickOnSettingsButton(const std::string& notification_id) override;
   void UpdateNotificationSize(const std::string& notification_id) override;
 
@@ -237,9 +235,9 @@ class MessageCenterViewTest : public AshTestBase,
   DISALLOW_COPY_AND_ASSIGN(MessageCenterViewTest);
 };
 
-MessageCenterViewTest::MessageCenterViewTest() {}
+MessageCenterViewTest::MessageCenterViewTest() = default;
 
-MessageCenterViewTest::~MessageCenterViewTest() {}
+MessageCenterViewTest::~MessageCenterViewTest() = default;
 
 void MessageCenterViewTest::SetUp() {
   AshTestBase::SetUp();
@@ -344,7 +342,7 @@ int MessageCenterViewTest::GetCallCount(CallType type) {
 }
 
 void MessageCenterViewTest::SetLockedState(bool locked) {
-  GetMessageCenterView()->OnLockedStateChanged(locked);
+  GetMessageCenterView()->OnLockStateChanged(locked);
 }
 
 void MessageCenterViewTest::ClickOnNotification(
@@ -380,21 +378,17 @@ void MessageCenterViewTest::RemoveNotification(
   message_center_view_->OnNotificationRemoved(notification_id, by_user);
 }
 
-std::unique_ptr<ui::MenuModel> MessageCenterViewTest::CreateMenuModel(
-    const Notification& notification) {
-  // For this test, this method should not be invoked.
-  NOTREACHED();
-  return nullptr;
-}
-
-bool MessageCenterViewTest::HasClickedListener(
-    const std::string& notification_id) {
-  return true;
-}
-
 void MessageCenterViewTest::ClickOnNotificationButton(
     const std::string& notification_id,
     int button_index) {
+  // For this test, this method should not be invoked.
+  NOTREACHED();
+}
+
+void MessageCenterViewTest::ClickOnNotificationButtonWithReply(
+    const std::string& notification_id,
+    int button_index,
+    const base::string16& reply) {
   // For this test, this method should not be invoked.
   NOTREACHED();
 }
@@ -480,7 +474,7 @@ TEST_F(MessageCenterViewTest, Size) {
   EXPECT_EQ(
       GetMessageListView()->height(),
       GetNotificationView(kNotificationId1)->GetHeightForWidth(width) +
-          (kMarginBetweenItems - MessageView::GetShadowInsets().bottom()) +
+          message_center::kMarginBetweenItemsInList +
           GetNotificationView(kNotificationId2)->GetHeightForWidth(width) +
           GetMessageListView()->GetInsets().height());
 }
@@ -504,7 +498,7 @@ TEST_F(MessageCenterViewTest, DISABLED_SizeAfterUpdate) {
   EXPECT_EQ(
       GetMessageListView()->height(),
       GetNotificationView(kNotificationId1)->GetHeightForWidth(width) +
-          (kMarginBetweenItems - MessageView::GetShadowInsets().bottom()) +
+          message_center::kMarginBetweenItemsInList +
           GetNotificationView(kNotificationId2)->GetHeightForWidth(width) +
           GetMessageListView()->GetInsets().height());
 
@@ -524,7 +518,7 @@ TEST_F(MessageCenterViewTest, DISABLED_SizeAfterUpdate) {
   EXPECT_EQ(
       GetMessageListView()->height(),
       GetNotificationView(kNotificationId1)->GetHeightForWidth(width) +
-          (kMarginBetweenItems - MessageView::GetShadowInsets().bottom()) +
+          message_center::kMarginBetweenItemsInList +
           GetNotificationView(kNotificationId2)->GetHeightForWidth(width) +
           GetMessageListView()->GetInsets().height());
 }
@@ -554,7 +548,7 @@ TEST_F(MessageCenterViewTest, SizeAfterUpdateBelowWithRepositionTarget) {
   EXPECT_EQ(
       GetMessageListView()->height(),
       GetNotificationView(kNotificationId1)->GetHeightForWidth(width) +
-          (kMarginBetweenItems - MessageView::GetShadowInsets().bottom()) +
+          message_center::kMarginBetweenItemsInList +
           GetNotificationView(kNotificationId2)->GetHeightForWidth(width) +
           GetMessageListView()->GetInsets().height());
 }
@@ -584,7 +578,7 @@ TEST_F(MessageCenterViewTest, SizeAfterUpdateOfRepositionTarget) {
   EXPECT_EQ(
       GetMessageListView()->height(),
       GetNotificationView(kNotificationId1)->GetHeightForWidth(width) +
-          (kMarginBetweenItems - MessageView::GetShadowInsets().bottom()) +
+          message_center::kMarginBetweenItemsInList +
           GetNotificationView(kNotificationId2)->GetHeightForWidth(width) +
           GetMessageListView()->GetInsets().height());
 }
@@ -909,8 +903,8 @@ TEST_F(MessageCenterViewTest, CheckModeWithRemovingNotificationDuringLock) {
 }
 
 TEST_F(MessageCenterViewTest, LockScreen) {
-  // Plain button bar height (56) + border (2)
-  const int kLockedMessageCenterViewHeight = 58;
+  // Plain button bar height (56)
+  const int kLockedMessageCenterViewHeight = 56;
 
   EXPECT_TRUE(GetNotificationView(kNotificationId1)->IsDrawn());
   EXPECT_TRUE(GetNotificationView(kNotificationId2)->IsDrawn());
@@ -987,8 +981,8 @@ TEST_F(MessageCenterViewTest, LockScreen) {
 }
 
 TEST_F(MessageCenterViewTest, NoNotification) {
-  // Plain button bar height (56) + border (2) + Empty view (96)
-  const int kEmptyMessageCenterViewHeight = 154;
+  // Plain button bar height (56) + Empty view (96)
+  const int kEmptyMessageCenterViewHeight = 152;
 
   GetMessageCenterView()->SizeToPreferredSize();
   EXPECT_NE(kEmptyMessageCenterViewHeight, GetMessageCenterView()->height());

@@ -29,8 +29,8 @@ namespace ash {
 
 class PeripheralBatteryNotifierTest : public ash::AshTestBase {
  public:
-  PeripheralBatteryNotifierTest() {}
-  ~PeripheralBatteryNotifierTest() override {}
+  PeripheralBatteryNotifierTest() = default;
+  ~PeripheralBatteryNotifierTest() override = default;
 
   void SetUp() override {
     ash::AshTestBase::SetUp();
@@ -167,7 +167,7 @@ TEST_F(PeripheralBatteryNotifierTest, ExtractBluetoothAddress) {
   EXPECT_TRUE(non_bluetooth_device_info.bluetooth_address.empty());
 }
 
-// TODO(crbug.com/765794): Flaky on ash_unittests.
+// TODO(crbug.com/765794): Flaky on ash_unittests --mus.
 TEST_F(PeripheralBatteryNotifierTest, DISABLED_DeviceRemove) {
   message_center::MessageCenter* message_center =
       message_center::MessageCenter::Get();
@@ -183,8 +183,7 @@ TEST_F(PeripheralBatteryNotifierTest, DISABLED_DeviceRemove) {
               nullptr);
 }
 
-// TODO(crbug.com/765794): Flaky on ash_unittests.
-TEST_F(PeripheralBatteryNotifierTest, DISABLED_StylusNotification) {
+TEST_F(PeripheralBatteryNotifierTest, StylusNotification) {
   // DeviceDataManager is nullptr when the config is not classic.
   // TODO(sammiequon): Make this work for mash.
   if (Shell::GetAshConfig() != Config::CLASSIC)
@@ -197,9 +196,8 @@ TEST_F(PeripheralBatteryNotifierTest, DISABLED_StylusNotification) {
   // Add an external stylus to our test device manager.
   ui::TouchscreenDevice stylus(0 /* id */, ui::INPUT_DEVICE_EXTERNAL,
                                kTestStylusName, gfx::Size(),
-                               1 /* touch_points */);
+                               1 /* touch_points */, true /* has_stylus */);
   stylus.sys_path = base::FilePath(kTestStylusBatteryPath);
-  stylus.is_stylus = true;
 
   ui::test::DeviceDataManagerTestAPI test_api;
   test_api.SetTouchscreenDevices({stylus});

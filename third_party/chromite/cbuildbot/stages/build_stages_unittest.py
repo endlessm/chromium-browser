@@ -347,7 +347,7 @@ class BuildPackagesStageTest(AllConfigsTestCase,
     """Test that firmware versions are extracted correctly for unibuilds."""
 
     def _HookRunCommand(rc):
-      rc.AddCmdResult(partial_mock.ListRegex('fdtget'),
+      rc.AddCmdResult(partial_mock.ListRegex('cros_config_host_py'),
                       output='reef\npyro\nelectro')
       rc.AddCmdResult(partial_mock.ListRegex('chromeos-firmwareupdate'),
                       output='''
@@ -379,8 +379,9 @@ EC (RW) version: reef_v1.1.5909-bd1f0c9
         'chroot/build/x86-generic/usr/sbin/chromeos-firmwareupdate')
     osutils.Touch(update, makedirs=True)
 
-    fdtget = os.path.join(self.build_root, 'chroot/usr/bin/fdtget')
-    osutils.Touch(fdtget, makedirs=True)
+    cros_config_host = os.path.join(self.build_root,
+                                    'chroot/usr/bin/cros_config_host_py')
+    osutils.Touch(cros_config_host, makedirs=True)
 
     self._mock_configurator = _HookRunCommand
     self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
@@ -405,13 +406,15 @@ EC (RW) version: reef_v1.1.5909-bd1f0c9
 
   def testUnifiedBuilds(self):
     """Test that unified builds are marked as such."""
-    def _HookRunCommandFdtget(rc):
-      rc.AddCmdResult(partial_mock.ListRegex('fdtget'), output='reef')
+    def _HookRunCommandCrosConfigHost(rc):
+      rc.AddCmdResult(partial_mock.ListRegex('cros_config_host_py'),
+                      output='reef')
 
     self._update_metadata = True
-    fdtget = os.path.join(self.build_root, 'chroot/usr/bin/fdtget')
-    osutils.Touch(fdtget, makedirs=True)
-    self._mock_configurator = _HookRunCommandFdtget
+    cros_config_host = os.path.join(self.build_root,
+                                    'chroot/usr/bin/cros_config_host_py')
+    osutils.Touch(cros_config_host, makedirs=True)
+    self._mock_configurator = _HookRunCommandCrosConfigHost
     self.RunTestsWithBotId('amd64-generic-paladin', options_tests=False)
     self.assertTrue(self._run.attrs.metadata.GetDict()['unibuild'])
 

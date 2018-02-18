@@ -11,8 +11,9 @@ import mock
 import os
 import unittest
 
-from chromite.lib import moblab_vm
 from chromite.lib import cros_test_lib
+from chromite.lib import moblab_vm
+from chromite.lib import osutils
 
 
 class MoblabVmTestCase(cros_test_lib.MockTempDirTestCase):
@@ -96,6 +97,8 @@ class MoblabVmTestCase(cros_test_lib.MockTempDirTestCase):
         self.moblab_from_path, self.moblab_workdir_path)
     self._mock_create_moblab_disk.assert_called_once_with(
         self.moblab_workdir_path)
+    self.assertExists(self.moblab_workdir_path)
+    self.assertNotExists(self.dut_workdir_path)
     self.assertTrue(vmsetup.initialized)
     self.assertFalse(vmsetup.running)
     self.assertFalse(vmsetup.dut_running)
@@ -116,6 +119,31 @@ class MoblabVmTestCase(cros_test_lib.MockTempDirTestCase):
             mock.call(self.dut_from_path, self.dut_workdir_path),
         ],
     )
+    self.assertExists(self.moblab_workdir_path)
+    self.assertExists(self.dut_workdir_path)
+    self._mock_create_moblab_disk.assert_called_once_with(
+        self.moblab_workdir_path)
+    self.assertTrue(vmsetup.initialized)
+    self.assertFalse(vmsetup.running)
+    self.assertFalse(vmsetup.dut_running)
+
+  def testCreateNoCreateVmRaisesWhenSourceImageMissing(self):
+    """A call to .Create w/o create_vm_images expects source image to exist."""
+    vmsetup = moblab_vm.MoblabVm(self.tempdir)
+    with self.assertRaises(moblab_vm.SetupError):
+      vmsetup.Create(self.moblab_from_path, create_vm_images=False)
+
+  def testSuccessfulCreateNoCreateVm(self):
+    """A successful call to .Create w/o create_vm_images."""
+    self._mock_create_moblab_disk.return_value = self.moblab_disk_path
+    osutils.SafeMakedirsNonRoot(self.moblab_from_path)
+    osutils.WriteFile(os.path.join(self.moblab_from_path,
+                                   'chromiumos_qemu_image.bin'),
+                      'fake_image')
+
+    vmsetup = moblab_vm.MoblabVm(self.tempdir)
+    vmsetup.Create(self.moblab_from_path, create_vm_images=False)
+    self.assertEqual(self._mock_create_vm_image.call_count, 0)
     self._mock_create_moblab_disk.assert_called_once_with(
         self.moblab_workdir_path)
     self.assertTrue(vmsetup.initialized)
@@ -176,18 +204,18 @@ class MoblabVmTestCase(cros_test_lib.MockTempDirTestCase):
         ])
 
     kvm_calls = [mock.call(
-        self.moblab_workdir_path, mock.ANY, self.moblab_image_path,
+        self.moblab_workdir_path, self.moblab_image_path, mock.ANY,
         self.moblab_tap_dev, mock.ANY, is_moblab=True, qemu_args=mock.ANY)]
     if with_dut:
       kvm_calls.append(mock.call(
-          self.dut_workdir_path, mock.ANY, self.dut_image_path,
+          self.dut_workdir_path, self.dut_image_path, mock.ANY,
           self.dut_tap_dev, mock.ANY, is_moblab=False))
     self.assertEqual(self._mock_start_kvm.call_args_list, kvm_calls)
     if with_dut:
       # Different SSH ports are used for the two VMs
       self.assertNotEqual(
-          self._mock_start_kvm.call_args_list[0][0][1],
-          self._mock_start_kvm.call_args_list[1][0][1],
+          self._mock_start_kvm.call_args_list[0][0][2],
+          self._mock_start_kvm.call_args_list[1][0][2],
       )
       # Different MAC addresses are used for secondary networks of two VMs.
       self.assertNotEqual(

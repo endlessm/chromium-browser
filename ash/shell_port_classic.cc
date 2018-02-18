@@ -12,8 +12,6 @@
 #include "ash/host/ash_window_tree_host.h"
 #include "ash/host/ash_window_tree_host_init_params.h"
 #include "ash/keyboard/keyboard_ui.h"
-#include "ash/laser/laser_pointer_controller.h"
-#include "ash/magnifier/partial_magnification_controller.h"
 #include "ash/pointer_watcher_adapter_classic.h"
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/immersive/immersive_fullscreen_controller.h"
@@ -28,6 +26,7 @@
 #include "ash/wm/window_util.h"
 #include "ash/wm/workspace/workspace_event_handler_classic.h"
 #include "base/memory/ptr_util.h"
+#include "components/viz/host/host_frame_sink_manager.h"
 #include "ui/aura/env.h"
 #include "ui/display/manager/chromeos/default_touch_transform_setter.h"
 #include "ui/display/types/native_display_delegate.h"
@@ -35,9 +34,9 @@
 
 namespace ash {
 
-ShellPortClassic::ShellPortClassic() {}
+ShellPortClassic::ShellPortClassic() = default;
 
-ShellPortClassic::~ShellPortClassic() {}
+ShellPortClassic::~ShellPortClassic() = default;
 
 // static
 ShellPortClassic* ShellPortClassic::Get() {
@@ -120,11 +119,6 @@ ShellPortClassic::CreateWorkspaceEventHandler(aura::Window* workspace_window) {
   return std::make_unique<WorkspaceEventHandlerClassic>(workspace_window);
 }
 
-std::unique_ptr<ImmersiveFullscreenController>
-ShellPortClassic::CreateImmersiveFullscreenController() {
-  return std::make_unique<ImmersiveFullscreenController>();
-}
-
 std::unique_ptr<KeyboardUI> ShellPortClassic::CreateKeyboardUI() {
   return KeyboardUI::Create();
 }
@@ -145,14 +139,6 @@ bool ShellPortClassic::IsTouchDown() {
 
 void ShellPortClassic::ToggleIgnoreExternalKeyboard() {
   Shell::Get()->virtual_keyboard_controller()->ToggleIgnoreExternalKeyboard();
-}
-
-void ShellPortClassic::SetLaserPointerEnabled(bool enabled) {
-  Shell::Get()->laser_pointer_controller()->SetEnabled(enabled);
-}
-
-void ShellPortClassic::SetPartialMagnifierEnabled(bool enabled) {
-  Shell::Get()->partial_magnification_controller()->SetEnabled(enabled);
 }
 
 void ShellPortClassic::CreatePointerWatcherAdapter() {
@@ -184,6 +170,14 @@ ShellPortClassic::CreateAcceleratorController() {
       std::make_unique<AcceleratorControllerDelegateClassic>();
   return std::make_unique<AcceleratorController>(
       accelerator_controller_delegate_.get(), nullptr);
+}
+
+void ShellPortClassic::AddVideoDetectorObserver(
+    viz::mojom::VideoDetectorObserverPtr observer) {
+  aura::Env::GetInstance()
+      ->context_factory_private()
+      ->GetHostFrameSinkManager()
+      ->AddVideoDetectorObserver(std::move(observer));
 }
 
 }  // namespace ash

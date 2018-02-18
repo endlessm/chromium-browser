@@ -12,6 +12,7 @@
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
+#include "base/memory/ref_counted.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task_scheduler/post_task.h"
@@ -67,6 +68,8 @@ ThirdPartyModuleListComponentInstallerPolicy::OnCustomInstall(
     const base::FilePath& install_dir) {
   return update_client::CrxInstaller::Result(0);  // Nothing custom here.
 }
+
+void ThirdPartyModuleListComponentInstallerPolicy::OnCustomUninstall() {}
 
 // NOTE: This is always called on the main UI thread. It is called once every
 // startup to notify of an already installed component, and may be called
@@ -131,13 +134,9 @@ void RegisterThirdPartyModuleListComponent(ComponentUpdateService* cus) {
   if (!database)
     return;
   ModuleListManager* manager = &database->module_list_manager();
-
-  std::unique_ptr<ComponentInstallerPolicy> policy(
-      new ThirdPartyModuleListComponentInstallerPolicy(manager));
-
-  // |cus| will take ownership of |installer| during installer->Register(cus).
-  ComponentInstaller* installer = new ComponentInstaller(std::move(policy));
-  installer->Register(cus, base::Closure());
+  auto installer = base::MakeRefCounted<ComponentInstaller>(
+      std::make_unique<ThirdPartyModuleListComponentInstallerPolicy>(manager));
+  installer->Register(cus, base::OnceClosure());
 }
 
 }  // namespace component_updater

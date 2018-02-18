@@ -18,7 +18,6 @@
 #include <libaddressinput/callback.h>
 #include <libaddressinput/null_storage.h>
 #include <libaddressinput/preload_supplier.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <memory>
 #include <string>
@@ -37,6 +36,10 @@ using i18n::addressinput::PreloadSupplier;
 using i18n::addressinput::TestdataSource;
 
 class AddressNormalizerTest : public testing::Test {
+ public:
+  AddressNormalizerTest(const AddressNormalizerTest&) = delete;
+  AddressNormalizerTest& operator=(const AddressNormalizerTest&) = delete;
+
  protected:
   AddressNormalizerTest()
       : supplier_(new TestdataSource(true), new NullStorage),
@@ -53,8 +56,6 @@ class AddressNormalizerTest : public testing::Test {
     ASSERT_FALSE(region_code.empty());
     ASSERT_LT(0, num_rules);
   }
-
-  DISALLOW_COPY_AND_ASSIGN(AddressNormalizerTest);
 };
 
 TEST_F(AddressNormalizerTest, CountryWithNoLanguageNoAdminArea) {
@@ -149,11 +150,9 @@ TEST_F(AddressNormalizerTest, GangwonKoreanName) {
   AddressData address;
   address.language_code = "ko-KR";
   address.region_code = "KR";
-  address.administrative_area = "\xEA\xB0\x95\xEC\x9B\x90";  /* "강원" */
+  address.administrative_area = u8"강원";
   normalizer_.Normalize(&address);
-  EXPECT_EQ(
-      "\xEA\xB0\x95\xEC\x9B\x90\xEB\x8F\x84",  /* "강원도" */
-      address.administrative_area);
+  EXPECT_EQ(u8"강원도", address.administrative_area);
 }
 
 TEST_F(AddressNormalizerTest, DontSwitchLatinScriptForUnknownLanguage) {
@@ -169,11 +168,9 @@ TEST_F(AddressNormalizerTest, DontSwitchLocalScriptForUnknownLanguage) {
   supplier_.LoadRules("KR", *loaded_);
   AddressData address;
   address.region_code = "KR";
-  address.administrative_area = "\xEA\xB0\x95\xEC\x9B\x90";  /* "강원" */
+  address.administrative_area = u8"강원";
   normalizer_.Normalize(&address);
-  EXPECT_EQ(
-      "\xEA\xB0\x95\xEC\x9B\x90\xEB\x8F\x84",  /* "강원도" */
-      address.administrative_area);
+  EXPECT_EQ(u8"강원도", address.administrative_area);
 }
 
 }  // namespace

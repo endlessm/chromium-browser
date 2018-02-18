@@ -28,7 +28,8 @@ namespace {
 // This should not be used for lock screen background windows.
 bool ShowChildWindows(mojom::TrayActionState action_state,
                       LockScreenActionBackgroundState background_state) {
-  return action_state == mojom::TrayActionState::kActive &&
+  return (action_state == mojom::TrayActionState::kActive ||
+          action_state == mojom::TrayActionState::kLaunching) &&
          (background_state == LockScreenActionBackgroundState::kShown ||
           background_state == LockScreenActionBackgroundState::kHidden);
 }
@@ -37,17 +38,15 @@ bool ShowChildWindows(mojom::TrayActionState action_state,
 
 LockActionHandlerLayoutManager::LockActionHandlerLayoutManager(
     aura::Window* window,
-    Shelf* shelf)
+    Shelf* shelf,
+    LockScreenActionBackgroundController* action_background_controller)
     : LockLayoutManager(window, shelf),
-      action_background_controller_(
-          LockScreenActionBackgroundController::Create()),
+      action_background_controller_(action_background_controller),
       tray_action_observer_(this),
       action_background_observer_(this) {
-  action_background_controller_->SetParentWindow(window);
-
   TrayAction* tray_action = Shell::Get()->tray_action();
   tray_action_observer_.Add(tray_action);
-  action_background_observer_.Add(action_background_controller_.get());
+  action_background_observer_.Add(action_background_controller_);
 }
 
 LockActionHandlerLayoutManager::~LockActionHandlerLayoutManager() = default;
@@ -96,7 +95,6 @@ void LockActionHandlerLayoutManager::OnLockScreenNoteStateChanged(
       break;
     case mojom::TrayActionState::kLaunching:
     case mojom::TrayActionState::kActive:
-    case mojom::TrayActionState::kBackground:
       background_changed = action_background_controller_->ShowBackground();
       break;
   }

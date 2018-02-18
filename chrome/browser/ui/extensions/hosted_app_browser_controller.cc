@@ -14,10 +14,13 @@
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
+#include "chrome/common/extensions/manifest_handlers/app_theme_color_info.h"
 #include "components/security_state/core/security_state.h"
+#include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
+#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/image/image_skia.h"
 #include "url/gurl.h"
@@ -76,9 +79,7 @@ HostedAppBrowserController::HostedAppBrowserController(Browser* browser)
 HostedAppBrowserController::~HostedAppBrowserController() {}
 
 bool HostedAppBrowserController::ShouldShowLocationBar() const {
-  const Extension* extension =
-      ExtensionRegistry::Get(browser_->profile())->GetExtensionById(
-          extension_id_, ExtensionRegistry::EVERYTHING);
+  const Extension* extension = GetExtension();
 
   const content::WebContents* web_contents =
       browser_->tab_strip_model()->GetActiveWebContents();
@@ -142,6 +143,39 @@ gfx::ImageSkia HostedAppBrowserController::GetWindowIcon() const {
     return GetWindowAppIcon();
 
   return browser_->GetCurrentPageIcon().AsImageSkia();
+}
+
+base::Optional<SkColor> HostedAppBrowserController::GetThemeColor() const {
+  ExtensionRegistry* registry = ExtensionRegistry::Get(browser_->profile());
+  const Extension* extension =
+      registry->GetExtensionById(extension_id_, ExtensionRegistry::EVERYTHING);
+  return AppThemeColorInfo::GetThemeColor(extension);
+}
+
+base::string16 HostedAppBrowserController::GetTitle() const {
+  content::WebContents* web_contents =
+      browser_->tab_strip_model()->GetActiveWebContents();
+  if (!web_contents)
+    return base::string16();
+
+  content::NavigationEntry* entry =
+      web_contents->GetController().GetVisibleEntry();
+  return entry ? entry->GetTitle() : base::string16();
+}
+
+const Extension* HostedAppBrowserController::GetExtension() const {
+  return ExtensionRegistry::Get(browser_->profile())
+      ->GetExtensionById(extension_id_, ExtensionRegistry::EVERYTHING);
+}
+
+std::string HostedAppBrowserController::GetAppShortName() const {
+  return GetExtension()->short_name();
+}
+
+std::string HostedAppBrowserController::GetDomainAndRegistry() const {
+  return net::registry_controlled_domains::GetDomainAndRegistry(
+      AppLaunchInfo::GetLaunchWebURL(GetExtension()),
+      net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
 }
 
 }  // namespace extensions

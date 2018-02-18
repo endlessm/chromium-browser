@@ -51,6 +51,7 @@
 #include "components/guest_view/browser/guest_view_manager_delegate.h"
 #include "components/guest_view/browser/guest_view_manager_factory.h"
 #include "components/guest_view/browser/test_guest_view_manager.h"
+#include "components/viz/common/features.h"
 #include "content/public/browser/ax_event_notification_details.h"
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/browser/interstitial_page.h"
@@ -903,6 +904,27 @@ class WebViewDPITest : public WebViewTest {
 };
 INSTANTIATE_TEST_CASE_P(WebViewTests, WebViewDPITest, testing::Bool());
 
+class WebViewSurfaceSynchronizationTest : public WebViewTest {
+ public:
+  WebViewSurfaceSynchronizationTest() = default;
+  ~WebViewSurfaceSynchronizationTest() override = default;
+
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kEnableSurfaceSynchronization);
+    WebViewTestBase::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+
+  DISALLOW_COPY_AND_ASSIGN(WebViewSurfaceSynchronizationTest);
+};
+
+INSTANTIATE_TEST_CASE_P(WebViewTests,
+                        WebViewSurfaceSynchronizationTest,
+                        testing::Bool());
+
 class WebViewWithZoomForDSFTest : public WebViewTest {
  protected:
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -1152,6 +1174,25 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, AddRemoveWebView_AddRemoveWebView) {
 IN_PROC_BROWSER_TEST_P(WebViewSizeTest, AutoSize) {
   ASSERT_TRUE(RunPlatformAppTest("platform_apps/web_view/autosize"))
       << message_;
+}
+
+IN_PROC_BROWSER_TEST_P(WebViewSurfaceSynchronizationTest, AutoSize) {
+  ASSERT_TRUE(RunPlatformAppTest("platform_apps/web_view/autosize"))
+      << message_;
+}
+
+IN_PROC_BROWSER_TEST_P(WebViewSurfaceSynchronizationTest, AutoSizeHeight) {
+  TestHelper("testAutosizeHeight", "web_view/shim", NO_TEST_SERVER);
+}
+
+IN_PROC_BROWSER_TEST_P(WebViewSurfaceSynchronizationTest,
+                       AutosizeBeforeNavigation) {
+  TestHelper("testAutosizeBeforeNavigation", "web_view/shim", NO_TEST_SERVER);
+}
+
+IN_PROC_BROWSER_TEST_P(WebViewSurfaceSynchronizationTest,
+                       AutosizeRemoveAttributes) {
+  TestHelper("testAutosizeRemoveAttributes", "web_view/shim", NO_TEST_SERVER);
 }
 
 // Test for http://crbug.com/419611.
@@ -1778,7 +1819,14 @@ IN_PROC_BROWSER_TEST_P(WebViewSizeTest, Shim_TestResizeWebviewResizesContent) {
 }
 
 // Test makes sure that interstitial pages renders in <webview>.
-IN_PROC_BROWSER_TEST_P(WebViewTest, InterstitialPage) {
+// Flaky on Win dbg: crbug.com/779973
+#if defined(OS_WIN) && !defined(NDEBUG)
+#define MAYBE_InterstitialPage DISABLED_InterstitialPage
+#else
+#define MAYBE_InterstitialPage InterstitialPage
+#endif
+
+IN_PROC_BROWSER_TEST_P(WebViewTest, MAYBE_InterstitialPage) {
   // This test tests that a inner WebContents' InterstitialPage is properly
   // connected to an outer WebContents through a CrossProcessFrameConnector, it
   // doesn't make sense for BrowserPlugin based guests.
@@ -1801,7 +1849,14 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, InterstitialPage) {
 
 // Test makes sure that interstitial pages are registered in the
 // RenderWidgetHostInputEventRouter when inside a <webview>.
-IN_PROC_BROWSER_TEST_P(WebViewTest, InterstitialPageRouteEvents) {
+// Flaky on Win dbg: crbug.com/779973
+#if defined(OS_WIN) && !defined(NDEBUG)
+#define MAYBE_InterstitialPageRouteEvents DISABLED_InterstitialPageRouteEvents
+#else
+#define MAYBE_InterstitialPageRouteEvents InterstitialPageRouteEvents
+#endif
+
+IN_PROC_BROWSER_TEST_P(WebViewTest, MAYBE_InterstitialPageRouteEvents) {
   // This test tests that a inner WebContents' InterstitialPage is properly
   // connected to an outer WebContents through a CrossProcessFrameConnector, it
   // doesn't make sense for BrowserPlugin based guests.
@@ -1824,7 +1879,15 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, InterstitialPageRouteEvents) {
 
 // Test makes sure that interstitial pages will receive input events and can be
 // focused.
-IN_PROC_BROWSER_TEST_P(WebViewTest, InterstitialPageFocusedWidget) {
+// Flaky on Win dbg: crbug.com/779973
+#if defined(OS_WIN) && !defined(NDEBUG)
+#define MAYBE_InterstitialPageFocusedWidget \
+  DISABLED_InterstitialPageFocusedWidget
+#else
+#define MAYBE_InterstitialPageFocusedWidget InterstitialPageFocusedWidget
+#endif
+
+IN_PROC_BROWSER_TEST_P(WebViewTest, MAYBE_InterstitialPageFocusedWidget) {
   // This test tests that a inner WebContents' InterstitialPage is properly
   // connected to an outer WebContents through a CrossProcessFrameConnector, it
   // doesn't make sense for BrowserPlugin based guests.
@@ -1877,7 +1940,14 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, InterstitialPageFocusedWidget) {
 
 // Test makes sure that the browser does not crash when a <webview> navigates
 // out of an interstitial.
-IN_PROC_BROWSER_TEST_P(WebViewTest, InterstitialPageDetach) {
+// Flaky on Win dbg: crbug.com/779973
+#if defined(OS_WIN) && !defined(NDEBUG)
+#define MAYBE_InterstitialPageDetach DISABLED_InterstitialPageDetach
+#else
+#define MAYBE_InterstitialPageDetach InterstitialPageDetach
+#endif
+
+IN_PROC_BROWSER_TEST_P(WebViewTest, MAYBE_InterstitialPageDetach) {
   InterstitialTestHelper();
 
   content::WebContents* guest_web_contents =
@@ -1894,7 +1964,14 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, InterstitialPageDetach) {
 
 // This test makes sure the browser process does not crash if app is closed
 // while an interstitial page is being shown in guest.
-IN_PROC_BROWSER_TEST_P(WebViewTest, InterstitialTeardown) {
+// Flaky on Win dbg: crbug.com/779973
+#if defined(OS_WIN) && !defined(NDEBUG)
+#define MAYBE_InterstitialTeardown DISABLED_InterstitialTeardown
+#else
+#define MAYBE_InterstitialTeardown InterstitialTeardown
+#endif
+
+IN_PROC_BROWSER_TEST_P(WebViewTest, MAYBE_InterstitialTeardown) {
   InterstitialTestHelper();
 
   // Now close the app while interstitial page being shown in guest.
@@ -2656,7 +2733,7 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, DownloadPermission) {
                 "web_view/download");
   ASSERT_TRUE(guest_web_contents);
 
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir temporary_download_dir;
   ASSERT_TRUE(temporary_download_dir.CreateUniqueTempDir());
   DownloadPrefs::FromBrowserContext(guest_web_contents->GetBrowserContext())
@@ -2814,7 +2891,7 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, DownloadCookieIsolation) {
   content::WebContents* web_contents = GetFirstAppWindowWebContents();
   ASSERT_TRUE(web_contents);
 
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir temporary_download_dir;
   ASSERT_TRUE(temporary_download_dir.CreateUniqueTempDir());
   DownloadPrefs::FromBrowserContext(web_contents->GetBrowserContext())
@@ -2900,7 +2977,7 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, PRE_DownloadCookieIsolation_CrossSession) {
   content::WebContents* web_contents = GetFirstAppWindowWebContents();
   ASSERT_TRUE(web_contents);
 
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir temporary_download_dir;
   ASSERT_TRUE(temporary_download_dir.CreateUniqueTempDir());
   DownloadPrefs::FromBrowserContext(web_contents->GetBrowserContext())
@@ -2959,7 +3036,7 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, DownloadCookieIsolation_CrossSession) {
   DownloadHistoryWaiter history_waiter(browser_context);
   history_waiter.WaitForHistoryLoad();
 
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir temporary_download_dir;
   ASSERT_TRUE(temporary_download_dir.Set(
       DownloadPrefs::FromBrowserContext(browser_context)->DownloadPath()));
@@ -3419,6 +3496,12 @@ IN_PROC_BROWSER_TEST_P(WebViewTest, Shim_TestFocusWhileFocused) {
 }
 
 IN_PROC_BROWSER_TEST_P(WebViewTest, NestedGuestContainerBounds) {
+  // TODO(crbug.com/776539): Disabled due to being flaky.
+  if (GetParam() == true) {
+    DLOG(ERROR) << "Disabled due to flakiness.";
+    return;
+  }
+
   TestHelper("testPDFInWebview", "web_view/shim", NO_TEST_SERVER);
 
   std::vector<content::WebContents*> guest_web_contents_list;
@@ -3876,6 +3959,111 @@ IN_PROC_BROWSER_TEST_P(WebViewGuestScrollTest,
 
     waiter.WaitForScrollChange(gfx::Vector2dF());
   }
+}
+
+// Tests scroll latching behaviour with WebViews.
+// Only applicable with OOPIF-based guests when scroll latching is enabled.
+// We can move these tests to a more general fixture once the features
+// have landed (crbug.com/533069 and crbug.com/526463).
+class WebViewGuestScrollLatchingTest : public WebViewTestBase {
+ protected:
+  WebViewGuestScrollLatchingTest() {}
+  ~WebViewGuestScrollLatchingTest() override {}
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    WebViewTestBase::SetUpCommandLine(command_line);
+    feature_list_.InitWithFeatures(
+        {features::kTouchpadAndWheelScrollLatching, features::kAsyncWheelEvents,
+         features::kGuestViewCrossProcessFrames},
+        {});
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+
+  DISALLOW_COPY_AND_ASSIGN(WebViewGuestScrollLatchingTest);
+};
+
+// Test that when we bubble scroll from a guest, the guest does not also
+// consume the scroll.
+IN_PROC_BROWSER_TEST_F(WebViewGuestScrollLatchingTest,
+                       ScrollLatchingPreservedInGuests) {
+  LoadAppWithGuest("web_view/scrollable_embedder_and_guest");
+
+  content::WebContents* embedder_contents = GetEmbedderWebContents();
+
+  std::vector<content::WebContents*> guest_web_contents_list;
+  GetGuestViewManager()->WaitForNumGuestsCreated(1u);
+  GetGuestViewManager()->GetGuestWebContentsList(&guest_web_contents_list);
+  ASSERT_EQ(1u, guest_web_contents_list.size());
+
+  content::WebContents* guest_contents = guest_web_contents_list[0];
+  content::RenderWidgetHostView* guest_host_view =
+      guest_contents->GetRenderWidgetHostView();
+
+  content::RenderWidgetHostView* embedder_host_view =
+      embedder_contents->GetRenderWidgetHostView();
+  ASSERT_EQ(gfx::Vector2dF(), guest_host_view->GetLastScrollOffset());
+  ASSERT_EQ(gfx::Vector2dF(), embedder_host_view->GetLastScrollOffset());
+
+  gfx::Point guest_scroll_location(1, 1);
+  gfx::Point guest_scroll_location_in_root =
+      guest_host_view->TransformPointToRootCoordSpace(guest_scroll_location);
+
+  // When the guest is already scrolled to the top, scroll up so that we bubble
+  // scroll.
+  blink::WebGestureEvent scroll_begin(
+      blink::WebGestureEvent::kGestureScrollBegin,
+      blink::WebInputEvent::kNoModifiers,
+      blink::WebInputEvent::kTimeStampForTesting);
+  scroll_begin.source_device = blink::kWebGestureDeviceTouchpad;
+  scroll_begin.x = guest_scroll_location.x();
+  scroll_begin.y = guest_scroll_location.y();
+  scroll_begin.global_x = guest_scroll_location_in_root.x();
+  scroll_begin.global_y = guest_scroll_location_in_root.y();
+  scroll_begin.data.scroll_begin.delta_x_hint = 0;
+  scroll_begin.data.scroll_begin.delta_y_hint = 5;
+  content::SimulateGestureEvent(guest_contents, scroll_begin,
+                                ui::LatencyInfo(ui::SourceEventType::WHEEL));
+
+  content::InputEventAckWaiter update_waiter(
+      guest_contents->GetRenderViewHost()->GetWidget(),
+      base::BindRepeating([](content::InputEventAckSource,
+                             content::InputEventAckState state,
+                             const blink::WebInputEvent& event) {
+        return event.GetType() ==
+                   blink::WebGestureEvent::kGestureScrollUpdate &&
+               state != content::INPUT_EVENT_ACK_STATE_CONSUMED;
+      }));
+
+  blink::WebGestureEvent scroll_update(
+      blink::WebGestureEvent::kGestureScrollUpdate,
+      blink::WebInputEvent::kNoModifiers,
+      blink::WebInputEvent::kTimeStampForTesting);
+  scroll_update.source_device = scroll_begin.source_device;
+  scroll_update.x = scroll_begin.x;
+  scroll_update.y = scroll_begin.y;
+  scroll_update.global_x = scroll_begin.global_x;
+  scroll_update.global_y = scroll_begin.global_y;
+  scroll_update.data.scroll_update.delta_x =
+      scroll_begin.data.scroll_begin.delta_x_hint;
+  scroll_update.data.scroll_update.delta_y =
+      scroll_begin.data.scroll_begin.delta_y_hint;
+  content::SimulateGestureEvent(guest_contents, scroll_update,
+                                ui::LatencyInfo(ui::SourceEventType::WHEEL));
+  update_waiter.Wait();
+  update_waiter.Reset();
+
+  ASSERT_EQ(gfx::Vector2dF(), guest_host_view->GetLastScrollOffset());
+
+  // Now we switch directions and scroll down. The guest can scroll in this
+  // direction, but since we're bubbling, the guest should not consume this.
+  scroll_update.data.scroll_update.delta_y = -5;
+  content::SimulateGestureEvent(guest_contents, scroll_update,
+                                ui::LatencyInfo(ui::SourceEventType::WHEEL));
+  update_waiter.Wait();
+
+  EXPECT_EQ(gfx::Vector2dF(), guest_host_view->GetLastScrollOffset());
 }
 
 INSTANTIATE_TEST_CASE_P(WebViewScrollBubbling,

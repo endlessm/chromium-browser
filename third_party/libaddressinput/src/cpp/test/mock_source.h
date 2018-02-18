@@ -18,7 +18,6 @@
 #define I18N_ADDRESSINPUT_TEST_MOCK_SOURCE_H_
 
 #include <libaddressinput/source.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <map>
 #include <string>
@@ -29,6 +28,9 @@ namespace addressinput {
 // Gets address metadata from a key-value map. Sample usage:
 //    class MyClass {
 //     public:
+//      MyClass(const MyClass&) = delete;
+//      MyClass& operator=(const MyClass&) = delete;
+//
 //      MyClass() : source_(),
 //                  data_ready_(BuildCallback(this, &MyClass::OnDataReady)) {
 //        source_.data_.insert(
@@ -51,21 +53,19 @@ namespace addressinput {
 //
 //      MockSource source_;
 //      const std::unique_ptr<const Source::Callback> data_ready_;
-//
-//      DISALLOW_COPY_AND_ASSIGN(MyClass);
 //    };
 class MockSource : public Source {
  public:
+  MockSource(const MockSource&) = delete;
+  MockSource& operator=(const MockSource&) = delete;
+
   MockSource();
-  virtual ~MockSource();
+  ~MockSource() override;
 
   // Source implementation.
-  virtual void Get(const std::string& key, const Callback& data_ready) const;
+  void Get(const std::string& key, const Callback& data_ready) const override;
 
   std::map<std::string, std::string> data_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockSource);
 };
 
 }  // namespace addressinput

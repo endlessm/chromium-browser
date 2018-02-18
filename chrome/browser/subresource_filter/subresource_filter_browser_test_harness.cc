@@ -7,11 +7,9 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
@@ -20,13 +18,16 @@
 #include "chrome/browser/safe_browsing/test_safe_browsing_database_helper.h"
 #include "chrome/browser/subresource_filter/subresource_filter_profile_context.h"
 #include "chrome/browser/subresource_filter/subresource_filter_profile_context_factory.h"
+#include "chrome/browser/ui/blocked_content/safe_browsing_triggered_popup_blocker.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
 #include "components/safe_browsing/db/v4_protocol_manager_util.h"
+#include "components/safe_browsing/db/v4_test_util.h"
+#include "components/safe_browsing/features.h"
 #include "components/subresource_filter/core/browser/subresource_filter_features.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/content_switches.h"
+#include "content/public/common/content_paths.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "net/dns/mock_host_resolver.h"
@@ -35,24 +36,14 @@
 
 namespace subresource_filter {
 
-namespace {
+SubresourceFilterBrowserTest::SubresourceFilterBrowserTest() {
+  scoped_feature_list_.InitWithFeatures(
+      {kSafeBrowsingSubresourceFilter,
+       kSafeBrowsingSubresourceFilterExperimentalUI, kAbusiveExperienceEnforce},
+      {});
+}
 
-}  // namespace
-
-SubresourceFilterBrowserTest::SubresourceFilterBrowserTest() {}
 SubresourceFilterBrowserTest::~SubresourceFilterBrowserTest() {}
-
-void SubresourceFilterBrowserTest::SetUpCommandLine(
-    base::CommandLine* command_line) {
-  command_line->AppendSwitchASCII(switches::kEnableFeatures,
-                                  base::JoinString(RequiredFeatures(), ","));
-}
-
-std::vector<base::StringPiece> SubresourceFilterBrowserTest::RequiredFeatures()
-    const {
-  return {kSafeBrowsingSubresourceFilter.name, "SafeBrowsingV4OnlyEnabled",
-          kSafeBrowsingSubresourceFilterExperimentalUI.name};
-}
 
 void SubresourceFilterBrowserTest::SetUp() {
   database_helper_ = CreateTestDatabase();
@@ -68,7 +59,7 @@ void SubresourceFilterBrowserTest::TearDown() {
 
 void SubresourceFilterBrowserTest::SetUpOnMainThread() {
   base::FilePath test_data_dir;
-  PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
+  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir));
   embedded_test_server()->ServeFilesFromDirectory(test_data_dir);
   host_resolver()->AddSimulatedFailure("host-with-dns-lookup-failure");
 
@@ -76,22 +67,20 @@ void SubresourceFilterBrowserTest::SetUpOnMainThread() {
   content::SetupCrossSiteRedirector(embedded_test_server());
 
   // Add content/test/data for cross_site_iframe_factory.html
-  embedded_test_server()->ServeFilesFromSourceDirectory("content/test/data");
+  ASSERT_TRUE(PathService::Get(content::DIR_TEST_DATA, &test_data_dir));
+  embedded_test_server()->ServeFilesFromDirectory(test_data_dir);
 
   ASSERT_TRUE(embedded_test_server()->Start());
   ResetConfigurationToEnableOnPhishingSites();
 
-  settings_manager_ = SubresourceFilterProfileContextFactory::GetForProfile(
-                          browser()->profile())
-                          ->settings_manager();
-#if defined(OS_ANDROID)
-  EXPECT_TRUE(settings_manager->should_use_smart_ui());
-#endif
+  auto* factory = SubresourceFilterProfileContextFactory::GetForProfile(
+      browser()->profile());
+  settings_manager_ = factory->settings_manager();
 }
 
 std::unique_ptr<TestSafeBrowsingDatabaseHelper>
 SubresourceFilterBrowserTest::CreateTestDatabase() {
-  return base::MakeUnique<TestSafeBrowsingDatabaseHelper>();
+  return std::make_unique<TestSafeBrowsingDatabaseHelper>();
 }
 
 GURL SubresourceFilterBrowserTest::GetTestUrl(
@@ -101,14 +90,14 @@ GURL SubresourceFilterBrowserTest::GetTestUrl(
 
 void SubresourceFilterBrowserTest::ConfigureAsPhishingURL(const GURL& url) {
   safe_browsing::ThreatMetadata metadata;
-  database_helper_->MarkUrlAsMatchingListIdWithMetadata(
+  database_helper_->AddFullHashToDbAndFullHashCache(
       url, safe_browsing::GetUrlSocEngId(), metadata);
 }
 
 void SubresourceFilterBrowserTest::ConfigureAsSubresourceFilterOnlyURL(
     const GURL& url) {
   safe_browsing::ThreatMetadata metadata;
-  database_helper_->MarkUrlAsMatchingListIdWithMetadata(
+  database_helper_->AddFullHashToDbAndFullHashCache(
       url, safe_browsing::GetUrlSubresourceFilterId(), metadata);
 }
 
@@ -121,7 +110,7 @@ void SubresourceFilterBrowserTest::ConfigureURLWithWarning(
     metadata.subresource_filter_match[type] =
         safe_browsing::SubresourceFilterLevel::WARN;
   }
-  database_helper_->MarkUrlAsMatchingListIdWithMetadata(
+  database_helper_->AddFullHashToDbAndFullHashCache(
       url, safe_browsing::GetUrlSubresourceFilterId(), metadata);
 }
 
@@ -249,7 +238,9 @@ std::unique_ptr<TestSafeBrowsingDatabaseHelper>
 SubresourceFilterListInsertingBrowserTest::CreateTestDatabase() {
   std::vector<safe_browsing::ListIdentifier> list_ids = {
       safe_browsing::GetUrlSubresourceFilterId()};
-  return base::MakeUnique<TestSafeBrowsingDatabaseHelper>(std::move(list_ids));
+  return std::make_unique<TestSafeBrowsingDatabaseHelper>(
+      std::make_unique<safe_browsing::TestV4GetHashProtocolManagerFactory>(),
+      std::move(list_ids));
 }
 
 }  // namespace subresource_filter

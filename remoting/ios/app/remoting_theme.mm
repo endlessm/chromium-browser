@@ -8,10 +8,19 @@
 
 #import "remoting/ios/app/remoting_theme.h"
 
+#import "ios/third_party/material_components_ios/src/components/Dialogs/src/ColorThemer/MDCAlertColorThemer.h"
+#import "ios/third_party/material_components_ios/src/components/Themes/src/MDCColorScheme.h"
+
 #include "remoting/base/string_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
 @implementation RemotingTheme
+
++ (void)applyColorSchemes {
+  MDCBasicColorScheme* colorScheme = [[MDCBasicColorScheme alloc]
+      initWithPrimaryColor:RemotingTheme.flatButtonTextColor];
+  [MDCAlertColorThemer applyColorScheme:colorScheme];
+}
 
 #pragma mark - Colors
 
@@ -66,19 +75,14 @@
 }
 
 + (UIColor*)pinEntryPairingColor {
-  static UIColor* color;
-  static dispatch_once_t onceToken;
-  dispatch_once(&onceToken, ^{
-    color = [UIColor colorWithWhite:1.f alpha:0.5f];
-  });
-  return color;
+  return UIColor.whiteColor;
 }
 
 + (UIColor*)pinEntryPlaceholderColor {
   static UIColor* color;
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
-    color = [UIColor colorWithWhite:1.f alpha:0.26f];
+    color = [UIColor colorWithWhite:1.f alpha:0.5f];
   });
   return color;
 }
@@ -101,6 +105,15 @@
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
     color = [UIColor colorWithRed:0.40f green:0.75f blue:0.40f alpha:1.f];
+  });
+  return color;
+}
+
++ (UIColor*)hostWarningColor {
+  static UIColor* color;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    color = [UIColor colorWithRed:1.f green:0.60f blue:0.f alpha:1.f];
   });
   return color;
 }
@@ -158,12 +171,7 @@
 }
 
 + (UIColor*)hostCellStatusTextColor {
-  static UIColor* color;
-  static dispatch_once_t onceToken;
-  dispatch_once(&onceToken, ^{
-    color = [UIColor colorWithWhite:0 alpha:0.60f];
-  });
-  return color;
+  return UIColor.blackColor;
 }
 
 + (UIColor*)setupListBackgroundColor {

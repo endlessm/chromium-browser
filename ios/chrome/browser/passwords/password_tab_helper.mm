@@ -17,13 +17,12 @@ DEFINE_WEB_STATE_USER_DATA_KEY(PasswordTabHelper);
 PasswordTabHelper::~PasswordTabHelper() = default;
 
 // static
-void PasswordTabHelper::CreateForWebState(
-    web::WebState* web_state,
-    id<PasswordsUiDelegate> passwords_ui_delegate) {
+void PasswordTabHelper::CreateForWebState(web::WebState* web_state) {
   DCHECK(web_state);
-  DCHECK(!FromWebState(web_state));
-  web_state->SetUserData(UserDataKey(), base::WrapUnique(new PasswordTabHelper(
-                                            web_state, passwords_ui_delegate)));
+  if (!FromWebState(web_state)) {
+    web_state->SetUserData(UserDataKey(),
+                           base::WrapUnique(new PasswordTabHelper(web_state)));
+  }
 }
 
 void PasswordTabHelper::SetDispatcher(id<ApplicationCommands> dispatcher) {
@@ -39,31 +38,17 @@ id<FormSuggestionProvider> PasswordTabHelper::GetSuggestionProvider() {
   return controller_.suggestionProvider;
 }
 
-id<FormInputAccessoryViewProvider>
-PasswordTabHelper::GetAccessoryViewProvider() {
-  return controller_.accessoryViewProvider;
-}
-
 id<PasswordFormFiller> PasswordTabHelper::GetPasswordFormFiller() {
   return controller_.passwordFormFiller;
 }
 
-password_manager::PasswordGenerationManager*
-PasswordTabHelper::GetPasswordGenerationManager() {
-  return controller_.passwordGenerationManager;
+PasswordTabHelper::PasswordTabHelper(web::WebState* web_state)
+    : controller_([[PasswordController alloc] initWithWebState:web_state]) {
+  web_state->AddObserver(this);
 }
 
-PasswordTabHelper::PasswordTabHelper(
-    web::WebState* web_state,
-    id<PasswordsUiDelegate> passwords_ui_delegate)
-    : web::WebStateObserver(web_state),
-      controller_([[PasswordController alloc]
-             initWithWebState:web_state
-          passwordsUiDelegate:passwords_ui_delegate]) {
-  DCHECK(web::WebStateObserver::web_state());
-}
-
-void PasswordTabHelper::WebStateDestroyed() {
+void PasswordTabHelper::WebStateDestroyed(web::WebState* web_state) {
+  web_state->RemoveObserver(this);
   [controller_ detach];
   controller_ = nil;
 }

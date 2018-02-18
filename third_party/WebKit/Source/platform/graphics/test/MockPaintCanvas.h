@@ -2,7 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef MockPaintCanvas_h
+#define MockPaintCanvas_h
+
 #include "platform/graphics/paint/PaintCanvas.h"
+#include "platform/graphics/paint/PaintTextBlob.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/skia/include/core/SkMetaData.h"
 
@@ -75,19 +79,8 @@ class MockPaintCanvas : public PaintCanvas {
                     SkScalar left,
                     SkScalar top,
                     const PaintFlags* flags));
-  MOCK_METHOD5(drawText,
-               void(const void* text,
-                    size_t byte_length,
-                    SkScalar x,
-                    SkScalar y,
-                    const PaintFlags& flags));
-  MOCK_METHOD4(drawPosText,
-               void(const void* text,
-                    size_t byte_length,
-                    const SkPoint pos[],
-                    const PaintFlags& flags));
   MOCK_METHOD4(drawTextBlob,
-               void(sk_sp<SkTextBlob> blob,
+               void(scoped_refptr<PaintTextBlob>,
                     SkScalar x,
                     SkScalar y,
                     const PaintFlags& flags));
@@ -103,3 +96,5 @@ class MockPaintCanvas : public PaintCanvas {
 };
 
 }  // namespace blink
+
+#endif  // MockPaintCanvas_h

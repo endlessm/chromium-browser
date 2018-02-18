@@ -162,7 +162,8 @@ void HardwareRenderer::DrawGL(AwDrawGLInfo* draw_info) {
                  draw_info->clip_right - draw_info->clip_left,
                  draw_info->clip_bottom - draw_info->clip_top);
   surfaces_->DrawAndSwap(viewport, clip, transform, surface_size_,
-                         viz::SurfaceId(frame_sink_id_, child_id_));
+                         viz::SurfaceId(frame_sink_id_, child_id_),
+                         device_scale_factor_);
 }
 
 void HardwareRenderer::AllocateSurface() {
@@ -177,6 +178,7 @@ void HardwareRenderer::DestroySurface() {
   surfaces_->RemoveChildId(viz::SurfaceId(frame_sink_id_, child_id_));
   support_->EvictCurrentSurface();
   child_id_ = viz::LocalSurfaceId();
+  surfaces_->GetFrameSinkManager()->surface_manager()->GarbageCollectSurfaces();
 }
 
 void HardwareRenderer::DidReceiveCompositorFrameAck(
@@ -184,6 +186,13 @@ void HardwareRenderer::DidReceiveCompositorFrameAck(
   ReturnResourcesToCompositor(resources, compositor_id_,
                               last_submitted_layer_tree_frame_sink_id_);
 }
+
+void HardwareRenderer::DidPresentCompositorFrame(uint32_t presentation_token,
+                                                 base::TimeTicks time,
+                                                 base::TimeDelta refresh,
+                                                 uint32_t flags) {}
+
+void HardwareRenderer::DidDiscardCompositorFrame(uint32_t presentation_token) {}
 
 void HardwareRenderer::OnBeginFrame(const viz::BeginFrameArgs& args) {
   // TODO(tansell): Hook this up.

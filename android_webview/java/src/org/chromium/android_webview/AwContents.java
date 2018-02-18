@@ -57,7 +57,6 @@ import org.chromium.base.TraceEvent;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.blink_public.web.WebReferrerPolicy;
 import org.chromium.components.autofill.AutofillProvider;
 import org.chromium.components.navigation_interception.InterceptNavigationDelegate;
@@ -68,6 +67,7 @@ import org.chromium.content.browser.ContentViewStatics;
 import org.chromium.content.browser.SmartClipProvider;
 import org.chromium.content_public.browser.ChildProcessImportance;
 import org.chromium.content_public.browser.GestureStateListener;
+import org.chromium.content_public.browser.ImeEventObserver;
 import org.chromium.content_public.browser.JavaScriptCallback;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.MessagePort;
@@ -681,7 +681,7 @@ public class AwContents implements SmartClipProvider {
     }
 
     //--------------------------------------------------------------------------------------------
-    private class AwGestureStateListener extends GestureStateListener {
+    private class AwGestureStateListener implements GestureStateListener {
         @Override
         public void onPinchStarted() {
             // While it's possible to re-layout the view during a pinch gesture, the effect is very
@@ -870,6 +870,23 @@ public class AwContents implements SmartClipProvider {
         }
         contentViewCore.setSelectionClient(SelectionClient.createSmartSelectionClient(webContents));
         contentViewCore.addGestureStateListener(gestureStateListener);
+
+        // Listen for dpad events from IMEs (e.g. Samsung Cursor Control) so we know to enable
+        // spatial navigation mode to allow these events to move focus out of the WebView.
+        contentViewCore.addImeEventObserver(new ImeEventObserver() {
+            @Override
+            public void onImeEvent() {}
+
+            @Override
+            public void onNodeAttributeUpdated(boolean editable, boolean password) {}
+
+            @Override
+            public void onBeforeSendKeyEvent(KeyEvent event) {
+                if (AwContents.isDpadEvent(event)) {
+                    mSettings.setSpatialNavigationEnabled(true);
+                }
+            }
+        });
     }
 
     boolean isFullScreen() {
@@ -1041,7 +1058,6 @@ public class AwContents implements SmartClipProvider {
 
     // getWindowAndroid is only called on UI thread, so there are no threading issues with lazy
     // initialization.
-    @SuppressFBWarnings("LI_LAZY_INIT_STATIC")
     private static WindowAndroidWrapper getWindowAndroid(Context context) {
         if (sContextWindowMap == null) sContextWindowMap = new WeakHashMap<>();
         WindowAndroidWrapper wrapper = sContextWindowMap.get(context);
@@ -1118,9 +1134,10 @@ public class AwContents implements SmartClipProvider {
         WebContents webContents = nativeGetWebContents(mNativeAwContents);
 
         mWindowAndroid = getWindowAndroid(mContext);
-        mContentViewCore = new ContentViewCore(mContext, PRODUCT_VERSION);
-        mViewAndroidDelegate = new AwViewAndroidDelegate(
-                mContainerView, mContentsClient, mContentViewCore.getRenderCoordinates());
+
+        mContentViewCore = ContentViewCore.create(mContext, PRODUCT_VERSION);
+        mViewAndroidDelegate =
+                new AwViewAndroidDelegate(mContainerView, mContentsClient, mScrollOffsetManager);
         initializeContentViewCore(mContentViewCore, mContext, mViewAndroidDelegate,
                 mInternalAccessAdapter, webContents, new AwGestureStateListener(),
                 mWindowAndroid.getWindowAndroid());
@@ -1134,8 +1151,7 @@ public class AwContents implements SmartClipProvider {
         mSettings.setWebContents(webContents);
         if (mAutofillProvider != null) mAutofillProvider.setWebContents(webContents);
 
-        final float dipScale = mWindowAndroid.getWindowAndroid().getDisplay().getDipScale();
-        mDisplayObserver.onDIPScaleChanged(dipScale);
+        mDisplayObserver.onDIPScaleChanged(getDeviceScaleFactor());
 
         updateContentViewCoreVisibility();
 
@@ -1682,7 +1698,7 @@ public class AwContents implements SmartClipProvider {
             for (String header : extraHeaders.keySet()) {
                 if (referer.equals(header.toLowerCase(Locale.US))) {
                     params.setReferrer(new Referrer(extraHeaders.remove(header),
-                            WebReferrerPolicy.WEB_REFERRER_POLICY_DEFAULT));
+                            WebReferrerPolicy.DEFAULT));
                     params.setExtraHeaders(extraHeaders);
                     break;
                 }
@@ -2058,8 +2074,8 @@ public class AwContents implements SmartClipProvider {
     public void killRenderProcess() {
         if (TRACE) Log.i(TAG, "%s killRenderProcess", this);
         if (isDestroyedOrNoOperation(WARN)) {
-            throw new IllegalStateException("killRenderProcess() shouldn't invoked after render"
-                    + " process is gone or webview is destoryed");
+            throw new IllegalStateException("killRenderProcess() shouldn't be invoked after render"
+                    + " process is gone or webview is destroyed");
         }
         nativeKillRenderProcess(mNativeAwContents);
     }
@@ -2190,6 +2206,10 @@ public class AwContents implements SmartClipProvider {
         return mPageScaleFactor;
     }
 
+    private float getDeviceScaleFactor() {
+        return mWindowAndroid.getWindowAndroid().getDisplay().getDipScale();
+    }
+
     /**
      * @see android.webkit.WebView#getScale()
      *
@@ -2198,7 +2218,7 @@ public class AwContents implements SmartClipProvider {
      */
     public float getScale() {
         if (isDestroyedOrNoOperation(WARN)) return 1;
-        return mPageScaleFactor * mContentViewCore.getDeviceScaleFactor();
+        return mPageScaleFactor * getDeviceScaleFactor();
     }
 
     /**
@@ -2888,7 +2908,6 @@ public class AwContents implements SmartClipProvider {
     }
 
     // Called as a result of nativeUpdateLastHitTestData.
-    @SuppressFBWarnings("URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD")
     @CalledByNative
     private void updateHitTestData(
             int type, String extra, String href, String anchorText, String imgSrc) {
@@ -3070,7 +3089,7 @@ public class AwContents implements SmartClipProvider {
         if (mPageScaleFactor != pageScaleFactor) {
             float oldPageScaleFactor = mPageScaleFactor;
             mPageScaleFactor = pageScaleFactor;
-            float dipScale = mContentViewCore.getDeviceScaleFactor();
+            float dipScale = getDeviceScaleFactor();
             mContentsClient.getCallbackHelper().postOnScaleChangedScaled(
                     oldPageScaleFactor * dipScale, mPageScaleFactor * dipScale);
         }
@@ -3123,8 +3142,7 @@ public class AwContents implements SmartClipProvider {
     @Override
     public void extractSmartClipData(int x, int y, int width, int height) {
         if (!isDestroyedOrNoOperation(WARN)) {
-            mWebContents.requestSmartClipExtract(
-                    x, y, width, height, mContentViewCore.getRenderCoordinates());
+            mWebContents.requestSmartClipExtract(x, y, width, height);
         }
     }
 
@@ -3140,6 +3158,20 @@ public class AwContents implements SmartClipProvider {
         if (TRACE) Log.i(TAG, "%s insertVisualStateCallbackIfNotDestroyed", this);
         if (isDestroyedOrNoOperation(NO_WARN)) return;
         nativeInsertVisualStateCallback(mNativeAwContents, requestId, callback);
+    }
+
+    public static boolean isDpadEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            switch (event.getKeyCode()) {
+                case KeyEvent.KEYCODE_DPAD_CENTER:
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                case KeyEvent.KEYCODE_DPAD_UP:
+                case KeyEvent.KEYCODE_DPAD_LEFT:
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    return true;
+            }
+        }
+        return false;
     }
 
     // --------------------------------------------------------------------------------------------
@@ -3250,7 +3282,9 @@ public class AwContents implements SmartClipProvider {
 
         @Override
         public boolean onDragEvent(DragEvent event) {
-            return mWebContents.getEventForwarder().onDragEvent(event, mContainerView);
+            return isDestroyedOrNoOperation(NO_WARN)
+                    ? false
+                    : mWebContents.getEventForwarder().onDragEvent(event, mContainerView);
         }
 
         @Override
@@ -3278,20 +3312,6 @@ public class AwContents implements SmartClipProvider {
             return mContentViewCore.dispatchKeyEvent(event);
         }
 
-        private boolean isDpadEvent(KeyEvent event) {
-            if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                switch (event.getKeyCode()) {
-                    case KeyEvent.KEYCODE_DPAD_CENTER:
-                    case KeyEvent.KEYCODE_DPAD_DOWN:
-                    case KeyEvent.KEYCODE_DPAD_UP:
-                    case KeyEvent.KEYCODE_DPAD_LEFT:
-                    case KeyEvent.KEYCODE_DPAD_RIGHT:
-                        return true;
-                }
-            }
-            return false;
-        }
-
         @Override
         public boolean onTouchEvent(MotionEvent event) {
             if (isDestroyedOrNoOperation(NO_WARN)) return false;
@@ -3306,7 +3326,7 @@ public class AwContents implements SmartClipProvider {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 // Note this will trigger IPC back to browser even if nothing is
                 // hit.
-                float dipScale = mContentViewCore.getDeviceScaleFactor();
+                float dipScale = getDeviceScaleFactor();
                 nativeRequestNewHitTestDataAt(mNativeAwContents,
                         event.getX() / dipScale, event.getY() / dipScale,
                         Math.max(event.getTouchMajor(), event.getTouchMinor()) / dipScale);

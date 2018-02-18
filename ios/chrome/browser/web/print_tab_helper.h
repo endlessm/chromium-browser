@@ -31,10 +31,13 @@ class PrintTabHelper : public web::WebStateObserver,
   PrintTabHelper(web::WebState* web_state, id<WebStatePrinter> printer);
 
   // web::WebStateObserver overrides:
-  void WebStateDestroyed() override;
+  void WebStateDestroyed(web::WebState* web_state) override;
 
   // Called when print message is sent by the web page.
-  bool OnPrintCommand(const base::DictionaryValue&, const GURL&, bool);
+  bool OnPrintCommand(web::WebState* web_state,
+                      const base::DictionaryValue& command,
+                      const GURL& page_url,
+                      bool user_initiated);
 
   __weak id<WebStatePrinter> printer_;
 

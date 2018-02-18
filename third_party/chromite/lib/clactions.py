@@ -11,10 +11,11 @@ import collections
 import datetime
 import operator
 
+from infra_libs import ts_mon
+
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import iter_utils
-
 from chromite.lib import metrics
 
 site_config = config_lib.GetConfig()
@@ -49,6 +50,16 @@ _CLActionTuple = collections.namedtuple('_CLActionTuple', CL_ACTION_COLUMNS)
 
 _GerritChangeTuple = collections.namedtuple('_GerritChangeTuple',
                                             ['gerrit_number', 'internal'])
+
+# Presents the Pre-CQ progress of a change:
+# status is the current Pre-CQ status of the change, must be one of
+# constants.CL_PRECQ_CONFIG_STATUSES;
+# timestamp is datetime.datetime of when this status was most recently achieved;
+# build_id is the id of the build which most recently updated this status;
+# buildbucket_id is the buildbucket_id of the build tirggered by the most
+# recently updated build.
+PreCQProgressTuple = collections.namedtuple(
+    'PreCQProgressTuple', ['status', 'timestamp', 'build_id', 'buildbucket_id'])
 
 
 _EXTERNAL_GERRIT_HOSTS = (
@@ -453,11 +464,8 @@ def GetCLPreCQProgress(change, action_history):
     action_history: List of CLAction instances.
 
   Returns:
-    A dict of the form {config_name: (status, timestamp, build_id)} specifying
-    all the per-config pre-cq statuses, where status is one of
-    constants.CL_PRECQ_CONFIG_STATUSES, timestamp is a datetime.datetime of
-    when this status was most recently achieved, and build_id is the id of the
-    build which most recently updated this per-config status.
+    A dict mapping per Pre-CQ config name (string) to its Pre-CQ progress (in
+      the format of PreCQProgressTuple).
   """
   actions_for_patch = ActionsForPatch(change, action_history)
   config_status_dict = {}
@@ -470,8 +478,9 @@ def GetCLPreCQProgress(change, action_history):
   for a in actions_for_patch:
     if a.action == constants.CL_ACTION_VALIDATION_PENDING_PRE_CQ:
       assert a.reason, 'Validation was requested without a specified config.'
-      config_status_dict[a.reason] = (constants.CL_PRECQ_CONFIG_STATUS_PENDING,
-                                      a.timestamp, a.build_id)
+      config_status_dict[a.reason] = PreCQProgressTuple(
+          constants.CL_PRECQ_CONFIG_STATUS_PENDING, a.timestamp, a.build_id,
+          a.buildbucket_id)
 
   # Loop through actions_for_patch several times, in order of status priority.
   # Each action maps to a status:
@@ -483,32 +492,37 @@ def GetCLPreCQProgress(change, action_history):
   for a in actions_for_patch:
     if (a.action == constants.CL_ACTION_TRYBOT_LAUNCHING and
         a.reason in config_status_dict):
-      config_status_dict[a.reason] = (constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED,
-                                      a.timestamp, a.build_id)
+      config_status_dict[a.reason] = PreCQProgressTuple(
+          constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED, a.timestamp, a.build_id,
+          a.buildbucket_id)
     elif (a.action == constants.CL_ACTION_PICKED_UP and
           a.build_config in config_status_dict):
-      config_status_dict[a.build_config] = (
-          constants.CL_PRECQ_CONFIG_STATUS_INFLIGHT, a.timestamp, a.build_id)
+      config_status_dict[a.build_config] = PreCQProgressTuple(
+          constants.CL_PRECQ_CONFIG_STATUS_INFLIGHT, a.timestamp, a.build_id,
+          a.buildbucket_id)
     elif (a.action == constants.CL_ACTION_KICKED_OUT and
           (a.build_config in config_status_dict or
            a.reason in config_status_dict)):
       config = (a.build_config if a.build_config in config_status_dict else
                 a.reason)
-      config_status_dict[config] = (constants.CL_PRECQ_CONFIG_STATUS_FAILED,
-                                    a.timestamp, a.build_id)
+      config_status_dict[config] = PreCQProgressTuple(
+          constants.CL_PRECQ_CONFIG_STATUS_FAILED, a.timestamp, a.build_id,
+          a.buildbucket_id)
     elif (a.action == constants.CL_ACTION_FORGIVEN and
           (a.build_config in config_status_dict or
            a.reason in config_status_dict)):
       config = (a.build_config if a.build_config in config_status_dict else
                 a.reason)
-      config_status_dict[config] = (constants.CL_PRECQ_CONFIG_STATUS_PENDING,
-                                    a.timestamp, a.build_id)
+      config_status_dict[config] = PreCQProgressTuple(
+          constants.CL_PRECQ_CONFIG_STATUS_PENDING, a.timestamp, a.build_id,
+          a.buildbucket_id)
 
   for a in actions_for_patch:
     if (a.action == constants.CL_ACTION_VERIFIED and
         a.build_config in config_status_dict):
-      config_status_dict[a.build_config] = (
-          constants.CL_PRECQ_CONFIG_STATUS_VERIFIED, a.timestamp, a.build_id)
+      config_status_dict[a.build_config] = PreCQProgressTuple(
+          constants.CL_PRECQ_CONFIG_STATUS_VERIFIED, a.timestamp, a.build_id,
+          a.buildbucket_id)
 
   return config_status_dict
 
@@ -556,7 +570,7 @@ def GetPreCQCategories(progress_map):
                             constants.CL_PRECQ_CONFIG_STATUS_FAILED)
 
   for change, config_status_dict in progress_map.iteritems():
-    statuses = [x for x, _, _, in config_status_dict.values()]
+    statuses = [x.status for x in config_status_dict.values()]
     if all(x == constants.CL_PRECQ_CONFIG_STATUS_VERIFIED for x in statuses):
       verified.add(change)
     elif all(x in busy_states for x in statuses):
@@ -593,8 +607,8 @@ def GetPreCQConfigsToTest(changes, progress_map):
   to_test_states = (constants.CL_PRECQ_CONFIG_STATUS_PENDING,
                     constants.CL_PRECQ_CONFIG_STATUS_FAILED)
   for change in changes:
-    for config, (status, _, _) in progress_map[change].iteritems():
-      if status in to_test_states:
+    for config, pre_cq_progress_tuple in progress_map[change].iteritems():
+      if pre_cq_progress_tuple.status in to_test_states:
         configs_to_test.add(config)
   return configs_to_test
 
@@ -704,6 +718,22 @@ def GetCLHandlingTime(change, action_history):
   return _MeasureTimestampIntervals(ready_intervals)
 
 
+def GetCLWallClockTime(change, action_history):
+  """Returns the total end-to-end time of the |change|, in seconds.
+
+  This method includes the full time from when the patch was first marked as
+  CQ-ready (and CR+2, V+1) until the time it was submitted.
+
+  Args:
+    change: GerritPatch instance of a submitted change.
+    action_history: List of CL actions.
+  """
+  start = (constants.CL_ACTION_REQUEUED,)
+  stop = (constants.CL_ACTION_SUBMITTED,)
+  intervals = _GetIntervals(change, action_history, start, stop, True)
+  return _MeasureTimestampIntervals(intervals)
+
+
 def GetPreCQTime(change, action_history):
   """Returns the time spent waiting for the pre-cq to finish."""
   ready_intervals = _GetReadyIntervals(change, action_history)
@@ -810,6 +840,8 @@ class CLActionHistory(object):
                            if a.action == constants.CL_ACTION_KICKED_OUT]
     self.submit_fail_actions = [a for a in self._action_history if
                                 a.action == constants.CL_ACTION_SUBMIT_FAILED]
+    self.exoneration_actions = [a for a in self._action_history if
+                                a.action == constants.CL_ACTION_EXONERATED]
     self.affected_patches = AffectedPatches(self._action_history)
     self.affected_cls = _CLsForPatches(self.affected_patches)
 
@@ -948,6 +980,18 @@ class CLActionHistory(object):
     return {k: GetCQWaitTime(k, self._per_patch_actions[k])
             for k in self.GetSubmittedPatches()}
 
+  def GetExonerations(self):
+    """Gets the exoneration actions by patch.
+
+    Returns:
+      A map from patch to a list of exoneration actions in ascending order of
+      timestamps.
+    """
+    exonerations = {}
+    for action in self.exoneration_actions:
+      exonerations.setdefault(action.patch, []).append(action)
+    return exonerations
+
   # ############################################################################
   # Classify CLs as good/bad based on the action history.
   def GetFalseRejections(self, bot_type=None):
@@ -979,7 +1023,7 @@ class CLActionHistory(object):
 
     updated_candidates = {}
     for patch in candidates:
-      updated_actions = [a for a  in rejections[patch]
+      updated_actions = [a for a in rejections[patch]
                          if a.build_id not in bad_precq_builds]
       if updated_actions:
         updated_candidates[patch] = updated_actions
@@ -1050,14 +1094,17 @@ def RecordSubmissionMetrics(action_history, submitted_change_strategies):
   """Record submission metrics in monarch.
 
   Args:
-    submitted_change_strategies: A dictionary from changes to submission
-        strategies. These changes will have their handling times recorded
-        in monarch.
     action_history: A CLActionHistory instance for all cl actions for all
         changes in submitted_change_strategies.
+    submitted_change_strategies: A dictionary from GerritPatchTuples to
+        submission strategy strings. These changes will have their handling
+        times recorded in monarch.
   """
+  # TODO(phobbs) move to top level after crbug.com/755415
   handling_time_metric = metrics.SecondsDistribution(
       constants.MON_CL_HANDLE_TIME)
+  wall_clock_time_metric = metrics.SecondsDistribution(
+      constants.MON_CL_WALL_CLOCK_TIME)
   precq_time_metric = metrics.SecondsDistribution(
       constants.MON_CL_PRECQ_TIME)
   wait_time_metric = metrics.SecondsDistribution(
@@ -1088,14 +1135,26 @@ def RecordSubmissionMetrics(action_history, submitted_change_strategies):
   false_rejection_count_metric = metrics.Counter(
       constants.MON_CL_FALSE_REJ_COUNT)
 
+
+  # This metric excludes rejections which were forgiven by the CL-exonerator
+  # service.
+  false_rejections_minus_exonerations_metric = \
+      metrics.CumulativeSmallIntegerDistribution(
+          constants.MON_CQ_FALSE_REJ_MINUS_EXONERATIONS,
+          description='The number of rejections - exonerations per CL.',
+          field_spec=[ts_mon.StringField('submission_strategy')],
+      )
+
   precq_false_rejections = action_history.GetFalseRejections(
       bot_type=constants.PRE_CQ)
   cq_false_rejections = action_history.GetFalseRejections(
       bot_type=constants.CQ)
+  exonerations = action_history.GetExonerations()
 
   for change, strategy in submitted_change_strategies.iteritems():
     strategy = strategy or ''
     handling_time = GetCLHandlingTime(change, action_history)
+    wall_clock_time = GetCLWallClockTime(change, action_history)
     precq_time = GetPreCQTime(change, action_history)
     wait_time = GetCQWaitTime(change, action_history)
     run_time = GetCQRunTime(change, action_history)
@@ -1104,6 +1163,7 @@ def RecordSubmissionMetrics(action_history, submitted_change_strategies):
     fields = {'submission_strategy': strategy}
 
     handling_time_metric.add(handling_time, fields=fields)
+    wall_clock_time_metric.add(wall_clock_time, fields=fields)
     precq_time_metric.add(precq_time, fields=fields)
     wait_time_metric.add(wait_time, fields=fields)
     cq_run_time_metric.add(run_time, fields=fields)
@@ -1123,3 +1183,6 @@ def RecordSubmissionMetrics(action_history, submitted_change_strategies):
       total_rejections += c
 
     false_rejection_total_metric.add(total_rejections, fields=fields)
+    false_rejections_minus_exonerations_metric.add(
+        total_rejections - len(exonerations.get(change, [])),
+        fields=fields)

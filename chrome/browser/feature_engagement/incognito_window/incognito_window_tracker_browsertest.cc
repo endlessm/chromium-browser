@@ -7,16 +7,17 @@
 #include "base/run_loop.h"
 #include "chrome/browser/feature_engagement/incognito_window/incognito_window_tracker_factory.h"
 #include "chrome/browser/feature_engagement/tracker_factory.h"
+#include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/feature_promos/incognito_window_promo_bubble_view.h"
 #include "chrome/browser/ui/webui/settings/settings_clear_browsing_data_handler.h"
-#include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "components/feature_engagement/public/event_constants.h"
 #include "components/feature_engagement/public/feature_constants.h"
 #include "components/feature_engagement/public/tracker.h"
+#include "components/feature_engagement/test/mock_tracker.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -32,24 +33,9 @@ MATCHER_P(IsFeature, feature, "") {
   return arg.name == feature.name;
 }
 
-// Mock the backend for displaying in-product help.
-class MockTracker : public Tracker {
- public:
-  MockTracker() = default;
-  MOCK_METHOD1(NotifyEvent, void(const std::string& event));
-  MOCK_METHOD1(GetTriggerState, TriggerState(const base::Feature& feature));
-  MOCK_METHOD1(ShouldTriggerHelpUI, bool(const base::Feature& feature));
-  MOCK_METHOD1(Dismissed, void(const base::Feature& feature));
-  MOCK_METHOD0(IsInitialized, bool());
-  MOCK_METHOD1(AddOnInitializedCallback, void(OnInitializedCallback callback));
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockTracker);
-};
-
 std::unique_ptr<KeyedService> BuildTestTrackerFactory(
     content::BrowserContext* context) {
-  return std::make_unique<testing::StrictMock<MockTracker>>();
+  return std::make_unique<testing::StrictMock<test::MockTracker>>();
 }
 
 // Set up a test profile for the incognito window In-Product Help (IPH)
@@ -66,7 +52,7 @@ class IncognitoWindowTrackerBrowserTest : public InProcessBrowserTest {
     // Ensure all initialization is finished.
     base::RunLoop().RunUntilIdle();
 
-    feature_engagement_tracker_ = static_cast<MockTracker*>(
+    feature_engagement_tracker_ = static_cast<test::MockTracker*>(
         TrackerFactory::GetForBrowserContext(browser()->profile()));
 
     EXPECT_CALL(*feature_engagement_tracker_, IsInitialized())
@@ -78,7 +64,7 @@ class IncognitoWindowTrackerBrowserTest : public InProcessBrowserTest {
 
  protected:
   // Owned by the Profile.
-  MockTracker* feature_engagement_tracker_ = nullptr;
+  test::MockTracker* feature_engagement_tracker_ = nullptr;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(IncognitoWindowTrackerBrowserTest);
@@ -89,12 +75,18 @@ class IncognitoWindowTrackerBrowserTest : public InProcessBrowserTest {
 // Test that after meeting all the requirements, the incognito window
 // In-Product Help (IPH) promo is visible.
 IN_PROC_BROWSER_TEST_F(IncognitoWindowTrackerBrowserTest, ShowPromo) {
+  base::ScopedAllowBlockingForTesting allow_blocking;
   // Bypass the 2 hour active session time requirement.
   EXPECT_CALL(*feature_engagement_tracker_,
               NotifyEvent(events::kIncognitoWindowSessionTimeMet));
-  IncognitoWindowTrackerFactory::GetInstance()
-      ->GetForProfile(browser()->profile())
-      ->OnSessionTimeMet();
+  auto* incognito_window_tracker =
+      IncognitoWindowTrackerFactory::GetInstance()->GetForProfile(
+          browser()->profile());
+
+  incognito_window_tracker->OnSessionTimeMet();
+
+  incognito_window_tracker
+      ->UseDefaultForChromeVariationConfigurationReleaseTimeForTesting();
 
   // Set up feature engagement ShouldTriggerHelpUI mock.
   EXPECT_CALL(*feature_engagement_tracker_,
@@ -119,11 +111,7 @@ IN_PROC_BROWSER_TEST_F(IncognitoWindowTrackerBrowserTest, ShowPromo) {
   handler->AllowJavascriptForTesting();
   handler->HandleClearBrowsingDataForTest();
 
-  auto* widget =
-      feature_engagement::IncognitoWindowTrackerFactory::GetInstance()
-          ->GetForProfile(browser()->profile())
-          ->incognito_promo()
-          ->GetWidget();
+  auto* widget = incognito_window_tracker->incognito_promo()->GetWidget();
 
   EXPECT_TRUE(widget->IsVisible());
 

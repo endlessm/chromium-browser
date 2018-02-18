@@ -538,6 +538,7 @@ def GenerateAFDOData(cpv, arch, board, buildroot, gs_context):
     afdo_cmd = [AFDO_GENERATE_LLVM_PROF,
                 '--binary=%s' % debug_sym,
                 '--profile=%s' % perf_afdo_path,
+                '--format=text',
                 '--out=%s' % afdo_path]
   else:
     afdo_cmd = [AFDO_GENERATE_GCOV_TOOL,
@@ -696,5 +697,5 @@ def ProfileAge(profile_version):
   Returns:
     Age of profile_version in days.
   """
-  return (datetime.datetime.now() -
-          datetime.datetime.fromtimestamp(profile_version[3])).days
+  return (datetime.datetime.utcnow() -
+          datetime.datetime.utcfromtimestamp(profile_version[3])).days

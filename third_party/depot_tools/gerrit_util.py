@@ -665,6 +665,7 @@ def AddReviewers(host, change, reviewers=None, ccs=None, notify=True,
   path = 'changes/%s/revisions/current/review' % change
 
   body = {
+    'drafts': 'KEEP',
     'reviewers': [],
     'notify': 'ALL' if notify else 'NONE',
   }
@@ -718,7 +719,7 @@ def SetReview(host, change, msg=None, labels=None, notify=None, ready=None):
   if not msg and not labels:
     return
   path = 'changes/%s/revisions/current/review' % change
-  body = {}
+  body = {'drafts': 'KEEP'}
   if msg:
     body['message'] = msg
   if labels:
@@ -760,6 +761,7 @@ def ResetReviewLabels(host, change, label, value='0', message=None,
   for review in jmsg.get('labels', {}).get(label, {}).get('all', []):
     if str(review.get('value', value)) != value:
       body = {
+          'drafts': 'KEEP',
           'message': message,
           'labels': {label: value},
           'on_behalf_of': review['_account_id'],
@@ -828,6 +830,26 @@ def GetAccountDetails(host, account_id='self'):
     account_id = int(account_id)
   conn = CreateHttpConn(host, '/accounts/%s' % account_id)
   return ReadHttpJsonResponse(conn)
+
+
+def PercentEncodeForGitRef(original):
+  """Apply percent-encoding for strings sent to gerrit via git ref metadata.
+
+  The encoding used is based on but stricter than URL encoding (Section 2.1
+  of RFC 3986). The only non-escaped characters are alphanumerics, and
+  'SPACE' (U+0020) can be represented as 'LOW LINE' (U+005F) or
+  'PLUS SIGN' (U+002B).
+
+  For more information, see the Gerrit docs here:
+
+  https://gerrit-review.googlesource.com/Documentation/user-upload.html#message
+  """
+  safe = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '
+  encoded = ''.join(c if c in safe else '%%%02X' % ord(c) for c in original)
+
+  # spaces are not allowed in git refs; gerrit will interpret either '_' or
+  # '+' (or '%20') as space. Use '_' since that has been supported the longest.
+  return encoded.replace(' ', '_')
 
 
 @contextlib.contextmanager

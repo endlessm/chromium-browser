@@ -15,7 +15,9 @@
 #include "chromeos/system/version_loader.h"
 
 class NightLightClient;
+class NotificationPlatformBridge;
 class TabletModeClient;
+class WallpaperControllerClient;
 
 namespace lock_screen_apps {
 class StateController;
@@ -23,6 +25,7 @@ class StateController;
 
 namespace arc {
 class ArcServiceLauncher;
+class VoiceInteractionControllerClient;
 }
 
 namespace chromeos {
@@ -36,6 +39,7 @@ class IdleActionWarningObserver;
 class LowDiskNotification;
 class NetworkPrefStateObserver;
 class NetworkThrottlingObserver;
+class PowerMetricsReporter;
 class PowerPrefs;
 class RendererFreezer;
 class ShutdownPolicyForwarder;
@@ -50,6 +54,12 @@ class ChromeLauncherControllerInitializer;
 class DBusServices;
 class SystemTokenCertDBInitializer;
 }
+
+namespace power {
+namespace ml {
+class UserActivityLoggingController;
+}  // namespace ml
+}  // namespace power
 
 class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
  public:
@@ -82,6 +92,7 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
   std::unique_ptr<IdleActionWarningObserver> idle_action_warning_observer_;
   std::unique_ptr<DataPromoNotification> data_promo_notification_;
   std::unique_ptr<RendererFreezer> renderer_freezer_;
+  std::unique_ptr<PowerMetricsReporter> power_metrics_reporter_;
   std::unique_ptr<WakeOnWifiManager> wake_on_wifi_manager_;
   std::unique_ptr<NetworkThrottlingObserver> network_throttling_observer_;
 
@@ -102,6 +113,9 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
 
   std::unique_ptr<arc::ArcServiceLauncher> arc_service_launcher_;
 
+  std::unique_ptr<arc::VoiceInteractionControllerClient>
+      arc_voice_interaction_controller_client_;
+
   std::unique_ptr<LowDiskNotification> low_disk_notification_;
   std::unique_ptr<ArcKioskAppManager> arc_kiosk_app_manager_;
 
@@ -112,6 +126,15 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
       lock_screen_apps_state_controller_;
 
   std::unique_ptr<NightLightClient> night_light_client_;
+  std::unique_ptr<WallpaperControllerClient> wallpaper_controller_client_;
+
+  // TODO(estade): Remove this when Chrome OS uses native notifications by
+  // default (as it will be instantiated elsewhere). For now it's necessary to
+  // send notifier settings information to Ash.
+  std::unique_ptr<NotificationPlatformBridge> notification_client_;
+
+  std::unique_ptr<power::ml::UserActivityLoggingController>
+      user_activity_logging_controller_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeBrowserMainPartsChromeos);
 };

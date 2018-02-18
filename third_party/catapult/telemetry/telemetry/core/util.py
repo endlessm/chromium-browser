@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 import glob
 import imp
+import logging
 import os
 import socket
 import sys
@@ -66,35 +67,18 @@ def WaitFor(condition, timeout):
   return catapult_util.WaitFor(condition, timeout)
 
 
-class PortKeeper(object):
-  """Port keeper hold an available port on the system.
-
-  Before actually use the port, you must call Release().
-  """
-
-  def __init__(self):
-    self._temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    self._temp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    self._temp_socket.bind(('', 0))
-    self._port = self._temp_socket.getsockname()[1]
-
-  @property
-  def port(self):
-    return self._port
-
-  def Release(self):
-    assert self._temp_socket, 'Already released'
-    self._temp_socket.close()
-    self._temp_socket = None
-
-
 def GetUnreservedAvailableLocalPort():
   """Returns an available port on the system.
 
   WARNING: This method does not reserve the port it returns, so it may be used
   by something else before you get to use it. This can lead to flake.
   """
-  tmp = socket.socket()
+  # AF_INET restricts port to IPv4 addresses.
+  # SOCK_STREAM means that it is a TCP socket.
+  tmp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  # Setting SOL_SOCKET + SO_REUSEADDR to 1 allows the reuse of local addresses,
+  # tihs is so sockets do not fail to bind for being in the CLOSE_WAIT state.
+  tmp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   tmp.bind(('', 0))
   port = tmp.getsockname()[1]
   tmp.close()
@@ -146,3 +130,49 @@ def GetSequentialFileName(base_name):
       break
     index = index + 1
   return output_name
+
+
+def LogExtraDebugInformation(*args):
+  """Call methods to obtain and log additional debug information.
+
+  Example usage:
+
+      def RunCommandWhichOutputsUsefulInfo():
+        '''Output of some/useful_command'''
+        return subprocess.check_output(
+            ['bin/some/useful_command', '--with', 'args']).splitlines()
+
+      def ReadFileWithUsefulInfo():
+        '''Contents of that debug.info file'''
+        with open('/path/to/that/debug.info') as f:
+          for line in f:
+            yield line
+
+      LogExtraDebugInformation(
+          RunCommandWhichOutputsUsefulInfo,
+          ReadFileWithUsefulInfo
+      )
+
+  Args:
+    Each arg is expected to be a function (or method) to be called with no
+    arguments and returning a sequence of lines with debug info to be logged.
+    The docstring of the function is also logged to provide further context.
+    Exceptions raised during the call are ignored (but also logged), so it's
+    OK to make calls which may fail.
+  """
+  # For local testing you may switch this to e.g. logging.WARNING
+  level = logging.DEBUG
+  if logging.getLogger().getEffectiveLevel() > level:
+    logging.warning('Increase verbosity to see more debug information.')
+    return
+
+  logging.log(level, '== Dumping possibly useful debug information ==')
+  for get_debug_lines in args:
+    logging.log(level, '- %s:', get_debug_lines.__doc__)
+    try:
+      for line in get_debug_lines():
+        logging.log(level, '  - %s', line)
+    except Exception:  # pylint: disable=broad-except
+      logging.log(level, 'Ignoring exception raised during %s.',
+                  get_debug_lines.__name__, exc_info=True)
+  logging.log(level, '===============================================')

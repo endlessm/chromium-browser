@@ -12,6 +12,8 @@
 #include "build/build_config.h"
 #include "chrome/browser/accessibility/accessibility_permission_context.h"
 #include "chrome/browser/background_sync/background_sync_permission_context.h"
+#include "chrome/browser/clipboard/clipboard_read_permission_context.h"
+#include "chrome/browser/clipboard/clipboard_write_permission_context.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/generic_sensor/sensor_permission_context.h"
 #include "chrome/browser/media/midi_permission_context.h"
@@ -85,8 +87,6 @@ ContentSettingsType PermissionTypeToContentSetting(PermissionType permission) {
       return CONTENT_SETTINGS_TYPE_MIDI;
     case PermissionType::MIDI_SYSEX:
       return CONTENT_SETTINGS_TYPE_MIDI_SYSEX;
-    case PermissionType::PUSH_MESSAGING:
-      return CONTENT_SETTINGS_TYPE_PUSH_MESSAGING;
     case PermissionType::NOTIFICATIONS:
       return CONTENT_SETTINGS_TYPE_NOTIFICATIONS;
     case PermissionType::GEOLOCATION:
@@ -112,6 +112,10 @@ ContentSettingsType PermissionTypeToContentSetting(PermissionType permission) {
       return CONTENT_SETTINGS_TYPE_SENSORS;
     case PermissionType::ACCESSIBILITY_EVENTS:
       return CONTENT_SETTINGS_TYPE_ACCESSIBILITY_EVENTS;
+    case PermissionType::CLIPBOARD_READ:
+      return CONTENT_SETTINGS_TYPE_CLIPBOARD_READ;
+    case PermissionType::CLIPBOARD_WRITE:
+      return CONTENT_SETTINGS_TYPE_CLIPBOARD_WRITE;
     case PermissionType::NUM:
       // This will hit the NOTREACHED below.
       break;
@@ -206,13 +210,13 @@ class PermissionManager::PendingRequest {
 // be run when a permission prompt has been ignored, but it's important that we
 // know when a prompt is ignored to clean up |pending_requests_| correctly.
 // If the callback is destroyed without being run, the destructor here will
-// cancel the request to clean up.
+// cancel the request to clean up. |permission_manager| must outlive this
+// object.
 class PermissionManager::PermissionResponseCallback {
  public:
-  PermissionResponseCallback(
-      const base::WeakPtr<PermissionManager>& permission_manager,
-      int request_id,
-      int permission_id)
+  PermissionResponseCallback(PermissionManager* permission_manager,
+                             int request_id,
+                             int permission_id)
       : permission_manager_(permission_manager),
         request_id_(request_id),
         permission_id_(permission_id),
@@ -232,10 +236,9 @@ class PermissionManager::PermissionResponseCallback {
   }
 
  private:
-  base::WeakPtr<PermissionManager> permission_manager_;
+  PermissionManager* permission_manager_;
   int request_id_;
   int permission_id_;
-
   bool request_answered_;
 
   DISALLOW_COPY_AND_ASSIGN(PermissionResponseCallback);
@@ -254,19 +257,13 @@ PermissionManager* PermissionManager::Get(Profile* profile) {
   return PermissionManagerFactory::GetForProfile(profile);
 }
 
-PermissionManager::PermissionManager(Profile* profile)
-    : profile_(profile),
-      weak_ptr_factory_(this) {
+PermissionManager::PermissionManager(Profile* profile) : profile_(profile) {
   permission_contexts_[CONTENT_SETTINGS_TYPE_MIDI_SYSEX] =
       base::MakeUnique<MidiSysexPermissionContext>(profile);
   permission_contexts_[CONTENT_SETTINGS_TYPE_MIDI] =
       base::MakeUnique<MidiPermissionContext>(profile);
-  permission_contexts_[CONTENT_SETTINGS_TYPE_PUSH_MESSAGING] =
-      base::MakeUnique<NotificationPermissionContext>(
-          profile, CONTENT_SETTINGS_TYPE_PUSH_MESSAGING);
   permission_contexts_[CONTENT_SETTINGS_TYPE_NOTIFICATIONS] =
-      base::MakeUnique<NotificationPermissionContext>(
-          profile, CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
+      base::MakeUnique<NotificationPermissionContext>(profile);
 #if !defined(OS_ANDROID)
   permission_contexts_[CONTENT_SETTINGS_TYPE_GEOLOCATION] =
       base::MakeUnique<GeolocationPermissionContext>(profile);
@@ -296,6 +293,10 @@ PermissionManager::PermissionManager(Profile* profile)
       base::MakeUnique<SensorPermissionContext>(profile);
   permission_contexts_[CONTENT_SETTINGS_TYPE_ACCESSIBILITY_EVENTS] =
       base::MakeUnique<AccessibilityPermissionContext>(profile);
+  permission_contexts_[CONTENT_SETTINGS_TYPE_CLIPBOARD_READ] =
+      base::MakeUnique<ClipboardReadPermissionContext>(profile);
+  permission_contexts_[CONTENT_SETTINGS_TYPE_CLIPBOARD_WRITE] =
+      base::MakeUnique<ClipboardWritePermissionContext>(profile);
 }
 
 PermissionManager::~PermissionManager() {
@@ -365,8 +366,8 @@ int PermissionManager::RequestPermissions(
 
     PermissionContextBase* context = GetPermissionContext(permission);
     DCHECK(context);
-    auto callback = base::MakeUnique<PermissionResponseCallback>(
-        weak_ptr_factory_.GetWeakPtr(), request_id, i);
+    auto callback =
+        base::MakeUnique<PermissionResponseCallback>(this, request_id, i);
     context->RequestPermission(
         web_contents, request, canonical_requesting_origin, user_gesture,
         base::Bind(

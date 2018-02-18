@@ -5,8 +5,9 @@
 #include "ash/accelerators/accelerator_controller.h"
 
 #include "ash/accelerators/accelerator_table.h"
+#include "ash/accessibility/accessibility_controller.h"
 #include "ash/accessibility/accessibility_delegate.h"
-#include "ash/accessibility_types.h"
+#include "ash/accessibility/test_accessibility_controller_client.h"
 #include "ash/ime/ime_controller.h"
 #include "ash/media_controller.h"
 #include "ash/public/cpp/ash_switches.h"
@@ -73,7 +74,7 @@ void AddTestImes() {
 class TestTarget : public ui::AcceleratorTarget {
  public:
   TestTarget() : accelerator_pressed_count_(0), accelerator_repeat_count_(0) {}
-  ~TestTarget() override {}
+  ~TestTarget() override = default;
 
   int accelerator_pressed_count() const { return accelerator_pressed_count_; }
 
@@ -106,7 +107,7 @@ class DummyBrightnessControlDelegate : public BrightnessControlDelegate {
  public:
   DummyBrightnessControlDelegate()
       : handle_brightness_down_count_(0), handle_brightness_up_count_(0) {}
-  ~DummyBrightnessControlDelegate() override {}
+  ~DummyBrightnessControlDelegate() override = default;
 
   void HandleBrightnessDown(const ui::Accelerator& accelerator) override {
     ++handle_brightness_down_count_;
@@ -118,8 +119,8 @@ class DummyBrightnessControlDelegate : public BrightnessControlDelegate {
   }
   void SetBrightnessPercent(double percent, bool gradual) override {}
   void GetBrightnessPercent(
-      const base::Callback<void(double)>& callback) override {
-    callback.Run(100.0);
+      base::OnceCallback<void(base::Optional<double>)> callback) override {
+    std::move(callback).Run(100.0);
   }
 
   int handle_brightness_down_count() const {
@@ -159,7 +160,7 @@ class DummyKeyboardBrightnessControlDelegate
   DummyKeyboardBrightnessControlDelegate()
       : handle_keyboard_brightness_down_count_(0),
         handle_keyboard_brightness_up_count_(0) {}
-  ~DummyKeyboardBrightnessControlDelegate() override {}
+  ~DummyKeyboardBrightnessControlDelegate() override = default;
 
   void HandleKeyboardBrightnessDown(
       const ui::Accelerator& accelerator) override {
@@ -540,10 +541,6 @@ TEST_F(AcceleratorControllerTest, TestRepeatedSnap) {
 }
 
 TEST_F(AcceleratorControllerTest, RotateScreen) {
-  // TODO: needs GetDisplayInfo http://crbug.com/622480.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   display::Display display = display::Screen::GetScreen()->GetPrimaryDisplay();
   display::Display::Rotation initial_rotation =
       GetActiveDisplayRotation(display.id());
@@ -675,10 +672,6 @@ TEST_F(AcceleratorControllerTest, ProcessOnce) {
 }
 
 TEST_F(AcceleratorControllerTest, GlobalAccelerators) {
-  // TODO: TestScreenshotDelegate is null in mash http://crbug.com/632111.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   // CycleBackward
   EXPECT_TRUE(ProcessInController(
       ui::Accelerator(ui::VKEY_TAB, ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN)));
@@ -968,7 +961,7 @@ TEST_F(AcceleratorControllerTest, PreferredReservedAccelerators) {
 
 namespace {
 
-// Tests the five combinations of the TOGGLE_CAPS_LOCK accelerator.
+// Tests the four combinations of the TOGGLE_CAPS_LOCK accelerator.
 TEST_F(AcceleratorControllerTest, ToggleCapsLockAccelerators) {
   chromeos::input_method::InputMethodManager* input_method_manager =
       chromeos::input_method::InputMethodManager::Get();
@@ -1009,21 +1002,12 @@ TEST_F(AcceleratorControllerTest, ToggleCapsLockAccelerators) {
   EXPECT_TRUE(ProcessInController(release_alt_before_search));
   EXPECT_TRUE(input_method_manager->GetImeKeyboard()->CapsLockIsEnabled());
   input_method_manager->GetImeKeyboard()->SetCapsLockEnabled(false);
-
-  // 5. Press Caps Lock, Release Caps Lock.
-  const ui::Accelerator press_caps_lock(ui::VKEY_CAPITAL, ui::EF_NONE);
-  EXPECT_FALSE(ProcessInController(press_caps_lock));
-  EXPECT_FALSE(input_method_manager->GetImeKeyboard()->CapsLockIsEnabled());
-  const ui::Accelerator release_caps_lock(
-      CreateReleaseAccelerator(ui::VKEY_CAPITAL, ui::EF_NONE));
-  EXPECT_TRUE(ProcessInController(release_caps_lock));
-  EXPECT_TRUE(input_method_manager->GetImeKeyboard()->CapsLockIsEnabled());
 }
 
 class PreferredReservedAcceleratorsTest : public AshTestBase {
  public:
-  PreferredReservedAcceleratorsTest() {}
-  ~PreferredReservedAcceleratorsTest() override {}
+  PreferredReservedAcceleratorsTest() = default;
+  ~PreferredReservedAcceleratorsTest() override = default;
 
   // AshTestBase:
   void SetUp() override {
@@ -1039,10 +1023,6 @@ class PreferredReservedAcceleratorsTest : public AshTestBase {
 }  // namespace
 
 TEST_F(PreferredReservedAcceleratorsTest, AcceleratorsWithFullscreen) {
-  // TODO: needs LockStateController ported: http://crbug.com/632189.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   aura::Window* w1 = CreateTestWindowInShellWithId(0);
   aura::Window* w2 = CreateTestWindowInShellWithId(1);
   wm::ActivateWindow(w1);
@@ -1089,9 +1069,6 @@ TEST_F(PreferredReservedAcceleratorsTest, AcceleratorsWithFullscreen) {
 }
 
 TEST_F(PreferredReservedAcceleratorsTest, AcceleratorsWithPinned) {
-  // TODO: needs LockStateController ported: http://crbug.com/632189.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
   aura::Window* w1 = CreateTestWindowInShellWithId(0);
   aura::Window* w2 = CreateTestWindowInShellWithId(1);
   wm::ActivateWindow(w1);
@@ -1120,10 +1097,6 @@ TEST_F(PreferredReservedAcceleratorsTest, AcceleratorsWithPinned) {
 }
 
 TEST_F(AcceleratorControllerTest, DisallowedAtModalWindow) {
-  // TODO: TestScreenshotDelegate is null in mash http://crbug.com/632111.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
   std::set<AcceleratorAction> all_actions;
   for (size_t i = 0; i < kAcceleratorDataLength; ++i)
     all_actions.insert(kAcceleratorData[i].action);
@@ -1224,13 +1197,19 @@ TEST_F(AcceleratorControllerTest, DisallowedAtModalWindow) {
 }
 
 TEST_F(AcceleratorControllerTest, DisallowedWithNoWindow) {
-  AccessibilityDelegate* delegate = Shell::Get()->accessibility_delegate();
+  TestAccessibilityControllerClient client;
+  AccessibilityController* controller =
+      Shell::Get()->accessibility_controller();
+  controller->SetClient(client.CreateInterfacePtrAndBind());
 
   for (size_t i = 0; i < kActionsNeedingWindowLength; ++i) {
-    delegate->TriggerAccessibilityAlert(A11Y_ALERT_NONE);
+    controller->TriggerAccessibilityAlert(mojom::AccessibilityAlert::NONE);
+    controller->FlushMojoForTest();
     EXPECT_TRUE(
         GetController()->PerformActionIfEnabled(kActionsNeedingWindow[i]));
-    EXPECT_EQ(delegate->GetLastAccessibilityAlert(), A11Y_ALERT_WINDOW_NEEDED);
+    controller->FlushMojoForTest();
+    EXPECT_EQ(mojom::AccessibilityAlert::WINDOW_NEEDED,
+              client.last_a11y_alert());
   }
 
   // Make sure we don't alert if we do have a window.
@@ -1238,9 +1217,12 @@ TEST_F(AcceleratorControllerTest, DisallowedWithNoWindow) {
   for (size_t i = 0; i < kActionsNeedingWindowLength; ++i) {
     window.reset(CreateTestWindowInShellWithBounds(gfx::Rect(5, 5, 20, 20)));
     wm::ActivateWindow(window.get());
-    delegate->TriggerAccessibilityAlert(A11Y_ALERT_NONE);
+    controller->TriggerAccessibilityAlert(mojom::AccessibilityAlert::NONE);
+    controller->FlushMojoForTest();
     GetController()->PerformActionIfEnabled(kActionsNeedingWindow[i]);
-    EXPECT_NE(delegate->GetLastAccessibilityAlert(), A11Y_ALERT_WINDOW_NEEDED);
+    controller->FlushMojoForTest();
+    EXPECT_NE(mojom::AccessibilityAlert::WINDOW_NEEDED,
+              client.last_a11y_alert());
   }
 
   // Don't alert if we have a minimized window either.
@@ -1248,9 +1230,12 @@ TEST_F(AcceleratorControllerTest, DisallowedWithNoWindow) {
     window.reset(CreateTestWindowInShellWithBounds(gfx::Rect(5, 5, 20, 20)));
     wm::ActivateWindow(window.get());
     GetController()->PerformActionIfEnabled(WINDOW_MINIMIZE);
-    delegate->TriggerAccessibilityAlert(A11Y_ALERT_NONE);
+    controller->TriggerAccessibilityAlert(mojom::AccessibilityAlert::NONE);
+    controller->FlushMojoForTest();
     GetController()->PerformActionIfEnabled(kActionsNeedingWindow[i]);
-    EXPECT_NE(delegate->GetLastAccessibilityAlert(), A11Y_ALERT_WINDOW_NEEDED);
+    controller->FlushMojoForTest();
+    EXPECT_NE(mojom::AccessibilityAlert::WINDOW_NEEDED,
+              client.last_a11y_alert());
   }
 }
 
@@ -1311,10 +1296,6 @@ class DeprecatedAcceleratorTester : public AcceleratorControllerTest {
 }  // namespace
 
 TEST_F(DeprecatedAcceleratorTester, TestDeprecatedAcceleratorsBehavior) {
-  // TODO: disabled because of UnblockUserSession() not working:
-  // http://crbug.com/632201.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
   for (size_t i = 0; i < kDeprecatedAcceleratorsLength; ++i) {
     const AcceleratorData& entry = kDeprecatedAccelerators[i];
 

@@ -57,35 +57,45 @@ const char kNotificationId[] = "screenshot";
 
 const char kNotificationOriginUrl[] = "chrome://screenshot";
 
-const char kImageClipboardFormatPrefix[] = "<img src='data:image/png;base64,";
-const char kImageClipboardFormatSuffix[] = "'>";
-
 // User is waiting for the screenshot-taken notification, hence USER_VISIBLE.
 constexpr base::TaskTraits kBlockingTaskTraits = {
     base::MayBlock(), base::TaskPriority::USER_VISIBLE,
     base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN};
 
-void CopyScreenshotToClipboard(scoped_refptr<base::RefCountedString> png_data) {
+ChromeScreenshotGrabber* g_instance = nullptr;
+
+void CopyScreenshotToClipboard(const SkBitmap& decoded_image) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  std::string encoded;
-  base::Base64Encode(png_data->data(), &encoded);
-
-  // Only care about HTML because Chrome OS doesn't need other formats.
-  // TODO(dcheng): Why don't we take advantage of the ability to write bitmaps
-  // to the clipboard here?
   {
     ui::ScopedClipboardWriter scw(ui::CLIPBOARD_TYPE_COPY_PASTE);
-    std::string html(kImageClipboardFormatPrefix);
-    html += encoded;
-    html += kImageClipboardFormatSuffix;
-    scw.WriteHTML(base::UTF8ToUTF16(html), std::string());
+    scw.WriteImage(decoded_image);
   }
   base::RecordAction(base::UserMetricsAction("Screenshot_CopyClipboard"));
 }
 
+void DecodeFileAndCopyToClipboard(
+    scoped_refptr<base::RefCountedString> png_data) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  service_manager::mojom::ConnectorRequest connector_request;
+  std::unique_ptr<service_manager::Connector> connector =
+      service_manager::Connector::Create(&connector_request);
+  content::ServiceManagerConnection::GetForProcess()
+      ->GetConnector()
+      ->BindConnectorRequest(std::move(connector_request));
+
+  // Decode the image in sandboxed process becuase |png_data| comes from
+  // external storage.
+  data_decoder::DecodeImage(
+      connector.get(),
+      std::vector<uint8_t>(png_data->data().begin(), png_data->data().end()),
+      data_decoder::mojom::ImageCodec::DEFAULT, false,
+      data_decoder::kDefaultMaxSizeInBytes, gfx::Size(),
+      base::BindOnce(&CopyScreenshotToClipboard));
+}
+
 void ReadFileAndCopyToClipboardLocal(const base::FilePath& screenshot_path) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   scoped_refptr<base::RefCountedString> png_data(new base::RefCountedString());
   if (!base::ReadFileToString(screenshot_path, &(png_data->data()))) {
     LOG(ERROR) << "Failed to read the screenshot file: "
@@ -95,7 +105,7 @@ void ReadFileAndCopyToClipboardLocal(const base::FilePath& screenshot_path) {
 
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
-      base::BindOnce(&CopyScreenshotToClipboard, png_data));
+      base::BindOnce(&DecodeFileAndCopyToClipboard, png_data));
 }
 
 void ReadFileAndCopyToClipboardDrive(
@@ -162,7 +172,6 @@ class ScreenshotGrabberNotificationDelegate
         NOTREACHED() << "Unhandled button index " << button_index;
     }
   }
-  bool HasClickedListener() override { return success_; }
 
  private:
   ~ScreenshotGrabberNotificationDelegate() override {}
@@ -303,10 +312,19 @@ ChromeScreenshotGrabber::ChromeScreenshotGrabber()
     : screenshot_grabber_(new ui::ScreenshotGrabber(this)),
       weak_factory_(this) {
   screenshot_grabber_->AddObserver(this);
+  DCHECK(!g_instance);
+  g_instance = this;
 }
 
 ChromeScreenshotGrabber::~ChromeScreenshotGrabber() {
+  DCHECK_EQ(this, g_instance);
+  g_instance = nullptr;
   screenshot_grabber_->RemoveObserver(this);
+}
+
+// static
+ChromeScreenshotGrabber* ChromeScreenshotGrabber::Get() {
+  return g_instance;
 }
 
 void ChromeScreenshotGrabber::HandleTakeScreenshotForAllRootWindows() {
@@ -539,16 +557,6 @@ void ChromeScreenshotGrabber::OnReadScreenshotFileForPreviewCompleted(
     gfx::Image image) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  std::unique_ptr<Notification> notification(
-      CreateNotification(result, screenshot_path, image));
-  g_browser_process->notification_ui_manager()->Add(*notification,
-                                                    GetProfile());
-}
-
-Notification* ChromeScreenshotGrabber::CreateNotification(
-    ui::ScreenshotGrabberObserver::Result screenshot_result,
-    const base::FilePath& screenshot_path,
-    gfx::Image image) {
   const std::string notification_id(kNotificationId);
   // We cancel a previous screenshot notification, if any, to ensure we get
   // a fresh notification pop-up.
@@ -556,7 +564,7 @@ Notification* ChromeScreenshotGrabber::CreateNotification(
       notification_id, NotificationUIManager::GetProfileID(GetProfile()));
 
   const bool success =
-      (screenshot_result == ui::ScreenshotGrabberObserver::SCREENSHOT_SUCCESS);
+      (result == ui::ScreenshotGrabberObserver::SCREENSHOT_SUCCESS);
 
   message_center::RichNotificationData optional_field;
   if (success) {
@@ -585,31 +593,32 @@ Notification* ChromeScreenshotGrabber::CreateNotification(
     optional_field.use_image_as_icon = true;
   }
 
-  Notification* notification = new Notification(
+  message_center::Notification notification(
       image.IsEmpty() ? message_center::NOTIFICATION_TYPE_SIMPLE
                       : message_center::NOTIFICATION_TYPE_IMAGE,
       kNotificationId,
-      l10n_util::GetStringUTF16(
-          GetScreenshotNotificationTitle(screenshot_result)),
-      l10n_util::GetStringUTF16(
-          GetScreenshotNotificationText(screenshot_result)),
+      l10n_util::GetStringUTF16(GetScreenshotNotificationTitle(result)),
+      l10n_util::GetStringUTF16(GetScreenshotNotificationText(result)),
       ui::ResourceBundle::GetSharedInstance().GetImageNamed(
           IDR_SCREENSHOT_NOTIFICATION_ICON),
+      l10n_util::GetStringUTF16(IDS_SCREENSHOT_NOTIFICATION_NOTIFIER_NAME),
+      GURL(kNotificationOriginUrl),
       message_center::NotifierId(message_center::NotifierId::SYSTEM_COMPONENT,
                                  ash::system_notifier::kNotifierScreenshot),
-      l10n_util::GetStringUTF16(IDS_SCREENSHOT_NOTIFICATION_NOTIFIER_NAME),
-      GURL(kNotificationOriginUrl), notification_id, optional_field,
+      optional_field,
       new ScreenshotGrabberNotificationDelegate(success, GetProfile(),
                                                 screenshot_path));
+  notification.set_clickable(success);
   if (message_center::IsNewStyleNotificationEnabled()) {
-    notification->set_accent_color(
+    notification.set_accent_color(
         message_center::kSystemNotificationColorNormal);
-    notification->set_small_image(gfx::Image(
+    notification.set_small_image(gfx::Image(
         gfx::CreateVectorIcon(kNotificationImageIcon,
                               message_center::kSystemNotificationColorNormal)));
-    notification->set_vector_small_image(kNotificationImageIcon);
+    notification.set_vector_small_image(kNotificationImageIcon);
   }
-  return notification;
+
+  g_browser_process->notification_ui_manager()->Add(notification, GetProfile());
 }
 
 Profile* ChromeScreenshotGrabber::GetProfile() {

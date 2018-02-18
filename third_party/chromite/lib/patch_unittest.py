@@ -252,6 +252,9 @@ I am the first commit.
       os.chdir(self.original_cwd)
 
   def _MkPatch(self, source, sha1, ref='refs/heads/master', **kwargs):
+    # This arg is used by inherited versions of _MkPatch. Pop it to make this
+    # _MkPatch compatible with them.
+    kwargs.pop('suppress_branch', None)
     return self.patch_kls(source, 'chromiumos/chromite', ref,
                           '%s/master' % site_config.params.EXTERNAL_REMOTE,
                           kwargs.pop('remote',
@@ -325,6 +328,7 @@ I am the first commit.
                            ChangeId=changeid, **kwargs)
 
 
+# pylint: disable=protected-access
 class TestGitRepoPatch(GitRepoPatchTestCase):
   """Unittests for git patch related methods."""
 
@@ -366,14 +370,118 @@ class TestGitRepoPatch(GitRepoPatchTestCase):
     patch2.Fetch(git2)
     self.assertEqual(sha1, patch2.sha1)
 
-  def testAlreadyApplied(self):
+  def testParentless(self):
     git1 = self._MakeRepo('git1', self.source)
     patch1 = self._MkPatch(git1, self._GetSha1(git1, 'HEAD'))
-    self.assertRaises2(cros_patch.PatchIsEmpty, patch1.Apply, git1,
+    self.assertRaises2(cros_patch.PatchNoParents, patch1.Apply, git1,
+                       self.DEFAULT_TRACKING, check_attrs={'inflight': False})
+
+  def testNoParentOrAlreadyApplied(self):
+    git1 = self._MakeRepo('git1', self.source)
+    patch1 = self._MkPatch(git1, self._GetSha1(git1, 'HEAD'))
+    self.assertRaises2(cros_patch.PatchNoParents, patch1.Apply, git1,
                        self.DEFAULT_TRACKING, check_attrs={'inflight': False})
     patch2 = self.CommitFile(git1, 'monkeys', 'rule')
     self.assertRaises2(cros_patch.PatchIsEmpty, patch2.Apply, git1,
                        self.DEFAULT_TRACKING, check_attrs={'inflight': True})
+
+  def testGetNoParents(self):
+    git1 = self._MakeRepo('git1', self.source)
+    sha1 = self._GetSha1(git1, 'HEAD')
+    patch = self._MkPatch(self.source, sha1)
+    self.assertEquals(patch._GetParents(git1), [])
+
+  def testGet1Parent(self):
+    git1 = self._MakeRepo('git1', self.source)
+    patch1 = self.CommitFile(git1, 'foo', 'foo')
+    patch2 = self.CommitFile(git1, 'bar', 'bar')
+    self.assertEquals(patch2._GetParents(git1), [patch1.sha1])
+
+  def testGet2Parents(self):
+    # Prepare a merge commit, then test that its two parents are correctly
+    # calculated.
+    git1 = self._MakeRepo('git1', self.source)
+    patch_common = self.CommitFile(git1, 'foo', 'foo')
+
+    patch_right = self.CommitFile(git1, 'bar', 'bar')
+
+    git.RunGit(git1, ['reset', '--hard', patch_common.sha1])
+    patch_left = self.CommitFile(git1, 'baz', 'baz')
+
+    git.RunGit(git1, ['merge', patch_right.sha1])
+    sha1 = self._GetSha1(git1, 'HEAD')
+    patch_merge = self._MkPatch(self.source, sha1, suppress_branch=True)
+
+    self.assertEquals(patch_merge._GetParents(git1),
+                      [patch_left.sha1, patch_right.sha1])
+
+  def testIsAncestor(self):
+    git1 = self._MakeRepo('git1', self.source)
+    patch1 = self.CommitFile(git1, 'foo', 'foo')
+    patch2 = self.CommitFile(git1, 'bar', 'bar')
+    self.assertTrue(patch1._IsAncestorOf(git1, patch1))
+    self.assertTrue(patch1._IsAncestorOf(git1, patch2))
+    self.assertFalse(patch2._IsAncestorOf(git1, patch1))
+
+  def testFromSha1(self):
+    git1 = self._MakeRepo('git1', self.source)
+    patch1 = self.CommitFile(git1, 'foo', 'foo')
+    patch2 = self.CommitFile(git1, 'bar', 'bar')
+    patch2_from_sha1 = patch1._FromSha1(patch2.sha1)
+    patch2_from_sha1.Fetch(git1)
+    patch2.Fetch(git1)
+    self.assertEqual(patch2.tree_hash, patch2_from_sha1.tree_hash)
+
+  def testValidateMerge(self):
+    git1 = self._MakeRepo('git1', self.source)
+
+    # Prepare history like this:
+    #   * E (upstream)
+    # * | D (merge being handled)
+    # |\|
+    # * | C
+    # | * B
+    # |/
+    # *   A
+    #
+    # D is valid to merge into E.
+    A = self.CommitFile(git1, 'A', 'A')
+    B = self.CommitFile(git1, 'B', 'B')
+    E = self.CommitFile(git1, 'E', 'E')
+    git.RunGit(git1, ['reset', '--hard', A.sha1])
+    C = self.CommitFile(git1, 'C', 'C')
+    git.RunGit(git1, ['merge', B.sha1])
+    sha1 = self._GetSha1(git1, 'HEAD')
+    D = self._MkPatch(self.source, sha1, suppress_branch=True)
+
+    D._ValidateMergeCommit(git1, E.sha1, [C.sha1, B.sha1])
+
+  def testValidateMergeFailure(self):
+    git1 = self._MakeRepo('git1', self.source)
+    # *     F (merge being handled)
+    # |\
+    # | *   E
+    # * |   D
+    # | | * C (upstream)
+    # | |/
+    # | *   B
+    # |/
+    # *     A
+    #
+    # F is not valid to merge into E.
+    A = self.CommitFile(git1, 'A', 'A')
+    B = self.CommitFile(git1, 'B', 'B')
+    C = self.CommitFile(git1, 'C', 'C')
+    git.RunGit(git1, ['reset', '--hard', B.sha1])
+    E = self.CommitFile(git1, 'E', 'E')
+    git.RunGit(git1, ['reset', '--hard', A.sha1])
+    D = self.CommitFile(git1, 'D', 'D')
+    git.RunGit(git1, ['merge', E.sha1])
+    sha1 = self._GetSha1(git1, 'HEAD')
+    F = self._MkPatch(self.source, sha1, suppress_branch=True)
+
+    with self.assertRaises(cros_patch.NonMainlineMerge):
+      F._ValidateMergeCommit(git1, C.sha1, [D.sha1, E.sha1])
 
   def testDeleteEbuildTwice(self):
     """Test that double-deletes of ebuilds are flagged as conflicts."""
@@ -883,7 +991,6 @@ class TestUploadedLocalPatch(UploadedLocalPatchTestCase):
                       msg="Couldn't find %s in %s" % (element, str_rep))
 
 
-# pylint: disable=protected-access
 class TestGerritPatch(TestGitRepoPatch):
   """Test Gerrit patch handling."""
 

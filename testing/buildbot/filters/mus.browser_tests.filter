@@ -9,9 +9,6 @@
 -TabCaptureApiPixelTest.OffscreenTabEndToEnd
 -TabCaptureApiPixelTest.OffscreenTabEvilTests
 
-# TODO: fix, see http://crbug.com/755272.
--PDFExtensionTest.RedirectsFailInPlugin
-
 # TODO: fix, see http://crbug.com/755303.
 -StartupMetricsTest.ReportsValues
 
@@ -22,18 +19,10 @@
 -WebViewScrollBubbling/WebViewGuestScrollTouchTest.TestGuestGestureScrollsBubble/3
 
 # TODO: fix, http://crbug.com/755328
--NaClExtensionTest.MainFrameIsRemote
--WebViewTests/WebViewDPITest.Shim_TestAutosizeHeight/0
--WebViewTests/WebViewDPITest.Shim_TestAutosizeHeight/1
--WebViewTests/WebViewDPITest.Shim_TestAutosizeRemoveAttributes/0
--WebViewTests/WebViewDPITest.Shim_TestAutosizeRemoveAttributes/1
 -WebViewTests/WebViewFocusTest.TouchFocusesEmbedder/0
--WebViewTests/WebViewSizeTest.AutoSize/0
--WebViewTests/WebViewSizeTest.Shim_TestAutosizeHeight/0
--WebViewTests/WebViewSizeTest.Shim_TestAutosizeHeight/1
--WebViewTests/WebViewSizeTest.Shim_TestAutosizeRemoveAttributes/0
--WebViewTests/WebViewSizeTest.Shim_TestAutosizeRemoveAttributes/1
 -WebViewTests/WebViewTest.InterstitialPageFocusedWidget/1
+-WebViewTests/WebViewTest.InterstitialPageRouteEvents/1
 
-# content::WaitForChildFrameSurfaceReady unsupported, https://crbug.com/774269.
+# content::WaitForChildFrameSurfaceReady unsupported, https://crbug.com/763452
+-PDFExtensionTest.ContextMenuCoordinates
 -WebViewTests/WebViewTest.ReloadAfterCrash/1

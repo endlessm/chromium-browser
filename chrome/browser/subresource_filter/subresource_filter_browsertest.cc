@@ -27,7 +27,6 @@
 #include "chrome/browser/page_load_metrics/observers/subresource_filter_metrics_observer.h"
 #include "chrome/browser/safe_browsing/test_safe_browsing_database_helper.h"
 #include "chrome/browser/safe_browsing/test_safe_browsing_service.h"
-#include "chrome/browser/safe_browsing/v4_test_utils.h"
 #include "chrome/browser/subresource_filter/chrome_subresource_filter_client.h"
 #include "chrome/browser/subresource_filter/test_ruleset_publisher.h"
 #include "chrome/browser/ui/browser.h"
@@ -38,6 +37,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/safe_browsing/db/v4_test_util.h"
 #include "components/security_interstitials/content/unsafe_resource.h"
 #include "components/subresource_filter/content/browser/async_document_subresource_filter.h"
 #include "components/subresource_filter/content/browser/async_document_subresource_filter_test_utils.h"
@@ -642,7 +642,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest,
       g_browser_process->subresource_filter_ruleset_service();
   ASSERT_TRUE(service->ruleset_dealer());
   auto ruleset_handle =
-      base::MakeUnique<VerifiedRuleset::Handle>(service->ruleset_dealer());
+      std::make_unique<VerifiedRuleset::Handle>(service->ruleset_dealer());
   AsyncDocumentSubresourceFilter::InitializationParams params(
       GURL("https://example.com/"), ActivationLevel::ENABLED, false);
 
@@ -659,7 +659,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest, NoRuleset_NoActivation) {
       g_browser_process->subresource_filter_ruleset_service();
   ASSERT_TRUE(service->ruleset_dealer());
   auto ruleset_handle =
-      base::MakeUnique<VerifiedRuleset::Handle>(service->ruleset_dealer());
+      std::make_unique<VerifiedRuleset::Handle>(service->ruleset_dealer());
   AsyncDocumentSubresourceFilter::InitializationParams params(
       GURL("https://example.com/"), ActivationLevel::ENABLED, false);
 
@@ -690,7 +690,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest,
       testing::TestRuleset::Open(test_ruleset_pair.indexed));
 
   auto ruleset_handle =
-      base::MakeUnique<VerifiedRuleset::Handle>(service->ruleset_dealer());
+      std::make_unique<VerifiedRuleset::Handle>(service->ruleset_dealer());
   AsyncDocumentSubresourceFilter::InitializationParams params(
       GURL("https://example.com/"), ActivationLevel::ENABLED, false);
 
@@ -809,18 +809,6 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest,
       GURL(content::kChromeUICrashURL), content::Referrer(),
       WindowOpenDisposition::CURRENT_TAB, ui::PAGE_TRANSITION_TYPED, false));
   observer.Wait();
-}
-
-IN_PROC_BROWSER_TEST_F(SubresourceFilterBrowserTest,
-                       DisableRuleset_SubresourceAllowed) {
-  Configuration config = Configuration::MakePresetForLiveRunOnPhishingSites();
-  config.activation_options.should_disable_ruleset_rules = true;
-  ResetConfiguration(std::move(config));
-
-  GURL url(GetTestUrl("subresource_filter/frame_with_included_script.html"));
-  ConfigureAsPhishingURL(url);
-  ui_test_utils::NavigateToURL(browser(), url);
-  EXPECT_TRUE(WasParsedScriptElementLoaded(web_contents()->GetMainFrame()));
 }
 
 // Tests checking how histograms are recorded. ---------------------------------

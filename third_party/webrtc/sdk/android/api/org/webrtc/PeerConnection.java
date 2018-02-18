@@ -10,8 +10,8 @@
 
 package org.webrtc;
 
+import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedList;
 import java.util.List;
 
 /**
@@ -21,10 +21,6 @@ import java.util.List;
  * http://www.w3.org/TR/mediacapture-streams/
  */
 public class PeerConnection {
-  static {
-    System.loadLibrary("jingle_peerconnection_so");
-  }
-
   /** Tracks PeerConnectionInterface::IceGatheringState */
   public enum IceGatheringState { NEW, GATHERING, COMPLETE }
 
@@ -171,6 +167,7 @@ public class PeerConnection {
       this.tlsEllipticCurves = tlsEllipticCurves;
     }
 
+    @Override
     public String toString() {
       return urls + " [" + username + ":" + password + "] [" + tlsCertPolicy + "] [" + hostname
           + "] [" + tlsAlpnProtocols + "] [" + tlsEllipticCurves + "]";
@@ -315,7 +312,7 @@ public class PeerConnection {
       bundlePolicy = BundlePolicy.BALANCED;
       rtcpMuxPolicy = RtcpMuxPolicy.REQUIRE;
       tcpCandidatePolicy = TcpCandidatePolicy.ENABLED;
-      candidateNetworkPolicy = candidateNetworkPolicy.ALL;
+      candidateNetworkPolicy = CandidateNetworkPolicy.ALL;
       this.iceServers = iceServers;
       audioJitterBufferMaxPackets = 50;
       audioJitterBufferFastAccelerate = false;
@@ -333,18 +330,15 @@ public class PeerConnection {
     }
   };
 
-  private final List<MediaStream> localStreams;
+  private final List<MediaStream> localStreams = new ArrayList<>();
   private final long nativePeerConnection;
   private final long nativeObserver;
-  private List<RtpSender> senders;
-  private List<RtpReceiver> receivers;
+  private List<RtpSender> senders = new ArrayList<>();
+  private List<RtpReceiver> receivers = new ArrayList<>();
 
   PeerConnection(long nativePeerConnection, long nativeObserver) {
     this.nativePeerConnection = nativePeerConnection;
     this.nativeObserver = nativeObserver;
-    localStreams = new LinkedList<MediaStream>();
-    senders = new LinkedList<RtpSender>();
-    receivers = new LinkedList<RtpReceiver>();
   }
 
   // JsepInterface.
@@ -361,6 +355,18 @@ public class PeerConnection {
   public native void setLocalDescription(SdpObserver observer, SessionDescription sdp);
 
   public native void setRemoteDescription(SdpObserver observer, SessionDescription sdp);
+
+  // True if remote audio should be played out. Defaults to true.
+  // Note that even if playout is enabled, streams will only be played out if
+  // the appropriate SDP is also applied. The main purpose of this API is to
+  // be able to control the exact time when audio playout starts.
+  public native void setAudioPlayout(boolean playout);
+
+  // True if local audio shall be recorded. Defaults to true.
+  // Note that even if recording is enabled, streams will only be recorded if
+  // the appropriate SDP is also applied. The main purpose of this API is to
+  // be able to control the exact time when audio recording starts.
+  public native void setAudioRecording(boolean recording);
 
   public boolean setConfiguration(RTCConfiguration config) {
     return nativeSetConfiguration(config, nativeObserver);

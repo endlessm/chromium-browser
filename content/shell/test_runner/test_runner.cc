@@ -25,7 +25,6 @@
 #include "content/shell/test_runner/mock_screen_orientation_client.h"
 #include "content/shell/test_runner/mock_web_document_subresource_filter.h"
 #include "content/shell/test_runner/mock_web_speech_recognizer.h"
-#include "content/shell/test_runner/mock_web_user_media_client.h"
 #include "content/shell/test_runner/pixel_dump.h"
 #include "content/shell/test_runner/spell_check_client.h"
 #include "content/shell/test_runner/test_common.h"
@@ -320,11 +319,7 @@ void TestRunnerBindings::Install(
   v8::Local<v8::Object> global = context->Global();
   v8::Local<v8::Value> v8_bindings = bindings.ToV8();
 
-  std::vector<std::string> names;
-  names.push_back("testRunner");
-  names.push_back("layoutTestController");
-  for (size_t i = 0; i < names.size(); ++i)
-    global->Set(gin::StringToV8(isolate, names[i].c_str()), v8_bindings);
+  global->Set(gin::StringToV8(isolate, "testRunner"), v8_bindings);
 
   // The web-platform-tests suite require that reference comparison is delayed
   // for any test with a 'reftest-wait' class on the root element, until that
@@ -2309,12 +2304,6 @@ void TestRunner::SetMockDeviceOrientation(bool has_alpha,
 
 MockScreenOrientationClient* TestRunner::getMockScreenOrientationClient() {
   return mock_screen_orientation_client_.get();
-}
-
-MockWebUserMediaClient* TestRunner::getMockWebUserMediaClient() {
-  if (!user_media_client_.get())
-    user_media_client_.reset(new MockWebUserMediaClient(delegate_));
-  return user_media_client_.get();
 }
 
 MockWebSpeechRecognizer* TestRunner::getMockWebSpeechRecognizer() {

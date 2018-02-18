@@ -10,6 +10,7 @@
 // clang-format off
 #include "V8TestInterfaceCheckSecurity.h"
 
+#include "base/memory/scoped_refptr.h"
 #include "bindings/core/v8/BindingSecurity.h"
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/IDLTypes.h"
@@ -21,7 +22,6 @@
 #include "platform/bindings/RuntimeCallStats.h"
 #include "platform/bindings/V8ObjectConstructor.h"
 #include "platform/wtf/GetPtr.h"
-#include "platform/wtf/RefPtr.h"
 
 namespace blink {
 
@@ -42,7 +42,6 @@ const WrapperTypeInfo V8TestInterfaceCheckSecurity::wrapperTypeInfo = {
     WrapperTypeInfo::kWrapperTypeObjectPrototype,
     WrapperTypeInfo::kObjectClassId,
     WrapperTypeInfo::kNotInheritFromActiveScriptWrappable,
-    WrapperTypeInfo::kIndependent,
 };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && defined(__clang__)
 #pragma clang diagnostic pop
@@ -490,6 +489,17 @@ void V8TestInterfaceCheckSecurity::crossOriginNamedGetter(v8::Local<v8::Name> na
       attribute.getter(info);
       return;
     }
+  }
+
+  // HTML 7.2.3.3 CrossOriginGetOwnPropertyHelper ( O, P )
+  // https://html.spec.whatwg.org/multipage/browsers.html#crossorigingetownpropertyhelper-(-o,-p-)
+  // step 3. If P is "then", @@toStringTag, @@hasInstance, or
+  //   @@isConcatSpreadable, then return PropertyDescriptor{ [[Value]]:
+  //   undefined, [[Writable]]: false, [[Enumerable]]: false,
+  //   [[Configurable]]: true }.
+  if (propertyName == "then") {
+    V8SetReturnValue(info, v8::Undefined(info.GetIsolate()));
+    return;
   }
 
   BindingSecurity::FailedAccessCheckFor(

@@ -117,9 +117,6 @@ class ShippingAddressEditorViewController : public EditorViewController {
   // there is no data in the combobox and it must be converted to a text field.
   void OnComboboxModelChanged(views::Combobox* combobox);
 
-  // Failed to fetch the region data in time.
-  void RegionDataLoadTimedOut();
-
   // Called when |profile_to_edit_| was successfully edited.
   base::OnceClosure on_edited_;
   // Called when a new profile was added. The const reference is short-lived,

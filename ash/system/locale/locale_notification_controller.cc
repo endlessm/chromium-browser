@@ -37,7 +37,6 @@ class LocaleNotificationDelegate : public message_center::NotificationDelegate {
 
   // message_center::NotificationDelegate overrides:
   void Close(bool by_user) override;
-  bool HasClickedListener() override;
   void Click() override;
   void ButtonClick(int button_index) override;
 
@@ -65,10 +64,6 @@ void LocaleNotificationDelegate::Close(bool by_user) {
   }
 }
 
-bool LocaleNotificationDelegate::HasClickedListener() {
-  return true;
-}
-
 void LocaleNotificationDelegate::Click() {
   if (callback_) {
     std::move(callback_).Run(ash::mojom::LocaleNotificationResult::ACCEPT);
@@ -85,9 +80,9 @@ void LocaleNotificationDelegate::ButtonClick(int button_index) {
 
 }  // namespace
 
-LocaleNotificationController::LocaleNotificationController() {}
+LocaleNotificationController::LocaleNotificationController() = default;
 
-LocaleNotificationController::~LocaleNotificationController() {}
+LocaleNotificationController::~LocaleNotificationController() = default;
 
 void LocaleNotificationController::BindRequest(
     mojom::LocaleNotificationControllerRequest request) {
@@ -125,6 +120,7 @@ void LocaleNotificationController::OnLocaleChanged(
           optional, new LocaleNotificationDelegate(std::move(callback)),
           kNotificationSettingsIcon,
           message_center::SystemNotificationWarningLevel::NORMAL);
+  notification->set_clickable(true);
   message_center::MessageCenter::Get()->AddNotification(
       std::move(notification));
 }

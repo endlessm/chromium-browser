@@ -63,6 +63,7 @@ SDK_TOOLCHAINS_OUTPUT = 'tmp/toolchain-pkgs'
 SDK_OVERLAYS_OUTPUT = 'tmp/sdk-overlays'
 
 AUTOTEST_BUILD_PATH = 'usr/local/build/autotest'
+UNITTEST_PKG_PATH = 'test-packages'
 
 # Path to the lsb-release file on the device.
 LSB_RELEASE_PATH = '/etc/lsb-release'
@@ -226,15 +227,18 @@ MON_BUILD_DURATION = 'chromeos/cbuildbot/build/durations'
 MON_STAGE_COMP_COUNT = 'chromeos/cbuildbot/stage/completed_count'
 MON_STAGE_DURATION = 'chromeos/cbuildbot/stage/durations'
 MON_CL_HANDLE_TIME = 'chromeos/cbuildbot/submitted_change/handling_times'
+MON_CL_WALL_CLOCK_TIME = 'chromeos/cbuildbot/submitted_change/wall_clock_times'
 MON_CL_PRECQ_TIME = 'chromeos/cbuildbot/submitted_change/precq_times'
 MON_CL_WAIT_TIME = 'chromeos/cbuildbot/submitted_change/wait_times'
 MON_CL_CQRUN_TIME = 'chromeos/cbuildbot/submitted_change/cq_run_times'
 MON_CL_CQ_TRIES = 'chromeos/cbuildbot/submitted_change/cq_attempts'
 MON_CL_FALSE_REJ = 'chromeos/cbuildbot/submitted_change/false_rejections'
-MON_CL_FALSE_REJ_TOTAL = ('chromeos/cbuildbot/submitted_change/'
-                          'false_rejections_total')
-MON_CL_FALSE_REJ_COUNT = ('chromeos/cbuildbot/submitted_change/'
-                          'false_rejection_count')
+MON_CL_FALSE_REJ_TOTAL = (
+    'chromeos/cbuildbot/submitted_change/false_rejections_total')
+MON_CL_FALSE_REJ_COUNT = (
+    'chromeos/cbuildbot/submitted_change/false_rejection_count')
+MON_CQ_FALSE_REJ_MINUS_EXONERATIONS = (
+    'chromeos/cbuildbot/submitted_change/false_rejections_minus_exonerations')
 MON_CHROOT_USED = 'chromeos/cbuildbot/chroot_at_version'
 MON_REPO_SYNC_COUNT = 'chromeos/cbuildbot/repo/sync_count'
 MON_REPO_SYNC_RETRY_COUNT = 'chromeos/cbuildbot/repo/sync_retry_count'
@@ -327,7 +331,9 @@ ANDROID_MASTER_ARC_DEV_BUILD_BRANCH = 'git_master-arc-dev'
 ANDROID_MNC_BUILD_BRANCH = 'git_mnc-dr-arc-dev'
 ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc'
 ANDROID_MASTER_ARC_DEV_BUILD_TARGETS = {
-    'AOSP_X86_USERDEBUG': ('linux-aosp_bertha_x86-userdebug', r'\.zip$'),
+    'ARM_USERDEBUG': ('linux-cheets_arm-userdebug', r'\.zip$'),
+    'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
+    'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
 }
 ANDROID_MNC_BUILD_TARGETS = {
     # TODO(b/29509721): Workaround to roll adb with system image. We want to
@@ -367,9 +373,12 @@ ARC_BUCKET_ACLS = {
     'ARM': 'googlestorage_acl_arm.txt',
     'X86': 'googlestorage_acl_x86.txt',
     'X86_64': 'googlestorage_acl_x86.txt',
+    'ARM_USERDEBUG': 'googlestorage_acl_arm.txt',
     'X86_USERDEBUG': 'googlestorage_acl_x86.txt',
     'X86_64_USERDEBUG': 'googlestorage_acl_x86.txt',
+    'AOSP_ARM_USERDEBUG': 'googlestorage_acl_arm.txt',
     'AOSP_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
+    'AOSP_X86_64_USERDEBUG': 'googlestorage_acl_x86.txt',
     'SDK_GOOGLE_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
     'SDK_GOOGLE_X86_64_USERDEBUG': 'googlestorage_acl_x86.txt',
     'X86_INTERNAL': 'googlestorage_acl_internal.txt',
@@ -382,7 +391,7 @@ ANDROID_SYMBOLS_URL_TEMPLATE = (
     '/cheets_%(arch)s-symbols-%(version)s.zip')
 ANDROID_SYMBOLS_BERTHA_URL_TEMPLATE = (
     ARC_BUCKET_URL +
-    '/%(branch)s-linux-aosp_bertha_x86-userdebug/%(version)s'
+    '/%(branch)s-linux-aosp_bertha_%(arch)s-userdebug/%(version)s'
     '/bertha_aosp_%(arch)s_userdebug-symbols-%(version)s.zip')
 ANDROID_SYMBOLS_FILE = 'android-symbols.zip'
 # x86-user, x86-userdebug and x86-eng builders create build artifacts with the
@@ -392,9 +401,12 @@ ANDROID_SYMBOLS_FILE = 'android-symbols.zip'
 # targets will have their artifacts renamed when the PFQ copies them from the
 # the Android bucket to the ARC++ bucket (b/33072485).
 ARC_BUILDS_NEED_ARTIFACTS_RENAMED = {
+    'ARM_USERDEBUG',
     'X86_USERDEBUG',
     'X86_64_USERDEBUG',
+    'AOSP_ARM_USERDEBUG',
     'AOSP_X86_USERDEBUG',
+    'AOSP_X86_64_USERDEBUG',
     'SDK_GOOGLE_X86_USERDEBUG',
     'SDK_GOOGLE_X86_64_USERDEBUG',
 }
@@ -597,9 +609,7 @@ PRE_CQ_DEFAULT_CONFIGS = [
     'lumpy-no-vmtest-pre-cq',         # sandybridge  kernel 3.8
     'kevin-no-vmtest-pre-cq',         # arm64        kernel 4.4
     'nyan_blaze-no-vmtest-pre-cq',    # arm32        kernel 3.10
-    # TODO(crbug.com/757474) - Drop reef after reef-uni rollout
     'reef-no-vmtest-pre-cq',          # apollolake   kernel 4.4        vulkan
-    'reef-uni-no-vmtest-pre-cq',      # apollolake   kernel 4.4        vulkan
     'samus-no-vmtest-pre-cq',         # broadwell    kernel 3.14
     'whirlwind-no-vmtest-pre-cq',     # brillo
 ]
@@ -667,7 +677,7 @@ HWTEST_MOBLAB_SUITE = 'moblab'
 HWTEST_MOBLAB_QUICK_SUITE = 'moblab_quick'
 HWTEST_SANITY_SUITE = 'sanity'
 HWTEST_TOOLCHAIN_SUITE = 'toolchain-tests'
-HWTEST_PROVISION_SUITE = 'bvt-provision'
+HWTEST_PROVISION_SUITE = 'provision'
 HWTEST_CTS_QUAL_SUITE = 'arc-cts-qual'
 HWTEST_GTS_QUAL_SUITE = 'arc-gts-qual'
 HWTEST_CTS_PRIORITY = 11
@@ -719,6 +729,7 @@ SUBSYSTEM_UNUSED = 'subsystem_unused'
 
 # Build messages
 MESSAGE_TYPE_IGNORED_REASON = 'ignored_reason'
+MESSAGE_TYPE_ANNOTATIONS_FINALIZED = 'annotations_finalized'
 # MESSSGE_TYPE_IGNORED_REASON messages store the affected build as
 # the CIDB column message_value.
 MESSAGE_SUBTYPE_SELF_DESTRUCTION = 'self_destruction'
@@ -827,6 +838,7 @@ CL_ACTION_KICKED_OUT = 'kicked_out'       # CL CQ-Ready value set to zero
 CL_ACTION_SUBMIT_FAILED = 'submit_failed' # CL submitted but submit failed
 CL_ACTION_VERIFIED = 'verified'           # CL was verified by the builder
 CL_ACTION_FORGIVEN = 'forgiven'           # Build failed, but CL not kicked out
+CL_ACTION_EXONERATED = 'exonerated'       # CL was kicked out, then exonerated.
 
 # Actions the Pre-CQ Launcher can take on a CL
 # See cbuildbot/stages/sync_stages.py:PreCQLauncherStage for more info
@@ -898,6 +910,7 @@ CL_ACTIONS = (CL_ACTION_PICKED_UP,
               CL_ACTION_TRYBOT_LAUNCHING,
               CL_ACTION_SPECULATIVE,
               CL_ACTION_FORGIVEN,
+              CL_ACTION_EXONERATED,
               CL_ACTION_PRE_CQ_FULLY_VERIFIED,
               CL_ACTION_PRE_CQ_RESET,
               CL_ACTION_TRYBOT_CANCELLED)
@@ -1017,8 +1030,10 @@ VM_IMAGE_BIN = '%s.bin' % VM_IMAGE_NAME
 VM_IMAGE_TAR = '%s.tar.xz' % VM_IMAGE_NAME
 VM_DISK_PREFIX = 'chromiumos_qemu_disk.bin'
 VM_MEM_PREFIX = 'chromiumos_qemu_mem.bin'
+VM_NUM_RETRIES = 1
 VM_TEST_RESULTS = 'vm_test_results_%(attempt)s'
 GCE_TEST_RESULTS = 'gce_test_results_%(attempt)s'
+TAST_VM_TEST_RESULTS = 'tast_vm_test_results_%(attempt)s'
 
 TEST_IMAGE_NAME = 'chromiumos_test_image'
 TEST_IMAGE_TAR = '%s.tar.xz' % TEST_IMAGE_NAME

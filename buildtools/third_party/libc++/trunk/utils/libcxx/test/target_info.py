@@ -8,11 +8,11 @@
 #===----------------------------------------------------------------------===//
 
 import importlib
-import lit.util  # pylint: disable=import-error,no-name-in-module
 import locale
 import os
 import platform
 import re
+import subprocess
 import sys
 
 class DefaultTargetInfo(object):
@@ -73,12 +73,13 @@ class DarwinLocalTI(DefaultTargetInfo):
         super(DarwinLocalTI, self).__init__(full_config)
 
     def is_host_macosx(self):
-        name = lit.util.capture(['sw_vers', '-productName']).strip()
+        name = subprocess.check_output(['sw_vers', '-productName']).strip()
         return name == "Mac OS X"
 
     def get_macosx_version(self):
         assert self.is_host_macosx()
-        version = lit.util.capture(['sw_vers', '-productVersion']).strip()
+        version = subprocess.check_output(
+            ['sw_vers', '-productVersion']).strip()
         version = re.sub(r'([0-9]+\.[0-9]+)(\..*)?', r'\1', version)
         return version
 
@@ -86,7 +87,7 @@ class DarwinLocalTI(DefaultTargetInfo):
         assert self.is_host_macosx()
         cmd = ['xcrun', '--sdk', name, '--show-sdk-path']
         try:
-            out = lit.util.capture(cmd).strip()
+            out = subprocess.check_output(cmd).strip()
         except OSError:
             pass
 
@@ -127,7 +128,7 @@ class DarwinLocalTI(DefaultTargetInfo):
         else:
             cmd = ['xcrun', '--show-sdk-path']
         try:
-            out = lit.util.capture(cmd).strip()
+            out = subprocess.check_output(cmd).strip()
             res = 0
         except OSError:
             res = -1
@@ -168,10 +169,6 @@ class DarwinLocalTI(DefaultTargetInfo):
         # should be available in libc++ directly.
         return False
 
-    def add_sanitizer_features(self, sanitizer_type, features):
-        if sanitizer_type == 'Undefined':
-            features.add('sanitizer-new-delete')
-
 
 class FreeBSDLocalTI(DefaultTargetInfo):
     def __init__(self, full_config):
@@ -193,12 +190,14 @@ class LinuxLocalTI(DefaultTargetInfo):
 
     def platform_name(self):
         name, _, _ = platform.linux_distribution()
-        name = name.lower().strip()
+        # Some distros have spaces, e.g. 'SUSE Linux Enterprise Server'
+        # lit features can't have spaces
+        name = name.lower().strip().replace(' ', '-')
         return name # Permitted to be None
 
     def platform_ver(self):
         _, ver, _ = platform.linux_distribution()
-        ver = ver.lower().strip()
+        ver = ver.lower().strip().replace(' ', '-')
         return ver # Permitted to be None.
 
     def add_locale_features(self, features):

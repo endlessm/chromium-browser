@@ -22,13 +22,17 @@ class TimeTicks;
 
 namespace ash {
 
+class BacklightsForcedOffSetter;
 class LockStateController;
 class PowerButtonDisplayController;
+class PowerButtonScreenshotController;
 class TabletPowerButtonController;
 
-// Handles power & lock button events which may result in the locking or
-// shutting down of the system as well as taking screen shots while in maximize
-// mode.
+// Handles power button and lock button events. For convertible/tablet devices,
+// power button events are handled by TabletPowerButtonController to perform
+// tablet power button behavior, except forced clamshell set by command line.
+// For clamshell devices, power button acts locking or shutdown. On tablet mode,
+// power button may also be consumed to take a screenshot.
 class ASH_EXPORT PowerButtonController
     : public ui::EventHandler,
       public display::DisplayConfigurator::Observer,
@@ -45,11 +49,14 @@ class ASH_EXPORT PowerButtonController
     LEGACY,
   };
 
-  PowerButtonController();
+  explicit PowerButtonController(
+      BacklightsForcedOffSetter* backlights_forced_off_setter);
   ~PowerButtonController() override;
 
-  // Called when the power or lock buttons are pressed or released.
+  // Handles clamshell power button behavior.
   void OnPowerButtonEvent(bool down, const base::TimeTicks& timestamp);
+
+  // Handles lock button behavior.
   void OnLockButtonEvent(bool down, const base::TimeTicks& timestamp);
 
   // Overridden from ui::EventHandler:
@@ -77,6 +84,10 @@ class ASH_EXPORT PowerButtonController
   // true. Otherwise, returns false.
   bool TriggerDisplayOffTimerForTesting() WARN_UNUSED_RESULT;
 
+  PowerButtonScreenshotController* screenshot_controller_for_test() {
+    return screenshot_controller_.get();
+  }
+
   TabletPowerButtonController* tablet_power_button_controller_for_test() {
     return tablet_controller_.get();
   }
@@ -94,16 +105,12 @@ class ASH_EXPORT PowerButtonController
   // screen is locked. Only used when |force_clamshell_power_button_| is true.
   void ForceDisplayOffAfterLock();
 
+  // Used to force backlights off, when needed.
+  BacklightsForcedOffSetter* backlights_forced_off_setter_;  // Not owned.
+
   // Are the power or lock buttons currently held?
   bool power_button_down_ = false;
   bool lock_button_down_ = false;
-
-  // True when the volume down button is being held down.
-  bool volume_down_pressed_ = false;
-
-  // Volume to be restored after a screenshot is taken by pressing the power
-  // button while holding VKEY_VOLUME_DOWN.
-  int volume_percent_before_screenshot_ = 0;
 
   // Has the screen brightness been reduced to 0%?
   bool brightness_is_zero_ = false;
@@ -116,8 +123,12 @@ class ASH_EXPORT PowerButtonController
   // Saves the button type for this power button.
   ButtonType button_type_ = ButtonType::NORMAL;
 
-  // Was a command-line switch set telling us to use non-tablet-style power
-  // button behavior even if we're running on a convertible device?
+  // True if the device should observe accelerometer events to enter tablet
+  // mode.
+  bool enable_tablet_mode_ = false;
+
+  // True if the device should use non-tablet-style power button behavior even
+  // if it is a convertible device.
   bool force_clamshell_power_button_ = false;
 
   // True if the lock animation was started for the last power button down
@@ -131,6 +142,9 @@ class ASH_EXPORT PowerButtonController
 
   // Used to interact with the display.
   std::unique_ptr<PowerButtonDisplayController> display_controller_;
+
+  // Handles events for power button screenshot.
+  std::unique_ptr<PowerButtonScreenshotController> screenshot_controller_;
 
   // Handles events for convertible/tablet devices.
   std::unique_ptr<TabletPowerButtonController> tablet_controller_;

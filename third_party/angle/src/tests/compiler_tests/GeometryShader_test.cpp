@@ -12,38 +12,25 @@
 #include "compiler/translator/BaseTypes.h"
 #include "compiler/translator/TranslatorESSL.h"
 #include "gtest/gtest.h"
+#include "tests/test_utils/ShaderCompileTreeTest.h"
 #include "tests/test_utils/compiler_test.h"
 
 using namespace sh;
 
-class GeometryShaderTest : public testing::Test
+class GeometryShaderTest : public ShaderCompileTreeTest
 {
   public:
     GeometryShaderTest() {}
 
   protected:
-    void SetUp() override
+    void initResources(ShBuiltInResources *resources) override
     {
-        ShBuiltInResources resources;
-        InitBuiltInResources(&resources);
-        resources.OES_geometry_shader = 1;
-
-        mTranslator = new TranslatorESSL(GL_GEOMETRY_SHADER_OES, SH_GLES3_1_SPEC);
-        ASSERT_TRUE(mTranslator->Init(resources));
+        resources->OES_geometry_shader = 1;
     }
 
-    void TearDown() override { SafeDelete(mTranslator); }
+    ::GLenum getShaderType() const override { return GL_GEOMETRY_SHADER_OES; }
 
-    // Return true when compilation succeeds
-    bool compile(const std::string &shaderString)
-    {
-        const char *shaderStrings[] = {shaderString.c_str()};
-
-        bool status         = mTranslator->compile(shaderStrings, 1, SH_OBJECT_CODE | SH_VARIABLES);
-        TInfoSink &infoSink = mTranslator->getInfoSink();
-        mInfoLog            = infoSink.info.c_str();
-        return status;
-    }
+    ShShaderSpec getShaderSpec() const override { return SH_GLES3_1_SPEC; }
 
     bool compileGeometryShader(const std::string &statement1, const std::string &statement2)
     {
@@ -87,18 +74,71 @@ class GeometryShaderTest : public testing::Test
         return sstream.str();
     }
 
+    static std::string GetInputDeclaration(const std::string &var, int size)
+    {
+        std::ostringstream sstream;
+
+        sstream << "in ";
+        if (size < 0)
+        {
+            sstream << var << "[];\n";
+        }
+        else
+        {
+            sstream << var << "[" << size << "];\n";
+        }
+
+        return sstream.str();
+    }
+
+    const std::string kVersion                         = "#version 310 es\n";
+    const std::array<std::string, 2> kExtensionStrings = {
+        {"#extension GL_OES_geometry_shader", "#extension GL_EXT_geometry_shader"}};
     const std::string kHeader =
         "#version 310 es\n"
         "#extension GL_OES_geometry_shader : require\n";
+    const std::string kInputLayout  = "layout (points) in;\n";
+    const std::string kOutputLayout = "layout (points, max_vertices = 1) out;\n";
+
+    const std::array<std::string, 4> kInterpolationQualifiers = {{"flat", "smooth", "centroid"}};
+    const std::map<std::string, int> kInputPrimitivesAndInputArraySizeMap = {
+        {"points", 1},
+        {"lines", 2},
+        {"lines_adjacency", 4},
+        {"triangles", 3},
+        {"triangles_adjacency", 6}};
+
     const std::string kEmptyBody =
         "void main()\n"
         "{\n"
         "}\n";
-    const std::string kInputLayout  = "layout (points) in;\n";
-    const std::string kOutputLayout = "layout (points, max_vertices = 1) out;\n";
+    const std::string kShaderBody =
+        R"(layout(triangles, invocations = 2) in;
+        layout(triangle_strip, max_vertices = 3) out;
+        in vec4 i_color[];
+        out vec4 o_color;
+        void main()
+        {
+            for (int i = 0; i < i_color.length(); i++)
+            {
+                gl_Position = gl_in[i].gl_Position;
+                o_color = i_color[i];
+                gl_PrimitiveID = gl_PrimitiveIDIn;
+                gl_Layer = gl_InvocationID;
+                EmitVertex();
+            }
+            EndPrimitive();
+        })";
+};
 
-    std::string mInfoLog;
-    TranslatorESSL *mTranslator = nullptr;
+class GeometryShaderOutputCodeTest : public MatchOutputCodeTest
+{
+  public:
+    GeometryShaderOutputCodeTest()
+        : MatchOutputCodeTest(GL_GEOMETRY_SHADER_OES, SH_OBJECT_CODE, SH_ESSL_OUTPUT)
+    {
+        getResources()->OES_geometry_shader = 1;
+    }
 };
 
 // Geometry Shaders are not supported in GLSL ES shaders version lower than 310.
@@ -776,7 +816,7 @@ TEST_F(GeometryShaderTest, RedeclareDifferentMaxVerticesInOneLayout)
 }
 
 // Geometry Shaders don't allow 'location' declared with input/output primitives in one layout.
-TEST_F(GeometryShaderTest, invalidLocation)
+TEST_F(GeometryShaderTest, InvalidLocation)
 {
     const std::string &shaderString1 =
         "#version 310 es\n"
@@ -824,7 +864,7 @@ TEST_F(GeometryShaderTest, invalidLocation)
 }
 
 // Geometry Shaders don't allow invalid layout qualifier declarations.
-TEST_F(GeometryShaderTest, invalidLayoutQualifiers)
+TEST_F(GeometryShaderTest, InvalidLayoutQualifiers)
 {
     const std::string &shaderString1 =
         "#version 310 es\n"
@@ -954,14 +994,15 @@ TEST_F(GeometryShaderTest, UseGLInLengthWithoutInputPrimitive)
 TEST_F(GeometryShaderTest, UseGLInLengthWithInputPrimitive)
 {
     const std::string &shaderString =
-        "#version 310 es\n"
-        "#extension GL_OES_geometry_shader : require\n"
-        "layout (points) in;\n"
-        "layout (points, max_vertices = 2) out;\n"
-        "void main()\n"
-        "{\n"
-        "    int length = gl_in.length();\n"
-        "}\n";
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+        layout (points) in;
+        layout (points, max_vertices = 2) out;
+        void main()
+        {
+            gl_Position = vec4(gl_in.length());
+            EmitVertex();
+        })";
 
     if (!compile(shaderString))
     {
@@ -1059,6 +1100,7 @@ TEST_F(GeometryShaderTest, GeometryShaderBuiltInFunctions)
         "    EmitVertex();\n"
         "    EndPrimitive();\n"
         "}\n";
+
     if (!compile(shaderString))
     {
         FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
@@ -1093,13 +1135,13 @@ TEST_F(GeometryShaderTest, GeometryShaderBuiltInFunctionsWithoutExtension)
 TEST_F(GeometryShaderTest, GeometryShaderBuiltInConstants)
 {
     const std::string &kShaderHeader =
-        "#version 310 es\n"
-        "#extension GL_OES_geometry_shader : require\n"
-        "layout (points) in;\n"
-        "layout (points, max_vertices = 2) out;\n"
-        "void main()\n"
-        "{\n"
-        "    int val = ";
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+        layout (points) in;
+        layout (points, max_vertices = 2) out;
+        void main()
+        {
+            gl_Position.x = float()";
 
     const std::array<std::string, 9> kGeometryShaderBuiltinConstants = {{
         "gl_MaxGeometryInputComponents", "gl_MaxGeometryOutputComponents",
@@ -1110,8 +1152,9 @@ TEST_F(GeometryShaderTest, GeometryShaderBuiltInConstants)
     }};
 
     const std::string &kShaderTail =
-        ";\n"
-        "}\n";
+        R"();
+            EmitVertex();
+        })";
 
     for (const std::string &kGSBuiltinConstant : kGeometryShaderBuiltinConstants)
     {
@@ -1153,6 +1196,451 @@ TEST_F(GeometryShaderTest, GeometryShaderBuiltInConstantsWithoutExtension)
         if (compile(ostream.str()))
         {
             FAIL() << "Shader compilation succeeded, expecting failure: \n" << mInfoLog;
+        }
+    }
+}
+
+// Verify that Geometry Shaders cannot accept non-array inputs.
+TEST_F(GeometryShaderTest, NonArrayInput)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points) in;\n"
+        "layout (points, max_vertices = 1) out;\n"
+        "in vec4 texcoord;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Verify that it is a compile error to declare an unsized Geometry Shader input before a valid
+// input primitive declaration.
+TEST_F(GeometryShaderTest, DeclareUnsizedInputBeforeInputPrimitive)
+{
+    const std::string &shaderString1 =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "in vec4 texcoord[];\n"
+        "layout (points) in;\n"
+        "layout (points, max_vertices = 1) out;\n"
+        "void main()\n"
+        "{\n"
+        "    vec4 coord = texcoord[0];\n"
+        "    int length = texcoord.length();\n"
+        "}\n";
+
+    const std::string &shaderString2 =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "in vec4 texcoord1[1];\n"
+        "in vec4 texcoord2[];\n"
+        "layout (points) in;\n"
+        "layout (points, max_vertices = 1) out;\n"
+        "void main()\n"
+        "{\n"
+        "    vec4 coord = texcoord2[0];\n"
+        "    int length = texcoord2.length();\n"
+        "}\n";
+
+    if (compile(shaderString1) || compile(shaderString2))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Verify that it is a compile error to declare an unsized Geometry Shader input without a valid
+// input primitive declaration.
+TEST_F(GeometryShaderTest, DeclareUnsizedInputWithoutInputPrimitive)
+{
+    const std::string &shaderString1 =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points, max_vertices = 1) out;\n"
+        "in vec4 texcoord[];\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    const std::string &shaderString2 =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points, max_vertices = 1) out;\n"
+        "in vec4 texcoord1[1];\n"
+        "in vec4 texcoord2[];\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (compile(shaderString1) || compile(shaderString2))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Verify that indexing an unsized Geometry Shader input which is declared after a
+// valid input primitive declaration can compile.
+TEST_F(GeometryShaderTest, IndexingUnsizedInputDeclaredAfterInputPrimitive)
+{
+    const std::string &shaderString =
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+        layout (points) in;
+        layout (points, max_vertices = 1) out;
+        in vec4 texcoord[], texcoord2[];
+        in vec4[] texcoord3, texcoord4;
+        void main()
+        {
+            gl_Position = texcoord[0] + texcoord2[0] + texcoord3[0] + texcoord4[0];
+            EmitVertex();
+        })";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Verify that calling length() function on an unsized Geometry Shader input which
+// is declared before a valid input primitive declaration can compile.
+TEST_F(GeometryShaderTest, CallingLengthOnUnsizedInputDeclaredAfterInputPrimitive)
+{
+    const std::string &shaderString =
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+        layout (points) in;
+        layout (points, max_vertices = 1) out;
+        in vec4 texcoord[];
+        void main()
+        {
+            gl_Position = vec4(texcoord.length());
+            EmitVertex();
+        })";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Verify that assigning a value to the input of a geometry shader causes a compile error.
+TEST_F(GeometryShaderTest, AssignValueToInput)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points) in;\n"
+        "layout (points, max_vertices = 1) out;\n"
+        "in vec4 texcoord[];\n"
+        "void main()\n"
+        "{\n"
+        "    texcoord[0] = vec4(1.0, 0.0, 0.0, 1.0);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Geometry Shaders allow inputs with location qualifier.
+TEST_F(GeometryShaderTest, InputWithLocations)
+{
+    const std::string &shaderString =
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+        layout (triangles) in;
+        layout (points, max_vertices = 1) out;
+        layout (location = 0) in vec4 texcoord1[];
+        layout (location = 1) in vec4 texcoord2[];
+        void main()
+        {
+            int index = 0;
+            vec4 coord1 = texcoord1[0];
+            vec4 coord2 = texcoord2[index];
+            gl_Position = coord1 + coord2;
+        })";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Geometry Shaders allow inputs with explicit size declared before the declaration of the
+// input primitive, but they should have same size and match the declaration of the
+// following input primitive declarations.
+TEST_F(GeometryShaderTest, InputWithSizeBeforeInputPrimitive)
+{
+    for (auto &primitiveAndArraySize : kInputPrimitivesAndInputArraySizeMap)
+    {
+        const std::string &inputLayoutStr =
+            GetGeometryShaderLayout("in", primitiveAndArraySize.first, -1, -1);
+        const int inputSize = primitiveAndArraySize.second;
+
+        const std::string &inputDeclaration1 = GetInputDeclaration("vec4 input1", inputSize);
+        if (!compileGeometryShader(inputDeclaration1, "", inputLayoutStr, kOutputLayout))
+        {
+            FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+        }
+
+        const std::string &inputDeclaration2 = GetInputDeclaration("vec4 input2", inputSize + 1);
+        if (compileGeometryShader(inputDeclaration2, "", inputLayoutStr, kOutputLayout) ||
+            compileGeometryShader(inputDeclaration1, inputDeclaration2, inputLayoutStr,
+                                  kOutputLayout))
+        {
+            FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+        }
+    }
+}
+
+// Geometry shaders allow inputs with explicit size declared after the declaration of the
+// input primitive, but their sizes should match the previous input primitive declaration.
+TEST_F(GeometryShaderTest, InputWithSizeAfterInputPrimitive)
+{
+    for (auto &primitiveAndArraySize : kInputPrimitivesAndInputArraySizeMap)
+    {
+        const std::string &inputLayoutStr =
+            GetGeometryShaderLayout("in", primitiveAndArraySize.first, -1, -1);
+        const int inputSize = primitiveAndArraySize.second;
+
+        const std::string &inputDeclaration1 = GetInputDeclaration("vec4 input1", inputSize);
+        if (!compileGeometryShader(inputLayoutStr, kOutputLayout, inputDeclaration1, ""))
+        {
+            FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+        }
+
+        const std::string &inputDeclaration2 = GetInputDeclaration("vec4 input2", inputSize + 1);
+        if (compileGeometryShader(inputLayoutStr, kOutputLayout, inputDeclaration2, ""))
+        {
+            FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+        }
+    }
+}
+
+// Verify that Geometry Shaders accept non-array outputs.
+TEST_F(GeometryShaderTest, NonArrayOutputs)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points) in;\n"
+        "layout (points, max_vertices = 1) out;\n"
+        "out vec4 color;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Verify that Geometry Shaders allow declaring outputs with 'location' layout qualifier.
+TEST_F(GeometryShaderTest, OutputsWithLocation)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (triangles) in;\n"
+        "layout (points, max_vertices = 1) out;\n"
+        "layout (location = 0) out vec4 color1;\n"
+        "layout (location = 1) out vec4 color2;\n"
+        "void main()\n"
+        "{\n"
+        "    color1 = vec4(0.0, 1.0, 0.0, 1.0);\n"
+        "    color2 = vec4(1.0, 0.0, 0.0, 1.0);\n"
+        "}\n";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Geometry Shaders allow declaring sized array outputs.
+TEST_F(GeometryShaderTest, SizedArrayOutputs)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (triangles) in;\n"
+        "layout (points, max_vertices = 1) out;\n"
+        "out vec4 color[2];\n"
+        "void main()\n"
+        "{\n"
+        "    color[0] = vec4(0.0, 1.0, 0.0, 1.0);\n"
+        "    color[1] = vec4(1.0, 0.0, 0.0, 1.0);\n"
+        "}\n";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Verify that Geometry Shader outputs cannot be declared as an unsized array.
+TEST_F(GeometryShaderTest, UnsizedArrayOutputs)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (triangles) in;\n"
+        "layout (points, max_vertices = 1) out;\n"
+        "out vec4 color[];\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Verify that Geometry Shader inputs can use interpolation qualifiers.
+TEST_F(GeometryShaderTest, InputWithInterpolationQualifiers)
+{
+    for (const std::string &qualifier : kInterpolationQualifiers)
+    {
+        std::ostringstream stream;
+        stream << kHeader << kInputLayout << kOutputLayout << qualifier << " in vec4 texcoord[];\n"
+               << kEmptyBody;
+
+        if (!compile(stream.str()))
+        {
+            FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+        }
+    }
+}
+
+// Verify that Geometry Shader outputs can use interpolation qualifiers.
+TEST_F(GeometryShaderTest, OutputWithInterpolationQualifiers)
+{
+    for (const std::string &qualifier : kInterpolationQualifiers)
+    {
+        std::ostringstream stream;
+        stream << kHeader << kInputLayout << kOutputLayout << qualifier << " out vec4 color;\n"
+               << kEmptyBody;
+
+        if (!compile(stream.str()))
+        {
+            FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+        }
+    }
+}
+
+// Verify that Geometry Shader outputs can use 'invariant' qualifier.
+TEST_F(GeometryShaderTest, InvariantOutput)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points) in;\n"
+        "layout (points, max_vertices = 2) out;\n"
+        "invariant out vec4 gs_output;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = gl_in[0].gl_Position;\n"
+        "}\n";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Verify that the member of gl_in won't be incorrectly changed in the output shader string.
+TEST_F(GeometryShaderOutputCodeTest, ValidateGLInMembersInOutputShaderString)
+{
+    const std::string &shaderString1 =
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+        layout (lines) in;
+        layout (points, max_vertices = 2) out;
+        void main()
+        {
+            vec4 position;
+            for (int i = 0; i < 2; i++)
+            {
+                position = gl_in[i].gl_Position;
+            }
+        })";
+
+    compile(shaderString1);
+    EXPECT_TRUE(foundInESSLCode("].gl_Position"));
+
+    const std::string &shaderString2 =
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+        layout (points) in;
+        layout (points, max_vertices = 2) out;
+        void main()
+        {
+            vec4 position;
+            position = gl_in[0].gl_Position;
+        })";
+
+    compile(shaderString2);
+    EXPECT_TRUE(foundInESSLCode("].gl_Position"));
+}
+
+// Verify that Geometry Shaders are supported in GLSL ES version 310 with EXT_geometry_shader
+// enabled.
+TEST_F(GeometryShaderTest, Version310WithEXTExtension)
+{
+    std::ostringstream stream;
+
+    const std::string &kEXTExtensionString = kExtensionStrings[1];
+    ASSERT_TRUE(kEXTExtensionString == "#extension GL_EXT_geometry_shader");
+
+    stream << kVersion << kEXTExtensionString << " : require\n" << kShaderBody;
+
+    if (!compile(stream.str()))
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
+}
+
+// Verify that Geometry Shaders are supported in GLSL ES version 310 with mixed using
+// "EXT_geometry_shader" and "OES_geometry_shader" extension strings.
+TEST_F(GeometryShaderTest, MixedUseOESAndEXTExtension)
+{
+    const std::array<std::string, 3> kExtensionBehaviors = {{"require", "disable", "warn"}};
+
+    ASSERT_TRUE(kExtensionStrings.size() == 2u);
+
+    for (const std::string &extensionBehavior1 : kExtensionBehaviors)
+    {
+        for (const std::string &extensionBehavior2 : kExtensionBehaviors)
+        {
+            for (size_t i = 0; i < 2u; ++i)
+            {
+                std::ostringstream stream;
+                stream << kVersion << kExtensionStrings[i] << " : " << extensionBehavior1 << "\n"
+                       << kExtensionStrings[1 - i] << " : " << extensionBehavior2 << "\n"
+                       << kShaderBody;
+
+                bool shouldCompile =
+                    extensionBehavior1 != "disable" || extensionBehavior2 != "disable";
+                if (shouldCompile != compile(stream.str()))
+                {
+                    if (shouldCompile)
+                    {
+                        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+                    }
+                    else
+                    {
+                        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+                    }
+                }
+            }
         }
     }
 }

@@ -143,7 +143,6 @@ void FileStreamForwarder::NotifyCompleted(bool result) {
   DCHECK(!callback_.is_null());
   BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
                           base::BindOnce(std::move(callback_), result));
-  callback_.Reset();  // Not to leave the callback in an undefined state.
 }
 
 }  // namespace arc

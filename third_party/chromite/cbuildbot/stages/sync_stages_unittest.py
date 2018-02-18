@@ -28,6 +28,7 @@ from chromite.cbuildbot.stages import sync_stages
 from chromite.lib.const import waterfall
 from chromite.lib import auth
 from chromite.lib import buildbucket_lib
+from chromite.lib import build_requests
 from chromite.lib import cidb
 from chromite.lib import clactions
 from chromite.lib import cl_messages
@@ -68,7 +69,7 @@ class BootstrapStageTest(
                      return_value=(constants.REEXEC_API_MAJOR,
                                    constants.REEXEC_API_MINOR))
 
-    self._Prepare(extra_cmd_args=[self.BOT_ID])
+    self._Prepare()
 
   def ConstructStage(self):
     patch_pool = trybot_patch_pool.TrybotPatchPool()
@@ -646,6 +647,58 @@ class PreCQLauncherStageTest(MasterCQSyncTestCase):
     failed_configs = self.sync_stage._GetFailedPreCQConfigs(action_history)
     self.assertItemsEqual(failed_configs, ['lumpy-pre-cq'])
 
+  def testFailureStreakCounterExceedsThreshold(self):
+    """Test FailureStreakCounterExceedsThreshold."""
+    pre_cq_1 = self.fake_db.InsertBuild(
+        'lumpy-pre-cq', constants.WATERFALL_TRYBOT, 0, 'lumpy-pre-cq',
+        'bot hostname')
+    pre_cq_2 = self.fake_db.InsertBuild(
+        'lumpy-pre-cq', constants.WATERFALL_TRYBOT, 1, 'lumpy-pre-cq',
+        'bot hostname')
+    pre_cq_3 = self.fake_db.InsertBuild(
+        'lumpy-pre-cq', constants.WATERFALL_TRYBOT, 2, 'lumpy-pre-cq',
+        'bot hostname')
+    self.fake_db.FinishBuild(pre_cq_1, status=constants.BUILDER_STATUS_PASSED)
+    self.fake_db.FinishBuild(pre_cq_2, status=constants.BUILDER_STATUS_FAILED)
+    self.fake_db.FinishBuild(pre_cq_3, status=constants.BUILDER_STATUS_FAILED)
+
+    build_history = self.fake_db.GetBuildHistory('lumpy-pre-cq', -1, final=True)
+    self.assertFalse(self.sync_stage. _FailureStreakCounterExceedsThreshold(
+        'lumpy-pre-cq', build_history))
+
+    pre_cq_4 = self.fake_db.InsertBuild(
+        'lumpy-pre-cq', constants.WATERFALL_TRYBOT, 2, 'lumpy-pre-cq',
+        'bot hostname')
+    self.fake_db.FinishBuild(pre_cq_4, status=constants.BUILDER_STATUS_FAILED)
+
+    build_history = self.fake_db.GetBuildHistory('lumpy-pre-cq', -1, final=True)
+    self.assertTrue(self.sync_stage. _FailureStreakCounterExceedsThreshold(
+        'lumpy-pre-cq', build_history))
+
+  def testGetBuildConfigsToSanityCheck(self):
+    """Test _GetBuildConfigsToSanityCheck."""
+    build_configs = {'lumpy-pre-cq', 'cyan-pre-cq', 'betty-pre-cq'}
+
+    for build_config in ('lumpy-pre-cq', 'cyan-pre-cq'):
+      for _ in range(0, 3):
+        pre_cq = self.fake_db.InsertBuild(
+            build_config, constants.WATERFALL_TRYBOT, 0, build_config,
+            'bot hostname')
+        self.fake_db.FinishBuild(pre_cq, status=constants.BUILDER_STATUS_FAILED)
+
+    build_req_1 = build_requests.BuildRequest(
+        None, self.build_id, 'lumpy-pre-cq', None, 'bb_id_1', 'sanity-pre-cq',
+        datetime.datetime.now())
+    build_req_2 = build_requests.BuildRequest(
+        None, self.build_id, 'cyan-pre-cq', None, 'bb_id_2', 'sanity-pre-cq',
+        datetime.datetime.now() - datetime.timedelta(hours=10))
+
+    self.fake_db.InsertBuildRequests([build_req_1, build_req_2])
+
+    sanity_check_build_configs = self.sync_stage._GetBuildConfigsToSanityCheck(
+        self.fake_db, build_configs)
+    self.assertEqual(sanity_check_build_configs, ['cyan-pre-cq'])
+
   def testLaunchSanityCheckPreCQsIfNeeded(self):
     """Test _LaunchSanityCheckPreCQsIfNeeded."""
     mock_pool = mock.Mock()
@@ -1180,8 +1233,9 @@ pre-cq-configs: link-pre-cq
     progress_map = clactions.GetPreCQProgressMap(changes, action_history)
     build_ids_per_config = {}
     for change, change_status_dict in progress_map.iteritems():
-      for config, (status, _, _) in change_status_dict.iteritems():
-        if status == constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED:
+      for config, pre_cq_progress_tuple in change_status_dict.iteritems():
+        if (pre_cq_progress_tuple.status ==
+            constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED):
           if not config in build_ids_per_config:
             build_ids_per_config[config] = self.fake_db.InsertBuild(
                 config, waterfall.WATERFALL_TRYBOT, 1, config, config)

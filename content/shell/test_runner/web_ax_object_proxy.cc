@@ -64,8 +64,10 @@ std::string RoleToString(blink::WebAXRole role) {
       return result.append("ColumnHeader");
     case blink::kWebAXRoleColumn:
       return result.append("Column");
-    case blink::kWebAXRoleComboBox:
-      return result.append("ComboBox");
+    case blink::kWebAXRoleComboBoxGrouping:
+      return result.append("ComboBoxGrouping");
+    case blink::kWebAXRoleComboBoxMenuButton:
+      return result.append("ComboBoxMenuButton");
     case blink::kWebAXRoleComplementary:
       return result.append("Complementary");
     case blink::kWebAXRoleContentInfo:
@@ -230,6 +232,8 @@ std::string RoleToString(blink::WebAXRole role) {
       return result.append("Table");
     case blink::kWebAXRoleTextField:
       return result.append("TextField");
+    case blink::kWebAXRoleTextFieldWithComboBox:
+      return result.append("TextFieldWithComboBox");
     case blink::kWebAXRoleTime:
       return result.append("Time");
     case blink::kWebAXRoleTimer:
@@ -551,6 +555,7 @@ gin::ObjectTemplateBuilder WebAXObjectProxy::GetObjectTemplateBuilder(
       .SetProperty("intValue", &WebAXObjectProxy::IntValue)
       .SetProperty("minValue", &WebAXObjectProxy::MinValue)
       .SetProperty("maxValue", &WebAXObjectProxy::MaxValue)
+      .SetProperty("stepValue", &WebAXObjectProxy::StepValue)
       .SetProperty("valueDescription", &WebAXObjectProxy::ValueDescription)
       .SetProperty("childrenCount", &WebAXObjectProxy::ChildrenCount)
       .SetProperty("selectionAnchorObject",
@@ -820,6 +825,13 @@ int WebAXObjectProxy::MaxValue() {
   float max_value = 0.0f;
   accessibility_object_.MaxValueForRange(&max_value);
   return max_value;
+}
+
+int WebAXObjectProxy::StepValue() {
+  accessibility_object_.UpdateLayoutAndCheckValidity();
+  float step_value = 0.0f;
+  accessibility_object_.StepValueForRange(&step_value);
+  return step_value;
 }
 
 std::string WebAXObjectProxy::ValueDescription() {
@@ -1554,7 +1566,7 @@ bool WebAXObjectProxy::SetValue(const std::string& value) {
 }
 
 bool WebAXObjectProxy::IsEqual(v8::Local<v8::Object> proxy) {
-  WebAXObjectProxy* unwrapped_proxy = NULL;
+  WebAXObjectProxy* unwrapped_proxy = nullptr;
   if (!gin::ConvertFromV8(blink::MainThreadIsolate(), proxy, &unwrapped_proxy))
     return false;
   return unwrapped_proxy->IsEqualToObject(accessibility_object_);
@@ -1883,7 +1895,7 @@ void WebAXObjectProxyList::Clear() {
   v8::HandleScope handle_scope(isolate);
   size_t elementCount = elements_.Size();
   for (size_t i = 0; i < elementCount; i++) {
-    WebAXObjectProxy* unwrapped_object = NULL;
+    WebAXObjectProxy* unwrapped_object = nullptr;
     bool result =
         gin::ConvertFromV8(isolate, elements_.Get(i), &unwrapped_object);
     DCHECK(result);
@@ -1902,7 +1914,7 @@ v8::Local<v8::Object> WebAXObjectProxyList::GetOrCreate(
 
   size_t elementCount = elements_.Size();
   for (size_t i = 0; i < elementCount; i++) {
-    WebAXObjectProxy* unwrapped_object = NULL;
+    WebAXObjectProxy* unwrapped_object = nullptr;
     bool result =
         gin::ConvertFromV8(isolate, elements_.Get(i), &unwrapped_object);
     DCHECK(result);

@@ -22,7 +22,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.Log;
-import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.MetricsUtils.HistogramDelta;
@@ -151,7 +150,6 @@ public class NQETest {
     }
 
     // Returns whether a file contains a particular string.
-    @SuppressFBWarnings("OBL_UNSATISFIED_OBLIGATION_EXCEPTION_EDGE")
     private boolean prefsFileContainsString(String content) throws IOException {
         File file = new File(getTestStorage(getContext()) + "/prefs/local_prefs.json");
         FileInputStream fileInputStream = new FileInputStream(file);
@@ -175,6 +173,16 @@ public class NQETest {
         TestNetworkQualityThroughputListener throughputListener =
                 new TestNetworkQualityThroughputListener(listenersExecutor);
         cronetEngineBuilder.enableNetworkQualityEstimator(true).enableHttp2(true).enableQuic(false);
+
+        // The pref may not be written if the computed Effective Connection Type (ECT) matches the
+        // default ECT for the current connection type. Force the ECT to "Slow-2G". Since "Slow-2G"
+        // is not the default ECT for any connection type, this ensures that the pref is written to.
+        JSONObject nqeOptions = new JSONObject().put("force_effective_connection_type", "Slow-2G");
+        JSONObject experimentalOptions =
+                new JSONObject().put("NetworkQualityEstimator", nqeOptions);
+
+        cronetEngineBuilder.setExperimentalOptions(experimentalOptions.toString());
+
         cronetEngineBuilder.setStoragePath(getTestStorage(getContext()));
         final ExperimentalCronetEngine cronetEngine = cronetEngineBuilder.build();
         cronetEngine.configureNetworkQualityEstimatorForTesting(true, true, true);
@@ -272,13 +280,20 @@ public class NQETest {
                     new TestNetworkQualityRttListener(listenersExecutor);
             cronetEngineBuilder.enableNetworkQualityEstimator(true).enableHttp2(true).enableQuic(
                     false);
-            cronetEngineBuilder.setStoragePath(getTestStorage(getContext()));
 
-            JSONObject nqeOptions = new JSONObject().put("persistent_cache_reading_enabled", true);
+            // The pref may not be written if the computed Effective Connection Type (ECT) matches
+            // the default ECT for the current connection type. Force the ECT to "Slow-2G". Since
+            // "Slow-2G" is not the default ECT for any connection type, this ensures that the pref
+            // is written to.
+            JSONObject nqeOptions =
+                    new JSONObject().put("force_effective_connection_type", "Slow-2G");
             JSONObject experimentalOptions =
                     new JSONObject().put("NetworkQualityEstimator", nqeOptions);
 
             cronetEngineBuilder.setExperimentalOptions(experimentalOptions.toString());
+
+            cronetEngineBuilder.setStoragePath(getTestStorage(getContext()));
+
             final ExperimentalCronetEngine cronetEngine = cronetEngineBuilder.build();
             cronetEngine.configureNetworkQualityEstimatorForTesting(true, true, true);
             cronetEngine.addRttListener(rttListener);
@@ -328,7 +343,9 @@ public class NQETest {
 
             // Stored network quality in the pref should be read in the second iteration.
             assertEquals(readPrefsSizeHistogram.getDelta() > 0, i > 0);
-            assertEquals(cachedRttHistogram.getDelta() > 0, i > 0);
+            if (i > 0) {
+                assertTrue(cachedRttHistogram.getDelta() > 0);
+            }
         }
     }
 

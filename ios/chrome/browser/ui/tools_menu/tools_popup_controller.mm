@@ -9,10 +9,11 @@
 #include "base/logging.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
+#import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_view.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
+#import "ios/chrome/browser/ui/tools_menu/public/tools_menu_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_menu_configuration.h"
-#import "ios/chrome/browser/ui/tools_menu/tools_menu_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_menu_view_controller.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 
@@ -40,15 +41,19 @@ NS_INLINE UIEdgeInsets TabHistoryPopupMenuInsets() {
   ToolsMenuViewController* _toolsMenuViewController;
   // Container view of the menu items table.
   UIView* _toolsTableViewContainer;
+  // The view controller from which to present other view controllers.
+  __weak UIViewController* _baseViewController;
 }
 @end
 
 @implementation ToolsPopupController
 @synthesize isCurrentPageBookmarked = _isCurrentPageBookmarked;
 
-- (instancetype)initWithConfiguration:(ToolsMenuConfiguration*)configuration
-                           dispatcher:(id<ApplicationCommands, BrowserCommands>)
-                                          dispatcher {
+- (instancetype)
+initAndPresentWithConfiguration:(ToolsMenuConfiguration*)configuration
+                     dispatcher:
+                         (id<ApplicationCommands, BrowserCommands>)dispatcher
+                     completion:(ProceduralBlock)completion {
   DCHECK(configuration.displayView);
   self = [super initWithParentView:configuration.displayView];
   if (self) {
@@ -56,6 +61,8 @@ NS_INLINE UIEdgeInsets TabHistoryPopupMenuInsets() {
     self.dispatcher = dispatcher;
     _toolsMenuViewController = [[ToolsMenuViewController alloc] init];
     _toolsMenuViewController.dispatcher = self.dispatcher;
+
+    _baseViewController = configuration.baseViewController;
 
     _toolsTableViewContainer = [_toolsMenuViewController view];
     [_toolsTableViewContainer layer].cornerRadius = 2;
@@ -105,7 +112,9 @@ NS_INLINE UIEdgeInsets TabHistoryPopupMenuInsets() {
     [[self popupContainer] addSubview:_toolsTableViewContainer];
 
     [_toolsMenuViewController setDelegate:self];
-    [self fadeInPopupFromSource:origin toDestination:destination];
+    [self fadeInPopupFromSource:origin
+                  toDestination:destination
+                     completion:completion];
 
     // Insert |toolsButton| above |popupContainer| so it appears stationary.
     // Otherwise the tools button will animate with the tools popup.
@@ -135,9 +144,12 @@ NS_INLINE UIEdgeInsets TabHistoryPopupMenuInsets() {
 }
 
 - (void)fadeInPopupFromSource:(CGPoint)source
-                toDestination:(CGPoint)destination {
+                toDestination:(CGPoint)destination
+                   completion:(ProceduralBlock)completion {
   [_toolsMenuViewController animateContentIn];
-  [super fadeInPopupFromSource:source toDestination:destination];
+  [super fadeInPopupFromSource:source
+                 toDestination:destination
+                    completion:completion];
 }
 
 - (void)dismissAnimatedWithCompletion:(void (^)(void))completion {
@@ -193,6 +205,7 @@ NS_INLINE UIEdgeInsets TabHistoryPopupMenuInsets() {
       break;
     case TOOLS_SETTINGS_ITEM:
       base::RecordAction(UserMetricsAction("MobileMenuSettings"));
+      [self.dispatcher showSettingsFromViewController:_baseViewController];
       break;
     case TOOLS_RELOAD_ITEM:
       base::RecordAction(UserMetricsAction("MobileMenuReload"));
@@ -221,6 +234,7 @@ NS_INLINE UIEdgeInsets TabHistoryPopupMenuInsets() {
     case TOOLS_REPORT_AN_ISSUE:
       self.containerView.hidden = YES;
       base::RecordAction(UserMetricsAction("MobileMenuReportAnIssue"));
+      [self.dispatcher showReportAnIssueFromViewController:_baseViewController];
       break;
     case TOOLS_VIEW_SOURCE:
       // Debug only; no metric.

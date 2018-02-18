@@ -11,7 +11,7 @@
 
 namespace chrome_test_util {
 
-// TODO(crbug.com/638674): Evaluate if this can move to shared code.
+// TODO(crbug.com/788813): Evaluate if JS helpers can be consolidated.
 // Execute |javascript| on current web state, and wait for either the completion
 // of execution or timeout. If |out_error| is not nil, it is set to the
 // error resulting from the execution, if one occurs. The return value is the
@@ -100,6 +100,10 @@ id ExecuteJavaScript(NSString* javascript, NSError* __autoreleasing* out_error);
 // Waits for there to be a web view containing loaded image with |image_id|.
 // When loaded, the image element will have the same size as actual image.
 + (void)waitForWebViewContainingLoadedImageElementWithID:(std::string)imageID;
+
+// Waits for the bookmark internal state to be done loading. If it does not
+// happen within a timeout, a GREYAssert is induced.
++ (void)waitForBookmarksToFinishLoading;
 @end
 
 #endif  // IOS_CHROME_TEST_EARL_GREY_CHROME_EARL_GREY_H_

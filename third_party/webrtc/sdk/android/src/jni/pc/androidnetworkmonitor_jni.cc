@@ -17,7 +17,8 @@
 #include "rtc_base/bind.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/ipaddress.h"
-#include "sdk/android/src/jni/classreferenceholder.h"
+#include "sdk/android/generated_peerconnection_jni/jni/NetworkMonitorAutoDetect_jni.h"
+#include "sdk/android/generated_peerconnection_jni/jni/NetworkMonitor_jni.h"
 #include "sdk/android/src/jni/jni_helpers.h"
 
 namespace webrtc {
@@ -28,12 +29,8 @@ enum AndroidSdkVersion {
   SDK_VERSION_MARSHMALLOW = 23
 };
 
-int AndroidNetworkMonitor::android_sdk_int_ = 0;
-
 static NetworkType GetNetworkTypeFromJava(JNIEnv* jni, jobject j_network_type) {
-  std::string enum_name =
-      GetJavaEnumName(jni, "org/webrtc/NetworkMonitorAutoDetect$ConnectionType",
-                      j_network_type);
+  std::string enum_name = GetJavaEnumName(jni, j_network_type);
   if (enum_name == "CONNECTION_UNKNOWN") {
     return NetworkType::NETWORK_UNKNOWN;
   }
@@ -89,10 +86,7 @@ static rtc::AdapterType AdapterTypeFromNetworkType(NetworkType network_type) {
 }
 
 static rtc::IPAddress GetIPAddressFromJava(JNIEnv* jni, jobject j_ip_address) {
-  jclass j_ip_address_class = GetObjectClass(jni, j_ip_address);
-  jfieldID j_address_id = GetFieldID(jni, j_ip_address_class, "address", "[B");
-  jbyteArray j_addresses =
-      static_cast<jbyteArray>(GetObjectField(jni, j_ip_address, j_address_id));
+  jbyteArray j_addresses = Java_IPAddress_getAddress(jni, j_ip_address);
   size_t address_length = jni->GetArrayLength(j_addresses);
   jbyte* addr_array = jni->GetByteArrayElements(j_addresses, nullptr);
   CHECK_EXCEPTION(jni) << "Error during GetIPAddressFromJava";
@@ -128,26 +122,15 @@ static void GetIPAddressesFromJava(JNIEnv* jni,
 static NetworkInformation GetNetworkInformationFromJava(
     JNIEnv* jni,
     jobject j_network_info) {
-  jclass j_network_info_class = GetObjectClass(jni, j_network_info);
-  jfieldID j_interface_name_id =
-      GetFieldID(jni, j_network_info_class, "name", "Ljava/lang/String;");
-  jfieldID j_handle_id = GetFieldID(jni, j_network_info_class, "handle", "J");
-  jfieldID j_type_id =
-      GetFieldID(jni, j_network_info_class, "type",
-                 "Lorg/webrtc/NetworkMonitorAutoDetect$ConnectionType;");
-  jfieldID j_ip_addresses_id =
-      GetFieldID(jni, j_network_info_class, "ipAddresses",
-                 "[Lorg/webrtc/NetworkMonitorAutoDetect$IPAddress;");
-
   NetworkInformation network_info;
   network_info.interface_name = JavaToStdString(
-      jni, GetStringField(jni, j_network_info, j_interface_name_id));
+      jni, Java_NetworkInformation_getName(jni, j_network_info));
   network_info.handle = static_cast<NetworkHandle>(
-      GetLongField(jni, j_network_info, j_handle_id));
+      Java_NetworkInformation_getHandle(jni, j_network_info));
   network_info.type = GetNetworkTypeFromJava(
-      jni, GetObjectField(jni, j_network_info, j_type_id));
-  jobjectArray j_ip_addresses = static_cast<jobjectArray>(
-      GetObjectField(jni, j_network_info, j_ip_addresses_id));
+      jni, Java_NetworkInformation_getConnectionType(jni, j_network_info));
+  jobjectArray j_ip_addresses =
+      Java_NetworkInformation_getIpAddresses(jni, j_network_info);
   GetIPAddressesFromJava(jni, j_ip_addresses, &network_info.ip_addresses);
   return network_info;
 }
@@ -163,25 +146,9 @@ std::string NetworkInformation::ToString() const {
   return ss.str();
 }
 
-AndroidNetworkMonitor::AndroidNetworkMonitor()
-    : j_network_monitor_class_(jni(),
-                               FindClass(jni(), "org/webrtc/NetworkMonitor")),
-      j_network_monitor_(
-          jni(),
-          jni()->CallStaticObjectMethod(
-              *j_network_monitor_class_,
-              GetStaticMethodID(jni(),
-                                *j_network_monitor_class_,
-                                "getInstance",
-                                "()Lorg/webrtc/NetworkMonitor;"))) {
-  CHECK_EXCEPTION(jni()) << "Error during NetworkMonitor.init";
-  if (android_sdk_int_ <= 0) {
-    jmethodID m = GetStaticMethodID(jni(), *j_network_monitor_class_,
-                                    "androidSdkInt", "()I");
-    android_sdk_int_ = jni()->CallStaticIntMethod(*j_network_monitor_class_, m);
-    CHECK_EXCEPTION(jni()) << "Error during NetworkMonitor.androidSdkInt";
-  }
-}
+AndroidNetworkMonitor::AndroidNetworkMonitor(JNIEnv* env)
+    : android_sdk_int_(Java_NetworkMonitor_androidSdkInt(env)),
+      j_network_monitor_(env, Java_NetworkMonitor_getInstance(env)) {}
 
 void AndroidNetworkMonitor::Start() {
   RTC_CHECK(thread_checker_.CalledOnValidThread());
@@ -195,10 +162,9 @@ void AndroidNetworkMonitor::Start() {
   // it creates sockets.
   worker_thread()->socketserver()->set_network_binder(this);
 
-  jmethodID m =
-      GetMethodID(jni(), *j_network_monitor_class_, "startMonitoring", "(J)V");
-  jni()->CallVoidMethod(*j_network_monitor_, m, jlongFromPointer(this));
-  CHECK_EXCEPTION(jni()) << "Error during CallVoidMethod";
+  JNIEnv* env = AttachCurrentThreadIfNeeded();
+  Java_NetworkMonitor_startMonitoring(env, *j_network_monitor_,
+                                      jlongFromPointer(this));
 }
 
 void AndroidNetworkMonitor::Stop() {
@@ -214,10 +180,9 @@ void AndroidNetworkMonitor::Stop() {
     worker_thread()->socketserver()->set_network_binder(nullptr);
   }
 
-  jmethodID m =
-      GetMethodID(jni(), *j_network_monitor_class_, "stopMonitoring", "(J)V");
-  jni()->CallVoidMethod(*j_network_monitor_, m, jlongFromPointer(this));
-  CHECK_EXCEPTION(jni()) << "Error during NetworkMonitor.stopMonitoring";
+  JNIEnv* env = AttachCurrentThreadIfNeeded();
+  Java_NetworkMonitor_stopMonitoring(env, *j_network_monitor_,
+                                     jlongFromPointer(this));
 
   network_handle_by_address_.clear();
   network_info_by_handle_.clear();
@@ -230,21 +195,15 @@ rtc::NetworkBindingResult AndroidNetworkMonitor::BindSocketToNetwork(
     const rtc::IPAddress& address) {
   RTC_CHECK(thread_checker_.CalledOnValidThread());
 
-  if (socket_fd == 0 /* NETWORK_UNSPECIFIED */) {
-    return rtc::NetworkBindingResult::NOT_IMPLEMENTED;
-  }
-
-  jmethodID network_binding_supported_id = GetMethodID(
-      jni(), *j_network_monitor_class_, "networkBindingSupported", "()Z");
   // Android prior to Lollipop didn't have support for binding sockets to
   // networks. This may also occur if there is no connectivity manager service.
-  bool network_binding_supported = jni()->CallBooleanMethod(
-      *j_network_monitor_, network_binding_supported_id);
-  CHECK_EXCEPTION(jni())
-      << "Error during NetworkMonitor.networkBindingSupported";
+  JNIEnv* env = AttachCurrentThreadIfNeeded();
+  const bool network_binding_supported =
+      Java_NetworkMonitor_networkBindingSupported(env, *j_network_monitor_);
   if (!network_binding_supported) {
-    LOG(LS_WARNING) << "BindSocketToNetwork is not supported on this platform "
-                    << "(Android SDK: " << android_sdk_int_ << ")";
+    RTC_LOG(LS_WARNING)
+        << "BindSocketToNetwork is not supported on this platform "
+        << "(Android SDK: " << android_sdk_int_ << ")";
     return rtc::NetworkBindingResult::NOT_IMPLEMENTED;
   }
 
@@ -253,6 +212,10 @@ rtc::NetworkBindingResult AndroidNetworkMonitor::BindSocketToNetwork(
     return rtc::NetworkBindingResult::ADDRESS_NOT_FOUND;
   }
   NetworkHandle network_handle = iter->second;
+
+  if (network_handle == 0 /* NETWORK_UNSPECIFIED */) {
+    return rtc::NetworkBindingResult::NOT_IMPLEMENTED;
+  }
 
   int rv = 0;
   if (android_sdk_int_ >= SDK_VERSION_MARSHMALLOW) {
@@ -269,7 +232,8 @@ rtc::NetworkBindingResult AndroidNetworkMonitor::BindSocketToNetwork(
       const std::string android_native_lib_path = "libandroid.so";
       void* lib = dlopen(android_native_lib_path.c_str(), RTLD_NOW);
       if (lib == nullptr) {
-        LOG(LS_ERROR) << "Library " << android_native_lib_path << " not found!";
+        RTC_LOG(LS_ERROR) << "Library " << android_native_lib_path
+                          << " not found!";
         return rtc::NetworkBindingResult::NOT_IMPLEMENTED;
       }
       marshmallowSetNetworkForSocket =
@@ -277,7 +241,7 @@ rtc::NetworkBindingResult AndroidNetworkMonitor::BindSocketToNetwork(
               dlsym(lib, "android_setsocknetwork"));
     }
     if (!marshmallowSetNetworkForSocket) {
-      LOG(LS_ERROR) << "Symbol marshmallowSetNetworkForSocket is not found";
+      RTC_LOG(LS_ERROR) << "Symbol marshmallowSetNetworkForSocket is not found";
       return rtc::NetworkBindingResult::NOT_IMPLEMENTED;
     }
     rv = marshmallowSetNetworkForSocket(network_handle, socket_fd);
@@ -298,7 +262,7 @@ rtc::NetworkBindingResult AndroidNetworkMonitor::BindSocketToNetwork(
       // avoid doing any disk IO.
       void* lib = dlopen(net_library_path.c_str(), RTLD_NOW | RTLD_NOLOAD);
       if (lib == nullptr) {
-        LOG(LS_ERROR) << "Library " << net_library_path << " not found!";
+        RTC_LOG(LS_ERROR) << "Library " << net_library_path << " not found!";
         return rtc::NetworkBindingResult::NOT_IMPLEMENTED;
       }
       lollipopSetNetworkForSocket =
@@ -306,7 +270,7 @@ rtc::NetworkBindingResult AndroidNetworkMonitor::BindSocketToNetwork(
               dlsym(lib, "setNetworkForSocket"));
     }
     if (!lollipopSetNetworkForSocket) {
-      LOG(LS_ERROR) << "Symbol lollipopSetNetworkForSocket is not found ";
+      RTC_LOG(LS_ERROR) << "Symbol lollipopSetNetworkForSocket is not found ";
       return rtc::NetworkBindingResult::NOT_IMPLEMENTED;
     }
     rv = lollipopSetNetworkForSocket(network_handle, socket_fd);
@@ -335,7 +299,7 @@ void AndroidNetworkMonitor::OnNetworkConnected(
 
 void AndroidNetworkMonitor::OnNetworkConnected_w(
     const NetworkInformation& network_info) {
-  LOG(LS_INFO) << "Network connected: " << network_info.ToString();
+  RTC_LOG(LS_INFO) << "Network connected: " << network_info.ToString();
   adapter_type_by_name_[network_info.interface_name] =
       AdapterTypeFromNetworkType(network_info.type);
   network_info_by_handle_[network_info.handle] = network_info;
@@ -345,7 +309,7 @@ void AndroidNetworkMonitor::OnNetworkConnected_w(
 }
 
 void AndroidNetworkMonitor::OnNetworkDisconnected(NetworkHandle handle) {
-  LOG(LS_INFO) << "Network disconnected for handle " << handle;
+  RTC_LOG(LS_INFO) << "Network disconnected for handle " << handle;
   worker_thread()->Invoke<void>(
       RTC_FROM_HERE,
       rtc::Bind(&AndroidNetworkMonitor::OnNetworkDisconnected_w, this, handle));
@@ -366,8 +330,8 @@ void AndroidNetworkMonitor::SetNetworkInfos(
   RTC_CHECK(thread_checker_.CalledOnValidThread());
   network_handle_by_address_.clear();
   network_info_by_handle_.clear();
-  LOG(LS_INFO) << "Android network monitor found " << network_infos.size()
-               << " networks";
+  RTC_LOG(LS_INFO) << "Android network monitor found " << network_infos.size()
+                   << " networks";
   for (NetworkInformation network : network_infos) {
     OnNetworkConnected_w(network);
   }
@@ -380,67 +344,47 @@ rtc::AdapterType AndroidNetworkMonitor::GetAdapterType(
                               ? rtc::ADAPTER_TYPE_UNKNOWN
                               : iter->second;
   if (type == rtc::ADAPTER_TYPE_UNKNOWN) {
-    LOG(LS_WARNING) << "Get an unknown type for the interface " << if_name;
+    RTC_LOG(LS_WARNING) << "Get an unknown type for the interface " << if_name;
   }
   return type;
 }
 
 rtc::NetworkMonitorInterface*
 AndroidNetworkMonitorFactory::CreateNetworkMonitor() {
-  return new AndroidNetworkMonitor();
+  return new AndroidNetworkMonitor(AttachCurrentThreadIfNeeded());
 }
 
-JNI_FUNCTION_DECLARATION(void,
-                         NetworkMonitor_nativeNotifyConnectionTypeChanged,
-                         JNIEnv* jni,
-                         jobject j_monitor,
-                         jlong j_native_monitor) {
-  rtc::NetworkMonitorInterface* network_monitor =
-      reinterpret_cast<rtc::NetworkMonitorInterface*>(j_native_monitor);
-  network_monitor->OnNetworksChanged();
+void AndroidNetworkMonitor::NotifyConnectionTypeChanged(JNIEnv* env,
+                                                        jobject j_caller) {
+  OnNetworksChanged();
 }
 
-JNI_FUNCTION_DECLARATION(void,
-                         NetworkMonitor_nativeNotifyOfActiveNetworkList,
-                         JNIEnv* jni,
-                         jobject j_monitor,
-                         jlong j_native_monitor,
-                         jobjectArray j_network_infos) {
-  AndroidNetworkMonitor* network_monitor =
-      reinterpret_cast<AndroidNetworkMonitor*>(j_native_monitor);
+void AndroidNetworkMonitor::NotifyOfActiveNetworkList(
+    JNIEnv* env,
+    jobject j_caller,
+    jobjectArray j_network_infos) {
   std::vector<NetworkInformation> network_infos;
-  size_t num_networks = jni->GetArrayLength(j_network_infos);
+  size_t num_networks = env->GetArrayLength(j_network_infos);
   for (size_t i = 0; i < num_networks; ++i) {
-    jobject j_network_info = jni->GetObjectArrayElement(j_network_infos, i);
-    CHECK_EXCEPTION(jni) << "Error during GetObjectArrayElement";
-    network_infos.push_back(GetNetworkInformationFromJava(jni, j_network_info));
+    jobject j_network_info = env->GetObjectArrayElement(j_network_infos, i);
+    CHECK_EXCEPTION(env) << "Error during GetObjectArrayElement";
+    network_infos.push_back(GetNetworkInformationFromJava(env, j_network_info));
   }
-  network_monitor->SetNetworkInfos(network_infos);
+  SetNetworkInfos(network_infos);
 }
 
-JNI_FUNCTION_DECLARATION(void,
-                         NetworkMonitor_nativeNotifyOfNetworkConnect,
-                         JNIEnv* jni,
-                         jobject j_monitor,
-                         jlong j_native_monitor,
-                         jobject j_network_info) {
-  AndroidNetworkMonitor* network_monitor =
-      reinterpret_cast<AndroidNetworkMonitor*>(j_native_monitor);
+void AndroidNetworkMonitor::NotifyOfNetworkConnect(JNIEnv* env,
+                                                   jobject j_caller,
+                                                   jobject j_network_info) {
   NetworkInformation network_info =
-      GetNetworkInformationFromJava(jni, j_network_info);
-  network_monitor->OnNetworkConnected(network_info);
+      GetNetworkInformationFromJava(env, j_network_info);
+  OnNetworkConnected(network_info);
 }
 
-JNI_FUNCTION_DECLARATION(void,
-                         NetworkMonitor_nativeNotifyOfNetworkDisconnect,
-                         JNIEnv* jni,
-                         jobject j_monitor,
-                         jlong j_native_monitor,
-                         jlong network_handle) {
-  AndroidNetworkMonitor* network_monitor =
-      reinterpret_cast<AndroidNetworkMonitor*>(j_native_monitor);
-  network_monitor->OnNetworkDisconnected(
-      static_cast<NetworkHandle>(network_handle));
+void AndroidNetworkMonitor::NotifyOfNetworkDisconnect(JNIEnv* env,
+                                                      jobject j_caller,
+                                                      jlong network_handle) {
+  OnNetworkDisconnected(static_cast<NetworkHandle>(network_handle));
 }
 
 }  // namespace jni

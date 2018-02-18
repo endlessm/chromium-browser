@@ -12,31 +12,28 @@
 #ifndef V8StringSequenceCallbackFunctionLongSequenceArg_h
 #define V8StringSequenceCallbackFunctionLongSequenceArg_h
 
-#include "bindings/core/v8/NativeValueTraits.h"
 #include "core/CoreExport.h"
 #include "platform/bindings/CallbackFunctionBase.h"
-#include "platform/bindings/ScriptWrappable.h"
-#include "platform/bindings/TraceWrapperV8Reference.h"
-#include "platform/heap/Handle.h"
-#include "platform/wtf/text/WTFString.h"
 
 namespace blink {
 
+class ScriptWrappable;
+
 class CORE_EXPORT V8StringSequenceCallbackFunctionLongSequenceArg final : public CallbackFunctionBase {
  public:
-  static V8StringSequenceCallbackFunctionLongSequenceArg* Create(ScriptState*, v8::Local<v8::Value> callback);
+  static V8StringSequenceCallbackFunctionLongSequenceArg* Create(v8::Local<v8::Function> callback_function) {
+    return new V8StringSequenceCallbackFunctionLongSequenceArg(callback_function);
+  }
 
-  ~V8StringSequenceCallbackFunctionLongSequenceArg() = default;
+  ~V8StringSequenceCallbackFunctionLongSequenceArg() override = default;
 
-  bool call(ScriptWrappable* scriptWrappable, const Vector<int32_t>& arg, Vector<String>& returnValue);
+  // Performs "invoke".
+  // https://heycam.github.io/webidl/#es-invoking-callback-functions
+  v8::Maybe<Vector<String>> Invoke(ScriptWrappable* callback_this_value, const Vector<int32_t>& arg) WARN_UNUSED_RESULT;
 
  private:
-  V8StringSequenceCallbackFunctionLongSequenceArg(ScriptState*, v8::Local<v8::Function>);
-};
-
-template <>
-struct NativeValueTraits<V8StringSequenceCallbackFunctionLongSequenceArg> : public NativeValueTraitsBase<V8StringSequenceCallbackFunctionLongSequenceArg> {
-  CORE_EXPORT static V8StringSequenceCallbackFunctionLongSequenceArg* NativeValue(v8::Isolate*, v8::Local<v8::Value>, ExceptionState&);
+  explicit V8StringSequenceCallbackFunctionLongSequenceArg(v8::Local<v8::Function> callback_function)
+      : CallbackFunctionBase(callback_function) {}
 };
 
 }  // namespace blink

@@ -21,5 +21,9 @@ rtc::scoped_refptr<AudioEncoderFactory> CreateAudioEncoderFactory() {
   return nullptr;
 }
 
+rtc::scoped_refptr<AudioProcessing> CreateAudioProcessing() {
+  return nullptr;
+}
+
 }  // namespace jni
 }  // namespace webrtc

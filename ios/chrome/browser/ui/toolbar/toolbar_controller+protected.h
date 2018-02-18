@@ -5,24 +5,29 @@
 #ifndef IOS_CHROME_BROWSER_UI_TOOLBAR_TOOLBAR_CONTROLLER_PROTECTED_H_
 #define IOS_CHROME_BROWSER_UI_TOOLBAR_TOOLBAR_CONTROLLER_PROTECTED_H_
 
+#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_constants.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_controller.h"
-#import "ios/chrome/browser/ui/toolbar/toolbar_controller_constants.h"
 
 @interface ToolbarController (Protected)
-
-// Animation key used for toolbar transition animations.
-extern NSString* const kToolbarTransitionAnimationKey;
 
 // An array of CALayers that are currently animating under
 // kToolbarTransitionAnimationKey.
 @property(nonatomic, readonly) NSMutableArray* transitionLayers;
 
+// UIViewPropertyAnimator for expanding the location bar.
+@property(nonatomic, strong)
+    UIViewPropertyAnimator* omniboxExpanderAnimator API_AVAILABLE(ios(10.0));
+
+// UIViewPropertyAnimator for contracting the location bar.
+@property(nonatomic, strong)
+    UIViewPropertyAnimator* omniboxContractorAnimator API_AVAILABLE(ios(10.0));
+
+// The view containing all the content of the toolbar. It respects the trailing
+// and leading anchors of the safe area.
+@property(nonatomic, readonly, strong) UIView* contentView;
+
 // Update share button visibility and |standardButtons_| array.
 - (void)updateStandardButtons;
-
-// Height and Y offset to account for the status bar. Overridden by subclasses
-// if the toolbar shouldn't extend through the status bar.
-- (CGFloat)statusBarOffset;
 
 // Called when buttons are pressed. Records action metrics.
 // Subclasses must call |super| if they override this method.
@@ -68,9 +73,6 @@ extern NSString* const kToolbarTransitionAnimationKey;
                      style:(ToolbarControllerStyle)style
                   forState:(ToolbarButtonUIState)state;
 
-// Creates a hash of the UI state of the toolbar.
-- (uint32_t)snapshotHash;
-
 // Adds transition animations to every UIButton in |containerView| with a
 // nonzero opacity.
 - (void)animateTransitionForButtonsInView:(UIView*)containerView
@@ -90,6 +92,31 @@ extern NSString* const kToolbarTransitionAnimationKey;
 // Animates the tools menu button and stack button for full bleed omnibox
 // animation used for Material.
 - (void)animateStandardControlsForOmniboxExpansion:(BOOL)growOmnibox;
+
+// Animates in the standard Toolbar buttons when the Location bar is
+// contracting.
+- (void)configureFadeInAnimation API_AVAILABLE(ios(10.0));
+
+// Animates out the standard Toolbar buttons when the Location bar is expanding.
+- (void)configureFadeOutAnimation API_AVAILABLE(ios(10.0));
+
+// Sets up |button| with images named by the given |imageEnum| and the current
+// toolbar style.  Sets images synchronously for |initialState|, and
+// asynchronously for the other states. Optionally sets the image for the
+// disabled state as well.  Meant to be called during initialization.
+// Note:  |withImageEnum| should be one of the ToolbarButtonName values, or an
+// extended value provided by a subclass.  It is an int to support
+// "subclassing" of the enum and overriding helper functions.
+- (void)setUpButton:(UIButton*)button
+       withImageEnum:(int)imageEnum
+     forInitialState:(UIControlState)initialState
+    hasDisabledImage:(BOOL)hasDisabledImage
+       synchronously:(BOOL)synchronously;
+
+// TRUE if |imageEnum| should be flipped when in RTL layout.
+// Currently none of this class' images have this property, but subclasses
+// can override this method if they need to flip some of their images.
+- (BOOL)imageShouldFlipForRightToLeftLayoutDirection:(int)imageEnum;
 
 @end
 

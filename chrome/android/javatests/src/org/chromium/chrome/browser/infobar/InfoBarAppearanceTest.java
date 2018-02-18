@@ -12,13 +12,10 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeSwitches;
-import org.chromium.chrome.browser.interventions.FramebustBlockMessageDelegate;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.test.ScreenShooter;
 import org.chromium.chrome.test.ChromeActivityTestRule;
@@ -61,33 +58,31 @@ public class InfoBarAppearanceTest {
     @Test
     @MediumTest
     @Feature({"InfoBars", "Catalogue"})
-    public void testNotifyInfoBar() throws Exception {
-        TestFramebustBlockMessageDelegate messageDelegate = new TestFramebustBlockMessageDelegate();
-        FramebustBlockInfoBar infobar = new FramebustBlockInfoBar(messageDelegate);
-
-        captureMiniAndRegularInfobar(infobar, messageDelegate);
+    public void testFramebustBlockInfoBar() throws Exception {
+        FramebustBlockInfoBar infobar = new FramebustBlockInfoBar("http://very.evil.biz");
+        captureMiniAndRegularInfobar(infobar);
     }
 
     @Test
     @MediumTest
     @Feature({"InfoBars", "Catalogue"})
-    public void testNotifyInfoBarWithLongMessages() throws Exception {
-        TestFramebustBlockMessageDelegate messageDelegate =
-                new TestFramebustBlockMessageDelegate() {
-                    @Override
-                    public String getShortMessage() {
-                        // Use a long message in the mini-infobar state to verify the behaviour with
-                        // a longer text or for more verbose languages.
-                        return getLongMessage();
-                    }
-                };
-        FramebustBlockInfoBar infobar = new FramebustBlockInfoBar(messageDelegate);
-
-        captureMiniAndRegularInfobar(infobar, messageDelegate);
+    public void testFramebustBlockInfoBarWithLongMessages() throws Exception {
+        FramebustBlockInfoBar infobar = new FramebustBlockInfoBar("https://someverylonglink"
+                + "thatwilldefinitelynotfitevenwhenremovingthefilepath.com/somemorestuff");
+        captureMiniAndRegularInfobar(infobar);
     }
 
-    private void captureMiniAndRegularInfobar(
-            InfoBar infobar, TestFramebustBlockMessageDelegate delegate)
+    @Test
+    @MediumTest
+    @Feature({"InfoBars", "Catalogue"})
+    public void testOomInfoBar() throws TimeoutException, InterruptedException {
+        ThreadUtils.runOnUiThreadBlocking(
+                () -> mTab.getInfoBarContainer().addInfoBarForTesting(new NearOomInfoBar()));
+        mListener.addInfoBarAnimationFinished("InfoBar was not added.");
+        mScreenShooter.shoot("oom_infobar");
+    }
+
+    private void captureMiniAndRegularInfobar(InfoBar infobar)
             throws TimeoutException, InterruptedException {
         ThreadUtils.runOnUiThreadBlocking(
                 () -> mTab.getInfoBarContainer().addInfoBarForTesting(infobar));
@@ -97,38 +92,5 @@ public class InfoBarAppearanceTest {
         ThreadUtils.runOnUiThreadBlocking(infobar::onLinkClicked);
         mListener.swapInfoBarAnimationFinished("InfoBar did not expand.");
         mScreenShooter.shoot("expanded");
-
-        ThreadUtils.runOnUiThreadBlocking(infobar::onLinkClicked);
-        delegate.linkTappedHelper.waitForCallback("link was not tapped.", 0);
-    }
-
-    private static class TestFramebustBlockMessageDelegate
-            implements FramebustBlockMessageDelegate {
-        public final CallbackHelper linkTappedHelper = new CallbackHelper();
-
-        @Override
-        public String getLongMessage() {
-            return "This is the long description for a notify infobar. FYI stuff happened.";
-        }
-
-        @Override
-        public String getShortMessage() {
-            return "Stuff happened.";
-        }
-
-        @Override
-        public String getBlockedUrl() {
-            return "http://very.evil.biz";
-        }
-
-        @Override
-        public int getIconResourceId() {
-            return R.drawable.star_green;
-        }
-
-        @Override
-        public void onLinkTapped() {
-            linkTappedHelper.notifyCalled();
-        }
     }
 }

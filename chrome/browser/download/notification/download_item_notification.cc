@@ -18,10 +18,9 @@
 #include "chrome/browser/download/download_crx_util.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/notification/download_notification_manager.h"
-#include "chrome/browser/notifications/notification.h"
-#include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/notifications/notification_display_service_factory.h"
+#include "chrome/browser/notifications/notification_handler.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
@@ -44,6 +43,7 @@
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/message_center/notification.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
 #include "ui/message_center/public/cpp/message_center_switches.h"
 
@@ -183,23 +183,21 @@ DownloadItemNotification::DownloadItemNotification(
   // overridden by UpdateNotificationData() below.
   message_center::RichNotificationData rich_notification_data;
   rich_notification_data.should_make_spoken_feedback_for_popup_updates = false;
-  // Dangerous notifications don't have a click handler.
-  rich_notification_data.clickable = !item_->IsDangerous();
-  notification_ = std::make_unique<Notification>(
+  notification_ = std::make_unique<message_center::Notification>(
       message_center::NOTIFICATION_TYPE_PROGRESS, GetNotificationId(),
       base::string16(),  // title
       base::string16(),  // body
       gfx::Image(),      // icon
-      message_center::NotifierId(message_center::NotifierId::SYSTEM_COMPONENT,
-                                 kDownloadNotificationNotifierId),
       l10n_util::GetStringUTF16(
           IDS_DOWNLOAD_NOTIFICATION_DISPLAY_SOURCE),  // display_source
       GURL(kDownloadNotificationOrigin),              // origin_url
-      GetNotificationId(),                            // tag
+      message_center::NotifierId(message_center::NotifierId::SYSTEM_COMPONENT,
+                                 kDownloadNotificationNotifierId),
       rich_notification_data, nullptr);
 
   notification_->set_progress(0);
-  notification_->set_never_timeout(false);
+  // Dangerous notifications don't have a click handler.
+  notification_->set_clickable(!item_->IsDangerous());
 
   Update();
 }
@@ -221,7 +219,7 @@ void DownloadItemNotification::OnDownloadRemoved(content::DownloadItem* item) {
 
   // Removing the notification causes calling |NotificationDelegate::Close()|.
   NotificationDisplayServiceFactory::GetForProfile(profile())->Close(
-      NotificationCommon::DOWNLOAD, GetNotificationId());
+      NotificationHandler::Type::DOWNLOAD, GetNotificationId());
 
   item_ = nullptr;
 }
@@ -236,7 +234,7 @@ void DownloadItemNotification::DisablePopup() {
   notification_->set_priority(message_center::LOW_PRIORITY);
   closed_ = false;
   NotificationDisplayServiceFactory::GetForProfile(profile())->Display(
-      NotificationCommon::DOWNLOAD, GetNotificationId(), *notification_);
+      NotificationHandler::Type::DOWNLOAD, *notification_);
 }
 
 void DownloadItemNotification::OnNotificationClose() {
@@ -322,7 +320,7 @@ std::string DownloadItemNotification::GetNotificationId() const {
 
 void DownloadItemNotification::CloseNotification() {
   NotificationDisplayServiceFactory::GetForProfile(profile())->Close(
-      NotificationCommon::DOWNLOAD, GetNotificationId());
+      NotificationHandler::Type::DOWNLOAD, GetNotificationId());
 }
 
 void DownloadItemNotification::Update() {
@@ -429,7 +427,7 @@ void DownloadItemNotification::UpdateNotificationData(bool display,
       notification_->set_priority(notification_->priority() + 1);
     }
     NotificationDisplayServiceFactory::GetForProfile(profile())->Display(
-        NotificationCommon::DOWNLOAD, GetNotificationId(), *notification_);
+        NotificationHandler::Type::DOWNLOAD, *notification_);
   }
 
   if (item_->IsDone() && image_decode_status_ == NOT_STARTED) {

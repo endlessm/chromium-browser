@@ -23,9 +23,10 @@
 #include "content/browser/bluetooth/bluetooth_device_chooser_controller.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
-#include "content/child/request_extra_data.h"
+#include "content/browser/shared_worker/shared_worker_service_impl.h"
 #include "content/common/gpu_stream_constants.h"
 #include "content/common/renderer.mojom.h"
+#include "content/common/unique_name_helper.h"
 #include "content/public/common/page_state.h"
 #include "content/public/common/screen_info.h"
 #include "content/public/renderer/renderer_gamepad_provider.h"
@@ -33,6 +34,7 @@
 #include "content/renderer/gpu/render_widget_compositor.h"
 #include "content/renderer/input/render_widget_input_handler_delegate.h"
 #include "content/renderer/layout_test_dependencies.h"
+#include "content/renderer/loader/request_extra_data.h"
 #include "content/renderer/render_frame_impl.h"
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/render_view_impl.h"
@@ -101,13 +103,13 @@ using WebWidgetTestProxyType =
                                     bool>;
 using WebFrameTestProxyType =
     test_runner::WebFrameTestProxy<RenderFrameImpl,
-                                   const RenderFrameImpl::CreateParams&>;
+                                   RenderFrameImpl::CreateParams>;
 
 RenderViewImpl* CreateWebViewTestProxy(CompositorDependencies* compositor_deps,
                                        const mojom::CreateViewParams& params) {
   WebViewTestProxyType* render_view_proxy =
       new WebViewTestProxyType(compositor_deps, params);
-  if (g_view_test_proxy_callback == 0)
+  if (g_view_test_proxy_callback == nullptr)
     return render_view_proxy;
   g_view_test_proxy_callback.Get().Run(render_view_proxy, render_view_proxy);
   return render_view_proxy;
@@ -135,10 +137,10 @@ void RenderWidgetInitialized(RenderWidget* render_widget) {
   }
 }
 
-RenderFrameImpl* CreateWebFrameTestProxy(
-    const RenderFrameImpl::CreateParams& params) {
-  WebFrameTestProxyType* render_frame_proxy = new WebFrameTestProxyType(params);
-  if (g_frame_test_proxy_callback == 0)
+RenderFrameImpl* CreateWebFrameTestProxy(RenderFrameImpl::CreateParams params) {
+  WebFrameTestProxyType* render_frame_proxy =
+      new WebFrameTestProxyType(std::move(params));
+  if (g_frame_test_proxy_callback == nullptr)
     return render_frame_proxy;
   g_frame_test_proxy_callback.Get().Run(render_frame_proxy, render_frame_proxy);
   return render_frame_proxy;
@@ -154,12 +156,9 @@ float GetWindowToViewportScale(RenderWidget* render_widget) {
 // DirectWrite only has access to %WINDIR%\Fonts by default. For developer
 // side-loading, support kRegisterFontFiles to allow access to additional fonts.
 void RegisterSideloadedTypefaces(SkFontMgr* fontmgr) {
-  std::vector<std::string> files = switches::GetSideloadFontFiles();
-  for (std::vector<std::string>::const_iterator i(files.begin());
-       i != files.end();
-       ++i) {
-    SkTypeface* typeface = fontmgr->makeFromFile(i->c_str()).release();
-    blink::WebFontRendering::AddSideloadedFontForTesting(typeface);
+  for (const auto& file : switches::GetSideloadFontFiles()) {
+    blink::WebFontRendering::AddSideloadedFontForTesting(
+        fontmgr->makeFromFile(file.c_str()));
   }
 }
 #endif  // OS_WIN
@@ -352,7 +351,7 @@ class LayoutTestDependenciesImpl : public LayoutTestDependencies,
 
     constexpr bool disable_display_vsync = false;
     constexpr double refresh_rate = 60.0;
-    auto layer_tree_frame_sink = base::MakeUnique<viz::TestLayerTreeFrameSink>(
+    auto layer_tree_frame_sink = std::make_unique<viz::TestLayerTreeFrameSink>(
         std::move(compositor_context_provider),
         std::move(worker_context_provider), nullptr /* shared_bitmap_manager */,
         gpu_memory_buffer_manager, renderer_settings, task_runner,
@@ -369,7 +368,7 @@ class LayoutTestDependenciesImpl : public LayoutTestDependencies,
     // may not have been created yet. Instead, we wait until OnCommit to find
     // the currently active LayerTreeFrameSink for the given RenderWidget
     // routing_id.
-    return base::MakeUnique<CopyRequestSwapPromise>(
+    return std::make_unique<CopyRequestSwapPromise>(
         std::move(request),
         base::Bind(
             &LayoutTestDependenciesImpl::FindLayerTreeFrameSink,
@@ -407,7 +406,7 @@ class LayoutTestDependenciesImpl : public LayoutTestDependencies,
     context_provider->BindToCurrentThread();
 
     bool flipped_output_surface = false;
-    return base::MakeUnique<cc::PixelTestOutputSurface>(
+    return std::make_unique<cc::PixelTestOutputSurface>(
         std::move(context_provider), flipped_output_surface);
   }
   void DisplayReceivedLocalSurfaceId(
@@ -436,7 +435,9 @@ class LayoutTestDependenciesImpl : public LayoutTestDependencies,
 
 void EnableRendererLayoutTestMode() {
   RenderThreadImpl::current()->set_layout_test_dependencies(
-      base::MakeUnique<LayoutTestDependenciesImpl>());
+      std::make_unique<LayoutTestDependenciesImpl>());
+
+  UniqueNameHelper::PreserveStableUniqueNameForTesting();
 
 #if defined(OS_WIN)
   RegisterSideloadedTypefaces(SkFontMgr_New_DirectWrite().get());
@@ -449,6 +450,11 @@ void EnableBrowserLayoutTestMode() {
   PopupMenuHelper::DontShowPopupMenuForTesting();
 #endif
   RenderWidgetHostImpl::DisableResizeAckCheckForTesting();
+}
+
+void TerminateAllSharedWorkersForTesting(base::OnceClosure callback) {
+  static_cast<SharedWorkerServiceImpl*>(SharedWorkerService::GetInstance())
+      ->TerminateAllWorkersForTesting(std::move(callback));
 }
 
 int GetLocalSessionHistoryLength(RenderView* render_view) {

@@ -16,7 +16,7 @@
  */
 unpacker.Compressor = function(naclModule, items) {
   /**
-   * @private {!Object}
+   * @private {Object}
    * @const
    */
   this.naclModule_ = naclModule;
@@ -154,14 +154,24 @@ unpacker.Compressor.prototype.getArchiveName = function() {
  * @param {function(!unpacker.types.CompressorId)} onSuccess
  * @param {function(!unpacker.types.CompressorId)} onError
  * @param {function(!unpacker.types.CompressorId, number)} onProgress
+ * @param {function(!unpacker.types.CompressorId)} onCancel
  */
 unpacker.Compressor.prototype.compress = function(
-    onSuccess, onError, onProgress) {
+    onSuccess, onError, onProgress, onCancel) {
   this.onSuccess_ = onSuccess;
   this.onError_ = onError;
   this.onProgress_ = onProgress;
+  this.onCancel_ = onCancel;
 
   this.getArchiveFile_();
+};
+
+/**
+ * Returns archive file entry.
+ * @return {FileEntry}
+ */
+unpacker.Compressor.prototype.archiveFileEntry = function() {
+  return this.archiveFileEntry_;
 };
 
 /**
@@ -359,6 +369,16 @@ unpacker.Compressor.prototype.sendAddToArchiveRequest_ = function() {
 };
 
 /**
+ * Sends a release compressor request to NaCl module. Zip Archiver releases
+ * objects obtainted in the packing process.
+ */
+unpacker.Compressor.prototype.sendReleaseCompressor = function() {
+  var request =
+      unpacker.request.createReleaseCompressorRequest(this.compressorId_);
+  this.naclModule_.postMessage(request);
+};
+
+/**
  * Sends a close archive request to minizip. minizip writes metadata of
  * the archive itself on the archive and releases objects obtainted in the
  * packing process.
@@ -366,6 +386,14 @@ unpacker.Compressor.prototype.sendAddToArchiveRequest_ = function() {
 unpacker.Compressor.prototype.sendCloseArchiveRequest = function(hasError) {
   var request =
       unpacker.request.createCloseArchiveRequest(this.compressorId_, hasError);
+  this.naclModule_.postMessage(request);
+};
+
+/**
+ * Sends a cancel archive request to minizip and interrupts zip process.
+ */
+unpacker.Compressor.prototype.sendCancelArchiveRequest = function() {
+  var request = unpacker.request.createCancelArchiveRequest(this.compressorId_);
   this.naclModule_.postMessage(request);
 };
 
@@ -538,6 +566,16 @@ unpacker.Compressor.prototype.onCloseArchiveDone_ = function() {
 };
 
 /**
+ * A handler of cancel archive response. Receiving this response means that we
+ * do not expect new requests from Zip Archiver.
+ * @private
+ */
+unpacker.Compressor.prototype.onCancelArchiveDone_ = function() {
+  console.warn('Archive for "' + this.compressorId_ + '" has been canceled.');
+  this.onCancel_(this.compressorId_);
+};
+
+/**
  * Processes messages from NaCl module.
  * @param {!Object} data The data contained in the message from NaCl. Its
  *     types depend on the operation of the request.
@@ -570,7 +608,13 @@ unpacker.Compressor.prototype.processMessage = function(data, operation) {
       break;
 
     case unpacker.request.Operation.CLOSE_ARCHIVE_DONE:
+      this.sendReleaseCompressor();
       this.onCloseArchiveDone_();
+      break;
+
+    case unpacker.request.Operation.CANCEL_ARCHIVE_DONE:
+      this.sendReleaseCompressor();
+      this.onCancelArchiveDone_();
       break;
 
     case unpacker.request.Operation.COMPRESSOR_ERROR:
@@ -578,11 +622,13 @@ unpacker.Compressor.prototype.processMessage = function(data, operation) {
           'Compressor error for compressor id ' + this.compressorId_ + ': ' +
           data[unpacker.request.Key.ERROR]);  // The error contains
                                               // the '.' at the end.
+      this.sendReleaseCompressor();
       this.onError_(this.compressorId_);
       break;
 
     default:
       console.error('Invalid NaCl operation: ' + operation + '.');
+      this.sendReleaseCompressor();
       this.onError_(this.compressorId_);
   }
 };

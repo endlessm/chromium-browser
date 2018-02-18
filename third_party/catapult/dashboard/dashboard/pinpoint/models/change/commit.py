@@ -29,6 +29,16 @@ class Commit(collections.namedtuple('Commit', ('repository', 'git_hash'))):
     """The HTTPS URL of the repository as passed to `git clone`."""
     return repository_module.RepositoryUrl(self.repository)
 
+  def Details(self):
+    """The details of this Commit, including author and message, as a dict.
+
+    Returns:
+      A dictionary containing the author, message, time, file changes, and other
+      information. See services/gitiles_service_test.py for an example.
+    """
+    # TODO: Store the commit info in the datastore and make this a property.
+    return gitiles_service.CommitInfo(self.repository_url, self.git_hash)
+
   def Deps(self):
     """Return the DEPS of this Commit as a frozenset of Commits."""
     # Download and execute DEPS file.
@@ -91,12 +101,17 @@ class Commit(collections.namedtuple('Commit', ('repository', 'git_hash'))):
     if repository.startswith('https://'):
       repository = repository_module.Repository(repository)
 
-    commit = cls(repository, data['git_hash'])
+    git_hash = data['git_hash']
 
     try:
-      gitiles_service.CommitInfo(commit.repository_url, commit.git_hash)
+      # If they send in something like HEAD, resolve to a hash.
+      repository_url = repository_module.RepositoryUrl(repository)
+      result = gitiles_service.CommitInfo(repository_url, git_hash)
+      git_hash = result['commit']
     except gitiles_service.NotFoundError as e:
       raise KeyError(str(e))
+
+    commit = cls(repository, git_hash)
 
     return commit
 

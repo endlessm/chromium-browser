@@ -10,12 +10,15 @@
 #include "base/callback_helpers.h"
 #include "chrome/browser/android/vr_shell/vr_metrics_util.h"
 #include "chrome/browser/android/vr_shell/vr_shell.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/component_updater/vr_assets_component_installer.h"
+#include "chrome/browser/vr/assets.h"
+#include "chrome/browser/vr/metrics_helper.h"
 #include "chrome/browser/vr/service/vr_device_manager.h"
 #include "chrome/browser/vr/service/vr_service_impl.h"
 #include "content/public/browser/webvr_service_provider.h"
 #include "device/vr/android/gvr/gvr_delegate_provider_factory.h"
 #include "device/vr/android/gvr/gvr_device.h"
-#include "device/vr/vr_device.h"
 #include "jni/VrShellDelegate_jni.h"
 #include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr.h"
 
@@ -80,9 +83,12 @@ VrShellDelegate* VrShellDelegate::GetNativeVrShellDelegate(
 void VrShellDelegate::SetDelegate(VrShell* vr_shell,
                                   gvr::ViewerType viewer_type) {
   vr_shell_ = vr_shell;
-  device::GvrDevice* device = static_cast<device::GvrDevice*>(GetDevice());
+  device::VRDevice* device = GetDevice();
+  // When VrShell is created, we disable magic window mode as the user is inside
+  // the headset. As currently implemented, orientation-based magic window
+  // doesn't make sense when the window is fixed and the user is moving.
   if (device)
-    device->SetInBrowsingMode(true);
+    device->SetMagicWindowEnabled(false);
 
   if (pending_successful_present_request_) {
     CHECK(!present_callback_.is_null());
@@ -95,9 +101,9 @@ void VrShellDelegate::SetDelegate(VrShell* vr_shell,
 
 void VrShellDelegate::RemoveDelegate() {
   vr_shell_ = nullptr;
-  device::GvrDevice* device = static_cast<device::GvrDevice*>(GetDevice());
+  device::VRDevice* device = GetDevice();
   if (device) {
-    device->SetInBrowsingMode(false);
+    device->SetMagicWindowEnabled(true);
     device->OnExitPresent();
   }
 }
@@ -140,11 +146,11 @@ void VrShellDelegate::OnPresentResult(
 
 void VrShellDelegate::DisplayActivate(JNIEnv* env,
                                       const JavaParamRef<jobject>& obj) {
-  device::VRDevice* device = GetDevice();
+  device::GvrDevice* device = static_cast<device::GvrDevice*>(GetDevice());
   if (device) {
-    device->OnActivate(device::mojom::VRDisplayEventReason::MOUNTED,
-                       base::Bind(&VrShellDelegate::OnActivateDisplayHandled,
-                                  weak_ptr_factory_.GetWeakPtr()));
+    device->Activate(device::mojom::VRDisplayEventReason::MOUNTED,
+                     base::Bind(&VrShellDelegate::OnActivateDisplayHandled,
+                                weak_ptr_factory_.GetWeakPtr()));
   } else {
     OnActivateDisplayHandled(true /* will_not_present */);
   }
@@ -178,9 +184,12 @@ void VrShellDelegate::Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj) {
 void VrShellDelegate::SetDeviceId(unsigned int device_id) {
   device_id_ = device_id;
   if (vr_shell_) {
-    device::GvrDevice* device = static_cast<device::GvrDevice*>(GetDevice());
+    device::VRDevice* device = GetDevice();
+    // See comment in VrShellDelegate::SetDelegate. This handles the case where
+    // VrShell is created before the device/ code is initialized (like when
+    // entering VR browsing on a non-webVR page).
     if (device)
-      device->SetInBrowsingMode(true);
+      device->SetMagicWindowEnabled(false);
   }
 }
 
@@ -259,15 +268,28 @@ device::VRDevice* VrShellDelegate::GetDevice() {
 // Native JNI methods
 // ----------------------------------------------------------------------------
 
-jlong Init(JNIEnv* env, const JavaParamRef<jobject>& obj) {
+jlong JNI_VrShellDelegate_Init(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   return reinterpret_cast<intptr_t>(new VrShellDelegate(env, obj));
 }
 
-static void OnLibraryAvailable(JNIEnv* env, const JavaParamRef<jclass>& clazz) {
+static void JNI_VrShellDelegate_OnLibraryAvailable(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz) {
   device::GvrDelegateProviderFactory::Install(
       new VrShellDelegateProviderFactory);
-  content::WebvrServiceProvider::SetWebvrServiceCallback(
-      base::Bind(&vr::VRServiceImpl::Create));
+}
+
+static void JNI_VrShellDelegate_RegisterVrAssetsComponent(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz) {
+  component_updater::RegisterVrAssetsComponent(
+      g_browser_process->component_updater());
+}
+
+static void JNI_VrShellDelegate_OnChromeStarted(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz) {
+  vr::Assets::GetInstance()->GetMetricsHelper()->OnChromeStarted();
 }
 
 }  // namespace vr_shell

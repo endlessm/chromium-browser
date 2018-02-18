@@ -37,12 +37,12 @@ using content::BrowserThread;
 
 namespace {
 
-base::FilePath::CharType kExternalExtensionJson[] =
+constexpr base::FilePath::CharType kExternalExtensionJson[] =
     FILE_PATH_LITERAL("external_extensions.json");
 
 std::set<base::FilePath> GetPrefsCandidateFilesFromFolder(
       const base::FilePath& external_extension_search_path) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   std::set<base::FilePath> external_extension_paths;
 
@@ -234,7 +234,7 @@ ExternalPrefLoader::ExtractExtensionPrefs(base::ValueDeserializer* deserializer,
 }
 
 void ExternalPrefLoader::LoadOnFileThread() {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   auto prefs = base::MakeUnique<base::DictionaryValue>();
 
@@ -272,7 +272,7 @@ void ExternalPrefLoader::LoadOnFileThread() {
 
 void ExternalPrefLoader::ReadExternalExtensionPrefFile(
     base::DictionaryValue* prefs) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   CHECK(NULL != prefs);
 
   base::FilePath json_file = base_path_.Append(kExternalExtensionJson);
@@ -310,7 +310,7 @@ void ExternalPrefLoader::ReadExternalExtensionPrefFile(
 
 void ExternalPrefLoader::ReadStandaloneExtensionPrefFiles(
     base::DictionaryValue* prefs) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   CHECK(NULL != prefs);
 
   // First list the potential .json candidates.

@@ -38,7 +38,9 @@
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
 #include "chrome/browser/net/prediction_options.h"
+#include "chrome/browser/page_load_metrics/metrics_web_contents_observer.h"
 #include "chrome/browser/page_load_metrics/observers/prerender_page_load_metrics_observer.h"
+#include "chrome/browser/page_load_metrics/page_load_tracker.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor_factory.h"
@@ -220,6 +222,61 @@ class MockNetworkChangeNotifier4G : public NetworkChangeNotifier {
   ConnectionType GetCurrentConnectionType() const override {
     return NetworkChangeNotifier::CONNECTION_4G;
   }
+};
+
+// Wait for PageLoadMetrics parse start metrics to be flushed out.
+class ParseStartMetricsWaiter
+    : public page_load_metrics::MetricsWebContentsObserver::TestingObserver {
+ public:
+  explicit ParseStartMetricsWaiter(content::WebContents* web_contents)
+      : TestingObserver(web_contents), weak_factory_(this) {}
+
+  ~ParseStartMetricsWaiter() override { CHECK_EQ(nullptr, run_loop_.get()); }
+
+  // MetricsWebContentsObserver::TestingObserver implementation.
+  void OnTrackerCreated(page_load_metrics::PageLoadTracker* tracker) override {
+    tracker->AddObserver(
+        base::MakeUnique<WaiterObserver>(weak_factory_.GetWeakPtr()));
+  }
+
+  void Wait() {
+    if (saw_metrics_)
+      return;
+
+    run_loop_ = base::MakeUnique<base::RunLoop>();
+    run_loop_->Run();
+    run_loop_ = nullptr;
+    EXPECT_TRUE(saw_metrics_);
+  }
+
+  void MarkMetricsSeen() {
+    saw_metrics_ = true;
+    if (run_loop_)
+      run_loop_->Quit();
+  }
+
+ private:
+  class WaiterObserver : public page_load_metrics::PageLoadMetricsObserver {
+   public:
+    explicit WaiterObserver(base::WeakPtr<ParseStartMetricsWaiter> waiter)
+        : waiter_(waiter) {}
+
+    void OnTimingUpdate(
+        bool is_subframe,
+        const page_load_metrics::mojom::PageLoadTiming& timing,
+        const page_load_metrics::PageLoadExtraInfo& extra_info) override {
+      if (timing.parse_timing->parse_start && waiter_) {
+        waiter_->MarkMetricsSeen();
+      }
+    }
+
+   private:
+    const base::WeakPtr<ParseStartMetricsWaiter> waiter_;
+  };
+
+  bool saw_metrics_ = false;
+  std::unique_ptr<base::RunLoop> run_loop_;
+  base::WeakPtrFactory<ParseStartMetricsWaiter> weak_factory_;
 };
 
 // Constants used in the test HTML files.
@@ -488,7 +545,7 @@ class FakeDevToolsClient : public content::DevToolsAgentHostClient {
   ~FakeDevToolsClient() override {}
   void DispatchProtocolMessage(DevToolsAgentHost* agent_host,
                                const std::string& message) override {}
-  void AgentHostClosed(DevToolsAgentHost* agent_host, bool replaced) override {}
+  void AgentHostClosed(DevToolsAgentHost* agent_host) override {}
 };
 
 // A ContentBrowserClient that cancels all prerenderers on OpenURL.
@@ -596,8 +653,6 @@ class PrerenderBrowserTest : public test_utils::PrerenderInProcessBrowserTest {
   void SetUpOnMainThread() override {
     test_utils::PrerenderInProcessBrowserTest::SetUpOnMainThread();
     prerender::PrerenderManager::SetMode(
-        prerender::PrerenderManager::PRERENDER_MODE_ENABLED);
-    prerender::PrerenderManager::SetInstantMode(
         prerender::PrerenderManager::PRERENDER_MODE_ENABLED);
     prerender::PrerenderManager::SetOmniboxMode(
         prerender::PrerenderManager::PRERENDER_MODE_ENABLED);
@@ -1098,14 +1153,18 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PageLoadMetricsPrerender) {
   test_utils::FirstContentfulPaintManagerWaiter* prerender_fcp_waiter =
       test_utils::FirstContentfulPaintManagerWaiter::Create(
           GetPrerenderManager());
+  std::unique_ptr<ParseStartMetricsWaiter> metrics_waiter =
+      std::make_unique<ParseStartMetricsWaiter>(
+          browser()->tab_strip_model()->GetActiveWebContents());
   PrerenderTestURL("/prerender/prerender_page.html", FINAL_STATUS_USED, 1);
   NavigateToDestURL();
   prerender_fcp_waiter->Wait();
+  metrics_waiter->Wait();
 
   histogram_tester().ExpectTotalCount(
       "Prerender.websame_PrefetchTTFCP.Warm.Cacheable.Visible", 1);
 
-  // Histogram logged during the prefetch_loader.html load, but not during the
+  // Histogram logged during the prerender_loader.html load, but not during the
   // prerender.
   histogram_tester().ExpectTotalCount(
       "PageLoad.ParseTiming.NavigationToParseStart", 1);
@@ -1528,56 +1587,6 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
   NavigateToURL("/prerender/prerender_page.html");
 }
 
-// Checks that the PrefetchTTFCP histogram is recorded across the client
-// redirect when the referring page is Google.
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       PrerenderLocationReplaceGWSHistograms) {
-  DisableJavascriptCalls();
-
-  // The loader page should look like Google.
-  static const char kGoogleDotCom[] = "www.google.com";
-  SetLoaderHostOverride(kGoogleDotCom);
-  set_loader_path("/prerender/prerender_loader_with_replace_state.html");
-
-  GURL dest_url =
-      GetCrossDomainTestUrl("prerender/prerender_deferred_image.html");
-
-  GURL prerender_url = embedded_test_server()->GetURL(
-      "/prerender/prerender_location_replace.html?" +
-      net::EscapeQueryParamValue(dest_url.spec(), false) + "#prerender");
-  GURL::Replacements replacements;
-  replacements.SetHostStr(kGoogleDotCom);
-  prerender_url = prerender_url.ReplaceComponents(replacements);
-
-  // The prerender will not completely load until after the swap, so wait for a
-  // title change before calling DidPrerenderPass.
-  std::unique_ptr<TestPrerender> prerender =
-      PrerenderTestURL(prerender_url, FINAL_STATUS_USED, 1);
-  WaitForASCIITitle(prerender->contents()->prerender_contents(), kReadyTitle);
-  EXPECT_TRUE(DidPrerenderPass(prerender->contents()->prerender_contents()));
-  EXPECT_EQ(1, prerender->number_of_loads());
-
-  GURL navigate_url = embedded_test_server()->GetURL(
-      "/prerender/prerender_location_replace.html?" +
-      net::EscapeQueryParamValue(dest_url.spec(), false) + "#navigate");
-  navigate_url = navigate_url.ReplaceComponents(replacements);
-
-  // Open the URL and wait for the FCP.
-  test_utils::FirstContentfulPaintManagerWaiter* fcp_waiter =
-      test_utils::FirstContentfulPaintManagerWaiter::Create(
-          GetPrerenderManager());
-  current_browser()->OpenURL(OpenURLParams(navigate_url, Referrer(),
-                                           WindowOpenDisposition::CURRENT_TAB,
-                                           ui::PAGE_TRANSITION_TYPED, false));
-  fcp_waiter->Wait();
-
-  // The client redirect changes the PageLoadExtraInfo.start_url and hence the
-  // past navigation cannot be found for the histogram to be recorded as
-  // PrefetchTTFCP.Warm.
-  histogram_tester().ExpectTotalCount(
-      "Prerender.gws_PrefetchTTFCP.Reference.Cacheable.Visible", 1);
-}
-
 // Checks that client-issued redirects work with prerendering.
 // This version navigates to the final destination page, rather than the
 // page which does the redirection via a mouse click.
@@ -1866,8 +1875,6 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderAbortPendingOnCancel) {
   EXPECT_TRUE(IsEmptyPrerenderLinkManager());
 }
 
-#if !defined(OS_ANDROID)
-
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, OpenTaskManagerBeforePrerender) {
   const base::string16 any_prerender = MatchTaskManagerPrerender("*");
   const base::string16 any_tab = MatchTaskManagerTab("*");
@@ -1956,8 +1963,6 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, OpenTaskManagerAfterSwapIn) {
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(1, any_tab));
   ASSERT_NO_FATAL_FAILURE(WaitForTaskManagerRows(0, any_prerender));
 }
-
-#endif  // !defined(OS_ANDROID)
 
 // Checks that audio loads are deferred on prerendering.
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderHTML5Audio) {
@@ -3231,7 +3236,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, HttpPost) {
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, AutosigninInPrerenderer) {
   // Set up a credential in the password store.
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     PasswordStoreFactory::GetInstance()->SetTestingFactory(
         current_browser()->profile(),
         password_manager::BuildPasswordStore<

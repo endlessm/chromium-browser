@@ -35,8 +35,17 @@ case $UNAME in
   s390x)  # best-effort support for IBM s390x: crbug.com/764087
     ARCH=s390x
     ;;
+  ppc64)  # best-effort support for 64-bit PowerPC: crbug.com/773857
+    ARCH=ppc64
+    ;;
+  ppc64le)  # best-effort support for 64-bit PowerPC/LE: crbug.com/773857
+    ARCH=ppc64le
+    ;;
   aarch64)
     ARCH=arm64
+    ;;
+  armv7l)
+    ARCH=armv6l
     ;;
   arm*)
     ARCH=$UNAME

@@ -37,9 +37,8 @@ class InputDeviceControllerClient;
 namespace ash {
 
 class AccessibilityDelegate;
-class GPUSupport;
 class NetworkingConfigDelegate;
-class PaletteDelegate;
+class ScreenshotDelegate;
 class WallpaperDelegate;
 
 // Delegate of the Shell.
@@ -80,16 +79,14 @@ class ASH_EXPORT ShellDelegate {
   // Returns the delegate. May be null in tests.
   virtual NetworkingConfigDelegate* GetNetworkingConfigDelegate() = 0;
 
+  // TODO(jamescook): Replace with a mojo-compatible interface.
+  virtual std::unique_ptr<ScreenshotDelegate> CreateScreenshotDelegate() = 0;
+
   // Creates a wallpaper delegate. Shell takes ownership of the delegate.
   virtual std::unique_ptr<WallpaperDelegate> CreateWallpaperDelegate() = 0;
 
   // Creates a accessibility delegate. Shell takes ownership of the delegate.
   virtual AccessibilityDelegate* CreateAccessibilityDelegate() = 0;
-
-  virtual std::unique_ptr<PaletteDelegate> CreatePaletteDelegate() = 0;
-
-  // Creates a GPU support object. Shell takes ownership of the object.
-  virtual GPUSupport* CreateGPUSupport() = 0;
 
   // Get the product name.
   virtual base::string16 GetProductName() const = 0;

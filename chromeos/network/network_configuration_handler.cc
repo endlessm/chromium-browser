@@ -350,7 +350,7 @@ void NetworkConfigurationHandler::CreateShillConfiguration(
   properties_to_set->GetStringWithoutPathExpansion(shill::kGuidProperty, &guid);
   if (guid.empty()) {
     guid = base::GenerateGUID();
-    properties_to_set->SetKey(::onc::network_config::kGUID, base::Value(guid));
+    properties_to_set->SetKey(shill::kGuidProperty, base::Value(guid));
   }
 
   LogConfigProperties("Configure", type, *properties_to_set);
@@ -468,8 +468,7 @@ void NetworkConfigurationHandler::OnShuttingDown() {
 NetworkConfigurationHandler::NetworkConfigurationHandler()
     : network_state_handler_(nullptr), weak_ptr_factory_(this) {}
 
-NetworkConfigurationHandler::~NetworkConfigurationHandler() {
-}
+NetworkConfigurationHandler::~NetworkConfigurationHandler() = default;
 
 void NetworkConfigurationHandler::Init(
     NetworkStateHandler* network_state_handler,

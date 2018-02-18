@@ -120,6 +120,14 @@ NSButton* EyeIcon(id target, SEL action) {
   return saveButton_;
 }
 
+- (void)viewWillAppear {
+  NSView* firstResponder = saveButton_.get();
+  if ([usernameField_ isEditable] && [[usernameField_ stringValue] length] == 0)
+    firstResponder = usernameField_.get();
+  [[self.view window] setInitialFirstResponder:firstResponder];
+  [[self.view window] recalculateKeyViewLoop];
+}
+
 - (void)onEyeClicked:(id)sender {
   if (!self.model)
     return;  // The view will be destroyed soon.
@@ -172,8 +180,10 @@ NSButton* EyeIcon(id target, SEL action) {
       [[NSView alloc] initWithFrame:NSZeroRect]);
 
   // Create the elements.
-  bool enableUsernameEditing = base::FeatureList::IsEnabled(
-      password_manager::features::kEnableUsernameCorrection);
+  bool enableUsernameEditing =
+      base::FeatureList::IsEnabled(
+          password_manager::features::kEnableUsernameCorrection) &&
+      self.model->enable_editing();
   const autofill::PasswordForm& form = self.model->pending_password();
   if (enableUsernameEditing)
     usernameField_.reset([EditableField(form.username_value) retain]);

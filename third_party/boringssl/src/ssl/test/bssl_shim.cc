@@ -56,6 +56,7 @@ OPENSSL_MSVC_PRAGMA(comment(lib, "Ws2_32.lib"))
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -432,10 +433,7 @@ static ssl_private_key_result_t AsyncPrivateKeyComplete(
 }
 
 static const SSL_PRIVATE_KEY_METHOD g_async_private_key_method = {
-    nullptr /* type */,
-    nullptr /* max_signature_len */,
     AsyncPrivateKeySign,
-    nullptr /* sign_digest */,
     AsyncPrivateKeyDecrypt,
     AsyncPrivateKeyComplete,
 };
@@ -451,27 +449,6 @@ static bool GetCertificate(SSL *ssl, bssl::UniquePtr<X509> *out_x509,
                            bssl::UniquePtr<STACK_OF(X509)> *out_chain,
                            bssl::UniquePtr<EVP_PKEY> *out_pkey) {
   const TestConfig *config = GetTestConfig(ssl);
-
-  if (!config->digest_prefs.empty()) {
-    bssl::UniquePtr<char> digest_prefs(
-        OPENSSL_strdup(config->digest_prefs.c_str()));
-    std::vector<int> digest_list;
-
-    for (;;) {
-      char *token =
-          strtok(digest_list.empty() ? digest_prefs.get() : nullptr, ",");
-      if (token == nullptr) {
-        break;
-      }
-
-      digest_list.push_back(EVP_MD_type(EVP_get_digestbyname(token)));
-    }
-
-    if (!SSL_set_private_key_digest_prefs(ssl, digest_list.data(),
-                                          digest_list.size())) {
-      return false;
-    }
-  }
 
   if (!config->signing_prefs.empty()) {
     std::vector<uint16_t> u16s(config->signing_prefs.begin(),
@@ -1100,7 +1077,6 @@ static void MessageCallback(int is_write, int version, int content_type,
 // Connect returns a new socket connected to localhost on |port| or -1 on
 // error.
 static int Connect(uint16_t port) {
-  time_t start_time = time(nullptr);
   for (int af : { AF_INET6, AF_INET }) {
     int sock = socket(af, SOCK_STREAM, 0);
     if (sock == -1) {
@@ -1147,11 +1123,6 @@ static int Connect(uint16_t port) {
   }
 
   PrintSocketError("connect");
-  // TODO(davidben): Remove this logging when https://crbug.com/boringssl/199 is
-  // resolved.
-  fprintf(stderr, "start_time = %lld, end_time = %lld\n",
-          static_cast<long long>(start_time),
-          static_cast<long long>(time(nullptr)));
   return -1;
 }
 
@@ -1283,6 +1254,9 @@ static bssl::UniquePtr<SSL_CTX> SetupCtx(SSL_CTX *old_ctx,
   if (!config->use_client_ca_list.empty()) {
     if (config->use_client_ca_list == "<NULL>") {
       SSL_CTX_set_client_CA_list(ssl_ctx.get(), nullptr);
+    } else if (config->use_client_ca_list == "<EMPTY>") {
+      bssl::UniquePtr<STACK_OF(X509_NAME)> names;
+      SSL_CTX_set_client_CA_list(ssl_ctx.get(), names.release());
     } else {
       bssl::UniquePtr<STACK_OF(X509_NAME)> names =
           DecodeHexX509Names(config->use_client_ca_list);
@@ -1408,6 +1382,32 @@ static bool RetryAsync(SSL *ssl, int ret) {
   }
 }
 
+// CheckIdempotentError runs |func|, an operation on |ssl|, ensuring that
+// errors are idempotent.
+static int CheckIdempotentError(const char *name, SSL *ssl,
+                                std::function<int()> func) {
+  int ret = func();
+  int ssl_err = SSL_get_error(ssl, ret);
+  uint32_t err = ERR_peek_error();
+  if (ssl_err == SSL_ERROR_SSL || ssl_err == SSL_ERROR_ZERO_RETURN) {
+    int ret2 = func();
+    int ssl_err2 = SSL_get_error(ssl, ret2);
+    uint32_t err2 = ERR_peek_error();
+    if (ret != ret2 || ssl_err != ssl_err2 || err != err2) {
+      fprintf(stderr, "Repeating %s did not replay the error.\n", name);
+      char buf[256];
+      ERR_error_string_n(err, buf, sizeof(buf));
+      fprintf(stderr, "Wanted: %d %d %s\n", ret, ssl_err, buf);
+      ERR_error_string_n(err2, buf, sizeof(buf));
+      fprintf(stderr, "Got:    %d %d %s\n", ret2, ssl_err2, buf);
+      // runner treats exit code 90 as always failing. Otherwise, it may
+      // accidentally consider the result an expected protocol failure.
+      exit(90);
+    }
+  }
+  return ret;
+}
+
 // DoRead reads from |ssl|, resolving any asynchronous operations. It returns
 // the result value of the final |SSL_read| call.
 static int DoRead(SSL *ssl, uint8_t *out, size_t max_out) {
@@ -1421,8 +1421,10 @@ static int DoRead(SSL *ssl, uint8_t *out, size_t max_out) {
       // trigger a retransmit, so disconnect the write quota.
       AsyncBioEnforceWriteQuota(test_state->async_bio, false);
     }
-    ret = config->peek_then_read ? SSL_peek(ssl, out, max_out)
-                                 : SSL_read(ssl, out, max_out);
+    ret = CheckIdempotentError("SSL_peek/SSL_read", ssl, [&]() -> int {
+      return config->peek_then_read ? SSL_peek(ssl, out, max_out)
+                                    : SSL_read(ssl, out, max_out);
+    });
     if (config->async) {
       AsyncBioEnforceWriteQuota(test_state->async_bio, true);
     }
@@ -2163,10 +2165,18 @@ static bool DoExchange(bssl::UniquePtr<SSL_SESSION> *out_session, SSL *ssl,
   int ret;
   if (!config->implicit_handshake) {
     do {
-      ret = SSL_do_handshake(ssl);
+      ret = CheckIdempotentError("SSL_do_handshake", ssl, [&]() -> int {
+        return SSL_do_handshake(ssl);
+      });
     } while (config->async && RetryAsync(ssl, ret));
     if (ret != 1 ||
         !CheckHandshakeProperties(ssl, is_resume, config)) {
+      return false;
+    }
+
+    if (is_resume && !is_retry && !config->is_server &&
+        config->expect_no_offer_early_data && SSL_in_early_data(ssl)) {
+      fprintf(stderr, "Client unexpectedly offered early data.\n");
       return false;
     }
 
@@ -2365,14 +2375,13 @@ static bool DoExchange(bssl::UniquePtr<SSL_SESSION> *out_session, SSL *ssl,
     }
 
     if (expect_new_session) {
-      bool got_early_data_info =
+      bool got_early_data =
           GetTestState(ssl)->new_session->ticket_max_early_data != 0;
-      if (config->expect_early_data_info != got_early_data_info) {
-        fprintf(
-            stderr,
-            "new session did%s include ticket_early_data_info, but we expected "
-            "the opposite\n",
-            got_early_data_info ? "" : " not");
+      if (config->expect_ticket_supports_early_data != got_early_data) {
+        fprintf(stderr,
+                "new session did%s support early data, but we expected the "
+                "opposite\n",
+                got_early_data ? "" : " not");
         return false;
       }
     }

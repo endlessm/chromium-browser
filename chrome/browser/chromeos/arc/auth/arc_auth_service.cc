@@ -129,25 +129,17 @@ ArcAuthService::ArcAuthService(content::BrowserContext* browser_context,
                                ArcBridgeService* arc_bridge_service)
     : profile_(Profile::FromBrowserContext(browser_context)),
       arc_bridge_service_(arc_bridge_service),
-      binding_(this),
       weak_ptr_factory_(this) {
+  arc_bridge_service_->auth()->SetHost(this);
   arc_bridge_service_->auth()->AddObserver(this);
 }
 
 ArcAuthService::~ArcAuthService() {
   arc_bridge_service_->auth()->RemoveObserver(this);
+  arc_bridge_service_->auth()->SetHost(nullptr);
 }
 
-void ArcAuthService::OnInstanceReady() {
-  auto* instance =
-      ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service_->auth(), Init);
-  DCHECK(instance);
-  mojom::AuthHostPtr host_proxy;
-  binding_.Bind(mojo::MakeRequest(&host_proxy));
-  instance->Init(std::move(host_proxy));
-}
-
-void ArcAuthService::OnInstanceClosed() {
+void ArcAuthService::OnConnectionClosed() {
   fetcher_.reset();
 }
 

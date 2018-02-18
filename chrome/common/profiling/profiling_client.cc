@@ -5,6 +5,7 @@
 #include "chrome/common/profiling/profiling_client.h"
 
 #include "base/files/platform_file.h"
+#include "base/trace_event/malloc_dump_provider.h"
 #include "chrome/common/profiling/memlog_allocator_shim.h"
 #include "chrome/common/profiling/memlog_sender_pipe.h"
 #include "chrome/common/profiling/memlog_stream.h"
@@ -15,10 +16,16 @@
 
 namespace profiling {
 
+namespace {
+const int kTimeoutDurationMs = 10000;
+}  // namespace
+
 ProfilingClient::ProfilingClient() : binding_(this) {}
 
 ProfilingClient::~ProfilingClient() {
   StopAllocatorShimDangerous();
+
+  base::trace_event::MallocDumpProvider::GetInstance()->EnableMetrics();
 
   // The allocator shim cannot be synchronously, consistently stopped. We leak
   // the memlog_sender_pipe_, with the idea that very few future messages will
@@ -52,8 +59,14 @@ void ProfilingClient::StartProfiling(mojo::ScopedHandle memlog_sender_pipe) {
 
   StreamHeader header;
   header.signature = kStreamSignature;
-  memlog_sender_pipe_->Send(&header, sizeof(header));
+  MemlogSenderPipe::Result result =
+      memlog_sender_pipe_->Send(&header, sizeof(header), kTimeoutDurationMs);
+  if (result != MemlogSenderPipe::Result::kSuccess) {
+    memlog_sender_pipe_->Close();
+    return;
+  }
 
+  base::trace_event::MallocDumpProvider::GetInstance()->DisableMetrics();
   InitAllocatorShim(memlog_sender_pipe_.get());
 }
 

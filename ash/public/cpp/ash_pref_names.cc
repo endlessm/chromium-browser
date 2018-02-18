@@ -69,6 +69,15 @@ const char kShouldAlwaysShowAccessibilityMenu[] = "settings.a11y.enable_menu";
 
 // A boolean pref which stores whether a stylus has been seen before.
 const char kHasSeenStylus[] = "ash.has_seen_stylus";
+// A boolean pref which stores whether a the palette warm welcome bubble
+// (displayed when a user first uses a stylus) has been shown before.
+const char kShownPaletteWelcomeBubble[] = "ash.shown_palette_welcome_bubble";
+// A boolean pref that specifies if the stylus tools should be enabled/disabled.
+const char kEnableStylusTools[] = "settings.enable_stylus_tools";
+// A boolean pref that specifies if the ash palette should be launched after an
+// eject input event has been received.
+const char kLaunchPaletteOnEjectEvent[] =
+    "settings.launch_palette_on_eject_event";
 
 // A boolean pref storing the enabled status of the NightLight feature.
 const char kNightLightEnabled[] = "ash.night_light.enabled";
@@ -134,6 +143,10 @@ const char kUserBluetoothAdapterEnabled[] =
 // Boolean pref indicating system-wide setting for bluetooth adapter power.
 const char kSystemBluetoothAdapterEnabled[] =
     "ash.system.bluetooth.adapter_enabled";
+
+// Boolean pref for whether a dot is shown for each touch event. This is
+// typically used during demos/presentations to show where taps happen.
+const char kTouchHudProjectionEnabled[] = "touch_hud.projection_enabled";
 
 // Boolean prefs for the status of the touchscreen and the touchpad.
 const char kTouchpadEnabled[] = "events.touch_pad.enabled";

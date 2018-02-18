@@ -46,6 +46,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
 
   static TestWebContents* Create(BrowserContext* browser_context,
                                  scoped_refptr<SiteInstance> instance);
+  static TestWebContents* Create(const CreateParams& params);
 
   // WebContentsImpl overrides (returning the same values, but in Test* types)
   TestRenderFrameHost* GetMainFrame() const override;
@@ -63,18 +64,11 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   TestRenderFrameHost* GetPendingMainFrame() override;
   void NavigateAndCommit(const GURL& url) override;
   void TestSetIsLoading(bool value) override;
-  void ProceedWithCrossSiteNavigation() override;
   void TestDidNavigate(RenderFrameHost* render_frame_host,
                        int nav_entry_id,
                        bool did_create_new_entry,
                        const GURL& url,
                        ui::PageTransition transition) override;
-  void TestDidNavigateWithReferrer(RenderFrameHost* render_frame_host,
-                                   int nav_entry_id,
-                                   bool did_create_new_entry,
-                                   const GURL& url,
-                                   const Referrer& referrer,
-                                   ui::PageTransition transition) override;
   void TestDidNavigateWithSequenceNumber(RenderFrameHost* render_frame_host,
                                          int nav_entry_id,
                                          bool did_create_new_entry,
@@ -93,6 +87,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
       const std::vector<gfx::Size>& original_bitmap_sizes) override;
   void SetLastCommittedURL(const GURL& url) override;
   void SetWasRecentlyAudible(bool audible) override;
+  void SetIsCurrentlyAudible(bool audible) override;
 
   // True if a cross-site navigation is pending.
   bool CrossProcessNavigationPending();

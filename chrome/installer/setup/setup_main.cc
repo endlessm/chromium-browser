@@ -1340,7 +1340,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE prev_instance,
 
   // Initialize COM for use later.
   base::win::ScopedCOMInitializer com_initializer;
-  if (!com_initializer.succeeded()) {
+  if (!com_initializer.Succeeded()) {
     installer_state.WriteInstallerResult(
         installer::OS_ERROR, IDS_INSTALL_OS_ERROR_BASE, NULL);
     return installer::OS_ERROR;
@@ -1437,9 +1437,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE prev_instance,
                         &installer_state, &installer_directory);
     DoLegacyCleanups(installer_state, install_status);
 
-    // It may be time to kick off an experiment if this was a successful update.
-    if ((install_status == installer::NEW_VERSION_UPDATED ||
-         install_status == installer::IN_USE_UPDATED) &&
+    // It may be time to kick off an experiment if this was a successful update
+    // and Chrome was not in use (since the experiment only applies to inactive
+    // installs).
+    if (install_status == installer::NEW_VERSION_UPDATED &&
         installer::ShouldRunUserExperiment(installer_state)) {
       installer::BeginUserExperiment(
           installer_state, installer_directory.Append(setup_exe.BaseName()),

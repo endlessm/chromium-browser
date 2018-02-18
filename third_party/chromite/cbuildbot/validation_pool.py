@@ -482,10 +482,14 @@ class ValidationPool(object):
       gerrit_query, ready_fn = query
       tree_was_open = (status == constants.TREE_OPEN)
 
-      experimental_builders = tree_status.GetExperimentalBuilders()
-      builder_run.attrs.metadata.UpdateWithDict({
-          constants.METADATA_EXPERIMENTAL_BUILDERS: experimental_builders
-      })
+      try:
+        experimental_builders = tree_status.GetExperimentalBuilders()
+        builder_run.attrs.metadata.UpdateWithDict({
+            constants.METADATA_EXPERIMENTAL_BUILDERS: experimental_builders
+        })
+      except timeout_util.TimeoutError:
+        logging.error('Timeout getting experimental builders from the tree'
+                      'status.')
 
       pool = ValidationPool(overlays, repo.directory, build_number,
                             builder_name, True, dryrun, builder_run=builder_run,
@@ -1312,7 +1316,7 @@ class ValidationPool(object):
         for change in changes)
 
     sha1s = dict(
-        (change, change.GetLocalSHA1(repo, branch))
+        (change, change.GetLocalSHA1(repo, remote_ref.ref))
         for change in changes)
 
     return sha1s, errors
@@ -1929,13 +1933,22 @@ class ValidationPool(object):
            'You can follow along at %(build_log)s .')
     self.SendNotification(change, msg, build_log=build_log)
 
+  # Note: This function doesn't need to be a ValidationPool instance method.
   def UpdateCLPreCQStatus(self, change, status):
     """Update the pre-CQ |status| of |change|."""
     action = clactions.TranslatePreCQStatusToAction(status)
     self._InsertCLActionToDatabase(change, action)
 
+  # Note: Only the PreCQLauncherStage still uses this function. The commit queue
+  # goes directly to AcquirePool -> patch_series.CreateDisjointTransactions.
+  # It's possible that this function, which is basically a wrapper around
+  # patch_series with a bit of failure handling, can be eliminated or folded
+  # into PreCQLauncherStage for clarity.
   def CreateDisjointTransactions(self, manifest, changes, max_txn_length=None):
     """Create a list of disjoint transactions from the changes in the pool.
+
+    Side effect: Reject and comment (on Gerrit) on changes that failed to
+    apply.
 
     Args:
       manifest: Manifest to use.
@@ -1944,10 +1957,17 @@ class ValidationPool(object):
         do not limit the length of transactions.
 
     Returns:
-      A list of disjoint transactions. Each transaction can be tried
+      a tuple of (plans, failures) where
+
+      plans = A list of disjoint transactions. Each transaction can be tried
       independently, without involving patches from other transactions.
       Each change in the pool will included in exactly one of transactions,
       unless the patch does not apply for some reason.
+
+      failures = A list of cros_patch.PatchException instances for patches that
+      failed to apply. Note: this ignores patches that dependencies on
+      not-yet-ready patches, for up to REJECTION_GRACE_PERIOD from their last
+      approval.
     """
     patches = patch_series.PatchSeries(
         self.build_root, forced_manifest=manifest)
@@ -1956,4 +1976,4 @@ class ValidationPool(object):
     failed = self._FilterDependencyErrors(failed)
     if failed:
       self._HandleApplyFailure(failed)
-    return plans
+    return plans, failed

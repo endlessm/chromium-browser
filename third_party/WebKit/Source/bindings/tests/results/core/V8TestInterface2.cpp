@@ -10,6 +10,7 @@
 // clang-format off
 #include "V8TestInterface2.h"
 
+#include "base/memory/scoped_refptr.h"
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/IDLTypes.h"
 #include "bindings/core/v8/NativeValueTraitsImpl.h"
@@ -24,7 +25,6 @@
 #include "platform/bindings/V8ObjectConstructor.h"
 #include "platform/runtime_enabled_features.h"
 #include "platform/wtf/GetPtr.h"
-#include "platform/wtf/RefPtr.h"
 
 namespace blink {
 
@@ -45,7 +45,6 @@ WrapperTypeInfo V8TestInterface2::wrapperTypeInfo = {
     WrapperTypeInfo::kWrapperTypeObjectPrototype,
     WrapperTypeInfo::kObjectClassId,
     WrapperTypeInfo::kInheritFromActiveScriptWrappable,
-    WrapperTypeInfo::kDependent,
 };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && defined(__clang__)
 #pragma clang diagnostic pop
@@ -291,11 +290,12 @@ static void forEachMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
 
   ScriptValue callback;
   ScriptValue thisArg;
-  if (!(info[0]->IsObject() && v8::Local<v8::Object>::Cast(info[0])->IsCallable())) {
+  if (info[0]->IsFunction()) {
+    callback = ScriptValue(ScriptState::Current(info.GetIsolate()), info[0]);
+  } else {
     exceptionState.ThrowTypeError("The callback provided as parameter 1 is not a function.");
     return;
   }
-  callback = ScriptValue(ScriptState::Current(info.GetIsolate()), info[0]);
 
   thisArg = ScriptValue(ScriptState::Current(info.GetIsolate()), info[1]);
 
@@ -833,7 +833,7 @@ void V8TestInterface2::UpdateWrapperTypeInfo(
     InstallTemplateFunction install_template_function,
     InstallRuntimeEnabledFeaturesFunction install_runtime_enabled_features_function,
     InstallRuntimeEnabledFeaturesOnTemplateFunction install_runtime_enabled_features_on_template_function,
-    PreparePrototypeAndInterfaceObjectFunction prepare_prototype_and_interface_object_function) {
+    InstallConditionalFeaturesFunction install_conditional_features_function) {
   V8TestInterface2::installV8TestInterface2TemplateFunction =
       install_template_function;
 
@@ -841,9 +841,9 @@ void V8TestInterface2::UpdateWrapperTypeInfo(
   V8TestInterface2::install_runtime_enabled_features_on_template_function_ =
       install_runtime_enabled_features_on_template_function;
 
-  if (prepare_prototype_and_interface_object_function) {
-    V8TestInterface2::wrapperTypeInfo.prepare_prototype_and_interface_object_function =
-        prepare_prototype_and_interface_object_function;
+  if (install_conditional_features_function) {
+    V8TestInterface2::wrapperTypeInfo.install_conditional_features_function =
+        install_conditional_features_function;
   }
 }
 

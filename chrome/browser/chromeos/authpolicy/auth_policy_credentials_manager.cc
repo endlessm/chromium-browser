@@ -15,8 +15,9 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chrome/browser/notifications/notification.h"
-#include "chrome/browser/notifications/notification_ui_manager.h"
+#include "chrome/browser/notifications/notification_common.h"
+#include "chrome/browser/notifications/notification_display_service.h"
+#include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
@@ -30,6 +31,7 @@
 #include "dbus/message.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/message_center/notification.h"
 #include "ui/message_center/notification_delegate.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
 #include "ui/message_center/public/cpp/message_center_switches.h"
@@ -315,7 +317,7 @@ void AuthPolicyCredentialsManager::ShowNotification(int message_id) {
   // Set |profile_id| for multi-user notification blocker.
   notifier_id.profile_id = profile_->GetProfileUserName();
 
-  Notification notification(
+  message_center::Notification notification(
       message_center::NOTIFICATION_TYPE_SIMPLE, notification_id,
       l10n_util::GetStringUTF16(IDS_SIGNIN_ERROR_BUBBLE_VIEW_TITLE),
       l10n_util::GetStringUTF16(message_id),
@@ -323,8 +325,8 @@ void AuthPolicyCredentialsManager::ShowNotification(int message_id) {
           ? gfx::Image()
           : ui::ResourceBundle::GetSharedInstance().GetImageNamed(
                 IDR_NOTIFICATION_ALERT),
-      notifier_id, l10n_util::GetStringUTF16(IDS_SIGNIN_ERROR_DISPLAY_SOURCE),
-      GURL(notification_id), notification_id, data,
+      l10n_util::GetStringUTF16(IDS_SIGNIN_ERROR_DISPLAY_SOURCE),
+      GURL(notification_id), notifier_id, data,
       new SigninNotificationDelegate());
   if (message_center::IsNewStyleNotificationEnabled()) {
     notification.set_accent_color(
@@ -336,10 +338,9 @@ void AuthPolicyCredentialsManager::ShowNotification(int message_id) {
   }
   notification.SetSystemPriority();
 
-  NotificationUIManager* notification_ui_manager =
-      g_browser_process->notification_ui_manager();
   // Add the notification.
-  notification_ui_manager->Add(notification, profile_);
+  NotificationDisplayServiceFactory::GetForProfile(profile_)->Display(
+      NotificationHandler::Type::TRANSIENT, notification);
   shown_notifications_.insert(message_id);
 }
 

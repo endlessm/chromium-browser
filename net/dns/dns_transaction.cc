@@ -81,7 +81,7 @@ class DnsAttempt {
   explicit DnsAttempt(unsigned server_index)
       : result_(ERR_FAILED), server_index_(server_index) {}
 
-  virtual ~DnsAttempt() {}
+  virtual ~DnsAttempt() = default;
   // Starts the attempt. Returns ERR_IO_PENDING if cannot complete synchronously
   // and calls |callback| upon completion.
   virtual int Start(const CompletionCallback& callback) = 0;
@@ -767,8 +767,15 @@ class DnsTransactionImpl : public DnsTransaction,
         previous_attempt->GetQuery()->CloneWithNewId(id);
 
     RecordLostPacketsIfAny();
-    // Cancel all other attempts, no point waiting on them.
-    attempts_.clear();
+
+    // Cancel all other attempts that have not received a response, no point
+    // waiting on them.
+    for (auto it = attempts_.begin(); it != attempts_.end();) {
+      if (!(*it)->is_completed())
+        it = attempts_.erase(it);
+      else
+        ++it;
+    }
 
     unsigned attempt_number = attempts_.size();
 

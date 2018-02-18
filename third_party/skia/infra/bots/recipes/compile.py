@@ -23,8 +23,6 @@ DEPS = [
 
 def build_targets_from_builder_dict(builder_dict):
   """Return a list of targets to build, depending on the builder type."""
-  if builder_dict.get('extra_config') == 'iOS':
-    return ['iOSShell']
   return ['most']
 
 
@@ -76,7 +74,7 @@ for p in psutil.process_iter():
 
 
 TEST_BUILDERS = [
-  'Build-Debian9-Clang-arm-Release-Chromebook_ARM_GLES',
+  'Build-Debian9-Clang-arm-Release-Chromebook_GLES',
   'Build-Debian9-Clang-arm64-Release-Android',
   'Build-Debian9-Clang-arm64-Release-Android_Vulkan',
   'Build-Debian9-Clang-mipsel-Debug-Android',
@@ -85,6 +83,7 @@ TEST_BUILDERS = [
   'Build-Debian9-Clang-x86_64-Debug-Coverage',
   'Build-Debian9-Clang-x86_64-Debug-MSAN',
   'Build-Debian9-Clang-x86_64-Debug-SK_USE_DISCARDABLE_SCALEDIMAGECACHE',
+  'Build-Debian9-Clang-x86_64-Release-Chromebook_GLES',
   'Build-Debian9-Clang-x86_64-Release-Fast',
   'Build-Debian9-Clang-x86_64-Release-Mini',
   'Build-Debian9-Clang-x86_64-Release-Vulkan',
@@ -95,7 +94,6 @@ TEST_BUILDERS = [
   'Build-Debian9-GCC-x86_64-Debug-NoGPU',
   'Build-Debian9-GCC-x86_64-Release-ANGLE',
   'Build-Debian9-GCC-x86_64-Release-Flutter_Android',
-  'Build-Debian9-GCC-x86_64-Release-Mesa',
   'Build-Debian9-GCC-x86_64-Release-PDFium',
   'Build-Debian9-GCC-x86_64-Release-PDFium_SkiaPaths',
   'Build-Debian9-GCC-x86_64-Release-Shared',

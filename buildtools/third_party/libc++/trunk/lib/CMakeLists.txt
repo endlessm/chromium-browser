@@ -1,6 +1,7 @@
 set(LIBCXX_LIB_CMAKEFILES_DIR "${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}"  PARENT_SCOPE)
 
 # Get sources
+# FIXME: Don't use glob here
 file(GLOB LIBCXX_SOURCES ../src/*.cpp)
 if(WIN32)
   file(GLOB LIBCXX_WIN32_SOURCES ../src/support/win32/*.cpp)
@@ -90,6 +91,7 @@ else()
   add_library_flags_if(LIBCXX_HAS_GCC_S_LIB gcc_s)
 endif()
 add_library_flags_if(LIBCXX_HAVE_CXX_ATOMICS_WITH_LIB atomic)
+add_library_flags_if(MINGW "${MINGW_LIBRARIES}")
 
 # Add the unwinder library.
 if (LIBCXXABI_USE_LLVM_UNWINDER)
@@ -242,14 +244,11 @@ endif()
 if (LIBCXX_ENABLE_STATIC)
   add_library(cxx_static STATIC $<TARGET_OBJECTS:cxx_objects>)
   target_link_libraries(cxx_static ${LIBCXX_LIBRARIES})
-  set(STATIC_OUTPUT_NAME "c++")
-  if (WIN32)
-    set(STATIC_OUTPUT_NAME "libc++")
-  endif()
+  set(CMAKE_STATIC_LIBRARY_PREFIX "lib")
   set_target_properties(cxx_static
     PROPERTIES
       LINK_FLAGS    "${LIBCXX_LINK_FLAGS}"
-      OUTPUT_NAME   "${STATIC_OUTPUT_NAME}"
+      OUTPUT_NAME   "c++"
   )
 
   list(APPEND LIBCXX_TARGETS "cxx_static")
@@ -260,7 +259,7 @@ if (LIBCXX_ENABLE_STATIC)
       set(MERGE_ARCHIVES_SEARCH_PATHS "-L${LIBCXX_CXX_ABI_LIBRARY_PATH}")
     endif()
     if ((TARGET ${LIBCXX_CXX_ABI_LIBRARY}) OR
-        (${LIBCXX_CXX_ABI_LIBRARY} STREQUAL "cxxabi(_static|_shared)?" AND HAVE_LIBCXXABI))
+        (${LIBCXX_CXX_ABI_LIBRARY} MATCHES "cxxabi(_static|_shared)?" AND HAVE_LIBCXXABI))
       set(MERGE_ARCHIVES_ABI_TARGET "$<TARGET_LINKER_FILE:${LIBCXX_CXX_ABI_LIBRARY}>")
     else()
       set(MERGE_ARCHIVES_ABI_TARGET
@@ -271,6 +270,7 @@ if (LIBCXX_ENABLE_STATIC)
       ${PYTHON_EXECUTABLE} ${LIBCXX_SOURCE_DIR}/utils/merge_archives.py
     ARGS
       -o $<TARGET_LINKER_FILE:cxx_static>
+      --ar "${CMAKE_AR}"
       "$<TARGET_LINKER_FILE:cxx_static>"
       "${MERGE_ARCHIVES_ABI_TARGET}"
       "${MERGE_ARCHIVES_SEARCH_PATHS}"
@@ -357,8 +357,8 @@ if (LIBCXX_INSTALL_LIBRARY)
     set(experimental_lib cxx_experimental)
   endif()
   install(TARGETS ${LIBCXX_TARGETS} ${experimental_lib}
-    LIBRARY DESTINATION lib${LIBCXX_LIBDIR_SUFFIX} COMPONENT cxx
-    ARCHIVE DESTINATION lib${LIBCXX_LIBDIR_SUFFIX} COMPONENT cxx
+    LIBRARY DESTINATION ${LIBCXX_INSTALL_PREFIX}lib${LIBCXX_LIBDIR_SUFFIX} COMPONENT cxx
+    ARCHIVE DESTINATION ${LIBCXX_INSTALL_PREFIX}lib${LIBCXX_LIBDIR_SUFFIX} COMPONENT cxx
     )
   # NOTE: This install command must go after the cxx install command otherwise
   # it will not be executed after the library symlinks are installed.
@@ -366,7 +366,7 @@ if (LIBCXX_INSTALL_LIBRARY)
     # Replace the libc++ filename with $<TARGET_LINKER_FILE:cxx>
     # after we required CMake 3.0.
     install(FILES "${LIBCXX_LIBRARY_DIR}/libc++${CMAKE_SHARED_LIBRARY_SUFFIX}"
-      DESTINATION lib${LIBCXX_LIBDIR_SUFFIX}
+      DESTINATION ${LIBCXX_INSTALL_PREFIX}lib${LIBCXX_LIBDIR_SUFFIX}
       COMPONENT libcxx)
   endif()
 endif()

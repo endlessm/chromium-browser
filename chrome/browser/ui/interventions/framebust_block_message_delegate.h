@@ -7,8 +7,9 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "url/gurl.h"
+
+#include "chrome/browser/ui/interventions/intervention_delegate.h"
 
 namespace content {
 class WebContents;
@@ -17,22 +18,32 @@ class WebContents;
 // Defines the messages shown to the user when the browser intervenes to block
 // a framebust attempt, and provides a way to perform the blocked redirection
 // if the user decides to do so.
-class FramebustBlockMessageDelegate {
+class FramebustBlockMessageDelegate : public InterventionDelegate {
  public:
+  // Describes the actions the user can take regarding this intervention, they
+  // are provided through a callback the caller can pass to the delegate's
+  // constructor.
+  enum class InterventionOutcome { kAccepted, kDeclinedAndNavigated };
+
+  typedef base::OnceCallback<void(InterventionOutcome)> OutcomeCallback;
+
+  // |intervention_callback| will be called when the user interacts with the
+  // intervention message, see InterventionOutcome for possible values.
   FramebustBlockMessageDelegate(content::WebContents* web_contents,
                                 const GURL& blocked_url,
-                                base::OnceClosure click_closure);
-  virtual ~FramebustBlockMessageDelegate();
+                                OutcomeCallback intervention_callback);
+  ~FramebustBlockMessageDelegate() override;
 
-  int GetIconId() const;
-  base::string16 GetLongMessage() const;
-  base::string16 GetShortMessage() const;
   const GURL& GetBlockedUrl() const;
-  void OnLinkClicked();
+
+  // InterventionDelegate:
+  void AcceptIntervention() override;
+  void DeclineIntervention() override;
 
  private:
-  // Closure to be called when the link is clicked.
-  base::OnceClosure click_closure_;
+  // Callback to be called when the user performs an action regarding this
+  // intervention.
+  OutcomeCallback intervention_callback_;
 
   // WebContents associated with the frame that was targeted by the framebust.
   // Will be used to continue the navigation to the blocked URL.

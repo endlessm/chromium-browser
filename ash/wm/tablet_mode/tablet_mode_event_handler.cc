@@ -22,9 +22,9 @@ const int kLeaveFullScreenAreaHeightInPixel = 2;
 
 }  // namespace
 
-TabletModeEventHandler::TabletModeEventHandler() {}
+TabletModeEventHandler::TabletModeEventHandler() = default;
 
-TabletModeEventHandler::~TabletModeEventHandler() {}
+TabletModeEventHandler::~TabletModeEventHandler() = default;
 
 bool TabletModeEventHandler::ToggleFullscreen(const ui::TouchEvent& event) {
   if (event.type() != ui::ET_TOUCH_PRESSED)
@@ -43,7 +43,7 @@ bool TabletModeEventHandler::ToggleFullscreen(const ui::TouchEvent& event) {
     return false;
 
   WindowState* window_state = GetWindowState(window);
-  if (!window_state->IsFullscreen() || window_state->in_immersive_fullscreen())
+  if (!window_state->IsFullscreen() || window_state->IsInImmersiveFullscreen())
     return false;
 
   // Test that the touch happened in the top or bottom lines.

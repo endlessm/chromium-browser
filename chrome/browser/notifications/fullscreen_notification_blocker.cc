@@ -9,8 +9,7 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/fullscreen.h"
 #include "content/public/browser/notification_service.h"
-#include "ui/display/types/display_constants.h"
-#include "ui/message_center/notifier_settings.h"
+#include "ui/message_center/notifier_id.h"
 
 using message_center::NotifierId;
 
@@ -27,16 +26,16 @@ FullscreenNotificationBlocker::~FullscreenNotificationBlocker() {
 
 void FullscreenNotificationBlocker::CheckState() {
   bool was_fullscreen_mode = is_fullscreen_mode_;
-  is_fullscreen_mode_ = IsFullScreenMode(display::kInvalidDisplayId);
+  is_fullscreen_mode_ = IsFullScreenMode();
   if (is_fullscreen_mode_ != was_fullscreen_mode)
     NotifyBlockingStateChanged();
 }
 
 bool FullscreenNotificationBlocker::ShouldShowNotificationAsPopup(
     const message_center::Notification& notification) const {
-  bool enabled = !is_fullscreen_mode_;
-  if (is_fullscreen_mode_ && notification.delegate())
-    enabled = notification.delegate()->ShouldDisplayOverFullscreen();
+  bool enabled =
+      !is_fullscreen_mode_ || (notification.fullscreen_visibility() !=
+                               message_center::FullscreenVisibility::NONE);
 
   if (enabled && !is_fullscreen_mode_) {
     UMA_HISTOGRAM_ENUMERATION("Notifications.Display_Windowed",

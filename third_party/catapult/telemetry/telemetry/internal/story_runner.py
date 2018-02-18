@@ -10,6 +10,7 @@ import time
 
 import py_utils
 from py_utils import cloud_storage  # pylint: disable=import-error
+from py_utils import memory_debug  # pylint: disable=import-error
 
 from telemetry.core import exceptions
 from telemetry import decorators
@@ -287,19 +288,19 @@ def RunBenchmark(benchmark, finder_options):
   can_run_on_platform = benchmark._CanRunOnPlatform(possible_browser.platform,
                                                     finder_options)
 
-  # TODO(rnephew): Remove decorators.IsBenchmarkEnabled and IsBenchmarkDisabled
-  # when we have fully moved to _CanRunOnPlatform().
   expectations_disabled = expectations.IsBenchmarkDisabled(
       possible_browser.platform, finder_options)
-  temporarily_disabled = not decorators.IsBenchmarkEnabled(
-      benchmark, possible_browser)
 
-  if expectations_disabled or temporarily_disabled or not can_run_on_platform:
+  if expectations_disabled or not can_run_on_platform:
     print '%s is disabled on the selected browser' % benchmark.Name()
     if finder_options.run_disabled_tests and can_run_on_platform:
       print 'Running benchmark anyway due to: --also-run-disabled-tests'
     else:
-      print 'Try --also-run-disabled-tests to force the benchmark to run.'
+      if can_run_on_platform:
+        print 'Try --also-run-disabled-tests to force the benchmark to run.'
+      else:
+        print ("This platform is not supported for this benchmark. If this is "
+               "in error please add it to the benchmark's supported platforms.")
       # If chartjson is specified, this will print a dict indicating the
       # benchmark name and disabled state.
       with results_options.CreateResults(
@@ -364,6 +365,7 @@ def RunBenchmark(benchmark, finder_options):
       duration = time.time() - start
       results.AddSummaryValue(scalar.ScalarValue(
           None, 'benchmark_duration', 'minutes', duration / 60.0))
+      memory_debug.LogHostMemoryUsage()
       results.PrintSummary()
   return return_code
 

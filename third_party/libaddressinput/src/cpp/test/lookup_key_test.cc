@@ -15,18 +15,19 @@
 #include "lookup_key.h"
 
 #include <libaddressinput/address_data.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <cstddef>
 
 #include <gtest/gtest.h>
+
+#include "util/size.h"
 
 namespace {
 
 using i18n::addressinput::AddressData;
 using i18n::addressinput::LookupKey;
 
-const size_t kMaxDepth = arraysize(LookupKey::kHierarchy) - 1;
+const size_t kMaxDepth = size(LookupKey::kHierarchy) - 1;
 
 TEST(LookupKeyTest, Empty) {
   AddressData address;
@@ -154,7 +155,7 @@ TEST(LookupKeyTest, WithLanguageCodeInvalidLanguage) {
 TEST(LookupKeyTest, WithLanguageCodeAlternateLanguageNoState) {
   AddressData address;
   // Use real data here as the choice of adding a language requires metadata.
-  // Afgahnistan has multiple languages (including Pashto as an alternative)
+  // Afghanistan has multiple languages (including Pashto as an alternative)
   // but no subregions.
   address.region_code = "AF";
   address.language_code = "ps";

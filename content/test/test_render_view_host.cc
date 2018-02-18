@@ -46,7 +46,7 @@ void InitNavigateParams(FrameHostMsg_DidCommitProvisionalLoad_Params* params,
                         ui::PageTransition transition) {
   params->nav_entry_id = nav_entry_id;
   params->url = url;
-  params->origin = url::Origin(url);
+  params->origin = url::Origin::Create(url);
   params->referrer = Referrer();
   params->transition = transition;
   params->redirects = std::vector<GURL>();
@@ -207,8 +207,12 @@ void TestRenderWidgetHostView::DidCreateNewRendererCompositorFrameSink(
 
 void TestRenderWidgetHostView::SubmitCompositorFrame(
     const viz::LocalSurfaceId& local_surface_id,
-    viz::CompositorFrame frame) {
+    viz::CompositorFrame frame,
+    viz::mojom::HitTestRegionListPtr hit_test_region_list) {
   did_swap_compositor_frame_ = true;
+  uint32_t frame_token = frame.metadata.frame_token;
+  if (frame_token)
+    OnFrameTokenChanged(frame_token);
 }
 
 bool TestRenderWidgetHostView::LockMouse() {
@@ -226,6 +230,10 @@ void TestRenderWidgetHostView::OnFirstSurfaceActivation(
     const viz::SurfaceInfo& surface_info) {
   // TODO(fsamuel): Once surface synchronization is turned on, the fallback
   // surface should be set here.
+}
+
+void TestRenderWidgetHostView::OnFrameTokenChanged(uint32_t frame_token) {
+  OnFrameTokenChangedForView(frame_token);
 }
 
 TestRenderViewHost::TestRenderViewHost(
@@ -276,9 +284,15 @@ bool TestRenderViewHost::CreateRenderView(
   GetWidget()->set_renderer_initialized(true);
   DCHECK(IsRenderViewLive());
   opener_frame_route_id_ = opener_frame_route_id;
-  RenderFrameHost* main_frame = GetMainFrame();
-  if (main_frame)
-    static_cast<RenderFrameHostImpl*>(main_frame)->SetRenderFrameCreated(true);
+  RenderFrameHostImpl* main_frame =
+      static_cast<RenderFrameHostImpl*>(GetMainFrame());
+  if (main_frame && is_active()) {
+    service_manager::mojom::InterfaceProviderPtr
+        stub_interface_provider_request;
+    main_frame->BindInterfaceProviderRequest(
+        mojo::MakeRequest(&stub_interface_provider_request));
+    main_frame->SetRenderFrameCreated(true);
+  }
 
   return true;
 }

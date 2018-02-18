@@ -8,7 +8,6 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "base/optional.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -335,12 +334,12 @@ void ArcFileSystemOperationRunner::OnArcPlayStoreEnabledChanged(bool enabled) {
   OnStateChanged();
 }
 
-void ArcFileSystemOperationRunner::OnInstanceReady() {
+void ArcFileSystemOperationRunner::OnConnectionReady() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   OnStateChanged();
 }
 
-void ArcFileSystemOperationRunner::OnInstanceClosed() {
+void ArcFileSystemOperationRunner::OnConnectionClosed() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // ArcFileSystemService and watchers are gone.
   watcher_callbacks_.clear();
@@ -372,7 +371,7 @@ void ArcFileSystemOperationRunner::OnStateChanged() {
   if (set_should_defer_by_events_) {
     SetShouldDefer(IsArcPlayStoreEnabledForProfile(
                        Profile::FromBrowserContext(context_)) &&
-                   !arc_bridge_service_->file_system()->has_instance());
+                   !arc_bridge_service_->file_system()->IsConnected());
   }
 }
 

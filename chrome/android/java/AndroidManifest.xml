@@ -27,16 +27,16 @@ by a child template that "extends" this file.
     <!--
       Enable runtime permissions as uses-permission in tip of tree builds
       only for ease of development on Android L and earlier. For consumer
-      channels use "runtime permission" uses-permission-sdk-m which provides
+      channels use "runtime permission" uses-permission-sdk-23 which provides
       permission on Android M and later without a prompt.
     -->
     {% if channel in ['default'] %}
         <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     {% endif %}
-    <uses-permission-sdk-m android:name="android.permission.BLUETOOTH"/>
-    <uses-permission-sdk-m android:name="android.permission.BLUETOOTH_ADMIN"/>
-    <uses-permission-sdk-m android:name="android.permission.REORDER_TASKS"/>
-    <uses-permission-sdk-m android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <uses-permission-sdk-23 android:name="android.permission.BLUETOOTH"/>
+    <uses-permission-sdk-23 android:name="android.permission.BLUETOOTH_ADMIN"/>
+    <uses-permission-sdk-23 android:name="android.permission.REORDER_TASKS"/>
+    <uses-permission-sdk-23 android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" />
@@ -137,7 +137,7 @@ by a child template that "extends" this file.
         <meta-data android:name="com.samsung.android.sdk.multiwindow.enable"
             android:value="true" />
 
-        {% if min_sdk_version < 24 %}
+        {% if min_sdk_version|int < 24 %}
         <meta-data android:name="com.samsung.android.sdk.multiwindow.multiinstance.enable"
             android:value="true" />
         <meta-data android:name="com.samsung.android.sdk.multiwindow.multiinstance.launchmode"
@@ -352,9 +352,18 @@ by a child template that "extends" this file.
         {% endfor %}
         {% if enable_vr == "true" %}
         <activity android:name="org.chromium.chrome.browser.vr.VrMainActivity"
+            android:theme="@style/VrSupportThemeLauncher"
+            android:exported="true"
+            android:enableVrMode="@string/gvr_vr_mode_component"
+            android:taskAffinity=""
+            android:relinquishTaskIdentity="true"
+            android:excludeFromRecents="true"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|mcc|mnc|screenLayout|smallestScreenSize">
+            {{ self.supports_vr() }}
+        </activity>
+        <activity android:name="org.chromium.chrome.browser.vr.CustomTabVrActivity"
             android:theme="@style/VrSupportTheme"
             android:screenOrientation="landscape"
-            android:exported="true"
             android:enableVrMode="@string/gvr_vr_mode_component"
             android:taskAffinity=""
             android:persistableMode="persistNever"
@@ -452,6 +461,7 @@ by a child template that "extends" this file.
         <activity android:name="org.chromium.chrome.browser.firstrun.FirstRunActivity"
             android:theme="@style/FirstRunTheme"
             {% block first_run_activity_common %}
+            android:label="@string/fre_activity_label"
             android:launchMode="singleInstance"
             android:excludeFromRecents="true"
             android:autoRemoveFromRecents="true"
@@ -722,7 +732,7 @@ by a child template that "extends" this file.
             android:exported="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|mcc|mnc|screenLayout|smallestScreenSize">
             <intent-filter>
-                <action android:name="android.support.customtabs.browseractions.browser_action_open" />
+                <action android:name="androidx.browser.browseractions.browser_action_open" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="http" />
                 <data android:scheme="https" />

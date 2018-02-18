@@ -36,6 +36,7 @@ namespace chromeos {
 
 namespace tether {
 
+class AdHocBleAdvertiser;
 class TimerFactory;
 
 // Manages connections to remote devices. When a device is registered,
@@ -84,7 +85,8 @@ class BleConnectionManager : public BleScanner::Observer {
       scoped_refptr<device::BluetoothAdapter> adapter,
       BleAdvertisementDeviceQueue* ble_advertisement_device_queue,
       BleAdvertiser* ble_advertiser,
-      BleScanner* ble_scanner);
+      BleScanner* ble_scanner,
+      AdHocBleAdvertiser* ad_hoc_ble_advertisement);
   virtual ~BleConnectionManager();
 
   // Registers |remote_device| for |connection_reason|. Once registered, this
@@ -176,6 +178,7 @@ class BleConnectionManager : public BleScanner::Observer {
                            const std::string& payload) override;
     void OnMessageSent(cryptauth::SecureChannel* secure_channel,
                        int sequence_number) override;
+    void OnGattCharacteristicsNotAvailable() override;
 
    private:
     friend class BleConnectionManagerTest;
@@ -209,6 +212,8 @@ class BleConnectionManager : public BleScanner::Observer {
       const cryptauth::RemoteDevice& remote_device,
       const cryptauth::SecureChannel::Status& old_status,
       const cryptauth::SecureChannel::Status& new_status);
+  void OnGattCharacteristicsNotAvailable(
+      const cryptauth::RemoteDevice& remote_device);
 
   void SetTestDoubles(std::unique_ptr<base::Clock> test_clock,
                       std::unique_ptr<TimerFactory> test_timer_factory);
@@ -224,6 +229,7 @@ class BleConnectionManager : public BleScanner::Observer {
   BleAdvertisementDeviceQueue* ble_advertisement_device_queue_;
   BleAdvertiser* ble_advertiser_;
   BleScanner* ble_scanner_;
+  AdHocBleAdvertiser* ad_hoc_ble_advertisement_;
 
   std::unique_ptr<TimerFactory> timer_factory_;
   std::unique_ptr<base::Clock> clock_;

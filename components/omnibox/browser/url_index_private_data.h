@@ -7,6 +7,7 @@
 
 #include <stddef.h>
 
+#include <map>
 #include <set>
 #include <string>
 
@@ -149,6 +150,8 @@ class URLIndexPrivateData
   friend class InMemoryURLIndexTest;
   FRIEND_TEST_ALL_PREFIXES(InMemoryURLIndexTest, CacheSaveRestore);
   FRIEND_TEST_ALL_PREFIXES(InMemoryURLIndexTest, CalculateWordStartsOffsets);
+  FRIEND_TEST_ALL_PREFIXES(InMemoryURLIndexTest,
+                           CalculateWordStartsOffsetsUnderscore);
   FRIEND_TEST_ALL_PREFIXES(InMemoryURLIndexTest, HugeResultSet);
   FRIEND_TEST_ALL_PREFIXES(InMemoryURLIndexTest, ReadVisitsFromHistory);
   FRIEND_TEST_ALL_PREFIXES(InMemoryURLIndexTest, RebuildFromHistoryIfCacheOld);
@@ -237,6 +240,11 @@ class URLIndexPrivateData
   // in each term.  For example, in the term "-foo" the word starts at offset 1.
   static void CalculateWordStartsOffsets(
       const String16Vector& terms,
+      WordStarts* terms_to_word_starts_offsets);
+
+  static void CalculateWordStartsOffsets(
+      const String16Vector& terms,
+      bool force_break_on_underscore,
       WordStarts* terms_to_word_starts_offsets);
 
   // Indexes one URL history item as described by |row|. Returns true if the

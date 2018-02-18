@@ -73,7 +73,6 @@ NSString* const kUserInfo = @"kUserInfo";
     // TODO(yuweih): Maybe better to just cancel the previous request.
     _hostListState = HostListStateNotFetched;
     _lastFetchFailureReason = HostListFetchFailureReasonNoFailure;
-    // TODO(nicholss): This might need a pointer back to the service.
     _clientRuntimeDelegate =
         new remoting::IosClientRuntimeDelegate();
     [self runtime]->SetDelegate(_clientRuntimeDelegate);
@@ -143,6 +142,8 @@ NSString* const kUserInfo = @"kUserInfo";
           host.status = base::SysUTF8ToNSString(status);
           host.updatedTime = base::SysUTF16ToNSString(
               base::TimeFormatShortDateAndTime(host_info.updated_time));
+          host.offlineReason =
+              base::SysUTF8ToNSString(host_info.offline_reason);
           [hosts addObject:host];
         }
         _hosts = hosts;

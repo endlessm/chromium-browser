@@ -14,7 +14,7 @@
 #include "components/exo/display.h"
 #include "components/exo/file_helper.h"
 #include "components/exo/wayland/server.h"
-#include "components/exo/wm_helper_ash.h"
+#include "components/exo/wm_helper.h"
 
 namespace ash {
 
@@ -57,12 +57,13 @@ WaylandServerController::CreateIfNecessary() {
 WaylandServerController::~WaylandServerController() {
   wayland_watcher_.reset();
   wayland_server_.reset();
+  display_.reset();
   exo::WMHelper::SetInstance(nullptr);
   wm_helper_.reset();
 }
 
 WaylandServerController::WaylandServerController() {
-  wm_helper_ = std::make_unique<exo::WMHelperAsh>();
+  wm_helper_ = std::make_unique<exo::WMHelper>();
   exo::WMHelper::SetInstance(wm_helper_.get());
   // TODO(penghuang): wire up notification surface manager.
   // http://crbug.com/768439

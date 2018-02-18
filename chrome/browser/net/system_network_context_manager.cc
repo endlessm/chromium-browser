@@ -24,6 +24,7 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/service_names.mojom.h"
 #include "mojo/public/cpp/bindings/associated_interface_ptr.h"
+#include "net/net_features.h"
 
 namespace {
 
@@ -90,7 +91,7 @@ content::mojom::URLLoaderFactory*
 SystemNetworkContextManager::GetURLLoaderFactory() {
   if (!url_loader_factory_) {
     GetContext()->CreateURLLoaderFactory(
-        mojo::MakeRequest(&url_loader_factory_), base::GetUniqueIdForProcess());
+        mojo::MakeRequest(&url_loader_factory_), 0);
   }
   return url_loader_factory_.get();
 }

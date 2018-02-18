@@ -26,8 +26,11 @@ const TableColumnData kColumns[] = {
      true, true},
     {IDS_TASK_MANAGER_PROFILE_NAME_COLUMN, ui::TableColumn::LEFT, -1, 0, 60,
      200, true, true, false},
+    {IDS_TASK_MANAGER_MEM_FOOTPRINT_COLUMN, ui::TableColumn::RIGHT, -1, 0,
+     arraysize("800 MiB") * kCharWidth,
+     arraysize("Memory Footprint") * 1.5 * kCharWidth, true, false, true},
     {IDS_TASK_MANAGER_PHYSICAL_MEM_COLUMN, ui::TableColumn::RIGHT, -1, 0,
-     arraysize("800 MiB") * kCharWidth, -1, true, false, true},
+     arraysize("800 MiB") * kCharWidth, -1, true, false, false},
     {IDS_TASK_MANAGER_SHARED_MEM_COLUMN, ui::TableColumn::RIGHT, -1, 0,
      arraysize("800 MiB") * kCharWidth, -1, true, false, false},
     {IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN, ui::TableColumn::RIGHT, -1, 0,
@@ -38,8 +41,18 @@ const TableColumnData kColumns[] = {
      arraysize("800 MiB") * kCharWidth, -1, true, false, false},
 #endif
 
+// Make the CPU column min width a bit wider on macOS. When you click a column
+// to make it the primary sort column a caret appears to the right of the
+// column's label. Without a little extra space, the tableview squeezes the
+// caret in by tail-truncating the label, which looks terrible.
+#if defined(OS_MACOSX)
+    {IDS_TASK_MANAGER_CPU_COLUMN, ui::TableColumn::RIGHT, -1, 0,
+     arraysize("0099.9") * kCharWidth, -1, true, false, true},
+#else
     {IDS_TASK_MANAGER_CPU_COLUMN, ui::TableColumn::RIGHT, -1, 0,
      arraysize("99.9") * kCharWidth, -1, true, false, true},
+#endif  // defined(OS_MACOSX)
+
 #if defined(OS_WIN)
     {IDS_TASK_MANAGER_CPU_TIME_COLUMN, ui::TableColumn::RIGHT, -1, 0,
      arraysize("1234h 42m 30s") * kCharWidth, -1, true, false, false},
@@ -81,6 +94,11 @@ const TableColumnData kColumns[] = {
     {IDS_TASK_MANAGER_IDLE_WAKEUPS_COLUMN, ui::TableColumn::RIGHT, -1, 0,
      arraysize("idlewakeups") * kCharWidth, -1, true, false, false},
 
+#if defined(OS_WIN)
+    {IDS_TASK_MANAGER_HARD_FAULTS_COLUMN, ui::TableColumn::RIGHT, -1, 0,
+     arraysize("100000") * kCharWidth, -1, true, false, false},
+#endif
+
 #if defined(OS_LINUX)
     {IDS_TASK_MANAGER_OPEN_FD_COUNT_COLUMN, ui::TableColumn::RIGHT, -1, 0,
      arraysize("999") * kCharWidth, -1, true, false, false},
@@ -112,6 +130,7 @@ std::string GetColumnIdAsString(int column_id) {
   switch (column_id) {
     COLUMN_CASE(IDS_TASK_MANAGER_TASK_COLUMN);
     COLUMN_CASE(IDS_TASK_MANAGER_PROFILE_NAME_COLUMN);
+    COLUMN_CASE(IDS_TASK_MANAGER_MEM_FOOTPRINT_COLUMN);
     COLUMN_CASE(IDS_TASK_MANAGER_PHYSICAL_MEM_COLUMN);
     COLUMN_CASE(IDS_TASK_MANAGER_SHARED_MEM_COLUMN);
     COLUMN_CASE(IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN);
@@ -131,6 +150,7 @@ std::string GetColumnIdAsString(int column_id) {
     COLUMN_CASE(IDS_TASK_MANAGER_NACL_DEBUG_STUB_PORT_COLUMN);
     COLUMN_CASE(IDS_TASK_MANAGER_JAVASCRIPT_MEMORY_ALLOCATED_COLUMN);
     COLUMN_CASE(IDS_TASK_MANAGER_IDLE_WAKEUPS_COLUMN);
+    COLUMN_CASE(IDS_TASK_MANAGER_HARD_FAULTS_COLUMN);
     COLUMN_CASE(IDS_TASK_MANAGER_OPEN_FD_COUNT_COLUMN);
     COLUMN_CASE(IDS_TASK_MANAGER_PROCESS_PRIORITY_COLUMN);
     COLUMN_CASE(IDS_TASK_MANAGER_MEMORY_STATE_COLUMN);

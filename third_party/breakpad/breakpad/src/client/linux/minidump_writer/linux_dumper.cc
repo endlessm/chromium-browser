@@ -230,20 +230,21 @@ void CrOSPostProcessMappings(wasteful_vector<MappingInfo*>& mappings) {
       l = m + 1;
   }
 
-  // Try to merge segments into the first.
-  if (next < mappings.size()) {
-    TryRecoverMappings(mappings[0], mappings[next]);
-    if (next - 1 > 0)
-      TryRecoverMappings(mappings[next - 1], mappings[0], mappings[next]);
-  }
+  // Shows the range that contains the entry point is
+  // [first_start_addr, first_end_addr)
+  size_t first_start_addr = mappings[0]->start_addr;
+  size_t first_end_addr = mappings[0]->start_addr + mappings[0]->size;
+
+  // Put the out-of-order segment in order.
+  std::rotate(mappings.begin(), mappings.begin() + 1, mappings.begin() + next);
 
   // Iterate through normal, sorted cases.
   // Normal case 1.
-  for (size_t i = 1; i < mappings.size() - 1; i++)
+  for (size_t i = 0; i < mappings.size() - 1; i++)
     TryRecoverMappings(mappings[i], mappings[i + 1]);
 
   // Normal case 2.
-  for (size_t i = 1; i < mappings.size() - 2; i++)
+  for (size_t i = 0; i < mappings.size() - 2; i++)
     TryRecoverMappings(mappings[i], mappings[i + 1], mappings[i + 2]);
 
   // Collect merged (size == 0) segments.
@@ -252,6 +253,22 @@ void CrOSPostProcessMappings(wasteful_vector<MappingInfo*>& mappings) {
     if (mappings[e]->size > 0)
       mappings[f++] = mappings[e];
   mappings.resize(f);
+
+  // The entry point is in the first mapping. We want to find the location
+  // of the entry point after merging segment. To do this, we want to find
+  // the mapping that covers the first mapping from the original mapping list.
+  // If the mapping is not in the beginning, we move it to the begining via
+  // a right rotate by using reverse iterators.
+  for (l = 0; l < mappings.size(); l++) {
+    if (mappings[l]->start_addr <= first_start_addr
+        && (mappings[l]->start_addr + mappings[l]->size >= first_end_addr))
+      break;
+  }
+  if (l > 0) {
+    r = mappings.size();
+    std::rotate(mappings.rbegin() + r - l - 1, mappings.rbegin() + r - l,
+                mappings.rend());
+  }
 }
 
 #endif  // __CHROMEOS__
@@ -611,6 +628,7 @@ bool LinuxDumper::EnumerateMappings() {
             }
           }
           MappingInfo* const module = new(allocator_) MappingInfo;
+          mappings_.push_back(module);
           my_memset(module, 0, sizeof(MappingInfo));
           module->system_mapping_info.start_addr = start_addr;
           module->system_mapping_info.end_addr = end_addr;
@@ -623,29 +641,30 @@ bool LinuxDumper::EnumerateMappings() {
             if (l < sizeof(module->name))
               my_memcpy(module->name, name, l);
           }
-          // If this is the entry-point mapping, and it's not already the
-          // first one, then we need to make it be first.  This is because
-          // the minidump format assumes the first module is the one that
-          // corresponds to the main executable (as codified in
-          // processor/minidump.cc:MinidumpModuleList::GetMainModule()).
-          if (entry_point_loc &&
-              (entry_point_loc >=
-                  reinterpret_cast<void*>(module->start_addr)) &&
-              (entry_point_loc <
-                  reinterpret_cast<void*>(module->start_addr+module->size)) &&
-              !mappings_.empty()) {
-            // push the module onto the front of the list.
-            mappings_.resize(mappings_.size() + 1);
-            for (size_t idx = mappings_.size() - 1; idx > 0; idx--)
-              mappings_[idx] = mappings_[idx - 1];
-            mappings_[0] = module;
-          } else {
-            mappings_.push_back(module);
-          }
         }
       }
     }
     line_reader->PopLine(line_len);
+  }
+
+  if (entry_point_loc) {
+    for (size_t i = 0; i < mappings_.size(); ++i) {
+      MappingInfo* module = mappings_[i];
+
+      // If this module contains the entry-point, and it's not already the first
+      // one, then we need to make it be first.  This is because the minidump
+      // format assumes the first module is the one that corresponds to the main
+      // executable (as codified in
+      // processor/minidump.cc:MinidumpModuleList::GetMainModule()).
+      if ((entry_point_loc >= reinterpret_cast<void*>(module->start_addr)) &&
+          (entry_point_loc <
+           reinterpret_cast<void*>(module->start_addr + module->size))) {
+        for (size_t j = i; j > 0; j--)
+          mappings_[j] = mappings_[j - 1];
+        mappings_[0] = module;
+        break;
+      }
+    }
   }
 
   sys_close(fd);

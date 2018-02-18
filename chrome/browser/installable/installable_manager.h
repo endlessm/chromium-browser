@@ -73,6 +73,7 @@ class InstallableManager
  protected:
   // For mocking in tests.
   virtual void OnWaitingForServiceWorker() {}
+  virtual void OnResetData() {}
 
  private:
   friend class AddToHomescreenDataFetcherTest;
@@ -87,6 +88,8 @@ class InstallableManager
                            CheckLazyServiceWorkerPassesWhenWaiting);
   FRIEND_TEST_ALL_PREFIXES(InstallableManagerBrowserTest,
                            CheckLazyServiceWorkerNoFetchHandlerFails);
+  FRIEND_TEST_ALL_PREFIXES(InstallableManagerBrowserTest,
+                           ManifestUrlChangeFlushesState);
 
   using IconPurpose = content::Manifest::Icon::IconPurpose;
 
@@ -180,7 +183,7 @@ class InstallableManager
   void OnDidGetManifest(const GURL& manifest_url,
                         const content::Manifest& manifest);
 
-  void CheckInstallable();
+  void CheckManifestValid();
   bool IsManifestValidForWebApp(const content::Manifest& manifest);
   void CheckServiceWorker();
   void OnDidCheckHasServiceWorker(content::ServiceWorkerCapability capability);
@@ -197,11 +200,14 @@ class InstallableManager
 
   // content::WebContentsObserver overrides
   void DidFinishNavigation(content::NavigationHandle* handle) override;
+  void DidUpdateWebManifestURL(
+      const base::Optional<GURL>& manifest_url) override;
   void WebContentsDestroyed() override;
 
   const GURL& manifest_url() const;
   const content::Manifest& manifest() const;
-  bool is_installable() const;
+  bool valid_manifest();
+  bool has_worker();
 
   InstallableTaskQueue task_queue_;
   std::unique_ptr<InstallableMetrics> metrics_;

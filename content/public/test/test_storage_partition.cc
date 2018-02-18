@@ -86,8 +86,7 @@ void TestStoragePartition::ClearDataForOrigin(
     uint32_t remove_mask,
     uint32_t quota_storage_remove_mask,
     const GURL& storage_origin,
-    net::URLRequestContextGetter* rq_context,
-    const base::Closure& callback) {}
+    net::URLRequestContextGetter* rq_context) {}
 
 void TestStoragePartition::ClearData(
     uint32_t remove_mask,
@@ -96,7 +95,7 @@ void TestStoragePartition::ClearData(
     const OriginMatcherFunction& origin_matcher,
     const base::Time begin,
     const base::Time end,
-    const base::Closure& callback) {}
+    base::OnceClosure callback) {}
 
 void TestStoragePartition::ClearData(
     uint32_t remove_mask,
@@ -105,16 +104,19 @@ void TestStoragePartition::ClearData(
     const CookieMatcherFunction& cookie_matcher,
     const base::Time begin,
     const base::Time end,
-    const base::Closure& callback) {}
+    base::OnceClosure callback) {}
 
 void TestStoragePartition::ClearHttpAndMediaCaches(
     const base::Time begin,
     const base::Time end,
     const base::Callback<bool(const GURL&)>& url_matcher,
-    const base::Closure& callback) {}
+    base::OnceClosure callback) {}
 
 void TestStoragePartition::Flush() {}
 
 void TestStoragePartition::ClearBluetoothAllowedDevicesMapForTesting() {}
+
+void TestStoragePartition::SetNetworkFactoryForTesting(
+    mojom::URLLoaderFactory* test_factory) {}
 
 }  // namespace content

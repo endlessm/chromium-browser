@@ -255,6 +255,16 @@ BOOL ShouldCellsBeFullWidth(UITraitCollection* collection) {
   }
 }
 
+- (void)viewWillAppear:(BOOL)animated {
+  [super viewWillAppear:animated];
+  // Reload data to ensure the Most Visited tiles and fakeOmnibox are correctly
+  // positionned, in particular during a rotation while a ViewController is
+  // presented in front of the NTP.
+  [self.headerSynchronizer
+      updateFakeOmniboxOnNewWidth:self.collectionView.bounds.size.width];
+  [self.collectionView.collectionViewLayout invalidateLayout];
+}
+
 - (void)viewDidAppear:(BOOL)animated {
   [super viewDidAppear:animated];
   // Resize the collection as it might have been rotated while not being

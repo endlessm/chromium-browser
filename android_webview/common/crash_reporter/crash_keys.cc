@@ -65,14 +65,10 @@ size_t RegisterWebViewCrashKeys() {
       {"subresource_url", kLargeSize},
       {"total-discardable-memory-allocated", kSmallSize},
       {kInputEventFilterSendFailure, kSmallSize},
-      {kBug464926CrashKey, kSmallSize},
       {kViewCount, kSmallSize},
 
       // media/:
       {kZeroEncodeDetails, kSmallSize},
-
-      // gin/:
-      {"v8-ignition", kSmallSize},
 
       // sandbox/:
       {"seccomp-sigsys", kMediumSize},
@@ -84,27 +80,6 @@ size_t RegisterWebViewCrashKeys() {
       {"killed_process_origin_lock", kSmallSize},
       {"site_isolation_mode", kSmallSize},
 
-      // Temporary for http://crbug.com/575245.
-      {"swapout_frame_id", kSmallSize},
-      {"swapout_proxy_id", kSmallSize},
-      {"swapout_view_id", kSmallSize},
-      {"commit_frame_id", kSmallSize},
-      {"commit_proxy_id", kSmallSize},
-      {"commit_view_id", kSmallSize},
-      {"commit_main_render_frame_id", kSmallSize},
-      {"newproxy_proxy_id", kSmallSize},
-      {"newproxy_view_id", kSmallSize},
-      {"newproxy_opener_id", kSmallSize},
-      {"newproxy_parent_id", kSmallSize},
-      {"rvinit_view_id", kSmallSize},
-      {"rvinit_proxy_id", kSmallSize},
-      {"rvinit_main_frame_id", kSmallSize},
-      {"initrf_frame_id", kSmallSize},
-      {"initrf_proxy_id", kSmallSize},
-      {"initrf_view_id", kSmallSize},
-      {"initrf_main_frame_id", kSmallSize},
-      {"initrf_view_is_live", kSmallSize},
-
       // Temporary for https://crbug.com/626802.
       {"newframe_routing_id", kSmallSize},
       {"newframe_proxy_id", kSmallSize},
@@ -114,11 +89,15 @@ size_t RegisterWebViewCrashKeys() {
       {"newframe_widget_hidden", kSmallSize},
       {"newframe_replicated_origin", kSmallSize},
 
-      // Temporary for https://crbug.com/612711.
-      {"aci_wrong_sp_extension_id", kSmallSize},
-
       // Temporary for https://crbug.com/685996.
       {"user-cloud-policy-manager-connect-trace", kMediumSize},
+
+      // TODO(sunnyps): Remove after fixing crbug.com/724999.
+      {"gl-context-set-current-stack-trace", kMediumSize},
+
+      // Accessibility keys. Temporary for http://crbug.com/765490.
+      {"ax_tree_error", kSmallSize},
+      {"ax_tree_update", kMediumSize},
   };
 
   // This dynamic set of keys is used for sets of key value pairs when gathering

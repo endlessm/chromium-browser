@@ -68,7 +68,7 @@ class DnsSocketData {
                                 query_->io_buffer()->size(),
                                 num_reads_and_writes()));
   }
-  ~DnsSocketData() {}
+  ~DnsSocketData() = default;
 
   // All responses must be added before GetProvider.
 
@@ -162,7 +162,7 @@ class FailingUDPClientSocket : public MockUDPClientSocket {
                          net::NetLog* net_log)
       : MockUDPClientSocket(data, net_log) {
   }
-  ~FailingUDPClientSocket() override {}
+  ~FailingUDPClientSocket() override = default;
   int Connect(const IPEndPoint& endpoint) override {
     return ERR_CONNECTION_REFUSED;
   }
@@ -179,7 +179,7 @@ class TestUDPClientSocket : public MockUDPClientSocket {
                       net::NetLog* net_log)
       : MockUDPClientSocket(data, net_log), factory_(factory) {
   }
-  ~TestUDPClientSocket() override {}
+  ~TestUDPClientSocket() override = default;
   int Connect(const IPEndPoint& endpoint) override;
 
  private:
@@ -192,7 +192,7 @@ class TestUDPClientSocket : public MockUDPClientSocket {
 class TestSocketFactory : public MockClientSocketFactory {
  public:
   TestSocketFactory() : fail_next_socket_(false) {}
-  ~TestSocketFactory() override {}
+  ~TestSocketFactory() override = default;
 
   std::unique_ptr<DatagramClientSocket> CreateDatagramClientSocket(
       DatagramSocket::BindType bind_type,
@@ -335,7 +335,7 @@ class TransactionHelper {
 
 class DnsTransactionTest : public testing::Test {
  public:
-  DnsTransactionTest() {}
+  DnsTransactionTest() = default;
 
   // Generates |nameservers| for DnsConfig.
   void ConfigureNumServers(unsigned num_servers) {
@@ -1052,6 +1052,54 @@ TEST_F(DnsTransactionTest, TCPConnectionClosedSynchronous) {
   AddSocketData(std::move(data));
 
   TransactionHelper helper0(kT0HostName, kT0Qtype, ERR_CONNECTION_CLOSED);
+  EXPECT_TRUE(helper0.Run(transaction_factory_.get()));
+}
+
+TEST_F(DnsTransactionTest, MismatchedThenNxdomainThenTCP) {
+  config_.attempts = 2;
+  config_.timeout = TestTimeouts::tiny_timeout();
+  ConfigureFactory();
+  std::unique_ptr<DnsSocketData> data(
+      new DnsSocketData(0 /* id */, kT0HostName, kT0Qtype, SYNCHRONOUS, false));
+  // First attempt gets a mismatched response.
+  data->AddResponseData(kT1ResponseDatagram, arraysize(kT1ResponseDatagram),
+                        SYNCHRONOUS);
+  // Second read from first attempt gets TCP required.
+  data->AddRcode(dns_protocol::kFlagTC, ASYNC);
+  AddSocketData(std::move(data));
+  // Second attempt gets NXDOMAIN, which happens before the TCP required.
+  AddSyncQueryAndRcode(kT0HostName, kT0Qtype, dns_protocol::kRcodeNXDOMAIN);
+  std::unique_ptr<DnsSocketData> tcp_data(
+      new DnsSocketData(0 /* id */, kT0HostName, kT0Qtype, ASYNC, true));
+  tcp_data->AddReadError(ERR_CONNECTION_CLOSED, SYNCHRONOUS);
+  AddSocketData(std::move(tcp_data));
+
+  TransactionHelper helper0(kT0HostName, kT0Qtype, ERR_NAME_NOT_RESOLVED);
+  EXPECT_TRUE(helper0.Run(transaction_factory_.get()));
+}
+
+TEST_F(DnsTransactionTest, MismatchedThenOkThenTCP) {
+  config_.attempts = 2;
+  config_.timeout = TestTimeouts::tiny_timeout();
+  ConfigureFactory();
+  std::unique_ptr<DnsSocketData> data(
+      new DnsSocketData(0 /* id */, kT0HostName, kT0Qtype, SYNCHRONOUS, false));
+  // First attempt gets a mismatched response.
+  data->AddResponseData(kT1ResponseDatagram, arraysize(kT1ResponseDatagram),
+                        SYNCHRONOUS);
+  // Second read from first attempt gets TCP required.
+  data->AddRcode(dns_protocol::kFlagTC, ASYNC);
+  AddSocketData(std::move(data));
+  // Second attempt gets a valid response, which happens before the TCP
+  // required.
+  AddSyncQueryAndResponse(0 /* id */, kT0HostName, kT0Qtype,
+                          kT0ResponseDatagram, arraysize(kT0ResponseDatagram));
+  std::unique_ptr<DnsSocketData> tcp_data(
+      new DnsSocketData(0 /* id */, kT0HostName, kT0Qtype, ASYNC, true));
+  tcp_data->AddReadError(ERR_CONNECTION_CLOSED, SYNCHRONOUS);
+  AddSocketData(std::move(tcp_data));
+
+  TransactionHelper helper0(kT0HostName, kT0Qtype, kT0RecordCount);
   EXPECT_TRUE(helper0.Run(transaction_factory_.get()));
 }
 

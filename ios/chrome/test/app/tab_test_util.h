@@ -7,6 +7,8 @@
 
 #import <Foundation/Foundation.h>
 
+#include "base/compiler_specific.h"
+
 @class Tab;
 
 namespace chrome_test_util {
@@ -64,8 +66,8 @@ BOOL SimulateTabsBackgrounding();
 // Evicts the tabs associated with the non-current browser mode.
 void EvictOtherTabModelTabs();
 
-// Closes all incognito tabs.
-void CloseAllIncognitoTabs();
+// Closes all incognito tabs. Return YES on success.
+BOOL CloseAllIncognitoTabs() WARN_UNUSED_RESULT;
 
 // Returns the number of main tabs currently evicted.
 NSUInteger GetEvictedMainTabCount();

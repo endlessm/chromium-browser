@@ -10,6 +10,7 @@
 // clang-format off
 #include "V8TestInterfaceEventInitConstructor.h"
 
+#include "base/memory/scoped_refptr.h"
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/IDLTypes.h"
 #include "bindings/core/v8/NativeValueTraitsImpl.h"
@@ -20,7 +21,6 @@
 #include "platform/bindings/RuntimeCallStats.h"
 #include "platform/bindings/V8ObjectConstructor.h"
 #include "platform/wtf/GetPtr.h"
-#include "platform/wtf/RefPtr.h"
 
 namespace blink {
 
@@ -41,7 +41,6 @@ const WrapperTypeInfo V8TestInterfaceEventInitConstructor::wrapperTypeInfo = {
     WrapperTypeInfo::kWrapperTypeObjectPrototype,
     WrapperTypeInfo::kObjectClassId,
     WrapperTypeInfo::kNotInheritFromActiveScriptWrappable,
-    WrapperTypeInfo::kIndependent,
 };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && defined(__clang__)
 #pragma clang diagnostic pop
@@ -99,7 +98,7 @@ static void constructor(const v8::FunctionCallbackInfo<v8::Value>& info) {
   if (!type.Prepare())
     return;
 
-  if (!IsUndefinedOrNull(info[1]) && !info[1]->IsObject()) {
+  if (!info[1]->IsNullOrUndefined() && !info[1]->IsObject()) {
     exceptionState.ThrowTypeError("parameter 2 ('testInterfaceEventInit') is not an object.");
     return;
   }

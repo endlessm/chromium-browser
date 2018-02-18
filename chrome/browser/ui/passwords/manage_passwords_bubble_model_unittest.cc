@@ -275,6 +275,8 @@ TEST_F(ManagePasswordsBubbleModelTest, CloseWithoutInteraction) {
 TEST_F(ManagePasswordsBubbleModelTest, ClickSave) {
   PretendPasswordWaiting();
 
+  EXPECT_TRUE(model()->enable_editing());
+
   EXPECT_CALL(*GetStore(), RemoveSiteStatsImpl(GURL(kSiteOrigin).GetOrigin()));
   EXPECT_CALL(*controller(), SavePassword(GetPendingPassword().username_value,
                                           GetPendingPassword().password_value));
@@ -595,27 +597,31 @@ TEST_F(ManagePasswordsBubbleModelTest, RecordUKMs) {
         ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(GetStore()));
 
         // Verify metrics.
-        const ukm::UkmSource* source =
-            test_ukm_recorder.GetSourceForUrl("https://www.example.com/");
-        ASSERT_TRUE(source);
-        test_ukm_recorder.ExpectMetric(
-            *source, UkmEntry::kEntryName,
-            update ? UkmEntry::kUpdating_Prompt_ShownName
-                   : UkmEntry::kSaving_Prompt_ShownName,
-            1);
-        test_ukm_recorder.ExpectMetric(
-            *source, UkmEntry::kEntryName,
-            update ? UkmEntry::kUpdating_Prompt_TriggerName
-                   : UkmEntry::kSaving_Prompt_TriggerName,
-            static_cast<int64_t>(
-                credential_management_api
-                    ? BubbleTrigger::kCredentialManagementAPIAutomatic
-                    : BubbleTrigger::kPasswordManagerSuggestionAutomatic));
-        test_ukm_recorder.ExpectMetric(
-            *source, UkmEntry::kEntryName,
-            update ? UkmEntry::kUpdating_Prompt_InteractionName
-                   : UkmEntry::kSaving_Prompt_InteractionName,
-            static_cast<int64_t>(interaction));
+        const auto& entries =
+            test_ukm_recorder.GetEntriesByName(UkmEntry::kEntryName);
+        EXPECT_EQ(1u, entries.size());
+        for (const auto* entry : entries) {
+          test_ukm_recorder.ExpectEntrySourceHasUrl(
+              entry, GURL("https://www.example.com/"));
+          test_ukm_recorder.ExpectEntryMetric(
+              entry,
+              update ? UkmEntry::kUpdating_Prompt_ShownName
+                     : UkmEntry::kSaving_Prompt_ShownName,
+              1);
+          test_ukm_recorder.ExpectEntryMetric(
+              entry,
+              update ? UkmEntry::kUpdating_Prompt_TriggerName
+                     : UkmEntry::kSaving_Prompt_TriggerName,
+              static_cast<int64_t>(
+                  credential_management_api
+                      ? BubbleTrigger::kCredentialManagementAPIAutomatic
+                      : BubbleTrigger::kPasswordManagerSuggestionAutomatic));
+          test_ukm_recorder.ExpectEntryMetric(
+              entry,
+              update ? UkmEntry::kUpdating_Prompt_InteractionName
+                     : UkmEntry::kSaving_Prompt_InteractionName,
+              static_cast<int64_t>(interaction));
+        }
       }
     }
   }
@@ -667,4 +673,21 @@ TEST_F(ManagePasswordsBubbleModelTest, EyeIcon) {
       }
     }
   }
+}
+
+TEST_F(ManagePasswordsBubbleModelTest, DisableEditing) {
+  autofill::PasswordForm form = GetPendingPassword();
+  EXPECT_CALL(*controller(), GetPendingPassword()).WillOnce(ReturnRef(form));
+  password_manager::InteractionsStats stats = GetTestStats();
+  EXPECT_CALL(*controller(), GetCurrentInteractionStats())
+      .WillOnce(Return(&stats));
+  EXPECT_CALL(*controller(), BubbleIsManualFallbackForSaving())
+      .WillOnce(Return(false));
+
+  EXPECT_CALL(*controller(), GetCredentialSource())
+      .WillOnce(Return(password_manager::metrics_util::CredentialSourceType::
+                           kCredentialManagementAPI));
+  SetUpWithState(password_manager::ui::PENDING_PASSWORD_STATE,
+                 ManagePasswordsBubbleModel::AUTOMATIC);
+  EXPECT_FALSE(model()->enable_editing());
 }

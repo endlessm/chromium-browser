@@ -67,7 +67,7 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
       extra_ldflags.append('-fprofile-instr-generate')
       extra_ldflags.append('-fcoverage-mapping')
 
-    elif compiler != 'MSVC' and configuration == 'Debug':
+    if compiler != 'MSVC' and configuration == 'Debug':
       extra_cflags.append('-O1')
 
     if extra_config == 'Exceptions':
@@ -88,15 +88,11 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
       args['skia_use_angle'] = 'true'
     if extra_config == 'CommandBuffer':
       self.m.run.run_once(self.build_command_buffer)
-    if extra_config == 'GDI':
-      args['skia_use_gdi'] = 'true'
     if extra_config == 'MSAN':
       args['skia_enable_gpu']     = 'false'
       args['skia_use_fontconfig'] = 'false'
     if 'ASAN' in extra_config or 'UBSAN' in extra_config:
       args['skia_enable_spirv_validation'] = 'false'
-    if extra_config == 'Mesa':
-      args['skia_use_mesa'] = 'true'
     if extra_config == 'Mini':
       args.update({
         'is_component_build':     'true',   # Proves we can link a coherent .so.
@@ -134,14 +130,14 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
         'skia_use_icu':        'false',
         'skia_enable_gpu':     'false',
       })
-    if 'Coverage' in extra_config:
-      args['skia_use_system_freetype2'] = 'false'
 
     sanitize = ''
     if extra_config == 'UBSAN_float_cast_overflow':
       sanitize = 'float-cast-overflow'
     elif 'SAN' in extra_config:
       sanitize = extra_config
+    elif 'SafeStack' in extra_config:
+      sanitize = 'safe-stack'
 
     for (k,v) in {
       'cc':  cc,
@@ -178,7 +174,7 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
 
       with self.m.env(env):
         self._run('gn gen', [gn, 'gen', self.out_dir, '--args=' + gn_args])
-        self._run('ninja', [ninja, '-C', self.out_dir])
+        self._run('ninja', [ninja, '-k', '0', '-C', self.out_dir])
 
   def copy_extra_build_products(self, swarming_out_dir):
     configuration = self.m.vars.builder_cfg.get('configuration', '')
@@ -242,8 +238,9 @@ class GNFlavorUtils(default_flavor.DefaultFlavorUtils):
       # This is the output file for the coverage data. Just running the binary
       # will produce the output. The output_file is in the swarming_out_dir and
       # thus will be an isolated output of the Test step.
+      profname = '%s.profraw' % self.m.vars.builder_cfg.get('test_filter','o')
       env['LLVM_PROFILE_FILE'] = self.m.path.join(self.m.vars.swarming_out_dir,
-                                                  'output.profraw')
+                                                  profname)
 
     if path:
       env['PATH'] = '%%(PATH)s:%s' % ':'.join('%s' % p for p in path)

@@ -19,10 +19,14 @@ namespace switches {
 ASH_PUBLIC_EXPORT extern const char kAshConstrainPointerToRoot[];
 ASH_PUBLIC_EXPORT extern const char kAshDebugShortcuts[];
 ASH_PUBLIC_EXPORT extern const char kAshDeveloperShortcuts[];
+ASH_PUBLIC_EXPORT extern const char kAshDisableLoginDimAndBlur[];
 ASH_PUBLIC_EXPORT extern const char kAshDisableShelfModelSynchronization[];
 ASH_PUBLIC_EXPORT extern const char kAshDisableSmoothScreenRotation[];
 ASH_PUBLIC_EXPORT extern const char kAshDisableTabletAutohideTitlebars[];
 ASH_PUBLIC_EXPORT extern const char kAshDisableTouchExplorationMode[];
+ASH_PUBLIC_EXPORT extern const char kAshEnableV1AppBackButton[];
+ASH_PUBLIC_EXPORT extern const char kAshEnableDisplayMoveWindowAccels[];
+ASH_PUBLIC_EXPORT extern const char kAshEnableKeyboardShortcutViewer[];
 ASH_PUBLIC_EXPORT extern const char kAshEnableMagnifierKeyScroller[];
 ASH_PUBLIC_EXPORT extern const char kAshEnableNightLight[];
 ASH_PUBLIC_EXPORT extern const char kAshEnablePaletteOnAllDisplays[];
@@ -48,11 +52,14 @@ ASH_PUBLIC_EXPORT extern const char kAshShelfColorSchemeNormalMuted[];
 ASH_PUBLIC_EXPORT extern const char kAshShelfColorSchemeNormalVibrant[];
 ASH_PUBLIC_EXPORT extern const char kAshShelfColorSchemeDarkMuted[];
 ASH_PUBLIC_EXPORT extern const char kAshShelfColorSchemeDarkVibrant[];
+ASH_PUBLIC_EXPORT extern const char kAshSidebarDisabled[];
+ASH_PUBLIC_EXPORT extern const char kAshSidebarEnabled[];
 ASH_PUBLIC_EXPORT extern const char kAshTouchHud[];
 ASH_PUBLIC_EXPORT extern const char kAuraLegacyPowerButton[];
 ASH_PUBLIC_EXPORT extern const char kForceClamshellPowerButton[];
 ASH_PUBLIC_EXPORT extern const char kHasInternalStylus[];
-ASH_PUBLIC_EXPORT extern const char kShowMdLogin[];
+ASH_PUBLIC_EXPORT extern const char kShowViewsLogin[];
+ASH_PUBLIC_EXPORT extern const char kShowWebUiLock[];
 ASH_PUBLIC_EXPORT extern const char kSpuriousPowerButtonWindow[];
 ASH_PUBLIC_EXPORT extern const char kSpuriousPowerButtonAccelCount[];
 ASH_PUBLIC_EXPORT extern const char kSpuriousPowerButtonScreenAccel[];
@@ -61,10 +68,11 @@ ASH_PUBLIC_EXPORT extern const char kSpuriousPowerButtonLidAngleChange[];
 ASH_PUBLIC_EXPORT extern const char kTouchscreenUsableWhileScreenOff[];
 ASH_PUBLIC_EXPORT extern const char kUseIMEService[];
 
+ASH_PUBLIC_EXPORT bool IsDisplayMoveWindowAccelsEnabled();
 ASH_PUBLIC_EXPORT bool IsNightLightEnabled();
-
-// Returns true if the md based login/lock UI is enabled.
-ASH_PUBLIC_EXPORT bool IsUsingMdLogin();
+ASH_PUBLIC_EXPORT bool IsSidebarEnabled();
+ASH_PUBLIC_EXPORT bool IsUsingViewsLogin();
+ASH_PUBLIC_EXPORT bool IsUsingWebUiLock();
 
 }  // namespace switches
 }  // namespace ash

@@ -17,10 +17,10 @@
 #include "chrome/browser/chromeos/ownership/owner_settings_service_chromeos.h"
 #include "chrome/browser/chromeos/policy/off_hours/device_off_hours_controller.h"
 #include "chrome/browser/chromeos/policy/off_hours/off_hours_policy_applier.h"
-#include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/settings/session_manager_operation.h"
 #include "components/ownership/owner_key_util.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
+#include "components/policy/proto/chrome_device_policy.pb.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
@@ -323,18 +323,6 @@ void DeviceSettingsService::HandleCompletedOperation(
   }
   NotifyDeviceSettingsUpdated();
   RunPendingOwnershipStatusCallbacks();
-
-  // The completion callback happens after the notification so clients can
-  // filter self-triggered updates.
-  if (!callback.is_null())
-    callback.Run();
-}
-
-void DeviceSettingsService::HandleError(Status status,
-                                        const base::Closure& callback) {
-  store_status_ = status;
-  LOG(ERROR) << "Session manager operation failed: " << status;
-  NotifyDeviceSettingsUpdated();
 
   // The completion callback happens after the notification so clients can
   // filter self-triggered updates.

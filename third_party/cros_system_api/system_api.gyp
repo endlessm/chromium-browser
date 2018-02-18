@@ -35,6 +35,7 @@
         'proto_out_dir': 'include/power_manager/proto_bindings',
       },
       'sources': [
+        '<(proto_in_dir)/idle.proto',
         '<(proto_in_dir)/input_event.proto',
         '<(proto_in_dir)/peripheral_battery_status.proto',
         '<(proto_in_dir)/policy.proto',
@@ -52,6 +53,7 @@
         'system_api-power_manager-protos-gen',
       ],
       'sources': [
+        '<(SHARED_INTERMEDIATE_DIR)/include/power_manager/proto_bindings/idle.pb.cc',
         '<(SHARED_INTERMEDIATE_DIR)/include/power_manager/proto_bindings/input_event.pb.cc',
         '<(SHARED_INTERMEDIATE_DIR)/include/power_manager/proto_bindings/peripheral_battery_status.pb.cc',
         '<(SHARED_INTERMEDIATE_DIR)/include/power_manager/proto_bindings/policy.pb.cc',
@@ -144,6 +146,7 @@
       },
       'sources': [
         '<(proto_in_dir)/arc.proto',
+        '<(proto_in_dir)/policy_descriptor.proto',
       ],
       'includes': ['../../platform2/common-mk/protoc.gypi'],
     },
@@ -156,6 +159,7 @@
       ],
       'sources': [
         '<(SHARED_INTERMEDIATE_DIR)/include/login_manager/proto_bindings/arc.pb.cc',
+        '<(SHARED_INTERMEDIATE_DIR)/include/login_manager/proto_bindings/policy_descriptor.pb.cc',
       ]
     },
     {
@@ -183,6 +187,29 @@
       ],
       'sources': [
         '<(SHARED_INTERMEDIATE_DIR)/include/chaps/proto_bindings/ck_structs.pb.cc',
+      ]
+    },
+    {
+      'target_name': 'system_api-smbprovider-protos-gen',
+      'type': 'none',
+      'variables': {
+        'proto_in_dir': 'dbus/smbprovider',
+        'proto_out_dir': 'include/smbprovider/proto_bindings',
+      },
+      'sources': [
+        '<(proto_in_dir)/directory_entry.proto',
+      ],
+      'includes': ['../../platform2/common-mk/protoc.gypi'],
+    },
+    {
+      'target_name': 'system_api-smbprovider-protos',
+      'type': 'static_library',
+      'standalone_static_library': 1,
+      'dependencies': [
+        'system_api-smbprovider-protos-gen',
+      ],
+      'sources': [
+        '<(SHARED_INTERMEDIATE_DIR)/include/smbprovider/proto_bindings/directory_entry.pb.cc',
       ]
     },
   ]

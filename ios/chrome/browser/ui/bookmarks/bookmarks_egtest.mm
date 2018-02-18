@@ -21,8 +21,7 @@
 #include "ios/chrome/browser/pref_names.h"
 #import "ios/chrome/browser/ui/authentication/signin_earlgrey_utils.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view.h"
-#import "ios/chrome/browser/ui/toolbar/toolbar_controller_constants.h"
-#include "ios/chrome/browser/ui/tools_menu/tools_menu_constants.h"
+#import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_constants.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/app/bookmarks_test_util.h"
@@ -47,6 +46,7 @@
 #error "This file requires ARC support."
 #endif
 
+using chrome_test_util::BookmarksMenuButton;
 using chrome_test_util::ButtonWithAccessibilityLabel;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
 using chrome_test_util::PrimarySignInButton;
@@ -140,15 +140,7 @@ id<GREYMatcher> ActionSheet(Action action) {
 
 - (void)setUp {
   [super setUp];
-  // Wait for bookmark model to be loaded.
-  GREYAssert(testing::WaitUntilConditionOrTimeout(
-                 testing::kWaitForUIElementTimeout,
-                 ^{
-                   return chrome_test_util::BookmarksLoaded();
-                 }),
-             @"Bookmark model did not load");
-  GREYAssert(chrome_test_util::ClearBookmarks(),
-             @"Not all bookmarks were removed.");
+  [ChromeEarlGrey waitForBookmarksToFinishLoading];
 }
 
 // Tear down called once per test.
@@ -1256,8 +1248,8 @@ id<GREYMatcher> ActionSheet(Action action) {
   // Check the sign-in promo view is visible.
   [SigninEarlGreyUtils
       checkSigninPromoVisibleWithMode:SigninPromoViewModeColdState];
-  // Check the sign-in promo will not be shown anymore.
-  [BookmarksTestCase verifyPromoAlreadySeen:YES];
+  // Check the sign-in promo already-seen state didn't change.
+  [BookmarksTestCase verifyPromoAlreadySeen:NO];
   GREYAssertEqual(
       20, prefs->GetInteger(prefs::kIosBookmarkSigninPromoDisplayedCount),
       @"Should have incremented the display count");
@@ -1413,16 +1405,12 @@ id<GREYMatcher> ActionSheet(Action action) {
 
 // Navigates to the bookmark manager UI.
 + (void)openBookmarks {
-  [ChromeEarlGreyUI openToolsMenu];
-
   // Opens the bookmark manager.
-  [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityID(kToolsMenuBookmarksId)]
-      performAction:grey_tap()];
+  [ChromeEarlGreyUI openToolsMenu];
+  [ChromeEarlGreyUI tapToolsMenuButton:BookmarksMenuButton()];
 
-  // Wait for it to load, and the menu to go away.
-  [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityID(kToolsMenuBookmarksId)]
+  // Assert the menu is gone.
+  [[EarlGrey selectElementWithMatcher:BookmarksMenuButton()]
       assertWithMatcher:grey_nil()];
 }
 

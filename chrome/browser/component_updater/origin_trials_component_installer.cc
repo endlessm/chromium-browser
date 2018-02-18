@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/memory/ref_counted.h"
 #include "base/path_service.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -78,6 +79,8 @@ OriginTrialsComponentInstallerPolicy::OnCustomInstall(
   return update_client::CrxInstaller::Result(0);
 }
 
+void OriginTrialsComponentInstallerPolicy::OnCustomUninstall() {}
+
 void OriginTrialsComponentInstallerPolicy::ComponentReady(
     const base::Version& version,
     const base::FilePath& install_dir,
@@ -143,11 +146,9 @@ std::vector<std::string> OriginTrialsComponentInstallerPolicy::GetMimeTypes()
 
 void RegisterOriginTrialsComponent(ComponentUpdateService* cus,
                                    const base::FilePath& user_data_dir) {
-  std::unique_ptr<ComponentInstallerPolicy> policy(
-      new OriginTrialsComponentInstallerPolicy());
-  // |cus| will take ownership of |installer| during installer->Register(cus).
-  ComponentInstaller* installer = new ComponentInstaller(std::move(policy));
-  installer->Register(cus, base::Closure());
+  auto installer = base::MakeRefCounted<ComponentInstaller>(
+      std::make_unique<OriginTrialsComponentInstallerPolicy>());
+  installer->Register(cus, base::OnceClosure());
 }
 
 }  // namespace component_updater

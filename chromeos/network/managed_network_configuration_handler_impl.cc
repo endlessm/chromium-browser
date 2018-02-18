@@ -97,7 +97,7 @@ struct ManagedNetworkConfigurationHandlerImpl::Policies {
   base::DictionaryValue global_network_config;
 };
 
-ManagedNetworkConfigurationHandlerImpl::Policies::~Policies() {}
+ManagedNetworkConfigurationHandlerImpl::Policies::~Policies() = default;
 
 void ManagedNetworkConfigurationHandlerImpl::AddObserver(
     NetworkPolicyObserver* observer) {
@@ -146,8 +146,10 @@ void ManagedNetworkConfigurationHandlerImpl::SendManagedProperties(
       network_state_handler_->GetNetworkState(service_path);
   const NetworkProfile* profile =
       network_profile_handler_->GetProfileForPath(profile_path);
-  if (!profile && !(network_state && network_state->IsNonProfileType()))
-    NET_LOG_ERROR("No profile for service: " + profile_path, service_path);
+  if (!profile && !(network_state && network_state->IsNonProfileType())) {
+    // Visible but unsaved (not known) networks will not have a profile.
+    NET_LOG_DEBUG("No profile for service: " + profile_path, service_path);
+  }
 
   std::unique_ptr<NetworkUIData> ui_data =
       shill_property_util::GetUIDataFromProperties(*shill_properties);
@@ -800,22 +802,25 @@ void ManagedNetworkConfigurationHandlerImpl::OnPolicyAppliedToNetwork(
 void ManagedNetworkConfigurationHandlerImpl::GetDeviceStateProperties(
     const std::string& service_path,
     base::DictionaryValue* properties) {
-  std::string connection_state;
-  properties->GetStringWithoutPathExpansion(
-      shill::kStateProperty, &connection_state);
-  if (!NetworkState::StateIsConnected(connection_state))
+  const NetworkState* network =
+      network_state_handler_->GetNetworkState(service_path);
+  if (!network) {
+    NET_LOG(ERROR) << "GetDeviceStateProperties: no network for: "
+                   << service_path;
     return;
+  }
+  if (!network->IsConnectedState())
+    return;  // No (non saved) IP Configs for non connected networks.
 
   // Get the IPConfig properties from the device and store them in "IPConfigs"
   // (plural) in the properties dictionary. (Note: Shill only provides a single
   // "IPConfig" property for a network service, but a consumer of this API may
   // want information about all ipv4 and ipv6 IPConfig properties.
-  std::string device;
-  properties->GetStringWithoutPathExpansion(shill::kDeviceProperty, &device);
   const DeviceState* device_state =
-      network_state_handler_->GetDeviceState(device);
+      network_state_handler_->GetDeviceState(network->device_path());
   if (!device_state) {
-    NET_LOG_ERROR("GetDeviceProperties: no device: " + device, service_path);
+    NET_LOG(ERROR) << "GetDeviceStateProperties: no device: "
+                   << network->device_path() << " For: " << service_path;
     return;
   }
 
@@ -825,11 +830,21 @@ void ManagedNetworkConfigurationHandlerImpl::GetDeviceStateProperties(
                        base::Value(device_state->mac_address()));
   }
 
-  // Convert IPConfig dictionary to a ListValue.
-  auto ip_configs = base::MakeUnique<base::ListValue>();
-  for (base::DictionaryValue::Iterator iter(device_state->ip_configs());
-       !iter.IsAtEnd(); iter.Advance()) {
-    ip_configs->Append(iter.value().CreateDeepCopy());
+  // Build a list of IPConfigs.
+  auto ip_configs = std::make_unique<base::ListValue>();
+
+  if (device_state->ip_configs().empty()) {
+    // Shill may not provide IPConfigs for external Cellular devices
+    // (dongles), so build a dictionary of ipv4 properties from cached
+    // NetworkState properties (crbug.com/739314).
+    NET_LOG(DEBUG)
+        << "GetDeviceStateProperties: Setting IPv4 properties from network: "
+        << service_path;
+    ip_configs->GetList().push_back(network->ipv4_config().Clone());
+  } else {
+    // Convert the DeviceState IPConfigs dictionary to a ListValue.
+    for (const auto iter : device_state->ip_configs().DictItems())
+      ip_configs->GetList().push_back(iter.second.Clone());
   }
   properties->SetWithoutPathExpansion(shill::kIPConfigsProperty,
                                       std::move(ip_configs));

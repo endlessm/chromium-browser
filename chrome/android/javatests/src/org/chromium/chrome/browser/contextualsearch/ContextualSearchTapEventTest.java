@@ -29,6 +29,7 @@ import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.SelectionPopupController;
+import org.chromium.content.browser.test.util.TestContentViewCore;
 import org.chromium.content_public.browser.SelectionClient;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
@@ -84,8 +85,8 @@ public class ContextualSearchTapEventTest {
             setSelectionController(new MockCSSelectionController(activity, this));
             ContentViewCore contentView = getSelectionController().getBaseContentView();
             WebContents webContents = WebContentsFactory.createWebContents(false, false);
-            SelectionPopupController selectionPopupController = new SelectionPopupController(
-                    activity, null, webContents, null, contentView.getRenderCoordinates());
+            SelectionPopupController selectionPopupController =
+                    new SelectionPopupController(activity, null, webContents, null);
             contentView.setSelectionPopupControllerForTesting(selectionPopupController);
             contentView.setSelectionClient(this.getContextualSearchSelectionClient());
             MockContextualSearchPolicy policy = new MockContextualSearchPolicy();
@@ -163,7 +164,7 @@ public class ContextualSearchTapEventTest {
     /**
      * A ContentViewCore that has some methods stubbed out for testing.
      */
-    private static final class StubbedContentViewCore extends ContentViewCore {
+    private static final class StubbedContentViewCore extends TestContentViewCore {
         private String mCurrentText;
 
         public StubbedContentViewCore(Context context) {
@@ -281,7 +282,7 @@ public class ContextualSearchTapEventTest {
     }
 
     /**
-     * Tests that a Tap gesture followed by tapping empty space closes the panel.
+     * Tests that a Long-press gesture followed by tapping empty space closes the panel.
      */
     @Test
     @SmallTest
@@ -355,5 +356,27 @@ public class ContextualSearchTapEventTest {
         generateSelectWordAroundCaretAck();
         Assert.assertEquals(mPanelManager.getRequestPanelShowCount(), 0);
         Assert.assertEquals(mPanelManager.getPanelHideCount(), 0);
+    }
+
+    /**
+     * Tests that a Long-press gesture suppresses the panel when Smart Selection is enabled.
+     */
+    @Test
+    @SmallTest
+    @Feature({"ContextualSearch"})
+    @Restriction(Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE)
+    public void testLongpressWithSmartSelectionSuppresses() {
+        Assert.assertEquals(mPanelManager.getRequestPanelShowCount(), 0);
+
+        // Tell the ContextualSearchManager that Smart Selection is enabled.
+        mContextualSearchManager.suppressContextualSearchForSmartSelection(true);
+
+        // Fake a selection event.
+        mockLongpressText("text");
+        // Generate the surrounding-text-available callback.
+        // Surrounding text is gathered for longpress due to icing integration.
+        generateTextSurroundingSelectionAvailable();
+
+        Assert.assertEquals(mPanelManager.getRequestPanelShowCount(), 0);
     }
 }

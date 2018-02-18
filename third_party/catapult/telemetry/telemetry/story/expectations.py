@@ -3,6 +3,8 @@
 # found in the LICENSE file.
 
 import logging
+#from telemetry.story import expectations_parser
+from py_utils import expectations_parser
 
 
 class StoryExpectations(object):
@@ -17,12 +19,23 @@ class StoryExpectations(object):
       self.DisableStory('story_name2', [expectations.ALL], 'crbug.com/789')
       ...
   """
-  def __init__(self):
+  def __init__(self, expectation_file=None):
     self._disabled_platforms = []
     self._expectations = {}
     self._frozen = False
     self.SetExpectations()
+    if expectation_file:
+      parser = expectations_parser.TestExpectationParser(expectation_file)
+      self._MapExpectationsFromFile(parser)
     self._Freeze()
+
+  # TODO(rnephew): Transform parsed expectation file into StoryExpectations.
+  # When working on this it's important to note that StoryExpectations uses
+  # logical OR to combine multiple conditions in a single expectation. The
+  # expectation files use logical AND when combining multiple conditions.
+  # crbug.com/781409
+  def _MapExpectationsFromFile(self, _):
+    pass
 
   def AsDict(self):
     """Returns information on disabled stories/benchmarks as a dictionary"""
@@ -213,6 +226,7 @@ class _TestConditionAndroidNotWebview(_TestCondition):
   def __str__(self):
     return 'Android but not webview'
 
+
 class _TestConditionByMacVersion(_TestCondition):
   def __init__(self, version, name=None):
     self._version = version
@@ -240,6 +254,19 @@ class _TestConditionLogicalAndConditions(_TestCondition):
         c.ShouldDisable(platform, finder_options) for c in self._conditions)
 
 
+class _TestConditionLogicalOrConditions(_TestCondition):
+  def __init__(self, conditions, name):
+    self._conditions = conditions
+    self._name = name
+
+  def __str__(self):
+    return self._name
+
+  def ShouldDisable(self, platform, finder_options):
+    return any(
+        c.ShouldDisable(platform, finder_options) for c in self._conditions)
+
+
 ALL = _AllTestCondition()
 ALL_MAC = _TestConditionByPlatformList(['mac'], 'Mac Platforms')
 ALL_WIN = _TestConditionByPlatformList(['win'], 'Win Platforms')
@@ -250,8 +277,14 @@ ALL_DESKTOP = _TestConditionByPlatformList(
     ['mac', 'linux', 'win', 'chromeos'], 'Desktop Platforms')
 ALL_MOBILE = _TestConditionByPlatformList(['android'], 'Mobile Platforms')
 ANDROID_NEXUS5 = _TestConditionByAndroidModel('Nexus 5')
-ANDROID_NEXUS5X = _TestConditionByAndroidModel('Nexus 5X')
-ANDROID_NEXUS6 = _TestConditionByAndroidModel('Nexus 6')
+_ANDROID_NEXUS5X = _TestConditionByAndroidModel('Nexus 5X')
+_ANDROID_NEXUS5XAOSP = _TestConditionByAndroidModel('AOSP on BullHead')
+ANDROID_NEXUS5X = _TestConditionLogicalOrConditions(
+    [_ANDROID_NEXUS5X, _ANDROID_NEXUS5XAOSP], 'Nexus 5X')
+_ANDROID_NEXUS6 = _TestConditionByAndroidModel('Nexus 6')
+_ANDROID_NEXUS6AOSP = _TestConditionByAndroidModel('AOSP on Shamu')
+ANDROID_NEXUS6 = _TestConditionLogicalOrConditions(
+    [_ANDROID_NEXUS6, _ANDROID_NEXUS6AOSP], 'Nexus 6')
 ANDROID_NEXUS6P = _TestConditionByAndroidModel('Nexus 6P')
 ANDROID_NEXUS7 = _TestConditionByAndroidModel('Nexus 7')
 ANDROID_ONE = _TestConditionByAndroidModel(

@@ -88,7 +88,7 @@ class CollectVariablesTest : public testing::Test
                 foundDiff = true;
             }
 
-            EXPECT_EQ(0u, field.arraySize);
+            EXPECT_FALSE(field.isArray());
             EXPECT_FALSE(field.isStruct());
             EXPECT_GLENUM_EQ(GL_HIGH_FLOAT, field.precision);
             EXPECT_TRUE(field.staticUse);
@@ -182,17 +182,17 @@ class CollectGeometryVariablesTest : public CollectVariablesOESGeometryShaderTes
     }
 
   protected:
-    void compileGeometryShaderWithInputPrimitive(const std::string &inputPrimitive)
+    void compileGeometryShaderWithInputPrimitive(const std::string &inputPrimitive,
+                                                 const std::string &inputVarying,
+                                                 const std::string &functionBody)
     {
         std::ostringstream sstream;
         sstream << "#version 310 es\n"
                 << "#extension GL_OES_geometry_shader : require\n"
                 << "layout (" << inputPrimitive << ") in;\n"
                 << "layout (points, max_vertices = 2) out;\n"
-                << "void main()\n"
-                << "{\n"
-                << "    vec4 value = gl_in[0].gl_Position;\n"
-                << "}\n";
+                << inputVarying << functionBody;
+
         compile(sstream.str());
     }
 };
@@ -243,7 +243,7 @@ TEST_F(CollectFragmentVariablesTest, SimpleOutputVar)
 
     const OutputVariable &outputVariable = outputVariables[0];
 
-    EXPECT_EQ(0u, outputVariable.arraySize);
+    EXPECT_FALSE(outputVariable.isArray());
     EXPECT_EQ(-1, outputVariable.location);
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, outputVariable.precision);
     EXPECT_TRUE(outputVariable.staticUse);
@@ -268,7 +268,7 @@ TEST_F(CollectFragmentVariablesTest, LocationOutputVar)
 
     const OutputVariable &outputVariable = outputVariables[0];
 
-    EXPECT_EQ(0u, outputVariable.arraySize);
+    EXPECT_FALSE(outputVariable.isArray());
     EXPECT_EQ(5, outputVariable.location);
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, outputVariable.precision);
     EXPECT_TRUE(outputVariable.staticUse);
@@ -292,7 +292,7 @@ TEST_F(CollectVertexVariablesTest, LocationAttribute)
 
     const Attribute &attribute = attributes[0];
 
-    EXPECT_EQ(0u, attribute.arraySize);
+    EXPECT_FALSE(attribute.isArray());
     EXPECT_EQ(5, attribute.location);
     EXPECT_GLENUM_EQ(GL_HIGH_FLOAT, attribute.precision);
     EXPECT_TRUE(attribute.staticUse);
@@ -535,7 +535,7 @@ TEST_F(CollectVertexVariablesTest, VaryingInterpolation)
         varying = &varyings[1];
     }
 
-    EXPECT_EQ(0u, varying->arraySize);
+    EXPECT_FALSE(varying->isArray());
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, varying->precision);
     EXPECT_TRUE(varying->staticUse);
     EXPECT_GLENUM_EQ(GL_FLOAT, varying->type);
@@ -581,7 +581,7 @@ TEST_F(CollectFragmentVariablesTest, OutputVarESSL1FragColor)
     const OutputVariable *outputVariable = nullptr;
     validateOutputVariableForShader(fragColorShader, 0u, "gl_FragColor", &outputVariable);
     ASSERT_NE(outputVariable, nullptr);
-    EXPECT_EQ(0u, outputVariable->arraySize);
+    EXPECT_FALSE(outputVariable->isArray());
     EXPECT_GLENUM_EQ(GL_FLOAT_VEC4, outputVariable->type);
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, outputVariable->precision);
 }
@@ -607,7 +607,8 @@ TEST_F(CollectFragmentVariablesTest, OutputVarESSL1FragData)
     const OutputVariable *outputVariable = nullptr;
     validateOutputVariableForShader(fragDataShader, 0u, "gl_FragData", &outputVariable);
     ASSERT_NE(outputVariable, nullptr);
-    EXPECT_EQ(kMaxDrawBuffers, outputVariable->arraySize);
+    ASSERT_EQ(1u, outputVariable->arraySizes.size());
+    EXPECT_EQ(kMaxDrawBuffers, outputVariable->arraySizes.back());
     EXPECT_GLENUM_EQ(GL_FLOAT_VEC4, outputVariable->type);
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, outputVariable->precision);
 }
@@ -630,7 +631,7 @@ TEST_F(CollectFragmentVariablesTest, OutputVarESSL1FragDepthMediump)
     const OutputVariable *outputVariable = nullptr;
     validateOutputVariableForShader(fragDepthShader, 0u, "gl_FragDepthEXT", &outputVariable);
     ASSERT_NE(outputVariable, nullptr);
-    EXPECT_EQ(0u, outputVariable->arraySize);
+    EXPECT_FALSE(outputVariable->isArray());
     EXPECT_GLENUM_EQ(GL_FLOAT, outputVariable->type);
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, outputVariable->precision);
 }
@@ -653,7 +654,7 @@ TEST_F(CollectFragmentVariablesTest, OutputVarESSL1FragDepthHighp)
     const OutputVariable *outputVariable = nullptr;
     validateOutputVariableForShader(fragDepthHighShader, 0u, "gl_FragDepthEXT", &outputVariable);
     ASSERT_NE(outputVariable, nullptr);
-    EXPECT_EQ(0u, outputVariable->arraySize);
+    EXPECT_FALSE(outputVariable->isArray());
     EXPECT_GLENUM_EQ(GL_FLOAT, outputVariable->type);
     EXPECT_GLENUM_EQ(GL_HIGH_FLOAT, outputVariable->precision);
 }
@@ -676,7 +677,7 @@ TEST_F(CollectFragmentVariablesTest, OutputVarESSL3FragDepthHighp)
     const OutputVariable *outputVariable = nullptr;
     validateOutputVariableForShader(fragDepthHighShader, 0u, "gl_FragDepth", &outputVariable);
     ASSERT_NE(outputVariable, nullptr);
-    EXPECT_EQ(0u, outputVariable->arraySize);
+    EXPECT_FALSE(outputVariable->isArray());
     EXPECT_GLENUM_EQ(GL_FLOAT, outputVariable->type);
     EXPECT_GLENUM_EQ(GL_HIGH_FLOAT, outputVariable->precision);
 }
@@ -704,7 +705,7 @@ TEST_F(CollectFragmentVariablesTest, OutputVarESSL1EXTBlendFuncExtendedSecondary
     const OutputVariable *outputVariable = nullptr;
     validateOutputVariableForShader(secondaryFragColorShader, 0u, "gl_FragColor", &outputVariable);
     ASSERT_NE(outputVariable, nullptr);
-    EXPECT_EQ(0u, outputVariable->arraySize);
+    EXPECT_FALSE(outputVariable->isArray());
     EXPECT_GLENUM_EQ(GL_FLOAT_VEC4, outputVariable->type);
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, outputVariable->precision);
 
@@ -712,7 +713,7 @@ TEST_F(CollectFragmentVariablesTest, OutputVarESSL1EXTBlendFuncExtendedSecondary
     validateOutputVariableForShader(secondaryFragColorShader, 1u, "gl_SecondaryFragColorEXT",
                                     &outputVariable);
     ASSERT_NE(outputVariable, nullptr);
-    EXPECT_EQ(0u, outputVariable->arraySize);
+    EXPECT_FALSE(outputVariable->isArray());
     EXPECT_GLENUM_EQ(GL_FLOAT_VEC4, outputVariable->type);
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, outputVariable->precision);
 }
@@ -742,7 +743,8 @@ TEST_F(CollectFragmentVariablesTest, OutputVarESSL1EXTBlendFuncExtendedSecondary
     const OutputVariable *outputVariable = nullptr;
     validateOutputVariableForShader(secondaryFragDataShader, 0u, "gl_FragData", &outputVariable);
     ASSERT_NE(outputVariable, nullptr);
-    EXPECT_EQ(kMaxDrawBuffers, outputVariable->arraySize);
+    ASSERT_EQ(1u, outputVariable->arraySizes.size());
+    EXPECT_EQ(kMaxDrawBuffers, outputVariable->arraySizes.back());
     EXPECT_GLENUM_EQ(GL_FLOAT_VEC4, outputVariable->type);
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, outputVariable->precision);
 
@@ -750,7 +752,8 @@ TEST_F(CollectFragmentVariablesTest, OutputVarESSL1EXTBlendFuncExtendedSecondary
     validateOutputVariableForShader(secondaryFragDataShader, 1u, "gl_SecondaryFragDataEXT",
                                     &outputVariable);
     ASSERT_NE(outputVariable, nullptr);
-    EXPECT_EQ(kMaxDrawBuffers, outputVariable->arraySize);
+    ASSERT_EQ(1u, outputVariable->arraySizes.size());
+    EXPECT_EQ(kMaxDrawBuffers, outputVariable->arraySizes.back());
     EXPECT_GLENUM_EQ(GL_FLOAT_VEC4, outputVariable->type);
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, outputVariable->precision);
 }
@@ -831,7 +834,7 @@ TEST_F(CollectHashedVertexVariablesTest, StructUniform)
 
     const Uniform &uniform = uniforms[0];
 
-    EXPECT_EQ(0u, uniform.arraySize);
+    EXPECT_FALSE(uniform.isArray());
     EXPECT_EQ("u", uniform.name);
     EXPECT_EQ("webgl_1", uniform.mappedName);
     EXPECT_TRUE(uniform.staticUse);
@@ -868,14 +871,14 @@ TEST_F(CollectFragmentVariablesTest, MultiDeclaration)
     ASSERT_EQ(2u, uniforms.size());
 
     const Uniform &uniform = uniforms[0];
-    EXPECT_EQ(0u, uniform.arraySize);
+    EXPECT_FALSE(uniform.isArray());
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, uniform.precision);
     EXPECT_TRUE(uniform.staticUse);
     EXPECT_GLENUM_EQ(GL_FLOAT, uniform.type);
     EXPECT_EQ("uA", uniform.name);
 
     const Uniform &uniformB = uniforms[1];
-    EXPECT_EQ(0u, uniformB.arraySize);
+    EXPECT_FALSE(uniformB.isArray());
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, uniformB.precision);
     EXPECT_TRUE(uniformB.staticUse);
     EXPECT_GLENUM_EQ(GL_FLOAT, uniformB.type);
@@ -901,7 +904,7 @@ TEST_F(CollectFragmentVariablesTest, EmptyDeclarator)
     ASSERT_EQ(1u, uniforms.size());
 
     const Uniform &uniformB = uniforms[0];
-    EXPECT_EQ(0u, uniformB.arraySize);
+    EXPECT_FALSE(uniformB.isArray());
     EXPECT_GLENUM_EQ(GL_MEDIUM_FLOAT, uniformB.precision);
     EXPECT_TRUE(uniformB.staticUse);
     EXPECT_GLENUM_EQ(GL_FLOAT, uniformB.type);
@@ -940,19 +943,23 @@ TEST_F(CollectVertexVariablesTest, ViewID_OVR)
 TEST_F(CollectGeometryVariablesTest, CollectGLInFields)
 {
     const std::string &shaderString =
-        "#version 310 es\n"
-        "#extension GL_OES_geometry_shader : require\n"
-        "layout (points) in;\n"
-        "layout (points, max_vertices = 2) out;\n"
-        "void main()\n"
-        "{\n"
-        "    vec4 value = gl_in[0].gl_Position;\n"
-        "    vec4 value2 = gl_in[0].gl_Position;\n"
-        "}\n";
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+
+        layout (points) in;
+        layout (points, max_vertices = 2) out;
+
+        void main()
+        {
+            vec4 value = gl_in[0].gl_Position;
+            vec4 value2 = gl_in[0].gl_Position;
+            gl_Position = value + value2;
+            EmitVertex();
+        })";
 
     compile(shaderString);
 
-    EXPECT_TRUE(mTranslator->getOutputVaryings().empty());
+    EXPECT_EQ(1u, mTranslator->getOutputVaryings().size());
     EXPECT_TRUE(mTranslator->getInputVaryings().empty());
 
     const auto &inBlocks = mTranslator->getInBlocks();
@@ -981,11 +988,18 @@ TEST_F(CollectGeometryVariablesTest, GLInArraySize)
 {
     const std::array<std::string, 5> kInputPrimitives = {
         {"points", "lines", "lines_adjacency", "triangles", "triangles_adjacency"}};
-    constexpr GLuint kArraySizeForInputPrimitives[] = {1u, 2u, 4u, 3u, 6u};
+
+    const GLuint kArraySizeForInputPrimitives[] = {1u, 2u, 4u, 3u, 6u};
+
+    const std::string &functionBody =
+        R"(void main()
+        {
+            gl_Position = gl_in[0].gl_Position;
+        })";
 
     for (size_t i = 0; i < kInputPrimitives.size(); ++i)
     {
-        compileGeometryShaderWithInputPrimitive(kInputPrimitives[i]);
+        compileGeometryShaderWithInputPrimitive(kInputPrimitives[i], "", functionBody);
 
         const auto &inBlocks = mTranslator->getInBlocks();
         ASSERT_EQ(1u, inBlocks.size());
@@ -1000,18 +1014,19 @@ TEST_F(CollectGeometryVariablesTest, GLInArraySize)
 TEST_F(CollectGeometryVariablesTest, CollectPrimitiveIDIn)
 {
     const std::string &shaderString =
-        "#version 310 es\n"
-        "#extension GL_OES_geometry_shader : require\n"
-        "layout (points) in;\n"
-        "layout (points, max_vertices = 2) out;\n"
-        "void main()\n"
-        "{\n"
-        "    int value = gl_PrimitiveIDIn;\n"
-        "}\n";
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+        layout (points) in;
+        layout (points, max_vertices = 2) out;
+        void main()
+        {
+            gl_Position = vec4(gl_PrimitiveIDIn);
+            EmitVertex();
+        })";
 
     compile(shaderString);
 
-    ASSERT_TRUE(mTranslator->getOutputVaryings().empty());
+    EXPECT_EQ(1u, mTranslator->getOutputVaryings().size());
     ASSERT_TRUE(mTranslator->getInBlocks().empty());
 
     const auto &inputVaryings = mTranslator->getInputVaryings();
@@ -1031,18 +1046,19 @@ TEST_F(CollectGeometryVariablesTest, CollectPrimitiveIDIn)
 TEST_F(CollectGeometryVariablesTest, CollectInvocationID)
 {
     const std::string &shaderString =
-        "#version 310 es\n"
-        "#extension GL_OES_geometry_shader : require\n"
-        "layout (points, invocations = 2) in;\n"
-        "layout (points, max_vertices = 2) out;\n"
-        "void main()\n"
-        "{\n"
-        "    int value = gl_InvocationID;\n"
-        "}\n";
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+        layout (points, invocations = 2) in;
+        layout (points, max_vertices = 2) out;
+        void main()
+        {
+            gl_Position = vec4(gl_InvocationID);
+            EmitVertex();
+        })";
 
     compile(shaderString);
 
-    ASSERT_TRUE(mTranslator->getOutputVaryings().empty());
+    EXPECT_EQ(1u, mTranslator->getOutputVaryings().size());
     ASSERT_TRUE(mTranslator->getInBlocks().empty());
 
     const auto &inputVaryings = mTranslator->getInputVaryings();
@@ -1062,18 +1078,19 @@ TEST_F(CollectGeometryVariablesTest, CollectInvocationID)
 TEST_F(CollectGeometryVariablesTest, CollectGLInIndexedByExpression)
 {
     const std::string &shaderString =
-        "#version 310 es\n"
-        "#extension GL_OES_geometry_shader : require\n"
-        "layout (triangles, invocations = 2) in;\n"
-        "layout (points, max_vertices = 2) out;\n"
-        "void main()\n"
-        "{\n"
-        "    vec4 value = gl_in[gl_InvocationID + 1].gl_Position;\n"
-        "}\n";
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+        layout (triangles, invocations = 2) in;
+        layout (points, max_vertices = 2) out;
+        void main()
+        {
+            gl_Position = gl_in[gl_InvocationID + 1].gl_Position;
+            EmitVertex();
+        })";
 
     compile(shaderString);
 
-    ASSERT_TRUE(mTranslator->getOutputVaryings().empty());
+    EXPECT_EQ(1u, mTranslator->getOutputVaryings().size());
 
     const auto &inBlocks = mTranslator->getInBlocks();
     ASSERT_EQ(1u, inBlocks.size());
@@ -1184,12 +1201,15 @@ TEST_F(CollectGeometryVariablesTest, CollectLayer)
 TEST_F(CollectFragmentVariablesOESGeometryShaderTest, CollectPrimitiveID)
 {
     const std::string &shaderString =
-        "#version 310 es\n"
-        "#extension GL_OES_geometry_shader : require\n"
-        "void main()\n"
-        "{\n"
-        "    int value = gl_PrimitiveID;\n"
-        "}\n";
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+
+        out int my_out;
+
+        void main()
+        {
+            my_out = gl_PrimitiveID;
+        })";
 
     compile(shaderString);
 
@@ -1212,12 +1232,15 @@ TEST_F(CollectFragmentVariablesOESGeometryShaderTest, CollectPrimitiveID)
 TEST_F(CollectFragmentVariablesOESGeometryShaderTest, CollectLayer)
 {
     const std::string &shaderString =
-        "#version 310 es\n"
-        "#extension GL_OES_geometry_shader : require\n"
-        "void main()\n"
-        "{\n"
-        "    int value = gl_Layer;\n"
-        "}\n";
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+
+        out int my_out;
+
+        void main()
+        {
+            my_out = gl_Layer;
+        })";
 
     compile(shaderString);
 
@@ -1287,4 +1310,177 @@ TEST_F(CollectFragmentVariablesES31Test, CollectInputWithLocation)
     const Varying *varying2 = &inputVaryings[1];
     EXPECT_EQ("f_input2", varying2->name);
     EXPECT_EQ(1, varying2->location);
+}
+
+// Test collecting the inputs of a geometry shader.
+TEST_F(CollectGeometryVariablesTest, CollectInputs)
+{
+    const std::string &shaderString =
+        R"(#version 310 es
+        #extension GL_OES_geometry_shader : require
+        layout (points) in;
+        layout (points, max_vertices = 2) out;
+        in vec4 texcoord1[];
+        in vec4 texcoord2[1];
+        void main()
+        {
+            gl_Position = texcoord1[0];
+            gl_Position += texcoord2[0];
+            EmitVertex();
+        })";
+
+    compile(shaderString);
+
+    EXPECT_EQ(1u, mTranslator->getOutputVaryings().size());
+
+    const auto &inputVaryings = mTranslator->getInputVaryings();
+    ASSERT_EQ(2u, inputVaryings.size());
+
+    const std::string kVaryingName[] = {"texcoord1", "texcoord2"};
+
+    for (size_t i = 0; i < inputVaryings.size(); ++i)
+    {
+        const Varying &varying = inputVaryings[i];
+
+        EXPECT_EQ(kVaryingName[i], varying.name);
+        EXPECT_TRUE(varying.isArray());
+        EXPECT_FALSE(varying.isStruct());
+        EXPECT_TRUE(varying.staticUse);
+        EXPECT_FALSE(varying.isBuiltIn());
+        EXPECT_GLENUM_EQ(GL_HIGH_FLOAT, varying.precision);
+        EXPECT_GLENUM_EQ(GL_FLOAT_VEC4, varying.type);
+        EXPECT_FALSE(varying.isInvariant);
+        ASSERT_EQ(1u, varying.arraySizes.size());
+        EXPECT_EQ(1u, varying.arraySizes.back());
+    }
+}
+
+// Test that the unsized input of a geometry shader can be correctly collected.
+TEST_F(CollectGeometryVariablesTest, CollectInputArraySizeForUnsizedInput)
+{
+    const std::array<std::string, 5> kInputPrimitives = {
+        {"points", "lines", "lines_adjacency", "triangles", "triangles_adjacency"}};
+
+    const GLuint kArraySizeForInputPrimitives[] = {1u, 2u, 4u, 3u, 6u};
+
+    const std::string &kVariableDeclaration = "in vec4 texcoord[];\n";
+    const std::string &kFunctionBody =
+        R"(void main()
+        {
+            gl_Position = texcoord[0];
+        })";
+
+    for (size_t i = 0; i < kInputPrimitives.size(); ++i)
+    {
+        compileGeometryShaderWithInputPrimitive(kInputPrimitives[i], kVariableDeclaration,
+                                                kFunctionBody);
+
+        const auto &inputVaryings = mTranslator->getInputVaryings();
+        ASSERT_EQ(1u, inputVaryings.size());
+
+        const Varying *varying = &inputVaryings[0];
+        EXPECT_EQ("texcoord", varying->name);
+        ASSERT_EQ(1u, varying->arraySizes.size());
+        EXPECT_EQ(kArraySizeForInputPrimitives[i], varying->arraySizes.back());
+    }
+}
+
+// Test collecting inputs using interpolation qualifiers in a geometry shader.
+TEST_F(CollectGeometryVariablesTest, CollectInputsWithInterpolationQualifiers)
+{
+    const std::string &kHeader =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n";
+    const std::string &kLayout =
+        "layout (points) in;\n"
+        "layout (points, max_vertices = 2) out;\n";
+
+    const std::array<std::string, 3> kInterpolationQualifiers = {{"flat", "smooth", "centroid"}};
+
+    const std::array<InterpolationType, 3> kInterpolationType = {
+        {INTERPOLATION_FLAT, INTERPOLATION_SMOOTH, INTERPOLATION_CENTROID}};
+
+    const std::string &kFunctionBody =
+        R"(void main()
+        {
+            gl_Position = texcoord[0];
+            EmitVertex();
+        })";
+
+    for (size_t i = 0; i < kInterpolationQualifiers.size(); ++i)
+    {
+        const std::string &qualifier = kInterpolationQualifiers[i];
+
+        std::ostringstream stream1;
+        stream1 << kHeader << kLayout << qualifier << " in vec4 texcoord[];\n" << kFunctionBody;
+        compile(stream1.str());
+
+        const auto &inputVaryings = mTranslator->getInputVaryings();
+        ASSERT_EQ(1u, inputVaryings.size());
+        const Varying *varying = &inputVaryings[0];
+        EXPECT_EQ("texcoord", varying->name);
+        EXPECT_EQ(kInterpolationType[i], varying->interpolation);
+    }
+}
+
+// Test collecting outputs using interpolation qualifiers in a geometry shader.
+TEST_F(CollectGeometryVariablesTest, CollectOutputsWithInterpolationQualifiers)
+{
+    const std::string &kHeader =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points) in;\n"
+        "layout (points, max_vertices = 2) out;\n";
+
+    const std::array<std::string, 4> kInterpolationQualifiers = {
+        {"", "flat", "smooth", "centroid"}};
+
+    const std::array<InterpolationType, 4> kInterpolationType = {
+        {INTERPOLATION_SMOOTH, INTERPOLATION_FLAT, INTERPOLATION_SMOOTH, INTERPOLATION_CENTROID}};
+
+    const std::string &kFunctionBody =
+        "void main()\n"
+        "{\n"
+        "    texcoord = vec4(1.0, 0.0, 0.0, 1.0);\n"
+        "}\n";
+
+    for (size_t i = 0; i < kInterpolationQualifiers.size(); ++i)
+    {
+        const std::string &qualifier = kInterpolationQualifiers[i];
+        std::ostringstream stream;
+        stream << kHeader << qualifier << " out vec4 texcoord;\n" << kFunctionBody;
+
+        compile(stream.str());
+        const auto &outputVaryings = mTranslator->getOutputVaryings();
+        ASSERT_EQ(1u, outputVaryings.size());
+
+        const Varying *varying = &outputVaryings[0];
+        EXPECT_EQ("texcoord", varying->name);
+        EXPECT_EQ(kInterpolationType[i], varying->interpolation);
+        EXPECT_FALSE(varying->isInvariant);
+    }
+}
+
+// Test collecting outputs using 'invariant' qualifier in a geometry shader.
+TEST_F(CollectGeometryVariablesTest, CollectOutputsWithInvariant)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "#extension GL_OES_geometry_shader : require\n"
+        "layout (points) in;\n"
+        "layout (points, max_vertices = 2) out;\n"
+        "invariant out vec4 texcoord;\n"
+        "void main()\n"
+        "{\n"
+        "    texcoord = vec4(1.0, 0.0, 0.0, 1.0);\n"
+        "}\n";
+
+    compile(shaderString);
+
+    const auto &outputVaryings = mTranslator->getOutputVaryings();
+    ASSERT_EQ(1u, outputVaryings.size());
+
+    const Varying *varying = &outputVaryings[0];
+    EXPECT_EQ("texcoord", varying->name);
+    EXPECT_TRUE(varying->isInvariant);
 }

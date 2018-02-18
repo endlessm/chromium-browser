@@ -19,8 +19,10 @@
 #include <string>
 #include <vector>
 
+#include "api/optional.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/constructormagic.h"
+#include "rtc_base/refcount.h"
 #include "rtc_base/thread_checker.h"
 
 // Abort the process if |jni| has a Java exception pending.
@@ -33,8 +35,9 @@
 
 // Helper that calls ptr->Release() and aborts the process with a useful
 // message if that didn't actually delete *ptr because of extra refcounts.
-#define CHECK_RELEASE(ptr) \
-  RTC_CHECK_EQ(0, (ptr)->Release()) << "Unexpected refcount."
+#define CHECK_RELEASE(ptr)                                                   \
+  RTC_CHECK((ptr)->Release() == rtc::RefCountReleaseStatus::kDroppedLastRef) \
+      << "Unexpected refcount."
 
 // Convenience macro defining JNI-accessible methods in the org.webrtc package.
 // Eliminates unnecessary boilerplate and line-wraps, reducing visual clutter.
@@ -95,15 +98,23 @@ bool GetBooleanField(JNIEnv* jni, jobject object, jfieldID id);
 // Returns true if |obj| == null in Java.
 bool IsNull(JNIEnv* jni, jobject obj);
 
-// Given a UTF-8 encoded |native| string return a new (UTF-16) jstring.
-jstring JavaStringFromStdString(JNIEnv* jni, const std::string& native);
-
 // Given a (UTF-16) jstring return a new UTF-8 native string.
 std::string JavaToStdString(JNIEnv* jni, const jstring& j_string);
 
 // Given a List of (UTF-16) jstrings
 // return a new vector of UTF-8 native strings.
 std::vector<std::string> JavaToStdVectorStrings(JNIEnv* jni, jobject list);
+
+rtc::Optional<int32_t> JavaToNativeOptionalInt(JNIEnv* jni, jobject integer);
+
+jobject NativeToJavaBoolean(JNIEnv* env, bool b);
+jobject NativeToJavaInteger(JNIEnv* jni, int32_t i);
+jobject NativeToJavaLong(JNIEnv* env, int64_t u);
+jobject NativeToJavaDouble(JNIEnv* env, double d);
+// Given a UTF-8 encoded |native| string return a new (UTF-16) jstring.
+jstring NativeToJavaString(JNIEnv* jni, const std::string& native);
+jobject NativeToJavaInteger(JNIEnv* jni,
+                            const rtc::Optional<int32_t>& optional_int);
 
 // Return the (singleton) Java Enum object corresponding to |index|;
 jobject JavaEnumFromIndex(JNIEnv* jni, jclass state_class,
@@ -120,9 +131,7 @@ std::map<std::string, std::string> JavaToStdMapStrings(JNIEnv* jni,
                                                        jobject j_map);
 
 // Returns the name of a Java enum.
-std::string GetJavaEnumName(JNIEnv* jni,
-                            const std::string& className,
-                            jobject j_enum);
+std::string GetJavaEnumName(JNIEnv* jni, jobject j_enum);
 
 jobject NewGlobalRef(JNIEnv* jni, jobject o);
 
@@ -219,6 +228,37 @@ class Iterable {
 
   RTC_DISALLOW_COPY_AND_ASSIGN(Iterable);
 };
+
+// Helper function for converting std::vector<T> into a Java array.
+template <typename T, typename Convert>
+jobjectArray NativeToJavaObjectArray(JNIEnv* env,
+                                     const std::vector<T>& container,
+                                     jclass clazz,
+                                     Convert convert) {
+  jobjectArray j_container =
+      env->NewObjectArray(container.size(), clazz, nullptr);
+  int i = 0;
+  for (const T& element : container) {
+    jobject j_element = convert(env, element);
+    env->SetObjectArrayElement(j_container, i, j_element);
+    // Delete local ref immediately since we might create a lot of local
+    // references in this loop.
+    env->DeleteLocalRef(j_element);
+    ++i;
+  }
+  return j_container;
+}
+
+jobjectArray NativeToJavaIntegerArray(JNIEnv* env,
+                                      const std::vector<int32_t>& container);
+jobjectArray NativeToJavaBooleanArray(JNIEnv* env,
+                                      const std::vector<bool>& container);
+jobjectArray NativeToJavaLongArray(JNIEnv* env,
+                                   const std::vector<int64_t>& container);
+jobjectArray NativeToJavaDoubleArray(JNIEnv* env,
+                                     const std::vector<double>& container);
+jobjectArray NativeToJavaStringArray(JNIEnv* env,
+                                     const std::vector<std::string>& container);
 
 }  // namespace jni
 }  // namespace webrtc

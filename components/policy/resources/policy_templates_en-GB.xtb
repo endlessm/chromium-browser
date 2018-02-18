@@ -46,6 +46,39 @@
 
       The policy value should be specified in milliseconds.</translation>
 <translation id="1151353063931113432">Allow images on these sites</translation>
+<translation id="1151545095291359187">Configures extension management settings for <ph name="PRODUCT_NAME" />.
+
+          This policy controls multiple settings, including settings controlled by any existing extension-related policy. This policy will override any legacy policies if both are set.
+
+          This policy maps an extension ID or an update URL to its configuration. With an extension ID, configuration will be applied to the specified extension only. A default configuration can be set for the special ID <ph name="DEFAULT_SCOPE" />, which will apply to all extensions that don't have a custom configuration set in this policy. With an update URL, configuration will be applied to all extensions with the exact update URL stated in manifest of this extension, as described at <ph name="LINK_TO_EXTENSION_DOC1" />.
+
+          The configuration for each extension (or extensions with same update URL) is another dictionary that can contain the fields documented below.
+
+          <ph name="INSTALLATION_MODE" />: Maps to a string indicating the installation mode for the extension. The valid strings are:
+          * <ph name="ALLOWED" />: Allows the extension to be installed by the user. This is the default behaviour.
+          * <ph name="BLOCKED" />: Blocks installation of the extension.
+          * <ph name="FORCE_INSTALLED" />: The extension is automatically installed and can't be removed by the user.
+          * <ph name="NORMAL_INSTALLED" />: The extension is automatically installed but can be disabled by the user.
+
+          The <ph name="INSTALLATION_MODE" /> can also be configured for multiple extensions as well, including the <ph name="DEFAULT_SCOPE" /> extension (as default settings) and extensions with same update URL. Only the <ph name="ALLOWED" /> and <ph name="BLOCKED" /> values can be used in this case.
+
+          If the mode is set to <ph name="FORCE_INSTALLED" /> or <ph name="NORMAL_INSTALLED" /> then an <ph name="UPDATE_URL" /> must be configured too. Note that the update URL set in this policy is only used for the initial installation; subsequent updates of the extension will use the update URL indicated in the extension's manifest. The update URL should point to an Update Manifest XML document as mentioned above.
+
+          <ph name="BLOCKED_PERMISSIONS" />: Maps to a list of strings indicating the blocked API permissions for the extension. The permissions names are same as the permission strings declared in manifest of extension as described at <ph name="LINK_TO_EXTENSION_DOC3" />. This setting also can be configured for <ph name="DEFAULT_SCOPE" /> extension. If the extension requires a permission which is on the blocklist, it will not be allowed to load. If it contains a blocked permission as optional requirement, it will be handled in the normal way, but requesting conflicting permissions will be declined automatically at runtime.
+
+          <ph name="ALLOWED_PERMISSIONS" />: Similar to <ph name="BLOCKED_PERMISSIONS" />, but instead explicitly allow some permissions which might be blocked by global blocked permission list, thus cannot be configured for <ph name="DEFAULT_SCOPE" /> extension. Note that this setting doesn't give granted permissions to extensions automatically.
+
+          <ph name="MINIMUM_VERSION_REQUIRED" />: Maps to a version string. The format of the version string is the same as the one used in extension manifest, as described at <ph name="LINK_TO_EXTENSION_DOC4" />. An extension with a version older than the specified minimum version will be disabled. This applies to force-installed extensions as well.
+
+          The following settings can be used only for the default <ph name="DEFAULT_SCOPE" /> configuration:
+
+          <ph name="INSTALL_SOURCES" />: Each item in this list is an extension-style match pattern (<ph name="LINK_TO_MATCH_PATTERNS" />). Users will be able to easily install items from any URL that matches an item in this list. Both the location of the <ph name="EXTENSION_SUFFIX_WILDCARD" /> file and the page where the download is started from (i.e.  the referrer) must be allowed by these patterns.
+
+          <ph name="ALLOWED_TYPES" />: This setting whitelists the allowed types of extension/apps that can be installed in <ph name="PRODUCT_NAME" />.  The value is a list of strings, each of which should be one of the following: <ph name="VALID_ALLOWED_TYPES" />. See the <ph name="PRODUCT_NAME" /> extensions documentation for more information on these types.
+          <ph name="BLOCKED_INSTALL_MESSAGE" />: If a user tries to install an extension, but it is blocked by policy the Chrome Web Store displays a generic error message. This setting allows you to append text to the error message. This could be used to direct users to your help desk, explain why a particular extension is blocked or something else. This error message will be truncated if it is longer than 1000 characters.
+          <ph name="RUNTIME_BLOCKED_HOSTS" />: Accepts a list of hosts that an extension will be blocked from interacting with. This includes injecting javascript, altering and viewing webRequests/ webNavigation, viewing and altering cookies. The format is similar to Match Patterns <ph name="LINK_TO_MATCH_PATTERNS" /> except no paths may be defined. e.g. '*://*.example.com'. This also supports effective TLD wildcarding e.g. '*://example.*'.
+          <ph name="RUNTIME_ALLOWED_HOSTS" />: Accepts a list of hosts that an extension can interact with, regardless of whether they are listed in <ph name="RUNTIME_BLOCKED_HOSTS" />. This is the same format as <ph name="RUNTIME_BLOCKED_HOSTS" />.
+          </translation>
 <translation id="1152117524387175066">Report the state of the device's dev switch at boot.
 
       If the policy is set to false, the state of the dev switch will not be reported.</translation>
@@ -63,6 +96,7 @@
 <translation id="1204263402976895730">Enabled enterprise printers</translation>
 <translation id="1221359380862872747">Load specified URLs on demo login</translation>
 <translation id="123081309365616809">Enable casting content to the device</translation>
+<translation id="1257550411839719984">Set default download directory</translation>
 <translation id="1265053460044691532">Limit the time for which a user authenticated via SAML can log in offline</translation>
 <translation id="1291880496936992484">Warning: RC4 will be completely removed from <ph name="PRODUCT_NAME" /> after version 52 (around September 2016) and this policy will stop working then.
 
@@ -293,8 +327,14 @@
 
           If this policy is left unset, all four schemes will be used.</translation>
 <translation id="2067011586099792101">Block access to sites outside of content packs</translation>
+<translation id="2075030897098958514">Controls whether NTLMv2 is enabled.
+
+          All recent versions of Samba and Windows servers support NTLMv2. This should only be disabled for backwards compatibility and reduces the security of authentication.
+
+          The default value when this policy is not defined is currently false for backwards compatibility, but will change to true in the future.</translation>
 <translation id="2077129598763517140">Use hardware acceleration when available</translation>
 <translation id="2077273864382355561">Screen off delay when running on battery power</translation>
+<translation id="2082205219176343977">Configure minimum allowed Chrome version for the device.</translation>
 <translation id="209586405398070749">Stable channel</translation>
 <translation id="2098658257603918882">Enable reporting of usage and crash-related data</translation>
 <translation id="2113068765175018713">Limit device uptime by automatically rebooting</translation>
@@ -383,6 +423,14 @@
 <translation id="2312134445771258233">Allows you to configure the pages that are loaded on start-up.
 
 The contents of the list 'URLs to open at start-up' are ignored unless you select 'Open a list of URLs' in 'Action on start-up'.</translation>
+<translation id="2327252517317514801">Define domains allowed to access G Suite</translation>
+<translation id="2334591568684482454">Configures availability and behaviour of <ph name="TPM_FIRMWARE_UPDATE_TPM" /> firmware update functionality.
+
+      Individual settings can be specified in JSON properties:
+
+      <ph name="TPM_FIRMWARE_UPDATE_SETTINGS_ALLOW_USER_INITIATED_POWERWASH" />: If set to <ph name="TPM_FIRMWARE_UPDATE_SETTINGS_ALLOW_USER_INITIATED_POWERWASH_TRUE" />, users will be able to trigger the powerwash flow to install a <ph name="TPM_FIRMWARE_UPDATE_TPM" /> firmware update.
+
+      If the policy is not set, <ph name="TPM_FIRMWARE_UPDATE_TPM" /> firmware update functionality will not be available.</translation>
 <translation id="2337466621458842053">Allows you to set a list of url patterns that specify sites which are allowed to display images.
 
           If this policy is left unset, the global default value will be used for all sites either from the 'DefaultImagesSetting' policy, if it is set, or the user's personal configuration otherwise.</translation>
@@ -557,6 +605,7 @@ The contents of the list 'URLs to open at start-up' are ignored unless you selec
       </translation>
 <translation id="2769952903507981510">Configure the required domain name for remote access hosts</translation>
 <translation id="2787173078141616821">Report information about status of Android</translation>
+<translation id="2793923553868251161">Origins to be treated as secure context.</translation>
 <translation id="2801230735743888564">Allow users to play dinosaur easter egg game when device is offline.
 
       If this policy is set to False, users will not be able to play the dinosaur Easter egg game when device is offline. If this setting is set to True, users are allowed to play the dinosaur game. If this policy is not set, users are not allowed to play the dinosaur Easter egg game on enrolled Chrome OS, but are allowed to play it under other circumstances.</translation>
@@ -616,13 +665,11 @@ The contents of the list 'URLs to open at start-up' are ignored unless you selec
 
       See https://developers.google.com/safe-browsing for more info on SafeBrowsing.</translation>
 <translation id="3016255526521614822">Whitelist note-taking apps allowed on the <ph name="PRODUCT_OS_NAME" /> lock screen</translation>
-<translation id="3021409116652377124">Disable plug-in finder</translation>
 <translation id="3030000825273123558">Enable metrics reporting</translation>
 <translation id="3034580675120919256">Allows you to set whether websites are allowed to run JavaScript. Running JavaScript can be either allowed for all websites or denied for all websites.
 
           If this policy is left unset, 'AllowJavaScript' will be used and the user will be able to change it.</translation>
 <translation id="3038323923255997294">Continue running background apps when <ph name="PRODUCT_NAME" /> is closed</translation>
-<translation id="3039065003245994702">Configure TPM firmware update behaviour</translation>
 <translation id="3046192273793919231">Send network packets to the management server to monitor online status</translation>
 <translation id="3048744057455266684">If this policy is set and a search URL suggested from the omnibox contains this parameter in the query string or in the fragment identifier, then the suggestion will show the search terms and search provider instead of the raw search URL.
 
@@ -769,13 +816,6 @@ The contents of the list 'URLs to open at start-up' are ignored unless you selec
           This policy is only respected if the 'DefaultSearchProviderEnabled' policy is enabled.</translation>
 <translation id="350797926066071931">Enable Translate</translation>
 <translation id="3512226956150568738">If the client device model already supported ARC before migration to ext4 was necessary to run ARC and if the ArcEnabled policy is set to true, this option will behave as AskUser (value 3). In all other cases (if the device model did not support ARC before, or if ArcEnabled policy is set to false), this value is equivalent to DisallowArc (value 0).</translation>
-<translation id="3519432185185398282">Configures availability and behaviour of TPM firmware update functionality.
-
-      Individual settings can be specified in JSON properties:
-
-      <ph name="TPM_FIRMWARE_UPDATE_SETTINGS_ALLOW_USER_INITIATED_POWERWASH" />: If set to <ph name="TPM_FIRMWARE_UPDATE_SETTINGS_ALLOW_USER_INITIATED_POWERWASH_TRUE" />, users will be able to trigger the powerwash flow to install a TPM firmware update.
-
-      If the policy is not set, TPM firmware update functionality will not be available.</translation>
 <translation id="3528000905991875314">Enable alternate error pages</translation>
 <translation id="3547954654003013442">Proxy settings</translation>
 <translation id="3591584750136265240">Configure the login authentication behaviour</translation>
@@ -807,11 +847,6 @@ The contents of the list 'URLs to open at start-up' are ignored unless you selec
       Leaving these policies unset will allow the users to choose the proxy settings on their own.</translation>
 <translation id="3758249152301468420">Disable Developer Tools</translation>
 <translation id="3765260570442823273">Duration of the idle log-out warning message</translation>
-<translation id="376931976323225993">Allows you to set whether websites are allowed to automatically run the <ph name="FLASH_PLUGIN_NAME" /> plug-in. Automatically running the <ph name="FLASH_PLUGIN_NAME" /> plug-in can be either allowed for all websites or denied for all websites.
-
-          Click to play allows the <ph name="FLASH_PLUGIN_NAME" /> plug-in to run but the user must click on the placeholder to start its execution.
-
-          If this policy is left not set, the user will be able to change this setting manually.</translation>
 <translation id="3780152581321609624">Include non-standard port in Kerberos SPN</translation>
 <translation id="3780319008680229708">If this policy is set to true, the Cast toolbar icon will always be shown on the toolbar or the overflow menu and users will not be able to remove it.
 
@@ -901,6 +936,13 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
       If you enable this setting, the Developer Tools can not be accessed and web-site elements can not be inspected any more. Any keyboard shortcuts and any menu or context menu entries to open the Developer Tools or the JavaScript Console will be disabled.
 
       Setting this option to disabled or leaving it not set allows the user to use the Developer Tools and the JavaScript console.</translation>
+<translation id="3895557476567727016">Configures the default directory that <ph name="PRODUCT_NAME" /> will use for downloading files.
+
+      If you set this policy, it will change the default directory that <ph name="PRODUCT_NAME" /> downloads files to. This policy is not mandatory, so the user will be able to change the directory.
+
+      If you do not set this policy, <ph name="PRODUCT_NAME" /> will use its usual default directory (platform-specific).
+
+      See https://www.chromium.org/administrators/policy-list-3/user-data-directory-variables for a list of variables that can be used.</translation>
 <translation id="3907986150060929099">Set the recommended locales for a public session</translation>
 <translation id="3911737181201537215">This policy has no effect on the logging done by Android.</translation>
 <translation id="391531815696899618">Disables Google Drive syncing in the <ph name="PRODUCT_OS_NAME" /> Files app when set to True. In that case, no data is uploaded to Google Drive.
@@ -955,7 +997,6 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
           The policy value should be specified in milliseconds.</translation>
 <translation id="4105989332710272578">Disable Certificate Transparency enforcement for a list of URLs</translation>
 <translation id="4121350739760194865">Prevent app promotions from appearing on the new tab page</translation>
-<translation id="4133144443101280166">Off hours intervals when device OffHours |ignored_policy_proto_tags| are released</translation>
 <translation id="4157003184375321727">Report OS and firmware version</translation>
 <translation id="4183229833636799228">Default <ph name="FLASH_PLUGIN_NAME" /> setting</translation>
 <translation id="4192388905594723944">URL for validating remote access client authentication token</translation>
@@ -988,6 +1029,7 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
           This policy is optional. If not set, image search request will be sent using the GET method.
 
           This policy is only respected if the 'DefaultSearchProviderEnabled' policy is enabled.</translation>
+<translation id="4285674129118156176">Allow unaffiliated users to use ARC</translation>
 <translation id="4294280661005713627">Sets a target version for Auto-Updates.
 
       Specifies the prefix of a target version <ph name="PRODUCT_OS_NAME" /> should update to. If the device is running a version that's before the specified prefix, it will update to the latest version with the given prefix. If the device is already on a later version, there is no effect (i.e. no downgrades are performed) and the device will remain on the current version. The prefix format works component-wise as is demonstrated in the following example:
@@ -1129,6 +1171,7 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
           If you set this policy, users cannot change or override it.
 
           If this policy is left unset, the large cursor is disabled initially but can be enabled by the user at any time.</translation>
+<translation id="4802905909524200151">Configure <ph name="TPM_FIRMWARE_UPDATE_TPM" /> firmware update behaviour</translation>
 <translation id="4807950475297505572">Least recently used users are removed until there is enough free space</translation>
 <translation id="4815725774537609998">This policy is deprecated, use ProxyMode instead.
 
@@ -1160,8 +1203,29 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
           If this policy is set to true or left not set, screen wake locks will be honoured for power management.
 
           If this policy is set to false, screen wake lock requests will be ignored.</translation>
+<translation id="487460824085252184">Migrate automatically, don’t ask for user consent.</translation>
 <translation id="4876805738539874299">Maximum SSL version enabled</translation>
-<translation id="4882546920824859909">Define domains allowed to access Google Apps</translation>
+<translation id="4881315447528084360">Specifies a list of apps and extensions that are installed silently,
+          without user interaction, and which cannot be uninstalled nor
+          disabled by the user. All permissions requested by the
+          apps/extensions are granted implicitly, without user interaction,
+          including any additional permissions requested by future versions of
+          the app/extension. Furthermore, permissions are granted for the
+          enterprise.deviceAttributes and enterprise.platformKeys extension
+          APIs. (These two APIs are not available to apps/extensions that are
+          not force-installed.)
+
+          This policy takes precedence over a potentially conflicting <ph name="EXTENSION_INSTALL_BLACKLIST_POLICY_NAME" /> policy. If an app or extension that previously had been force-installed is removed from this list, it is automatically uninstalled by <ph name="PRODUCT_NAME" />.
+
+          For Windows instances that are not joined to a <ph name="MS_AD_NAME" /> domain, forced installation is limited to apps and extensions listed in the Chrome Web Store.
+
+          Note that the source code of any extension may be altered by users via Developer Tools (potentially rendering the extension dysfunctional). If this is a concern, the <ph name="DEVELOPER_TOOLS_POLICY_NAME" /> policy should be set.
+
+          Each list item of the policy is a string that contains an extension ID and an 'update' URL separated by a semicolon (<ph name="SEMICOLON" />). The extension ID is the 32-letter string found for example on <ph name="CHROME_EXTENSIONS_LINK" /> when in developer mode. The 'update' URL should point to an Update Manifest XML document as described at <ph name="LINK_TO_EXTENSION_DOC1" />. Note that the 'update' URL set in this policy is only used for the initial installation; subsequent updates of the extension employ the update URL indicated in the extension's manifest.
+
+          For example, <ph name="EXTENSION_POLICY_EXAMPLE" /> installs the <ph name="EXTENSION_POLICY_EXAMPLE_EXTENSION_NAME" /> app from the standard Chrome Web Store 'update' URL. For more information about hosting extensions, see: <ph name="LINK_TO_EXTENSION_DOC2" />.
+
+          If this policy is left not set, no apps or extensions are installed automatically and the user can uninstall any app or extension in <ph name="PRODUCT_NAME" />.</translation>
 <translation id="4897928009230106190">Specifies the parameters used when doing suggestion search with POST. It consists of comma-separated name/value pairs. If a value is a template parameter, like {searchTerms} in above example, it will be replaced with real search terms data.
 
           This policy is optional. If not set, suggest search request will be sent using the GET method.
@@ -1183,6 +1247,7 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
 <translation id="4980635395568992380">Data Types</translation>
 <translation id="4983201894483989687">Allow running plug-ins that are outdated</translation>
 <translation id="4988291787868618635">Action to take when the idle delay is reached</translation>
+<translation id="4995548127349206948">Whether NTLMv2 authentication is enabled.</translation>
 <translation id="5027819375434797927">
       NOTE: This policy is experimental and may break functionality!
       If the policy is enabled, each of the named origins in a
@@ -1241,7 +1306,6 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
 
           If this policy is left unset the global default value will be used for all sites either from the 'DefaultNotificationsSetting' policy, if it is set, or the user's personal configuration otherwise.</translation>
 <translation id="5219844027738217407">For Android apps, this policy affects the microphone only. When this policy is set to true, the microphone is muted for all Android apps, with no exceptions.</translation>
-<translation id="5226033722357981948"> finder should be disabled</translation>
 <translation id="523505283826916779">Accessibility settings</translation>
 <translation id="5247006254130721952">Block dangerous downloads</translation>
 <translation id="5255162913209987122">Can be Recommended</translation>
@@ -1253,6 +1317,7 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
 <translation id="5272684451155669299">If true, the user can use the hardware on Chrome devices to remotely attest its identity to the privacy CA via the <ph name="ENTERPRISE_PLATFORM_KEYS_API" /> using <ph name="CHALLENGE_USER_KEY_FUNCTION" />.
 
           If it is set to false, or if it is not set, calls to the API will fail with an error code.</translation>
+<translation id="5283457834853986457">Disable plug-in finder (deprecated)</translation>
 <translation id="5288772341821359899">If the policy is set, the UDP port range used by WebRTC is restricted to the specified port interval (endpoints included).
 
       If the policy is not set, or if it is set to the empty string or an invalid port range, WebRTC is allowed to use any available local UDP port.</translation>
@@ -1276,6 +1341,11 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
           If this policy is set to False, users will not be able to cast content to their device. If this policy is set to True, users are allowed to cast content. If this policy is not set, users are not allowed to cast content to enrolled Chrome OS devices, but can cast to non-enrolled devices.</translation>
 <translation id="5330684698007383292">Allow <ph name="PRODUCT_FRAME_NAME" /> to handle the following content types</translation>
 <translation id="5365946944967967336">Show Home button on the toolbar</translation>
+<translation id="5366745336748853475">Allows you to specify a list of URL patterns that specify sites for which a client certificate is automatically selected on the sign-in screen in the frame hosting the SAML flow, if the site requests a certificate. An example usage is to configure a device-wide certificate to be presented to the SAML IdP.
+
+      The value must be an array of stringified JSON dictionaries. Each dictionary must have the form { 'pattern': '$URL_PATTERN, 'filter' : $FILTER }, where $URL_PATTERN is a content setting pattern. $FILTER restricts from which client certificates the browser will automatically select. Independent of the filter, only certificates will be selected that match the server's certificate request. If $FILTER has the form { 'ISSUER': { 'CN': '$ISSUER_CN' } }, additionally only client certificates are selected that are issued by a certificate with the CommonName $ISSUER_CN. If $FILTER is the empty dictionary {}, the selection of client certificates is not additionally restricted.
+
+      If this policy is left not set, no auto-selection will be done for any site.</translation>
 <translation id="5366977351895725771">If set to false, supervised-user creation by this user will be disabled. Any existing supervised users will still be available.
 
           If set to true or not configured, supervised users can be created and managed by this user.</translation>
@@ -1344,6 +1414,7 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
       If specified, will add a query parameter called 'restrict' to the URL used to fetch the Variations seed. The value of the parameter will be the value specified in this policy.
 
       If not specified, will not modify the Variations seed URL.</translation>
+<translation id="5561811616825571914">Automatically select client certificates for these sites on the sign-in screen</translation>
 <translation id="556941986578702361">Control auto-hiding of the <ph name="PRODUCT_OS_NAME" /> shelf.
 
       If this policy is set to 'AlwaysAutoHideShelf', the shelf will always auto-hide.
@@ -1410,6 +1481,14 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
       If 'Disabled' is selected, pages may not be opened in Incognito mode.
 
       If 'Forced' is selected, pages may be opened ONLY in Incognito mode.</translation>
+<translation id="583091600226586337">
+      If the policy is enabled, the user will be asked where to save each file before downloading.
+      If the policy is disabled, downloads will start immediately, and the user will not be asked where to save the file.
+      If the policy is not configured, the user will be able to change this setting.
+      </translation>
+<translation id="5835124959204887277">Specifies URLs and domains for which no prompt will be shown when attestation certificates from Security Keys are requested. Additionally, a signal will be sent to the Security Key indicating that individual attestation may be used. Without this, users will be prompted in Chrome 65+ when sites request attestation of Security Keys.
+
+      URLs (like https://example.com/some/path) will only match as U2F appIDs. Domains (like example.com) only match as webauthn RP IDs. Thus, to cover both U2F and webauthn APIs for a given site, both the appID URL and domain would need to be listed.</translation>
 <translation id="5836064773277134605">Restrict the UDP port range used by the remote access host</translation>
 <translation id="5862253018042179045">Set the default state of the spoken feedback accessibility feature on the login screen.
 
@@ -1465,6 +1544,7 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
 <translation id="5966615072639944554">Extensions allowed to to use the remote attestation API</translation>
 <translation id="5983708779415553259">Default behaviour for sites not in any content pack</translation>
 <translation id="5997543603646547632">Use 24 hour clock by default</translation>
+<translation id="5997846976342452720">Specify whether the plug-in finder should be disabled (deprecated)</translation>
 <translation id="6005179188836322782">Enables <ph name="PRODUCT_NAME" />'s Safe Browsing feature and prevents users from changing this setting.
 
       If you enable this setting, Safe Browsing is always active.
@@ -1590,6 +1670,7 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
       If disabled, the autofill form data is not imported.
 
       If it is not set, the user may be asked whether to import or importing may happen automatically.</translation>
+<translation id="6224304369267200483">URLs/domains automatically permitted direct Security Key attestation</translation>
 <translation id="6233173491898450179">Set download directory</translation>
 <translation id="6244210204546589761">URLs to open on start-up</translation>
 <translation id="6258193603492867656">Specifies whether the generated Kerberos SPN should include a non-standard port. If you enable this setting, and a non-standard port (i.e. a port other than 80 or 443) is entered, it will be included in the generated Kerberos SPN. If you disable this setting, the generated Kerberos SPN will not include a port in any case.</translation>
@@ -1700,9 +1781,6 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
       If this policy is left not set, network prediction will be enabled but the user will be able to change it.</translation>
 <translation id="6658245400435704251">Specifies the number of seconds up to which a device may randomly delay its download of an update from the time the update was first pushed out to the server. The device may wait a portion of this time in terms of wall-clock-time and the remaining portion in terms of the number of update checks. In any case, the scatter is upper bounded to a constant amount of time so that a device does not ever get stuck waiting to download an update forever.</translation>
 <translation id="6689792153960219308">Report hardware status</translation>
-<translation id="6693751878507293182">If you set this setting to enabled the automatic search and installation of missing plug-ins will be disabled in <ph name="PRODUCT_NAME" />.
-
-      Setting this option to disabled or leave it unset the plug-in finder will be active.</translation>
 <translation id="6699880231565102694">Enable two-factor authentication for remote access hosts</translation>
 <translation id="6724842112053619797">If you enable this setting, the settings stored in <ph name="PRODUCT_NAME" /> profiles like bookmarks, auto-fill data, passwords, etc. will also be written to a file stored in the roaming user profile folder or a location specified by the Administrator through the <ph name="ROAMING_PROFILE_LOCATION_POLICY_NAME" /> policy. Enabling this policy disables cloud sync.
 
@@ -1729,6 +1807,25 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
 <translation id="6903814433019432303">This policy is active in retail mode only.
 
       Determines the set of URLs to be loaded when the demo session is started. This policy will override any other mechanisms for setting the initial URL and thus can only be applied to a session not associated with a particular user.</translation>
+<translation id="6908347296939885026">Enables <ph name="PRODUCT_NAME" />'s restricted log in feature in G Suite and prevents users from changing this setting.
+
+      If you define this setting, the user will only be able to access Google
+      Apps using accounts from the specified domains (note that this does not
+      work for gmail.com/googlemail.com).
+
+      This setting will NOT prevent the user from loging in on a managed device
+      that requires Google authentication. The user will still be allowed to
+      sign in to accounts from other domains, but they will receive an error
+      when trying to use G Suite with those accounts.
+
+      If you leave this setting empty/not-configured, the user will be able to
+      access G Suite with any account.
+
+      This policy causes the X-GoogApps-Allowed-Domains header to be appended to
+      all HTTP and HTTPS requests to all google.com domains, as described in
+      https://support.google.com/a/answer/1668854.
+
+      Users cannot change or override this setting.</translation>
 <translation id="6908640907898649429">Configures the default search provider. You can specify the default search provider that the user will use or choose to disable default search.</translation>
 <translation id="6915442654606973733">Enable the spoken feedback accessibility feature.
 
@@ -1842,6 +1939,13 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
 <translation id="7202925763179776247">Allow download restrictions</translation>
 <translation id="7207095846245296855">Force Google SafeSearch</translation>
 <translation id="7216442368414164495">Allow users to opt in to Safe Browsing extended reporting</translation>
+<translation id="7221822638060296742">Allows you to set whether websites are allowed to automatically run the <ph name="FLASH_PLUGIN_NAME" /> plug-in. Automatically running the <ph name="FLASH_PLUGIN_NAME" /> plug-in can be either allowed for all websites or denied for all websites.
+
+          Click to play allows the <ph name="FLASH_PLUGIN_NAME" /> plug-in to run but the user must click on the placeholder to start its execution.
+
+          Automatic playback is only allowed for domains explicitly listed in the <ph name="PLUGINS_ALLOWED_FOR_URLS_POLICY_NAME" /> policy. If you want to enabled automatic playback for all sites, consider adding http://* and https://* to this list.
+
+          If this policy is left not set, the user will be able to change this setting manually.</translation>
 <translation id="7234280155140786597">Names of the forbidden native messaging hosts (or * for all)</translation>
 <translation id="7236775576470542603">Set the default type of screen magnifier that is enabled on the login screen.
 
@@ -1854,6 +1958,9 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
 <translation id="7258823566580374486">Enable curtaining of remote access hosts</translation>
 <translation id="7260277299188117560">Auto update p2p enabled</translation>
 <translation id="7261252191178797385">Device wallpaper image</translation>
+<translation id="7266471712301230894">This policy has been removed as of <ph name="PRODUCT_NAME" /> 64.
+
+      Automatic search and installation of missing plug-ins is no longer supported.</translation>
 <translation id="7267809745244694722">Media keys default to function keys</translation>
 <translation id="7271085005502526897">Import of homepage from default browser on first run</translation>
 <translation id="7273823081800296768">If this setting is enabled or not configured, then users can opt to pair clients and hosts at connection time, eliminating the need to enter a PIN every time.
@@ -1984,6 +2091,7 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
 
           If this setting is disabled or not set, then two-factor will not be enabled and the default behaviour of having a user-defined PIN will be used.</translation>
 <translation id="7750991880413385988">Open New Tab Page</translation>
+<translation id="7754704193130578113">Ask where to save each file before downloading</translation>
 <translation id="7761446981238915769">Configure the list of installed apps on the login screen</translation>
 <translation id="7761526206824804472">Sets one or more recommended locales for a public session, allowing users to easily choose one of these locales.
 
@@ -2042,42 +2150,16 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
 <translation id="7841880500990419427">Minimum TLS version to fallback to</translation>
 <translation id="7842869978353666042">Configure Google Drive options</translation>
 <translation id="7843525027689416831">Specifies the flags that should be applied to <ph name="PRODUCT_NAME" /> when it starts. The specified flags are applied on the login screen only. Flags that are set via this policy do not propagate into user sessions.</translation>
-<translation id="7844537954833753199">Configures extension management settings for <ph name="PRODUCT_NAME" />.
-
-          This policy controls multiple settings, including settings controlled by any existing extension-related policies. This policy will override any legacy policies if both are set.
-
-          This policy maps an extension ID or an update URL to its configuration. With an extension ID, configuration will be applied to the specified extension only. A default configuration can be set for the special ID <ph name="DEFAULT_SCOPE" />, which will apply to all extensions that don't have a custom configuration set in this policy. With an update URL, configuration will be applied to all extensions with the exact update URL stated in manifest of this extension, as described at <ph name="LINK_TO_EXTENSION_DOC1" />.
-
-          The configuration for each extension (or extensions with same update URL) is another dictionary that can contain the fields documented below.
-
-          <ph name="INSTALLATION_MODE" />: maps to a string indicating the installation mode for the extension. The valid strings are:
-          * <ph name="ALLOWED" />: allows the extension to be installed by the user. This is the default behaviour.
-          * <ph name="BLOCKED" />: blocks installation of the extension.
-          * <ph name="FORCE_INSTALLED" />: the extension is automatically installed and can't be removed by the user.
-          * <ph name="NORMAL_INSTALLED" />: the extension is automatically installed but can be disabled by the user.
-
-          The <ph name="INSTALLTION_MODE" /> can also be configured for multiple extensions as well, including the <ph name="DEFAULT_SCOPE" /> extension (as default settings) and extensions with same update URL. Only the <ph name="ALLOWED" /> and <ph name="BLOCKED" /> values can be used in this case.
-
-          If the mode is set to <ph name="FORCE_INSTALLED" /> or <ph name="NORMAL_INSTALLED" /> then an <ph name="UPDATE_URL" /> must be configured too. Note that the update URL set in this policy is only used for the initial installation; subsequent updates of the extension will use the update URL indicated in the extension's manifest. The update URL should point to an Update Manifest XML document as mentioned above.
-
-          <ph name="BLOCKED_PERMISSIONS" />: maps to a list of strings indicating the blocked API permissions for the extension. The permissions names are same as the permission strings declared in manifest of extension as described at <ph name="LINK_TO_EXTENSION_DOC3" />. This setting also can be configured for <ph name="DEFAULT_SCOPE" /> extension. If the extension requires a permission which is on the blocklist, it will not be allowed to load. If it contains a blocked permission as optional requirement, it will be handled in the normal way, but requesting conflicting permissions will be declined automatically at runtime.
-
-          <ph name="ALLOWED_PERMISSIONS" />: similar to <ph name="BLOCKED_PERMISSIONS" />, but instead explicitly allow some permissions which might be blocked by global blocked permission list, thus can not be configured for <ph name="DEFAULT_SCOPE" /> extension. Note that this setting doesn't give granted permissions to extensions automatically.
-
-          <ph name="MINIMUM_VERSION_REQUIRED" />: maps to a version string. The format of the version string is the same as the one used in extension manifest, as described at <ph name="LINK_TO_EXTENSION_DOC4" />. An extension with a version older than the specified minimum version will be disabled. This applies to force-installed extensions as well.
-
-          The following settings can be used only for the default <ph name="DEFAULT_SCOPE" /> configuration:
-
-          <ph name="INSTALL_SOURCES" />: Each item in this list is an extension-style match pattern (<ph name="LINK_TO_MATCH_PATTERNS" />). Users will be able to easily install items from any URL that matches an item in this list. Both the location of the <ph name="EXTENSION_SUFFIX_WILDCARD" /> file and the page where the download is started from (i.e.  the referrer) must be allowed by these patterns.
-
-          <ph name="ALLOWED_TYPES" />: This setting whitelists the allowed types of extension/apps that can be installed in <ph name="PRODUCT_NAME" />.  The value is a list of strings, each of which should be one of the following: <ph name="VALID_ALLOWED_TYPES" />. See the <ph name="PRODUCT_NAME" /> extensions documentation for more information on these types.
-          <ph name="BLOCKED_INSTALL_MESSAGE" />: If a user tries to install an extension, but it is blocked by policy, the Chrome Webstore displays a generic error message. This setting allows you to append text to the error message. This could be be used to direct users to your help desk, explain why a particular extension is blocked or something else. This error message will be truncated if longer than 1000 characters.
-          <ph name="RUNTIME_BLOCKED_HOSTS" />: Accepts a list of hosts that an extension will be blocked from interacting with. This includes injecting javascript, altering and viewing webRequests / webNavigation, viewing and altering cookies. The format is similar to Match Patterns <ph name="LINK_TO_MATCH_PATTERNS" /> except no paths may be defined. e.g. '*://*.example.com'. This also supports effective TLD wildcarding e.g. '*://example.*'.
-          <ph name="RUNTIME_ALLOWED_HOSTS" />: Accepts a list of hosts that an extension can interact with regardless of whether they are listed in <ph name="RUNTIME_BLOCKED_HOSTS" />. This is the same format as <ph name="RUNTIME_BLOCKED_HOSTS" />.
-          </translation>
 <translation id="787125417158068494">If set to SyncDisabled or not configured, <ph name="PRODUCT_OS_NAME" /> certificates are not available for ARC-apps.
 
       If set to CopyCaCerts, all ONC-installed CA certificates with <ph name="WEB_TRUSTED_BIT" /> are available for ARC-apps.</translation>
+<translation id="7872535148622213208">
+        The policy specifies a list of origins (URLs) to be treated as secure
+        context. The intent is to allow organisations to set up a staging server
+        for internal web developments.
+        This is the same as the – unsafely-treat-insecure-origin-as-secure flag.
+        For more information on secure contexts, see https://www.w3.org/TR/secure-contexts/
+        </translation>
 <translation id="7882585827992171421">This policy is active in retail mode only.
 
       Determines the id of the extension to be used as a screen saver on the sign-in screen. The extension must be part of the AppPack that is configured for this domain through the DeviceAppPack policy.</translation>
@@ -2158,15 +2240,6 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
 
       If the policy is set to disabled or left not set signing in leads to regular profiles.</translation>
 <translation id="8158758865057576716">Enable the creation of roaming copies for <ph name="PRODUCT_NAME" /> profile data.</translation>
-<translation id="8170878842291747619">Enables the integrated Google Translate service on <ph name="PRODUCT_NAME" />.
-
-      If you enable this setting, <ph name="PRODUCT_NAME" /> will show an integrated toolbar offering to translate the page for the user, when appropriate.
-
-      If you disable this setting, users will never see the translation bar.
-
-      If you enable or disable this setting, users cannot change or override this setting in <ph name="PRODUCT_NAME" />.
-
-      If this setting is left unset the user can decide to use this function or not.</translation>
 <translation id="817455428376641507">Allows access to the listed URLs, as exceptions to the URL blacklist.
 
       See the description of the URL blacklist policy for the format of entries of this list.
@@ -2188,6 +2261,14 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
       If the policy is left not set, <ph name="PRODUCT_OS_NAME" /> will use the device-local account's email account ID as the display name on the login screen.
 
       This policy is ignored for regular user accounts.</translation>
+<translation id="8259375588339409826">Both Chromium and Google Chrome support the same set of policies. Please note that this document may include unreleased policies (i.e. their 'Supported on' entry refers to a not-yet released version of <ph name="PRODUCT_NAME" />) which are subject to change or removal without notice and for which no guarantees of any kind are provided, including no guarantees with respect to their security and privacy properties.
+
+These policies are strictly intended to be used to configure instances of <ph name="PRODUCT_NAME" /> internal to your organisation. Use of these policies outside of your organisation (for example, in a publicly distributed program) is considered malware and will likely be labelled as malware by Google and anti-virus vendors.
+
+These settings don't need to be configured manually! Easy-to-use templates for Windows, Mac and Linux are available for download from <ph name="POLICY_TEMPLATE_DOWNLOAD_URL" />.
+
+The recommended way to configure policy on Windows is via GPO, although provisioning policy via registry is still supported for Windows instances that are joined to a <ph name="MS_AD_NAME" /> domain.</translation>
+<translation id="8274603902181597201">Wipe the user’s eCryptfs home directory and start with a fresh ext4-encrypted home directory.</translation>
 <translation id="8279832363395120715">Strips privacy and security sensitive parts of https:// URLs before passing them on to PAC scripts (Proxy Auto Config) used by <ph name="PRODUCT_NAME" /> during proxy resolution.
 
       When True, the security feature is enabled and https:// URLs are
@@ -2262,10 +2343,21 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
 
       If this policy is used, all printers are provided to the user except for the IDs listed in this policy.
       </translation>
+<translation id="8538235451413605457">Configures the requirement of the minimum allowed version of <ph name="PRODUCT_NAME" />. Versions below given are treated as obsolete and device would not allow user to sign in before OS is updated.
+      If current version becomes obsolete during user session, user will be forcefully signed out.
+
+      If this policy is not set, no restrictions are applied, and user can sign in regardless of <ph name="PRODUCT_NAME" /> version.
+
+      Here 'Version' can be either an exact version such as '61.0.3163.120' or a version prefix, such as '61.0'  </translation>
 <translation id="8544375438507658205">Default HTML renderer for <ph name="PRODUCT_FRAME_NAME" /></translation>
 <translation id="8549772397068118889">Warn when visiting sites outside of content packs</translation>
 <translation id="8566842294717252664">Hide the web store from the New Tab Page and app launcher</translation>
 <translation id="8587229956764455752">Allow creation of new user accounts</translation>
+<translation id="8598350264853261122">If the policy is set to false, unaffiliated users will not be allowed to use ARC.
+
+      If the policy is unset or set to true, all users are allowed to use ARC (unless ARC is disabled by other means).
+
+      Changes to the policy will only be applied while ARC is not running, e.g. while Chrome OS is starting.</translation>
 <translation id="8614804915612153606">Disables Auto Update</translation>
 <translation id="8631434304112909927">until version <ph name="UNTIL_VERSION" /></translation>
 <translation id="863319402127182273">For Android apps, this policy affects the built-in camera only. When this policy is set to true, the camera is disabled for all Android apps, with no exceptions.</translation>
@@ -2324,6 +2416,15 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
       If this policy is not configured or the value is lower than 1 MB, <ph name="PRODUCT_OS_NAME" /> will use the default cache size.</translation>
 <translation id="8858642179038618439">Force YouTube Safety Mode</translation>
 <translation id="8864975621965365890">Suppresses the turn-down prompt that appears when a site is rendered by <ph name="PRODUCT_FRAME_NAME" />.</translation>
+<translation id="8867464911288727016">Enables the integrated Google Translate service on <ph name="PRODUCT_NAME" />.
+
+      If you enable this setting, <ph name="PRODUCT_NAME" /> will offer translation functionality to the user by showing an integrated translate toolbar (when appropriate) and a translate option on the right-click context menu.
+
+      If you disable this setting, all built-in translate features will be disabled.
+
+      If you enable or disable this setting, users cannot change or override this setting in <ph name="PRODUCT_NAME" />.
+
+      If this setting is left not set the user can decide to use this function or not.</translation>
 <translation id="8870318296973696995">Homepage</translation>
 <translation id="8882006618241293596">Block the <ph name="FLASH_PLUGIN_NAME" /> plug-in on these sites</translation>
 <translation id="8906768759089290519">Enable guest mode</translation>
@@ -2397,6 +2498,7 @@ If this setting is not set, <ph name="PRODUCT_NAME" /> will allow the user to co
           For example, to allow every quick unlock mode, use ['all']. To allow only PIN unlock, use ['PIN']. To disable all quick unlock modes, use [].
 
           By default, no quick unlock modes are available for managed devices.</translation>
+<translation id="9136399279941091445">Off hours intervals when the specified device policies are released</translation>
 <translation id="9147029539363974059">Send system logs to the management server, to allow
       admins to monitor system logs.
 

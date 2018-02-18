@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_BANNERS_APP_BANNER_MANAGER_H_
 #define CHROME_BROWSER_BANNERS_APP_BANNER_MANAGER_H_
 
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
@@ -52,6 +54,9 @@ class AppBannerManager : public content::WebContentsObserver,
                          public blink::mojom::AppBannerService,
                          public SiteEngagementObserver {
  public:
+  // A StatusReporter handles the reporting of |InstallableStatusCode|s.
+  class StatusReporter;
+
   enum class State {
     // The pipeline has not yet been triggered for this page load.
     INACTIVE,
@@ -99,6 +104,9 @@ class AppBannerManager : public content::WebContentsObserver,
 
   // Sets the total engagement required for triggering the banner in testing.
   static void SetTotalEngagementToTrigger(double engagement);
+
+  // Returns whether the new experimental flow and UI is enabled.
+  static bool IsExperimentalAppBannersEnabled();
 
   // Requests an app banner. If |is_debug_mode| is true, any failure in the
   // pipeline will be reported to the devtools console.
@@ -149,22 +157,21 @@ class AppBannerManager : public content::WebContentsObserver,
   // alerting websites that a banner is about to be created.
   virtual std::string GetBannerType();
 
-  // Returns a string parameter for a devtools console message corresponding to
-  // |code|. Returns the empty string if |code| requires no parameter.
-  std::string GetStatusParam(InstallableStatusCode code);
-
   // Returns true if |has_sufficient_engagement_| is true or IsDebugMode()
   // returns true.
   bool HasSufficientEngagement() const;
 
   // Returns true if |triggered_by_devtools_| is true or the
   // kBypassAppBannerEngagementChecks flag is set.
-  virtual bool IsDebugMode() const;
+  bool IsDebugMode() const;
 
-  // Returns true if the webapp at |start_url| has already been installed.
-  virtual bool IsWebAppInstalled(content::BrowserContext* browser_context,
-                                 const GURL& start_url,
-                                 const GURL& manifest_url);
+  // Returns true if the webapp at |start_url| has already been installed, or
+  // should be considered installed. On Android, we rely on a heuristic that
+  // may yield false negatives or false positives (crbug.com/786268).
+  virtual bool IsWebAppConsideredInstalled(content::WebContents* web_contents,
+                                           const GURL& validated_url,
+                                           const GURL& start_url,
+                                           const GURL& manifest_url);
 
   // Callback invoked by the InstallableManager once it has fetched the page's
   // manifest.
@@ -189,10 +196,8 @@ class AppBannerManager : public content::WebContentsObserver,
   // metric being recorded.
   void RecordDidShowBanner(const std::string& event_name);
 
-  // Logs an error message corresponding to |code| to the devtools console
-  // attached to |web_contents|. Does nothing if IsDebugMode() returns false.
-  void ReportStatus(content::WebContents* web_contents,
-                    InstallableStatusCode code);
+  // Reports |code| via a UMA histogram or logs it to the console.
+  void ReportStatus(InstallableStatusCode code);
 
   // Resets all fetched data for the current page.
   virtual void ResetCurrentPageData();
@@ -220,8 +225,10 @@ class AppBannerManager : public content::WebContentsObserver,
                      const GURL& validated_url) override;
   void MediaStartedPlaying(const MediaPlayerInfo& media_info,
                            const MediaPlayerId& id) override;
-  void MediaStoppedPlaying(const MediaPlayerInfo& media_info,
-                           const MediaPlayerId& id) override;
+  void MediaStoppedPlaying(
+      const MediaPlayerInfo& media_info,
+      const MediaPlayerId& id,
+      WebContentsObserver::MediaStoppedReason reason) override;
   void WebContentsDestroyed() override;
 
   // SiteEngagementObserver overrides.
@@ -234,7 +241,6 @@ class AppBannerManager : public content::WebContentsObserver,
   InstallableManager* manager() const { return manager_; }
   State state() const { return state_; }
   bool IsRunning() const;
-  bool IsWaitingForData() const;
 
   // The URL for which the banner check is being conducted.
   GURL validated_url_;
@@ -261,10 +267,7 @@ class AppBannerManager : public content::WebContentsObserver,
  private:
   friend class AppBannerManagerTest;
 
-  // Returns whether the new experimental flow and UI is enabled.
-  static bool IsExperimentalAppBannersEnabled();
-
-  // Voids all outstanding weak pointers and service pointers.
+  // Voids all outstanding service pointers.
   void ResetBindings();
 
   // Record that the banner could be shown at this point, if the triggering
@@ -278,8 +281,8 @@ class AppBannerManager : public content::WebContentsObserver,
   // Called after the manager sends a message to the renderer regarding its
   // intention to show a prompt. The renderer will send a message back with the
   // opportunity to cancel.
-  void OnBannerPromptReply(blink::mojom::AppBannerPromptReply reply,
-                           const std::string& referrer);
+  virtual void OnBannerPromptReply(blink::mojom::AppBannerPromptReply reply,
+                                   const std::string& referrer);
 
   // Does the non-platform specific parts of showing the app banner.
   void ShowBanner();
@@ -288,6 +291,10 @@ class AppBannerManager : public content::WebContentsObserver,
   // Called when Blink has prevented a banner from being shown, and is now
   // requesting that it be shown later.
   void DisplayAppBanner(bool user_gesture) override;
+
+  // Returns an InstallableStatusCode indicating whether a banner should be
+  // shown.
+  InstallableStatusCode ShouldShowBannerCode();
 
   // Returns a status code based on the current state, to log when terminating.
   InstallableStatusCode TerminationCode() const;
@@ -313,8 +320,8 @@ class AppBannerManager : public content::WebContentsObserver,
   // Whether the current flow was begun via devtools.
   bool triggered_by_devtools_;
 
-  // Whether the installable status has been logged for this run.
-  bool need_to_log_status_;
+ private:
+  std::unique_ptr<StatusReporter> status_reporter_;
 
   // The concrete subclasses of this class are expected to have their lifetimes
   // scoped to the WebContents which they are observing. This allows us to use

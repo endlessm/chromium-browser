@@ -54,9 +54,10 @@ const char kNativeTag[] = "OPNative";
 const base::FilePath::CharType kTestRequestQueueDirname[] =
     FILE_PATH_LITERAL("Offline Pages/test_request_queue");
 
-void ToJavaOfflinePageList(JNIEnv* env,
-                           const JavaRef<jobject>& j_result_obj,
-                           const std::vector<OfflinePageItem>& offline_pages) {
+void JNI_OfflinePageEvaluationBridge_ToJavaOfflinePageList(
+    JNIEnv* env,
+    const JavaRef<jobject>& j_result_obj,
+    const std::vector<OfflinePageItem>& offline_pages) {
   for (const OfflinePageItem& offline_page : offline_pages) {
     Java_OfflinePageEvaluationBridge_createOfflinePageAndAddToList(
         env, j_result_obj,
@@ -72,7 +73,8 @@ void ToJavaOfflinePageList(JNIEnv* env,
   }
 }
 
-ScopedJavaLocalRef<jobject> ToJavaSavePageRequest(
+ScopedJavaLocalRef<jobject>
+JNI_OfflinePageEvaluationBridge_ToJavaSavePageRequest(
     JNIEnv* env,
     const SavePageRequest& request) {
   return Java_OfflinePageEvaluationBridge_createSavePageRequest(
@@ -82,7 +84,8 @@ ScopedJavaLocalRef<jobject> ToJavaSavePageRequest(
       ConvertUTF8ToJavaString(env, request.client_id().id));
 }
 
-ScopedJavaLocalRef<jobjectArray> CreateJavaSavePageRequests(
+ScopedJavaLocalRef<jobjectArray>
+JNI_OfflinePageEvaluationBridge_CreateJavaSavePageRequests(
     JNIEnv* env,
     std::vector<std::unique_ptr<SavePageRequest>> requests) {
   ScopedJavaLocalRef<jclass> save_page_request_clazz = base::android::GetClass(
@@ -94,7 +97,7 @@ ScopedJavaLocalRef<jobjectArray> CreateJavaSavePageRequests(
   for (size_t i = 0; i < requests.size(); i++) {
     SavePageRequest request = *(requests[i]);
     ScopedJavaLocalRef<jobject> j_save_page_request =
-        ToJavaSavePageRequest(env, request);
+        JNI_OfflinePageEvaluationBridge_ToJavaSavePageRequest(env, request);
     env->SetObjectArrayElement(joa, i, j_save_page_request.obj());
   }
 
@@ -106,7 +109,8 @@ void GetAllPagesCallback(
     const ScopedJavaGlobalRef<jobject>& j_callback_obj,
     const OfflinePageModel::MultipleOfflinePageItemResult& result) {
   JNIEnv* env = base::android::AttachCurrentThread();
-  ToJavaOfflinePageList(env, j_result_obj, result);
+  JNI_OfflinePageEvaluationBridge_ToJavaOfflinePageList(env, j_result_obj,
+                                                        result);
   base::android::RunCallbackAndroid(j_callback_obj, j_result_obj);
 }
 
@@ -121,7 +125,8 @@ void OnGetAllRequestsDone(
   JNIEnv* env = base::android::AttachCurrentThread();
 
   ScopedJavaLocalRef<jobjectArray> j_result_obj =
-      CreateJavaSavePageRequests(env, std::move(all_requests));
+      JNI_OfflinePageEvaluationBridge_CreateJavaSavePageRequests(
+          env, std::move(all_requests));
   base::android::RunCallbackAndroid(j_callback_obj, j_result_obj);
 }
 
@@ -190,10 +195,11 @@ RequestCoordinator* GetRequestCoordinator(Profile* profile,
 
 }  // namespace
 
-static jlong CreateBridgeForProfile(JNIEnv* env,
-                                    const JavaParamRef<jobject>& obj,
-                                    const JavaParamRef<jobject>& j_profile,
-                                    const jboolean j_use_evaluation_scheduler) {
+static jlong JNI_OfflinePageEvaluationBridge_CreateBridgeForProfile(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& j_profile,
+    const jboolean j_use_evaluation_scheduler) {
   Profile* profile = ProfileAndroid::FromProfileAndroid(j_profile);
 
   OfflinePageModel* offline_page_model =
@@ -260,7 +266,8 @@ void OfflinePageEvaluationBridge::OnAdded(const SavePageRequest& request) {
   if (obj.is_null())
     return;
   Java_OfflinePageEvaluationBridge_savePageRequestAdded(
-      env, obj, ToJavaSavePageRequest(env, request));
+      env, obj,
+      JNI_OfflinePageEvaluationBridge_ToJavaSavePageRequest(env, request));
 }
 
 void OfflinePageEvaluationBridge::OnCompleted(
@@ -271,7 +278,9 @@ void OfflinePageEvaluationBridge::OnCompleted(
   if (obj.is_null())
     return;
   Java_OfflinePageEvaluationBridge_savePageRequestCompleted(
-      env, obj, ToJavaSavePageRequest(env, request), static_cast<int>(status));
+      env, obj,
+      JNI_OfflinePageEvaluationBridge_ToJavaSavePageRequest(env, request),
+      static_cast<int>(status));
 }
 
 void OfflinePageEvaluationBridge::OnChanged(const SavePageRequest& request) {
@@ -280,7 +289,8 @@ void OfflinePageEvaluationBridge::OnChanged(const SavePageRequest& request) {
   if (obj.is_null())
     return;
   Java_OfflinePageEvaluationBridge_savePageRequestChanged(
-      env, obj, ToJavaSavePageRequest(env, request));
+      env, obj,
+      JNI_OfflinePageEvaluationBridge_ToJavaSavePageRequest(env, request));
 }
 
 void OfflinePageEvaluationBridge::OnNetworkProgress(
@@ -364,8 +374,6 @@ void OfflinePageEvaluationBridge::RemoveRequestsFromQueue(
 }
 
 void OfflinePageEvaluationBridge::NotifyIfDoneLoading() const {
-  if (!offline_page_model_->is_loaded())
-    return;
   JNIEnv* env = base::android::AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = weak_java_ref_.get(env);
   if (obj.is_null())

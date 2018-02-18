@@ -19,6 +19,10 @@ class ProfilingProcessHost;
 // collection of memory dumps and upload the results to the slow-reports
 // service. BackgroundProfilingTriggers class sets a periodic timer and
 // interacts with ProfilingProcessHost to trigger and upload memory dumps.
+//
+// When started, memory information is collected every hour to check if any
+// process is over the trigger threshold. Once a report is uploaded, the
+// collection interval is changed to once every 12 hours.
 class BackgroundProfilingTriggers {
  public:
   explicit BackgroundProfilingTriggers(ProfilingProcessHost* host);
@@ -27,25 +31,38 @@ class BackgroundProfilingTriggers {
   // Register a periodic timer calling |PerformMemoryUsageChecks|.
   void StartTimer();
 
- protected:
-  // Virtual for testing. Called when the memory dump is received. Performs
+ private:
+  friend class FakeBackgroundProfilingTriggers;
+  FRIEND_TEST_ALL_PREFIXES(BackgroundProfilingTriggersTest,
+                           IsAllowedToUpload_Metrics);
+  FRIEND_TEST_ALL_PREFIXES(BackgroundProfilingTriggersTest,
+                           IsAllowedToUpload_Incognito);
+
+  // Returns true if trace uploads are allowed.
+  bool IsAllowedToUpload() const;
+
+  // Returns true if |private_footprint_kb| is large enough to trigger
+  // a report for the given |content_process_type|.
+  bool IsOverTriggerThreshold(int content_process_type,
+                              uint32_t private_footprint_kb);
+
+  // Check the current memory usage and send a slow-report if needed.
+  void PerformMemoryUsageChecks();
+
+  // Called when the memory dump is received. Performs
   // checks on memory usage and trigger a memory report with
   // |TriggerMemoryReportForProcess| if needed.
-  virtual void OnReceivedMemoryDump(
+  void OnReceivedMemoryDump(
       bool success,
       memory_instrumentation::mojom::GlobalMemoryDumpPtr ptr);
 
   // Virtual for testing. Called when a memory report needs to be send.
-  virtual void TriggerMemoryReportForProcess(base::ProcessId pid);
+  virtual void TriggerMemoryReport();
 
- private:
-  // Check the current memory usage and send a slow-report if needed.
-  void PerformMemoryUsageChecks();
-  void PerformMemoryUsageChecksOnIOThread();
+  ProfilingProcessHost* host_;
 
   // Timer to periodically check memory consumption and upload a slow-report.
   base::RepeatingTimer timer_;
-  ProfilingProcessHost* host_;
 
   base::WeakPtrFactory<BackgroundProfilingTriggers> weak_ptr_factory_;
 

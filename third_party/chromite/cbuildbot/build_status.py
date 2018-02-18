@@ -13,13 +13,18 @@ import datetime
 from chromite.cbuildbot import relevant_changes
 from chromite.lib import buildbucket_lib
 from chromite.lib import builder_status_lib
+from chromite.lib import build_requests
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import metrics
+from chromite.lib import timeout_util
 from chromite.lib import tree_status
 
 
+# TODO(nxia): Rename this module to slave_status, since this module is for
+# a master build which has slave builds and there is builder_status_lib for
+# managing the status of an indivudual build.
 class SlaveStatus(object):
   """Keep track of statuses of all slaves from CIDB and Buildbucket(optional).
 
@@ -147,10 +152,14 @@ class SlaveStatus(object):
     # Fetch experimental builders from tree status and update experimental
     # builders in metedata before querying and updating any slave status.
     if self.metadata is not None:
-      experimental_builders = tree_status.GetExperimentalBuilders()
-      self.metadata.UpdateWithDict({
-          constants.METADATA_EXPERIMENTAL_BUILDERS: experimental_builders
-      })
+      try:
+        experimental_builders = tree_status.GetExperimentalBuilders()
+        self.metadata.UpdateWithDict({
+            constants.METADATA_EXPERIMENTAL_BUILDERS: experimental_builders
+        })
+      except timeout_util.TimeoutError:
+        logging.error('Timeout getting experimental builders from the tree'
+                      'status. Not updating metadata.')
 
       # If a slave build was important in previous loop and got added to the
       # completed_builds because it completed, but in the current loop it's
@@ -468,6 +477,7 @@ class SlaveStatus(object):
     assert builds is not None
 
     new_scheduled_important_slaves = []
+    new_scheduled_build_reqs = []
     for build in builds:
       try:
         buildbucket_id = self.new_buildbucket_info_dict[build].buildbucket_id
@@ -491,12 +501,18 @@ class SlaveStatus(object):
 
         new_scheduled_important_slaves.append(
             (build, new_buildbucket_id, new_created_ts))
+        new_scheduled_build_reqs.append(build_requests.BuildRequest(
+            None, self.master_build_id, build, None, new_buildbucket_id,
+            build_requests.REASON_IMPORTANT_CQ_SLAVE, None))
 
         logging.info('Retried build %s buildbucket_id %s created_ts %s',
                      build, new_buildbucket_id, new_created_ts)
       except buildbucket_lib.BuildbucketResponseException as e:
         logging.error('Failed to retry build %s buildbucket_id %s: %s',
                       build, buildbucket_id, e)
+
+    if config_lib.IsMasterCQ(self.config) and new_scheduled_build_reqs:
+      self.db.InsertBuildRequests(new_scheduled_build_reqs)
 
     if new_scheduled_important_slaves:
       self.metadata.ExtendKeyListWithList(

@@ -16,7 +16,6 @@
 
 #include <libaddressinput/callback.h>
 #include <libaddressinput/source.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <cstddef>
 #include <memory>
@@ -32,15 +31,20 @@ using i18n::addressinput::BuildCallback;
 using i18n::addressinput::RegionDataConstants;
 using i18n::addressinput::Source;
 using i18n::addressinput::TestdataSource;
+using i18n::addressinput::kDataFileName;
 
 // Tests for TestdataSource object.
 class TestdataSourceTest : public testing::TestWithParam<std::string> {
+ public:
+  TestdataSourceTest(const TestdataSourceTest&) = delete;
+  TestdataSourceTest& operator=(const TestdataSourceTest&) = delete;
+
  protected:
   TestdataSourceTest()
       : source_(false),
-        source_with_path_(false, ""),
+        source_with_path_(false, kDataFileName),
         aggregate_source_(true),
-        aggregate_source_with_path_(true, ""),
+        aggregate_source_with_path_(true, kDataFileName),
         success_(false),
         key_(),
         data_(),
@@ -65,8 +69,6 @@ class TestdataSourceTest : public testing::TestWithParam<std::string> {
       delete data;
     }
   }
-
-  DISALLOW_COPY_AND_ASSIGN(TestdataSourceTest);
 };
 
 // Returns testing::AssertionSuccess if |data| is valid callback data for
@@ -77,7 +79,7 @@ testing::AssertionResult DataIsValid(const std::string& data,
     return testing::AssertionFailure() << "empty data";
   }
 
-  std::string expected_data_begin = "{\"id\":\"" + key + "\"";
+  std::string expected_data_begin = R"({"id":")" + key + R"(")";
   if (data.compare(0, expected_data_begin.length(), expected_data_begin) != 0) {
     return testing::AssertionFailure() << data << " does not begin with "
                                        << expected_data_begin;

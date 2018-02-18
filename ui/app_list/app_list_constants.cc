@@ -16,10 +16,8 @@ const SkColor kSearchTextColor = SkColorSetRGB(0x33, 0x33, 0x33);
 
 const SkColor kLabelBackgroundColor = SK_ColorTRANSPARENT;
 
-const SkColor kBottomSeparatorColor = SkColorSetRGB(0xC0, 0xC0, 0xC0);
 // Color of bottom separtor under folder title (12% white) in full screen mode.
-const SkColor kBottomSeparatorColorFullScreen =
-    SkColorSetARGB(0x1F, 0xFF, 0xFF, 0xFF);
+const SkColor kBottomSeparatorColor = SkColorSetARGB(0x1F, 0xFF, 0xFF, 0xFF);
 
 // The color of the separator used inside dialogs in the app list.
 const SkColor kDialogSeparatorColor = SkColorSetRGB(0xD1, 0xD1, 0xD1);
@@ -43,8 +41,7 @@ const SkColor kResultDefaultTextColor = SkColorSetRGB(0x33, 0x33, 0x33);
 const SkColor kResultDimmedTextColor = SkColorSetRGB(0x84, 0x84, 0x84);
 const SkColor kResultURLTextColor = SkColorSetRGB(0x00, 0x99, 0x33);
 
-const SkColor kGridTitleColor = SkColorSetRGB(0x33, 0x33, 0x33);
-const SkColor kGridTitleColorFullscreen = SK_ColorWHITE;
+const SkColor kGridTitleColor = SK_ColorWHITE;
 
 const int kGridTileWidth = 96;
 const int kGridTileHeight = 99;
@@ -57,22 +54,18 @@ const int kGridSelectedCornerRadius = 8;
 
 const SkColor kFolderTitleColor = SkColorSetRGB(0x33, 0x33, 0x33);
 const SkColor kFolderTitleHintTextColor = SkColorSetRGB(0xA0, 0xA0, 0xA0);
-// Color of the folder ink bubble.
-const SkColor kFolderBubbleColor = SK_ColorWHITE;
-// Color of folder bubble color (12% white) in full screen mode.
-const SkColor kFolderBubbleColorFullScreen =
-    SkColorSetARGB(0x1F, 0xFF, 0xFF, 0xFF);
 // Color of the folder bubble shadow.
 const SkColor kFolderShadowColor = SkColorSetRGB(0xBF, 0xBF, 0xBF);
 const float kFolderBubbleOpacity = 0.12f;
-const float kFolderBubbleRadius = 23;
-const float kFolderBubbleOffsetY = 1;
+const int kFolderBackgroundBubbleRadius = 288;
 
-const SkColor kCardBackgroundColor = SK_ColorWHITE;
-const SkColor kCardBackgroundColorFullscreen = SkColorSetRGB(0xFA, 0xFA, 0xFC);
+const SkColor kCardBackgroundColor = SkColorSetRGB(0xFA, 0xFA, 0xFC);
 
 // Duration in milliseconds for page transition.
 const int kPageTransitionDurationInMs = 250;
+
+// Dampening value for PaginationModel's SlideAnimation.
+const int kPageTransitionDurationDampening = 3;
 
 // Duration in milliseconds for over scroll page transition.
 const int kOverscrollPageTransitionDurationMs = 50;
@@ -98,10 +91,10 @@ const gfx::Tween::Type kFolderFadeInTweenType = gfx::Tween::EASE_IN_2;
 const gfx::Tween::Type kFolderFadeOutTweenType = gfx::Tween::FAST_OUT_LINEAR_IN;
 
 // Preferred number of columns and rows in apps grid.
-const int kPreferredCols = 6;
-const int kPreferredColsFullscreen = 5;
-const int kPreferredRows = 4;
-const int kPreferredRowsFullscreen = 5;
+const int kPreferredCols = 5;
+const int kPreferredRows = 5;
+// Keep |kGridIconDimension| in folder_image.cc consistent with this.
+// TODO(hejq): Figure out a way to consolidate the two.
 const int kGridIconDimension = 48;
 
 // The preferred app badge icon size.
@@ -110,10 +103,8 @@ const int kAppBadgeIconSize = 12;
 const int kBadgeBackgroundRadius = 10;
 
 // Preferred search result icon sizes.
-const int kListIconSize = 24;
-const int kListIconSizeFullscreen = 18;
-const int kListBadgeIconSize = 16;
-const int kListBadgeIconSizeFullscreen = 14;
+const int kListIconSize = 18;
+const int kListBadgeIconSize = 14;
 const int kListBadgeIconOffsetX = 6;
 const int kListBadgeIconOffsetY = 6;
 const int kTileIconSize = 48;
@@ -127,8 +118,7 @@ const float kDragDropAppIconScale = 1.2f;
 const int kDragDropAppIconScaleTransitionInMs = 20;
 
 // The number of apps shown in the start page app grid.
-const size_t kNumStartPageTiles = 9;
-const size_t kNumStartPageTilesFullscreen = 5;
+const int kNumStartPageTiles = 5;
 
 // Maximum number of results to show in the launcher Search UI.
 const size_t kMaxSearchResults = 6;
@@ -142,17 +132,17 @@ const int kReorderDroppingCircleRadius = 35;
 // The padding around the outside of the apps grid (sides).
 const int kAppsGridPadding = 24;
 
-// The left and right side padding of the apps grid in fullscreen mode. The
+// The left and right side padding of the apps grid. The
 // space is used for page switcher and its padding on the right side. Left side
 // should have the same space to keep the apps grid horizontally centered.
-const int kAppsGridLeftRightPaddingFullscreen = 40;
+const int kAppsGridLeftRightPadding = 40;
 
 // The left and right padding from the folder name bottom separator to the edge
 // of the left or right edge of the left most and right most app item.
-const int kBottomSeparatorLeftRightPaddingFullScreen = 24;
+const int kBottomSeparatorLeftRightPadding = 24;
 
 // The bottom padding from the bottom separator to the top of the app item.
-const int kBottomSeparatorBottomPaddingFullScreen = 24;
+const int kBottomSeparatorBottomPadding = 24;
 
 // The padding around the outside of the search box (top and sides).
 const int kSearchBoxPadding = 16;
@@ -161,11 +151,11 @@ const int kSearchBoxTopPadding = 24;
 // Bottom padding of search box in peeking state.
 const int kSearchBoxPeekingBottomPadding = 12;
 
-// Bottom padding of search box in fullscreen state.
-const int kSearchBoxFullscreenBottomPadding = 24;
+// Bottom padding of search box.
+const int kSearchBoxBottomPadding = 24;
 
-// The background border corner radius of the search box in fullscreen mode.
-const int kSearchBoxBorderCornerRadiusFullscreen = 24;
+// The background border corner radius of the search box.
+const int kSearchBoxBorderCornerRadius = 24;
 
 // Preferred height of search box.
 const int kSearchBoxPreferredHeight = 48;
@@ -177,13 +167,7 @@ const int kPeekingAppListHeight = 320;
 const int kShelfSize = 48;
 
 // Max items allowed in a folder.
-const size_t kMaxFolderItems = 16;
-// Max items allowed in a folder for fullscreen app list folder v1.
-const size_t kMaxFolderItemsFullscreen = 20;
-
-// Number of the top items in a folder, which are shown inside the folder icon
-// and animated when opening and closing a folder.
-const size_t kNumFolderTopItems = 4;
+const size_t kMaxFolderItems = 20;
 
 // Maximum length of the folder name in chars.
 const size_t kMaxFolderNameChars = 80;
@@ -289,22 +273,20 @@ const gfx::ShadowValues& IconEndShadows() {
   return icon_shadows;
 }
 
-const gfx::FontList& FullscreenAppListAppTitleFont() {
-  // The max line height of app titles while the fullscreen launcher is enabled,
-  // which is determined by the sizes of app tile views, its paddings, and the
-  // icon.
-  constexpr int kFullscreenAppTitleMaxLineHeight = 16;
+const gfx::FontList& AppListAppTitleFont() {
+  // The max line height of app titles which is determined by the sizes of app
+  // tile views, its paddings, and the icon.
+  constexpr int kAppTitleMaxLineHeight = 16;
 
-  // The font for app titles while the fullscreen launcher is enabled. We're
-  // getting the largest font that doesn't exceed
-  // |kFullscreenAppTitleMaxLineHeight|.
-  // Note: we resize the font to 1px larger, otherwise it looks too small.
-  static const gfx::FontList kFullscreenAppListAppTitleFont =
+  // The font for app titles. We're getting the largest font that doesn't exceed
+  // |kAppTitleMaxLineHeight|.Note: we resize the font to 1px larger,
+  // otherwise it looks too small.
+  static const gfx::FontList kAppListAppTitleFont =
       ui::ResourceBundle::GetSharedInstance()
           .GetFontList(ui::ResourceBundle::LargeFont)
-          .DeriveWithHeightUpperBound(kFullscreenAppTitleMaxLineHeight)
+          .DeriveWithHeightUpperBound(kAppTitleMaxLineHeight)
           .DeriveWithSizeDelta(1);
-  return kFullscreenAppListAppTitleFont;
+  return kAppListAppTitleFont;
 }
 
 }  // namespace app_list

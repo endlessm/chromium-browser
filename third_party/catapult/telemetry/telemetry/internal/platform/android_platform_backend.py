@@ -275,37 +275,6 @@ class AndroidPlatformBackend(
       raise Exception('Error installing PushAppsToBackground.apk.')
     self.InstallApplication(host_path)
 
-  def PurgeUnpinnedMemory(self):
-    """Purges the unpinned ashmem memory for the whole system.
-
-    This can be used to make memory measurements more stable. Requires root.
-    """
-    if not self._can_elevate_privilege:
-      logging.warning('Cannot run purge_ashmem. Requires a rooted device.')
-      return
-
-    if not android_prebuilt_profiler_helper.InstallOnDevice(
-        self._device, 'purge_ashmem'):
-      raise Exception('Error installing purge_ashmem.')
-    output = self._device.RunShellCommand(
-        [android_prebuilt_profiler_helper.GetDevicePath('purge_ashmem')],
-        check_return=True)
-    for l in output:
-      logging.info(l)
-
-  @decorators.Deprecated(
-      2017, 11, 4,
-      'Clients should use tracing and memory-infra in new Telemetry '
-      'benchmarks. See for context: https://crbug.com/632021')
-  def GetMemoryStats(self, pid):
-    memory_usage = self._device.GetMemoryUsageForPid(pid)
-    if not memory_usage:
-      return {}
-    return {'ProportionalSetSize': memory_usage['Pss'] * 1024,
-            'SharedDirty': memory_usage['Shared_Dirty'] * 1024,
-            'PrivateDirty': memory_usage['Private_Dirty'] * 1024,
-            'VMPeak': memory_usage['VmHWM'] * 1024}
-
   def GetChildPids(self, pid):
     child_pids = []
     ps = self.GetPsOutput(['pid', 'name'])
@@ -525,20 +494,6 @@ class AndroidPlatformBackend(
     old_flag = self._device.GetProp('socket.relaxsslcheck')
     self._device.SetProp('socket.relaxsslcheck', value)
     return old_flag
-
-  def ForwardHostToDevice(self, host_port, device_port):
-    self._device.adb.Forward('tcp:%d' % host_port, device_port)
-
-  def StopForwardingHost(self, host_port):
-    # This used to run `adb forward --list` to check that the requested
-    # port was actually being forwarded to self._device. Unfortunately,
-    # starting in adb 1.0.36, a bug (b/31811775) keeps this from working.
-    # For now, try to remove the port forwarding and ignore failures.
-    try:
-      self._device.adb.ForwardRemove('tcp:%d' % host_port)
-    except device_errors.AdbCommandFailedError:
-      logging.critical(
-          'Attempted to unforward port tcp:%d but failed.', host_port)
 
   def DismissCrashDialogIfNeeded(self):
     """Dismiss any error dialogs.

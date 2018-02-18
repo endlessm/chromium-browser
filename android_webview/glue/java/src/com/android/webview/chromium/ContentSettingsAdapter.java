@@ -12,15 +12,12 @@ import android.webkit.WebSettings.RenderPriority;
 import android.webkit.WebSettings.ZoomDensity;
 
 import org.chromium.android_webview.AwSettings;
-import org.chromium.base.BuildInfo;
-import org.chromium.base.annotations.SuppressFBWarnings;
 
 /**
  * Type adaptation layer between {@link android.webkit.WebSettings} and
  * {@link org.chromium.android_webview.AwSettings}.
  */
-@SuppressWarnings("deprecation")
-@SuppressFBWarnings("CHROMIUM_SYNCHRONIZED_METHOD")
+@SuppressWarnings({"deprecation", "NoSynchronizedMethodCheck"})
 @TargetApi(Build.VERSION_CODES.LOLLIPOP)
 public class ContentSettingsAdapter extends android.webkit.WebSettings {
     private AwSettings mAwSettings;
@@ -150,14 +147,14 @@ public class ContentSettingsAdapter extends android.webkit.WebSettings {
 
     @Override
     public void setSaveFormData(boolean save) {
-        if (BuildInfo.isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) return;
 
         mAwSettings.setSaveFormData(save);
     }
 
     @Override
     public boolean getSaveFormData() {
-        if (BuildInfo.isAtLeastO()) return false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) return false;
 
         return mAwSettings.getSaveFormData();
     }
@@ -611,10 +608,12 @@ public class ContentSettingsAdapter extends android.webkit.WebSettings {
         return mAwSettings.getOffscreenPreRaster();
     }
 
+    @Override
     public void setDisabledActionModeMenuItems(int menuItems) {
         mAwSettings.setDisabledActionModeMenuItems(menuItems);
     }
 
+    @Override
     public int getDisabledActionModeMenuItems() {
         return mAwSettings.getDisabledActionModeMenuItems();
     }

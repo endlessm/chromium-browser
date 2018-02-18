@@ -35,7 +35,7 @@ void RecordWidgetUsage() {
 }
 
 void ProcessPendingLogs(ProceduralBlockWithData callback) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   NSFileManager* file_manager = [NSFileManager defaultManager];
   NSURL* store_url = [file_manager
       containerURLForSecurityApplicationGroupIdentifier:ApplicationGroup()];

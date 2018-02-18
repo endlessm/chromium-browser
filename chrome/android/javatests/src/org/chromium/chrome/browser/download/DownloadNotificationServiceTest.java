@@ -21,8 +21,11 @@ import org.junit.runner.RunWith;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.AdvancedMockContext;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.RetryOnFailure;
+import org.chromium.components.background_task_scheduler.BackgroundTaskScheduler;
+import org.chromium.components.background_task_scheduler.BackgroundTaskSchedulerFactory;
+import org.chromium.components.background_task_scheduler.TaskInfo;
 import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.OfflineItem.Progress;
@@ -56,22 +59,25 @@ public class DownloadNotificationServiceTest
         }
     }
 
-    private static class MockDownloadResumptionScheduler extends DownloadResumptionScheduler {
+    private static class MockBackgroundTaskScheduler implements BackgroundTaskScheduler {
         boolean mScheduled;
 
-        public MockDownloadResumptionScheduler(Context context) {
-            super(context);
-        }
-
         @Override
-        public void schedule(boolean allowMeteredConnection) {
+        public boolean schedule(Context context, TaskInfo taskInfo) {
             mScheduled = true;
+            return true;
         }
 
         @Override
-        public void cancelTask() {
+        public void cancel(Context context, int taskId) {
             mScheduled = false;
         }
+
+        @Override
+        public void checkForOSUpgrade(Context context) {}
+
+        @Override
+        public void reschedule(Context context) {}
     }
 
     private static String buildEntryStringWithGuid(String guid, int notificationId, String fileName,
@@ -162,7 +168,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
-    @RetryOnFailure(message = "crbug.com/773346")
+    @DisabledTest(message = "crbug.com/773346")
     public void testPausingWithoutOngoingDownloads() {
         setupService();
         startNotificationService();
@@ -183,11 +189,10 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
-    @RetryOnFailure(message = "crbug.com/773346")
+    @DisabledTest(message = "crbug.com/773346")
     public void testResumptionScheduledWithoutDownloadOperationIntent() throws Exception {
-        MockDownloadResumptionScheduler scheduler =
-                new MockDownloadResumptionScheduler(getSystemContext().getApplicationContext());
-        DownloadResumptionScheduler.setDownloadResumptionScheduler(scheduler);
+        MockBackgroundTaskScheduler scheduler = new MockBackgroundTaskScheduler();
+        BackgroundTaskSchedulerFactory.setSchedulerForTesting(scheduler);
         setupService();
         Set<String> notifications = new HashSet<>();
         notifications.add(buildEntryString(1, "test1", true, true));
@@ -208,10 +213,10 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
+    @DisabledTest(message = "crbug.com/653609")
     public void testResumptionNotScheduledWithDownloadOperationIntent() {
-        MockDownloadResumptionScheduler scheduler =
-                new MockDownloadResumptionScheduler(getSystemContext().getApplicationContext());
-        DownloadResumptionScheduler.setDownloadResumptionScheduler(scheduler);
+        MockBackgroundTaskScheduler scheduler = new MockBackgroundTaskScheduler();
+        BackgroundTaskSchedulerFactory.setSchedulerForTesting(scheduler);
         setupService();
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
@@ -231,10 +236,10 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
+    @DisabledTest(message = "crbug.com/773346")
     public void testResumptionNotScheduledWithoutAutoResumableDownload() throws Exception {
-        MockDownloadResumptionScheduler scheduler =
-                new MockDownloadResumptionScheduler(getSystemContext().getApplicationContext());
-        DownloadResumptionScheduler.setDownloadResumptionScheduler(scheduler);
+        MockBackgroundTaskScheduler scheduler = new MockBackgroundTaskScheduler();
+        BackgroundTaskSchedulerFactory.setSchedulerForTesting(scheduler);
         setupService();
         Set<String> notifications = new HashSet<>();
         notifications.add(buildEntryString(1, "test1", true, false));
@@ -253,6 +258,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
+    @DisabledTest(message = "crbug.com/773346")
     public void testPausingWithOngoingDownloads() {
         setupService();
         Context mockContext = new AdvancedMockContext(getSystemContext());
@@ -286,7 +292,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
-    @RetryOnFailure(message = "crbug.com/773346")
+    @DisabledTest(message = "crbug.com/773346")
     public void testAddingAndCancelingNotifications() {
         setupService();
         Context mockContext = new AdvancedMockContext(getSystemContext());
@@ -356,7 +362,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
-    @RetryOnFailure
+    @DisabledTest(message = "crbug.com/773346")
     public void testDownloadSuccessNotification() {
         setupService();
         startNotificationService();
@@ -373,7 +379,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
-    @RetryOnFailure
+    @DisabledTest(message = "crbug.com/773346")
     public void testResumeAllPendingDownloads() throws Exception {
         setupService();
         Context mockContext = new AdvancedMockContext(getSystemContext());
@@ -422,7 +428,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
-    @RetryOnFailure(message = "crbug.com/773346")
+    @DisabledTest(message = "crbug.com/773346")
     public void testIncognitoDownloadCanceledOnServiceShutdown() throws Exception {
         setupService();
         Context mockContext = new AdvancedMockContext(getSystemContext());
@@ -452,7 +458,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
-    @RetryOnFailure
+    @DisabledTest(message = "crbug.com/773346")
     public void testServiceWillStopOnCompletedDownload() throws Exception {
         // On versions of Android that use a foreground service, the service will currently die with
         // the notifications.
@@ -473,7 +479,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
-    @RetryOnFailure
+    @DisabledTest(message = "crbug.com/773346")
     public void testServiceWillStopOnFailedDownload() throws Exception {
         // On versions of Android that use a foreground service, the service will currently die with
         // the notifications.
@@ -493,7 +499,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
-    @RetryOnFailure
+    @DisabledTest(message = "crbug.com/773346")
     public void testServiceWillStopOnCancelledDownload() throws Exception {
         // On versions of Android that use a foreground service, the service will currently die with
         // the notifications.
@@ -532,7 +538,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
-    @RetryOnFailure(message = "crbug.com/773346")
+    @DisabledTest(message = "crbug.com/773346")
     public void testServiceWillNotStopOnPausedDownload() throws Exception {
         // On versions of Android that use a foreground service, the service will currently die with
         // the notifications.
@@ -552,7 +558,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
-    @RetryOnFailure
+    @DisabledTest(message = "crbug.com/773346")
     public void testServiceWillNotStopWithOneOngoingDownload() throws Exception {
         // On versions of Android that use a foreground service, the service will currently die with
         // the notifications.
@@ -582,6 +588,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
+    @DisabledTest(message = "crbug.com/773346")
     public void testForegroundServiceStopsIfCancelIsCalledWhenServiceIsStopped() {
         // On versions of Android that use a foreground service, the service will currently die with
         // the notifications.
@@ -607,6 +614,7 @@ public class DownloadNotificationServiceTest
     @Test
     @SmallTest
     @Feature({"Download"})
+    @DisabledTest(message = "crbug.com/773346")
     public void testForegroundServiceStopsIfPauseIsCalledWhenServiceIsStopped() {
         // This only applies to versions that uses the foreground service.
         if (!DownloadNotificationService.useForegroundService()) return;

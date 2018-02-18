@@ -64,12 +64,14 @@ public class EglRendererTest {
   private final static ByteBuffer[][] TEST_FRAMES =
       copyTestDataToDirectByteBuffers(TEST_FRAMES_DATA);
 
-  private class TestFrameListener implements EglRenderer.FrameListener {
+  private static class TestFrameListener implements EglRenderer.FrameListener {
     final private ArrayList<Bitmap> bitmaps = new ArrayList<Bitmap>();
     boolean bitmapReceived;
     Bitmap storedBitmap;
 
     @Override
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onFrame(Bitmap bitmap) {
       if (bitmapReceived) {
         fail("Unexpected bitmap was received.");
@@ -80,13 +82,22 @@ public class EglRendererTest {
       notify();
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized boolean waitForBitmap(int timeoutMs) throws InterruptedException {
-      if (!bitmapReceived) {
+      final long endTimeMs = System.currentTimeMillis() + timeoutMs;
+      while (!bitmapReceived) {
+        final long waitTimeMs = endTimeMs - System.currentTimeMillis();
+        if (waitTimeMs < 0) {
+          return false;
+        }
         wait(timeoutMs);
       }
-      return bitmapReceived;
+      return true;
     }
 
+    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized Bitmap resetAndGetBitmap() {
       bitmapReceived = false;
       return storedBitmap;
@@ -102,8 +113,9 @@ public class EglRendererTest {
 
   @Before
   public void setUp() throws Exception {
-    PeerConnectionFactory.initializeAndroidGlobals(
-        InstrumentationRegistry.getTargetContext(), true /* videoHwAcceleration */);
+    PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions
+                                         .builder(InstrumentationRegistry.getTargetContext())
+                                         .createInitializationOptions());
     eglRenderer = new EglRenderer("TestRenderer: ");
     eglRenderer.init(null /* sharedContext */, EglBase.CONFIG_RGBA, new GlRectDrawer());
     oesTextureId = GlUtil.generateTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES);

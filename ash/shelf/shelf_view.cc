@@ -23,6 +23,7 @@
 #include "ash/shelf/shelf_button.h"
 #include "ash/shelf/shelf_constants.h"
 #include "ash/shelf/shelf_context_menu_model.h"
+#include "ash/shelf/shelf_controller.h"
 #include "ash/shelf/shelf_widget.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
@@ -103,7 +104,7 @@ class ShelfFocusSearch : public views::FocusSearch {
  public:
   explicit ShelfFocusSearch(views::ViewModel* view_model)
       : FocusSearch(nullptr, true, true), view_model_(view_model) {}
-  ~ShelfFocusSearch() override {}
+  ~ShelfFocusSearch() override = default;
 
   // views::FocusSearch overrides:
   View* FindNextFocusableView(View* starting_view,
@@ -139,7 +140,7 @@ class ShelfFocusSearch : public views::FocusSearch {
 class FadeInAnimationDelegate : public gfx::AnimationDelegate {
  public:
   explicit FadeInAnimationDelegate(views::View* view) : view_(view) {}
-  ~FadeInAnimationDelegate() override {}
+  ~FadeInAnimationDelegate() override = default;
 
   // AnimationDelegate overrides:
   void AnimationProgressed(const Animation* animation) override {
@@ -164,22 +165,14 @@ class FadeInAnimationDelegate : public gfx::AnimationDelegate {
 void ReflectItemStatus(const ShelfItem& item, ShelfButton* button) {
   switch (item.status) {
     case STATUS_CLOSED:
-      button->ClearState(ShelfButton::STATE_ACTIVE);
       button->ClearState(ShelfButton::STATE_RUNNING);
       button->ClearState(ShelfButton::STATE_ATTENTION);
       break;
     case STATUS_RUNNING:
-      button->ClearState(ShelfButton::STATE_ACTIVE);
       button->AddState(ShelfButton::STATE_RUNNING);
       button->ClearState(ShelfButton::STATE_ATTENTION);
       break;
-    case STATUS_ACTIVE:
-      button->AddState(ShelfButton::STATE_ACTIVE);
-      button->ClearState(ShelfButton::STATE_RUNNING);
-      button->ClearState(ShelfButton::STATE_ATTENTION);
-      break;
     case STATUS_ATTENTION:
-      button->ClearState(ShelfButton::STATE_ACTIVE);
       button->ClearState(ShelfButton::STATE_RUNNING);
       button->AddState(ShelfButton::STATE_ATTENTION);
       break;
@@ -192,6 +185,23 @@ int64_t GetDisplayIdForView(View* view) {
   return display::Screen::GetScreen()->GetDisplayNearestWindow(window).id();
 }
 
+// Whether |item_view| is a ShelfButton and its state is STATE_DRAGGING.
+bool ShelfButtonIsInDrag(const ShelfItemType item_type,
+                         const views::View* item_view) {
+  switch (item_type) {
+    case TYPE_PINNED_APP:
+    case TYPE_BROWSER_SHORTCUT:
+    case TYPE_APP:
+      return static_cast<const ShelfButton*>(item_view)->state() &
+             ShelfButton::STATE_DRAGGING;
+    case TYPE_DIALOG:
+    case TYPE_APP_PANEL:
+    case TYPE_APP_LIST:
+    case TYPE_UNDEFINED:
+      return false;
+  }
+}
+
 }  // namespace
 
 // AnimationDelegate used when deleting an item. This steadily decreased the
@@ -200,7 +210,7 @@ class ShelfView::FadeOutAnimationDelegate : public gfx::AnimationDelegate {
  public:
   FadeOutAnimationDelegate(ShelfView* host, views::View* view)
       : shelf_view_(host), view_(view) {}
-  ~FadeOutAnimationDelegate() override {}
+  ~FadeOutAnimationDelegate() override = default;
 
   // AnimationDelegate overrides:
   void AnimationProgressed(const Animation* animation) override {
@@ -226,7 +236,7 @@ class ShelfView::StartFadeAnimationDelegate : public gfx::AnimationDelegate {
  public:
   StartFadeAnimationDelegate(ShelfView* host, views::View* view)
       : shelf_view_(host), view_(view) {}
-  ~StartFadeAnimationDelegate() override {}
+  ~StartFadeAnimationDelegate() override = default;
 
   // AnimationDelegate overrides:
   void AnimationEnded(const Animation* animation) override {
@@ -256,7 +266,6 @@ ShelfView::ShelfView(ShelfModel* model, Shelf* shelf, ShelfWidget* shelf_widget)
   DCHECK(model_);
   DCHECK(shelf_);
   DCHECK(shelf_widget_);
-  Shell::Get()->tablet_mode_controller()->AddObserver(this);
   bounds_animator_.reset(new views::BoundsAnimator(this));
   bounds_animator_->AddObserver(this);
   set_context_menu_controller(this);
@@ -264,8 +273,6 @@ ShelfView::ShelfView(ShelfModel* model, Shelf* shelf, ShelfWidget* shelf_widget)
 }
 
 ShelfView::~ShelfView() {
-  if (Shell::Get()->tablet_mode_controller())
-    Shell::Get()->tablet_mode_controller()->RemoveObserver(this);
   bounds_animator_->RemoveObserver(this);
   model_->RemoveObserver(this);
 }
@@ -1511,14 +1518,6 @@ gfx::Size ShelfView::CalculatePreferredSize() const {
   return gfx::Size(kShelfSize, last_button_bounds.bottom());
 }
 
-void ShelfView::OnTabletModeStarted() {
-  is_tablet_mode_animation_running_ = true;
-}
-
-void ShelfView::OnTabletModeEnded() {
-  is_tablet_mode_animation_running_ = true;
-}
-
 void ShelfView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
   // This bounds change is produced by the shelf movement (rotation, alignment
   // change, etc.) and all content has to follow. Using an animation at that
@@ -1526,7 +1525,7 @@ void ShelfView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
   // itself a delay before it arrives at the required location. As such we tell
   // the animator to go there immediately. We still want to use an animation
   // when the bounds change is caused by entering or exiting tablet mode.
-  if (is_tablet_mode_animation_running_) {
+  if (shelf_->is_tablet_mode_animation_running()) {
     AnimateToIdealBounds();
     return;
   }
@@ -1567,9 +1566,6 @@ void ShelfView::OnGestureEvent(ui::GestureEvent* event) {
 }
 
 bool ShelfView::OnMouseWheel(const ui::MouseWheelEvent& event) {
-  if (!app_list::features::IsFullscreenAppListEnabled())
-    return false;
-
   shelf_->ProcessMouseWheelEvent(event);
   return true;
 }
@@ -1826,7 +1822,7 @@ void ShelfView::ShowMenu(std::unique_ptr<ui::MenuModel> menu_model,
 
   // Only selected shelf items with context menu opened can be dragged.
   const ShelfItem* item = ShelfItemForView(source);
-  if (context_menu && item && item->type != TYPE_APP_LIST &&
+  if (context_menu && item && ShelfButtonIsInDrag(item->type, source) &&
       source_type == ui::MenuSourceType::MENU_SOURCE_TOUCH) {
     run_types |= views::MenuRunner::SEND_GESTURE_EVENTS_TO_OWNER;
   }
@@ -1899,8 +1895,7 @@ void ShelfView::OnBoundsAnimatorProgressed(views::BoundsAnimator* animator) {
 }
 
 void ShelfView::OnBoundsAnimatorDone(views::BoundsAnimator* animator) {
-  if (is_tablet_mode_animation_running_)
-    is_tablet_mode_animation_running_ = false;
+  shelf_->set_is_tablet_mode_animation_running(false);
 
   if (snap_back_from_rip_off_view_ && animator == bounds_animator_.get()) {
     if (!animator->IsAnimating(snap_back_from_rip_off_view_)) {

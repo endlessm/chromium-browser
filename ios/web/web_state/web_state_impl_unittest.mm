@@ -18,11 +18,13 @@
 #import "base/test/ios/wait_util.h"
 #import "ios/web/public/java_script_dialog_presenter.h"
 #include "ios/web/public/load_committed_details.h"
+#import "ios/web/public/test/fakes/fake_navigation_context.h"
 #include "ios/web/public/test/fakes/test_browser_state.h"
 #import "ios/web/public/test/fakes/test_web_state_delegate.h"
 #import "ios/web/public/test/fakes/test_web_state_observer.h"
 #include "ios/web/public/test/web_test.h"
 #import "ios/web/public/web_state/context_menu_params.h"
+#include "ios/web/public/web_state/form_activity_params.h"
 #include "ios/web/public/web_state/global_web_state_observer.h"
 #import "ios/web/public/web_state/web_state_delegate.h"
 #include "ios/web/public/web_state/web_state_observer.h"
@@ -61,6 +63,7 @@ class TestGlobalWebStateObserver : public GlobalWebStateObserver {
         navigation_item_committed_called_(false),
         did_start_loading_called_(false),
         did_stop_loading_called_(false),
+        did_start_navigation_called_(false),
         page_loaded_called_with_success_(false),
         web_state_destroyed_called_(false) {}
 
@@ -77,6 +80,9 @@ class TestGlobalWebStateObserver : public GlobalWebStateObserver {
   }
   bool did_start_loading_called() const { return did_start_loading_called_; }
   bool did_stop_loading_called() const { return did_stop_loading_called_; }
+  bool did_start_navigation_called() const {
+    return did_start_navigation_called_;
+  }
   bool page_loaded_called_with_success() const {
     return page_loaded_called_with_success_;
   }
@@ -104,6 +110,11 @@ class TestGlobalWebStateObserver : public GlobalWebStateObserver {
   void WebStateDidStopLoading(WebState* web_state) override {
     did_stop_loading_called_ = true;
   }
+  void WebStateDidStartNavigation(
+      WebState* web_state,
+      NavigationContext* navigation_context) override {
+    did_start_navigation_called_ = true;
+  }
   void PageLoaded(WebState* web_state,
                   PageLoadCompletionStatus load_completion_status) override {
     page_loaded_called_with_success_ =
@@ -118,6 +129,7 @@ class TestGlobalWebStateObserver : public GlobalWebStateObserver {
   bool navigation_item_committed_called_;
   bool did_start_loading_called_;
   bool did_stop_loading_called_;
+  bool did_start_navigation_called_;
   bool page_loaded_called_with_success_;
   bool web_state_destroyed_called_;
 };
@@ -180,15 +192,15 @@ class WebStateImplTest : public web::WebTest {
 
 TEST_F(WebStateImplTest, WebUsageEnabled) {
   // Default is false.
-  ASSERT_FALSE(web_state_->IsWebUsageEnabled());
-
-  web_state_->SetWebUsageEnabled(true);
-  EXPECT_TRUE(web_state_->IsWebUsageEnabled());
-  EXPECT_TRUE(web_state_->GetWebController().webUsageEnabled);
+  ASSERT_TRUE(web_state_->IsWebUsageEnabled());
 
   web_state_->SetWebUsageEnabled(false);
   EXPECT_FALSE(web_state_->IsWebUsageEnabled());
   EXPECT_FALSE(web_state_->GetWebController().webUsageEnabled);
+
+  web_state_->SetWebUsageEnabled(true);
+  EXPECT_TRUE(web_state_->IsWebUsageEnabled());
+  EXPECT_TRUE(web_state_->GetWebController().webUsageEnabled);
 }
 
 TEST_F(WebStateImplTest, ShouldSuppressDialogs) {
@@ -299,7 +311,7 @@ TEST_F(WebStateImplTest, ObserverTest) {
 
   // Test that DidChangeVisibleSecurityState() is called.
   ASSERT_FALSE(observer->did_change_visible_security_state_info());
-  web_state_->OnVisibleSecurityStateChange();
+  web_state_->DidChangeVisibleSecurityState();
   ASSERT_TRUE(observer->did_change_visible_security_state_info());
   EXPECT_EQ(web_state_.get(),
             observer->did_change_visible_security_state_info()->web_state);
@@ -313,7 +325,7 @@ TEST_F(WebStateImplTest, ObserverTest) {
 
   // Test that DocumentSubmitted() is called.
   ASSERT_FALSE(observer->submit_document_info());
-  std::string kTestFormName("form-name");
+  const std::string kTestFormName("form-name");
   BOOL user_initiated = true;
   web_state_->OnDocumentSubmitted(kTestFormName, user_initiated);
   ASSERT_TRUE(observer->submit_document_info());
@@ -323,23 +335,31 @@ TEST_F(WebStateImplTest, ObserverTest) {
 
   // Test that FormActivityRegistered() is called.
   ASSERT_FALSE(observer->form_activity_info());
-  std::string kTestFieldName("field-name");
-  std::string kTestTypeType("type");
-  std::string kTestValue("value");
-  web_state_->OnFormActivityRegistered(kTestFormName, kTestFieldName,
-                                       kTestTypeType, kTestValue, true);
+  FormActivityParams params;
+  params.form_name = kTestFormName;
+  params.field_name = "field-name";
+  params.field_type = "field-type";
+  params.type = "type";
+  params.value = "value";
+  params.input_missing = true;
+  web_state_->OnFormActivityRegistered(params);
   ASSERT_TRUE(observer->form_activity_info());
   EXPECT_EQ(web_state_.get(), observer->form_activity_info()->web_state);
-  EXPECT_EQ(kTestFormName, observer->form_activity_info()->form_name);
-  EXPECT_EQ(kTestFieldName, observer->form_activity_info()->field_name);
-  EXPECT_EQ(kTestTypeType, observer->form_activity_info()->type);
-  EXPECT_EQ(kTestValue, observer->form_activity_info()->value);
-  EXPECT_TRUE(observer->form_activity_info()->input_missing);
+  EXPECT_EQ(params.form_name,
+            observer->form_activity_info()->form_activity.form_name);
+  EXPECT_EQ(params.field_name,
+            observer->form_activity_info()->form_activity.field_name);
+  EXPECT_EQ(params.field_type,
+            observer->form_activity_info()->form_activity.field_type);
+  EXPECT_EQ(params.type, observer->form_activity_info()->form_activity.type);
+  EXPECT_EQ(params.value, observer->form_activity_info()->form_activity.value);
+  EXPECT_TRUE(observer->form_activity_info()->form_activity.input_missing);
 
   // Test that FaviconUrlUpdated() is called.
   ASSERT_FALSE(observer->update_favicon_url_candidates_info());
   web::FaviconURL favicon_url(GURL("https://chromium.test/"),
-                              web::FaviconURL::TOUCH_ICON, {gfx::Size(5, 6)});
+                              web::FaviconURL::IconType::kTouchIcon,
+                              {gfx::Size(5, 6)});
   web_state_->OnFaviconUrlUpdated({favicon_url});
   ASSERT_TRUE(observer->update_favicon_url_candidates_info());
   EXPECT_EQ(web_state_.get(),
@@ -590,6 +610,12 @@ TEST_F(WebStateImplTest, GlobalObserverTest) {
   web_state_->OnNavigationItemCommitted(details);
   EXPECT_TRUE(observer->navigation_item_committed_called());
 
+  // Test that DidStartNavigation() is called.
+  EXPECT_FALSE(observer->did_start_navigation_called());
+  FakeNavigationContext context;
+  web_state_->OnNavigationStarted(&context);
+  EXPECT_TRUE(observer->did_start_navigation_called());
+
   // Test that WebStateDidStartLoading() is called.
   EXPECT_FALSE(observer->did_start_loading_called());
   web_state_->SetIsLoading(true);
@@ -761,6 +787,55 @@ TEST_F(WebStateImplTest, CreatedWithOpener) {
   std::unique_ptr<WebState> web_state_with_opener =
       WebState::Create(params_with_opener);
   EXPECT_TRUE(web_state_with_opener->HasOpener());
+}
+
+// Tests that WebStateObserver::FaviconUrlUpdated is called for same-document
+// navigations.
+TEST_F(WebStateImplTest, FaviconUpdateForSameDocumentNavigations) {
+  auto observer = std::make_unique<TestWebStateObserver>(web_state_.get());
+
+  // No callback if icons has not been fetched yet.
+  FakeNavigationContext context;
+  context.SetIsSameDocument(true);
+  web_state_->OnNavigationFinished(&context);
+  EXPECT_FALSE(observer->update_favicon_url_candidates_info());
+
+  // Callback is called when icons were fetched.
+  observer = base::MakeUnique<TestWebStateObserver>(web_state_.get());
+  web::FaviconURL favicon_url(GURL("https://chromium.test/"),
+                              web::FaviconURL::IconType::kTouchIcon,
+                              {gfx::Size(5, 6)});
+  web_state_->OnFaviconUrlUpdated({favicon_url});
+  EXPECT_TRUE(observer->update_favicon_url_candidates_info());
+
+  // Callback is now called after same-document navigation.
+  observer = std::make_unique<TestWebStateObserver>(web_state_.get());
+  web_state_->OnNavigationFinished(&context);
+  ASSERT_TRUE(observer->update_favicon_url_candidates_info());
+  ASSERT_EQ(1U,
+            observer->update_favicon_url_candidates_info()->candidates.size());
+  const web::FaviconURL& actual_favicon_url =
+      observer->update_favicon_url_candidates_info()->candidates[0];
+  EXPECT_EQ(favicon_url.icon_url, actual_favicon_url.icon_url);
+  EXPECT_EQ(favicon_url.icon_type, actual_favicon_url.icon_type);
+  ASSERT_EQ(favicon_url.icon_sizes.size(),
+            actual_favicon_url.icon_sizes.size());
+  EXPECT_EQ(favicon_url.icon_sizes[0].width(),
+            actual_favicon_url.icon_sizes[0].width());
+  EXPECT_EQ(favicon_url.icon_sizes[0].height(),
+            actual_favicon_url.icon_sizes[0].height());
+
+  // Document change navigation does not call callback.
+  observer = std::make_unique<TestWebStateObserver>(web_state_.get());
+  context.SetIsSameDocument(false);
+  web_state_->OnNavigationFinished(&context);
+  EXPECT_FALSE(observer->update_favicon_url_candidates_info());
+
+  // Previous candidates were invalidated by the document change. No callback
+  // if icons has not been fetched yet.
+  context.SetIsSameDocument(true);
+  web_state_->OnNavigationFinished(&context);
+  EXPECT_FALSE(observer->update_favicon_url_candidates_info());
 }
 
 }  // namespace web

@@ -5,13 +5,13 @@
 #include "chrome/browser/search/search.h"
 
 #include <stddef.h>
+#include <string>
 
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/search/instant_service.h"
-#include "chrome/browser/search/instant_service_factory.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
 #include "chrome/common/chrome_features.h"
@@ -38,6 +38,11 @@
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/signin/merge_session_throttling_utils.h"
 #endif  // defined(OS_CHROMEOS)
+
+#if !defined(OS_ANDROID)
+#include "chrome/browser/search/instant_service.h"
+#include "chrome/browser/search/instant_service_factory.h"
+#endif
 
 namespace search {
 
@@ -78,27 +83,26 @@ const TemplateURL* GetDefaultSearchProviderTemplateURL(Profile* profile) {
     if (template_url_service)
       return template_url_service->GetDefaultSearchProvider();
   }
-  return NULL;
+  return nullptr;
 }
 
-// Returns true if |url| can be used as an Instant URL for |profile|.
-bool IsInstantURL(const GURL& url, Profile* profile) {
-  if (!IsInstantExtendedAPIEnabled())
-    return false;
-
+// Returns true if |url| matches the NTP URL or the URL of the NTP's associated
+// service worker.
+bool IsNTPOrServiceWorkerURL(const GURL& url, Profile* profile) {
   if (!url.is_valid())
     return false;
 
   const GURL new_tab_url(GetNewTabPageURL(profile));
-  if (new_tab_url.is_valid() && (MatchesOriginAndPath(url, new_tab_url) ||
-                                 IsMatchingServiceWorker(url, new_tab_url))) {
-    return true;
-  }
-  return false;
+  return new_tab_url.is_valid() && (MatchesOriginAndPath(url, new_tab_url) ||
+                                    IsMatchingServiceWorker(url, new_tab_url));
 }
 
 bool IsURLAllowedForSupervisedUser(const GURL& url, Profile* profile) {
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+  // If this isn't a supervised user, skip the URL filter check, since it can be
+  // fairly expensive.
+  if (!profile->IsSupervised())
+    return true;
   SupervisedUserService* supervised_user_service =
       SupervisedUserServiceFactory::GetForProfile(profile);
   SupervisedUserURLFilter* url_filter = supervised_user_service->GetURLFilter();
@@ -110,37 +114,23 @@ bool IsURLAllowedForSupervisedUser(const GURL& url, Profile* profile) {
   return true;
 }
 
-// Returns whether |new_tab_url| can be used as a URL for the New Tab page.
-// NEW_TAB_URL_VALID means a valid URL; other enum values imply an invalid URL.
-NewTabURLState IsValidNewTabURL(Profile* profile, const GURL& new_tab_url) {
-  if (profile->IsOffTheRecord())
-    return NEW_TAB_URL_INCOGNITO;
-  if (!new_tab_url.is_valid())
-    return NEW_TAB_URL_NOT_SET;
-  if (!new_tab_url.SchemeIsCryptographic())
-    return NEW_TAB_URL_INSECURE;
-  if (!IsURLAllowedForSupervisedUser(new_tab_url, profile))
-    return NEW_TAB_URL_BLOCKED;
-  return NEW_TAB_URL_VALID;
+bool ShouldShowLocalNewTab(Profile* profile) {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  return command_line->HasSwitch(switches::kForceLocalNtp) ||
+         (base::FeatureList::IsEnabled(features::kUseGoogleLocalNtp) &&
+          profile && DefaultSearchProviderIsGoogle(profile));
 }
 
-bool ShouldShowLocalNewTab(const GURL& url, Profile* profile) {
+bool ShouldDelayRemoteNTP(const GURL& search_provider_url, Profile* profile) {
 #if defined(OS_CHROMEOS)
   // On Chrome OS, if the session hasn't merged yet, we need to avoid loading
   // the remote NTP because that will trigger showing the merge session throttle
   // interstitial page, which can show for 5+ seconds. crbug.com/591530.
-  if (merge_session_throttling_utils::ShouldDelayUrl(url) &&
+  if (merge_session_throttling_utils::ShouldDelayUrl(search_provider_url) &&
       merge_session_throttling_utils::IsSessionRestorePending(profile)) {
     return true;
   }
 #endif  // defined(OS_CHROMEOS)
-
-  if (!profile->IsOffTheRecord() &&
-      base::FeatureList::IsEnabled(features::kUseGoogleLocalNtp) &&
-      DefaultSearchProviderIsGoogle(profile)) {
-    return true;
-  }
-
   return false;
 }
 
@@ -151,10 +141,13 @@ struct NewTabURLDetails {
       : url(url), state(state) {}
 
   static NewTabURLDetails ForProfile(Profile* profile) {
+    // Incognito has its own New Tab.
+    if (profile->IsOffTheRecord())
+      return NewTabURLDetails(GURL(), NEW_TAB_URL_INCOGNITO);
+
     const GURL local_url(chrome::kChromeSearchLocalNtpUrl);
 
-    base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-    if (command_line->HasSwitch(switches::kForceLocalNtp))
+    if (ShouldShowLocalNewTab(profile))
       return NewTabURLDetails(local_url, NEW_TAB_URL_VALID);
 
     const TemplateURL* template_url =
@@ -166,25 +159,21 @@ struct NewTabURLDetails {
         TemplateURLRef::SearchTermsArgs(base::string16()),
         UIThreadSearchTermsData(profile)));
 
-    if (ShouldShowLocalNewTab(search_provider_url, profile))
+    if (ShouldDelayRemoteNTP(search_provider_url, profile))
       return NewTabURLDetails(local_url, NEW_TAB_URL_VALID);
 
-    NewTabURLState state = IsValidNewTabURL(profile, search_provider_url);
-    switch (state) {
-      case NEW_TAB_URL_VALID:
-        // We can use the search provider's page.
-        return NewTabURLDetails(search_provider_url, state);
-      case NEW_TAB_URL_INCOGNITO:
-        // Incognito has its own New Tab.
-        return NewTabURLDetails(GURL(), state);
-      default:
-        // Use the local New Tab otherwise.
-        return NewTabURLDetails(local_url, state);
-    }
+    if (!search_provider_url.is_valid())
+      return NewTabURLDetails(local_url, NEW_TAB_URL_NOT_SET);
+    if (!search_provider_url.SchemeIsCryptographic())
+      return NewTabURLDetails(local_url, NEW_TAB_URL_INSECURE);
+    if (!IsURLAllowedForSupervisedUser(search_provider_url, profile))
+      return NewTabURLDetails(local_url, NEW_TAB_URL_BLOCKED);
+
+    return NewTabURLDetails(search_provider_url, NEW_TAB_URL_VALID);
   }
 
-  GURL url;
-  NewTabURLState state;
+  const GURL url;
+  const NewTabURLState state;
 };
 
 }  // namespace
@@ -192,11 +181,14 @@ struct NewTabURLDetails {
 bool ShouldAssignURLToInstantRenderer(const GURL& url, Profile* profile) {
   return url.is_valid() && profile && IsInstantExtendedAPIEnabled() &&
          (url.SchemeIs(chrome::kChromeSearchScheme) ||
-          IsInstantURL(url, profile));
+          IsNTPOrServiceWorkerURL(url, profile));
 }
 
 bool IsRenderedInInstantProcess(const content::WebContents* contents,
                                 Profile* profile) {
+#if defined(OS_ANDROID)
+  return false;
+#else
   const content::RenderProcessHost* process_host =
       contents->GetMainFrame()->GetProcess();
   if (!process_host)
@@ -208,6 +200,7 @@ bool IsRenderedInInstantProcess(const content::WebContents* contents,
     return false;
 
   return instant_service->IsInstantProcess(process_host->GetID());
+#endif
 }
 
 bool ShouldUseProcessPerSiteForInstantURL(const GURL& url, Profile* profile) {
@@ -242,7 +235,7 @@ bool IsNTPURL(const GURL& url, Profile* profile) {
     return url == chrome::kChromeUINewTabURL;
 
   // TODO(treib,sfiera): Tolerate query params when detecting local NTPs.
-  return profile && (IsInstantURL(url, profile) ||
+  return profile && (IsNTPOrServiceWorkerURL(url, profile) ||
                      url == chrome::kChromeSearchLocalNtpUrl);
 }
 

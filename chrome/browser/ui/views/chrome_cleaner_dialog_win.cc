@@ -121,6 +121,10 @@ views::View* ChromeCleanerDialog::GetInitiallyFocusedView() {
   return details_button_;
 }
 
+bool ChromeCleanerDialog::ShouldShowCloseButton() const {
+  return false;
+}
+
 // DialogDelegate overrides.
 
 views::View* ChromeCleanerDialog::CreateFootnoteView() {
@@ -215,7 +219,7 @@ void ChromeCleanerDialog::OnScanning() {
 }
 
 void ChromeCleanerDialog::OnCleaning(
-    const std::set<base::FilePath>& files_to_delete) {
+    const safe_browsing::ChromeCleanerScannerResults& scanner_results) {
   Abort();
 }
 

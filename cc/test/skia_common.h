@@ -8,6 +8,8 @@
 #include <memory>
 
 #include "base/memory/ref_counted.h"
+#include "cc/base/region.h"
+#include "cc/paint/discardable_image_map.h"
 #include "cc/paint/draw_image.h"
 #include "cc/paint/image_animation_count.h"
 #include "cc/paint/paint_image.h"
@@ -31,6 +33,8 @@ bool AreDisplayListDrawingResultsSame(const gfx::Rect& layer_rect,
                                       const DisplayItemList* list_a,
                                       const DisplayItemList* list_b);
 
+Region ImageRectsToRegion(const DiscardableImageMap::Rects& rects);
+
 sk_sp<PaintImageGenerator> CreatePaintImageGenerator(const gfx::Size& size);
 
 PaintImage CreateDiscardablePaintImage(
@@ -48,7 +52,8 @@ PaintImage CreateAnimatedImage(
     const gfx::Size& size,
     std::vector<FrameMetadata> frames,
     int repetition_count = kAnimationLoopInfinite,
-    size_t frame_index = PaintImage::kDefaultFrameIndex);
+    size_t frame_index = PaintImage::kDefaultFrameIndex,
+    PaintImage::Id id = PaintImage::GetNextId());
 
 }  // namespace cc
 

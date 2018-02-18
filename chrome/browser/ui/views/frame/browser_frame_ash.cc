@@ -6,11 +6,14 @@
 
 #include <memory>
 
-#include "ash/shell.h"
-#include "ash/wm/window_properties.h"
-#include "ash/wm/window_state.h"
-#include "ash/wm/window_state_delegate.h"
-#include "ash/wm/window_util.h"
+// This file is only instantiated in classic ash/mus. It is never used in mash.
+// See native_browser_frame_factory_chromeos.cc switches on GetAshConfig().
+#include "ash/public/cpp/window_properties.h"  // mash-ok
+#include "ash/shell.h"                         // mash-ok
+#include "ash/wm/window_properties.h"          // mash-ok
+#include "ash/wm/window_state.h"               // mash-ok
+#include "ash/wm/window_state_delegate.h"      // mash-ok
+#include "ash/wm/window_util.h"                // mash-ok
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -72,7 +75,7 @@ BrowserFrameAsh::BrowserFrameAsh(BrowserFrame* browser_frame,
   // For legacy reasons v1 apps (like Secure Shell) are allowed to consume keys
   // like brightness, volume, etc. Otherwise these keys are handled by the
   // Ash window manager.
-  window_state->set_can_consume_system_keys(browser->is_app());
+  window_state->SetCanConsumeSystemKeys(browser->is_app());
 }
 
 BrowserFrameAsh::~BrowserFrameAsh() {}
@@ -153,8 +156,6 @@ int BrowserFrameAsh::GetMinimizeButtonOffset() const {
 void BrowserFrameAsh::SetWindowAutoManaged() {
   // For browser window in Chrome OS, we should only enable the auto window
   // management logic for tabbed browser.
-  if (!browser_view_->browser()->is_type_popup()) {
-    ash::wm::GetWindowState(GetNativeWindow())
-        ->set_window_position_managed(true);
-  }
+  if (!browser_view_->browser()->is_type_popup())
+    GetNativeWindow()->SetProperty(ash::kWindowPositionManagedTypeKey, true);
 }

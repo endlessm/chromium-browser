@@ -12,8 +12,14 @@
 #include <utility>
 
 #include "api/peerconnectioninterface.h"
+#include "api/video_codecs/video_decoder_factory.h"
+#include "api/video_codecs/video_encoder_factory.h"
 #include "media/base/mediaengine.h"
+#include "modules/audio_device/include/audio_device.h"
 #include "modules/utility/include/jvm_android.h"
+// We don't depend on the audio processing module implementation.
+// The user may pass in a nullptr.
+#include "modules/audio_processing/include/audio_processing.h"  // nogncheck
 #include "rtc_base/event_tracer.h"
 #include "rtc_base/stringutils.h"
 #include "rtc_base/thread.h"
@@ -81,13 +87,13 @@ JNI_FUNCTION_DECLARATION(void,
     field_trials_init_string = new char[init_string_length + 1];
     rtc::strcpyn(field_trials_init_string, init_string_length + 1, init_string);
     jni->ReleaseStringUTFChars(j_trials_init_string, init_string);
-    LOG(LS_INFO) << "initializeFieldTrials: " << field_trials_init_string;
+    RTC_LOG(LS_INFO) << "initializeFieldTrials: " << field_trials_init_string;
   }
   field_trial::InitFieldTrialsFromString(field_trials_init_string);
 }
 
 JNI_FUNCTION_DECLARATION(void,
-                         PeerConnectionFactory_initializeInternalTracer,
+                         PeerConnectionFactory_nativeInitializeInternalTracer,
                          JNIEnv* jni,
                          jclass) {
   rtc::tracing::SetupInternalTracer();
@@ -98,7 +104,7 @@ JNI_FUNCTION_DECLARATION(jstring,
                          JNIEnv* jni,
                          jclass,
                          jstring j_name) {
-  return JavaStringFromStdString(
+  return NativeToJavaString(
       jni, field_trial::FindFullName(JavaToStdString(jni, j_name)));
 }
 
@@ -112,7 +118,7 @@ JNI_FUNCTION_DECLARATION(jboolean,
 
   const char* init_string =
       jni->GetStringUTFChars(j_event_tracing_filename, NULL);
-  LOG(LS_INFO) << "Starting internal tracing to: " << init_string;
+  RTC_LOG(LS_INFO) << "Starting internal tracing to: " << init_string;
   bool ret = rtc::tracing::StartInternalCapture(init_string);
   jni->ReleaseStringUTFChars(j_event_tracing_filename, init_string);
   return ret;
@@ -126,20 +132,18 @@ JNI_FUNCTION_DECLARATION(void,
 }
 
 JNI_FUNCTION_DECLARATION(void,
-                         PeerConnectionFactory_shutdownInternalTracer,
+                         PeerConnectionFactory_nativeShutdownInternalTracer,
                          JNIEnv* jni,
                          jclass) {
   rtc::tracing::ShutdownInternalTracer();
 }
 
-JNI_FUNCTION_DECLARATION(
-    jlong,
-    PeerConnectionFactory_nativeCreatePeerConnectionFactory,
+jlong CreatePeerConnectionFactoryForJava(
     JNIEnv* jni,
-    jclass,
     jobject joptions,
     jobject jencoder_factory,
-    jobject jdecoder_factory) {
+    jobject jdecoder_factory,
+    rtc::scoped_refptr<AudioProcessing> audio_processor) {
   // talk/ assumes pretty widely that the current Thread is ThreadManager'd, but
   // ThreadManager only WrapCurrentThread()s the thread where it is first
   // created.  Since the semantics around when auto-wrapping happens in
@@ -160,8 +164,6 @@ JNI_FUNCTION_DECLARATION(
   signaling_thread->SetName("signaling_thread", NULL);
   RTC_CHECK(signaling_thread->Start()) << "Failed to start thread";
 
-  cricket::WebRtcVideoEncoderFactory* video_encoder_factory = nullptr;
-  cricket::WebRtcVideoDecoderFactory* video_decoder_factory = nullptr;
   rtc::NetworkMonitorFactory* network_monitor_factory = nullptr;
   auto audio_encoder_factory = CreateAudioEncoderFactory();
   auto audio_decoder_factory = CreateAudioDecoderFactory();
@@ -172,10 +174,6 @@ JNI_FUNCTION_DECLARATION(
     options = JavaToNativePeerConnectionFactoryOptions(jni, joptions);
   }
 
-  if (video_hw_acceleration_enabled) {
-    video_encoder_factory = CreateVideoEncoderFactory(jni, jencoder_factory);
-    video_decoder_factory = CreateVideoDecoderFactory(jni, jdecoder_factory);
-  }
   // Do not create network_monitor_factory only if the options are
   // provided and disable_network_monitor therein is set to true.
   if (!(has_options && options.disable_network_monitor)) {
@@ -188,9 +186,49 @@ JNI_FUNCTION_DECLARATION(
   std::unique_ptr<CallFactoryInterface> call_factory(CreateCallFactory());
   std::unique_ptr<RtcEventLogFactoryInterface> rtc_event_log_factory(
       CreateRtcEventLogFactory());
-  std::unique_ptr<cricket::MediaEngineInterface> media_engine(CreateMediaEngine(
-      adm, audio_encoder_factory, audio_decoder_factory, video_encoder_factory,
-      video_decoder_factory, audio_mixer));
+
+  cricket::WebRtcVideoEncoderFactory* legacy_video_encoder_factory = nullptr;
+  cricket::WebRtcVideoDecoderFactory* legacy_video_decoder_factory = nullptr;
+  std::unique_ptr<cricket::MediaEngineInterface> media_engine;
+  if (jencoder_factory == nullptr && jdecoder_factory == nullptr) {
+    // This uses the legacy API, which automatically uses the internal SW
+    // codecs in WebRTC.
+    if (video_hw_acceleration_enabled) {
+      legacy_video_encoder_factory = CreateLegacyVideoEncoderFactory();
+      legacy_video_decoder_factory = CreateLegacyVideoDecoderFactory();
+    }
+    media_engine.reset(CreateMediaEngine(
+        adm, audio_encoder_factory, audio_decoder_factory,
+        legacy_video_encoder_factory, legacy_video_decoder_factory, audio_mixer,
+        audio_processor));
+  } else {
+    // This uses the new API, does not automatically include software codecs.
+    std::unique_ptr<VideoEncoderFactory> video_encoder_factory = nullptr;
+    if (jencoder_factory == nullptr) {
+      legacy_video_encoder_factory = CreateLegacyVideoEncoderFactory();
+      video_encoder_factory = std::unique_ptr<VideoEncoderFactory>(
+          WrapLegacyVideoEncoderFactory(legacy_video_encoder_factory));
+    } else {
+      video_encoder_factory = std::unique_ptr<VideoEncoderFactory>(
+          CreateVideoEncoderFactory(jni, jencoder_factory));
+    }
+
+    std::unique_ptr<VideoDecoderFactory> video_decoder_factory = nullptr;
+    if (jdecoder_factory == nullptr) {
+      legacy_video_decoder_factory = CreateLegacyVideoDecoderFactory();
+      video_decoder_factory = std::unique_ptr<VideoDecoderFactory>(
+          WrapLegacyVideoDecoderFactory(legacy_video_decoder_factory));
+    } else {
+      video_decoder_factory = std::unique_ptr<VideoDecoderFactory>(
+          CreateVideoDecoderFactory(jni, jdecoder_factory));
+    }
+
+    rtc::scoped_refptr<AudioDeviceModule> adm_scoped = nullptr;
+    media_engine.reset(CreateMediaEngine(
+        adm_scoped, audio_encoder_factory, audio_decoder_factory,
+        std::move(video_encoder_factory), std::move(video_decoder_factory),
+        audio_mixer, audio_processor));
+  }
 
   rtc::scoped_refptr<PeerConnectionFactoryInterface> factory(
       CreateModularPeerConnectionFactory(
@@ -206,10 +244,39 @@ JNI_FUNCTION_DECLARATION(
   }
   OwnedFactoryAndThreads* owned_factory = new OwnedFactoryAndThreads(
       std::move(network_thread), std::move(worker_thread),
-      std::move(signaling_thread), video_encoder_factory, video_decoder_factory,
-      network_monitor_factory, factory.release());
+      std::move(signaling_thread), legacy_video_encoder_factory,
+      legacy_video_decoder_factory, network_monitor_factory, factory.release());
   owned_factory->InvokeJavaCallbacksOnFactoryThreads();
   return jlongFromPointer(owned_factory);
+}
+
+JNI_FUNCTION_DECLARATION(
+    jlong,
+    PeerConnectionFactory_nativeCreatePeerConnectionFactory,
+    JNIEnv* jni,
+    jclass,
+    jobject joptions,
+    jobject jencoder_factory,
+    jobject jdecoder_factory) {
+  return CreatePeerConnectionFactoryForJava(jni, joptions, jencoder_factory,
+                                            jdecoder_factory,
+                                            CreateAudioProcessing());
+}
+
+JNI_FUNCTION_DECLARATION(
+    jlong,
+    PeerConnectionFactory_nativeCreatePeerConnectionFactoryWithAudioProcessing,
+    JNIEnv* jni,
+    jclass,
+    jobject joptions,
+    jobject jencoder_factory,
+    jobject jdecoder_factory,
+    jlong native_audio_processor) {
+  rtc::scoped_refptr<AudioProcessing> audio_processor =
+      reinterpret_cast<AudioProcessing*>(native_audio_processor);
+  RTC_DCHECK(audio_processor);
+  return CreatePeerConnectionFactoryForJava(jni, joptions, jencoder_factory,
+                                            jdecoder_factory, audio_processor);
 }
 
 JNI_FUNCTION_DECLARATION(void,
@@ -254,8 +321,8 @@ JNI_FUNCTION_DECLARATION(jlong,
                          jclass,
                          jlong native_factory,
                          jobject j_constraints) {
-  std::unique_ptr<MediaConstraintsJni> constraints(
-      new MediaConstraintsJni(jni, j_constraints));
+  std::unique_ptr<MediaConstraintsInterface> constraints =
+      JavaToNativeMediaConstraints(jni, j_constraints);
   rtc::scoped_refptr<PeerConnectionFactoryInterface> factory(
       factoryFromJava(native_factory));
   cricket::AudioOptions options;
@@ -353,7 +420,8 @@ JNI_FUNCTION_DECLARATION(jlong,
         rtc::RTCCertificateGenerator::GenerateCertificate(
             rtc::KeyParams(key_type), rtc::Optional<uint64_t>());
     if (!certificate) {
-      LOG(LS_ERROR) << "Failed to generate certificate. KeyType: " << key_type;
+      RTC_LOG(LS_ERROR) << "Failed to generate certificate. KeyType: "
+                        << key_type;
       return 0;
     }
     rtc_config.certificates.push_back(certificate);
@@ -361,7 +429,7 @@ JNI_FUNCTION_DECLARATION(jlong,
 
   PeerConnectionObserverJni* observer =
       reinterpret_cast<PeerConnectionObserverJni*>(observer_p);
-  observer->SetConstraints(new MediaConstraintsJni(jni, j_constraints));
+  observer->SetConstraints(JavaToNativeMediaConstraints(jni, j_constraints));
   CopyConstraintsIntoRtcConfiguration(observer->constraints(), &rtc_config);
   rtc::scoped_refptr<PeerConnectionInterface> pc(
       f->CreatePeerConnection(rtc_config, nullptr, nullptr, observer));

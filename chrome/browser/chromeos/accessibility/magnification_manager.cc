@@ -8,9 +8,9 @@
 #include <memory>
 
 #include "ash/accessibility/accessibility_controller.h"
-#include "ash/accessibility_types.h"
 #include "ash/magnifier/magnification_controller.h"
 #include "ash/magnifier/partial_magnification_controller.h"
+#include "ash/public/cpp/accessibility_types.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/shell.h"
 #include "base/macros.h"
@@ -171,13 +171,11 @@ class MagnificationManagerImpl
         ACCESSIBILITY_TOGGLE_SCREEN_MAGNIFIER, enabled_,
         ash::A11Y_NOTIFICATION_NONE);
 
-    if (AccessibilityManager::Get()) {
-      AccessibilityManager::Get()->NotifyAccessibilityStatusChanged(details);
-      if (ash::Shell::Get()) {
-        ash::Shell::Get()->SetCursorCompositingEnabled(
-            ash::AccessibilityController::RequiresCursorCompositing(prefs));
-      }
-    }
+    if (!AccessibilityManager::Get())
+      return;
+    AccessibilityManager::Get()->NotifyAccessibilityStatusChanged(details);
+    if (ash::Shell::Get())
+      ash::Shell::Get()->UpdateCursorCompositingEnabled();
   }
 
   void MonitorFocusInPageChange() {

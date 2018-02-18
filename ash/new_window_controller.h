@@ -38,6 +38,8 @@ class ASH_EXPORT NewWindowController : public mojom::NewWindowController {
   void OpenFeedbackPage();
 
  private:
+  // More than one part of chrome may connect to call the mojo methods, so use
+  // BindingSet instead of Binding. http://crbug.com/794581
   mojo::BindingSet<mojom::NewWindowController> bindings_;
 
   mojom::NewWindowClientAssociatedPtr client_;

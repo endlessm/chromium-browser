@@ -87,9 +87,10 @@ class TaskManagerInterface {
   // Only implemented in Windows now.
   virtual base::TimeDelta GetCpuTime(TaskId task_id) const = 0;
 
-  // Returns the current physical/private/shared memory usage of the task with
-  // |task_id| in bytes. A value of -1 means no valid value is currently
-  // available.
+  // Returns the current footprint/physical/private/shared memory usage of the
+  // task with |task_id| in bytes. A value of -1 means no valid value is
+  // currently available.
+  virtual int64_t GetMemoryFootprintUsage(TaskId task_id) const = 0;
   virtual int64_t GetPhysicalMemoryUsage(TaskId task_id) const = 0;
   virtual int64_t GetPrivateMemoryUsage(TaskId task_id) const = 0;
   virtual int64_t GetSharedMemoryUsage(TaskId task_id) const = 0;
@@ -108,6 +109,10 @@ class TaskManagerInterface {
   // Returns the number of average idle CPU wakeups per second since the last
   // refresh cycle. A value of -1 means no valid value is currently available.
   virtual int GetIdleWakeupsPerSecond(TaskId task_id) const = 0;
+
+  // Returns the number of hard page faults per second since the last refresh
+  // cycle. A value of -1 means no valid value is currently available.
+  virtual int GetHardFaultsPerSecond(TaskId task_id) const = 0;
 
   // Returns the NaCl GDB debug stub port. A value of
   // |nacl::kGdbDebugStubPortUnknown| means no valid value is currently

@@ -334,11 +334,10 @@ def RunBranchUtilTest(buildroot, version):
   with osutils.TempDir() as tempdir:
     cmd = [
         'cros', 'tryjob', '--local', '--yes',
-        '--skip-remote-push',
         '--branch-name', 'test_branch',
         '--version', version,
         '--buildroot', tempdir,
-        'branch-util',
+        'branch-util-tryjob',
     ]
     RunBuildScript(buildroot, cmd, chromite_cmd=True)
 
@@ -545,8 +544,41 @@ def GetFirmwareVersions(buildroot, board):
   else:
     return FirmwareVersions(None, None, None, None, None)
 
+def RunCrosConfigHost(buildroot, board, args):
+  """Run the cros_config_host tool in the buildroot
+
+  Args:
+    buildroot: The buildroot of the current build.
+    board: The board the build is for.
+    args: List of arguments to pass.
+
+  Returns:
+    Output of the tool
+  """
+  tool = os.path.join(buildroot, constants.DEFAULT_CHROOT_DIR, 'usr', 'bin',
+                      'cros_config_host_py')
+  if not os.path.isfile(tool):
+    return None
+  tool = path_util.ToChrootPath(tool)
+
+  config_fname = os.path.join(cros_build_lib.GetSysroot(board), 'usr', 'share',
+                              'chromeos-config', 'config.dtb')
+  result = cros_build_lib.RunCommand(
+      [tool, '-c', config_fname] + args,
+      enter_chroot=True, capture_output=True, log_output=True, cwd=buildroot,
+      error_code_ok=True)
+  if result.returncode:
+    # Show the output for debugging purposes.
+    if 'No such file or directory' not in result.error:
+      print('cros_config_host_py failed: %s\n' % result.error, file=sys.stderr)
+    return None
+  return result.output.strip().splitlines()
+
 def GetModels(buildroot, board):
   """Obtain a list of models supported by a unified board
+
+  This ignored whitelabel models since GoldenEye has no specific support for
+  these at present.
 
   Args:
     buildroot: The buildroot of the current build.
@@ -556,24 +588,7 @@ def GetModels(buildroot, board):
     A list of models supported by this board, if it is a unified build; None,
     if it is not a unified build.
   """
-  fdtget = os.path.join(buildroot, constants.DEFAULT_CHROOT_DIR, 'usr', 'bin',
-                        'fdtget')
-  if not os.path.isfile(fdtget):
-    return None
-  fdtget = path_util.ToChrootPath(fdtget)
-
-  config_fname = os.path.join(cros_build_lib.GetSysroot(board), 'usr', 'share',
-                              'chromeos-config', 'config.dtb')
-  args = ['-l', config_fname, '/chromeos/models']
-  result = cros_build_lib.RunCommand([fdtget] + args, enter_chroot=True,
-                                     capture_output=True, log_output=True,
-                                     cwd=buildroot, error_code_ok=True)
-  if result.returncode:
-    # Show the output for debugging purposes.
-    if 'No such file or directory' not in result.error:
-      print('fdtget failed: %s\n' % result.error, file=sys.stderr)
-    return None
-  return result.output.strip().splitlines()
+  return RunCrosConfigHost(buildroot, board, ['list-models'])
 
 def BuildImage(buildroot, board, images_to_build, version=None,
                builder_path=None, rootfs_verification=True, extra_env=None,
@@ -720,12 +735,26 @@ HWTestSuiteResult = collections.namedtuple('HWTestSuiteResult',
 
 @failures_lib.SetFailureType(failures_lib.SuiteTimedOut,
                              timeout_util.TimeoutError)
-def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
-                   wait_for_results=None, priority=None, timeout_mins=None,
-                   max_runtime_mins=None, retry=None, max_retries=None,
-                   minimum_duts=0, suite_min_duts=0,
-                   offload_failures_only=None, debug=True, subsystems=None,
-                   skip_duts_check=False, job_keyvals=None):
+def RunHWTestSuite(
+    build, suite, board,
+    model=None,
+    pool=None,
+    num=None,
+    file_bugs=None,
+    wait_for_results=None,
+    priority=None,
+    timeout_mins=None,
+    max_runtime_mins=None,
+    retry=None,
+    max_retries=None,
+    minimum_duts=0,
+    suite_min_duts=0,
+    suite_args=None,
+    offload_failures_only=None,
+    debug=True,
+    subsystems=frozenset(),
+    skip_duts_check=False,
+    job_keyvals=None):
   """Run the test suite in the Autotest lab.
 
   Args:
@@ -733,6 +762,7 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
       e.g. x86-mario-release/R18-1655.0.0-a1-b1584.
     suite: Name of the Autotest suite.
     board: The board the test suite should be scheduled against.
+    model: A specific model to schedule the test suite against.
     pool: The pool of machines we should use to run the hw tests on.
     num: Maximum number of devices to use when scheduling tests in the
          hardware test lab.
@@ -751,6 +781,9 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
     suite_min_duts: Preferred minimum duts, lab will prioritize on getting
                     such many duts even if the suite is competing with
                     a suite that has higher priority.
+    suite_args: Arguments passed to the suite.  This should be a dict
+                representing keyword arguments.  The value is marshalled
+                using repr(), so the dict values should be basic types.
     offload_failures_only: Only offload failed tests to Google Storage.
     debug: Whether we are in debug mode.
     subsystems: A set of subsystems that the relevant changes affect, for
@@ -765,11 +798,24 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
   """
   try:
     cmd = [RUN_SUITE_PATH]
-    cmd += _GetRunSuiteArgs(build, suite, board, pool, num, file_bugs,
-                            priority, timeout_mins, max_runtime_mins, retry,
-                            max_retries, minimum_duts, suite_min_duts,
-                            offload_failures_only, subsystems, skip_duts_check,
-                            job_keyvals)
+    cmd += _GetRunSuiteArgs(
+        build, suite, board,
+        model=model,
+        pool=pool,
+        num=num,
+        file_bugs=file_bugs,
+        priority=priority,
+        timeout_mins=timeout_mins,
+        max_runtime_mins=max_runtime_mins,
+        retry=retry,
+        max_retries=max_retries,
+        minimum_duts=minimum_duts,
+        suite_min_duts=suite_min_duts,
+        suite_args=suite_args,
+        offload_failures_only=offload_failures_only,
+        subsystems=subsystems,
+        skip_duts_check=skip_duts_check,
+        job_keyvals=job_keyvals)
     swarming_args = _CreateSwarmingArgs(build, suite, board, priority,
                                         timeout_mins)
     running_json_dump_flag = False
@@ -876,11 +922,24 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
 
 
 # pylint: disable=docstring-missing-args
-def _GetRunSuiteArgs(build, suite, board, pool=None, num=None, file_bugs=None,
-                     priority=None, timeout_mins=None, max_runtime_mins=None,
-                     retry=None, max_retries=None, minimum_duts=0,
-                     suite_min_duts=0, offload_failures_only=None,
-                     subsystems=None, skip_duts_check=False, job_keyvals=None):
+def _GetRunSuiteArgs(
+    build, suite, board,
+    model=None,
+    pool=None,
+    num=None,
+    file_bugs=None,
+    priority=None,
+    timeout_mins=None,
+    max_runtime_mins=None,
+    retry=None,
+    max_retries=None,
+    minimum_duts=0,
+    suite_min_duts=0,
+    suite_args=None,
+    offload_failures_only=None,
+    subsystems=frozenset(),
+    skip_duts_check=False,
+    job_keyvals=None):
   """Get a list of args for run_suite.
 
   Args:
@@ -890,6 +949,10 @@ def _GetRunSuiteArgs(build, suite, board, pool=None, num=None, file_bugs=None,
     A list of args for run_suite
   """
   args = ['--build', build, '--board', board]
+
+  if model:
+    args += ['--model', model]
+
 
   if subsystems:
     args += ['--suite_name', 'suite_attr_wrapper']
@@ -930,6 +993,9 @@ def _GetRunSuiteArgs(build, suite, board, pool=None, num=None, file_bugs=None,
 
   if suite_min_duts != 0:
     args += ['--suite_min_duts', str(suite_min_duts)]
+
+  if suite_args is not None:
+    args += ['--suite_args', repr(suite_args)]
 
   if offload_failures_only is not None:
     args += ['--offload_failures_only', str(offload_failures_only)]
@@ -2085,6 +2151,17 @@ def BuildFullAutotestTarball(buildroot, board, tarball_dir):
   return tarball
 
 
+def BuildUnitTestTarball(buildroot, board, tarball_dir):
+  """Tar up the UnitTest binaries."""
+  tarball = os.path.join(tarball_dir, 'unit_tests.tar')
+  cwd = os.path.abspath(os.path.join(
+      buildroot, 'chroot', 'build', board, constants.UNITTEST_PKG_PATH))
+  # UnitTest binaries are already compressed so just create a tar file.
+  BuildTarball(buildroot, ['.'], tarball, cwd=cwd,
+               compressed=False, error_code_ok=True)
+  return tarball
+
+
 def BuildImageZip(archive_dir, image_dir):
   """Build image.zip in archive_dir from contents of image_dir.
 
@@ -2441,12 +2518,21 @@ def GeneratePayloads(build_root, target_image_path, archive_dir, full=False,
         '--output', os.path.join(chroot_temp_dir, 'update.gz')
     ]
     if full:
-      cros_build_lib.RunCommand(cmd, enter_chroot=True, cwd=cwd)
+      cmd_full = cmd
+      cmd_full.extend(['--kern_path',
+                       os.path.join(chroot_temp_dir, 'full_dev_part_KERN.bin'),
+                       '--root_pretruncate_path',
+                       os.path.join(chroot_temp_dir, 'full_dev_part_ROOT.bin')])
+      cros_build_lib.RunCommand(cmd_full, enter_chroot=True, cwd=cwd)
       name = '_'.join([prefix, os_version, board, 'full', suffix])
       # Names for full payloads look something like this:
       # chromeos_R37-5952.0.2014_06_12_2302-a1_link_full_dev.bin
       shutil.move(os.path.join(temp_dir, 'update.gz'),
                   os.path.join(archive_dir, name))
+      for partition in ['KERN', 'ROOT']:
+        source = os.path.join(temp_dir, 'full_dev_part_%s.bin' % partition)
+        dest = os.path.join(archive_dir, 'full_dev_part_%s.bin.gz' % partition)
+        cros_build_lib.CompressFile(source, dest)
 
     cmd.extend(['--src_image', chroot_target])
     if delta:

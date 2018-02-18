@@ -28,7 +28,7 @@
 //  ...
 //  component_updater::CrOSComponent::LoadComponent(
 //            name,
-//            base::Bind(&LoadCallback));
+//            base::BindOnce(&LoadCallback));
 //
 namespace component_updater {
 
@@ -59,6 +59,7 @@ class CrOSComponentInstallerPolicy : public ComponentInstallerPolicy {
   update_client::CrxInstaller::Result OnCustomInstall(
       const base::DictionaryValue& manifest,
       const base::FilePath& install_dir) override;
+  void OnCustomUninstall() override;
   bool VerifyInstallation(const base::DictionaryValue& manifest,
                           const base::FilePath& install_dir) const override;
   void ComponentReady(const base::Version& version,
@@ -84,7 +85,7 @@ class CrOSComponent {
  public:
   static void LoadComponent(
       const std::string& name,
-      const base::Callback<void(const std::string&)>& load_callback);
+      base::OnceCallback<void(const std::string&)> load_callback);
 
   // Returns all installed components.
   static std::vector<ComponentConfig> GetInstalledComponents();
@@ -96,11 +97,11 @@ class CrOSComponent {
   CrOSComponent() {}
   static void RegisterResult(ComponentUpdateService* cus,
                              const std::string& id,
-                             const update_client::Callback& install_callback);
+                             update_client::Callback install_callback);
   static void InstallComponent(
       ComponentUpdateService* cus,
       const std::string& name,
-      const base::Callback<void(const std::string&)>& load_callback);
+      base::OnceCallback<void(const std::string&)> load_callback);
 };
 
 }  // namespace component_updater

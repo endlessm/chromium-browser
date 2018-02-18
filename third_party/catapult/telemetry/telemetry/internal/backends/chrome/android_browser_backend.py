@@ -3,16 +3,15 @@
 # found in the LICENSE file.
 
 import logging
-import subprocess
 
 from telemetry.core import exceptions
 from telemetry.internal.platform import android_platform_backend as \
   android_platform_backend_module
-from telemetry.core import util
 from telemetry.internal.backends import android_browser_backend_settings
 from telemetry.internal.backends import browser_backend
 from telemetry.internal.backends.chrome import chrome_browser_backend
 from telemetry.internal.browser import user_agent
+from telemetry.internal import forwarders
 
 from devil.android import app_ui
 from devil.android import device_signal
@@ -31,9 +30,9 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         supports_tab_control=backend_settings.supports_tab_control,
         supports_extensions=False, browser_options=browser_options)
 
-    self._port_keeper = util.PortKeeper()
-    # Use the port hold by _port_keeper by default.
-    self._port = self._port_keeper.port
+    self._port = None
+    # TODO(#1977): Move forwarder to network_controller.
+    self._forwarder = None
 
     extensions_to_load = browser_options.extensions_to_load
 
@@ -45,6 +44,7 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self._backend_settings = backend_settings
     self._saved_sslflag = ''
     self._app_ui = None
+    self._profile_directory = None
 
     # Set the debug app if needed.
     self.platform_backend.SetDebugApp(self._backend_settings.package)
@@ -77,6 +77,23 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     # stopping also clears the app state in Android's activity manager.
     self.platform_backend.StopApplication(self._backend_settings.package)
 
+  def _SetupProfile(self):
+    if self.browser_options.dont_override_profile:
+      return
+    if self.browser_options.profile_dir:
+      self.platform_backend.PushProfile(
+          self._backend_settings.package,
+          self.browser_options.profile_dir)
+    else:
+      self.platform_backend.RemoveProfile(
+          self._backend_settings.package,
+          self._backend_settings.profile_ignore_list)
+
+  def _CollectProfile(self):
+    if self._output_profile_path:
+      self.platform_backend.PullProfile(
+          self._backend_settings.package, self._output_profile_path)
+
   def Start(self):
     self.device.adb.Logcat(clear=True)
     if self.browser_options.startup_url:
@@ -101,16 +118,7 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       # command line flags, in case some other Android process manages to
       # trigger Chrome's startup before we do.
       self._StopBrowser()
-
-      if self.device.HasRoot() or self.device.NeedsSU():
-        if self.browser_options.profile_dir:
-          self.platform_backend.PushProfile(
-              self._backend_settings.package,
-              self.browser_options.profile_dir)
-        elif not self.browser_options.dont_override_profile:
-          self.platform_backend.RemoveProfile(
-              self._backend_settings.package,
-              self._backend_settings.profile_ignore_list)
+      self._SetupProfile()
 
       self.device.StartActivity(
           intent.Intent(package=self._backend_settings.package,
@@ -119,43 +127,12 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
                         extras=user_agent_dict),
           blocking=True)
 
-      # TODO(crbug.com/404771): Move port forwarding to network_controller.
       remote_devtools_port = self._backend_settings.GetDevtoolsRemotePort(
           self.device)
-      try:
-        # Release reserved port right before forwarding host to device.
-        self._port_keeper.Release()
-        assert self._port == self._port_keeper.port, (
-            'Android browser backend must use reserved port by _port_keeper')
-        self.platform_backend.ForwardHostToDevice(
-            self._port, remote_devtools_port)
-      except Exception:
-        logging.exception('Failed to forward %s to %s.',
-                          str(self._port), str(remote_devtools_port))
-        logging.warning('Currently forwarding:')
-        try:
-          for line in self.device.adb.ForwardList().splitlines():
-            logging.warning('  %s', line)
-        except Exception: # pylint: disable=broad-except
-          logging.warning('Exception raised while listing forwarded '
-                          'connections.')
-
-        logging.warning('Host tcp ports in use:')
-        try:
-          for line in subprocess.check_output(['netstat', '-t']).splitlines():
-            logging.warning('  %s', line)
-        except Exception: # pylint: disable=broad-except
-          logging.warning('Exception raised while listing tcp ports.')
-
-        logging.warning('Device unix domain sockets in use:')
-        try:
-          for line in self.device.ReadFile('/proc/net/unix', as_root=True,
-                                           force_pull=True).splitlines():
-            logging.warning('  %s', line)
-        except Exception: # pylint: disable=broad-except
-          logging.warning('Exception raised while listing unix domain sockets.')
-
-        raise
+      # Setting local_port=0 allows the forwarder to pick an available port.
+      self._forwarder = self.platform_backend.forwarder_factory.Create(
+          forwarders.PortPair(0, remote_devtools_port), reverse=True)
+      self._port = self._forwarder.port_pair.local_port
 
       try:
         self._WaitForBrowserToComeUp(remote_devtools_port)
@@ -212,9 +189,7 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     # --ignore-certificate-errors-spki-list, which allows Chrome to selectively
     # bypass cert errors while exercising HTTP disk cache and avoiding
     # re-establishing socket connections.
-    args.append('--user-data-dir=' +
-                self.platform_backend.GetProfileDir(
-                    self._backend_settings.package))
+    args.append('--user-data-dir=' + self.profile_directory)
     return args
 
   def ForceJavaHeapGarbageCollection(self):
@@ -242,7 +217,10 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
 
   @property
   def profile_directory(self):
-    return self._backend_settings.profile_dir
+    if not self._profile_directory:
+      self._profile_directory = (
+          self.platform_backend.GetProfileDir(self._backend_settings.package))
+    return self._profile_directory
 
   @property
   def package(self):
@@ -257,14 +235,11 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
 
   def Close(self):
     super(AndroidBrowserBackend, self).Close()
-
     self._StopBrowser()
-
-    self.platform_backend.StopForwardingHost(self._port)
-
-    if self._output_profile_path:
-      self.platform_backend.PullProfile(
-          self._backend_settings.package, self._output_profile_path)
+    if self._forwarder:
+      self._forwarder.Close()
+      self._forwarder = None
+    self._CollectProfile()
 
   def IsBrowserRunning(self):
     return self.platform_backend.IsAppRunning(self._backend_settings.package)

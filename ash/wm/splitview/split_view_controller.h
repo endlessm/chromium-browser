@@ -63,11 +63,16 @@ class ASH_EXPORT SplitViewController : public aura::WindowObserver,
   ~SplitViewController() override;
 
   // Returns true if split view mode is supported. Currently the split view
-  // mode is only supported in tablet mode (tablet mode).
+  // mode is only supported in tablet mode.
   static bool ShouldAllowSplitView();
 
+  // Returns true if |left_window_| should be placed on the left or top side of
+  // the screen.
+  static bool IsLeftWindowOnTopOrLeftOfScreen(
+      blink::WebScreenOrientationLockType screen_orientation);
+
   // Returns true if |window| can be activated and snapped.
-  static bool CanSnap(aura::Window* window);
+  bool CanSnap(aura::Window* window);
 
   // Returns true if split view mode is active.
   bool IsSplitViewModeActive() const;
@@ -100,6 +105,10 @@ class ASH_EXPORT SplitViewController : public aura::WindowObserver,
   void StartResize(const gfx::Point& location_in_screen);
   void Resize(const gfx::Point& location_in_screen);
   void EndResize(const gfx::Point& location_in_screen);
+
+  // Displays a toast notifying users the application selected for split view is
+  // not compatible.
+  void ShowAppCannotSnapToast();
 
   // Ends the split view mode.
   void EndSplitView();
@@ -153,7 +162,7 @@ class ASH_EXPORT SplitViewController : public aura::WindowObserver,
   // Notifies observers that the split view state has been changed.
   void NotifySplitViewStateChanged(State previous_state, State state);
 
-  // Notifies observers that the split view divider pisition has been changed.
+  // Notifies observers that the split view divider position has been changed.
   void NotifyDividerPositionChanged();
 
   // Gets the default value of |divider_position_|.
@@ -163,14 +172,6 @@ class ASH_EXPORT SplitViewController : public aura::WindowObserver,
   // divider. The opacity increases as the split divider gets closer to the edge
   // of the screen.
   void UpdateBlackScrim(const gfx::Point& location_in_screen);
-
-  // Restacks the two snapped windows while dragging the divider. If the divider
-  // was in the left side of the screen, stack |right_window_| above
-  // |left_window_|, otherwise, stack |left_window_| above |right_window_|. It's
-  // necessary since we want the top window increasingly cover the entire
-  // screen as the divider gets closer to the edge of the screen.
-  void RestackWindows(const int previous_divider_position,
-                      const int current_divider_position);
 
   // Updates the bounds for the snapped windows and divider according to the
   // current snap direction.
@@ -192,9 +193,9 @@ class ASH_EXPORT SplitViewController : public aura::WindowObserver,
                  gfx::Rect* left_or_top_rect,
                  gfx::Rect* right_or_bottom_rect);
 
-  // Finds the closest fix location for |divider_postion_| and updates its
+  // Finds the closest fix location for |divider_position_| and updates its
   // value.
-  void MoveDividerToClosestFixedPostion();
+  void MoveDividerToClosestFixedPosition();
 
   // Returns true if we should end split view mode after resizing, i.e., the
   // split view divider is near to the edge of the screen.
@@ -207,6 +208,33 @@ class ASH_EXPORT SplitViewController : public aura::WindowObserver,
   // Returns the maximum value of the |divider_position_|. It should always be
   // the length of the longer side of the current display's work area bounds.
   int GetDividerEndPosition();
+
+  // If there are two snapped windows, closing/minimizing one of them will open
+  // overview window grid on the closed/minimized window side of the screen. If
+  // there is only one snapped windows, closing/minimizing the sanpped window
+  // will end split view mode and adjust the overview window grid bounds if the
+  // overview mode is active at that moment.
+  void OnSnappedWindowMinimizedOrDestroyed(aura::Window* window);
+
+  // If the desired bounds of the snapped windows bounds |left_or_top_rect| and
+  // |right_or_bottom_rect| are smaller than the minimum bounds of the snapped
+  // windows, adjust the desired bounds to the minimum bounds by pushing the
+  // snapped windows out of the work area display area.
+  void AdjustSnappedWindowBounds(gfx::Rect* left_or_top_rect,
+                                 gfx::Rect* right_or_bottom_rect);
+
+  // Returns the closest position ratio based on |distance| and |length|.
+  float FindClosestPositionRatio(float distance, float length);
+
+  // Gets the divider optional position ratios. The divider can always be
+  // moved to the positions in |kFixedPositionRatios|. Whether the divider can
+  // be moved to |kOneThirdPositionRatio| or |kTwoThirdPositionRatio| depends
+  // on the minimum size of current snapped windows.
+  void GetDividerOptionalPositionRatios(std::vector<float>* positionRatios);
+
+  // Starts/Ends overview mode if the overview mode is inactive/active.
+  void StartOverview();
+  void EndOverview();
 
   // The current left/right snapped window.
   aura::Window* left_window_ = nullptr;

@@ -35,10 +35,11 @@ bool IsInScope(const GURL& url, const GURL& scope) {
 
 }  // anonymous namespace
 
-jlong Initialize(JNIEnv* env,
-                 const JavaParamRef<jobject>& obj,
-                 const JavaParamRef<jstring>& java_scope_url,
-                 const JavaParamRef<jstring>& java_web_manifest_url) {
+jlong JNI_WebApkUpdateDataFetcher_Initialize(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& java_scope_url,
+    const JavaParamRef<jstring>& java_web_manifest_url) {
   GURL scope(base::android::ConvertJavaStringToUTF8(env, java_scope_url));
   GURL web_manifest_url(
       base::android::ConvertJavaStringToUTF8(env, java_web_manifest_url));
@@ -102,9 +103,11 @@ void WebApkUpdateDataFetcher::FetchInstallableData() {
     return;
 
   InstallableParams params;
-  params.check_installable = true;
-  params.fetch_valid_primary_icon = true;
-  params.fetch_valid_badge_icon = true;
+  params.valid_manifest = true;
+  params.has_worker = true;
+  params.valid_primary_icon = true;
+  params.valid_badge_icon = true;
+  params.wait_for_worker = true;
   InstallableManager* installable_manager =
       InstallableManager::FromWebContents(web_contents());
   installable_manager->GetData(
@@ -128,13 +131,13 @@ void WebApkUpdateDataFetcher::OnDidGetInstallableData(
   // observing too. It is based on our assumption that it is invalid for
   // web developers to change the Web Manifest location. When it does
   // change, we will treat the new Web Manifest as the one of another WebAPK.
-  if (data.error_code != NO_ERROR_DETECTED || data.manifest.IsEmpty() ||
+  if (data.error_code != NO_ERROR_DETECTED || data.manifest->IsEmpty() ||
       web_manifest_url_ != data.manifest_url ||
-      !AreWebManifestUrlsWebApkCompatible(data.manifest)) {
+      !AreWebManifestUrlsWebApkCompatible(*data.manifest)) {
     return;
   }
 
-  info_.UpdateFromManifest(data.manifest);
+  info_.UpdateFromManifest(*data.manifest);
   info_.manifest_url = data.manifest_url;
   info_.best_primary_icon_url = data.primary_icon_url;
   primary_icon_ = *data.primary_icon;

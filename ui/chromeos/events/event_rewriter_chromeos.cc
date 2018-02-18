@@ -59,7 +59,7 @@ const int kUnknownProductId = -1;
 // user preference target key, and replaces the flag accordingly.
 const struct ModifierRemapping {
   int flag;
-  int remap_to;
+  ui::chromeos::ModifierKey remap_to;
   const char* pref_name;
   EventRewriterChromeOS::MutableKeyState result;
 } kModifierRemappings[] = {
@@ -124,7 +124,7 @@ const ModifierRemapping* GetRemappedKey(
     return nullptr;
 
   for (size_t i = 0; i < arraysize(kModifierRemappings); ++i) {
-    if (value == kModifierRemappings[i].remap_to)
+    if (value == static_cast<int>(kModifierRemappings[i].remap_to))
       return &kModifierRemappings[i];
   }
   return nullptr;
@@ -599,7 +599,7 @@ ui::EventRewriteStatus EventRewriterChromeOS::RewriteMouseWheelEvent(
       break;
     case ui::EVENT_REWRITE_CONTINUE:
       if (flags != wheel_event.flags()) {
-        *rewritten_event = base::MakeUnique<ui::MouseWheelEvent>(wheel_event);
+        *rewritten_event = std::make_unique<ui::MouseWheelEvent>(wheel_event);
         (*rewritten_event)->set_flags(flags);
         status = ui::EVENT_REWRITE_REWRITTEN;
       }
@@ -771,6 +771,15 @@ bool EventRewriterChromeOS::RewriteModifierKeys(const ui::KeyEvent& key_event,
     state->key = remapped_key->result.key;
     incoming.flags |= characteristic_flag;
     characteristic_flag = remapped_key->flag;
+    if (incoming.key_code == ui::VKEY_CAPITAL ||
+        incoming.key_code == ui::VKEY_F16) {
+      // Caps Lock is rewritten to another key event, remove EF_CAPS_LOCK_ON
+      // flag to prevent the keyboard's Caps Lock state being synced to the
+      // rewritten key event's flag in InputMethodChromeOS. (Caps Lock key on an
+      // external keyboard generates F16 which is treated as Caps Lock and then
+      // rewritten.)
+      incoming.flags &= ~ui::EF_CAPS_LOCK_ON;
+    }
     if (remapped_key->remap_to == ui::chromeos::ModifierKey::kCapsLockKey)
       characteristic_flag |= ui::EF_CAPS_LOCK_ON;
     state->code = RelocateModifier(
@@ -800,9 +809,19 @@ bool EventRewriterChromeOS::RewriteModifierKeys(const ui::KeyEvent& key_event,
       used_modifier_latches_ |= pressed_modifier_latches_;
       latched_modifier_latches_ = ui::EF_NONE;
     }
-    // The handling of Caps Lock toggling is now moved to accelerator
-    // controller.
-    // (see https://bugs.chromium.org/p/chromium/issues/detail?id=700705).
+  }
+
+  // Implement the Caps Lock modifier here, rather than in the
+  // AcceleratorController, so that the event is visible to apps (see
+  // crbug.com/775743).
+  if (key_event.type() == ui::ET_KEY_RELEASED &&
+      state->key_code == ui::VKEY_CAPITAL) {
+    ::chromeos::input_method::ImeKeyboard* ime_keyboard =
+        ime_keyboard_for_testing_
+            ? ime_keyboard_for_testing_
+            : ::chromeos::input_method::InputMethodManager::Get()
+                  ->GetImeKeyboard();
+    ime_keyboard->SetCapsLockEnabled(!ime_keyboard->CapsLockIsEnabled());
   }
   return exact_event;
 }
@@ -865,6 +884,26 @@ void EventRewriterChromeOS::RewriteExtendedKeys(const ui::KeyEvent& key_event,
          key_event.type() == ui::ET_KEY_RELEASED);
   MutableKeyState incoming = *state;
 
+  if ((incoming.flags &
+       (ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN | ui::EF_CONTROL_DOWN)) ==
+      (ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN)) {
+    // Search + Alt + Arrow keys are used to move window between displays, do
+    // not do remappings on these.
+    static const KeyboardRemapping::Condition kUseExistingKeys[] = {
+        {// Alt+Left
+         ui::EF_ALT_DOWN | ui::EF_COMMAND_DOWN, ui::VKEY_LEFT},
+        {// Alt+Right
+         ui::EF_ALT_DOWN | ui::EF_COMMAND_DOWN, ui::VKEY_RIGHT},
+        {// Alt+Up
+         ui::EF_ALT_DOWN | ui::EF_COMMAND_DOWN, ui::VKEY_UP},
+        {// Alt+Down
+         ui::EF_ALT_DOWN | ui::EF_COMMAND_DOWN, ui::VKEY_DOWN}};
+    for (const auto& condition : kUseExistingKeys) {
+      if (MatchKeyboardRemapping(*state, condition))
+        return;
+    }
+  }
+
   if ((incoming.flags & (ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN)) ==
       (ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN)) {
     // Allow Search to avoid rewriting extended keys.
@@ -875,13 +914,9 @@ void EventRewriterChromeOS::RewriteExtendedKeys(const ui::KeyEvent& key_event,
         {// Control+Alt+Up
          ui::EF_ALT_DOWN | ui::EF_CONTROL_DOWN | ui::EF_COMMAND_DOWN,
          ui::VKEY_UP},
-        {// Alt+Up
-         ui::EF_ALT_DOWN | ui::EF_COMMAND_DOWN, ui::VKEY_UP},
         {// Control+Alt+Down
          ui::EF_ALT_DOWN | ui::EF_CONTROL_DOWN | ui::EF_COMMAND_DOWN,
-         ui::VKEY_DOWN},
-        {// Alt+Down
-         ui::EF_ALT_DOWN | ui::EF_COMMAND_DOWN, ui::VKEY_DOWN}};
+         ui::VKEY_DOWN}};
     for (const auto& condition : kAvoidRemappings) {
       if (MatchKeyboardRemapping(*state, condition)) {
         state->flags = incoming.flags & ~ui::EF_COMMAND_DOWN;

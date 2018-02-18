@@ -122,9 +122,6 @@ class BrowserTest(browser_test_case.BrowserTestCase):
     info_b = self._browser.GetSystemInfo()
     self.assertFalse(info_a is info_b)
 
-  def testGetSystemTotalMemory(self):
-    self.assertTrue(self._browser.memory_stats['SystemTotalPhysicalMemory'] > 0)
-
   def testSystemInfoModelNameOnMac(self):
     if self._browser.platform.GetOSName() != 'mac':
       self.skipTest('This test is only run on macOS')
@@ -207,7 +204,7 @@ def _GenerateBrowserProfile(number_of_tabs):
   options = options_for_unittests.GetCopy()
   options.browser_options.output_profile_path = profile_dir
   browser_to_create = browser_finder.FindBrowser(options)
-  browser_to_create.platform.network_controller.InitializeIfNeeded()
+  browser_to_create.platform.network_controller.Open()
   try:
     with browser_to_create.Create(options) as browser:
       browser.platform.SetHTTPServerDirectories(path.GetUnittestDataDir())
@@ -230,23 +227,21 @@ class BrowserCreationTest(unittest.TestCase):
     self.mock_platform_backend = mock.MagicMock()
 
   def testCleanedUpCalledWhenExceptionRaisedInBrowserCreation(self):
-    self.mock_platform_backend.platform.FlushDnsCache.side_effect = (
+    self.mock_platform_backend.DidCreateBrowser.side_effect = (
         IntentionalException('Boom!'))
     with self.assertRaises(IntentionalException):
       browser_module.Browser(
-          self.mock_browser_backend, self.mock_platform_backend,
-          credentials_path=None)
+          self.mock_browser_backend, self.mock_platform_backend)
     self.assertTrue(self.mock_platform_backend.WillCloseBrowser.called)
 
   def testOriginalExceptionNotSwallow(self):
-    self.mock_platform_backend.platform.FlushDnsCache.side_effect = (
+    self.mock_platform_backend.DidCreateBrowser.side_effect = (
         IntentionalException('Boom!'))
     self.mock_platform_backend.WillCloseBrowser.side_effect = (
         IntentionalException('Cannot close browser!'))
     with self.assertRaises(IntentionalException) as context:
       browser_module.Browser(
-          self.mock_browser_backend, self.mock_platform_backend,
-          credentials_path=None)
+          self.mock_browser_backend, self.mock_platform_backend)
     self.assertIn('Boom!', context.exception.message)
 
 
@@ -261,7 +256,7 @@ class BrowserRestoreSessionTest(unittest.TestCase):
         ['--restore-last-session'])
     cls._options.browser_options.profile_dir = cls._profile_dir
     cls._browser_to_create = browser_finder.FindBrowser(cls._options)
-    cls._browser_to_create.platform.network_controller.InitializeIfNeeded()
+    cls._browser_to_create.platform.network_controller.Open()
 
   @decorators.Enabled('has tabs')
   @decorators.Disabled('chromeos', 'win', 'mac')
@@ -287,16 +282,16 @@ class BrowserRestoreSessionTest(unittest.TestCase):
 
 class TestBrowserOperationDoNotLeakTempFiles(unittest.TestCase):
 
-  @decorators.Enabled('win', 'linux')
-  # TODO(ashleymarie): Re-enable on mac
-  # BUG=catapult:#3523
+  @decorators.Enabled('linux')
+  # TODO(crbug.com/782691): enable this on Win
+  # TODO(ashleymarie): Re-enable on mac (BUG=catapult:#3523)
   @decorators.Isolated
   def testBrowserNotLeakingTempFiles(self):
     options = options_for_unittests.GetCopy()
     browser_to_create = browser_finder.FindBrowser(options)
     self.assertIsNotNone(browser_to_create)
     before_browser_run_temp_dir_content = os.listdir(tempfile.tempdir)
-    browser_to_create.platform.network_controller.InitializeIfNeeded()
+    browser_to_create.platform.network_controller.Open()
     try:
       with browser_to_create.Create(options) as browser:
         tab = browser.tabs.New()

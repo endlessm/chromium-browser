@@ -126,7 +126,7 @@ class PermissionRequestManager
 
   // PermissionPrompt::Delegate:
   const std::vector<PermissionRequest*>& Requests() override;
-  void TogglePersist(bool new_value) override;
+  PermissionPrompt::DisplayNameOrOrigin GetDisplayNameOrOrigin() override;
   void Accept() override;
   void Deny() override;
   void Closing() override;
@@ -139,7 +139,7 @@ class PermissionRequestManager
 
   // Shows the bubble for a request that has just been dequeued, or re-show a
   // bubble after switching tabs away and back.
-  void ShowBubble();
+  void ShowBubble(bool is_reshow);
 
   // Delete the view object
   void DeleteBubble();
@@ -190,9 +190,6 @@ class PermissionRequestManager
   // duped against it.
   std::unordered_multimap<PermissionRequest*, PermissionRequest*>
       duplicate_requests_;
-
-  // Whether the response to each request should be persisted.
-  bool persist_;
 
   base::ObserverList<Observer> observer_list_;
   AutoResponseType auto_response_for_test_;

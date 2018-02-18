@@ -34,6 +34,7 @@
 #include "content/public/browser/render_widget_host_iterator.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/service_manager_connection.h"
+#include "content/public/common/service_names.mojom.h"
 #include "media/media_features.h"
 #include "mojo/public/cpp/bindings/associated_interface_ptr.h"
 #include "services/resource_coordinator/public/interfaces/coordination_unit.mojom.h"
@@ -42,7 +43,7 @@ namespace content {
 
 MockRenderProcessHost::MockRenderProcessHost(BrowserContext* browser_context)
     : bad_msg_count_(0),
-      factory_(NULL),
+      factory_(nullptr),
       id_(ChildProcessHostImpl::GenerateChildProcessUniqueId()),
       has_connection_(false),
       browser_context_(browser_context),
@@ -50,9 +51,13 @@ MockRenderProcessHost::MockRenderProcessHost(BrowserContext* browser_context)
       fast_shutdown_started_(false),
       deletion_callback_called_(false),
       is_for_guests_only_(false),
+      is_never_suitable_for_reuse_(false),
       is_process_backgrounded_(false),
       is_unused_(true),
       keep_alive_ref_count_(0),
+      child_identity_(mojom::kRendererServiceName,
+                      BrowserContext::GetServiceUserIdFor(browser_context),
+                      base::StringPrintf("%d", id_)),
       shared_bitmap_allocation_notifier_impl_(
           viz::ServerSharedBitmapManager::current()),
       weak_ptr_factory_(this) {
@@ -77,9 +82,14 @@ MockRenderProcessHost::~MockRenderProcessHost() {
 }
 
 void MockRenderProcessHost::SimulateCrash() {
+  SimulateRenderProcessExit(base::TERMINATION_STATUS_PROCESS_CRASHED, 0);
+}
+
+void MockRenderProcessHost::SimulateRenderProcessExit(
+    base::TerminationStatus status,
+    int exit_code) {
   has_connection_ = false;
-  RenderProcessHost::RendererClosedDetails details(
-      base::TERMINATION_STATUS_PROCESS_CRASHED, 0);
+  RenderProcessHost::RendererClosedDetails details(status, exit_code);
   NotificationService::current()->Notify(
       NOTIFICATION_RENDERER_PROCESS_CLOSED, Source<RenderProcessHost>(this),
       Details<RenderProcessHost::RendererClosedDetails>(&details));
@@ -123,7 +133,7 @@ void MockRenderProcessHost::AddRoute(int32_t routing_id,
 }
 
 void MockRenderProcessHost::RemoveRoute(int32_t routing_id) {
-  DCHECK(listeners_.Lookup(routing_id) != NULL);
+  DCHECK(listeners_.Lookup(routing_id) != nullptr);
   listeners_.Remove(routing_id);
   Cleanup();
 }
@@ -283,7 +293,7 @@ bool MockRenderProcessHost::InSameStoragePartition(
 }
 
 IPC::ChannelProxy* MockRenderProcessHost::GetChannel() {
-  return NULL;
+  return nullptr;
 }
 
 void MockRenderProcessHost::AddFilter(BrowserMessageFilter* filter) {
@@ -347,29 +357,29 @@ void MockRenderProcessHost::Resume() {}
 mojom::Renderer* MockRenderProcessHost::GetRendererInterface() {
   if (!renderer_interface_) {
     renderer_interface_.reset(new mojom::RendererAssociatedPtr);
-    mojo::MakeIsolatedRequest(renderer_interface_.get());
+    mojo::MakeRequestAssociatedWithDedicatedPipe(renderer_interface_.get());
   }
   return renderer_interface_->get();
 }
 
-resource_coordinator::ResourceCoordinatorInterface*
+resource_coordinator::ProcessResourceCoordinator*
 MockRenderProcessHost::GetProcessResourceCoordinator() {
   if (!process_resource_coordinator_) {
     service_manager::Connector* connector =
         content::ServiceManagerConnection::GetForProcess()->GetConnector();
     process_resource_coordinator_ =
-        base::MakeUnique<resource_coordinator::ResourceCoordinatorInterface>(
-            connector, resource_coordinator::CoordinationUnitType::kProcess);
+        std::make_unique<resource_coordinator::ProcessResourceCoordinator>(
+            connector);
   }
   return process_resource_coordinator_.get();
 }
 
 void MockRenderProcessHost::SetIsNeverSuitableForReuse() {
-  NOTREACHED();
+  is_never_suitable_for_reuse_ = true;
 }
 
 bool MockRenderProcessHost::MayReuseHost() {
-  return true;
+  return !is_never_suitable_for_reuse_;
 }
 
 bool MockRenderProcessHost::IsUnused() {
@@ -404,13 +414,9 @@ bool MockRenderProcessHost::StopWebRTCEventLog() {
   return false;
 }
 
-void MockRenderProcessHost::SetEchoCanceller3(bool enable) {}
-
-void MockRenderProcessHost::SetWebRtcLogMessageCallback(
-    base::Callback<void(const std::string&)> callback) {
-}
-
-void MockRenderProcessHost::ClearWebRtcLogMessageCallback() {}
+void MockRenderProcessHost::SetEchoCanceller3(
+    bool enable,
+    base::OnceCallback<void(bool, const std::string&)> callback) {}
 
 RenderProcessHost::WebRtcStopRtpDumpCallback
 MockRenderProcessHost::StartRtpDump(
@@ -457,7 +463,7 @@ MockRenderProcessHostFactory::~MockRenderProcessHostFactory() {
 RenderProcessHost* MockRenderProcessHostFactory::CreateRenderProcessHost(
     BrowserContext* browser_context) const {
   processes_.push_back(
-      base::MakeUnique<MockRenderProcessHost>(browser_context));
+      std::make_unique<MockRenderProcessHost>(browser_context));
   processes_.back()->SetFactory(this);
   return processes_.back().get();
 }

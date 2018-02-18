@@ -5,6 +5,7 @@
 #include "ash/touch/touch_devices_controller.h"
 
 #include "ash/public/cpp/ash_pref_names.h"
+#include "ash/root_window_controller.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
@@ -18,12 +19,18 @@ namespace ash {
 namespace {
 
 void OnSetTouchpadEnabledDone(bool succeeded) {
-  if (!succeeded)
-    LOG(ERROR) << "Failed to set touchpad enabled state.";
+  // Don't log here, |succeeded| is only true if there is a touchpad *and* the
+  // value changed. In other words |succeeded| is false when not on device or
+  // the value was already at the value specified. Neither of these are
+  // interesting failures.
 }
 
 ui::InputDeviceControllerClient* GetInputDeviceControllerClient() {
   return Shell::Get()->shell_delegate()->GetInputDeviceControllerClient();
+}
+
+PrefService* GetActivePrefService() {
+  return Shell::Get()->session_controller()->GetActivePrefService();
 }
 
 }  // namespace
@@ -34,6 +41,9 @@ void TouchDevicesController::RegisterProfilePrefs(
   registry->RegisterBooleanPref(prefs::kTouchpadEnabled, PrefRegistry::PUBLIC);
   registry->RegisterBooleanPref(prefs::kTouchscreenEnabled,
                                 PrefRegistry::PUBLIC);
+  // Chrome doesn't use this, so it isn't marked PUBLIC. It's also not SYNCABLE
+  // so it isn't observed for changes.
+  registry->RegisterBooleanPref(prefs::kTouchHudProjectionEnabled, false);
 }
 
 TouchDevicesController::TouchDevicesController() {
@@ -45,8 +55,7 @@ TouchDevicesController::~TouchDevicesController() {
 }
 
 void TouchDevicesController::ToggleTouchpad() {
-  PrefService* prefs =
-      Shell::Get()->session_controller()->GetActivePrefService();
+  PrefService* prefs = GetActivePrefService();
   if (!prefs)
     return;
   const bool touchpad_enabled = prefs->GetBoolean(prefs::kTouchpadEnabled);
@@ -58,8 +67,7 @@ bool TouchDevicesController::GetTouchscreenEnabled(
   if (source == TouchscreenEnabledSource::GLOBAL)
     return global_touchscreen_enabled_;
 
-  PrefService* prefs =
-      Shell::Get()->session_controller()->GetActivePrefService();
+  PrefService* prefs = GetActivePrefService();
   return prefs && prefs->GetBoolean(prefs::kTouchscreenEnabled);
 }
 
@@ -74,11 +82,27 @@ void TouchDevicesController::SetTouchscreenEnabled(
     return;
   }
 
-  PrefService* prefs =
-      Shell::Get()->session_controller()->GetActivePrefService();
+  PrefService* prefs = GetActivePrefService();
   if (!prefs)
     return;
   prefs->SetBoolean(prefs::kTouchscreenEnabled, enabled);
+}
+
+bool TouchDevicesController::IsTouchHudProjectionEnabled() const {
+  PrefService* prefs = GetActivePrefService();
+  // Touch HUD isn't used before login, when |prefs| would be null.
+  return prefs && prefs->GetBoolean(prefs::kTouchHudProjectionEnabled);
+}
+
+void TouchDevicesController::SetTouchHudProjectionEnabled(bool enabled) {
+  PrefService* prefs = GetActivePrefService();
+  // Touch HUD isn't used before login, when |prefs| would be null.
+  if (!prefs)
+    return;
+  prefs->SetBoolean(prefs::kTouchHudProjectionEnabled, enabled);
+
+  for (RootWindowController* root : Shell::GetAllRootWindowControllers())
+    root->SetTouchHudProjectionEnabled(enabled);
 }
 
 void TouchDevicesController::OnSigninScreenPrefServiceInitialized(
@@ -89,6 +113,7 @@ void TouchDevicesController::OnSigninScreenPrefServiceInitialized(
 void TouchDevicesController::OnActiveUserPrefServiceChanged(
     PrefService* prefs) {
   ObservePrefs(prefs);
+  SetTouchHudProjectionEnabled(IsTouchHudProjectionEnabled());
 }
 
 void TouchDevicesController::ObservePrefs(PrefService* prefs) {

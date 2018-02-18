@@ -31,6 +31,7 @@ class MockRendererScheduler : public RendererScheduler {
                scoped_refptr<base::SingleThreadTaskRunner>());
   MOCK_METHOD0(IdleTaskRunner,
                scoped_refptr<blink::scheduler::SingleThreadIdleTaskRunner>());
+  MOCK_METHOD0(IPCTaskRunner, scoped_refptr<base::SingleThreadTaskRunner>());
   MOCK_METHOD0(NewRenderWidgetSchedulingState,
                std::unique_ptr<RenderWidgetSchedulingState>());
   MOCK_METHOD1(WillBeginFrame, void(const viz::BeginFrameArgs&));
@@ -66,6 +67,7 @@ class MockRendererScheduler : public RendererScheduler {
   MOCK_METHOD1(SetRAILModeObserver, void(RAILModeObserver*));
   MOCK_METHOD1(MainThreadSeemsUnresponsive, bool(base::TimeDelta));
   MOCK_METHOD1(SetRendererProcessType, void(RendererProcessType));
+  MOCK_METHOD0(CreateWebScopedVirtualTimePauser, WebScopedVirtualTimePauser());
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockRendererScheduler);

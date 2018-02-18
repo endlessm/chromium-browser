@@ -110,7 +110,7 @@
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/proxy_config/pref_proxy_config_tracker.h"
 #include "components/signin/core/browser/signin_manager.h"
-#include "components/signin/core/common/signin_pref_names.h"
+#include "components/signin/core/browser/signin_pref_names.h"
 #include "components/ssl_config/ssl_config_service_manager.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "components/url_formatter/url_fixer.h"
@@ -207,7 +207,7 @@ const char kPrefExitTypeCrashed[] = "Crashed";
 const char kPrefExitTypeSessionEnded[] = "SessionEnded";
 
 void CreateProfileReadme(const base::FilePath& profile_path) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   base::FilePath readme_path = profile_path.Append(chrome::kReadmeFilename);
   std::string product_name = l10n_util::GetStringUTF8(IDS_PRODUCT_NAME);
   std::string readme_text = base::StringPrintf(
@@ -478,10 +478,10 @@ ProfileImpl::ProfileImpl(
 
 #if defined(OS_CHROMEOS)
   if (chromeos::ProfileHelper::IsSigninProfile(this))
-    chrome::RegisterLoginProfilePrefs(pref_registry_.get());
+    RegisterLoginProfilePrefs(pref_registry_.get());
   else
 #endif
-  chrome::RegisterUserProfilePrefs(pref_registry_.get());
+    RegisterUserProfilePrefs(pref_registry_.get());
 
   BrowserContextDependencyManager::GetInstance()->
       RegisterProfilePrefsForServices(this, pref_registry_.get());
@@ -824,6 +824,10 @@ Profile* ProfileImpl::GetOriginalProfile() {
   return this;
 }
 
+const Profile* ProfileImpl::GetOriginalProfile() const {
+  return this;
+}
+
 bool ProfileImpl::IsSupervised() const {
   return !GetPrefs()->GetString(prefs::kSupervisedUserId).empty();
 }
@@ -860,8 +864,8 @@ void ProfileImpl::OnLocaleReady() {
   SCOPED_UMA_HISTOGRAM_TIMER("Profile.OnLocaleReadyTime");
   // Migrate obsolete prefs.
   if (g_browser_process->local_state())
-    chrome::MigrateObsoleteBrowserPrefs(this, g_browser_process->local_state());
-  chrome::MigrateObsoleteProfilePrefs(this);
+    MigrateObsoleteBrowserPrefs(this, g_browser_process->local_state());
+  MigrateObsoleteProfilePrefs(this);
 
   // |kSessionExitType| was added after |kSessionExitedCleanly|. If the pref
   // value is empty fallback to checking for |kSessionExitedCleanly|.
@@ -1256,12 +1260,6 @@ PrefProxyConfigTracker* ProfileImpl::GetProxyConfigTracker() {
 
 chrome_browser_net::Predictor* ProfileImpl::GetNetworkPredictor() {
   return predictor_;
-}
-
-void ProfileImpl::ClearNetworkingHistorySince(
-    base::Time time,
-    const base::Closure& completion) {
-  io_data_.ClearNetworkingHistorySince(time, completion);
 }
 
 GURL ProfileImpl::GetHomePage() {

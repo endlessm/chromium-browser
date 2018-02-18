@@ -8,8 +8,10 @@
 #import <UIKit/UIKit.h>
 #include <set>
 
-@protocol ApplicationCommands;
 class GURL;
+@protocol SigninPresenter;
+@class SigninPromoViewConfigurator;
+@class SigninPromoViewMediator;
 
 namespace bookmarks {
 class BookmarkNode;
@@ -19,15 +21,16 @@ namespace ios {
 class ChromeBrowserState;
 }
 
-namespace user_prefs {
-class PrefRegistrySyncable;
-}  // namespace user_prefs
-
 @class BookmarkTableView;
 @class MDCFlexibleHeaderView;
 
 // Delegate to handle actions on the table.
 @protocol BookmarkTableViewDelegate<NSObject>
+
+// Returns the SigninPromoViewMediator to use for the sign-in promo view in the
+// bookmark table view.
+@property(nonatomic, readonly) SigninPromoViewMediator* signinPromoViewMediator;
+
 // Tells the delegate that a URL was selected for navigation.
 - (void)bookmarkTableView:(BookmarkTableView*)view
     selectedUrlForNavigation:(const GURL&)url;
@@ -43,9 +46,6 @@ class PrefRegistrySyncable;
 
 // Returns true if a bookmarks promo cell should be shown.
 - (BOOL)bookmarkTableViewShouldShowPromoCell:(BookmarkTableView*)view;
-
-// Dismisses the promo.
-- (void)bookmarkTableViewDismissPromo:(BookmarkTableView*)view;
 
 // Tells the delegate that nodes were selected in edit mode.
 - (void)bookmarkTableView:(BookmarkTableView*)view
@@ -83,7 +83,7 @@ class PrefRegistrySyncable;
                             delegate:(id<BookmarkTableViewDelegate>)delegate
                             rootNode:(const bookmarks::BookmarkNode*)rootNode
                                frame:(CGRect)frame
-                          dispatcher:(id<ApplicationCommands>)dispatcher
+                           presenter:(id<SigninPresenter>)presenter
     NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)initWithFrame:(CGRect)frame NS_UNAVAILABLE;
@@ -93,11 +93,14 @@ class PrefRegistrySyncable;
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype) new NS_UNAVAILABLE;
 
-// Registers the feature preferences.
-+ (void)registerBrowserStatePrefs:(user_prefs::PrefRegistrySyncable*)registry;
-
 // Called when something outside the view causes the promo state to change.
 - (void)promoStateChangedAnimated:(BOOL)animated;
+
+// Configures the sign-in promo view using |configurator|, and reloads the table
+// view if |identityChanged| is YES.
+- (void)configureSigninPromoWithConfigurator:
+            (SigninPromoViewConfigurator*)configurator
+                             identityChanged:(BOOL)identityChanged;
 
 // Called when adding a new folder
 - (void)addNewFolder;

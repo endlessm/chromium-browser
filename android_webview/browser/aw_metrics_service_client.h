@@ -44,9 +44,6 @@ class AwMetricsServiceClient : public metrics::MetricsServiceClient,
  public:
   static AwMetricsServiceClient* GetInstance();
 
-  // Return true if running on an sdk version metrics should be enabled for.
-  static bool CheckSDKVersionForMetrics();
-
   // Retrieve the client ID or generate one if none exists.
   static void LoadOrCreateClientId();
 
@@ -76,6 +73,7 @@ class AwMetricsServiceClient : public metrics::MetricsServiceClient,
   void CollectFinalMetricsForLog(const base::Closure& done_callback) override;
   std::unique_ptr<metrics::MetricsLogUploader> CreateUploader(
       base::StringPiece server_url,
+      base::StringPiece insecure_server_url,
       base::StringPiece mime_type,
       metrics::MetricsLogUploader::MetricServiceType service_type,
       const metrics::MetricsLogUploader::UploadCallback& on_upload_complete)

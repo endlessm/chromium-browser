@@ -304,47 +304,6 @@ def AddInputLatencyStats(mock_timer, start_thread, end_thread,
 
 class RenderingStatsUnitTest(unittest.TestCase):
 
-  def testHasRenderingStats(self):
-    timeline = model.TimelineModel()
-    timer = MockTimer()
-
-    # A process without rendering stats
-    process_without_stats = timeline.GetOrCreateProcess(pid=1)
-    thread_without_stats = process_without_stats.GetOrCreateThread(tid=11)
-    process_without_stats.FinalizeImport()
-    self.assertFalse(rendering_stats.HasRenderingStats(thread_without_stats))
-
-    # A process with rendering stats, but no frames in them
-    process_without_frames = timeline.GetOrCreateProcess(pid=2)
-    thread_without_frames = process_without_frames.GetOrCreateThread(tid=21)
-    process_without_frames.FinalizeImport()
-    self.assertFalse(rendering_stats.HasRenderingStats(thread_without_frames))
-
-    # A process with rendering stats and frames in them
-    process_with_frames = timeline.GetOrCreateProcess(pid=3)
-    thread_with_frames = process_with_frames.GetOrCreateThread(tid=31)
-    AddImplThreadRenderingStats(timer, thread_with_frames, True, None)
-    process_with_frames.FinalizeImport()
-    self.assertTrue(rendering_stats.HasRenderingStats(thread_with_frames))
-
-  def testHasDrmStats(self):
-    timeline = model.TimelineModel()
-    timer = MockTimer()
-    vblank_timer = MockVblankTimer()
-
-    # A process without drm stats
-    process_without_stats = timeline.GetOrCreateProcess(pid=5)
-    thread_without_stats = process_without_stats.GetOrCreateThread(tid=51)
-    process_without_stats.FinalizeImport()
-    self.assertFalse(rendering_stats.HasDrmStats(thread_without_stats))
-
-    # A process with drm stats and frames in them
-    process_with_frames = timeline.GetOrCreateProcess(pid=6)
-    thread_with_frames = process_with_frames.GetOrCreateThread(tid=61)
-    AddDrmEventFlipStats(timer, vblank_timer, thread_with_frames, True, None)
-    process_with_frames.FinalizeImport()
-    self.assertTrue(rendering_stats.HasDrmStats(thread_with_frames))
-
   def testBothSurfaceFlingerAndDisplayStats(self):
     timeline = model.TimelineModel()
     timer = MockTimer()
@@ -518,6 +477,7 @@ class RenderingStatsUnitTest(unittest.TestCase):
     # Create a browser process and a renderer process, and a main thread and
     # impl thread for each.
     browser = timeline.GetOrCreateProcess(pid=1)
+    browser_main = browser.GetOrCreateThread(tid=11)
     browser_compositor = browser.GetOrCreateThread(tid=12)
     renderer = timeline.GetOrCreateProcess(pid=2)
     renderer_main = renderer.GetOrCreateThread(tid=21)
@@ -526,6 +486,17 @@ class RenderingStatsUnitTest(unittest.TestCase):
     timer = MockTimer()
     renderer_ref_stats = ReferenceRenderingStats()
     browser_ref_stats = ReferenceRenderingStats()
+
+    browser_ref_stats.AppendNewRange()
+    renderer_ref_stats.AppendNewRange()
+    # Add display rendering stats.
+    browser_main.BeginSlice('webkit.console', 'Action0',
+                            timer.AdvanceAndGet(2, 4), '')
+    for i in xrange(0, 10):
+      first = (i == 0)
+      AddDisplayRenderingStats(timer, browser_main, first, browser_ref_stats)
+      timer.Advance(5, 10)
+    browser_main.EndSlice(timer.AdvanceAndGet(2, 4))
 
     # Create 10 main and impl rendering stats events for Action A.
     renderer_main.BeginSlice('webkit.console', 'ActionA',
@@ -537,7 +508,7 @@ class RenderingStatsUnitTest(unittest.TestCase):
       AddImplThreadRenderingStats(
           timer, renderer_compositor, first, renderer_ref_stats)
       AddImplThreadRenderingStats(
-          timer, browser_compositor, first, browser_ref_stats)
+          timer, browser_compositor, first, None)
     renderer_main.EndSlice(timer.AdvanceAndGet(2, 4))
 
     # Create 5 main and impl rendering stats events not within any action.
@@ -556,7 +527,7 @@ class RenderingStatsUnitTest(unittest.TestCase):
       AddImplThreadRenderingStats(
           timer, renderer_compositor, first, renderer_ref_stats)
       AddImplThreadRenderingStats(
-          timer, browser_compositor, first, browser_ref_stats)
+          timer, browser_compositor, first, None)
     renderer_main.EndSlice(timer.AdvanceAndGet(2, 4))
 
     # Create 10 main and impl rendering stats events for Action A.
@@ -569,7 +540,7 @@ class RenderingStatsUnitTest(unittest.TestCase):
       AddImplThreadRenderingStats(
           timer, renderer_compositor, first, renderer_ref_stats)
       AddImplThreadRenderingStats(
-          timer, browser_compositor, first, browser_ref_stats)
+          timer, browser_compositor, first, None)
     renderer_main.EndSlice(timer.AdvanceAndGet(2, 4))
     timer.Advance(2, 4)
 
@@ -577,7 +548,7 @@ class RenderingStatsUnitTest(unittest.TestCase):
     renderer.FinalizeImport()
 
     timeline_markers = timeline.FindTimelineMarkers(
-        ['ActionA', 'ActionB', 'ActionA'])
+        ['Action0', 'ActionA', 'ActionB', 'ActionA'])
     timeline_ranges = [bounds.Bounds.CreateFromEvent(marker)
                        for marker in timeline_markers]
     stats = rendering_stats.RenderingStats(

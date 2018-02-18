@@ -24,16 +24,14 @@ extern const base::Feature kAllowFullscreenWebNotificationsFeature;
 // Delegate class for Web Notifications.
 class WebNotificationDelegate : public message_center::NotificationDelegate {
  public:
-  WebNotificationDelegate(NotificationCommon::Type notification_type,
+  WebNotificationDelegate(NotificationHandler::Type notification_type,
                           Profile* profile,
                           const std::string& notification_id,
                           const GURL& origin);
 
   // NotificationDelegate implementation.
-  bool SettingsClick() override;
-  bool ShouldDisplaySettingsButton() override;
+  void SettingsClick() override;
   void DisableNotification() override;
-  bool ShouldDisplayOverFullscreen() const override;
   void Close(bool by_user) override;
   void Click() override;
   void ButtonClick(int action_index) override;
@@ -45,7 +43,7 @@ class WebNotificationDelegate : public message_center::NotificationDelegate {
   const GURL& origin() { return origin_; }
 
  private:
-  NotificationCommon::Type notification_type_;
+  NotificationHandler::Type notification_type_;
   Profile* profile_;
   std::string notification_id_;
   GURL origin_;

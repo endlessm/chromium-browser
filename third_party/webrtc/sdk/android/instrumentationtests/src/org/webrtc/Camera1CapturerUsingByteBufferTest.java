@@ -26,7 +26,7 @@ import org.junit.runner.RunWith;
 public class Camera1CapturerUsingByteBufferTest {
   static final String TAG = "Camera1CapturerUsingByteBufferTest";
 
-  private class TestObjectFactory extends CameraVideoCapturerTestFixtures.TestObjectFactory {
+  private static class TestObjectFactory extends CameraVideoCapturerTestFixtures.TestObjectFactory {
     @Override
     public boolean isCapturingToTexture() {
       return false;
@@ -59,9 +59,6 @@ public class Camera1CapturerUsingByteBufferTest {
 
   @Before
   public void setUp() {
-    // Enable VideoFrame capture.
-    PeerConnectionFactory.initializeFieldTrials(PeerConnectionFactory.VIDEO_FRAME_EMIT_TRIAL + "/"
-        + PeerConnectionFactory.TRIAL_ENABLED + "/");
     fixtures = new CameraVideoCapturerTestFixtures(new TestObjectFactory());
   }
 

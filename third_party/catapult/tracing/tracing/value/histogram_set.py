@@ -58,7 +58,6 @@ class HistogramSet(object):
           diag.Resolve(histograms)
 
     for hist in self:
-      hist.diagnostics.ResolveSharedDiagnostics(self)
       HandleDiagnosticMap(hist.diagnostics)
       for dm in hist.nan_diagnostic_maps:
         HandleDiagnosticMap(dm)
@@ -79,7 +78,9 @@ class HistogramSet(object):
         diag = diagnostic.Diagnostic.FromDict(d)
         self._shared_diagnostics_by_guid[d['guid']] = diag
       else:
-        self.AddHistogram(histogram_module.Histogram.FromDict(d))
+        hist = histogram_module.Histogram.FromDict(d)
+        hist.diagnostics.ResolveSharedDiagnostics(self)
+        self.AddHistogram(hist)
 
   def AsDicts(self):
     dcts = []
@@ -97,3 +98,37 @@ class HistogramSet(object):
       for name, diag in hist.diagnostics.iteritems():
         if diag.has_guid and diag.guid == old_guid:
           hist.diagnostics[name] = new_diagnostic
+
+  def DeduplicateDiagnostics(self):
+    names_to_candidates = {}
+    diagnostics_to_histograms = {}
+
+    for hist in self:
+      for name, candidate in hist.diagnostics.iteritems():
+        # TODO(#3695): Remove this check once equality is smoke-tested.
+        if not hasattr(candidate, '__eq__'):
+          self._shared_diagnostics_by_guid[candidate.guid] = candidate
+          continue
+
+        diagnostics_to_histograms[candidate] = hist
+
+        if name not in names_to_candidates:
+          names_to_candidates[name] = set()
+        names_to_candidates[name].add(candidate)
+
+    for name, candidates in names_to_candidates.iteritems():
+      deduplicated_diagnostics = set()
+
+      for candidate in candidates:
+        found = False
+        for test in deduplicated_diagnostics:
+          if candidate == test:
+            hist = diagnostics_to_histograms.get(candidate)
+            hist.diagnostics[name] = test
+            found = True
+            break
+        if not found:
+          deduplicated_diagnostics.add(candidate)
+
+        for diag in deduplicated_diagnostics:
+          self._shared_diagnostics_by_guid[diag.guid] = diag

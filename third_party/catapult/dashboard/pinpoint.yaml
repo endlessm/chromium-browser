@@ -13,6 +13,12 @@ libraries:
 
 handlers:
 
+- url: /api/migrate
+  script: dashboard.pinpoint.dispatcher.APP
+  login: admin
+  secure: always
+  auth_fail_action: unauthorized
+
 - url: /api/run/.*
   script: dashboard.pinpoint.dispatcher.APP
   login: admin
@@ -36,13 +42,19 @@ handlers:
   static_dir: dashboard/pinpoint/static
   secure: always
 
-- url: /dashboard/static/
-  static_dir: dashboard/static/
-  secure: always
-
 - url: /dashboard/pinpoint/elements/(.*\.html)$
   static_files: dashboard/pinpoint/elements/\1
   upload: dashboard/pinpoint/elements/.*\.html$
+  secure: always
+
+- url: /vulcanized_histograms_viewer/
+  static_dir: vulcanized_histograms_viewer/
+  secure: always
+  application_readable: true
+
+- url: /results2/.*
+  script: dashboard.pinpoint.dispatcher.APP
+  login: admin
   secure: always
 
 - url: /flot/(.*\.js)$

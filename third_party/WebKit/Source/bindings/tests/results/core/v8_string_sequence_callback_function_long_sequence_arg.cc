@@ -12,79 +12,102 @@
 #include "v8_string_sequence_callback_function_long_sequence_arg.h"
 
 #include "bindings/core/v8/ExceptionState.h"
+#include "bindings/core/v8/GeneratedCodeHelper.h"
 #include "bindings/core/v8/IDLTypes.h"
 #include "bindings/core/v8/NativeValueTraitsImpl.h"
 #include "bindings/core/v8/ToV8ForCore.h"
 #include "bindings/core/v8/V8BindingForCore.h"
 #include "core/dom/ExecutionContext.h"
-#include "platform/bindings/ScriptState.h"
-#include "platform/wtf/Assertions.h"
 
 namespace blink {
 
-// static
-V8StringSequenceCallbackFunctionLongSequenceArg* V8StringSequenceCallbackFunctionLongSequenceArg::Create(ScriptState* scriptState, v8::Local<v8::Value> callback) {
-  if (IsUndefinedOrNull(callback))
-    return nullptr;
-  return new V8StringSequenceCallbackFunctionLongSequenceArg(scriptState, v8::Local<v8::Function>::Cast(callback));
-}
+v8::Maybe<Vector<String>> V8StringSequenceCallbackFunctionLongSequenceArg::Invoke(ScriptWrappable* callback_this_value, const Vector<int32_t>& arg) {
+  // This function implements "invoke" steps in
+  // "3.10. Invoking callback functions".
+  // https://heycam.github.io/webidl/#es-invoking-callback-functions
 
-V8StringSequenceCallbackFunctionLongSequenceArg::V8StringSequenceCallbackFunctionLongSequenceArg(ScriptState* scriptState, v8::Local<v8::Function> callback)
-    : CallbackFunctionBase(scriptState, callback) {}
+  if (!IsCallbackFunctionRunnable(CallbackRelevantScriptState())) {
+    // Wrapper-tracing for the callback function makes the function object and
+    // its creation context alive. Thus it's safe to use the creation context
+    // of the callback function here.
+    v8::HandleScope handle_scope(GetIsolate());
+    CHECK(!CallbackFunction().IsEmpty());
+    v8::Context::Scope context_scope(CallbackFunction()->CreationContext());
+    V8ThrowException::ThrowError(
+        GetIsolate(),
+        ExceptionMessages::FailedToExecute(
+            "invoke",
+            "StringSequenceCallbackFunctionLongSequenceArg",
+            "The provided callback is no longer runnable."));
+    return v8::Nothing<Vector<String>>();
+  }
 
-bool V8StringSequenceCallbackFunctionLongSequenceArg::call(ScriptWrappable* scriptWrappable, const Vector<int32_t>& arg, Vector<String>& returnValue) {
-  if (callback_.IsEmpty())
-    return false;
+  // step 4. If ! IsCallable(F) is false:
+  //
+  // As Blink no longer supports [TreatNonObjectAsNull], there must be no such a
+  // case.
+#if DCHECK_IS_ON()
+  {
+    v8::HandleScope handle_scope(GetIsolate());
+    DCHECK(CallbackFunction()->IsFunction());
+  }
+#endif
 
-  if (!script_state_->ContextIsValid())
-    return false;
+  // step 8. Prepare to run script with relevant settings.
+  ScriptState::Scope callback_relevant_context_scope(
+      CallbackRelevantScriptState());
+  // step 9. Prepare to run a callback with stored settings.
+  if (IncumbentScriptState()->GetContext().IsEmpty()) {
+    V8ThrowException::ThrowError(
+        GetIsolate(),
+        ExceptionMessages::FailedToExecute(
+            "invoke",
+            "StringSequenceCallbackFunctionLongSequenceArg",
+            "The provided callback is no longer runnable."));
+    return v8::Nothing<Vector<String>>();
+  }
+  v8::Context::BackupIncumbentScope backup_incumbent_scope(
+      IncumbentScriptState()->GetContext());
 
-  // TODO(bashi): Make sure that using DummyExceptionStateForTesting is OK.
-  // crbug.com/653769
-  DummyExceptionStateForTesting exceptionState;
+  v8::Local<v8::Value> this_arg = ToV8(callback_this_value,
+                                       CallbackRelevantScriptState());
 
-  ExecutionContext* context = ExecutionContext::From(script_state_.get());
-  DCHECK(context);
-  if (context->IsContextSuspended() || context->IsContextDestroyed())
-    return false;
-
-  ScriptState::Scope scope(script_state_.get());
-  v8::Isolate* isolate = script_state_->GetIsolate();
-
-  v8::Local<v8::Value> thisValue = ToV8(
-      scriptWrappable,
-      script_state_->GetContext()->Global(),
-      isolate);
-
-  v8::Local<v8::Value> v8_arg = ToV8(arg, script_state_->GetContext()->Global(), script_state_->GetIsolate());
+  // step 10. Let esArgs be the result of converting args to an ECMAScript
+  //   arguments list. If this throws an exception, set completion to the
+  //   completion value representing the thrown exception and jump to the step
+  //   labeled return.
+  v8::Local<v8::Object> argument_creation_context =
+      CallbackRelevantScriptState()->GetContext()->Global();
+  ALLOW_UNUSED_LOCAL(argument_creation_context);
+  v8::Local<v8::Value> v8_arg = ToV8(arg, argument_creation_context, GetIsolate());
   v8::Local<v8::Value> argv[] = { v8_arg };
-  v8::TryCatch exceptionCatcher(isolate);
-  exceptionCatcher.SetVerbose(true);
 
-  v8::Local<v8::Value> v8ReturnValue;
-  if (!V8ScriptRunner::CallFunction(callback_.NewLocal(isolate),
-                                    context,
-                                    thisValue,
-                                    1,
-                                    argv,
-                                    isolate).ToLocal(&v8ReturnValue)) {
-    return false;
+  // step 11. Let callResult be Call(X, thisArg, esArgs).
+  v8::Local<v8::Value> call_result;
+  if (!V8ScriptRunner::CallFunction(
+          CallbackFunction(),
+          ExecutionContext::From(CallbackRelevantScriptState()),
+          this_arg,
+          1,
+          argv,
+          GetIsolate()).ToLocal(&call_result)) {
+    // step 12. If callResult is an abrupt completion, set completion to
+    //   callResult and jump to the step labeled return.
+    return v8::Nothing<Vector<String>>();
   }
 
-  Vector<String> cppValue = NativeValueTraits<IDLSequence<IDLString>>::NativeValue(script_state_->GetIsolate(), v8ReturnValue, exceptionState);
-  if (exceptionState.HadException())
-    return false;
-  returnValue = cppValue;
-  return true;
-}
-
-V8StringSequenceCallbackFunctionLongSequenceArg* NativeValueTraits<V8StringSequenceCallbackFunctionLongSequenceArg>::NativeValue(v8::Isolate* isolate, v8::Local<v8::Value> value, ExceptionState& exceptionState) {
-  V8StringSequenceCallbackFunctionLongSequenceArg* nativeValue = V8StringSequenceCallbackFunctionLongSequenceArg::Create(ScriptState::Current(isolate), value);
-  if (!nativeValue) {
-    exceptionState.ThrowTypeError(ExceptionMessages::FailedToConvertJSValue(
-        "StringSequenceCallbackFunctionLongSequenceArg"));
+  // step 13. Set completion to the result of converting callResult.[[Value]] to
+  //   an IDL value of the same type as the operation's return type.
+  {
+    ExceptionState exceptionState(GetIsolate(),
+                                  ExceptionState::kExecutionContext,
+                                  "StringSequenceCallbackFunctionLongSequenceArg",
+                                  "invoke");
+    Vector<String> native_result = NativeValueTraits<IDLSequence<IDLString>>::NativeValue(GetIsolate(), call_result, exceptionState);
+    if (exceptionState.HadException())
+      return v8::Nothing<Vector<String>>();
+    return v8::Just<Vector<String>>(native_result);
   }
-  return nativeValue;
 }
 
 }  // namespace blink

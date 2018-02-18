@@ -11,12 +11,10 @@
 #include "components/favicon/core/large_icon_service.h"
 #include "components/favicon_base/fallback_icon_style.h"
 #include "components/favicon_base/favicon_types.h"
-#include "components/pref_registry/pref_registry_syncable.h"
 #include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "ios/chrome/browser/bookmarks/bookmarks_utils.h"
 #include "ios/chrome/browser/experimental_flags.h"
 #include "ios/chrome/browser/favicon/ios_chrome_large_icon_service_factory.h"
-#include "ios/chrome/browser/pref_names.h"
 #import "ios/chrome/browser/sync/synced_sessions_bridge.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view_configurator.h"
@@ -54,7 +52,6 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
 
 @interface BookmarkTableView ()<BookmarkModelBridgeObserver,
                                 BookmarkTableCellTitleEditDelegate,
-                                SigninPromoViewConsumer,
                                 SyncedSessionsObserver,
                                 UIGestureRecognizerDelegate,
                                 UITableViewDataSource,
@@ -82,9 +79,6 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
   // Task tracker used for async favicon loads.
   base::CancelableTaskTracker _faviconTaskTracker;
 
-  // Mediator, helper for the sign-in promo view.
-  SigninPromoViewMediator* _signinPromoViewMediator;
-
   // True if the promo is visible.
   BOOL _promoVisible;
 
@@ -105,8 +99,8 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
 // The loading spinner background which appears when syncing.
 @property(nonatomic, strong) BookmarkHomeWaitingView* spinnerView;
 
-// Dispatcher for sending commands.
-@property(nonatomic, readonly, weak) id<ApplicationCommands> dispatcher;
+// Presenter for showing signin UI.
+@property(nonatomic, readonly, weak) id<SigninPresenter> presenter;
 
 // Section indices.
 @property(nonatomic, readonly, assign) NSInteger promoSection;
@@ -132,27 +126,22 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
 @synthesize emptyTableBackgroundView = _emptyTableBackgroundView;
 @synthesize spinnerView = _spinnerView;
 @synthesize editing = _editing;
-@synthesize dispatcher = _dispatcher;
+@synthesize presenter = _presenter;
 @synthesize addingNewFolder = _addingNewFolder;
 @synthesize editingFolderCell = _editingFolderCell;
-
-+ (void)registerBrowserStatePrefs:(user_prefs::PrefRegistrySyncable*)registry {
-  registry->RegisterIntegerPref(prefs::kIosBookmarkSigninPromoDisplayedCount,
-                                0);
-}
 
 - (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState
                             delegate:(id<BookmarkTableViewDelegate>)delegate
                             rootNode:(const BookmarkNode*)rootNode
                                frame:(CGRect)frame
-                          dispatcher:(id<ApplicationCommands>)dispatcher {
+                           presenter:(id<SigninPresenter>)presenter {
   self = [super initWithFrame:frame];
   if (self) {
     DCHECK(rootNode);
     _browserState = browserState;
     _delegate = delegate;
     _currentRootNode = rootNode;
-    _dispatcher = dispatcher;
+    _presenter = presenter;
 
     // Set up connection to the BookmarkModel.
     _bookmarkModel =
@@ -204,7 +193,6 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
 
 - (void)dealloc {
   [self removeKeyboardObservers];
-  [_signinPromoViewMediator signinPromoViewRemoved];
   _tableView.dataSource = nil;
   _tableView.delegate = nil;
   _faviconTaskTracker.TryCancelAll();
@@ -217,31 +205,44 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
   // the permanent nodes.
   BOOL promoVisible =
       ((_currentRootNode == self.bookmarkModel->root_node()) &&
-       [self.delegate bookmarkTableViewShouldShowPromoCell:self]) ||
-      (_signinPromoViewMediator &&
-       _signinPromoViewMediator.signinPromoViewState ==
-           ios::SigninPromoViewState::SigninStarted);
+       [self.delegate bookmarkTableViewShouldShowPromoCell:self]);
 
   if (promoVisible == _promoVisible) {
     return;
   }
 
   _promoVisible = promoVisible;
-
-  if (!promoVisible) {
-    _signinPromoViewMediator.consumer = nil;
-    [_signinPromoViewMediator signinPromoViewRemoved];
-    _signinPromoViewMediator = nil;
-  } else {
-    _signinPromoViewMediator = [[SigninPromoViewMediator alloc]
-        initWithBrowserState:_browserState
-                 accessPoint:signin_metrics::AccessPoint::
-                                 ACCESS_POINT_BOOKMARK_MANAGER
-                  dispatcher:self.dispatcher];
-    _signinPromoViewMediator.consumer = self;
-    [_signinPromoViewMediator signinPromoViewVisible];
+  if (_promoVisible) {
+    [self.delegate.signinPromoViewMediator signinPromoViewVisible];
+  } else if (![self.delegate
+                     .signinPromoViewMediator isInvalidClosedOrNeverVisible]) {
+    // When the sign-in view is closed, the promo state changes, but
+    // -[SigninPromoViewMediator signinPromoViewHidden] should not be called.
+    [self.delegate.signinPromoViewMediator signinPromoViewHidden];
   }
   [self.tableView reloadData];
+}
+
+- (void)configureSigninPromoWithConfigurator:
+            (SigninPromoViewConfigurator*)configurator
+                             identityChanged:(BOOL)identityChanged {
+  NSIndexPath* indexPath =
+      [NSIndexPath indexPathForRow:0 inSection:self.promoSection];
+  BookmarkTableSigninPromoCell* signinPromoCell =
+      static_cast<BookmarkTableSigninPromoCell*>(
+          [self.tableView cellForRowAtIndexPath:indexPath]);
+  if (!signinPromoCell) {
+    return;
+  }
+  // Should always reconfigure the cell size even if it has to be reloaded,
+  // to make sure it has the right size to compute the cell size.
+  [configurator configureSigninPromoView:signinPromoCell.signinPromoView];
+  if (identityChanged) {
+    // The section should be reload to update the cell height.
+    NSIndexSet* indexSet = [NSIndexSet indexSetWithIndex:self.promoSection];
+    [self.tableView reloadSections:indexSet
+                  withRowAnimation:UITableViewRowAnimationNone];
+  }
 }
 
 - (void)addNewFolder {
@@ -254,6 +255,24 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
       l10n_util::GetNSString(IDS_IOS_BOOKMARK_NEW_GROUP_DEFAULT_NAME));
   _editingFolderNode = self.bookmarkModel->AddFolder(
       _currentRootNode, _currentRootNode->child_count(), folderTitle);
+
+  _bookmarkItems.push_back(_editingFolderNode);
+
+  // Insert the new folder cell at the end of the table.
+  NSIndexPath* newRowIndexPath =
+      [NSIndexPath indexPathForRow:_bookmarkItems.size() - 1
+                         inSection:self.bookmarksSection];
+  NSMutableArray* newRowIndexPaths =
+      [[NSMutableArray alloc] initWithObjects:newRowIndexPath, nil];
+  [self.tableView beginUpdates];
+  [self.tableView insertRowsAtIndexPaths:newRowIndexPaths
+                        withRowAnimation:UITableViewRowAnimationNone];
+  [self.tableView endUpdates];
+
+  // Scroll to the end of the table
+  [self.tableView scrollToRowAtIndexPath:newRowIndexPath
+                        atScrollPosition:UITableViewScrollPositionBottom
+                                animated:YES];
 }
 
 - (void)setEditing:(BOOL)editing {
@@ -351,14 +370,12 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
       signinPromoCell =
           [[BookmarkTableSigninPromoCell alloc] initWithFrame:CGRectZero];
     }
-    signinPromoCell.signinPromoView.delegate = _signinPromoViewMediator;
-    [[_signinPromoViewMediator createConfigurator]
+    signinPromoCell.signinPromoView.delegate =
+        self.delegate.signinPromoViewMediator;
+    [[self.delegate.signinPromoViewMediator createConfigurator]
         configureSigninPromoView:signinPromoCell.signinPromoView];
-    __weak BookmarkTableView* weakSelf = self;
-    signinPromoCell.signinPromoView.closeButtonAction = ^() {
-      [weakSelf signinPromoCloseButtonAction];
-    };
     signinPromoCell.selectionStyle = UITableViewCellSelectionStyleNone;
+    [self.delegate.signinPromoViewMediator signinPromoViewVisible];
     return signinPromoCell;
   }
 
@@ -490,34 +507,6 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
   }
 }
 
-#pragma mark - SigninPromoViewConsumer
-
-- (void)configureSigninPromoWithConfigurator:
-            (SigninPromoViewConfigurator*)configurator
-                             identityChanged:(BOOL)identityChanged {
-  DCHECK(_signinPromoViewMediator);
-  NSIndexPath* indexPath =
-      [NSIndexPath indexPathForRow:0 inSection:self.promoSection];
-  BookmarkTableSigninPromoCell* signinPromoCell =
-      static_cast<BookmarkTableSigninPromoCell*>(
-          [self.tableView cellForRowAtIndexPath:indexPath]);
-  if (!signinPromoCell) {
-    return;
-  }
-  // Should always reconfigure the cell size even if it has to be reloaded.
-  [configurator configureSigninPromoView:signinPromoCell.signinPromoView];
-  if (identityChanged) {
-    // The section should be reload to update the cell height.
-    NSIndexSet* indexSet = [NSIndexSet indexSetWithIndex:self.promoSection];
-    [self.tableView reloadSections:indexSet
-                  withRowAnimation:UITableViewRowAnimationNone];
-  }
-}
-
-- (void)signinDidFinish {
-  [self promoStateChangedAnimated:NO];
-}
-
 #pragma mark - BookmarkModelBridgeObserver Callbacks
 
 // BookmarkModelBridgeObserver Callbacks
@@ -544,7 +533,9 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
 // The node has not changed, but its children have.
 - (void)bookmarkNodeChildrenChanged:(const BookmarkNode*)bookmarkNode {
   // The current root folder's children changed. Reload everything.
-  if (bookmarkNode == _currentRootNode) {
+  // (When adding new folder, table is already been updated. So no need to
+  // reload here.)
+  if (bookmarkNode == _currentRootNode && !self.addingNewFolder) {
     [self refreshContents];
     return;
   }
@@ -681,12 +672,6 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
   }
 }
 
-// Removes the sign-in promo view.
-- (void)signinPromoCloseButtonAction {
-  [_signinPromoViewMediator signinPromoViewClosed];
-  [_delegate bookmarkTableViewDismissPromo:self];
-}
-
 - (BOOL)shouldShowPromoCell {
   return _promoVisible;
 }
@@ -700,20 +685,6 @@ using IntegerPair = std::pair<NSInteger, NSInteger>;
   [self.tableView reloadData];
   if (self.editing && !_editNodes.empty()) {
     [self restoreRowSelection];
-  }
-  if (self.addingNewFolder) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-      // Scroll to the end of the table if a new folder is being added.
-      NSIndexPath* indexPath =
-          [NSIndexPath indexPathForRow:_bookmarkItems.size() - 1
-                             inSection:self.bookmarksSection];
-
-      if (indexPath) {
-        [self.tableView scrollToRowAtIndexPath:indexPath
-                              atScrollPosition:UITableViewScrollPositionBottom
-                                      animated:YES];
-      }
-    });
   }
 }
 

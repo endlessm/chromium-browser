@@ -17,6 +17,7 @@
 #include "GrRenderTargetContextPriv.h"
 #include "GrResourceProvider.h"
 #include "GrQuad.h"
+#include "SkPointPriv.h"
 #include "effects/GrSimpleTextureEffect.h"
 #include "ops/GrSimpleMeshDrawOpHelper.h"
 
@@ -128,13 +129,14 @@ private:
         indices[0] = 0;
         indices[1] = 1;
         indices[2] = 2;
-        indices[3] = 0;
-        indices[4] = 2;
+        indices[3] = 2;
+        indices[4] = 1;
         indices[5] = 3;
 
         // Setup positions
         SkPoint* position = (SkPoint*) vertices;
-        position->setRectFan(fRect.fLeft, fRect.fTop, fRect.fRight, fRect.fBottom, vertexStride);
+        SkPointPriv::SetRectTriStrip(position, fRect.fLeft, fRect.fTop, fRect.fRight, fRect.fBottom,
+                                  vertexStride);
 
         // Setup vertex colors
         GrColor* color = (GrColor*)((intptr_t)vertices + kColorOffset);
@@ -413,9 +415,7 @@ static sk_sp<GrTextureProxy> make_upstream_image(GrContext* context, AtlasObject
     for (int i = 0; i < 3; ++i) {
         SkRect r = SkRect::MakeXYWH(i*kDrawnTileSize, 0, kDrawnTileSize, kDrawnTileSize);
 
-        // TODO: here is the blocker for deferring creation of the atlas. The TextureSamplers
-        // created here currently require a hard GrTexture.
-        auto fp = GrSimpleTextureEffect::Make(fakeAtlas, nullptr, SkMatrix::I());
+        auto fp = GrSimpleTextureEffect::Make(fakeAtlas, SkMatrix::I());
         GrPaint paint;
         paint.addColorFragmentProcessor(std::move(fp));
         paint.setPorterDuffXPFactory(SkBlendMode::kSrc);
@@ -479,12 +479,10 @@ sk_sp<GrTextureProxy> pre_create_atlas(GrContext* context) {
     desc.fWidth = 32;
     desc.fHeight = 16;
     desc.fConfig = kSkia8888_GrPixelConfig;
-    sk_sp<GrSurfaceProxy> atlasDest = GrSurfaceProxy::MakeDeferred(
-                                                            context->resourceProvider(),
-                                                            desc, SkBackingFit::kExact,
-                                                            SkBudgeted::kYes,
-                                                            GrResourceProvider::kNoPendingIO_Flag);
-    return sk_ref_sp(atlasDest->asTextureProxy());
+    return GrSurfaceProxy::MakeDeferred(context->resourceProvider(),
+                                        desc, SkBackingFit::kExact,
+                                        SkBudgeted::kYes,
+                                        GrResourceProvider::kNoPendingIO_Flag);
 }
 #endif
 
@@ -515,11 +513,6 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(OnFlushCallbackTest, reporter, ctxInfo) {
     static const int kNumProxies = 3;
 
     GrContext* context = ctxInfo.grContext();
-
-    if (context->caps()->useDrawInsteadOfClear()) {
-        // TODO: fix the buffer issues so this can run on all devices
-        return;
-    }
 
     AtlasObject object;
 
@@ -555,7 +548,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(OnFlushCallbackTest, reporter, ctxInfo) {
         SkMatrix t = SkMatrix::MakeTrans(-i*3*kDrawnTileSize, 0);
 
         GrPaint paint;
-        auto fp = GrSimpleTextureEffect::Make(std::move(proxies[i]), nullptr, t);
+        auto fp = GrSimpleTextureEffect::Make(std::move(proxies[i]), t);
         paint.setPorterDuffXPFactory(SkBlendMode::kSrc);
         paint.addColorFragmentProcessor(std::move(fp));
 

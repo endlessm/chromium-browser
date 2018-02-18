@@ -6,7 +6,6 @@
 
 #include <memory>
 
-#include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
@@ -69,7 +68,7 @@ bool AllRootWindowsHaveModalBackgrounds() {
 class TestWindow : public views::WidgetDelegateView {
  public:
   explicit TestWindow(bool modal) : modal_(modal) {}
-  ~TestWindow() override {}
+  ~TestWindow() override = default;
 
   // The window needs be closed from widget in order for
   // aura::client::kModalKey property to be reset.
@@ -96,7 +95,7 @@ class TestWindow : public views::WidgetDelegateView {
 class EventTestWindow : public TestWindow {
  public:
   explicit EventTestWindow(bool modal) : TestWindow(modal), mouse_presses_(0) {}
-  ~EventTestWindow() override {}
+  ~EventTestWindow() override = default;
 
   aura::Window* OpenTestWindowWithContext(aura::Window* context) {
     views::Widget* widget =
@@ -129,7 +128,7 @@ class EventTestWindow : public TestWindow {
 class TransientWindowObserver : public aura::WindowObserver {
  public:
   TransientWindowObserver() : destroyed_(false) {}
-  ~TransientWindowObserver() override {}
+  ~TransientWindowObserver() override = default;
 
   bool destroyed() const { return destroyed_; }
 
@@ -151,20 +150,16 @@ class SystemModalContainerLayoutManagerTest : public AshTestBase {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         keyboard::switches::kEnableVirtualKeyboard);
     AshTestBase::SetUp();
-    // TODO: mash doesn't support virtual keyboard. http://crbug.com/698892.
-    if (Shell::GetAshConfig() != Config::MASH) {
-      Shell::GetPrimaryRootWindowController()->ActivateKeyboard(
-          keyboard::KeyboardController::GetInstance());
-    }
   }
 
-  void TearDown() override {
-    // TODO: mash doesn't support virtual keyboard. http://crbug.com/698892.
-    if (Shell::GetAshConfig() != Config::MASH) {
-      Shell::GetPrimaryRootWindowController()->DeactivateKeyboard(
-          keyboard::KeyboardController::GetInstance());
-    }
-    AshTestBase::TearDown();
+  void ActivateKeyboard() {
+    Shell::GetPrimaryRootWindowController()->ActivateKeyboard(
+        keyboard::KeyboardController::GetInstance());
+  }
+
+  void DeactivateKeyboard() {
+    Shell::GetPrimaryRootWindowController()->DeactivateKeyboard(
+        keyboard::KeyboardController::GetInstance());
   }
 
   aura::Window* OpenToplevelTestWindow(bool modal) {
@@ -660,10 +655,7 @@ TEST_F(SystemModalContainerLayoutManagerTest, MultiDisplays) {
 // positioned into the visible area.
 TEST_F(SystemModalContainerLayoutManagerTest,
        SystemModalDialogGetPushedFromKeyboard) {
-  // TODO: mash doesn't support virtual keyboard. http://crbug.com/698892.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
+  ActivateKeyboard();
   const gfx::Rect& container_bounds = GetModalContainer()->bounds();
   // Place the window at the bottom of the screen.
   gfx::Size modal_size(100, 100);
@@ -694,16 +686,14 @@ TEST_F(SystemModalContainerLayoutManagerTest,
   EXPECT_NE(modal_bounds.ToString(), modal_window->bounds().ToString());
   EXPECT_EQ(modal_size.ToString(), modal_window->bounds().size().ToString());
   EXPECT_EQ(modal_origin.x(), modal_window->bounds().x());
+  DeactivateKeyboard();
 }
 
 // Test that windows will not get cropped through the visible virtual keyboard -
 // if centered.
 TEST_F(SystemModalContainerLayoutManagerTest,
        SystemModalDialogGetPushedButNotCroppedFromKeyboard) {
-  // TODO: mash doesn't support virtual keyboard. http://crbug.com/698892.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
+  ActivateKeyboard();
   const gfx::Rect& container_bounds = GetModalContainer()->bounds();
   const gfx::Size screen_size = Shell::GetPrimaryRootWindow()->bounds().size();
   // Place the window at the bottom of the screen.
@@ -731,16 +721,14 @@ TEST_F(SystemModalContainerLayoutManagerTest,
   EXPECT_EQ(0, modal_window->bounds().y());
 
   ShowKeyboard(false);
+  DeactivateKeyboard();
 }
 
 // Test that windows will not get cropped through the visible virtual keyboard -
 // if not centered.
 TEST_F(SystemModalContainerLayoutManagerTest,
        SystemModalDialogGetPushedButNotCroppedFromKeyboardIfNotCentered) {
-  // TODO: mash doesn't support virtual keyboard. http://crbug.com/698892.
-  if (Shell::GetAshConfig() == Config::MASH)
-    return;
-
+  ActivateKeyboard();
   const gfx::Size screen_size = Shell::GetPrimaryRootWindow()->bounds().size();
   // Place the window at the bottom of the screen.
   gfx::Size modal_size(100, screen_size.height() - 70);
@@ -765,6 +753,7 @@ TEST_F(SystemModalContainerLayoutManagerTest,
   EXPECT_EQ(0, modal_window->bounds().y());
 
   ShowKeyboard(false);
+  DeactivateKeyboard();
 }
 
 TEST_F(SystemModalContainerLayoutManagerTest, UpdateModalType) {
@@ -833,8 +822,8 @@ namespace {
 
 class InputTestDelegate : public aura::test::TestWindowDelegate {
  public:
-  InputTestDelegate() {}
-  ~InputTestDelegate() override {}
+  InputTestDelegate() = default;
+  ~InputTestDelegate() override = default;
 
   void RunTest(AshTestBase* test_base) {
     std::unique_ptr<aura::Window> window(

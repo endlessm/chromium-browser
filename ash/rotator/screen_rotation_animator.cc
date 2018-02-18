@@ -17,6 +17,7 @@
 #include "base/time/time.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
+#include "third_party/khronos/GLES2/gl2.h"
 #include "ui/aura/window.h"
 #include "ui/compositor/callback_layer_animation_observer.h"
 #include "ui/compositor/layer.h"
@@ -282,14 +283,7 @@ void ScreenRotationAnimator::OnScreenRotationContainerLayerCopiedBeforeRotation(
   // request has been canceled or failed. It would fail if, for examples: a) The
   // layer is removed from the compositor and destroyed before committing the
   // request to the compositor. b) The compositor is shutdown.
-  //
-  // Note that it is also possible that the compositor does not support texture
-  // mailboxes.
-  //
-  // TODO(miu): Use DCHECK(result->GetTextureMailbox()) here instead once legacy
-  // support support for Texture→SkBitmap fallback is removed.
-  // http://crbug.com/754872
-  if (result->IsEmpty() || !result->GetTextureMailbox()) {
+  if (result->IsEmpty()) {
     Shell::Get()->display_manager()->SetDisplayRotation(
         rotation_request->display_id, rotation_request->new_rotation,
         rotation_request->source);
@@ -317,13 +311,12 @@ void ScreenRotationAnimator::OnScreenRotationContainerLayerCopiedAfterRotation(
   // 1) if the display was removed,
   // 2) if the |root_window| was changed for |display_id|,
   // 3) the copy request has been canceled or failed. It would fail if,
-  // for examples: a) The layer is removed from the compositor and destroye
+  // for examples: a) The layer is removed from the compositor and destroyed
   // before committing the request to the compositor. b) The compositor is
   // shutdown.
-  // 4) the compositor does not support texture mailboxes.
   if (RootWindowChangedForDisplayId(root_window_,
                                     rotation_request->display_id) ||
-      result->IsEmpty() || !result->GetTextureMailbox()) {
+      result->IsEmpty()) {
     ProcessAnimationQueue();
     return;
   }
@@ -341,19 +334,19 @@ void ScreenRotationAnimator::CreateOldLayerTreeForSlowAnimation() {
 
 std::unique_ptr<ui::LayerTreeOwner> ScreenRotationAnimator::CopyLayerTree(
     std::unique_ptr<viz::CopyOutputResult> result) {
-  viz::TextureMailbox texture_mailbox;
-  std::unique_ptr<viz::SingleReleaseCallback> release_callback;
-  if (auto* mailbox = result->GetTextureMailbox()) {
-    texture_mailbox = *mailbox;
-    release_callback = result->TakeTextureOwnership();
-  }
-  DCHECK(texture_mailbox.IsTexture());
+  DCHECK(!result->IsEmpty());
+  DCHECK_EQ(result->format(), viz::CopyOutputResult::Format::RGBA_TEXTURE);
+  auto transfer_resource = viz::TransferableResource::MakeGL(
+      result->GetTextureResult()->mailbox, GL_LINEAR, GL_TEXTURE_2D,
+      result->GetTextureResult()->sync_token);
+  std::unique_ptr<viz::SingleReleaseCallback> release_callback =
+      result->TakeTextureOwnership();
   const gfx::Rect rect(
       GetScreenRotationContainer(root_window_)->layer()->size());
   std::unique_ptr<ui::Layer> copy_layer = std::make_unique<ui::Layer>();
   copy_layer->SetBounds(rect);
-  copy_layer->SetTextureMailbox(texture_mailbox, std::move(release_callback),
-                                rect.size());
+  copy_layer->SetTransferableResource(transfer_resource,
+                                      std::move(release_callback), rect.size());
   return std::make_unique<ui::LayerTreeOwner>(std::move(copy_layer));
 }
 
@@ -443,9 +436,9 @@ void ScreenRotationAnimator::AnimateRotation(
       new ui::CallbackLayerAnimationObserver(
           base::Bind(&AnimationEndedCallback, weak_factory_.GetWeakPtr()));
   if (new_layer_tree_owner_)
-    new_layer_animator->AddObserver(observer);
+    new_layer_animation_sequence->AddObserver(observer);
   new_layer_animator->StartAnimation(new_layer_animation_sequence.release());
-  old_layer_animator->AddObserver(observer);
+  old_layer_animation_sequence->AddObserver(observer);
   old_layer_animator->StartAnimation(old_layer_animation_sequence.release());
   observer->SetActive();
 }

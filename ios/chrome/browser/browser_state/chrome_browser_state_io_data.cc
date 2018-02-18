@@ -33,7 +33,7 @@
 #include "components/net_log/chrome_net_log.h"
 #include "components/prefs/pref_service.h"
 #include "components/proxy_config/ios/proxy_service_factory.h"
-#include "components/signin/core/common/signin_pref_names.h"
+#include "components/signin/core/browser/signin_pref_names.h"
 #include "components/sync/base/pref_names.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
@@ -357,12 +357,14 @@ void ChromeBrowserStateIOData::Init(
       std::move(profile_params_->proxy_config_service),
       true /* quick_check_enabled */);
   transport_security_state_.reset(new net::TransportSecurityState());
-  transport_security_persister_.reset(new net::TransportSecurityPersister(
-      transport_security_state_.get(), profile_params_->path,
-      base::CreateSequencedTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND,
-           base::TaskShutdownBehavior::BLOCK_SHUTDOWN}),
-      IsOffTheRecord()));
+  if (!IsOffTheRecord()) {
+    transport_security_persister_ =
+        std::make_unique<net::TransportSecurityPersister>(
+            transport_security_state_.get(), profile_params_->path,
+            base::CreateSequencedTaskRunnerWithTraits(
+                {base::MayBlock(), base::TaskPriority::BACKGROUND,
+                 base::TaskShutdownBehavior::BLOCK_SHUTDOWN}));
+  }
 
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("domain_security_policy", R"(

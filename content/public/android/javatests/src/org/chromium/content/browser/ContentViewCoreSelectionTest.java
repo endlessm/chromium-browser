@@ -8,6 +8,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.support.test.filters.MediumTest;
 import android.support.test.filters.SmallTest;
 import android.text.TextUtils;
@@ -18,8 +19,8 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.BuildInfo;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.UrlUtils;
@@ -43,18 +44,18 @@ public class ContentViewCoreSelectionTest {
     public ContentShellActivityTestRule mActivityTestRule = new ContentShellActivityTestRule();
     private static final String DATA_URL = UrlUtils.encodeHtmlDataUri(
             "<html><head><meta name=\"viewport\""
-            + "content=\"width=device-width, initial-scale=1.1, maximum-scale=1.5\" /></head>"
+            + "content=\"width=device-width\" /></head>"
             + "<body><form action=\"about:blank\">"
             + "<input id=\"empty_input_text\" type=\"text\" />"
-            + "<br/><input id=\"whitespace_input_text\" type=\"text\" value=\" \" />"
-            + "<br/><input id=\"input_text\" type=\"text\" value=\"SampleInputText\" />"
-            + "<br/><textarea id=\"textarea\" rows=\"2\" cols=\"20\">SampleTextArea</textarea>"
-            + "<br/><input id=\"password\" type=\"password\" value=\"SamplePassword\" size=\"10\"/>"
-            + "<br/><p><span id=\"smart_selection\">1600 Amphitheatre Parkway</span></p>"
-            + "<br/><p><span id=\"plain_text_1\">SamplePlainTextOne</span></p>"
-            + "<br/><p><span id=\"plain_text_2\">SamplePlainTextTwo</span></p>"
-            + "<br/><input id=\"disabled_text\" type=\"text\" disabled value=\"Sample Text\" />"
-            + "<br/><div id=\"rich_div\" contentEditable=\"true\" >Rich Editor</div>"
+            + "<input id=\"whitespace_input_text\" type=\"text\" value=\" \" />"
+            + "<input id=\"input_text\" type=\"text\" value=\"SampleInputText\" />"
+            + "<textarea id=\"textarea\" rows=\"2\" cols=\"20\">SampleTextArea</textarea>"
+            + "<input id=\"password\" type=\"password\" value=\"SamplePassword\" size=\"10\"/>"
+            + "<p><span id=\"smart_selection\">1600 Amphitheatre Parkway</span></p>"
+            + "<p><span id=\"plain_text_1\">SamplePlainTextOne</span></p>"
+            + "<p><span id=\"plain_text_2\">SamplePlainTextTwo</span></p>"
+            + "<input id=\"disabled_text\" type=\"text\" disabled value=\"Sample Text\" />"
+            + "<div id=\"rich_div\" contentEditable=\"true\" >Rich Editor</div>"
             + "</form></body></html>");
     private ContentViewCore mContentViewCore;
     private SelectionPopupController mSelectionPopupController;
@@ -284,8 +285,8 @@ public class ContentViewCoreSelectionTest {
     @Test
     @SmallTest
     @Feature({"TextInput"})
+    @DisableIf.Build(sdk_is_less_than = Build.VERSION_CODES.O)
     public void testPastePopupPasteAsPlainTextPlainTextRichEditor() throws Throwable {
-        if (!BuildInfo.isAtLeastO()) return;
         copyStringToClipboard("SampleTextToCopy");
         DOMUtils.longPressNode(mContentViewCore, "rich_div");
         waitForPastePopupStatus(true);
@@ -296,8 +297,8 @@ public class ContentViewCoreSelectionTest {
     @Test
     @SmallTest
     @Feature({"TextInput"})
+    @DisableIf.Build(sdk_is_less_than = Build.VERSION_CODES.O)
     public void testPastePopupPasteAsPlainTextPlainTextNormalEditor() throws Throwable {
-        if (!BuildInfo.isAtLeastO()) return;
         copyStringToClipboard("SampleTextToCopy");
         DOMUtils.longPressNode(mContentViewCore, "empty_input_text");
         waitForPastePopupStatus(true);
@@ -308,8 +309,8 @@ public class ContentViewCoreSelectionTest {
     @Test
     @SmallTest
     @Feature({"TextInput"})
+    @DisableIf.Build(sdk_is_less_than = Build.VERSION_CODES.O)
     public void testPastePopupPasteAsPlainTextHtmlTextRichEditor() throws Throwable {
-        if (!BuildInfo.isAtLeastO()) return;
         copyHtmlToClipboard("SampleTextToCopy", "<span style=\"color: red;\">HTML</span>");
         DOMUtils.longPressNode(mContentViewCore, "rich_div");
         waitForPastePopupStatus(true);
@@ -320,8 +321,8 @@ public class ContentViewCoreSelectionTest {
     @Test
     @SmallTest
     @Feature({"TextInput"})
+    @DisableIf.Build(sdk_is_less_than = Build.VERSION_CODES.O)
     public void testPastePopupPasteAsPlainTextHtmlTextNormalEditor() throws Throwable {
-        if (!BuildInfo.isAtLeastO()) return;
         copyHtmlToClipboard("SampleTextToCopy", "<span style=\"color: red;\">HTML</span>");
         DOMUtils.longPressNode(mContentViewCore, "empty_input_text");
         waitForPastePopupStatus(true);

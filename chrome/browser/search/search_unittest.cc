@@ -321,10 +321,11 @@ TEST_F(SearchTest, InstantCacheableNTPNavigationEntryNewProfile) {
 }
 
 TEST_F(SearchTest, NoRewriteInIncognito) {
-  profile()->ForceIncognito(true);
-  EXPECT_EQ(GURL(), GetNewTabPageURL(profile()));
+  TestingProfile* incognito =
+      TestingProfile::Builder().BuildIncognito(profile());
+  EXPECT_EQ(GURL(), GetNewTabPageURL(incognito));
   GURL new_tab_url(chrome::kChromeUINewTabURL);
-  EXPECT_FALSE(HandleNewTabURLRewrite(&new_tab_url, profile()));
+  EXPECT_FALSE(HandleNewTabURLRewrite(&new_tab_url, incognito));
   EXPECT_EQ(GURL(chrome::kChromeUINewTabURL), new_tab_url);
 }
 
@@ -350,6 +351,8 @@ TEST_F(SearchTest, UseLocalNTPIfNTPURLIsNotSet) {
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
 TEST_F(SearchTest, UseLocalNTPIfNTPURLIsBlockedForSupervisedUser) {
+  // Mark the profile as supervised, otherwise the URL filter won't be checked.
+  profile()->SetSupervisedUserId("supervised");
   // Block access to foo.com in the URL filter.
   SupervisedUserService* supervised_user_service =
       SupervisedUserServiceFactory::GetForProfile(profile());

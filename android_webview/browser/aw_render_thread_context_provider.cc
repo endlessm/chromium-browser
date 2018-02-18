@@ -64,10 +64,10 @@ AwRenderThreadContextProvider::AwRenderThreadContextProvider(
   limits.start_transfer_buffer_size = 64 * 1024;
   limits.min_transfer_buffer_size = 64 * 1024;
 
-  context_.reset(gpu::GLInProcessContext::Create(
-      service, surface, surface->IsOffscreen(), gpu::kNullSurfaceHandle,
-      nullptr /* share_context */, attributes, limits, nullptr, nullptr,
-      nullptr));
+  context_ = gpu::GLInProcessContext::CreateWithoutInit();
+  context_->Initialize(service, surface, surface->IsOffscreen(),
+                       gpu::kNullSurfaceHandle, nullptr /* share_context */,
+                       attributes, limits, nullptr, nullptr, nullptr);
 
   context_->GetImplementation()->SetLostContextCallback(base::Bind(
       &AwRenderThreadContextProvider::OnLostContext, base::Unretained(this)));
@@ -76,12 +76,12 @@ AwRenderThreadContextProvider::AwRenderThreadContextProvider(
           switches::kEnableGpuClientTracing)) {
     // This wraps the real GLES2Implementation and we should always use this
     // instead when it's present.
-    trace_impl_.reset(new gpu::gles2::GLES2TraceImplementation(
-        context_->GetImplementation()));
+    trace_impl_ = std::make_unique<gpu::gles2::GLES2TraceImplementation>(
+        context_->GetImplementation());
   }
 
-  cache_controller_.reset(
-      new viz::ContextCacheController(context_->GetImplementation(), nullptr));
+  cache_controller_ = std::make_unique<viz::ContextCacheController>(
+      context_->GetImplementation(), nullptr);
 }
 
 AwRenderThreadContextProvider::~AwRenderThreadContextProvider() {
@@ -95,11 +95,11 @@ uint32_t AwRenderThreadContextProvider::GetCopyTextureInternalFormat() {
   return GL_RGBA;
 }
 
-bool AwRenderThreadContextProvider::BindToCurrentThread() {
+gpu::ContextResult AwRenderThreadContextProvider::BindToCurrentThread() {
   // This is called on the thread the context will be used.
   DCHECK(main_thread_checker_.CalledOnValidThread());
 
-  return true;
+  return gpu::ContextResult::kSuccess;
 }
 
 const gpu::Capabilities& AwRenderThreadContextProvider::ContextCapabilities()
@@ -160,16 +160,20 @@ base::Lock* AwRenderThreadContextProvider::GetLock() {
   return nullptr;
 }
 
-void AwRenderThreadContextProvider::SetLostContextCallback(
-    const LostContextCallback& lost_context_callback) {
-  lost_context_callback_ = lost_context_callback;
+void AwRenderThreadContextProvider::AddObserver(viz::ContextLostObserver* obs) {
+  observers_.AddObserver(obs);
+}
+
+void AwRenderThreadContextProvider::RemoveObserver(
+    viz::ContextLostObserver* obs) {
+  observers_.RemoveObserver(obs);
 }
 
 void AwRenderThreadContextProvider::OnLostContext() {
   DCHECK(main_thread_checker_.CalledOnValidThread());
 
-  if (!lost_context_callback_.is_null())
-    lost_context_callback_.Run();
+  for (auto& observer : observers_)
+    observer.OnContextLost();
   if (gr_context_)
     gr_context_->abandonContext();
 }

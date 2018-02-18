@@ -130,12 +130,9 @@ class LocalSafeBrowsingDatabaseManager
                          Client* client) override;
   bool CheckResourceUrl(const GURL& url, Client* client) override;
   AsyncMatch CheckCsdWhitelistUrl(const GURL& url, Client* client) override;
-  bool MatchCsdWhitelistUrl(const GURL& url) override;
   bool MatchMalwareIP(const std::string& ip_address) override;
   bool MatchDownloadWhitelistUrl(const GURL& url) override;
   bool MatchDownloadWhitelistString(const std::string& str) override;
-  bool IsMalwareKillSwitchOn() override;
-  bool IsCsdWhitelistKillSwitchOn() override;
   void CancelCheck(Client* client) override;
   void StartOnIOThread(net::URLRequestContextGetter* request_context_getter,
                        const V4ProtocolConfig& config) override;
@@ -154,6 +151,7 @@ class LocalSafeBrowsingDatabaseManager
   void HandleGetHashResults(SafeBrowsingCheck* check,
                             const std::vector<SBFullHashResult>& full_hashes,
                             const base::TimeDelta& cache_lifetime);
+  bool MatchCsdWhitelistUrl(const GURL& url);  // deprecated
 
   friend class base::RefCountedThreadSafe<LocalSafeBrowsingDatabaseManager>;
   friend class SafeBrowsingServerTest;

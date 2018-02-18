@@ -22,12 +22,12 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/omnibox_client.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/range/range.h"
 
 class GURL;
-class OmniboxClient;
 class OmniboxEditController;
 class OmniboxViewMacTest;
 class OmniboxEditModel;
@@ -146,11 +146,13 @@ class OmniboxView {
   virtual void ApplyCaretVisibility() = 0;
 
   // Called when the temporary text in the model may have changed.
-  // |display_text| is the new text to show; |save_original_selection| is true
-  // when there wasn't previously a temporary text and thus we need to save off
-  // the user's existing selection. |notify_text_changed| is true if the model
-  // should be notified of the change.
+  // |display_text| is the new text to show; |match_type| is the type of the
+  // match the new text came from. |save_original_selection| is true when there
+  // wasn't previously a temporary text and thus we need to save off the user's
+  // existing selection. |notify_text_changed| is true if the model should be
+  // notified of the change.
   virtual void OnTemporaryTextMaybeChanged(const base::string16& display_text,
+                                           const AutocompleteMatch& match,
                                            bool save_original_selection,
                                            bool notify_text_changed) = 0;
 

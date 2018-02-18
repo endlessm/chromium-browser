@@ -26,6 +26,7 @@
 #include "content/public/browser/notification_types.h"
 #include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/page_state.h"
+#include "content/public/common/url_utils.h"
 #include "content/public/test/browser_side_navigation_test_utils.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/navigation_simulator.h"
@@ -36,16 +37,21 @@ namespace content {
 
 TestWebContents::TestWebContents(BrowserContext* browser_context)
     : WebContentsImpl(browser_context),
-      delegate_view_override_(NULL),
+      delegate_view_override_(nullptr),
       expect_set_history_offset_and_length_(false),
-      expect_set_history_offset_and_length_history_length_(0) {
-}
+      expect_set_history_offset_and_length_history_length_(0) {}
 
 TestWebContents* TestWebContents::Create(BrowserContext* browser_context,
                                          scoped_refptr<SiteInstance> instance) {
   TestWebContents* test_web_contents = new TestWebContents(browser_context);
-  test_web_contents->Init(
-      WebContents::CreateParams(browser_context, std::move(instance)));
+  test_web_contents->Init(CreateParams(browser_context, std::move(instance)));
+  return test_web_contents;
+}
+
+TestWebContents* TestWebContents::Create(const CreateParams& params) {
+  TestWebContents* test_web_contents =
+      new TestWebContents(params.browser_context);
+  test_web_contents->Init(params);
   return test_web_contents;
 }
 
@@ -91,23 +97,8 @@ void TestWebContents::TestDidNavigate(RenderFrameHost* render_frame_host,
                                       bool did_create_new_entry,
                                       const GURL& url,
                                       ui::PageTransition transition) {
-  TestDidNavigateWithReferrer(render_frame_host,
-                              nav_entry_id,
-                              did_create_new_entry,
-                              url,
-                              Referrer(),
-                              transition);
-}
-
-void TestWebContents::TestDidNavigateWithReferrer(
-    RenderFrameHost* render_frame_host,
-    int nav_entry_id,
-    bool did_create_new_entry,
-    const GURL& url,
-    const Referrer& referrer,
-    ui::PageTransition transition) {
   TestDidNavigateWithSequenceNumber(render_frame_host, nav_entry_id,
-                                    did_create_new_entry, url, referrer,
+                                    did_create_new_entry, url, Referrer(),
                                     transition, false, -1, -1);
 }
 
@@ -299,12 +290,6 @@ void TestWebContents::CommitPendingNavigation() {
     old_rfh->OnSwappedOut();
 }
 
-void TestWebContents::ProceedWithCrossSiteNavigation() {
-  if (!GetPendingMainFrame())
-    return;
-  GetMainFrame()->SendBeforeUnloadACK(true);
-}
-
 RenderViewHostDelegateView* TestWebContents::GetDelegateView() {
   if (delegate_view_override_)
     return delegate_view_override_;
@@ -408,6 +393,10 @@ void TestWebContents::SaveFrameWithHeaders(const GURL& url,
 
 void TestWebContents::SetWasRecentlyAudible(bool audible) {
   audio_stream_monitor()->set_was_recently_audible_for_testing(audible);
+}
+
+void TestWebContents::SetIsCurrentlyAudible(bool audible) {
+  audio_stream_monitor()->set_is_currently_audible_for_testing(audible);
 }
 
 }  // namespace content

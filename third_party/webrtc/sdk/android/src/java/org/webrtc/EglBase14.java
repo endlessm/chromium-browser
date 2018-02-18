@@ -18,12 +18,14 @@ import android.opengl.EGLContext;
 import android.opengl.EGLDisplay;
 import android.opengl.EGLExt;
 import android.opengl.EGLSurface;
+import android.os.Build;
 import android.view.Surface;
 
 /**
  * Holds EGL state and utility methods for handling an EGL14 EGLContext, an EGLDisplay,
  * and an EGLSurface.
  */
+@SuppressWarnings("ReferenceEquality") // We want to compare to EGL14 constants.
 @TargetApi(18)
 class EglBase14 extends EglBase {
   private static final String TAG = "EglBase14";
@@ -48,10 +50,10 @@ class EglBase14 extends EglBase {
 
     @Override
     @SuppressWarnings("deprecation")
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     public long getNativeEglContext() {
-      return CURRENT_SDK_VERSION >= android.os.Build.VERSION_CODES.LOLLIPOP
-          ? egl14Context.getNativeHandle()
-          : egl14Context.getHandle();
+      return CURRENT_SDK_VERSION >= Build.VERSION_CODES.LOLLIPOP ? egl14Context.getNativeHandle()
+                                                                 : egl14Context.getHandle();
     }
 
     public Context(android.opengl.EGLContext eglContext) {

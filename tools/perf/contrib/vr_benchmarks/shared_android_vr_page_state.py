@@ -5,26 +5,29 @@
 import os
 from core import path_util
 path_util.AddAndroidPylibToPath()
-from page_sets import android_screen_restoration_shared_state as screen_state
 from pylib.utils import shared_preference_utils
 from telemetry.core import android_platform
 from telemetry.core import platform
 from telemetry.core import util
 from telemetry.internal.platform import android_device
+from telemetry.page import shared_page_state
 
 
-class SharedAndroidVrPageState(
-    screen_state.AndroidScreenRestorationSharedState):
+CARDBOARD_PATH = os.path.join('chrome', 'android', 'shared_preference_files',
+                              'test', 'vr_cardboard_skipdon_setupcomplete.json')
+
+
+class SharedAndroidVrPageState(shared_page_state.SharedPageState):
   """SharedPageState for VR Telemetry tests.
 
-  Performs the same functionality as SharedPageState, but with two main
+  Performs the same functionality as SharedPageState, but with three main
   differences:
   1. It is currently restricted to Android
   2. It performs VR-specific setup such as installing and configuring
      additional APKs that are necessary for testing
-
-  Also ensures that the screen is on before the test starts by inheriting from
-  AndroidScreenRestorationSharedState.
+  3. It cycles the screen off then on before each story, similar to how
+     AndroidScreenRestorationSharedState ensures that the screen is on. See
+     _CycleScreen() for an explanation on the reasoning behind this.
   """
   def __init__(self, test, finder_options, story_set):
     # TODO(bsheedy): See about making this a cross-platform SharedVrPageState -
@@ -43,7 +46,8 @@ class SharedAndroidVrPageState(
 
   def _PerformAndroidVrSetup(self):
     self._InstallVrCore()
-    self._ConfigureVrCore()
+    self._ConfigureVrCore(os.path.join(path_util.GetChromiumSrcDir(),
+                                       self._finder_options.shared_prefs_file))
     self._InstallNfcApk()
 
   def _InstallVrCore(self):
@@ -55,11 +59,9 @@ class SharedAndroidVrPageState(
                      'gvr-android-sdk', 'test-apks', 'vr_services',
                      'vr_services_current.apk'))
 
-  def _ConfigureVrCore(self):
-    """Configures VrCore using the settings file passed to the benchmark."""
-    settings = shared_preference_utils.ExtractSettingsFromJson(
-        os.path.join(path_util.GetChromiumSrcDir(),
-                     self._finder_options.shared_prefs_file))
+  def _ConfigureVrCore(self, filepath):
+    """Configures VrCore using the provided settings file."""
+    settings = shared_preference_utils.ExtractSettingsFromJson(filepath)
     for setting in settings:
       shared_pref = self._platform.GetSharedPrefs(setting['package'],
                                                   setting['filename'])
@@ -83,6 +85,34 @@ class SharedAndroidVrPageState(
     newest_apk_path = sorted(candidate_apks)[-1][1]
     self._platform.InstallApplication(
         os.path.join(chromium_root, newest_apk_path))
+
+  def WillRunStory(self, page):
+    super(SharedAndroidVrPageState, self).WillRunStory(page)
+    if not self._finder_options.disable_screen_reset:
+      self._CycleScreen()
+
+  def TearDownState(self):
+    super(SharedAndroidVrPageState, self).TearDownState()
+    # Re-apply Cardboard as the viewer to leave the device in a consistent
+    # state after a benchmark run
+    # TODO(bsheedy): Remove this after crbug.com/772969 is fixed
+    self._ConfigureVrCore(os.path.join(path_util.GetChromiumSrcDir(),
+                                       CARDBOARD_PATH))
+
+  def _CycleScreen(self):
+    """Cycles the screen off then on.
+
+    This is because VR test devices are set to have normal screen brightness and
+    automatically turn off after several minutes instead of the usual approach
+    of having the screen always on at minimum brightness. This is due to the
+    motion-to-photon latency test being sensitive to screen brightness, and min
+    brightness does not work well for it.
+
+    Simply using TurnScreenOn does not actually reset the timer for turning off
+    the screen, so instead cycle the screen to refresh it periodically.
+    """
+    self.platform.android_action_runner.TurnScreenOff()
+    self.platform.android_action_runner.TurnScreenOn()
 
   @property
   def platform(self):

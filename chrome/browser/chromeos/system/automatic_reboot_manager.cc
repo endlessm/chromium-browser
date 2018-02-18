@@ -54,7 +54,7 @@ const int kGracePeriodMs = 24 * 60 * 60 * 1000;    // 24 hours.
 const int kOneKilobyte = 1 << 10;                  // 1 kB in bytes.
 
 base::TimeDelta ReadTimeDeltaFromFile(const base::FilePath& path) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   base::ScopedFD fd(
       HANDLE_EINTR(open(path.value().c_str(), O_RDONLY | O_NOFOLLOW)));
   if (!fd.is_valid())
@@ -86,7 +86,7 @@ AutomaticRebootManager::SystemEventTimes GetSystemEventTimes() {
 }
 
 void SaveUpdateRebootNeededUptime() {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   const base::TimeDelta kZeroTimeDelta;
 
   base::FilePath update_reboot_needed_uptime_file;
@@ -111,7 +111,7 @@ void SaveUpdateRebootNeededUptime() {
     return;
 
   std::string update_reboot_needed_uptime =
-      base::DoubleToString(uptime.InSecondsF());
+      base::NumberToString(uptime.InSecondsF());
   base::WriteFileDescriptor(fd.get(), update_reboot_needed_uptime.c_str(),
                             update_reboot_needed_uptime.size());
 }

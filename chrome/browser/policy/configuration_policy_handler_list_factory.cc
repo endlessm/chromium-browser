@@ -28,6 +28,8 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
+#include "components/autofill/core/browser/autofill_credit_card_policy_handler.h"
+#include "components/autofill/core/browser/autofill_policy_handler.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "components/certificate_transparency/pref_names.h"
@@ -36,8 +38,6 @@
 #include "components/network_time/network_time_pref_names.h"
 #include "components/ntp_snippets/pref_names.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
-#include "components/policy/core/browser/autofill_credit_card_policy_handler.h"
-#include "components/policy/core/browser/autofill_policy_handler.h"
 #include "components/policy/core/browser/configuration_policy_handler.h"
 #include "components/policy/core/browser/configuration_policy_handler_list.h"
 #include "components/policy/core/browser/configuration_policy_handler_parameters.h"
@@ -51,7 +51,7 @@
 #include "components/prefs/pref_value_map.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "components/search_engines/default_search_policy_handler.h"
-#include "components/signin/core/common/signin_pref_names.h"
+#include "components/signin/core/browser/signin_pref_names.h"
 #include "components/spellcheck/spellcheck_build_features.h"
 #include "components/ssl_config/ssl_config_prefs.h"
 #include "components/sync/base/pref_names.h"
@@ -67,7 +67,7 @@
 #endif
 
 #if defined(OS_CHROMEOS)
-#include "ash/accessibility_types.h"
+#include "ash/public/cpp/accessibility_types.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "chrome/browser/chromeos/platform_keys/key_permissions_policy_handler.h"
 #include "chrome/browser/chromeos/policy/configuration_policy_handler_chromeos.h"
@@ -81,6 +81,7 @@
 #endif
 
 #if !defined(OS_ANDROID)
+#include "chrome/browser/download/default_download_dir_policy_handler.h"
 #include "chrome/browser/download/download_dir_policy_handler.h"
 #include "chrome/browser/policy/local_sync_policy_handler.h"
 #endif
@@ -283,11 +284,13 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kAllowCrossOriginAuthPrompt,
     prefs::kAllowCrossOriginAuthPrompt,
     base::Value::Type::BOOLEAN },
+#if defined(OS_POSIX)
+  { key::kNtlmV2Enabled,
+    prefs::kNtlmV2Enabled,
+    base::Value::Type::BOOLEAN },
+#endif  // defined(OS_POSIX)
   { key::kDisable3DAPIs,
     prefs::kDisable3DAPIs,
-    base::Value::Type::BOOLEAN },
-  { key::kDisablePluginFinder,
-    prefs::kDisablePluginFinder,
     base::Value::Type::BOOLEAN },
   { key::kDiskCacheSize,
     prefs::kDiskCacheSize,
@@ -311,7 +314,7 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
     prefs::kCloudPrintSubmitEnabled,
     base::Value::Type::BOOLEAN },
   { key::kTranslateEnabled,
-    prefs::kEnableTranslate,
+    prefs::kOfferTranslateEnabled,
     base::Value::Type::BOOLEAN },
   { key::kAllowOutdatedPlugins,
     prefs::kPluginsAllowOutdated,
@@ -333,6 +336,9 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
     base::Value::Type::BOOLEAN },
   { key::kAllowFileSelectionDialogs,
     prefs::kAllowFileSelectionDialogs,
+    base::Value::Type::BOOLEAN },
+  { key::kPromptForDownloadLocation,
+    prefs::kPromptForDownload,
     base::Value::Type::BOOLEAN },
 
   // First run import.
@@ -467,6 +473,9 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kFullscreenAllowed,
     extensions::pref_names::kAppFullscreenAllowed,
     base::Value::Type::BOOLEAN },
+  { key::kSecurityKeyPermitAttestation,
+    prefs::kSecurityKeyPermitAttestation,
+    base::Value::Type::LIST },
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 #endif  // !defined(OS_MACOSX)
 
@@ -700,9 +709,6 @@ const PolicyToPreferenceMapEntry kSimplePolicyMap[] = {
   { key::kCastReceiverEnabled,
     prefs::kCastReceiverEnabled,
     base::Value::Type::BOOLEAN },
-  { key::kCastReceiverName,
-    prefs::kCastReceiverName,
-    base::Value::Type::STRING },
 #endif
 
   { key::kRoamingProfileSupportEnabled,
@@ -814,6 +820,27 @@ class BrowsingHistoryPolicyHandler : public TypeCheckingPolicyHandler {
   }
 };
 
+class SecureOriginPolicyHandler : public TypeCheckingPolicyHandler {
+ public:
+  SecureOriginPolicyHandler()
+      : TypeCheckingPolicyHandler(key::kUnsafelyTreatInsecureOriginAsSecure,
+                                  base::Value::Type::LIST) {}
+  void ApplyPolicySettings(const PolicyMap& policies,
+                           PrefValueMap* prefs) override {
+    const base::Value* value = policies.GetValue(policy_name());
+    if (!value)
+      return;
+
+    std::string pref_string;
+    for (const auto& list_entry : value->GetList()) {
+      if (!pref_string.empty())
+        pref_string.append(",");
+      pref_string.append(list_entry.GetString());
+    }
+    prefs->SetString(prefs::kUnsafelyTreatInsecureOriginAsSecure, pref_string);
+  }
+};
+
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 void GetExtensionAllowedTypesMap(
     std::vector<std::unique_ptr<StringMappingListPolicyHandler::MappingEntry>>*
@@ -889,8 +916,9 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
         kSimplePolicyMap[i].value_type));
   }
 
-  handlers->AddHandler(base::MakeUnique<AutofillCreditCardPolicyHandler>());
-  handlers->AddHandler(base::MakeUnique<AutofillPolicyHandler>());
+  handlers->AddHandler(
+      base::MakeUnique<autofill::AutofillCreditCardPolicyHandler>());
+  handlers->AddHandler(base::MakeUnique<autofill::AutofillPolicyHandler>());
   handlers->AddHandler(base::MakeUnique<DefaultSearchPolicyHandler>());
   handlers->AddHandler(base::MakeUnique<ForceSafeSearchPolicyHandler>());
   handlers->AddHandler(base::MakeUnique<ForceYouTubeSafetyModePolicyHandler>());
@@ -906,6 +934,7 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
       certificate_transparency::prefs::kCTExcludedHosts, chrome_schema,
       SCHEMA_STRICT, SimpleSchemaValidatingPolicyHandler::RECOMMENDED_ALLOWED,
       SimpleSchemaValidatingPolicyHandler::MANDATORY_ALLOWED));
+  handlers->AddHandler(base::MakeUnique<SecureOriginPolicyHandler>());
 
 #if defined(OS_ANDROID)
   handlers->AddHandler(
@@ -965,7 +994,8 @@ std::unique_ptr<ConfigurationPolicyHandlerList> BuildHandlerList(
 #endif  // !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
 
 #if !defined(OS_ANDROID)
-  handlers->AddHandler(base::WrapUnique(new DownloadDirPolicyHandler));
+  handlers->AddHandler(base::MakeUnique<DefaultDownloadDirPolicyHandler>());
+  handlers->AddHandler(base::MakeUnique<DownloadDirPolicyHandler>());
   handlers->AddHandler(base::MakeUnique<LocalSyncPolicyHandler>());
 
   handlers->AddHandler(base::MakeUnique<SimpleSchemaValidatingPolicyHandler>(

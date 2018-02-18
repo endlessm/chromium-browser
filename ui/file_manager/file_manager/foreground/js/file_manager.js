@@ -540,6 +540,12 @@ FileManager.prototype = /** @struct */ {
       listBeingUpdated.endBatchUpdates();
       listBeingUpdated = null;
     });
+    this.volumeManager_.addEventListener(
+        VolumeManagerCommon.ARCHIVE_OPENED_EVENT_TYPE, function(event) {
+          assert(event.detail.mountPoint);
+          if (window.isFocused())
+            this.directoryModel_.changeDirectoryEntry(event.detail.mountPoint);
+        }.bind(this));
 
     this.directoryModel_.addEventListener(
         'directory-changed',
@@ -1027,7 +1033,7 @@ FileManager.prototype = /** @struct */ {
   /**
    * Constructs table and grid (heavy operation).
    * @private
-   **/
+   */
   FileManager.prototype.initFileList_ = function() {
     var singleSelection =
         this.dialogType == DialogType.SELECT_OPEN_FILE ||

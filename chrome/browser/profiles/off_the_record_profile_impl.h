@@ -50,6 +50,7 @@ class OffTheRecordProfileImpl : public Profile {
   void DestroyOffTheRecordProfile() override;
   bool HasOffTheRecordProfile() override;
   Profile* GetOriginalProfile() override;
+  const Profile* GetOriginalProfile() const override;
   bool IsSupervised() const override;
   bool IsChild() const override;
   bool IsLegacySupervised() const override;
@@ -90,8 +91,6 @@ class OffTheRecordProfileImpl : public Profile {
   PrefProxyConfigTracker* GetProxyConfigTracker() override;
 
   chrome_browser_net::Predictor* GetNetworkPredictor() override;
-  void ClearNetworkingHistorySince(base::Time time,
-                                   const base::Closure& completion) override;
   GURL GetHomePage() override;
 
   // content::BrowserContext implementation:
@@ -113,6 +112,7 @@ class OffTheRecordProfileImpl : public Profile {
   content::BackgroundSyncController* GetBackgroundSyncController() override;
   content::BrowsingDataRemoverDelegate* GetBrowsingDataRemoverDelegate()
       override;
+  media::VideoDecodePerfHistory* GetVideoDecodePerfHistory() override;
 
  private:
   void InitIoData();

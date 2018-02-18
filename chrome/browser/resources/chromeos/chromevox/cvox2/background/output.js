@@ -129,7 +129,7 @@ Output.ROLE_INFO_ = {
   buttonDropDown: {msgId: 'role_button', earconId: 'BUTTON'},
   checkBox: {msgId: 'role_checkbox'},
   columnHeader: {msgId: 'role_columnheader', inherits: 'cell'},
-  comboBox: {msgId: 'role_combobox', earconId: 'LISTBOX'},
+  comboBoxMenuButton: {msgId: 'role_combobox', earconId: 'LISTBOX'},
   complementary: {msgId: 'role_complementary', inherits: 'abstractContainer'},
   contentInfo: {msgId: 'role_contentinfo', inherits: 'abstractContainer'},
   date: {msgId: 'input_type_date', inherits: 'abstractContainer'},
@@ -194,8 +194,9 @@ Output.ROLE_INFO_ = {
   tab: {msgId: 'role_tab'},
   tabList: {msgId: 'role_tablist', inherits: 'abstractContainer'},
   tabPanel: {msgId: 'role_tabpanel'},
-  textBox: {msgId: 'input_type_text', earconId: 'EDITABLE_TEXT'},
+  searchBox: {msgId: 'role_search', earconId: 'EDITABLE_TEXT'},
   textField: {msgId: 'input_type_text', earconId: 'EDITABLE_TEXT'},
+  textFieldWithComboBox: {msgId: 'role_combobox', earconId: 'EDITABLE_TEXT'},
   time: {msgId: 'tag_time', inherits: 'abstractContainer'},
   timer: {msgId: 'role_timer'},
   toolbar: {msgId: 'role_toolbar', ignoreAncestry: true},
@@ -328,7 +329,7 @@ Output.RULES = {
           $name $role $checked $description $state $restriction`
     },
     client: {speak: `$name`},
-    comboBox: {
+    comboBoxMenuButton: {
       speak: `$name $value $node(activeDescendant)
           $state $restriction $role $description`,
     },
@@ -381,8 +382,8 @@ Output.RULES = {
           $restriction $description`
     },
     listBoxOption: {
-      speak: `$name $role @describe_index($posInSet, $setSize)
-          $description $state $restriction`
+      speak: `$state $name $role @describe_index($posInSet, $setSize)
+          $description $restriction`
     },
     listItem: {enter: `$name= $role $state $description`},
     listMarker: {speak: `$name`},
@@ -434,8 +435,8 @@ Output.RULES = {
           @describe_switch_off($name)) $description $state $restriction`
     },
     tab: {
-      speak: `@describe_tab($name) $state $restriction $description
-          $if($setSize, @describe_index($posInSet, $setSize))`,
+      speak: `@describe_tab($name) $description
+          @describe_index($posInSet, $setSize) $state $restriction `,
     },
     table: {
       enter: `@table_summary($name,

@@ -59,16 +59,13 @@ bool IsCacheableNTP(const content::WebContents* contents) {
 }
 
 // Returns true if |contents| are rendered inside an Instant process.
-bool InInstantProcess(Profile* profile,
+bool InInstantProcess(const InstantService* instant_service,
                       const content::WebContents* contents) {
-  if (!profile || !contents)
+  if (!instant_service || !contents)
     return false;
 
-  InstantService* instant_service =
-      InstantServiceFactory::GetForProfile(profile);
-  return instant_service &&
-         instant_service->IsInstantProcess(
-             contents->GetMainFrame()->GetProcess()->GetID());
+  return instant_service->IsInstantProcess(
+      contents->GetMainFrame()->GetProcess()->GetID());
 }
 
 // Called when an NTP finishes loading. If the load start time was noted,
@@ -110,18 +107,15 @@ bool IsHistorySyncEnabled(Profile* profile) {
 
 SearchTabHelper::SearchTabHelper(content::WebContents* web_contents)
     : WebContentsObserver(web_contents),
-      is_search_enabled_(search::IsInstantExtendedAPIEnabled()),
       web_contents_(web_contents),
       ipc_router_(web_contents,
                   this,
                   base::MakeUnique<SearchIPCRouterPolicyImpl>(web_contents)),
       instant_service_(nullptr) {
-  if (!is_search_enabled_)
+  if (!search::IsInstantExtendedAPIEnabled())
     return;
 
-  instant_service_ =
-      InstantServiceFactory::GetForProfile(
-          Profile::FromBrowserContext(web_contents_->GetBrowserContext()));
+  instant_service_ = InstantServiceFactory::GetForProfile(profile());
   if (instant_service_)
     instant_service_->AddObserver(this);
 }
@@ -132,7 +126,7 @@ SearchTabHelper::~SearchTabHelper() {
 }
 
 void SearchTabHelper::OmniboxInputStateChanged() {
-  if (!is_search_enabled_)
+  if (!search::IsInstantExtendedAPIEnabled())
     return;
 
   ipc_router_.SetInputInProgress(IsInputInProgress());
@@ -230,24 +224,27 @@ void SearchTabHelper::DidFinishNavigation(
                               search::CACHEABLE_NTP_LOAD_SUCCEEDED,
                               search::CACHEABLE_NTP_LOAD_MAX);
   }
+}
+
+void SearchTabHelper::TitleWasSet(content::NavigationEntry* entry) {
+  if (is_setting_title_ || !entry)
+    return;
 
   // Always set the title on the new tab page to be the one from our UI
-  // resources. Normally, we set the title when we begin a NTP load, but it can
-  // get reset in several places (like when you press Reload). This check
-  // ensures that the title is properly set to the string defined by the Chrome
-  // UI language (rather than the server language) in all cases.
+  // resources. This check ensures that the title is properly set to the string
+  // defined by the Chrome UI language (rather than the server language) in all
+  // cases.
   //
   // We only override the title when it's nonempty to allow the page to set the
   // title if it really wants. An empty title means to use the default. There's
   // also a race condition between this code and the page's SetTitle call which
   // this rule avoids.
-  content::NavigationEntry* entry =
-      web_contents_->GetController().GetLastCommittedEntry();
-  if (entry && entry->GetTitle().empty() &&
-      (entry->GetVirtualURL() == chrome::kChromeUINewTabURL ||
-       search::NavEntryIsInstantNTP(web_contents_, entry))) {
+  if (entry->GetTitle().empty() &&
+      search::NavEntryIsInstantNTP(web_contents_, entry)) {
+    is_setting_title_ = true;
     web_contents_->UpdateTitleForEntry(
         entry, l10n_util::GetStringUTF16(IDS_NEW_TAB_TITLE));
+    is_setting_title_ = false;
   }
 }
 
@@ -261,7 +258,7 @@ void SearchTabHelper::DidFinishLoad(content::RenderFrameHost* render_frame_host,
 
 void SearchTabHelper::NavigationEntryCommitted(
     const content::LoadCommittedDetails& load_details) {
-  if (!is_search_enabled_)
+  if (!search::IsInstantExtendedAPIEnabled())
     return;
 
   if (!load_details.is_main_frame)
@@ -270,7 +267,7 @@ void SearchTabHelper::NavigationEntryCommitted(
   if (search::IsInstantNTP(web_contents_))
     ipc_router_.SetInputInProgress(IsInputInProgress());
 
-  if (InInstantProcess(profile(), web_contents_))
+  if (InInstantProcess(instant_service_, web_contents_))
     ipc_router_.OnNavigationEntryCommitted();
 }
 

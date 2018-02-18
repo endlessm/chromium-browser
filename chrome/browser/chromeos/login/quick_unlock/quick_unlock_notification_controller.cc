@@ -5,13 +5,11 @@
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_notification_controller.h"
 
 #include "ash/system/system_notifier.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_utils.h"
-#include "chrome/browser/notifications/notification.h"
-#include "chrome/browser/notifications/notification_ui_manager.h"
+#include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
@@ -23,6 +21,7 @@
 #include "content/public/browser/notification_service.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/message_center/notification.h"
 
 namespace chromeos {
 namespace quick_unlock {
@@ -169,8 +168,10 @@ void QuickUnlockNotificationController::Observe(
     return;
   }
 
-  std::unique_ptr<Notification> notification = CreateNotification();
-  g_browser_process->notification_ui_manager()->Add(*notification, profile_);
+  std::unique_ptr<message_center::Notification> notification =
+      CreateNotification();
+  NotificationDisplayService::GetForProfile(profile_)->Display(
+      NotificationHandler::Type::TRANSIENT, *notification);
 }
 
 // message_center::NotificationDelegate override:
@@ -190,8 +191,8 @@ void QuickUnlockNotificationController::Click() {
   SetNotificationPreferenceWasShown();
 
   // Remove the notification from tray.
-  g_browser_process->notification_ui_manager()->CancelById(
-      params_.notification_id, NotificationUIManager::GetProfileID(profile_));
+  NotificationDisplayService::GetForProfile(profile_)->Close(
+      NotificationHandler::Type::TRANSIENT, params_.notification_id);
 }
 
 void QuickUnlockNotificationController::SetNotificationPreferenceWasShown() {
@@ -208,19 +209,19 @@ void QuickUnlockNotificationController::UnregisterObserver() {
   }
 }
 
-std::unique_ptr<Notification>
+std::unique_ptr<message_center::Notification>
 QuickUnlockNotificationController::CreateNotification() {
-  return base::MakeUnique<Notification>(
+  return std::make_unique<message_center::Notification>(
       message_center::NOTIFICATION_TYPE_SIMPLE, params_.notification_id,
       l10n_util::GetStringUTF16(params_.title_message_id),
       l10n_util::GetStringUTF16(params_.body_message_id),
       // TODO(http://crbug.com/291747): Change this to actual icon for
       // quick unlock feature notification.
       ui::ResourceBundle::GetSharedInstance().GetImageNamed(params_.icon_id),
+      l10n_util::GetStringUTF16(params_.feature_name_id), GURL(),
       message_center::NotifierId(message_center::NotifierId::SYSTEM_COMPONENT,
                                  params_.notifier),
-      l10n_util::GetStringUTF16(params_.feature_name_id), GURL(),
-      params_.notification_id, message_center::RichNotificationData(), this);
+      message_center::RichNotificationData(), this);
 }
 
 QuickUnlockNotificationController::NotificationParams::NotificationParams() {}

@@ -19,24 +19,26 @@
 #define I18N_ADDRESSINPUT_TEST_TESTDATA_SOURCE_H_
 
 #include <libaddressinput/source.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <string>
 
 namespace i18n {
 namespace addressinput {
 
+// The name of the test data file.
+extern const char kDataFileName[];
+
 // Gets address metadata from a text file. Sample usage:
 //    class MyClass {
 //     public:
-//      MyClass() : data_ready_(BuildCallback(this, &MyClass::OnDataReady)) {
-//        base::FilePath src_path;
-//        CHECK(PathService::Get(base::DIR_SOURCE_ROOT, &src_path));
-//        source_ = new TestdataSource(/*aggregate=*/true,
-//                                     src_path.value() + '/');
-//      }
+//      MyClass(const MyClass&) = delete;
+//      MyClass& operator=(const MyClass&) = delete;
 //
-//      ~MyClass() { delete source_; }
+//      MyClass() : data_ready_(BuildCallback(this, &MyClass::OnDataReady)),
+//                  source_(/*aggregate=*/true,
+//                          "path/to/test/data/file") {}
+//
+//      ~MyClass() {}
 //
 //      void GetData(const std::string& key) {
 //        source_->Get(key, *data_ready_);
@@ -51,27 +53,28 @@ namespace addressinput {
 //      }
 //
 //      const std::unique_ptr<const Source::Callback> data_ready_;
-//      const TestdataSource* source_;
-//
-//      DISALLOW_COPY_AND_ASSIGN(MyClass);
+//      const TestdataSource source_;
 //    };
 class TestdataSource : public Source {
  public:
+  TestdataSource(const TestdataSource&) = delete;
+  TestdataSource& operator=(const TestdataSource&) = delete;
+
   // Will return aggregate data if |aggregate| is set to true.
+  // This constructor uses a relative path to the test file.
   explicit TestdataSource(bool aggregate);
-  // |src_path| is the root of the source tree.
+
+  // |src_path| is a path to the test data file.
   TestdataSource(bool aggregate, const std::string& src_path);
 
-  virtual ~TestdataSource();
+  ~TestdataSource() override;
 
   // Source implementation.
-  virtual void Get(const std::string& key, const Callback& data_ready) const;
+  void Get(const std::string& key, const Callback& data_ready) const override;
 
  private:
   const bool aggregate_;
   const std::string src_path_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestdataSource);
 };
 
 }  // namespace addressinput

@@ -21,6 +21,10 @@ namespace content {
 class WebContents;
 }
 
+namespace password_manager {
+class PasswordFormMetricsRecorder;
+}
+
 class PasswordsModelDelegate;
 class Profile;
 
@@ -118,6 +122,8 @@ class ManagePasswordsBubbleModel {
 
   bool hide_eye_icon() const { return hide_eye_icon_; }
 
+  bool enable_editing() const { return enable_editing_; }
+
   Profile* GetProfile() const;
   content::WebContents* GetWebContents() const;
 
@@ -168,6 +174,15 @@ class ManagePasswordsBubbleModel {
 
   // True iff the eye icon should be hidden for privacy reasons.
   bool hide_eye_icon_;
+
+  // True iff username/password editing should be enabled.
+  bool enable_editing_;
+
+  // Reference to metrics recorder of the PasswordForm presented to the user by
+  // |this|. We hold on to this because |delegate_| may not be able to provide
+  // the reference anymore when we need it.
+  scoped_refptr<password_manager::PasswordFormMetricsRecorder>
+      metrics_recorder_;
 
   DISALLOW_COPY_AND_ASSIGN(ManagePasswordsBubbleModel);
 };

@@ -57,12 +57,11 @@ ConnectionType GetConnectionType() {
   struct sockaddr_in addr = {0};
   addr.sin_len = sizeof(addr);
   addr.sin_family = AF_INET;
-  SCNetworkReachabilityRef reachability =
+  base::ScopedCFTypeRef<SCNetworkReachabilityRef> reachability(
       SCNetworkReachabilityCreateWithAddress(
-          kCFAllocatorDefault, reinterpret_cast<struct sockaddr*>(&addr));
+          kCFAllocatorDefault, reinterpret_cast<struct sockaddr*>(&addr)));
   SCNetworkReachabilityFlags flags;
   BOOL success = SCNetworkReachabilityGetFlags(reachability, &flags);
-  CFRelease(reachability);
   if (!success) {
     return ConnectionType::UNKNOWN;
   }
@@ -299,14 +298,6 @@ ConnectionType GetConnectionType() {
 #pragma mark - UIViewControllerTransitioningDelegate
 
 - (nullable id<UIViewControllerAnimatedTransitioning>)
-animationControllerForPresentedController:(UIViewController*)presented
-                     presentingController:(UIViewController*)presenting
-                         sourceController:(UIViewController*)source {
-  // TODO(nicholss): Not implemented yet.
-  return nil;
-}
-
-- (nullable id<UIViewControllerAnimatedTransitioning>)
 animationControllerForDismissedController:(UIViewController*)dismissed {
   return self;
 }
@@ -369,15 +360,6 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
       contentViewController.collectionView;
   self.contentViewController = contentViewController;
   self.contentViewController.view.frame = self.view.bounds;
-
-  if (@available(iOS 11.0, *)) {
-    // TODO(crbug.com/766892): This is a workaround for material component bug
-    // https://github.com/material-components/material-components-ios/issues/1962
-    // Remove once it is resolved.
-    self.headerViewController.headerView.trackingScrollView
-        .contentInsetAdjustmentBehavior =
-        UIScrollViewContentInsetAdjustmentNever;
-  }
 }
 
 - (void)handleHostListFetchFailure:(HostListFetchFailureReason)reason {

@@ -71,7 +71,14 @@ class NetworkStateListDetailedView::InfoBubble
     AddChildView(content);
   }
 
-  ~InfoBubble() override { detailed_view_->OnInfoBubbleDestroyed(); }
+  ~InfoBubble() override {
+    // The detailed view can be destructed before info bubble is destructed.
+    // Call OnInfoBubbleDestroyed only if the detailed view is live.
+    if (detailed_view_)
+      detailed_view_->OnInfoBubbleDestroyed();
+  }
+
+  void OnNetworkStateListDetailedViewIsDeleting() { detailed_view_ = nullptr; }
 
  private:
   // View:
@@ -111,8 +118,8 @@ class NetworkStateListDetailedView::InfoBubble
 // Special layout to overlap the scanning throbber and the info button.
 class InfoThrobberLayout : public views::LayoutManager {
  public:
-  InfoThrobberLayout() {}
-  ~InfoThrobberLayout() override {}
+  InfoThrobberLayout() = default;
+  ~InfoThrobberLayout() override = default;
 
   // views::LayoutManager
   void Layout(views::View* host) override {
@@ -171,6 +178,8 @@ NetworkStateListDetailedView::NetworkStateListDetailedView(
       info_bubble_(nullptr) {}
 
 NetworkStateListDetailedView::~NetworkStateListDetailedView() {
+  if (info_bubble_)
+    info_bubble_->OnNetworkStateListDetailedViewIsDeleting();
   ResetInfoBubble();
 }
 
@@ -178,6 +187,10 @@ void NetworkStateListDetailedView::Update() {
   UpdateNetworkList();
   UpdateHeaderButtons();
   Layout();
+}
+
+void NetworkStateListDetailedView::ToggleInfoBubbleForTesting() {
+  ToggleInfoBubble();
 }
 
 void NetworkStateListDetailedView::Init() {
@@ -308,6 +321,10 @@ bool NetworkStateListDetailedView::ResetInfoBubble() {
 
 void NetworkStateListDetailedView::OnInfoBubbleDestroyed() {
   info_bubble_ = nullptr;
+
+  // Widget of info bubble is activated while info bubble is shown. To move
+  // focus back to the widget of this view, activate it again here.
+  GetWidget()->Activate();
 }
 
 views::View* NetworkStateListDetailedView::CreateNetworkInfoView() {
@@ -316,7 +333,7 @@ views::View* NetworkStateListDetailedView::CreateNetworkInfoView() {
   std::string ip_address, ipv6_address;
   const NetworkState* network = handler->DefaultNetwork();
   if (network) {
-    ip_address = network->ip_address();
+    ip_address = network->GetIpAddress();
     const DeviceState* device = handler->GetDeviceState(network->device_path());
     if (device)
       ipv6_address = device->GetIpAddressByType(shill::kTypeIPv6);

@@ -34,9 +34,6 @@ class SystemTrayClient : public ash::mojom::SystemTrayClient,
 
   static SystemTrayClient* Get();
 
-  // Returns the login state based on the user type, lock screen status, etc.
-  static ash::LoginStatus GetUserLoginStatus();
-
   // Returns the container id for the parent window for new dialogs. The parent
   // varies based on the current login and lock screen state.
   static int GetDialogParentContainerId();
@@ -80,6 +77,7 @@ class SystemTrayClient : public ash::mojom::SystemTrayClient,
   void ShowNetworkConfigure(const std::string& network_id) override;
   void ShowNetworkCreate(const std::string& type) override;
   void ShowThirdPartyVpnCreate(const std::string& extension_id) override;
+  void ShowArcVpnCreate(const std::string& app_id) override;
   void ShowNetworkSettings(const std::string& network_id) override;
   void RequestRestartForUpdate() override;
 

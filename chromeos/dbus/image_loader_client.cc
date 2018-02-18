@@ -21,9 +21,9 @@ namespace {
 
 class ImageLoaderClientImpl : public ImageLoaderClient {
  public:
-  ImageLoaderClientImpl() {}
+  ImageLoaderClientImpl() = default;
 
-  ~ImageLoaderClientImpl() override {}
+  ~ImageLoaderClientImpl() override = default;
 
   void RegisterComponent(const std::string& name,
                          const std::string& version,
@@ -48,6 +48,17 @@ class ImageLoaderClientImpl : public ImageLoaderClient {
     writer.AppendString(name);
     proxy_->CallMethod(&method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
                        base::BindOnce(&ImageLoaderClientImpl::OnStringMethod,
+                                      std::move(callback)));
+  }
+
+  void RemoveComponent(const std::string& name,
+                       DBusMethodCallback<bool> callback) override {
+    dbus::MethodCall method_call(imageloader::kImageLoaderServiceInterface,
+                                 imageloader::kRemoveComponent);
+    dbus::MessageWriter writer(&method_call);
+    writer.AppendString(name);
+    proxy_->CallMethod(&method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                       base::BindOnce(&ImageLoaderClientImpl::OnBoolMethod,
                                       std::move(callback)));
   }
 
@@ -111,9 +122,9 @@ class ImageLoaderClientImpl : public ImageLoaderClient {
 
 }  // namespace
 
-ImageLoaderClient::ImageLoaderClient() {}
+ImageLoaderClient::ImageLoaderClient() = default;
 
-ImageLoaderClient::~ImageLoaderClient() {}
+ImageLoaderClient::~ImageLoaderClient() = default;
 
 // static
 ImageLoaderClient* ImageLoaderClient::Create() {

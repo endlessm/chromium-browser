@@ -38,6 +38,7 @@
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings_factory.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
+#include "chrome/browser/picture_in_picture/picture_in_picture_window_controller.h"
 #include "chrome/browser/plugins/chrome_plugin_service_filter.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
@@ -65,9 +66,9 @@
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_features.h"
+#include "chrome/common/chrome_render_frame.mojom.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/content_restriction.h"
-#include "chrome/common/image_context_menu_renderer.mojom.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/url_constants.h"
@@ -78,7 +79,6 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/guest_view/browser/guest_view_base.h"
-#include "components/metrics/proto/omnibox_input_type.pb.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
@@ -121,10 +121,12 @@
 #include "ppapi/features/features.h"
 #include "printing/features/features.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/WebKit/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/WebKit/public/public_features.h"
 #include "third_party/WebKit/public/web/WebContextMenuData.h"
 #include "third_party/WebKit/public/web/WebMediaPlayerAction.h"
 #include "third_party/WebKit/public/web/WebPluginAction.h"
+#include "third_party/metrics_proto/omnibox_input_type.pb.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -167,7 +169,10 @@
 #endif
 
 #if defined(OS_CHROMEOS)
+#include "ash/public/cpp/window_properties.h"
+#include "ash/public/interfaces/window_pin_type.mojom.h"
 #include "chrome/browser/chromeos/arc/intent_helper/open_with_menu.h"
+#include "ui/aura/window.h"
 #endif
 
 using base::UserMetricsAction;
@@ -326,10 +331,11 @@ const struct UmaEnumCommandIdPair {
     {88, -1, IDC_CONTENT_CONTEXT_EXIT_FULLSCREEN},
     {89, -1, IDC_CONTENT_CONTEXT_OPENLINKBOOKMARKAPP},
     {90, -1, IDC_CONTENT_CONTEXT_SHOWALLSAVEDPASSWORDS},
+    {91, -1, IDC_CONTENT_CONTENT_PICTUREINPICTURE},
     // Add new items here and use |enum_id| from the next line.
     // Also, add new items to RenderViewContextMenuItem enum in
     // tools/metrics/histograms/enums.xml.
-    {91, -1, 0},  // Must be the last. Increment |enum_id| when new IDC
+    {92, -1, 0},  // Must be the last. Increment |enum_id| when new IDC
                   // was added.
 };
 
@@ -448,7 +454,7 @@ void WriteURLToClipboard(const GURL& url) {
                 net::UnescapeRule::NONE, nullptr, nullptr, nullptr);
 
   ui::ScopedClipboardWriter scw(ui::CLIPBOARD_TYPE_COPY_PASTE);
-  scw.WriteURL(text);
+  scw.WriteText(text);
 }
 
 bool g_custom_id_ranges_initialized = false;
@@ -519,32 +525,6 @@ const extensions::Extension* GetBookmarkAppForURL(
 }
 
 }  // namespace
-
-// static
-gfx::Vector2d RenderViewContextMenu::GetOffset(
-    RenderFrameHost* render_frame_host) {
-  gfx::Vector2d offset;
-#if BUILDFLAG(ENABLE_EXTENSIONS)
-  // When --use-cross-process-frames-for-guests is enabled, the position is
-  // transformed in the browser process hittesting code.
-  WebContents* web_contents =
-      WebContents::FromRenderFrameHost(render_frame_host);
-  // TODO(ekaramad): For now, MimeHandlerView is based on BrowserPlugin even
-  // when guests use OOPIF. Remove the check below when MimeHandlerView is also
-  // based on OOPIF (https://crbug.com/642826).
-  if (!content::GuestMode::IsCrossProcessFrameGuest(web_contents)) {
-    WebContents* top_level_web_contents =
-        guest_view::GuestViewBase::GetTopLevelWebContents(web_contents);
-    if (web_contents && top_level_web_contents &&
-        web_contents != top_level_web_contents) {
-      gfx::Rect bounds = web_contents->GetContainerBounds();
-      gfx::Rect top_level_bounds = top_level_web_contents->GetContainerBounds();
-      offset = bounds.origin() - top_level_bounds.origin();
-    }
-  }
-#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
-  return offset;
-}
 
 // static
 bool RenderViewContextMenu::IsDevToolsURL(const GURL& url) {
@@ -968,8 +948,7 @@ std::string RenderViewContextMenu::GetTargetLanguage() const {
   std::unique_ptr<translate::TranslatePrefs> prefs(
       ChromeTranslateClient::CreateTranslatePrefs(GetPrefs(browser_context_)));
   language::LanguageModel* language_model =
-      LanguageModelFactory::GetInstance()->GetForBrowserContext(
-          browser_context_);
+      LanguageModelFactory::GetForBrowserContext(browser_context_);
   return translate::TranslateManager::GetTargetLanguage(prefs.get(),
                                                         language_model);
 }
@@ -1261,6 +1240,7 @@ void RenderViewContextMenu::AppendVideoItems() {
                                   IDS_CONTENT_CONTEXT_SAVEVIDEOAS);
   menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_COPYAVLOCATION,
                                   IDS_CONTENT_CONTEXT_COPYVIDEOLOCATION);
+  AppendPictureInPictureItem();
   AppendMediaRouterItem();
 }
 
@@ -1308,15 +1288,21 @@ void RenderViewContextMenu::AppendPageItems() {
   AppendMediaRouterItem();
 
   if (TranslateService::IsTranslatableURL(params_.page_url)) {
-    // TODO(crbug.com/711217): We should not allow to use the translate when the
-    // feature is disabled by the PolicyList.
-    std::string locale = GetTargetLanguage();
-    base::string16 language =
-        l10n_util::GetDisplayNameForLocale(locale, locale, true);
-    menu_model_.AddItem(
-        IDC_CONTENT_CONTEXT_TRANSLATE,
-        l10n_util::GetStringFUTF16(IDS_CONTENT_CONTEXT_TRANSLATE, language));
-    AddGoogleIconToLastMenuItem(&menu_model_);
+    std::unique_ptr<translate::TranslatePrefs> prefs(
+        ChromeTranslateClient::CreateTranslatePrefs(
+            GetPrefs(browser_context_)));
+    if (prefs->IsTranslateAllowedByPolicy()) {
+      language::LanguageModel* language_model =
+          LanguageModelFactory::GetForBrowserContext(browser_context_);
+      std::string locale = translate::TranslateManager::GetTargetLanguage(
+          prefs.get(), language_model);
+      base::string16 language =
+          l10n_util::GetDisplayNameForLocale(locale, locale, true);
+      menu_model_.AddItem(
+          IDC_CONTENT_CONTEXT_TRANSLATE,
+          l10n_util::GetStringFUTF16(IDS_CONTENT_CONTEXT_TRANSLATE, language));
+      AddGoogleIconToLastMenuItem(&menu_model_);
+    }
   }
 }
 
@@ -1552,9 +1538,30 @@ void RenderViewContextMenu::AppendPasswordItems() {
     menu_model_.AddSeparator(ui::NORMAL_SEPARATOR);
 }
 
+void RenderViewContextMenu::AppendPictureInPictureItem() {
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnablePictureInPicture))
+    menu_model_.AddItemWithStringId(IDC_CONTENT_CONTENT_PICTUREINPICTURE,
+                                    IDS_CONTENT_CONTENT_PICTUREINPICTURE);
+}
+
 // Menu delegate functions -----------------------------------------------------
 
 bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
+#if defined(OS_CHROMEOS)
+  // Disable context menu in locked fullscreen mode (the menu is not really
+  // disabled as the user can still open it, but all the individual context menu
+  // entries are disabled / greyed out).
+  if (GetBrowser()) {
+    aura::Window* window = GetBrowser()->window()->GetNativeWindow();
+    ash::mojom::WindowPinType type =
+        window->GetProperty(ash::kWindowPinTypeKey);
+    if (type == ash::mojom::WindowPinType::TRUSTED_PINNED) {
+      return false;
+    }
+  }
+#endif
+
   {
     bool enabled = false;
     if (RenderViewContextMenuBase::IsCommandIdKnown(id, &enabled))
@@ -1744,6 +1751,8 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
       return IsRouteMediaEnabled();
 
     case IDC_CONTENT_CONTEXT_EXIT_FULLSCREEN:
+    // TODO(apacible): Update PIP conditions when finalized.
+    case IDC_CONTENT_CONTENT_PICTUREINPICTURE:
       return true;
 
     default:
@@ -1938,7 +1947,7 @@ void RenderViewContextMenu::ExecuteCommand(int id, int event_flags) {
       break;
 
     case IDC_VIEW_SOURCE:
-      embedder_web_contents_->ViewSource();
+      embedder_web_contents_->GetMainFrame()->ViewSource();
       break;
 
     case IDC_CONTENT_CONTEXT_INSPECTELEMENT:
@@ -1961,8 +1970,8 @@ void RenderViewContextMenu::ExecuteCommand(int id, int event_flags) {
       break;
 
     case IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE:
-      source_web_contents_->ViewFrameSource(params_.frame_url,
-                                            params_.frame_page_state);
+      if (GetRenderFrameHost())
+        GetRenderFrameHost()->ViewSource();
       break;
 
     case IDC_CONTENT_CONTEXT_UNDO:
@@ -2026,6 +2035,10 @@ void RenderViewContextMenu::ExecuteCommand(int id, int event_flags) {
       password_manager_util::UserTriggeredShowAllSavedPasswordsFromContextMenu(
           autofill::ChromeAutofillClient::FromWebContents(
               source_web_contents_));
+      break;
+
+    case IDC_CONTENT_CONTENT_PICTUREINPICTURE:
+      ExecPictureInPicture();
       break;
 
     default:
@@ -2452,9 +2465,10 @@ void RenderViewContextMenu::ExecLoadOriginalImage() {
   RenderFrameHost* render_frame_host = GetRenderFrameHost();
   if (!render_frame_host)
     return;
-  chrome::mojom::ImageContextMenuRendererPtr renderer;
-  render_frame_host->GetRemoteInterfaces()->GetInterface(&renderer);
-  renderer->RequestReloadImageForContextNode();
+  chrome::mojom::ChromeRenderFrameAssociatedPtr chrome_render_frame;
+  render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
+      &chrome_render_frame);
+  chrome_render_frame->RequestReloadImageForContextNode();
 }
 
 void RenderViewContextMenu::ExecPlayPause() {
@@ -2604,6 +2618,17 @@ void RenderViewContextMenu::ExecProtocolHandlerSettings(int event_flags) {
       ForceNewTabDispositionFromEventFlags(event_flags);
   GURL url = chrome::GetSettingsUrl(chrome::kHandlerSettingsSubPage);
   OpenURL(url, GURL(), disposition, ui::PAGE_TRANSITION_LINK);
+}
+
+void RenderViewContextMenu::ExecPictureInPicture() {
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnablePictureInPicture))
+    return;
+
+  PictureInPictureWindowController* window_controller =
+      PictureInPictureWindowController::GetOrCreateForWebContents(
+          embedder_web_contents_);
+  window_controller->Show();
 }
 
 void RenderViewContextMenu::WriteURLToClipboard(const GURL& url) {

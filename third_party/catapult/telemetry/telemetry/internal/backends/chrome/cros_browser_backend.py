@@ -26,6 +26,7 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     # Initialize fields so that an explosion during init doesn't break in Close.
     self._cri = cri
     self._is_guest = is_guest
+    # TODO(#1977): Move forwarder to network_controller.
     self._forwarder = None
     self._remote_debugging_port = None
     self._port = None
@@ -77,7 +78,6 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     logging.info('Browser target: %s', self._browser_target)
 
     if not self._cri.local:
-      # TODO(crbug.com/404771): Move port forwarding to network_controller.
       self._port = util.GetUnreservedAvailableLocalPort()
       self._forwarder = self._platform_backend.forwarder_factory.Create(
           forwarders.PortPair(self._port, self._remote_debugging_port),
@@ -251,6 +251,16 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
 
   def SymbolizeMinidump(self, minidump_path):
     return None
+
+  @property
+  def supports_overview_mode(self): # pylint: disable=invalid-name
+    return True
+
+  def EnterOverviewMode(self, timeout):
+    self.devtools_client.window_manager_backend.EnterOverviewMode(timeout)
+
+  def ExitOverviewMode(self, timeout):
+    self.devtools_client.window_manager_backend.ExitOverviewMode(timeout)
 
   @property
   @decorators.Cache

@@ -253,12 +253,12 @@ class ArcAppLauncherBrowserTest : public ExtensionBrowserTest {
       arc_session_manager()->SetProfile(profile());
       arc::ArcServiceLauncher::Get()->OnPrimaryUserProfilePrepared(profile());
     }
-    app_instance_observer()->OnInstanceReady();
+    app_connection_observer()->OnConnectionReady();
   }
 
   void StopInstance() {
     arc_session_manager()->Shutdown();
-    app_instance_observer()->OnInstanceClosed();
+    app_connection_observer()->OnConnectionClosed();
   }
 
   ash::ShelfItemDelegate* GetShelfItemDelegate(const std::string& id) {
@@ -274,8 +274,7 @@ class ArcAppLauncherBrowserTest : public ExtensionBrowserTest {
 
   // Returns as AppInstance observer interface in order to access to private
   // implementation of the interface.
-  arc::InstanceHolder<arc::mojom::AppInstance>::Observer*
-  app_instance_observer() {
+  arc::ConnectionObserver<arc::mojom::AppInstance>* app_connection_observer() {
     return app_prefs();
   }
 
@@ -593,6 +592,13 @@ IN_PROC_BROWSER_TEST_F(ArcAppLauncherBrowserTest, ShelfGroup) {
                             CreateIntentUriWithShelfGroup(kTestShelfGroup3));
 
   ASSERT_EQ(delegate3, GetShelfItemDelegate(shelf_id3));
+
+  ChromeLauncherController* controller = ChromeLauncherController::instance();
+  const ash::ShelfItem* item1 = controller->GetItem(ash::ShelfID(shelf_id1));
+  ASSERT_TRUE(item1);
+
+  // The shelf group item's title should be the title of the referenced ARC app.
+  EXPECT_EQ(base::UTF8ToUTF16(kTestAppName), item1->title);
 
   // Destroy task #0, this kills shelf group 1
   app_host()->OnTaskDestroyed(1);

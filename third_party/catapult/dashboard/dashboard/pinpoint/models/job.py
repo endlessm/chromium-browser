@@ -4,8 +4,10 @@
 
 import collections
 import datetime
+import itertools
 import logging
 import os
+import re
 import traceback
 import uuid
 
@@ -17,7 +19,6 @@ from dashboard.common import utils
 from dashboard.pinpoint.models import attempt as attempt_module
 from dashboard.pinpoint.models import change as change_module
 from dashboard.pinpoint.models import mann_whitney_u
-from dashboard.services import gitiles_service
 from dashboard.services import issue_tracker_service
 
 
@@ -26,8 +27,13 @@ from dashboard.services import issue_tracker_service
 _TASK_INTERVAL = 10
 
 
-_DEFAULT_REPEAT_COUNT = 15
+_REPEAT_COUNT_INCREASE = 10
+_MAX_REPEAT_COUNT = 30
+
+
+_QUESTIONABLE_SIGNIFICANCE_LEVEL = 0.1
 _SIGNIFICANCE_LEVEL = 0.001
+_MINIMUM_VALUE_COUNT = 8
 
 
 _DIFFERENT = 'different'
@@ -70,8 +76,6 @@ class Job(ndb.Model):
   # Request parameters.
   arguments = ndb.JsonProperty(required=True)
 
-  repeat_count = ndb.IntegerProperty(required=True)
-
   # If True, the service should pick additional Changes to run (bisect).
   # If False, only run the Changes explicitly added by the user.
   auto_explore = ndb.BooleanProperty(required=True)
@@ -80,19 +84,16 @@ class Job(ndb.Model):
   # completes. This probably should not be the responsibility of Pinpoint.
   bug_id = ndb.IntegerProperty()
 
-  state = ndb.PickleProperty(required=True)
+  state = ndb.PickleProperty(required=True, compressed=True)
 
   @classmethod
-  def New(cls, arguments, quests, auto_explore,
-          repeat_count=_DEFAULT_REPEAT_COUNT, bug_id=None):
-    repeat_count = repeat_count or _DEFAULT_REPEAT_COUNT
+  def New(cls, arguments, quests, auto_explore, bug_id=None):
     # Create job.
     return cls(
         arguments=arguments,
         auto_explore=auto_explore,
-        repeat_count=repeat_count,
         bug_id=bug_id,
-        state=_JobState(quests, repeat_count))
+        state=_JobState(quests))
 
   @property
   def job_id(self):
@@ -124,40 +125,49 @@ class Job(ndb.Model):
 
   def _Complete(self):
     # Format bug comment.
-
-    # Include list of Changes.
     differences = tuple(self.state.Differences())
 
+    if not differences:
+      title = "<b>%s Couldn't reproduce a difference.</b>" % _ROUND_PUSHPIN
+      self._PostBugComment('\n'.join((title, self.url)))
+      return
+
+    # Include list of Changes.
+    owner = None
+    cc_list = set()
+    commit_details = []
+    for _, change in differences:
+      commit_info = change.last_commit.Details()
+
+      author = commit_info['author']['email']
+      owner = author  # TODO: Assign the largest difference, not the last one.
+      cc_list.add(author)
+      cc_list |= frozenset(re.findall('Reviewed-by: .+ <(.+)>',
+                                      commit_info['message']))
+      commit_details.append(_FormatCommitForBug(
+          change.last_commit, commit_info))
+
     # Header.
-    if differences:
-      if len(differences) == 1:
-        status = 'Found a significant difference after 1 commit.'
-      else:
-        status = ('Found significant differences after each of %d commits.' %
-                  len(differences))
+    if len(differences) == 1:
+      status = 'Found a significant difference after 1 commit.'
     else:
-      status = "Couldn't reproduce a difference."
+      status = ('Found significant differences after each of %d commits.' %
+                len(differences))
 
     title = '<b>%s %s</b>' % (_ROUND_PUSHPIN, status)
     header = '\n'.join((title, self.url))
 
     # Body.
-    change_details = []
-    for _, change in differences:
-      change_details.append(_FormatChangeForBug(change))
-    body = '\n\n'.join(change_details)
+    body = '\n\n'.join(commit_details)
 
     # Footer.
-    if differences:
-      footer = ('Understanding performance regressions:\n'
-                '  http://g.co/ChromePerformanceRegressions')
-    else:
-      footer = ''
+    footer = ('Understanding performance regressions:\n'
+              '  http://g.co/ChromePerformanceRegressions')
 
     # Bring it all together.
-    comment = '\n\n'.join(section for section in (header, body, footer)
-                          if section)
-    self._PostBugComment(comment)
+    comment = '\n\n'.join((header, body, footer))
+    self._PostBugComment(comment, status='Assigned',
+                         cc_list=sorted(cc_list), owner=owner)
 
   def _Fail(self):
     self.exception = traceback.format_exc()
@@ -222,13 +232,13 @@ class Job(ndb.Model):
       d.update(self.state.AsDict())
     return d
 
-  def _PostBugComment(self, comment, send_email=True):
+  def _PostBugComment(self, *args, **kwargs):
     if not self.bug_id:
       return
 
     issue_tracker = issue_tracker_service.IssueTrackerService(
         utils.ServiceAccountHttp())
-    issue_tracker.AddBugComment(self.bug_id, comment, send_email=send_email)
+    issue_tracker.AddBugComment(self.bug_id, *args, **kwargs)
 
 
 class _JobState(object):
@@ -241,12 +251,11 @@ class _JobState(object):
   anyway. Everything queryable should be on the Job object.
   """
 
-  def __init__(self, quests, repeat_count):
+  def __init__(self, quests):
     """Create a _JobState.
 
     Args:
       quests: A sequence of quests to run on each Change.
-      repeat_count: The number of attempts to automatically run per Change.
     """
     # _quests is mutable. Any modification should mutate the existing list
     # in-place rather than assign a new list, because every Attempt references
@@ -260,11 +269,13 @@ class _JobState(object):
     # A mapping from a Change to a list of Attempts on that Change.
     self._attempts = {}
 
-    self._repeat_count = repeat_count
-
-  def AddAttempt(self, change):
+  def AddAttempts(self, change):
     assert change in self._attempts
-    self._attempts[change].append(attempt_module.Attempt(self._quests, change))
+    attempt_count = min(_REPEAT_COUNT_INCREASE,
+                        _MAX_REPEAT_COUNT - len(self._attempts[change]))
+    for _ in xrange(attempt_count):
+      self._attempts[change].append(
+          attempt_module.Attempt(self._quests, change))
 
   def AddChange(self, change, index=None):
     if index:
@@ -273,8 +284,7 @@ class _JobState(object):
       self._changes.append(change)
 
     self._attempts[change] = []
-    for _ in xrange(self._repeat_count):
-      self.AddAttempt(change)
+    self.AddAttempts(change)
 
   def Explore(self):
     """Compare Changes and bisect by adding additional Changes as needed.
@@ -282,6 +292,9 @@ class _JobState(object):
     For every pair of adjacent Changes, compare their results as probability
     distributions. If the results are different, find the midpoint of the
     Changes and add it to the Job.
+
+    If the results are inconclusive, add more Attempts to the Changes unless
+    we've hit _MAX_REPEAT_COUNT.
 
     The midpoint can only be added if the second Change represents a commit that
     comes after the first Change. Otherwise, this method won't explore further.
@@ -292,16 +305,23 @@ class _JobState(object):
     # The Change insertion simultaneously uses and modifies the list indices.
     # However, the loop index goes in reverse order and Changes are only added
     # after the loop index, so the loop never encounters the modified items.
-    for index, change_b in reversed(tuple(self.Differences())):
+    for index in xrange(len(self._changes) - 1, 0, -1):
       change_a = self._changes[index - 1]
+      change_b = self._changes[index]
+      comparison = self._Compare(change_a, change_b)
 
-      try:
-        midpoint = change_module.Change.Midpoint(change_a, change_b)
-      except change_module.NonLinearError:
-        continue
+      if comparison == _DIFFERENT:
+        try:
+          midpoint = change_module.Change.Midpoint(change_a, change_b)
+        except change_module.NonLinearError:
+          continue
 
-      logging.info('Adding Change %s.', midpoint)
-      self.AddChange(midpoint, index)
+        logging.info('Adding Change %s.', midpoint)
+        self.AddChange(midpoint, index)
+
+      elif comparison == _UNKNOWN:
+        self.AddAttempts(change_a)
+        self.AddAttempts(change_b)
 
   def ScheduleWork(self):
     work_left = False
@@ -342,12 +362,13 @@ class _JobState(object):
     # all the result values for that Change and Quest.
     result_values = []
     for change in self._changes:
+      executions = _ExecutionsPerQuest(self._attempts[change])
       change_result_values = []
-
-      change_results_per_quest = _CombineResultsPerQuest(self._attempts[change])
       for quest in self._quests:
-        change_result_values.append(change_results_per_quest[quest])
-
+        quest_result_values = list(itertools.chain.from_iterable(
+            execution.result_values for execution in executions[quest]
+            if execution.completed))
+        change_result_values.append(quest_result_values)
       result_values.append(change_result_values)
 
     attempts = []
@@ -364,42 +385,65 @@ class _JobState(object):
     }
 
   def _Compare(self, change_a, change_b):
+    """Compare the results of two Changes in this Job.
+
+    Aggregate the exceptions and result_values across every Quest for both
+    Changes. Then, compare all the results for each Quest. If any of them are
+    different, return _DIFFERENT. Otherwise, if any of them are inconclusive,
+    return _UNKNOWN.  Otherwise, they are the _SAME.
+
+    Arguments:
+      change_a: The first Change whose results to compare.
+      change_b: The second Change whose results to compare.
+
+    Returns:
+      _PENDING: If either Change has an incomplete Attempt.
+      _DIFFERENT: If the two Changes (very likely) have different results.
+      _SAME: If the two Changes (probably) have the same result.
+      _UNKNOWN: If we'd like more data to make a decision.
+    """
     attempts_a = self._attempts[change_a]
     attempts_b = self._attempts[change_b]
 
     if any(not attempt.completed for attempt in attempts_a + attempts_b):
       return _PENDING
 
-    # Compare exceptions.
-    exceptions_a = tuple(bool(attempt.exception) for attempt in attempts_a)
-    exceptions_b = tuple(bool(attempt.exception) for attempt in attempts_b)
+    executions_by_quest_a = _ExecutionsPerQuest(attempts_a)
+    executions_by_quest_b = _ExecutionsPerQuest(attempts_b)
 
-    if _CompareValues(exceptions_a, exceptions_b) == _DIFFERENT:
-      return _DIFFERENT
+    any_unknowns = False
+    for quest in self._quests:
+      executions_a = executions_by_quest_a[quest]
+      executions_b = executions_by_quest_b[quest]
 
-    # Compare values.
-    results_a = _CombineResultsPerQuest(attempts_a)
-    results_b = _CombineResultsPerQuest(attempts_b)
+      # Compare exceptions.
+      values_a = tuple(bool(execution.exception) for execution in executions_a)
+      values_b = tuple(bool(execution.exception) for execution in executions_b)
+      comparison = _CompareValues(values_a, values_b)
+      if comparison == _DIFFERENT:
+        return _DIFFERENT
+      elif comparison == _UNKNOWN:
+        any_unknowns = True
 
-    if any(_CompareValues(results_a[quest], results_b[quest]) == _DIFFERENT
-           for quest in self._quests):
-      return _DIFFERENT
+      # Compare result values.
+      values_a = tuple(itertools.chain.from_iterable(
+          execution.result_values for execution in executions_a))
+      values_b = tuple(itertools.chain.from_iterable(
+          execution.result_values for execution in executions_b))
+      if values_a and values_b:
+        comparison = _CompareValues(values_a, values_b)
+        if comparison == _DIFFERENT:
+          return _DIFFERENT
+        elif comparison == _UNKNOWN:
+          any_unknowns = True
 
-    # Here, "the same" means that we fail to reject the null hypothesis. We can
-    # never be completely sure that the two Changes have the same results, but
-    # we've run everything that we planned to, and didn't detect any difference.
-    if (len(attempts_a) >= self._repeat_count and
-        len(attempts_b) >= self._repeat_count):
-      return _SAME
+    if any_unknowns:
+      return _UNKNOWN
 
-    return _UNKNOWN
+    return _SAME
 
 
-def _FormatChangeForBug(change):
-  # TODO: Store the commit info in the Commit.
-  commit = change.last_commit
-  commit_info = gitiles_service.CommitInfo(commit.repository_url,
-                                           commit.git_hash)
+def _FormatCommitForBug(commit, commit_info):
   subject = '<b>%s</b>' % commit_info['message'].split('\n', 1)[0]
   author = commit_info['author']['email']
   time = commit_info['committer']['time']
@@ -409,28 +453,54 @@ def _FormatChangeForBug(change):
   return '\n'.join((subject, byline, git_link))
 
 
-def _CombineResultsPerQuest(attempts):
-  aggregate_results = collections.defaultdict(list)
+def _ExecutionsPerQuest(attempts):
+  executions = collections.defaultdict(list)
   for attempt in attempts:
-    if not attempt.completed:
-      continue
-
-    for quest, results in attempt.result_values.iteritems():
-      aggregate_results[quest] += results
-
-  return aggregate_results
+    for quest, execution in zip(attempt.quests, attempt.executions):
+      executions[quest].append(execution)
+  return executions
 
 
 def _CompareValues(values_a, values_b):
+  """Decide whether two samples are the same, different, or unknown.
+
+  Arguments:
+    values_a: A list of sortable values. They don't need to be numeric.
+    values_b: A list of sortable values. They don't need to be numeric.
+
+  Returns:
+    _DIFFERENT: The samples likely come from different distributions.
+        Reject the null hypothesis.
+    _SAME: Not enough evidence to say that the samples come from different
+        distributions. Fail to reject the null hypothesis.
+    _UNKNOWN: Not enough evidence to say that the samples come from different
+        distributions, but it looks a little suspicious, and we would like more
+        data before making a final decision.
+  """
   if not (values_a and values_b):
+    # A sample has no values in it.
     return _UNKNOWN
 
-  try:
-    p_value = mann_whitney_u.MannWhitneyU(values_a, values_b)
-  except ValueError:
+  if (len(values_a) < _MINIMUM_VALUE_COUNT or
+      len(values_b) < _MINIMUM_VALUE_COUNT):
+    # There are few enough values that the significance test would never reject
+    # the null hypothesis. We'd like more information. This can happen if a lot
+    # of the test runs fail, so we don't have a lot of performance numbers to
+    # work with.
     return _UNKNOWN
+
+  p_value = mann_whitney_u.MannWhitneyU(values_a, values_b)
 
   if p_value < _SIGNIFICANCE_LEVEL:
+    # The p-value is less than the significance level. Reject the null
+    # hypothesis.
     return _DIFFERENT
-  else:
+
+  if p_value < _QUESTIONABLE_SIGNIFICANCE_LEVEL:
+    # The p-value is not less than the significance level, but it's small enough
+    # to be suspicious. We'd like to investigate more closely.
     return _UNKNOWN
+
+  # The p-value is quite large. We're not suspicious that the two samples might
+  # come from different distributions, and we don't care to investigate more.
+  return _SAME

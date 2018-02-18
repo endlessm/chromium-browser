@@ -9,6 +9,7 @@
 --min-version 1.0.4 compound-assignment-type-combination.html
 --min-version 1.0.3 conditional-discard-in-loop.html
 --min-version 1.0.3 conditional-discard-optimization.html
+--min-version 1.0.4 conditional-texture-fetch.html
 --min-version 1.0.3 constant-precision-qualifier.html
 --min-version 1.0.3 --max-version 1.99 essl3-shaders-with-webgl1.html
 --min-version 1.0.4 floor-div-cos-should-not-truncate.html
@@ -16,6 +17,7 @@
 --min-version 1.0.3 fragcoord-linking-bug.html
 --min-version 1.0.4 gl-fragcoord-multisampling-bug.html
 --min-version 1.0.4 global-invariant-does-not-leak-across-shaders.html
+--min-version 1.0.4 init-array-with-loop.html
 --min-version 1.0.4 invariant-does-not-leak-across-shaders.html
 --min-version 1.0.4 logic-inside-block-without-braces.html
 --min-version 1.0.3 long-expressions-should-not-crash.html
@@ -40,3 +42,5 @@
 --min-version 1.0.4 undefined-index-should-not-crash.html
 --min-version 1.0.3 uniforms-should-not-lose-values.html
 --min-version 1.0.4 varying-arrays-should-not-be-reversed.html
+--min-version 1.0.4 vector-scalar-arithmetic-inside-loop.html
+--min-version 1.0.4 vector-scalar-arithmetic-inside-loop-complex.html

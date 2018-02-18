@@ -239,6 +239,12 @@ SyncTest::SyncTest(TestType test_type)
 SyncTest::~SyncTest() {}
 
 void SyncTest::SetUp() {
+  // TODO(crbug.com/781368) remove once feature enabled.
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitWithFeatures(
+      {switches::kSyncUSSTypedURL},
+      {});
+
   // Sets |server_type_| if it wasn't specified by the test.
   DecideServerType();
 
@@ -341,7 +347,7 @@ bool SyncTest::CreateGaiaAccount(const std::string& username,
 }
 
 bool SyncTest::CreateProfile(int index) {
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   tmp_profile_paths_[index] = new base::ScopedTempDir();
   if (UsingExternalServers() && num_clients_ > 1) {
     // For multi profile UI signin, profile paths should be outside user data
@@ -515,7 +521,7 @@ void SyncTest::DisableVerifier() {
 }
 
 bool SyncTest::SetupClients() {
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   if (num_clients_ <= 0)
     LOG(FATAL) << "num_clients_ incorrectly initialized.";
   if (!profiles_.empty() || !browsers_.empty() || !clients_.empty())
@@ -657,7 +663,7 @@ void SyncTest::InitializeInvalidations(int index) {
 }
 
 bool SyncTest::SetupSync() {
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   // Create sync profiles and clients if they haven't already been created.
   if (profiles_.empty()) {
     if (!SetupClients()) {
@@ -835,10 +841,8 @@ void SyncTest::SetupMockGaiaResponses() {
       net::HTTP_OK,
       net::URLRequestStatus::SUCCESS);
   fake_factory_->SetFakeResponse(
-      GaiaUrls::GetInstance()->client_login_to_oauth2_url(),
-      "some_response",
-      net::HTTP_OK,
-      net::URLRequestStatus::SUCCESS);
+      GaiaUrls::GetInstance()->deprecated_client_login_to_oauth2_url(),
+      "some_response", net::HTTP_OK, net::URLRequestStatus::SUCCESS);
   fake_factory_->SetFakeResponse(
       GaiaUrls::GetInstance()->oauth2_token_url(),
       "{"

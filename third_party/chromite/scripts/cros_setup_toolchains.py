@@ -54,6 +54,7 @@ HOST_PACKAGES = (
     'sys-devel/binutils',
     'sys-devel/clang',
     'sys-devel/gcc',
+    'sys-devel/lld',
     'sys-devel/llvm',
     'sys-kernel/linux-headers',
     'sys-libs/glibc',
@@ -65,7 +66,7 @@ HOST_PACKAGES = (
 # the cross-compilers to be installed first (because they need them to actually
 # build), so we have to delay their installation.
 HOST_POST_CROSS_PACKAGES = (
-    'dev-lang/rust',
+    'virtual/target-sdk-post-cross',
 )
 
 # New packages that we're in the process of adding to the SDK.  Since the SDK
@@ -73,7 +74,6 @@ HOST_POST_CROSS_PACKAGES = (
 # so we have to list them here and wait.  Once it completes, entries here can
 # be removed so they'll end up on bots & dev's systems.
 NEW_PACKAGES = (
-    'dev-lang/rust',
 )
 
 # Enable the Go compiler for these targets.
@@ -81,6 +81,7 @@ TARGET_GO_ENABLED = (
     'x86_64-cros-linux-gnu',
     'armv7a-cros-linux-gnueabi',
     'armv7a-cros-linux-gnueabihf',
+    'aarch64-cros-linux-gnu',
 )
 CROSSDEV_GO_ARGS = ['--ex-pkg', 'dev-lang/go']
 
@@ -125,6 +126,7 @@ class Crossdev(object):
   # crossdev.
   MANUAL_PKGS = {
       'clang': 'sys-devel',
+      'lld': 'sys-devel',
       'llvm': 'sys-devel',
       'libcxxabi': 'sys-libs',
       'libcxx': 'sys-libs',
@@ -256,7 +258,11 @@ class Crossdev(object):
     cmdbase.extend(['--overlays', overlays])
     cmdbase.extend(['--ov-output', CROSSDEV_OVERLAY])
 
-    for target in targets:
+    # Build target by the alphabetical order to make sure
+    # armv7a-cros-linux-gnueabihf builds after armv7a-cros-linux-gnueabi
+    # because some dependency issue. This can be reverted once we
+    # migrated to armv7a-cros-linux-gnueabihf. crbug.com/711369
+    for target in sorted(targets):
       if config_only and target in configured_targets:
         continue
 
@@ -1112,6 +1118,13 @@ def _ProcessSysrootWrappers(_target, output_dir, srcpath):
   for sysroot_wrapper in glob.glob(os.path.join(
       output_dir + srcpath, 'sysroot_wrapper*')):
     contents = osutils.ReadFile(sysroot_wrapper).splitlines()
+
+    # In order to optimize startup time in the chroot we run python a little
+    # differently there.  Put it back to the more portable way here.
+    # See http://crbug.com/773138 for some details.
+    if contents[0] == '#!/usr/bin/python2 -S':
+      contents[0] = '#!/usr/bin/env python2'
+
     for num in xrange(len(contents)):
       if '@CCACHE_DEFAULT@' in contents[num]:
         assert 'True' in contents[num]

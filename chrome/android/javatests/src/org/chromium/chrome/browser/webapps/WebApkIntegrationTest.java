@@ -32,13 +32,15 @@ import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.content.browser.test.NativeLibraryTestRule;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
+import org.chromium.content.common.ContentSwitches;
 import org.chromium.net.test.EmbeddedTestServerRule;
 import org.chromium.webapk.lib.common.WebApkConstants;
 
 /** Integration tests for WebAPK feature. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
-        ChromeActivityTestRule.DISABLE_NETWORK_PREDICTION_FLAG})
+        ChromeActivityTestRule.DISABLE_NETWORK_PREDICTION_FLAG,
+        ContentSwitches.HOST_RESOLVER_RULES + "=MAP * 127.0.0.1"})
 public class WebApkIntegrationTest {
     @Rule
     public final ChromeActivityTestRule<WebApkActivity> mActivityTestRule =
@@ -108,8 +110,7 @@ public class WebApkIntegrationTest {
     @LargeTest
     @Feature({"WebApk"})
     public void testLaunchAndNavigateOffOrigin() throws Exception {
-        startWebApkActivity("org.chromium.webapk.test",
-                mTestServerRule.getServer().getURL("/chrome/test/data/android/test.html"));
+        startWebApkActivity("org.chromium.webapk", "https://pwa.rocks/");
         waitUntilSplashscreenHides();
 
         // We navigate outside origin and expect Custom Tab to open on top of WebApkActivity.
@@ -149,9 +150,8 @@ public class WebApkIntegrationTest {
     @Feature({"WebApk"})
     public void testLaunchIntervalHistogramNotRecordedOnFirstLaunch() throws Exception {
         final String histogramName = "WebApk.LaunchInterval";
-        final String packageName = "org.chromium.webapk.test";
-        startWebApkActivity(packageName,
-                mTestServerRule.getServer().getURL("/chrome/test/data/android/test.html"));
+        final String packageName = "org.chromium.webapk";
+        startWebApkActivity(packageName, "https://pwa.rocks/");
 
         CriteriaHelper.pollUiThread(new Criteria("Deferred startup never completed") {
             @Override
@@ -173,7 +173,7 @@ public class WebApkIntegrationTest {
         mNativeLibraryTestRule.loadNativeLibraryNoBrowserProcess();
 
         final String histogramName = "WebApk.LaunchInterval";
-        final String packageName = "org.chromium.webapk.test";
+        final String packageName = "org.chromium.webapk";
 
         WebappDataStorage storage =
                 registerWithStorage(WebApkConstants.WEBAPK_ID_PREFIX + packageName);
@@ -181,8 +181,7 @@ public class WebApkIntegrationTest {
         storage.updateLastUsedTime();
         Assert.assertEquals(0, RecordHistogram.getHistogramTotalCountForTesting(histogramName));
 
-        startWebApkActivity(packageName,
-                mTestServerRule.getServer().getURL("/chrome/test/data/android/test.html"));
+        startWebApkActivity(packageName, "https://pwa.rocks/");
 
         CriteriaHelper.pollUiThread(new Criteria("Deferred startup never completed") {
             @Override

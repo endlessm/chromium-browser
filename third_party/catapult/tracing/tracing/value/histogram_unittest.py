@@ -4,6 +4,7 @@
 
 import json
 import math
+import sys
 import time
 import unittest
 
@@ -150,6 +151,40 @@ class HistogramUnittest(unittest.TestCase):
 
   def assertDeepEqual(self, a, b):
     self.assertEqual(ToJSON(a), ToJSON(b))
+
+  def testDefaultBoundaries(self):
+    hist = histogram.Histogram('', 'ms')
+    self.assertEqual(len(hist.bins), 102)
+
+    hist = histogram.Histogram('', 'tsMs')
+    self.assertEqual(len(hist.bins), 1002)
+
+    hist = histogram.Histogram('', 'n%')
+    self.assertEqual(len(hist.bins), 22)
+
+    hist = histogram.Histogram('', 'sizeInBytes')
+    self.assertEqual(len(hist.bins), 102)
+
+    hist = histogram.Histogram('', 'J')
+    self.assertEqual(len(hist.bins), 52)
+
+    hist = histogram.Histogram('', 'W')
+    self.assertEqual(len(hist.bins), 52)
+
+    hist = histogram.Histogram('', 'unitless')
+    self.assertEqual(len(hist.bins), 52)
+
+    hist = histogram.Histogram('', 'count')
+    self.assertEqual(len(hist.bins), 22)
+
+    hist = histogram.Histogram('', 'sigma')
+    self.assertEqual(len(hist.bins), 52)
+
+    hist = histogram.Histogram('', 'sigma_smallerIsBetter')
+    self.assertEqual(len(hist.bins), 52)
+
+    hist = histogram.Histogram('', 'sigma_biggerIsBetter')
+    self.assertEqual(len(hist.bins), 52)
 
   def testSerializationSize(self):
     hist = histogram.Histogram('', 'unitless', self.TEST_BOUNDARIES)
@@ -542,6 +577,7 @@ class BreakdownUnittest(unittest.TestCase):
     bd.Set('inf', float('inf'))
     bd.Set('nun', float('nan'))
     bd.Set('ninf', float('-inf'))
+    bd.Set('long', 1 + sys.maxint)
     d = bd.AsDict()
     clone = diagnostic.Diagnostic.FromDict(d)
     self.assertEqual(ToJSON(d), ToJSON(clone.AsDict()))
@@ -550,6 +586,7 @@ class BreakdownUnittest(unittest.TestCase):
     self.assertEqual(clone.Get('inf'), float('inf'))
     self.assertTrue(math.isnan(clone.Get('nun')))
     self.assertEqual(clone.Get('ninf'), float('-inf'))
+    self.assertEqual(clone.Get('long'), 1 + sys.maxint)
 
 
 class TagMapUnittest(unittest.TestCase):
@@ -596,21 +633,20 @@ class TagMapUnittest(unittest.TestCase):
             'android': ['story3', 'story4', 'story5']
         }})
 
-    self.assertFalse(t0.CanAddDiagnostic(
-        histogram.GenericSet([]), None, None, None))
-    self.assertTrue(t0.CanAddDiagnostic(t1, None, None, None))
+    self.assertFalse(t0.CanAddDiagnostic(histogram.GenericSet([])))
+    self.assertTrue(t0.CanAddDiagnostic(t1))
 
     m0 = diagnostic.Diagnostic.FromDict(t0.AsDict())
 
     self.assertTrue(isinstance(m0, histogram.TagMap))
     self.assertFalse(
-        m0.CanAddDiagnostic(histogram.GenericSet([]), None, None, None))
-    self.assertTrue(m0.CanAddDiagnostic(t1, None, None, None))
+        m0.CanAddDiagnostic(histogram.GenericSet([])))
+    self.assertTrue(m0.CanAddDiagnostic(t1))
 
-    m0.AddDiagnostic(t1, None, None, None)
+    m0.AddDiagnostic(t1)
 
     m1 = diagnostic.Diagnostic.FromDict(t1.AsDict())
-    m1.AddDiagnostic(t0, None, None, None)
+    m1.AddDiagnostic(t0)
 
     self.assertDictEqual(m0.AsDict(), m1.AsDict())
 
@@ -653,6 +689,45 @@ class RelatedEventSetUnittest(unittest.TestCase):
     self.assertEqual(event['title'], 'foo')
     self.assertEqual(event['start'], 0)
     self.assertEqual(event['duration'], 1)
+
+
+class RelatedNameMapUnittest(unittest.TestCase):
+  def testRoundtrip(self):
+    names = histogram.RelatedNameMap()
+    names.Set('a', 'A')
+    d = names.AsDict()
+    clone = diagnostic.Diagnostic.FromDict(d)
+    self.assertEqual(ToJSON(d), ToJSON(clone.AsDict()))
+    self.assertEqual(clone.Get('a'), 'A')
+
+  def testMerge(self):
+    a_names = histogram.RelatedNameMap()
+    a_names.Set('a', 'A')
+    b_names = histogram.RelatedNameMap()
+    b_names.Set('b', 'B')
+    self.assertTrue(a_names.CanAddDiagnostic(b_names))
+    self.assertTrue(b_names.CanAddDiagnostic(a_names))
+    self.assertFalse(a_names.CanAddDiagnostic(histogram.GenericSet([])))
+
+    a_names.AddDiagnostic(b_names)
+    self.assertEqual(a_names.Get('b'), 'B')
+    a_names.AddDiagnostic(b_names)
+    self.assertEqual(a_names.Get('b'), 'B')
+
+    b_names.Set('a', 'C')
+    with self.assertRaises(ValueError):
+      a_names.AddDiagnostic(b_names)
+
+  def testEquals(self):
+    a_names = histogram.RelatedNameMap()
+    a_names.Set('a', 'A')
+    self.assertNotEqual(a_names, histogram.GenericSet([]))
+    b_names = histogram.RelatedNameMap()
+    self.assertNotEqual(a_names, b_names)
+    b_names.Set('a', 'B')
+    self.assertNotEqual(a_names, b_names)
+    b_names.Set('a', 'A')
+    self.assertEqual(a_names, b_names)
 
 
 class RelatedHistogramBreakdownUnittest(unittest.TestCase):
@@ -826,13 +901,13 @@ class DiagnosticMapUnittest(unittest.TestCase):
     # DiagnosticMap.
     hist2 = histogram.Histogram('', 'count')
     hist2.diagnostics['a'] = generic
-    hist.diagnostics.Merge(hist2.diagnostics, hist, hist2)
+    hist.diagnostics.Merge(hist2.diagnostics)
     self.assertIs(generic, hist.diagnostics['a'])
 
     # Separate keys are not merged.
     hist3 = histogram.Histogram('', 'count')
     hist3.diagnostics['b'] = generic2
-    hist.diagnostics.Merge(hist3.diagnostics, hist, hist3)
+    hist.diagnostics.Merge(hist3.diagnostics)
     self.assertIs(generic, hist.diagnostics['a'])
     self.assertIs(generic2, hist.diagnostics['b'])
 
@@ -840,7 +915,7 @@ class DiagnosticMapUnittest(unittest.TestCase):
     # UnmergeableDiagnosticSet.
     hist4 = histogram.Histogram('', 'count')
     hist4.diagnostics['a'] = related_map
-    hist.diagnostics.Merge(hist4.diagnostics, hist, hist4)
+    hist.diagnostics.Merge(hist4.diagnostics)
     self.assertIsInstance(
         hist.diagnostics['a'], histogram.UnmergeableDiagnosticSet)
     diagnostics = list(hist.diagnostics['a'])
@@ -851,7 +926,7 @@ class DiagnosticMapUnittest(unittest.TestCase):
     hist5 = histogram.Histogram('', 'count')
     hist5.diagnostics['a'] = histogram.UnmergeableDiagnosticSet(
         [events, generic2])
-    hist.diagnostics.Merge(hist5.diagnostics, hist, hist5)
+    hist.diagnostics.Merge(hist5.diagnostics)
     self.assertIsInstance(
         hist.diagnostics['a'], histogram.UnmergeableDiagnosticSet)
     diagnostics = list(hist.diagnostics['a'])

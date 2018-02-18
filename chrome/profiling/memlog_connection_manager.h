@@ -92,26 +92,23 @@ class MemlogConnectionManager {
   void OnNewConnection(base::ProcessId pid,
                        mojom::ProfilingClientPtr client,
                        mojo::ScopedHandle sender_pipe_end,
-                       mojo::ScopedHandle receiver_pipe_end);
+                       mojo::ScopedHandle receiver_pipe_end,
+                       mojom::ProcessType process_type);
 
  private:
   struct Connection;
   struct DumpProcessesForTracingTracking;
 
-  // Schedules the given callback to execute after the given process ID has
-  // been synchronized. If the process ID isn't found, the callback will be
-  // asynchronously run with "false" as the success parameter.
-  void SynchronizeOnPid(base::ProcessId process_id,
-                        AllocationTracker::SnapshotCallback callback);
-
   // Actually does the dump assuming the given process has been synchronized.
   void DoDumpProcess(DumpProcessArgs args,
+                     mojom::ProcessType process_type,
                      bool success,
                      AllocationCountMap counts,
                      AllocationTracker::ContextMap context);
   void DoDumpOneProcessForTracing(
       scoped_refptr<DumpProcessesForTracingTracking> tracking,
       base::ProcessId pid,
+      mojom::ProcessType process_type,
       bool success,
       AllocationCountMap counts,
       AllocationTracker::ContextMap context);
@@ -121,6 +118,9 @@ class MemlogConnectionManager {
   // to ensure that the pipeline for this process has been flushed of all
   // messages.
   void OnConnectionComplete(base::ProcessId pid);
+
+  // Reports the ProcessTypes of the processes being profiled.
+  void ReportMetrics();
 
   // These thunks post the request back to the given thread.
   static void OnConnectionCompleteThunk(
@@ -137,6 +137,9 @@ class MemlogConnectionManager {
   // Maps process ID to the connection information for it.
   base::flat_map<base::ProcessId, std::unique_ptr<Connection>> connections_;
   base::Lock connections_lock_;
+
+  // Every 24-hours, reports the types of profiled processes.
+  base::RepeatingTimer metrics_timer_;
 
   // Must be last.
   base::WeakPtrFactory<MemlogConnectionManager> weak_factory_;

@@ -149,9 +149,6 @@ const char* kBeforeUnloadHTML =
 const char* kOpenNewBeforeUnloadPage =
     "w=window.open(); w.onbeforeunload=function(e){return 'foo'};";
 
-const base::FilePath::CharType* kBeforeUnloadFile =
-    FILE_PATH_LITERAL("beforeunload.html");
-
 const base::FilePath::CharType* kTitle1File = FILE_PATH_LITERAL("title1.html");
 const base::FilePath::CharType* kTitle2File = FILE_PATH_LITERAL("title2.html");
 
@@ -469,7 +466,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, Title) {
   EXPECT_EQ(test_title, tab_title);
 }
 
-IN_PROC_BROWSER_TEST_F(BrowserTest, JavascriptAlertActivatesTab) {
+// TODO(avi): confirm() is the only dialog type left that activates. Remove this
+// test when activation is removed from it.
+IN_PROC_BROWSER_TEST_F(BrowserTest, JavascriptConfirmActivatesTab) {
   GURL url(ui_test_utils::GetTestUrl(base::FilePath(
       base::FilePath::kCurrentDirectory), base::FilePath(kTitle1File)));
   ui_test_utils::NavigateToURL(browser(), url);
@@ -483,7 +482,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, JavascriptAlertActivatesTab) {
   base::RunLoop dialog_wait;
   js_helper->SetDialogShownCallbackForTesting(dialog_wait.QuitClosure());
   second_tab->GetMainFrame()->ExecuteJavaScriptForTests(
-      ASCIIToUTF16("alert('Activate!');"));
+      ASCIIToUTF16("confirm('Activate!');"));
   dialog_wait.Run();
   js_helper->HandleJavaScriptDialog(second_tab, true, nullptr);
   EXPECT_EQ(2, browser()->tab_strip_model()->count());
@@ -846,46 +845,6 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, SingleBeforeUnloadAfterRedirect) {
 
   // Restore previous browser client.
   SetBrowserClientForTesting(old_client);
-}
-
-// Test for crbug.com/80401.  Canceling a before unload dialog should reset
-// the URL to the previous page's URL.
-IN_PROC_BROWSER_TEST_F(BrowserTest, CancelBeforeUnloadResetsURL) {
-  GURL url(ui_test_utils::GetTestUrl(base::FilePath(
-      base::FilePath::kCurrentDirectory), base::FilePath(kBeforeUnloadFile)));
-  ui_test_utils::NavigateToURL(browser(), url);
-  WebContents* contents = browser()->tab_strip_model()->GetActiveWebContents();
-  content::PrepContentsForBeforeUnloadTest(contents);
-
-  // Navigate to a page that triggers a cross-site transition.
-  ASSERT_TRUE(embedded_test_server()->Start());
-  GURL url2(embedded_test_server()->GetURL("/title1.html"));
-  browser()->OpenURL(OpenURLParams(url2, Referrer(),
-                                   WindowOpenDisposition::CURRENT_TAB,
-                                   ui::PAGE_TRANSITION_TYPED, false));
-
-  content::WindowedNotificationObserver host_destroyed_observer(
-      content::NOTIFICATION_RENDER_WIDGET_HOST_DESTROYED,
-      content::NotificationService::AllSources());
-
-  // Cancel the dialog.
-  JavaScriptAppModalDialog* alert = ui_test_utils::WaitForAppModalDialog();
-  alert->CloseModalDialog();
-  EXPECT_FALSE(contents->IsLoading());
-
-  // Verify there are no pending history items after the dialog is cancelled.
-  // (see crbug.com/93858)
-  NavigationEntry* entry = contents->GetController().GetPendingEntry();
-  EXPECT_EQ(NULL, entry);
-
-  // Wait for the ShouldClose_ACK to arrive.  We can detect it by waiting for
-  // the pending RVH to be destroyed.
-  host_destroyed_observer.Wait();
-  EXPECT_EQ(url, browser()->toolbar_model()->GetURL());
-
-  // Clear the beforeunload handler so the test can easily exit.
-  contents->GetMainFrame()->ExecuteJavaScriptForTests(
-      ASCIIToUTF16("onbeforeunload=null;"));
 }
 
 // Test for crbug.com/11647.  A page closed with window.close() should not have
@@ -1287,7 +1246,6 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_TabClosingWhenRemovingExtension) {
       browser()->profile())->extension_service();
   service->UninstallExtension(GetExtension()->id(),
                               extensions::UNINSTALL_REASON_FOR_TESTING,
-                              base::Bind(&base::DoNothing),
                               NULL);
   EXPECT_EQ(1, observer.closing_count());
 
@@ -1579,8 +1537,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ForwardDisabledOnForward) {
               GetController()));
   chrome::GoBack(browser(), WindowOpenDisposition::CURRENT_TAB);
   back_nav_load_observer.Wait();
-  CommandUpdater* command_updater =
-      browser()->command_controller()->command_updater();
+  CommandUpdater* command_updater = browser()->command_controller();
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_FORWARD));
 
   content::WindowedNotificationObserver forward_nav_load_observer(
@@ -1597,8 +1554,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ForwardDisabledOnForward) {
 
 // Makes sure certain commands are disabled when Incognito mode is forced.
 IN_PROC_BROWSER_TEST_F(BrowserTest, DisableMenuItemsWhenIncognitoIsForced) {
-  CommandUpdater* command_updater =
-      browser()->command_controller()->command_updater();
+  CommandUpdater* command_updater = browser()->command_controller();
   // At the beginning, all commands are enabled.
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_NEW_WINDOW));
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_NEW_INCOGNITO_WINDOW));
@@ -1622,8 +1578,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, DisableMenuItemsWhenIncognitoIsForced) {
   // Create a new browser.
   Browser* new_browser = new Browser(Browser::CreateParams(
       browser()->profile()->GetOffTheRecordProfile(), true));
-  CommandUpdater* new_command_updater =
-      new_browser->command_controller()->command_updater();
+  CommandUpdater* new_command_updater = new_browser->command_controller();
   // It should have Bookmarks & Settings commands disabled by default.
   EXPECT_FALSE(new_command_updater->IsCommandEnabled(IDC_NEW_WINDOW));
   EXPECT_FALSE(new_command_updater->IsCommandEnabled(
@@ -1638,8 +1593,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, DisableMenuItemsWhenIncognitoIsForced) {
 // not available.
 IN_PROC_BROWSER_TEST_F(BrowserTest,
                        NoNewIncognitoWindowWhenIncognitoIsDisabled) {
-  CommandUpdater* command_updater =
-      browser()->command_controller()->command_updater();
+  CommandUpdater* command_updater = browser()->command_controller();
   // Set Incognito to DISABLED.
   IncognitoModePrefs::SetAvailability(browser()->profile()->GetPrefs(),
                                       IncognitoModePrefs::DISABLED);
@@ -1655,8 +1609,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest,
   // Create a new browser.
   Browser* new_browser =
       new Browser(Browser::CreateParams(browser()->profile(), true));
-  CommandUpdater* new_command_updater =
-      new_browser->command_controller()->command_updater();
+  CommandUpdater* new_command_updater = new_browser->command_controller();
   EXPECT_FALSE(new_command_updater->IsCommandEnabled(IDC_NEW_INCOGNITO_WINDOW));
   EXPECT_TRUE(new_command_updater->IsCommandEnabled(IDC_NEW_WINDOW));
   EXPECT_TRUE(new_command_updater->IsCommandEnabled(IDC_SHOW_BOOKMARK_MANAGER));
@@ -1683,8 +1636,7 @@ class BrowserTestWithExtensionsDisabled : public BrowserTest {
 // circumstances even though normally they should stay enabled.
 IN_PROC_BROWSER_TEST_F(BrowserTestWithExtensionsDisabled,
                        DisableExtensionsAndSettingsWhenIncognitoIsDisabled) {
-  CommandUpdater* command_updater =
-      browser()->command_controller()->command_updater();
+  CommandUpdater* command_updater = browser()->command_controller();
   // Set Incognito to DISABLED.
   IncognitoModePrefs::SetAvailability(browser()->profile()->GetPrefs(),
                                       IncognitoModePrefs::DISABLED);
@@ -1699,8 +1651,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTestWithExtensionsDisabled,
   // as Extensions should be disabled.
   Browser* popup_browser = new Browser(
       Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile(), true));
-  CommandUpdater* popup_command_updater =
-      popup_browser->command_controller()->command_updater();
+  CommandUpdater* popup_command_updater = popup_browser->command_controller();
   EXPECT_FALSE(popup_command_updater->IsCommandEnabled(IDC_MANAGE_EXTENSIONS));
   EXPECT_FALSE(popup_command_updater->IsCommandEnabled(IDC_OPTIONS));
   EXPECT_TRUE(popup_command_updater->IsCommandEnabled(
@@ -1715,8 +1666,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest,
   // Create a popup browser.
   Browser* popup_browser = new Browser(
       Browser::CreateParams(Browser::TYPE_POPUP, browser()->profile(), true));
-  CommandUpdater* command_updater =
-      popup_browser->command_controller()->command_updater();
+  CommandUpdater* command_updater = popup_browser->command_controller();
   // OPTIONS and IMPORT_SETTINGS are disabled for a non-normal UI.
   EXPECT_FALSE(command_updater->IsCommandEnabled(IDC_OPTIONS));
   EXPECT_FALSE(command_updater->IsCommandEnabled(IDC_IMPORT_SETTINGS));
@@ -1826,8 +1776,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, InterstitialCommandDisable) {
   GURL url(embedded_test_server()->GetURL("/empty.html"));
   ui_test_utils::NavigateToURL(browser(), url);
 
-  CommandUpdater* command_updater =
-      browser()->command_controller()->command_updater();
+  CommandUpdater* command_updater = browser()->command_controller();
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_VIEW_SOURCE));
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_PRINT));
   EXPECT_TRUE(command_updater->IsCommandEnabled(IDC_SAVE_PAGE));
@@ -2041,11 +1990,49 @@ IN_PROC_BROWSER_TEST_F(BrowserTest2, NoTabsInPopups) {
 }
 #endif
 
-IN_PROC_BROWSER_TEST_F(BrowserTest, WindowOpenClose) {
+IN_PROC_BROWSER_TEST_F(BrowserTest, WindowOpenClose1) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kDisablePopupBlocking);
   GURL url = ui_test_utils::GetTestUrl(
       base::FilePath(), base::FilePath().AppendASCII("window.close.html"));
+  GURL::Replacements add_query;
+  std::string query("test1");
+  add_query.SetQuery(query.c_str(), url::Component(0, query.length()));
+  url = url.ReplaceComponents(add_query);
+
+  base::string16 title = ASCIIToUTF16("Title Of Awesomeness");
+  content::TitleWatcher title_watcher(
+      browser()->tab_strip_model()->GetActiveWebContents(), title);
+  ui_test_utils::NavigateToURLBlockUntilNavigationsComplete(browser(), url, 2);
+  EXPECT_EQ(title, title_watcher.WaitAndGetTitle());
+}
+
+IN_PROC_BROWSER_TEST_F(BrowserTest, WindowOpenClose2) {
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kDisablePopupBlocking);
+  GURL url = ui_test_utils::GetTestUrl(
+      base::FilePath(), base::FilePath().AppendASCII("window.close.html"));
+  GURL::Replacements add_query;
+  std::string query("test2");
+  add_query.SetQuery(query.c_str(), url::Component(0, query.length()));
+  url = url.ReplaceComponents(add_query);
+
+  base::string16 title = ASCIIToUTF16("Title Of Awesomeness");
+  content::TitleWatcher title_watcher(
+      browser()->tab_strip_model()->GetActiveWebContents(), title);
+  ui_test_utils::NavigateToURLBlockUntilNavigationsComplete(browser(), url, 2);
+  EXPECT_EQ(title, title_watcher.WaitAndGetTitle());
+}
+
+IN_PROC_BROWSER_TEST_F(BrowserTest, WindowOpenClose3) {
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kDisablePopupBlocking);
+  GURL url = ui_test_utils::GetTestUrl(
+      base::FilePath(), base::FilePath().AppendASCII("window.close.html"));
+  GURL::Replacements add_query;
+  std::string query("test3");
+  add_query.SetQuery(query.c_str(), url::Component(0, query.length()));
+  url = url.ReplaceComponents(add_query);
 
   base::string16 title = ASCIIToUTF16("Title Of Awesomeness");
   content::TitleWatcher title_watcher(
@@ -2056,18 +2043,15 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, WindowOpenClose) {
 
 // TODO(linux_aura) http://crbug.com/163931
 // Mac disabled: http://crbug.com/169820
-#if !defined(OS_MACOSX) && \
-    !(defined(OS_LINUX) && !defined(OS_CHROMEOS) && defined(USE_AURA))
+#if !defined(OS_MACOSX) && !(defined(OS_LINUX) && !defined(OS_CHROMEOS))
 IN_PROC_BROWSER_TEST_F(BrowserTest, FullscreenBookmarkBar) {
   chrome::ToggleBookmarkBar(browser());
   EXPECT_EQ(BookmarkBar::SHOW, browser()->bookmark_bar_state());
   chrome::ToggleFullscreenMode(browser());
   EXPECT_TRUE(browser()->window()->IsFullscreen());
-#if defined(OS_MACOSX)
-  EXPECT_EQ(BookmarkBar::SHOW, browser()->bookmark_bar_state());
-#elif defined(OS_CHROMEOS)
-  // TODO(jamescook): If immersive fullscreen is disabled by default, test
-  // for BookmarkBar::HIDDEN.
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+  // Mac and Chrome OS both have an "immersive style" fullscreen where the
+  // bookmark bar is visible when the top views slide down.
   EXPECT_EQ(BookmarkBar::SHOW, browser()->bookmark_bar_state());
 #else
   EXPECT_EQ(BookmarkBar::HIDDEN, browser()->bookmark_bar_state());

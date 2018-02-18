@@ -42,10 +42,6 @@
   return YES;
 }
 
-- (BOOL)canShip {
-  return YES;
-}
-
 - (BOOL)hasPaymentItems {
   return YES;
 }
@@ -121,14 +117,6 @@
 @end
 
 @interface TestPaymentRequestMediatorCantShip : TestPaymentRequestMediator
-
-@end
-
-@implementation TestPaymentRequestMediatorCantShip
-
-- (BOOL)canShip {
-  return NO;
-}
 
 @end
 
@@ -248,28 +236,13 @@ TEST_F(PaymentRequestViewControllerTest, TestModelNoContactInfo) {
   EXPECT_TRUE([item isMemberOfClass:[CollectionViewFooterItem class]]);
 }
 
-// Tests that the correct items are displayed after loading the model, when
-// shipping can't be made.
-TEST_F(PaymentRequestViewControllerTest, TestModelCantShip) {
-  mediator_ = [[TestPaymentRequestMediatorCantShip alloc] init];
-
-  CreateController();
-  CheckController();
-
-  // There should only be one item in the Shipping section and it should be of
-  // type AutofillProfileItem.
-  ASSERT_EQ(1U, static_cast<unsigned int>(NumberOfItemsInSection(1)));
-  id item = GetCollectionViewItem(1, 0);
-  EXPECT_TRUE([item isMemberOfClass:[AutofillProfileItem class]]);
-}
-
 // Tests that the correct items are displayed after updating the Shipping
 // section.
 TEST_F(PaymentRequestViewControllerTest, TestUpdateShippingSection) {
   CreateController();
   CheckController();
 
-  [GetPaymentRequestViewController() updateShippingSection];
+  [GetPaymentRequestViewController() reloadShippingSection];
 
   // There should be two items in the Shipping section.
   ASSERT_EQ(2U, static_cast<unsigned int>(NumberOfItemsInSection(1)));
@@ -289,7 +262,7 @@ TEST_F(PaymentRequestViewControllerTest, TestUpdatePaymentMethodSection) {
   CreateController();
   CheckController();
 
-  [GetPaymentRequestViewController() updatePaymentMethodSection];
+  [GetPaymentRequestViewController() reloadPaymentMethodSection];
 
   // The only item in the Payment Method section should be of type
   // PaymentMethodItem.
@@ -304,7 +277,7 @@ TEST_F(PaymentRequestViewControllerTest, TestUpdateContactInfoSection) {
   CreateController();
   CheckController();
 
-  [GetPaymentRequestViewController() updatePaymentMethodSection];
+  [GetPaymentRequestViewController() reloadPaymentMethodSection];
 
   // The only item in the Contact Info section should be of type
   // AutofillProfileItem.

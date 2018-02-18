@@ -48,6 +48,8 @@ const CommandLinePrefStore::SwitchToPreferenceMapEntry
         {switches::kAuthAndroidNegotiateAccountType,
          prefs::kAuthAndroidNegotiateAccountType},
 #endif
+        {switches::kUnsafelyTreatInsecureOriginAsSecure,
+         prefs::kUnsafelyTreatInsecureOriginAsSecure},
         // TODO(https://crbug.com/760761): This is not the ideal way to
         // implement this. Refactor enterprise policy and command line handling
         // so that this line isn't necessary, if possible.

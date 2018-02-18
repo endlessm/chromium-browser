@@ -27,7 +27,6 @@
 #include "net/ssl/ssl_cipher_suite_names.h"
 #include "net/ssl/ssl_connection_status_flags.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
-#include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/policy/policy_cert_service.h"
@@ -69,8 +68,8 @@ void SecurityStateTabHelper::VisibleSecurityStateChanged() {
 
   security_state::SecurityInfo security_info;
   GetSecurityInfo(&security_info);
-  if (!security_info.displayed_password_field_on_http &&
-      !security_info.displayed_credit_card_field_on_http) {
+  if (!security_info.insecure_input_events.password_field_shown &&
+      !security_info.insecure_input_events.credit_card_field_edited) {
     return;
   }
 
@@ -91,12 +90,12 @@ void SecurityStateTabHelper::VisibleSecurityStateChanged() {
   bool warning_is_user_visible =
       (security_info.security_level == security_state::HTTP_SHOW_WARNING);
 
-  if (security_info.displayed_credit_card_field_on_http) {
+  if (security_info.insecure_input_events.credit_card_field_edited) {
     UMA_HISTOGRAM_BOOLEAN(
         "Security.HTTPBad.UserWarnedAboutSensitiveInput.CreditCard",
         warning_is_user_visible);
   }
-  if (security_info.displayed_password_field_on_http) {
+  if (security_info.insecure_input_events.password_field_shown) {
     UMA_HISTOGRAM_BOOLEAN(
         "Security.HTTPBad.UserWarnedAboutSensitiveInput.Password",
         warning_is_user_visible);

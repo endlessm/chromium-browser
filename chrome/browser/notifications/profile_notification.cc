@@ -22,9 +22,12 @@ std::string ProfileNotification::GetProfileNotificationId(
                             delegate_id.c_str());
 }
 
-ProfileNotification::ProfileNotification(Profile* profile,
-                                         const Notification& notification)
-    : profile_id_(NotificationUIManager::GetProfileID(profile)),
+ProfileNotification::ProfileNotification(
+    Profile* profile,
+    const message_center::Notification& notification,
+    NotificationHandler::Type type)
+    : profile_(profile),
+      profile_id_(NotificationUIManager::GetProfileID(profile)),
       notification_(
           // Uses Notification's copy constructor to assign the message center
           // id, which should be unique for every profile + Notification pair.
@@ -33,6 +36,7 @@ ProfileNotification::ProfileNotification(Profile* profile,
               NotificationUIManager::GetProfileID(profile)),
           notification),
       original_id_(notification.id()),
+      type_(type),
       keep_alive_(new ScopedKeepAlive(KeepAliveOrigin::NOTIFICATION,
                                       KeepAliveRestartOption::DISABLED)) {
   DCHECK(profile);

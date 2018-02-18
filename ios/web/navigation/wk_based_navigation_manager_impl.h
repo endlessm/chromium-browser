@@ -76,6 +76,9 @@ class WKBasedNavigationManagerImpl : public NavigationManagerImpl {
   // Returns the previous navigation item in the main frame.
   int GetPreviousItemIndex() const override;
   void SetPreviousItemIndex(int previous_item_index) override;
+  void AddPushStateItemIfNecessary(const GURL& url,
+                                   NSString* state_object,
+                                   ui::PageTransition transition) override;
 
   // NavigationManager:
   BrowserState* GetBrowserState() const override;
@@ -111,7 +114,8 @@ class WKBasedNavigationManagerImpl : public NavigationManagerImpl {
   // Returns the pending navigation item in the main frame.
   NavigationItemImpl* GetPendingItemImpl() const override;
   NavigationItemImpl* GetTransientItemImpl() const override;
-  void FinishGoToIndex(int index) override;
+  void FinishGoToIndex(int index,
+                       NavigationInitiationType initiation_type) override;
 
   // Returns the absolute index of WKBackForwardList's |currentItem|. Returns -1
   // if |currentItem| is nil.

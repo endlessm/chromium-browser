@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread.h"
@@ -81,11 +82,13 @@ struct MemlogConnectionManager::Connection {
              BacktraceStorage* backtrace_storage,
              base::ProcessId pid,
              mojom::ProfilingClientPtr client,
-             scoped_refptr<MemlogReceiverPipe> p)
+             scoped_refptr<MemlogReceiverPipe> p,
+             mojom::ProcessType process_type)
       : thread(base::StringPrintf("Sender %lld thread",
                                   static_cast<long long>(pid))),
         client(std::move(client)),
         pipe(p),
+        process_type(process_type),
         tracker(std::move(complete_cb), backtrace_storage) {}
 
   ~Connection() {
@@ -99,20 +102,26 @@ struct MemlogConnectionManager::Connection {
   mojom::ProfilingClientPtr client;
   scoped_refptr<MemlogReceiverPipe> pipe;
   scoped_refptr<MemlogStreamParser> parser;
+  mojom::ProcessType process_type;
 
   // Danger: This lives on the |thread| member above. The connection manager
   // lives on the I/O thread, so accesses to the variable must be synchronized.
   AllocationTracker tracker;
 };
 
-MemlogConnectionManager::MemlogConnectionManager() : weak_factory_(this) {}
+MemlogConnectionManager::MemlogConnectionManager() : weak_factory_(this) {
+  metrics_timer_.Start(FROM_HERE, base::TimeDelta::FromHours(24),
+                       base::Bind(&MemlogConnectionManager::ReportMetrics,
+                                  base::Unretained(this)));
+}
 MemlogConnectionManager::~MemlogConnectionManager() = default;
 
 void MemlogConnectionManager::OnNewConnection(
     base::ProcessId pid,
     mojom::ProfilingClientPtr client,
     mojo::ScopedHandle sender_pipe_end,
-    mojo::ScopedHandle receiver_pipe_end) {
+    mojo::ScopedHandle receiver_pipe_end,
+    mojom::ProcessType process_type) {
   base::AutoLock lock(connections_lock_);
 
   // Shouldn't be asked to profile a process more than once.
@@ -132,9 +141,9 @@ void MemlogConnectionManager::OnNewConnection(
                      base::MessageLoop::current()->task_runner(),
                      weak_factory_.GetWeakPtr(), pid);
 
-  auto connection =
-      base::MakeUnique<Connection>(std::move(complete_cb), &backtrace_storage_,
-                                   pid, std::move(client), new_pipe);
+  auto connection = base::MakeUnique<Connection>(
+      std::move(complete_cb), &backtrace_storage_, pid, std::move(client),
+      new_pipe, process_type);
 
   base::Thread::Options options;
   options.message_loop_type = base::MessageLoop::TYPE_IO;
@@ -160,6 +169,16 @@ void MemlogConnectionManager::OnConnectionComplete(base::ProcessId pid) {
   connections_.erase(found);
 }
 
+void MemlogConnectionManager::ReportMetrics() {
+  base::AutoLock lock(connections_lock_);
+  for (auto& pair : connections_) {
+    UMA_HISTOGRAM_ENUMERATION(
+        "OutOfProcessHeapProfiling.ProfiledProcess.Type",
+        pair.second->process_type,
+        static_cast<int>(profiling::mojom::ProcessType::LAST) + 1);
+  }
+}
+
 // static
 void MemlogConnectionManager::OnConnectionCompleteThunk(
     scoped_refptr<base::SequencedTaskRunner> task_runner,
@@ -171,10 +190,38 @@ void MemlogConnectionManager::OnConnectionCompleteThunk(
 }
 
 void MemlogConnectionManager::DumpProcess(DumpProcessArgs args) {
+  // Schedules the given callback to execute after the given process ID has
+  // been synchronized. If the process ID isn't found, the callback will be
+  // asynchronously run with "false" as the success parameter.
   args.backtrace_storage_lock = BacktraceStorage::Lock(&backtrace_storage_);
-  SynchronizeOnPid(args.pid,
-                   base::BindOnce(&MemlogConnectionManager::DoDumpProcess,
-                                  weak_factory_.GetWeakPtr(), std::move(args)));
+
+  base::AutoLock lock(connections_lock_);
+  auto task_runner = base::MessageLoop::current()->task_runner();
+  auto it = connections_.find(args.pid);
+
+  if (it == connections_.end()) {
+    DLOG(ERROR) << "No connections found for memory dump for pid:" << args.pid;
+    task_runner->PostTask(
+        FROM_HERE,
+        base::BindOnce(&MemlogConnectionManager::DoDumpProcess,
+                       weak_factory_.GetWeakPtr(), std::move(args),
+                       mojom::ProcessType::OTHER, false, AllocationCountMap(),
+                       AllocationTracker::ContextMap()));
+    return;
+  }
+
+  int barrier_id = next_barrier_id_++;
+
+  // Register for callback before requesting the dump so we don't race for the
+  // signal. The callback will be issued on the allocation tracker thread so
+  // need to thunk back to the I/O thread.
+  Connection* connection = it->second.get();
+  auto callback = base::BindOnce(&MemlogConnectionManager::DoDumpProcess,
+                                 weak_factory_.GetWeakPtr(), std::move(args),
+                                 connection->process_type);
+  connection->tracker.SnapshotOnBarrier(barrier_id, std::move(task_runner),
+                                        std::move(callback));
+  connection->client->FlushMemlogPipe(barrier_id);
 }
 
 void MemlogConnectionManager::DumpProcessesForTracing(
@@ -182,7 +229,16 @@ void MemlogConnectionManager::DumpProcessesForTracing(
     memory_instrumentation::mojom::GlobalMemoryDumpPtr dump) {
   base::AutoLock lock(connections_lock_);
 
+  // Early out if there are no connections.
+  if (connections_.empty()) {
+    std::move(callback).Run(
+        std::vector<profiling::mojom::SharedBufferWithSizePtr>());
+    return;
+  }
+
   auto tracking = base::MakeRefCounted<DumpProcessesForTracingTracking>();
+  tracking->backtrace_storage_lock =
+      BacktraceStorage::Lock(&backtrace_storage_);
   tracking->waiting_responses = connections_.size();
   tracking->callback = std::move(callback);
   tracking->dump = std::move(dump);
@@ -202,40 +258,15 @@ void MemlogConnectionManager::DumpProcessesForTracing(
     connection->tracker.SnapshotOnBarrier(
         barrier_id, task_runner,
         base::BindOnce(&MemlogConnectionManager::DoDumpOneProcessForTracing,
-                       weak_factory_.GetWeakPtr(), tracking, pid));
+                       weak_factory_.GetWeakPtr(), tracking, pid,
+                       connection->process_type));
     connection->client->FlushMemlogPipe(barrier_id);
   }
 }
 
-void MemlogConnectionManager::SynchronizeOnPid(
-    base::ProcessId process_id,
-    AllocationTracker::SnapshotCallback callback) {
-  base::AutoLock lock(connections_lock_);
-
-  auto task_runner = base::MessageLoop::current()->task_runner();
-
-  auto it = connections_.find(process_id);
-  if (it == connections_.end()) {
-    DLOG(ERROR) << "No connections found for memory dump for pid:"
-                << process_id;
-    std::move(callback).Run(false, AllocationCountMap(),
-                            AllocationTracker::ContextMap());
-    return;
-  }
-
-  int barrier_id = next_barrier_id_++;
-
-  // Register for callback before requesting the dump so we don't race for the
-  // signal. The callback will be issued on the allocation tracker thread so
-  // need to thunk back to the I/O thread.
-  Connection* connection = it->second.get();
-  connection->tracker.SnapshotOnBarrier(barrier_id, std::move(task_runner),
-                                        std::move(callback));
-  connection->client->FlushMemlogPipe(barrier_id);
-}
-
 void MemlogConnectionManager::DoDumpProcess(
     DumpProcessArgs args,
+    mojom::ProcessType process_type,
     bool success,
     AllocationCountMap counts,
     AllocationTracker::ContextMap context) {
@@ -244,11 +275,13 @@ void MemlogConnectionManager::DoDumpProcess(
     return;
   }
 
+  CHECK(args.backtrace_storage_lock.IsLocked());
   std::ostringstream oss;
   ExportParams params;
   params.allocs = std::move(counts);
   params.context_map = std::move(context);
   params.maps = std::move(args.maps);
+  params.process_type = process_type;
   params.min_size_threshold = kMinSizeThreshold;
   params.min_count_threshold = kMinCountThreshold;
   ExportAllocationEventSetToJSON(args.pid, params, std::move(args.metadata),
@@ -279,6 +312,7 @@ void MemlogConnectionManager::DoDumpProcess(
 void MemlogConnectionManager::DoDumpOneProcessForTracing(
     scoped_refptr<DumpProcessesForTracingTracking> tracking,
     base::ProcessId pid,
+    mojom::ProcessType process_type,
     bool success,
     AllocationCountMap counts,
     AllocationTracker::ContextMap context) {
@@ -308,12 +342,15 @@ void MemlogConnectionManager::DoDumpOneProcessForTracing(
     return;
   }
 
+  CHECK(tracking->backtrace_storage_lock.IsLocked());
   ExportParams params;
   params.allocs = std::move(counts);
   params.maps = std::move(process_dump->os_dump->memory_maps_for_heap_profiler);
   params.context_map = std::move(context);
+  params.process_type = process_type;
   params.min_size_threshold = kMinSizeThreshold;
   params.min_count_threshold = kMinCountThreshold;
+  params.is_argument_filtering_enabled = true;
 
   std::ostringstream oss;
   ExportMemoryMapsAndV2StackTraceToJSON(params, oss);

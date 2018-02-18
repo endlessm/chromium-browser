@@ -9,11 +9,15 @@
 #include "base/time/time.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "ui/message_center/notification.h"
 #include "ui/message_center/notification_delegate.h"
 #include "url/gurl.h"
 
-class Notification;
 class Profile;
+
+namespace message_cener {
+class Notification;
+}
 
 namespace chromeos {
 namespace quick_unlock {
@@ -64,7 +68,7 @@ class QuickUnlockNotificationController
   void Close(bool by_user) override;
   void Click() override;
 
-  std::unique_ptr<Notification> CreateNotification();
+  std::unique_ptr<message_center::Notification> CreateNotification();
   void SetNotificationPreferenceWasShown();
   void UnregisterObserver();
 

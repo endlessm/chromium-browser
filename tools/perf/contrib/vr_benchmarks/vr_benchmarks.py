@@ -24,6 +24,14 @@ class _BaseVRBenchmark(perf_benchmark.PerfBenchmark):
         'preference files to edit and how to do so. '
         'See examples in //chrome/android/'
         'shared_preference_files/test/')
+    parser.add_option(
+        '--disable-screen-reset',
+        action='store_true',
+        default=False,
+        help='Disables turning screen off and on after each story. '
+        'This is useful for local testing when turning off the '
+        'screen leads to locking the phone, which makes Telemetry '
+        'not produce valid results.')
 
 
 @benchmark.Owner(emails=['bsheedy@chromium.org', 'leilei@chromium.org'])
@@ -73,12 +81,19 @@ class XrBrowsingStatic(_BaseVRBenchmark):
   SUPPORTED_PLATFORMS = [story.expectations.ALL_ANDROID]
 
   def CreateTimelineBasedMeasurementOptions(self):
-    custom_categories = ['gpu', 'toplevel', 'viz']
+    memory_categories = ['blink.console', 'disabled-by-default-memory-infra']
+    gpu_categories = ['gpu']
+    debug_categories = ['toplevel', 'viz']
     category_filter = chrome_trace_category_filter.ChromeTraceCategoryFilter(
-        ','.join(custom_categories))
+        ','.join(['-*'] + memory_categories + gpu_categories
+            + debug_categories))
     options = timeline_based_measurement.Options(category_filter)
+    options.config.enable_android_graphics_memtrack = True
     options.config.enable_platform_display_trace = True
-    options.SetTimelineBasedMetrics(['frameCycleDurationMetric'])
+    options.SetTimelineBasedMetrics(['frameCycleDurationMetric',
+      'memoryMetric'])
+    options.config.chrome_trace_config.SetMemoryDumpConfig(
+        chrome_trace_config.MemoryDumpConfig())
     return options
 
   def CreateStorySet(self, options):

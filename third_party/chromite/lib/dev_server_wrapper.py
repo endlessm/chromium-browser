@@ -724,7 +724,7 @@ You can fix this with one of the following three options:
     # Running wget through ssh because the port on the device is not
     # accessible by default.
     result = self.device.RunCommand(
-        ['wget', url, '-q', '-O', '/dev/null'], error_code_ok=True)
+        ['curl', url, '-o', '/dev/null'], error_code_ok=True)
     return result.returncode == 0
 
   def run(self):
@@ -789,3 +789,6 @@ You can fix this with one of the following three options:
                                                 sub_dir=host_log)
       logging.debug('Host Log URL: %s' % devserver_host_log)
       return devserver_host_log
+    else:
+      logging.error('Cannot get hostlog URL. Devserver not alive.')
+      raise DevServerException('Cannot get hostlog URL. Devserver not alive.')

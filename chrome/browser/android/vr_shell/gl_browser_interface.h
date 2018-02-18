@@ -8,15 +8,15 @@
 #include <memory>
 
 #include "base/android/jni_weak_ref.h"
-#include "chrome/browser/vr/ui_interface.h"
+#include "chrome/browser/vr/assets_load_status.h"
 #include "device/vr/android/gvr/gvr_gamepad_data_provider.h"
 #include "device/vr/vr_service.mojom.h"
 #include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr_types.h"
 #include "ui/gfx/transform.h"
 
-namespace blink {
-class WebInputEvent;
-}
+namespace base {
+class Version;
+}  // namespace base
 
 namespace vr_shell {
 
@@ -29,12 +29,11 @@ class GlBrowserInterface {
   virtual void ContentSurfaceChanged(jobject surface) = 0;
   virtual void GvrDelegateReady(gvr::ViewerType viewer_type) = 0;
   virtual void UpdateGamepadData(device::GvrGamepadData) = 0;
-  virtual void ProcessContentGesture(
-      std::unique_ptr<blink::WebInputEvent> event,
-      int content_id) = 0;
   virtual void ForceExitVr() = 0;
   virtual void OnContentPaused(bool enabled) = 0;
   virtual void ToggleCardboardGamepad(bool enabled) = 0;
+  virtual void OnAssetsLoaded(vr::AssetsLoadStatus status,
+                              const base::Version& component_version) = 0;
 };
 
 }  // namespace vr_shell

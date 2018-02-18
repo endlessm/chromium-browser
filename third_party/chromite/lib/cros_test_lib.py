@@ -954,8 +954,12 @@ class TempDirTestCase(TestCase):
     self._tempdir_obj = osutils.TempDir(prefix='chromite.test', set_global=True,
                                         delete=self.DELETE)
     self.tempdir = self._tempdir_obj.tempdir
+    # We must use addCleanup here so that inheriting TestCase classes can use
+    # addCleanup with the guarantee that the tempdir will be cleand up _after_
+    # their addCleanup has run. TearDown runs before cleanup functions.
+    self.addCleanup(self._CleanTempDir)
 
-  def tearDown(self):
+  def _CleanTempDir(self):
     if self._tempdir_obj is not None:
       self._tempdir_obj.Cleanup()
       self._tempdir_obj = None
@@ -993,7 +997,7 @@ class LocalSqlServerTestCase(TempDirTestCase):
     self.mysqld_port = None
     self._mysqld_dir = None
     self._mysqld_runner = None
-    self._mysqld_needs_cleanup = False
+
     # This class has assumptions about the mariadb installation that are only
     # guaranteed to hold inside the chroot.
     cros_build_lib.AssertInsideChroot()
@@ -1033,6 +1037,7 @@ class LocalSqlServerTestCase(TempDirTestCase):
         halt_on_error=True)
     queue = self._mysqld_runner.__enter__()
     queue.put((cmd,))
+    self.addCleanup(self._ShutdownMysqld)
 
     # Ensure that the Sql server is up before continuing.
     cmd = [
@@ -1041,38 +1046,51 @@ class LocalSqlServerTestCase(TempDirTestCase):
         'ping',
     ]
     try:
-      retry_util.RunCommandWithRetries(cmd=cmd, quiet=True, max_retry=5,
-                                       sleep=1, backoff_factor=1.5)
+      # Retry at:
+      # 1 + 2 + 4 + 8 + 16 + 32 + 64 + 128 = 255 seconds total timeout in case
+      # of failure.
+      # Smaller timeouts make this check flaky on heavily loaded builders.
+      retry_util.RunCommandWithRetries(cmd=cmd, quiet=True, max_retry=8,
+                                       sleep=1, backoff_factor=2)
     except Exception as e:
-      self._mysqld_needs_cleanup = True
-      logging.warning('Mysql server failed to show up! (%s)', e)
+      self.addCleanup(lambda: self._CleanupMysqld(
+          'mysqladmin failed to ping mysqld: %s' % e))
       raise
 
-  def tearDown(self):
+  def _ShutdownMysqld(self):
     """Cleanup mysqld and our mysqld data directory."""
-    mysqld_socket = os.path.join(self._mysqld_dir, 'mysqld.socket')
-    if os.path.exists(mysqld_socket):
-      try:
-        cmd = [
-            'mysqladmin',
-            '-S', os.path.join(self._mysqld_dir, 'mysqld.socket'),
-            '-u', 'root',
-            'shutdown',
-        ]
-        cros_build_lib.RunCommand(cmd, quiet=True)
-      except cros_build_lib.RunCommandError as e:
-        self._mysqld_needs_cleanup = True
-        logging.warning('Could not stop test mysqld daemon (%s)', e)
+    if self._mysqld_runner is None:
+      return
 
-    # Explicitly stop the mysqld process before removing the working directory.
-    if self._mysqld_runner is not None:
-      if self._mysqld_needs_cleanup:
+    try:
+      cmd = [
+          'mysqladmin',
+          '-S', os.path.join(self._mysqld_dir, 'mysqld.socket'),
+          '-u', 'root',
+          'shutdown',
+      ]
+      cros_build_lib.RunCommand(cmd, quiet=True)
+    except cros_build_lib.RunCommandError as e:
+      self._CleanupMysqld(
+          failure='mysqladmin failed to shutdown mysqld: %s' % e)
+    else:
+      self._CleanupMysqld()
+
+  def _CleanupMysqld(self, failure=None):
+    if self._mysqld_runner is None:
+      return
+
+    try:
+      if failure is not None:
         self._mysqld_runner.__exit__(
-            cros_build_lib.RunCommandError,
-            'Artification exception to cleanup mysqld',
-            None)
+            Exception,
+            '%s. We force killed the mysqld process.' % failure,
+            None,
+        )
       else:
         self._mysqld_runner.__exit__(None, None, None)
+    finally:
+      self._mysqld_runner = None
 
 
 class MockTestCase(TestCase):
@@ -1215,7 +1233,8 @@ class GerritTestCase(MockTempDirTestCase):
     if os.path.exists(netrc_path):
       self._populate_netrc(netrc_path)
       # Set netrc file for http authentication.
-      self.PatchObject(gob_util, 'NETRC', netrc.netrc(gi.netrc_file))
+      self.PatchObject(gob_util, '_GetNetRC',
+                       return_value=netrc.netrc(gi.netrc_file))
 
     if gi.cookies_path:
       cros_build_lib.RunCommand(

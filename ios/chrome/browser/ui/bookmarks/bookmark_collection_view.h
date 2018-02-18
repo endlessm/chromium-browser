@@ -17,19 +17,22 @@
 
 // TODO(crbug.com/753599) : Delete this file after new bookmarks ui is launched.
 
-@protocol ApplicationCommands;
 @class BookmarkCollectionView;
 class GURL;
+@protocol SigninPresenter;
+@class SigninPromoViewConfigurator;
+@class SigninPromoViewMediator;
 @protocol UrlLoader;
 
 namespace bookmarks {
 class BookmarkNode;
 }  // namespace bookmarks
-namespace user_prefs {
-class PrefRegistrySyncable;
-}  // namespace user_prefs
 
 @protocol BookmarkCollectionViewDelegate<NSObject>
+
+// Returns the SigninPromoViewMediator to use for the sign-in promo view in the
+// bookmark collection view.
+@property(nonatomic, readonly) SigninPromoViewMediator* signinPromoViewMediator;
 
 // This method tells the delegate to add the node and cell
 // to the list of those being edited.
@@ -65,12 +68,6 @@ class PrefRegistrySyncable;
 // Returns true if a bookmarks promo cell should be shown.
 - (BOOL)bookmarkCollectionViewShouldShowPromoCell:(BookmarkCollectionView*)view;
 
-// Shows a sign-in view controller.
-- (void)bookmarkCollectionViewShowSignIn:(BookmarkCollectionView*)view;
-
-// Dismisses the promo.
-- (void)bookmarkCollectionViewDismissPromo:(BookmarkCollectionView*)view;
-
 // Tells the delegate that a folder was selected for navigation.
 - (void)bookmarkCollectionView:(BookmarkCollectionView*)view
     selectedFolderForNavigation:(const bookmarks::BookmarkNode*)folder;
@@ -94,13 +91,10 @@ class PrefRegistrySyncable;
 @interface BookmarkCollectionView
     : UIView<BookmarkHomePrimaryView, BookmarkModelBridgeObserver>
 
-// Registers the feature preferences.
-+ (void)registerBrowserStatePrefs:(user_prefs::PrefRegistrySyncable*)registry;
-
 // Designated initializer.
 - (instancetype)initWithBrowserState:(ios::ChromeBrowserState*)browserState
                                frame:(CGRect)frame
-                          dispatcher:(id<ApplicationCommands>)dispatcher;
+                           presenter:(id<SigninPresenter>)presenter;
 
 // Callback whenever the collection view is scrolled.
 - (void)collectionViewScrolled;
@@ -110,6 +104,12 @@ class PrefRegistrySyncable;
 
 // Called when something outside the view causes the promo state to change.
 - (void)promoStateChangedAnimated:(BOOL)animated;
+
+// Configures the sign-in promo view using |configurator|, and reloads the
+// collection view if |identityChanged| is YES.
+- (void)configureSigninPromoWithConfigurator:
+            (SigninPromoViewConfigurator*)configurator
+                             identityChanged:(BOOL)identityChanged;
 
 @property(nonatomic, assign, readonly) bookmarks::BookmarkModel* bookmarkModel;
 @property(nonatomic, weak, readonly) id<UrlLoader> loader;

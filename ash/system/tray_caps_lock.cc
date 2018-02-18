@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "ash/accessibility/accessibility_delegate.h"
+#include "ash/accessibility/accessibility_controller.h"
 #include "ash/ime/ime_controller.h"
 #include "ash/metrics/user_metrics_recorder.h"
 #include "ash/public/cpp/config.h"
@@ -67,7 +67,7 @@ bool IsSearchKeyMappedToCapsLock() {
   // to worry about sync changing the pref while the menu or notification is
   // visible.
   return prefs->GetInteger(prefs::kLanguageRemapSearchKeyTo) ==
-         ui::chromeos::ModifierKey::kCapsLockKey;
+         static_cast<int>(ui::chromeos::ModifierKey::kCapsLockKey);
 }
 
 std::unique_ptr<Notification> CreateNotification() {
@@ -140,7 +140,7 @@ class CapsLockDefaultView : public ActionableView {
             0, 0, 0, kCaptionRightPadding + kTrayPopupLabelRightPadding));
   }
 
-  ~CapsLockDefaultView() override {}
+  ~CapsLockDefaultView() override = default;
 
   // Updates the label text and the shortcut text.
   void Update(bool caps_lock_enabled) {
@@ -209,8 +209,9 @@ void TrayCapsLock::RegisterProfilePrefs(PrefRegistrySimple* registry,
                                         bool for_test) {
   if (for_test) {
     // There is no remote pref service, so pretend that ash owns the pref.
-    registry->RegisterIntegerPref(prefs::kLanguageRemapSearchKeyTo,
-                                  ui::chromeos::ModifierKey::kSearchKey);
+    registry->RegisterIntegerPref(
+        prefs::kLanguageRemapSearchKeyTo,
+        static_cast<int>(ui::chromeos::ModifierKey::kSearchKey));
     return;
   }
   // Pref is owned by chrome and flagged as PUBLIC.
@@ -221,8 +222,9 @@ void TrayCapsLock::OnCapsLockChanged(bool enabled) {
   caps_lock_enabled_ = enabled;
 
   // Send an a11y alert.
-  Shell::Get()->accessibility_delegate()->TriggerAccessibilityAlert(
-      enabled ? A11Y_ALERT_CAPS_ON : A11Y_ALERT_CAPS_OFF);
+  Shell::Get()->accessibility_controller()->TriggerAccessibilityAlert(
+      enabled ? mojom::AccessibilityAlert::CAPS_ON
+              : mojom::AccessibilityAlert::CAPS_OFF);
 
   if (tray_view())
     tray_view()->SetVisible(caps_lock_enabled_);

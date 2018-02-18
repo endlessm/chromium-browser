@@ -6,7 +6,6 @@
 
 #include "android_webview/browser/aw_metrics_log_uploader.h"
 #include "android_webview/common/aw_switches.h"
-#include "android_webview/common/aw_version_info_values.h"
 #include "android_webview/jni/AwMetricsServiceClient_jni.h"
 #include "base/android/build_info.h"
 #include "base/android/jni_string.h"
@@ -70,7 +69,7 @@ version_info::Channel GetChannelFromPackageName() {
 
 // WebView Metrics are sampled based on GUID value.
 // TODO(paulmiller) Sample with Finch, once we have Finch.
-bool CheckInSample(const std::string& client_id) {
+bool IsInSample(const std::string& client_id) {
   // client_id comes from base::GenerateGUID(), so its value is random/uniform,
   // except for a few bit positions with fixed values, and some hyphens. Rather
   // than separating the random payload from the fixed bits, just hash the whole
@@ -78,8 +77,8 @@ bool CheckInSample(const std::string& client_id) {
   uint32_t hash = base::PersistentHash(client_id);
 
   // Since hashing is ~uniform, the chance that the value falls in the bottom
-  // 10% of possible values is 10%.
-  return hash < UINT32_MAX / 10u;
+  // 2% (1/50th) of possible values is 2%.
+  return hash < UINT32_MAX / 50u;
 }
 
 }  // namespace
@@ -88,12 +87,6 @@ bool CheckInSample(const std::string& client_id) {
 AwMetricsServiceClient* AwMetricsServiceClient::GetInstance() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   return g_lazy_instance_.Pointer();
-}
-
-bool AwMetricsServiceClient::CheckSDKVersionForMetrics() {
-  // For now, UMA is only enabled on Android N+.
-  return base::android::BuildInfo::GetInstance()->sdk_int() >=
-         base::android::SDK_VERSION_NOUGAT;
 }
 
 void AwMetricsServiceClient::LoadOrCreateClientId() {
@@ -172,7 +165,7 @@ void AwMetricsServiceClient::InitializeWithClientId() {
   DCHECK_EQ(g_client_id.Get().length(), GUID_SIZE);
   pref_service_->SetString(metrics::prefs::kMetricsClientID, g_client_id.Get());
 
-  in_sample_ = CheckInSample(g_client_id.Get());
+  in_sample_ = IsInSample(g_client_id.Get());
 
   metrics_state_manager_ = metrics::MetricsStateManager::Create(
       pref_service_, this, base::string16(), base::Bind(&StoreClientInfo),
@@ -209,7 +202,7 @@ bool AwMetricsServiceClient::IsConsentGiven() {
 }
 
 bool AwMetricsServiceClient::IsReportingEnabled() {
-  return consent_ && in_sample_ && CheckSDKVersionForMetrics();
+  return consent_ && in_sample_;
 }
 
 void AwMetricsServiceClient::SetHaveMetricsConsent(bool consent) {
@@ -252,7 +245,7 @@ metrics::SystemProfileProto::Channel AwMetricsServiceClient::GetChannel() {
 }
 
 std::string AwMetricsServiceClient::GetVersionString() {
-  return PRODUCT_VERSION;
+  return version_info::GetVersionNumber();
 }
 
 void AwMetricsServiceClient::CollectFinalMetricsForLog(
@@ -263,11 +256,13 @@ void AwMetricsServiceClient::CollectFinalMetricsForLog(
 std::unique_ptr<metrics::MetricsLogUploader>
 AwMetricsServiceClient::CreateUploader(
     base::StringPiece server_url,
+    base::StringPiece insecure_server_url,
     base::StringPiece mime_type,
     metrics::MetricsLogUploader::MetricServiceType service_type,
     const metrics::MetricsLogUploader::UploadCallback& on_upload_complete) {
-  // |server_url| and |mime_type| are unused because WebView uses the platform
-  // logging mechanism instead of the normal UMA server.
+  // |server_url|, |insecure_server_url| and |mime_type| are unused because
+  // WebView uses the platform logging mechanism instead of the normal UMA
+  // server.
   return std::unique_ptr<::metrics::MetricsLogUploader>(
       new AwMetricsLogUploader(on_upload_complete));
 }
@@ -288,9 +283,10 @@ AwMetricsServiceClient::AwMetricsServiceClient()
 AwMetricsServiceClient::~AwMetricsServiceClient() {}
 
 // static
-void SetHaveMetricsConsent(JNIEnv* env,
-                           const base::android::JavaParamRef<jclass>& jcaller,
-                           jboolean consent) {
+void JNI_AwMetricsServiceClient_SetHaveMetricsConsent(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jclass>& jcaller,
+    jboolean consent) {
   g_lazy_instance_.Pointer()->SetHaveMetricsConsent(consent);
 }
 

@@ -12,9 +12,9 @@
 
 namespace app_list {
 
-class AllAppsTileItemView;
 class AppListViewDelegate;
 class ContentsView;
+class PaginationModel;
 class SearchResultTileItemView;
 class TileItemView;
 
@@ -23,7 +23,6 @@ class TileItemView;
 class SuggestionsContainerView : public SearchResultContainerView {
  public:
   SuggestionsContainerView(ContentsView* contents_view,
-                           AllAppsTileItemView* all_apps_button,
                            PaginationModel* pagination_model);
   ~SuggestionsContainerView() override;
 
@@ -32,8 +31,6 @@ class SuggestionsContainerView : public SearchResultContainerView {
   const std::vector<SearchResultTileItemView*>& tile_views() const {
     return search_result_tile_views_;
   }
-
-  AllAppsTileItemView* all_apps_button() { return all_apps_button_; }
 
   // Overridden from SearchResultContainerView:
   int DoUpdate() override;
@@ -52,11 +49,8 @@ class SuggestionsContainerView : public SearchResultContainerView {
   AppListViewDelegate* view_delegate_ = nullptr;
 
   std::vector<SearchResultTileItemView*> search_result_tile_views_;
-  AllAppsTileItemView* all_apps_button_ = nullptr;
 
   PaginationModel* const pagination_model_;  // Owned by AppsGridView.
-
-  const bool is_fullscreen_app_list_enabled_;
 
   DISALLOW_COPY_AND_ASSIGN(SuggestionsContainerView);
 };

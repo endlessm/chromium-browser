@@ -10,16 +10,11 @@
 #import "ios/web/public/web_state/web_state_user_data.h"
 
 @protocol ApplicationCommands;
-@protocol FormInputAccessoryViewProvider;
 @protocol FormSuggestionProvider;
 @class PasswordController;
 @protocol PasswordControllerDelegate;
 @protocol PasswordFormFiller;
 @protocol PasswordsUiDelegate;
-
-namespace password_manager {
-class PasswordGenerationManager;
-}
 
 // Class binding a PasswordController to a WebState.
 class PasswordTabHelper : public web::WebStateObserver,
@@ -28,9 +23,7 @@ class PasswordTabHelper : public web::WebStateObserver,
   ~PasswordTabHelper() override;
 
   // Creates a PasswordTabHelper and attaches it to the given |web_state|.
-  // |password_ui_delegate| may be nil.
-  static void CreateForWebState(web::WebState* web_state,
-                                id<PasswordsUiDelegate> passwords_ui_delegate);
+  static void CreateForWebState(web::WebState* web_state);
 
   // Sets the PasswordController dispatcher.
   void SetDispatcher(id<ApplicationCommands> dispatcher);
@@ -42,22 +35,14 @@ class PasswordTabHelper : public web::WebStateObserver,
   // May return nil.
   id<FormSuggestionProvider> GetSuggestionProvider();
 
-  // Returns an object that can provide an input accessory view from the
-  // PasswordController.
-  id<FormInputAccessoryViewProvider> GetAccessoryViewProvider();
-
   // Returns the PasswordFormFiller from the PasswordController.
   id<PasswordFormFiller> GetPasswordFormFiller();
 
-  // Returns the PasswordGenerationManager owned by the PasswordController.
-  password_manager::PasswordGenerationManager* GetPasswordGenerationManager();
-
  private:
-  PasswordTabHelper(web::WebState* web_state,
-                    id<PasswordsUiDelegate> passwords_ui_delegate);
+  explicit PasswordTabHelper(web::WebState* web_state);
 
   // web::WebStateObserver implementation.
-  void WebStateDestroyed() override;
+  void WebStateDestroyed(web::WebState* web_state) override;
 
   // The Objective-C password controller instance.
   __strong PasswordController* controller_;

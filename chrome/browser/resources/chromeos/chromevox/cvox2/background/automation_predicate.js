@@ -66,8 +66,10 @@ AutomationPredicate.match = function(params) {
 AutomationPredicate.checkBox =
     AutomationPredicate.roles([Role.CHECK_BOX, Role.SWITCH]);
 /** @type {AutomationPredicate.Unary} */
-AutomationPredicate.comboBox = AutomationPredicate.roles(
-    [Role.COMBO_BOX, Role.POP_UP_BUTTON, Role.MENU_LIST_POPUP]);
+AutomationPredicate.comboBox = AutomationPredicate.roles([
+  Role.COMBO_BOX_GROUPING, Role.COMBO_BOX_MENU_BUTTON,
+  Role.TEXT_FIELD_WITH_COMBO_BOX, Role.POP_UP_BUTTON, Role.MENU_LIST_POPUP
+]);
 /** @type {AutomationPredicate.Unary} */
 AutomationPredicate.heading = AutomationPredicate.roles([Role.HEADING]);
 /** @type {AutomationPredicate.Unary} */
@@ -248,9 +250,9 @@ AutomationPredicate.group = AutomationPredicate.match({
  * @return {boolean}
  */
 AutomationPredicate.linebreak = function(first, second) {
-  // TODO(dtseng): Use next/previousOnLin once available.
-  var fl = first.location;
-  var sl = second.location;
+  // TODO(dtseng): Use next/previousOnLine once available.
+  var fl = first.unclippedLocation;
+  var sl = second.unclippedLocation;
   return fl.top != sl.top || (fl.top + fl.height != sl.top + sl.height);
 };
 
@@ -263,8 +265,8 @@ AutomationPredicate.linebreak = function(first, second) {
 AutomationPredicate.container = function(node) {
   return AutomationPredicate.match({
     anyRole: [
-      Role.GENERIC_CONTAINER, Role.DOCUMENT, Role.GROUP, Role.LIST_ITEM,
-      Role.TOOLBAR, Role.WINDOW
+      Role.GENERIC_CONTAINER, Role.DOCUMENT, Role.GROUP, Role.LIST,
+      Role.LIST_ITEM, Role.TOOLBAR, Role.WINDOW
     ],
     anyPredicate: [
       AutomationPredicate.landmark, AutomationPredicate.structuralContainer,
@@ -288,9 +290,9 @@ AutomationPredicate.container = function(node) {
  * @return {boolean}
  */
 AutomationPredicate.structuralContainer = AutomationPredicate.roles([
-  Role.ALERT_DIALOG, Role.DIALOG, Role.ROOT_WEB_AREA, Role.WEB_VIEW,
-  Role.WINDOW, Role.EMBEDDED_OBJECT, Role.IFRAME, Role.IFRAME_PRESENTATIONAL,
-  Role.UNKNOWN
+  Role.ALERT_DIALOG, Role.CLIENT, Role.DIALOG, Role.ROOT_WEB_AREA,
+  Role.WEB_VIEW, Role.WINDOW, Role.EMBEDDED_OBJECT, Role.IFRAME,
+  Role.IFRAME_PRESENTATIONAL, Role.UNKNOWN
 ]);
 
 /**
@@ -316,6 +318,12 @@ AutomationPredicate.root = function(node) {
     case Role.TOOLBAR:
       return node.root.role == Role.DESKTOP;
     case Role.ROOT_WEB_AREA:
+      if (node.parent && node.parent.role == Role.WEB_VIEW &&
+          !node.parent.state[chrome.automation.StateType.FOCUSED]) {
+        // If parent web view is not focused, we should allow this root web area
+        // to be crossed when performing traversals up the ancestry chain.
+        return false;
+      }
       return !node.parent || node.parent.root.role == Role.DESKTOP;
     default:
       return false;

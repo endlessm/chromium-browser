@@ -316,7 +316,7 @@ void GLManager::InitializeWithWorkaroundsImpl(
   attribs.buffer_preserved = options.preserve_backbuffer;
   attribs.bind_generates_resource = options.bind_generates_resource;
   translator_cache_ =
-      base::MakeUnique<gles2::ShaderTranslatorCache>(gpu_preferences_);
+      std::make_unique<gles2::ShaderTranslatorCache>(gpu_preferences_);
 
   if (!context_group) {
     scoped_refptr<gles2::FeatureInfo> feature_info =
@@ -369,17 +369,19 @@ void GLManager::InitializeWithWorkaroundsImpl(
 
   ASSERT_TRUE(context_->MakeCurrent(surface_.get()));
 
-  if (!decoder_->Initialize(surface_.get(), context_.get(), true,
-                            ::gpu::gles2::DisallowedFeatures(), attribs)) {
+  auto result =
+      decoder_->Initialize(surface_.get(), context_.get(), true,
+                           ::gpu::gles2::DisallowedFeatures(), attribs);
+  if (result != gpu::ContextResult::kSuccess)
     return;
-  }
   // Client side Capabilities queries return reference, service side return
   // value. Here two sides are joined together.
   capabilities_ = decoder_->GetCapabilities();
 
   // Create the GLES2 helper, which writes the command buffer protocol.
   gles2_helper_.reset(new gles2::GLES2CmdHelper(command_buffer_.get()));
-  ASSERT_TRUE(gles2_helper_->Initialize(limits.command_buffer_size));
+  ASSERT_EQ(gles2_helper_->Initialize(limits.command_buffer_size),
+            gpu::ContextResult::kSuccess);
 
   // Create a transfer buffer.
   transfer_buffer_.reset(new TransferBuffer(gles2_helper_.get()));
@@ -392,7 +394,8 @@ void GLManager::InitializeWithWorkaroundsImpl(
       options.lose_context_when_out_of_memory, support_client_side_arrays,
       this));
 
-  ASSERT_TRUE(gles2_implementation_->Initialize(limits))
+  ASSERT_EQ(gles2_implementation_->Initialize(limits),
+            gpu::ContextResult::kSuccess)
       << "Could not init GLES2Implementation";
 
   MakeCurrent();
@@ -482,7 +485,7 @@ int32_t GLManager::CreateImage(ClientBuffer buffer,
     IOSurfaceGpuMemoryBuffer* gpu_memory_buffer =
         IOSurfaceGpuMemoryBuffer::FromClientBuffer(buffer);
     scoped_refptr<gl::GLImageIOSurface> image(
-        new gl::GLImageIOSurface(size, internalformat));
+        gl::GLImageIOSurface::Create(size, internalformat));
     if (!image->Initialize(gpu_memory_buffer->iosurface(),
                            gfx::GenericSharedMemoryId(1),
                            gfx::BufferFormat::BGRA_8888)) {
@@ -569,7 +572,6 @@ bool GLManager::CanWaitUnverifiedSyncToken(const gpu::SyncToken& sync_token) {
   return false;
 }
 
-void GLManager::AddLatencyInfo(
-    const std::vector<ui::LatencyInfo>& latency_info) {}
+void GLManager::SetSnapshotRequested() {}
 
 }  // namespace gpu

@@ -89,6 +89,12 @@ class InterfaceTest(cros_test_lib.OutputTestCase):
     options = _ParseCommandLine(argv)
     self.assertEqual(options.mount_dir, '/foo/bar/cow')
 
+  def testSshIdentityOptionSetsOption(self):
+    argv = list(_REGULAR_TO) + ['--private-key', '/foo/bar/key',
+                                '--board', 'cedar',
+                                '--build-dir', '/path/to/nowhere' ]
+    options = _ParseCommandLine(argv)
+    self.assertEqual(options.private_key, '/foo/bar/key')
 
 class DeployChromeMock(partial_mock.PartialMock):
   """Deploy Chrome Mock Class."""
@@ -103,7 +109,8 @@ class DeployChromeMock(partial_mock.PartialMock):
     self.rsh_mock = remote_access_unittest.RemoteShMock()
     self.rsh_mock.SetDefaultCmdResult(0)
     self.MockMountCmd(1)
-    self.rsh_mock.AddCmdResult(['lsof', deploy_chrome._CHROME_DIR], 1)
+    self.rsh_mock.AddCmdResult(
+        deploy_chrome.LSOF_COMMAND % (deploy_chrome._CHROME_DIR,), 1)
 
   def MockMountCmd(self, returnvalue):
     self.rsh_mock.AddCmdResult(deploy_chrome.MOUNT_RW_COMMAND,
@@ -200,7 +207,7 @@ class TestUiJobStarted(DeployTest):
   """Test detection of a running 'ui' job."""
 
   def MockStatusUiCmd(self, **kwargs):
-    self.deploy_mock.rsh_mock.AddCmdResult(['status', 'ui'], **kwargs)
+    self.deploy_mock.rsh_mock.AddCmdResult('status ui', **kwargs)
 
   def testUiJobStartedFalse(self):
     """Correct results with a stopped job."""

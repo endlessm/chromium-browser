@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/blocked_content/tab_under_navigation_throttle.h"
 
+#include <string>
 #include <utility>
 
 #include "base/bind.h"
@@ -11,10 +12,19 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/stringprintf.h"
 #include "build/build_config.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/ui/blocked_content/popup_opener_tab_helper.h"
+#include "components/rappor/public/rappor_parameters.h"
+#include "components/rappor/public/rappor_utils.h"
+#include "components/rappor/rappor_service_impl.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/console_message_level.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
+#include "services/metrics/public/cpp/ukm_recorder.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -30,13 +40,52 @@ void LogAction(TabUnderNavigationThrottle::Action action) {
                             TabUnderNavigationThrottle::Action::kCount);
 }
 
-void ShowUI(content::WebContents* web_contents,
-            const GURL& url,
-            base::OnceClosure click_closure) {
 #if defined(OS_ANDROID)
-  FramebustBlockInfoBar::Show(web_contents,
-                              base::MakeUnique<FramebustBlockMessageDelegate>(
-                                  web_contents, url, std::move(click_closure)));
+typedef FramebustBlockMessageDelegate::InterventionOutcome InterventionOutcome;
+
+void LogOutcome(InterventionOutcome outcome) {
+  TabUnderNavigationThrottle::Action action;
+  switch (outcome) {
+    case InterventionOutcome::kAccepted:
+      action = TabUnderNavigationThrottle::Action::kAcceptedIntervention;
+      break;
+    case InterventionOutcome::kDeclinedAndNavigated:
+      action = TabUnderNavigationThrottle::Action::kClickedThrough;
+      break;
+  }
+  LogAction(action);
+}
+#endif  // defined(OS_ANDROID)
+
+void LogTabUnderAttempt(content::NavigationHandle* handle,
+                        base::Optional<ukm::SourceId> opener_source_id) {
+  LogAction(TabUnderNavigationThrottle::Action::kDidTabUnder);
+
+  // Log RAPPOR / UKM based on the opener URL, not the URL navigated to.
+  const GURL& opener_url = handle->GetWebContents()->GetLastCommittedURL();
+  if (rappor::RapporService* rappor_service =
+          g_browser_process->rappor_service()) {
+    rappor_service->RecordSampleString(
+        "Tab.TabUnder.Opener", rappor::UMA_RAPPOR_TYPE,
+        rappor::GetDomainAndRegistrySampleFromGURL(opener_url));
+  }
+
+  // The source id should generally be set, except for very rare circumstances
+  // where the popup opener tab helper is not observing at the time the
+  // previous navigation commit.
+  ukm::UkmRecorder* ukm_recorder = ukm::UkmRecorder::Get();
+  if (opener_source_id && ukm_recorder) {
+    ukm::builders::AbusiveExperienceHeuristic(opener_source_id.value())
+        .SetDidTabUnder(true)
+        .Record(ukm_recorder);
+  }
+}
+
+void ShowUI(content::WebContents* web_contents, const GURL& url) {
+#if defined(OS_ANDROID)
+  FramebustBlockInfoBar::Show(
+      web_contents, base::MakeUnique<FramebustBlockMessageDelegate>(
+                        web_contents, url, base::BindOnce(&LogOutcome)));
 #else
   NOTIMPLEMENTED() << "The BlockTabUnders experiment does not currently have a "
                       "UI implemented on desktop platforms.";
@@ -87,8 +136,8 @@ bool TabUnderNavigationThrottle::IsSuspiciousClientRedirect(
     return false;
 
   // Only cross origin navigations are considered tab-unders.
-  if (url::Origin(previous_main_frame_url)
-          .IsSameOriginWith(url::Origin(navigation_handle->GetURL()))) {
+  if (url::Origin::Create(previous_main_frame_url)
+          .IsSameOriginWith(url::Origin::Create(navigation_handle->GetURL()))) {
     return false;
   }
 
@@ -100,16 +149,22 @@ TabUnderNavigationThrottle::MaybeBlockNavigation() {
   content::WebContents* contents = navigation_handle()->GetWebContents();
   auto* popup_opener = PopupOpenerTabHelper::FromWebContents(contents);
 
-  if (popup_opener &&
+  if (!seen_tab_under_ && popup_opener &&
       popup_opener->has_opened_popup_since_last_user_gesture() &&
       IsSuspiciousClientRedirect(navigation_handle(), started_in_background_)) {
+    seen_tab_under_ = true;
     popup_opener->OnDidTabUnder();
-    LogAction(Action::kDidTabUnder);
+    LogTabUnderAttempt(navigation_handle(),
+                       popup_opener->last_committed_source_id());
 
     if (block_) {
+      const GURL& url = navigation_handle()->GetURL();
+      const std::string error =
+          base::StringPrintf(kBlockTabUnderFormatMessage, url.spec().c_str());
+      contents->GetMainFrame()->AddMessageToConsole(
+          content::CONSOLE_MESSAGE_LEVEL_ERROR, error.c_str());
       LogAction(Action::kBlocked);
-      ShowUI(contents, navigation_handle()->GetURL(),
-             base::BindOnce(&LogAction, Action::kClickedThrough));
+      ShowUI(contents, url);
       return content::NavigationThrottle::CANCEL;
     }
   }

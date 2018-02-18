@@ -24,6 +24,7 @@ import urllib
 from chromite.cbuildbot import topology
 from chromite.lib.const import waterfall
 from chromite.lib import auth
+from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import retry_util
@@ -63,14 +64,18 @@ BuildbucketInfo = collections.namedtuple(
     'BuildbucketInfo',
     ['buildbucket_id', 'retry', 'created_ts', 'status', 'result', 'url'])
 
+
 class BuildbucketResponseException(Exception):
   """Exception got from Buildbucket Response."""
+
 
 class NoBuildbucketBucketFoundException(Exception):
   """Failed to found the corresponding buildbucket bucket."""
 
+
 class NoBuildbucketClientException(Exception):
   """No Buildbucket client exception."""
+
 
 def GetServiceAccount(service_account=None):
   """Get service account file.
@@ -85,6 +90,7 @@ def GetServiceAccount(service_account=None):
     logging.info('Get service account %s', service_account)
     return service_account
   return None
+
 
 def GetScheduledBuildDict(scheduled_slave_list):
   """Parse the build information from the scheduled_slave_list metadata.
@@ -123,11 +129,15 @@ def GetScheduledBuildDict(scheduled_slave_list):
 
   return buildbucket_info_dict
 
-def GetBuildInfoDict(metadata):
+
+def GetBuildInfoDict(metadata, exclude_experimental=True):
   """Get buildbucket_info_dict from metadata.
 
   Args:
     metadata: Instance of metadata_lib.CBuildbotMetadata.
+    exclude_experimental: Whether to exclude the builds which are important in
+      the config but are marked as experimental in the tree status. Default to
+      True.
 
   Returns:
     buildbucket_info_dict: A dict mapping build config name to its buildbucket
@@ -139,26 +149,62 @@ def GetBuildInfoDict(metadata):
 
   scheduled_slaves_list = metadata.GetValueWithDefault(
       constants.METADATA_SCHEDULED_IMPORTANT_SLAVES, [])
-  experimental_builders = metadata.GetValueWithDefault(
-      constants.METADATA_EXPERIMENTAL_BUILDERS, [])
-  scheduled_slaves_list = [
-      (config, bb_id, ts) for config, bb_id, ts in scheduled_slaves_list
-      if config not in experimental_builders
-  ]
+
+  if exclude_experimental:
+    experimental_builders = metadata.GetValueWithDefault(
+        constants.METADATA_EXPERIMENTAL_BUILDERS, [])
+    scheduled_slaves_list = [
+        (config, bb_id, ts) for config, bb_id, ts in scheduled_slaves_list
+        if config not in experimental_builders
+    ]
+
   return GetScheduledBuildDict(scheduled_slaves_list)
 
-def GetBuildbucketIds(metadata):
+
+def GetBuildbucketIds(metadata, exclude_experimental=True):
   """Get buildbucket_ids of scheduled slave builds from metadata.
 
   Args:
     metadata: Instance of metadata_lib.CBuildbotMetadata.
+    exclude_experimental: Whether to exclude the builds which are important in
+      the config but are marked as experimental in the tree status. Default to
+      True.
 
   Returns:
     A list of buildbucket_ids (string) of slave builds.
   """
-  buildbucket_info_dict = GetBuildInfoDict(metadata)
+  buildbucket_info_dict = GetBuildInfoDict(
+      metadata, exclude_experimental=exclude_experimental)
   return [info_dict.buildbucket_id
           for info_dict in buildbucket_info_dict.values()]
+
+
+def FetchCurrentSlaveBuilders(config, metadata, builders_array,
+                              exclude_experimental=True):
+  """Fetch the current important slave builds.
+
+  Args:
+    config: Instance of config_lib.BuildConfig. Config dict of this build.
+    metadata: Instance of metadata_lib.CBuildbotMetadata. Metadata of this
+              build.
+    builders_array: A list of slave build configs to check.
+    exclude_experimental: Whether to exclude the builds which are important in
+      the config but are marked as experimental in the tree status. Default to
+      True.
+
+  Returns:
+    An updated list of slave build configs for a master build which uses
+    Buildbucket to schedule slaves; or the origin builders_array for other
+    masters.
+  """
+  if (config is not None and
+      metadata is not None and
+      config_lib.UseBuildbucketScheduler(config)):
+    scheduled_buildbucket_info_dict = GetBuildInfoDict(
+        metadata, exclude_experimental=exclude_experimental)
+    return scheduled_buildbucket_info_dict.keys()
+  else:
+    return builders_array
 
 
 class BuildbucketClient(object):
@@ -466,6 +512,12 @@ def GetBuildResult(content):
 def GetBuildCreated_ts(content):
   return GetNestedAttr(content, ['build', 'created_ts'])
 
+def GetBuildStartedTS(content):
+  return GetNestedAttr(content, ['build', 'started_ts'])
+
+def GetBuildCompletedTS(content):
+  return GetNestedAttr(content, ['build', 'completed_ts'])
+
 def GetBuildIds(content):
   builds = GetNestedAttr(content, ['builds'], default=[])
   return [b.get('id') for b in builds]
@@ -484,3 +536,15 @@ def GetResultMap(content):
       build_result_map[build_id] = r
 
   return build_result_map
+
+def GetBuildTags(content, tag):
+  """Return a list of tag values given the tag name."""
+  tags = GetNestedAttr(content, ['build', 'tags'])
+
+  result = []
+  for t in tags:
+    tag_pair = t.split(':')
+    if tag_pair[0] == tag:
+      result.append(tag_pair[1])
+
+  return result

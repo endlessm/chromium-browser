@@ -14,11 +14,13 @@
 #import "base/test/ios/wait_util.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/static_content/static_html_view_controller.h"
+#import "ios/chrome/test/app/bookmarks_test_util.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
 #import "ios/chrome/test/app/history_test_util.h"
 #include "ios/chrome/test/app/navigation_test_util.h"
 #import "ios/chrome/test/app/static_html_view_test_util.h"
 #import "ios/chrome/test/app/tab_test_util.h"
+#import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/testing/wait_util.h"
 #import "ios/web/public/test/earl_grey/js_test_util.h"
 #import "ios/web/public/test/web_view_content_test_util.h"
@@ -130,12 +132,7 @@ id ExecuteJavaScript(NSString* javascript,
 }
 
 + (void)waitForPageToFinishLoading {
-  GREYCondition* condition =
-      [GREYCondition conditionWithName:@"Wait for page to complete loading."
-                                 block:^BOOL {
-                                   return !chrome_test_util::IsLoading();
-                                 }];
-  GREYAssert([condition waitWithTimeout:testing::kWaitForPageLoadTimeout],
+  GREYAssert(chrome_test_util::WaitForPageToFinishLoading(),
              @"Page did not complete loading.");
 }
 
@@ -236,5 +233,14 @@ id ExecuteJavaScript(NSString* javascript,
                  imageID, chrome_test_util::GetCurrentWebState(),
                  web::test::IMAGE_STATE_LOADED),
              @"Failed waiting for web view loaded image %s", imageID.c_str());
+}
+
++ (void)waitForBookmarksToFinishLoading {
+  GREYAssert(testing::WaitUntilConditionOrTimeout(
+                 testing::kWaitForUIElementTimeout,
+                 ^{
+                   return chrome_test_util::BookmarksLoaded();
+                 }),
+             @"Bookmark model did not load");
 }
 @end

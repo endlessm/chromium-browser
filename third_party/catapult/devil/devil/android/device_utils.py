@@ -14,7 +14,6 @@ import fnmatch
 import itertools
 import json
 import logging
-import multiprocessing
 import os
 import posixpath
 import pprint
@@ -26,7 +25,6 @@ import tempfile
 import time
 import threading
 import uuid
-import zipfile
 
 from devil import base_error
 from devil import devil_env
@@ -49,6 +47,8 @@ from devil.utils import parallelizer
 from devil.utils import reraiser_thread
 from devil.utils import timeout_retry
 from devil.utils import zip_utils
+
+from py_utils import tempfile_ext
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +121,7 @@ _PERMISSIONS_BLACKLIST_RE = re.compile('|'.join(fnmatch.translate(p) for p in [
     'com.google.android.apps.now.CURRENT_ACCOUNT_ACCESS',
     'com.google.android.c2dm.permission.RECEIVE',
     'com.google.android.providers.gsf.permission.READ_GSERVICES',
+    'com.google.vr.vrcore.permission.VRCORE_INTERNAL',
     'com.sec.enterprise.knox.MDM_CONTENT_PROVIDER',
     '*.permission.C2D_MESSAGE',
     '*.permission.READ_WRITE_BOOKMARK_FOLDERS',
@@ -176,8 +177,10 @@ _SELINUX_MODE = {
 }
 # Some devices require different logic for checking if root is necessary
 _SPECIAL_ROOT_DEVICE_LIST = [
-    'marlin',
-    'sailfish',
+    'marlin', # Pixel XL
+    'sailfish', # Pixel
+    'taimen', # Pixel 2 XL
+    'walleye', # Pixel 2
 ]
 _IMEI_RE = re.compile(r'  Device ID = (.+)$')
 # The following regex is used to match result parcels like:
@@ -658,6 +661,25 @@ class DeviceUtils(object):
         return dataDir
     raise device_errors.CommandFailedError(
         'Could not find data directory for %s', package)
+
+  def TakeBugReport(self, path, timeout=60*5, retries=None):
+    """Takes a bug report and dumps it to the specified path.
+
+    This doesn't use adb's bugreport option since its behavior is dependent on
+    both adb version and device OS version. To make it simpler, this directly
+    runs the bugreport command on the device itself and dumps the stdout to a
+    file.
+
+    Args:
+      path: Path on the host to drop the bug report.
+      timeout: (optional) Timeout per try in seconds.
+      retries: (optional) Number of retries to attempt.
+    """
+    with device_temp_file.DeviceTempFile(self.adb) as device_tmp_file:
+      cmd = '( bugreport )>%s 2>&1' % device_tmp_file.name
+      self.RunShellCommand(
+          cmd, check_return=True, shell=True, timeout=timeout, retries=retries)
+      self.PullFile(device_tmp_file.name, path)
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def WaitUntilFullyBooted(self, wifi=False, timeout=None, retries=None):
@@ -1568,39 +1590,29 @@ class DeviceUtils(object):
       self.adb.Push(h, d)
 
   def _PushChangedFilesZipped(self, files, dirs):
-    with tempfile.NamedTemporaryFile(suffix='.zip') as zip_file:
-      zip_proc = multiprocessing.Process(
-          target=DeviceUtils._CreateDeviceZip,
-          args=(zip_file.name, files))
-      zip_proc.start()
+    if not self._MaybeInstallCommands():
+      return False
+
+    with tempfile_ext.NamedTemporaryDirectory() as working_dir:
+      zip_path = os.path.join(working_dir, 'tmp.zip')
       try:
-        # While it's zipping, ensure the unzip command exists on the device.
-        if not self._MaybeInstallCommands():
-          zip_proc.terminate()
-          return False
+        zip_utils.WriteZipFile(zip_path, files)
+      except zip_utils.ZipFailedError:
+        return False
 
-        # Warm up NeedsSU cache while we're still zipping.
-        self.NeedsSU()
-        with device_temp_file.DeviceTempFile(
-            self.adb, suffix='.zip') as device_temp:
-          zip_proc.join()
-          self.adb.Push(zip_file.name, device_temp.name)
-          quoted_dirs = ' '.join(cmd_helper.SingleQuote(d) for d in dirs)
-          self.RunShellCommand(
-              'unzip %s&&chmod -R 777 %s' % (device_temp.name, quoted_dirs),
-              shell=True, as_root=True,
-              env={'PATH': '%s:$PATH' % install_commands.BIN_DIR},
-              check_return=True)
-      finally:
-        if zip_proc.is_alive():
-          zip_proc.terminate()
+      self.NeedsSU()
+      with device_temp_file.DeviceTempFile(
+          self.adb, suffix='.zip') as device_temp:
+        self.adb.Push(zip_path, device_temp.name)
+
+        quoted_dirs = ' '.join(cmd_helper.SingleQuote(d) for d in dirs)
+        self.RunShellCommand(
+            'unzip %s&&chmod -R 777 %s' % (device_temp.name, quoted_dirs),
+            shell=True, as_root=True,
+            env={'PATH': '%s:$PATH' % install_commands.BIN_DIR},
+            check_return=True)
+
     return True
-
-  @staticmethod
-  def _CreateDeviceZip(zip_path, host_device_tuples):
-    with zipfile.ZipFile(zip_path, 'w') as zip_file:
-      for host_path, device_path in host_device_tuples:
-        zip_utils.WriteToZipFile(zip_file, host_path, device_path)
 
   # TODO(nednguyen): remove this and migrate the callsite to PathExists().
   @decorators.WithTimeoutAndRetriesFromInstance()
@@ -2398,37 +2410,6 @@ class DeviceUtils(object):
     return host_path
 
   @decorators.WithTimeoutAndRetriesFromInstance()
-  def GetMemoryUsageForPid(self, pid, timeout=None, retries=None):
-    """Gets the memory usage for the given PID.
-
-    Args:
-      pid: PID of the process.
-      timeout: timeout in seconds
-      retries: number of retries
-
-    Returns:
-      A dict containing memory usage statistics for the PID. May include:
-        Size, Rss, Pss, Shared_Clean, Shared_Dirty, Private_Clean,
-        Private_Dirty, VmHWM
-
-    Raises:
-      CommandTimeoutError on timeout.
-    """
-    result = collections.defaultdict(int)
-
-    try:
-      result.update(self._GetMemoryUsageForPidFromSmaps(pid))
-    except device_errors.CommandFailedError:
-      logger.exception('Error getting memory usage from smaps')
-
-    try:
-      result.update(self._GetMemoryUsageForPidFromStatus(pid))
-    except device_errors.CommandFailedError:
-      logger.exception('Error getting memory usage from status')
-
-    return result
-
-  @decorators.WithTimeoutAndRetriesFromInstance()
   def DismissCrashDialogIfNeeded(self, timeout=None, retries=None):
     """Dismiss the error/ANR dialog if present.
 
@@ -2459,31 +2440,6 @@ class DeviceUtils(object):
     if match:
       logger.error('Still showing a %s dialog for %s', *match.groups())
     return package
-
-  def _GetMemoryUsageForPidFromSmaps(self, pid):
-    SMAPS_COLUMNS = (
-        'Size', 'Rss', 'Pss', 'Shared_Clean', 'Shared_Dirty', 'Private_Clean',
-        'Private_Dirty')
-
-    showmap_out = self._RunPipedShellCommand(
-        'showmap %d | grep TOTAL' % int(pid), as_root=True)
-
-    split_totals = showmap_out[-1].split()
-    if (not split_totals
-        or len(split_totals) != 9
-        or split_totals[-1] != 'TOTAL'):
-      raise device_errors.CommandFailedError(
-          'Invalid output from showmap: %s' % '\n'.join(showmap_out))
-
-    return dict(itertools.izip(SMAPS_COLUMNS, (int(n) for n in split_totals)))
-
-  def _GetMemoryUsageForPidFromStatus(self, pid):
-    for line in self.ReadFile(
-        '/proc/%s/status' % str(pid), as_root=True).splitlines():
-      if line.startswith('VmHWM:'):
-        return {'VmHWM': int(line.split()[1])}
-    raise device_errors.CommandFailedError(
-        'Could not find memory peak value for pid %s', str(pid))
 
   def GetLogcatMonitor(self, *args, **kwargs):
     """Returns a new LogcatMonitor associated with this device.
@@ -2602,7 +2558,8 @@ class DeviceUtils(object):
       return parallelizer.SyncParallelizer(devices)
 
   @classmethod
-  def HealthyDevices(cls, blacklist=None, device_arg='default', **kwargs):
+  def HealthyDevices(cls, blacklist=None, device_arg='default', retry=True,
+                     **kwargs):
     """Returns a list of DeviceUtils instances.
 
     Returns a list of DeviceUtils instances that are attached, not blacklisted,
@@ -2624,6 +2581,8 @@ class DeviceUtils(object):
               blacklisted.
           ['A', 'B', ...] -> Returns instances for the subset that is not
               blacklisted.
+      retry: If true, will attempt to restart adb server and query it again if
+          no devices are found.
       A device serial, or a list of device serials (optional).
 
     Returns:
@@ -2659,19 +2618,30 @@ class DeviceUtils(object):
         return True
       return False
 
-    if device_arg:
-      devices = [cls(x, **kwargs) for x in device_arg if not blacklisted(x)]
-    else:
-      devices = []
-      for adb in adb_wrapper.AdbWrapper.Devices():
-        if not blacklisted(adb.GetDeviceSerial()):
-          devices.append(cls(_CreateAdbWrapper(adb), **kwargs))
+    def _get_devices():
+      if device_arg:
+        devices = [cls(x, **kwargs) for x in device_arg if not blacklisted(x)]
+      else:
+        devices = []
+        for adb in adb_wrapper.AdbWrapper.Devices():
+          if not blacklisted(adb.GetDeviceSerial()):
+            devices.append(cls(_CreateAdbWrapper(adb), **kwargs))
 
-    if len(devices) == 0 and not allow_no_devices:
-      raise device_errors.NoDevicesError()
-    if len(devices) > 1 and not select_multiple:
-      raise device_errors.MultipleDevicesError(devices)
-    return sorted(devices)
+      if len(devices) == 0 and not allow_no_devices:
+        raise device_errors.NoDevicesError()
+      if len(devices) > 1 and not select_multiple:
+        raise device_errors.MultipleDevicesError(devices)
+      return sorted(devices)
+
+    try:
+      return _get_devices()
+    except device_errors.NoDevicesError:
+      if not retry:
+        raise
+      logger.warning(
+          'No devices found. Will try again after restarting adb server.')
+      RestartServer()
+      return _get_devices()
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def RestartAdbd(self, timeout=None, retries=None):

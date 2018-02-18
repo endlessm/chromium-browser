@@ -31,13 +31,13 @@ const int kLayerMargin = 8;
 }  // namespace
 
 AccessibilityCursorRingLayer::AccessibilityCursorRingLayer(
-    FocusRingLayerDelegate* delegate,
+    AccessibilityLayerDelegate* delegate,
     int red,
     int green,
     int blue)
     : FocusRingLayer(delegate), red_(red), green_(green), blue_(blue) {}
 
-AccessibilityCursorRingLayer::~AccessibilityCursorRingLayer() {}
+AccessibilityCursorRingLayer::~AccessibilityCursorRingLayer() = default;
 
 void AccessibilityCursorRingLayer::Set(const gfx::Point& location) {
   location_ = location;

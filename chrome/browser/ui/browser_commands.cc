@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/browser_commands.h"
 
+#include <vector>
+
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
@@ -86,7 +88,10 @@
 #include "net/base/escape.h"
 #include "printing/features/features.h"
 #include "rlz/features/features.h"
+#include "ui/base/clipboard/clipboard_types.h"
+#include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/api/commands/command_service.h"
@@ -301,44 +306,38 @@ bool PrintPreviewShowing(const Browser* browser) {
 }  // namespace
 
 bool IsCommandEnabled(Browser* browser, int command) {
-  return browser->command_controller()->command_updater()->IsCommandEnabled(
-      command);
+  return browser->command_controller()->IsCommandEnabled(command);
 }
 
 bool SupportsCommand(Browser* browser, int command) {
-  return browser->command_controller()->command_updater()->SupportsCommand(
-      command);
+  return browser->command_controller()->SupportsCommand(command);
 }
 
 bool ExecuteCommand(Browser* browser, int command) {
-  return browser->command_controller()->command_updater()->ExecuteCommand(
-      command);
+  return browser->command_controller()->ExecuteCommand(command);
 }
 
 bool ExecuteCommandWithDisposition(Browser* browser,
                                    int command,
                                    WindowOpenDisposition disposition) {
-  return browser->command_controller()->command_updater()->
-      ExecuteCommandWithDisposition(command, disposition);
+  return browser->command_controller()->ExecuteCommandWithDisposition(
+      command, disposition);
 }
 
 void UpdateCommandEnabled(Browser* browser, int command, bool enabled) {
-  browser->command_controller()->command_updater()->UpdateCommandEnabled(
-      command, enabled);
+  browser->command_controller()->UpdateCommandEnabled(command, enabled);
 }
 
 void AddCommandObserver(Browser* browser,
                         int command,
                         CommandObserver* observer) {
-  browser->command_controller()->command_updater()->AddCommandObserver(
-      command, observer);
+  browser->command_controller()->AddCommandObserver(command, observer);
 }
 
 void RemoveCommandObserver(Browser* browser,
                            int command,
                            CommandObserver* observer) {
-  browser->command_controller()->command_updater()->RemoveCommandObserver(
-      command, observer);
+  browser->command_controller()->RemoveCommandObserver(command, observer);
 }
 
 int GetContentRestrictions(const Browser* browser) {
@@ -735,7 +734,7 @@ void PinTab(Browser* browser) {
       TabStripModel::ContextMenuCommand::CommandTogglePinned);
 }
 
-void MuteTab(Browser* browser) {
+void MuteSite(Browser* browser) {
   TabStripModel::ContextMenuCommand command_id =
       base::FeatureList::IsEnabled(features::kSoundContentSetting)
           ? TabStripModel::ContextMenuCommand::CommandToggleSiteMuted
@@ -1187,86 +1186,30 @@ bool IsDebuggerAttachedToCurrentTab(Browser* browser) {
       content::DevToolsAgentHost::IsDebuggerAttached(contents) : false;
 }
 
-void ViewSource(Browser* browser, WebContents* contents) {
-  DCHECK(contents);
-
-  // Use the last committed entry, since the pending entry hasn't loaded yet and
-  // won't be copied into the cloned tab.
-  NavigationEntry* entry = contents->GetController().GetLastCommittedEntry();
-  if (!entry)
-    return;
-
-  ViewSource(browser, contents, entry->GetURL(), entry->GetPageState());
+void CopyURL(Browser* browser) {
+  ui::ScopedClipboardWriter scw(ui::CLIPBOARD_TYPE_COPY_PASTE);
+  scw.WriteText(base::UTF8ToUTF16(browser->tab_strip_model()
+                                      ->GetActiveWebContents()
+                                      ->GetVisibleURL()
+                                      .spec()));
 }
 
-void ViewSource(Browser* browser,
-                WebContents* contents,
-                const GURL& url,
-                const content::PageState& page_state) {
-  base::RecordAction(UserMetricsAction("ViewSource"));
-  DCHECK(contents);
+void OpenInChrome(Browser* browser) {
+  // Find a non-incognito browser.
+  Browser* target_browser =
+      chrome::FindTabbedBrowser(browser->profile(), false);
 
-  WebContents* view_source_contents = contents->Clone();
-  DCHECK(view_source_contents->GetController().CanPruneAllButLastCommitted());
-  view_source_contents->GetController().PruneAllButLastCommitted();
-  NavigationEntry* last_committed_entry =
-      view_source_contents->GetController().GetLastCommittedEntry();
-  if (!last_committed_entry)
-    return;
-
-  GURL view_source_url =
-      GURL(content::kViewSourceScheme + std::string(":") + url.spec());
-  last_committed_entry->SetVirtualURL(view_source_url);
-  last_committed_entry->SetURL(url);
-
-  // Do not restore scroller position.
-  last_committed_entry->SetPageState(page_state.RemoveScrollOffset());
-
-  // Do not restore title, derive it from the url.
-  view_source_contents->UpdateTitleForEntry(last_committed_entry,
-                                            base::string16());
-
-  // Now show view-source entry.
-  if (browser->CanSupportWindowFeature(Browser::FEATURE_TABSTRIP)) {
-    // If this is a tabbed browser, just create a duplicate tab inside the same
-    // window next to the tab being duplicated.
-    int index = browser->tab_strip_model()->GetIndexOfWebContents(contents);
-    int add_types = TabStripModel::ADD_ACTIVE |
-        TabStripModel::ADD_INHERIT_GROUP;
-    browser->tab_strip_model()->InsertWebContentsAt(
-        index + 1,
-        view_source_contents,
-        add_types);
-  } else {
-    Browser* b = new Browser(
-        Browser::CreateParams(Browser::TYPE_TABBED, browser->profile(), true));
-
-    // Preserve the size of the original window. The new window has already
-    // been given an offset by the OS, so we shouldn't copy the old bounds.
-    BrowserWindow* new_window = b->window();
-    new_window->SetBounds(gfx::Rect(new_window->GetRestoredBounds().origin(),
-                          browser->window()->GetRestoredBounds().size()));
-
-    // We need to show the browser now. Otherwise ContainerWin assumes the
-    // WebContents is invisible and won't size it.
-    b->window()->Show();
-
-    // The page transition below is only for the purpose of inserting the tab.
-    b->tab_strip_model()->AddWebContents(view_source_contents, -1,
-                                         ui::PAGE_TRANSITION_LINK,
-                                         TabStripModel::ADD_ACTIVE);
+  if (!target_browser) {
+    target_browser =
+        new Browser(Browser::CreateParams(browser->profile(), true));
   }
 
-  SessionService* session_service =
-      SessionServiceFactory::GetForProfileIfExisting(browser->profile());
-  if (session_service)
-    session_service->TabRestored(view_source_contents, false);
+  TabStripModel* source_tabstrip = browser->tab_strip_model();
+  target_browser->tab_strip_model()->AppendWebContents(
+      source_tabstrip->DetachWebContentsAt(source_tabstrip->active_index()),
+      true);
+  target_browser->window()->Show();
 }
-
-void ViewSelectedSource(Browser* browser) {
-  ViewSource(browser, browser->tab_strip_model()->GetActiveWebContents());
-}
-
 bool CanViewSource(const Browser* browser) {
   return !browser->is_devtools() &&
       browser->tab_strip_model()->GetActiveWebContents()->GetController().
@@ -1287,5 +1230,18 @@ bool CanCreateBookmarkApp(const Browser* browser) {
       ->CanCreateBookmarkApp();
 }
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
+
+#if defined(OS_CHROMEOS)
+void QueryAndDisplayArcApps(
+    const Browser* browser,
+    const std::vector<arc::ArcNavigationThrottle::AppInfo>& app_info,
+    IntentPickerResponse callback) {
+  browser->window()->ShowIntentPickerBubble(app_info, callback);
+}
+
+void SetIntentPickerViewVisibility(Browser* browser, bool visible) {
+  browser->window()->SetIntentPickerViewVisibility(visible);
+}
+#endif  // defined(OS_CHROMEOS)
 
 }  // namespace chrome
