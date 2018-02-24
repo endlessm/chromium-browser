@@ -381,15 +381,6 @@ bool PathProvider(int key, base::FilePath* result) {
     // In the component case, this is the source adapter. Otherwise, it is the
     // actual Pepper module that gets loaded.
     case chrome::FILE_WIDEVINE_CDM_ADAPTER:
-      PathService::Get(base::DIR_HOME, &cur);
-      cur = cur.Append(FILE_PATH_LITERAL(".local/lib/libwidevinecdmadapter.so"));
-      if (base::PathExists(cur)) {
-        break;
-      }
-      if (base::PathExists(base::FilePath(FILE_PATH_LITERAL("/opt/google/chrome/libwidevinecdmadapter.so")))) {
-        cur = base::FilePath(FILE_PATH_LITERAL("/opt/google/chrome/libwidevinecdmadapter.so"));
-        break;
-      }
       if (!GetComponentDirectory(&cur))
         return false;
       cur = cur.Append(
