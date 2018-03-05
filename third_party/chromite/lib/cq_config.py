@@ -35,26 +35,28 @@ class MalformedCQConfigException(Exception):
 class CQConfigParser(object):
   """Class to parse options for a change from its CQ config files."""
 
-  def __init__(self, build_root, change):
+  def __init__(self, build_root, change, forgiving=True):
     """Initialize a CQConfigParser instance for a change.
 
     Args:
       build_root: The path to the build root.
       change: An instance of cros_patch.GerritPatch.
+      forgiving: If false, throw MalformedCQConfigException if encountering
+                 parsing errors. Otherwise, log them and discard failures.
+                 Default: True.
     """
     self.build_root = build_root
     self.change = change
     self._common_config_file = self.GetCommonConfigFileForChange(
         build_root, change)
+    self.forgiving = forgiving
 
-  def GetOption(self, section, option, forgiven=True, config_path=None):
+  def GetOption(self, section, option, config_path=None):
     """Get |option| from |section| for self.change.
 
     Args:
       section: Section header name (string).
       option: Option name (string).
-      forgiven: Option boolean indicating whether a malformed config can be
-        forgiven. Default to True.
       config_path: The path to the config to get the option value. When
         config_path is None, use self._common_config_file as the default config.
 
@@ -62,8 +64,8 @@ class CQConfigParser(object):
       The value of the option (string) or None.
 
     Raises:
-      MalformedCQConfigException if the config is malformed and forgiven is
-      False.
+      MalformedCQConfigException if the config is malformed and parser is
+      non-forgiving.
     """
     result = None
     config_path = config_path or self._common_config_file
@@ -74,8 +76,9 @@ class CQConfigParser(object):
       except ConfigParser.Error as e:
         error = MalformedCQConfigException(
             self.change, config_path, e)
-        logging.error('Malformed CQ config: %s', error)
-        if not forgiven:
+        if self.forgiving:
+          logging.error('Forgiving a malformed CQ config: %s', error)
+        else:
           raise error
     return result
 
@@ -141,49 +144,13 @@ class CQConfigParser(object):
         constants.CQ_CONFIG_SECTION_GENERAL,
         constants.CQ_CONFIG_UNION_PRE_CQ_SUB_CONFIGS)
 
-  def GetUnionedOptionsFromSubConfigs(self, section, option):
-    """Get unioned options from sub dir configs for change.
-
-    This method looks for the config file for each diff file in the change,
-    gets the option from each config file and returns the set of found options.
-
-    Args:
-      section: The section header (string) of the option.
-      option: The option name (string) to get.
-
-    Returns:
-      A set of options (strings) from sub-dir configs.
-    """
-    checkout = self.GetCheckout(self.build_root, self.change)
-    if checkout:
-      checkout_path = checkout.GetPath(absolute=True)
-      affected_paths = [os.path.join(checkout_path, path)
-                        for path in self.change.GetDiffStatus(checkout_path)]
-
-      config_paths = set()
-      for affected_path in affected_paths:
-        config_path = self._GetConfigFileForAffectedPath(
-            affected_path, checkout_path)
-
-        if config_path:
-          config_paths.add(config_path)
-
-      union_options = set()
-      for config_path in config_paths:
-        result = self.GetOption(section, option, config_path=config_path)
-
-        if result:
-          union_options.add(result)
-
-      return union_options
-
   def GetUnionedPreCQConfigs(self):
     """Get Pre-CQ configs from unioned options of sub configs.
 
     Returns:
       A list of Pre-CQ configs (strings).
     """
-    unioned_pre_cq_config_options = self.GetUnionedOptionsFromSubConfigs(
+    unioned_pre_cq_config_options = self._GetUnionedOptionFromSubConfigs(
         constants.CQ_CONFIG_SECTION_GENERAL,
         constants.CQ_CONFIG_PRE_CQ_CONFIGS)
 
@@ -193,6 +160,30 @@ class CQConfigParser(object):
         pre_cq_configs.update(option.split())
 
     return pre_cq_configs
+
+  def CanSubmitChangeInPreCQ(self):
+    """Infer if the Pre-CQ config lets this change to be submitted in pre-cq.
+
+    This looks up the "submit-in-pre-cq" setting inside all the relevant
+    COMMIT-QUEUE.ini files for the current change and checks whether it is set
+    to "yes".
+
+    [GENERAL]
+      submit-in-pre-cq: yes
+
+    Returns:
+      True if current change may be submitted from pre-cq, False otherwise.
+    """
+    if not self.GetUnionPreCQSubConfigsFlag():
+      option = self.GetOption(constants.CQ_CONFIG_SECTION_GENERAL,
+                              constants.CQ_CONFIG_SUBMIT_IN_PRE_CQ)
+      return bool(option and option.lower() == 'yes')
+
+    return self._AllSubConfigsAgreeOnOption(
+        constants.CQ_CONFIG_SECTION_GENERAL,
+        constants.CQ_CONFIG_SUBMIT_IN_PRE_CQ,
+        'yes'
+    )
 
   @classmethod
   def GetCheckout(cls, build_root, change):
@@ -208,6 +199,76 @@ class CQConfigParser(object):
     """
     manifest = git.ManifestCheckout.Cached(build_root)
     return change.GetCheckout(manifest)
+
+  def _GetUnionedOptionFromSubConfigs(self, section, option):
+    """Get unioned options from sub dir configs for change.
+
+    This method looks for the config file for each diff file in the change,
+    gets the option from each config file and returns the set of found options.
+
+    Args:
+      section: The section header (string) of the option.
+      option: The option name (string) to get.
+
+    Returns:
+      A set of options (strings) from sub-dir configs.
+    """
+    options = self._GetAllValuesForOptionFromSubConfigs(section, option)
+    return set(options)
+
+  def _AllSubConfigsAgreeOnOption(self, section, option, value):
+    """Determines if all sub-configs have the given value for the option.
+
+    Args:
+      section: The section header (string) of the option.
+      option: The option name (string) to get.
+      value: The option value (string) to compare with all options. Comparison
+          is case insensitive.
+
+    Returns:
+      True if all sub-configs agree on the option, False otherwise.
+    """
+    options = self._GetAllValuesForOptionFromSubConfigs(section, option,
+                                                        'not-%s' % value)
+    return set(o.lower() for o in options) == {value.lower()}
+
+  def _GetAllValuesForOptionFromSubConfigs(self, section, option, default=None):
+    """Get a list of all values for the given option from relevant sub-configs.
+
+    This method looks for the config file for each diff file in the change, gets
+    the option from each config file and returns the list of all values found.
+
+    Args:
+      section: The section header (string) of the option.
+      option: The option name (string) to get.
+      default: If not None, this value is assumed for a sub-config with the
+          option missing.
+
+    Returns:
+      A list of options (strings) from sub-dir configs.
+    """
+    checkout = self.GetCheckout(self.build_root, self.change)
+    if not checkout:
+      return []
+
+    checkout_path = checkout.GetPath(absolute=True)
+    affected_paths = [os.path.join(checkout_path, path)
+                      for path in self.change.GetDiffStatus(checkout_path)]
+    config_paths = set()
+    for affected_path in affected_paths:
+      config_path = self._GetConfigFileForAffectedPath(
+          affected_path, checkout_path)
+      if config_path:
+        config_paths.add(config_path)
+
+    options = []
+    for config_path in config_paths:
+      result = self.GetOption(section, option, config_path=config_path)
+      if result:
+        options.append(result)
+      elif default is not None:
+        options.append(default)
+    return options
 
   @classmethod
   def _GetOptionFromConfigFile(cls, config_path, section, option):

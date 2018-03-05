@@ -413,11 +413,11 @@ class Browser : public TabStripModelObserver,
 
   /////////////////////////////////////////////////////////////////////////////
 
-  // Called by chrome::Navigate() when a navigation has occurred in a tab in
+  // Called by Navigate() when a navigation has occurred in a tab in
   // this Browser. Updates the UI for the start of this navigation.
   void UpdateUIForNavigationInTab(content::WebContents* contents,
                                   ui::PageTransition transition,
-                                  chrome::NavigateParams::WindowAction action,
+                                  NavigateParams::WindowAction action,
                                   bool user_initiated);
 
   // Used to register a KeepAlive to affect the Chrome lifetime. The KeepAlive
@@ -487,6 +487,8 @@ class Browser : public TabStripModelObserver,
                                          const GURL& resource_url) override;
   void OnAudioStateChanged(content::WebContents* web_contents,
                            bool is_audible) override;
+  void OnDidBlockFramebust(content::WebContents* web_contents,
+                           const GURL& url) override;
 
   bool is_type_tabbed() const { return type_ == TYPE_TABBED; }
   bool is_type_popup() const { return type_ == TYPE_POPUP; }
@@ -616,9 +618,7 @@ class Browser : public TabStripModelObserver,
                           const std::string& frame_name,
                           const GURL& target_url,
                           content::WebContents* new_contents) override;
-  void RendererUnresponsive(
-      content::WebContents* source,
-      const content::WebContentsUnresponsiveState& unresponsive_state) override;
+  void RendererUnresponsive(content::WebContents* source) override;
   void RendererResponsive(content::WebContents* source) override;
   void DidNavigateMainFramePostCommit(
       content::WebContents* web_contents) override;
@@ -627,7 +627,8 @@ class Browser : public TabStripModelObserver,
   content::ColorChooser* OpenColorChooser(
       content::WebContents* web_contents,
       SkColor color,
-      const std::vector<content::ColorSuggestion>& suggestions) override;
+      const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions)
+      override;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
                       const content::FileChooserParams& params) override;
   void EnumerateDirectory(content::WebContents* web_contents,

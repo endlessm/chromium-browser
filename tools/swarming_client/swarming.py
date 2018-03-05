@@ -5,7 +5,7 @@
 
 """Client tool to trigger tasks or retrieve results from a Swarming server."""
 
-__version__ = '0.9.3'
+__version__ = '0.10.2'
 
 import collections
 import datetime
@@ -14,7 +14,6 @@ import logging
 import optparse
 import os
 import re
-import subprocess
 import sys
 import textwrap
 import threading
@@ -96,14 +95,25 @@ FilesRef = collections.namedtuple(
 
 
 # See ../appengine/swarming/swarming_rpcs.py.
+StringListPair = collections.namedtuple(
+  'StringListPair', [
+    'key',
+    'value', # repeated string
+  ]
+)
+
+
+# See ../appengine/swarming/swarming_rpcs.py.
 TaskProperties = collections.namedtuple(
     'TaskProperties',
     [
       'caches',
       'cipd_input',
       'command',
+      'relative_cwd',
       'dimensions',
       'env',
+      'env_prefixes',
       'execution_timeout_secs',
       'extra_args',
       'grace_period_secs',
@@ -941,6 +951,12 @@ def add_trigger_options(parser):
       '-e', '--env', default=[], action='append', nargs=2, metavar='FOO bar',
       help='Environment variables to set')
   group.add_option(
+      '--env-prefix', default=[], action='append', nargs=2,
+      metavar='VAR local/path',
+      help='Prepend task-relative `local/path` to the task\'s VAR environment '
+           'variable using os-appropriate pathsep character. Can be specified '
+           'multiple times for the same VAR to add multiple paths.')
+  group.add_option(
       '--idempotent', action='store_true', default=False,
       help='When set, the server will actively try to find a previous task '
            'with the same parameter and return this result instead if possible')
@@ -958,6 +974,10 @@ def add_trigger_options(parser):
       '--raw-cmd', action='store_true', default=False,
       help='When set, the command after -- is used as-is without run_isolated. '
            'In this case, the .isolated file is expected to not have a command')
+  group.add_option(
+      '--relative-cwd',
+      help='Ignore the isolated \'relative_cwd\' and use this one instead; '
+           'requires --raw-cmd')
   group.add_option(
       '--cipd-package', action='append', default=[], metavar='PKG',
       help='CIPD packages to install on the Swarming bot. Uses the format: '
@@ -1045,7 +1065,14 @@ def process_trigger_options(parser, options, args):
   extra_args = None
   if options.raw_cmd:
     command = args
+    if options.relative_cwd:
+      a = os.path.normpath(os.path.abspath(options.relative_cwd))
+      if not a.startswith(os.getcwd()):
+        parser.error(
+            '--relative-cwd must not try to escape the working directory')
   else:
+    if options.relative_cwd:
+      parser.error('--relative-cwd requires --raw-cmd')
     extra_args = args
 
   # CIPD
@@ -1077,12 +1104,18 @@ def process_trigger_options(parser, options, args):
     for i in options.named_cache
   ]
 
+  env_prefixes = {}
+  for k, v in options.env_prefix:
+    env_prefixes.setdefault(k, []).append(v)
+
   properties = TaskProperties(
       caches=caches,
       cipd_input=cipd_input,
       command=command,
+      relative_cwd=options.relative_cwd,
       dimensions=options.dimensions,
       env=options.env,
+      env_prefixes=[StringListPair(k, v) for k, v in env_prefixes.iteritems()],
       execution_timeout_secs=options.hard_timeout,
       extra_args=extra_args,
       grace_period_secs=30,
@@ -1551,11 +1584,22 @@ def CMDreproduce(parser, args):
   if properties.get('env'):
     logging.info('env: %r', properties['env'])
     for i in properties['env']:
-      key = i['key'].encode('utf-8')
+      key = i['key']
       if not i['value']:
         env.pop(key, None)
       else:
-        env[key] = i['value'].encode('utf-8')
+        env[key] = i['value']
+
+  if properties.get('env_prefixes'):
+    env_prefixes = properties['env_prefixes']
+    logging.info('env_prefixes: %r', env_prefixes)
+    for i in env_prefixes:
+      key = i['key']
+      paths = [os.path.normpath(os.path.join(workdir, p)) for p in i['value']]
+      cur = env.get(key)
+      if cur:
+        paths.append(cur)
+      env[key] = os.path.pathsep.join(paths)
 
   command = []
   if (properties.get('inputs_ref') or {}).get('isolated'):
@@ -1578,11 +1622,18 @@ def CMDreproduce(parser, args):
     command.extend(properties['command'])
 
   # https://github.com/luci/luci-py/blob/master/appengine/swarming/doc/Magic-Values.md
-  new_command = tools.fix_python_path(command)
-  new_command = run_isolated.process_command(
-    new_command, options.output_dir, None)
-  if not options.output_dir and new_command != command:
-    parser.error('The task has outputs, you must use --output-dir')
+  command = tools.fix_python_path(command)
+  if not options.output_dir:
+    new_command = run_isolated.process_command(command, 'invalid', None)
+    if new_command != command:
+      parser.error('The task has outputs, you must use --output-dir')
+  else:
+    # Make the path absolute, as the process will run from a subdirectory.
+    options.output_dir = os.path.abspath(options.output_dir)
+    new_command = run_isolated.process_command(
+        command, options.output_dir, None)
+    if not os.path.isdir(options.output_dir):
+      os.makedirs(options.output_dir)
   command = new_command
   file_path.ensure_command_has_abs_path(command, workdir)
 
@@ -1603,7 +1654,7 @@ def CMDreproduce(parser, args):
       client.ensure(workdir, by_path, cache_dir=cachedir)
 
   try:
-    return subprocess.call(command + extra_args, env=env, cwd=workdir)
+    return subprocess42.call(command + extra_args, env=env, cwd=workdir)
   except OSError as e:
     print >> sys.stderr, 'Failed to run: %s' % ' '.join(command)
     print >> sys.stderr, str(e)

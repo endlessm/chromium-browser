@@ -8,12 +8,18 @@ import unittest
 
 import mock
 
+from google.appengine.ext import testbed
+
 from dashboard.services import request
 
 
 class _RequestTest(unittest.TestCase):
 
   def setUp(self):
+    self.testbed = testbed.Testbed()
+    self.testbed.activate()
+    self.testbed.init_memcache_stub()
+
     http = mock.MagicMock()
     self._request = http.request
 
@@ -84,6 +90,13 @@ class FailureAndRetryTest(_RequestTest):
     self._request.assert_called_with('https://example.com', method='GET')
     self.assertEqual(self._request.call_count, 2)
 
+  def testNotFound(self):
+    self._request.return_value = ({'status': '404'}, '')
+    with self.assertRaises(request.NotFoundError):
+      request.Request('https://example.com')
+    self._request.assert_called_with('https://example.com', method='GET')
+    self.assertEqual(self._request.call_count, 1)
+
   def testHttpErrorCodeSuccessOnRetry(self):
     failure_return_value = ({'status': '500'}, '')
     success_return_value = ({'status': '200'}, 'response')
@@ -99,3 +112,39 @@ class FailureAndRetryTest(_RequestTest):
     return_value = ({'status': '200'}, 'response')
     self._request.side_effect = socket.error, return_value
     self._TestRetry()
+
+
+class CacheTest(_RequestTest):
+
+  def testSetAndGet(self):
+    self._request.return_value = ({'status': '200'}, 'response')
+
+    response = request.Request('https://example.com', use_cache=True)
+    self.assertEqual(response, 'response')
+    self.assertEqual(self._request.call_count, 1)
+
+    response = request.Request('https://example.com', use_cache=True)
+    self.assertEqual(response, 'response')
+    self.assertEqual(self._request.call_count, 1)
+
+  def testRequestBody(self):
+    self._request.return_value = ({'status': '200'}, 'response')
+    with self.assertRaises(NotImplementedError):
+      request.Request('https://example.com', body='body', use_cache=True)
+
+
+class AuthTest(_RequestTest):
+
+  def testNoAuth(self):
+    http = mock.MagicMock()
+
+    patcher = mock.patch('httplib2.Http')
+    httplib2_http = patcher.start()
+    httplib2_http.return_value = http
+    self.addCleanup(patcher.stop)
+
+    http.request.return_value = ({'status': '200'}, 'response')
+    response = request.Request('https://example.com', use_auth=False)
+    http.request.assert_called_once_with('https://example.com', method='GET')
+    self.assertEqual(self._request.call_count, 0)
+    self.assertEqual(response, 'response')

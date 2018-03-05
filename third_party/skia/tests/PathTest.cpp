@@ -3662,7 +3662,10 @@ static void test_rrect(skiatest::Reporter* reporter) {
     SkRect emptyR = {10, 20, 10, 30};
     rr.setRectRadii(emptyR, radii);
     p.addRRect(rr);
-    REPORTER_ASSERT(reporter, p.isEmpty());
+    // The round rect is "empty" in that it has no fill area. However,
+    // the path isn't "empty" in that it should have verbs and points.
+    REPORTER_ASSERT(reporter, !p.isEmpty());
+    p.reset();
     SkRect largeR = {0, 0, SK_ScalarMax, SK_ScalarMax};
     rr.setRectRadii(largeR, radii);
     p.addRRect(rr);
@@ -4915,3 +4918,69 @@ DEF_TEST(NonFinitePathIteration, reporter) {
 
     REPORTER_ASSERT(reporter, verbs == 0);
 }
+
+
+#ifndef SK_SUPPORT_LEGACY_SVG_ARC_TO
+DEF_TEST(AndroidArc, reporter) {
+    const char* tests[] = {
+        "M50,0A50,50,0,0 1 100,50 L100,85 A15,15,0,0 1 85,100 L50,100 A50,50,0,0 1 50,0z",
+        "M50,0L92,0 A8,8,0,0 1 100,8 L100,92 A8,8,0,0 1 92,100 L8,100"
+            " A8,8,0,0 1 0,92 L 0,8 A8,8,0,0 1 8,0z",
+        "M50 0A50 50,0,1,1,50 100A50 50,0,1,1,50 0"
+    };
+    for (auto test : tests) {
+        SkPath aPath;
+        SkAssertResult(SkParsePath::FromSVGString(test, &aPath));
+        SkASSERT(aPath.isConvex());
+        for (SkScalar scale = 1; scale < 1000; scale *= 1.1f) {
+            SkPath scalePath = aPath;
+            SkMatrix matrix;
+            matrix.setScale(scale, scale);
+            scalePath.transform(matrix);
+            SkASSERT(scalePath.isConvex());
+        }
+        for (SkScalar scale = 1; scale < .001; scale /= 1.1f) {
+            SkPath scalePath = aPath;
+            SkMatrix matrix;
+            matrix.setScale(scale, scale);
+            scalePath.transform(matrix);
+            SkASSERT(scalePath.isConvex());
+        }
+    }
+}
+#endif
+
+/*
+ *  Try a range of crazy values, just to ensure that we don't assert/crash.
+ */
+DEF_TEST(HugeGeometry, reporter) {
+    auto surf = SkSurface::MakeRasterN32Premul(100, 100);
+    auto canvas = surf->getCanvas();
+
+    const bool aas[] = { false, true };
+    const SkPaint::Style styles[] = {
+        SkPaint::kFill_Style, SkPaint::kStroke_Style, SkPaint::kStrokeAndFill_Style
+    };
+    const SkScalar values[] = {
+        0, 1, 1000, 1000 * 1000, 1000.f * 1000 * 10000, SK_ScalarMax / 2, SK_ScalarMax,
+        SK_ScalarInfinity
+    };
+
+    SkPaint paint;
+    for (auto x : values) {
+        SkRect r = { -x, -x, x, x };
+        for (auto width : values) {
+            paint.setStrokeWidth(width);
+            for (auto aa : aas) {
+                paint.setAntiAlias(aa);
+                for (auto style : styles) {
+                    paint.setStyle(style);
+                    canvas->drawRect(r, paint);
+                    canvas->drawOval(r, paint);
+                }
+            }
+        }
+    }
+
+}
+

@@ -4,9 +4,11 @@
 """Finds CrOS browsers that can be controlled by telemetry."""
 
 import logging
+import posixpath
 
 from telemetry.core import cros_interface
 from telemetry.core import platform as platform_module
+from telemetry.internal.backends.chrome import chrome_startup_args
 from telemetry.internal.backends.chrome import cros_browser_backend
 from telemetry.internal.backends.chrome import cros_browser_with_oobe
 from telemetry.internal.browser import browser
@@ -31,25 +33,78 @@ class PossibleCrOSBrowser(possible_browser.PossibleBrowser):
   def __repr__(self):
     return 'PossibleCrOSBrowser(browser_type=%s)' % self.browser_type
 
+  @property
+  def browser_directory(self):
+    result = self._platform_backend.cri.GetChromeProcess()
+    if result and 'path' in result:
+      return posixpath.dirname(result['path'])
+    return None
+
+  @property
+  def profile_directory(self):
+    return '/home/chronos/Default'
+
   def _InitPlatformIfNeeded(self):
     pass
 
-  def Create(self, finder_options):
-    if finder_options.browser_options.output_profile_path:
-      raise NotImplementedError(
-          'Profile generation is not yet supported on CrOS.')
+  def Create(self):
+    startup_args = self.GetBrowserStartupArgs(self._browser_options)
 
-    browser_options = finder_options.browser_options
     browser_backend = cros_browser_backend.CrOSBrowserBackend(
-        self._platform_backend, browser_options, self._platform_backend.cri,
+        self._platform_backend, self._browser_options,
+        self.browser_directory, self.profile_directory,
         self._is_guest)
 
     browser_backend.ClearCaches()
 
-    if browser_options.create_browser_with_oobe:
+    if self._browser_options.create_browser_with_oobe:
       return cros_browser_with_oobe.CrOSBrowserWithOOBE(
-          browser_backend, self._platform_backend)
-    return browser.Browser(browser_backend, self._platform_backend)
+          browser_backend, self._platform_backend, startup_args)
+    return browser.Browser(
+        browser_backend, self._platform_backend, startup_args)
+
+  def GetBrowserStartupArgs(self, browser_options):
+    startup_args = chrome_startup_args.GetFromBrowserOptions(browser_options)
+    startup_args.extend(chrome_startup_args.GetReplayArgs(
+        self._platform_backend.network_controller_backend))
+
+    vmodule = ','.join('%s=2' % pattern for pattern in [
+        '*/chromeos/net/*',
+        '*/chromeos/login/*',
+        'chrome_browser_main_posix'])
+
+    startup_args.extend([
+        '--enable-smooth-scrolling',
+        '--enable-threaded-compositing',
+        # Allow devtools to connect to chrome.
+        '--remote-debugging-port=0',
+        # Open a maximized window.
+        '--start-maximized',
+        # Disable system startup sound.
+        '--ash-disable-system-sounds',
+        # Ignore DMServer errors for policy fetches.
+        '--allow-failed-policy-fetch-for-test',
+        # Skip user image selection screen, and post login screens.
+        '--oobe-skip-postlogin',
+        # Disable chrome logging redirect. crbug.com/724273.
+        '--disable-logging-redirect',
+        # Debug logging.
+        '--vmodule=%s' % vmodule,
+    ])
+
+    # If we're using GAIA, skip to login screen, and do not disable GAIA
+    # services.
+    if browser_options.gaia_login:
+      startup_args.append('--oobe-skip-to-login')
+    elif browser_options.disable_gaia_services:
+      startup_args.append('--disable-gaia-services')
+
+    trace_config_file = (self._platform_backend.tracing_controller_backend
+                         .GetChromeTraceConfigFile())
+    if trace_config_file:
+      startup_args.append('--trace-config-file=%s' % trace_config_file)
+
+    return startup_args
 
   def SupportsOptions(self, browser_options):
     return (len(browser_options.extensions_to_load) == 0) or not self._is_guest

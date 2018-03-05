@@ -29,10 +29,11 @@ import sys
 # List of designated copyright owners.
 AUTHORS = ['The Khronos Group Inc.',
            'LunarG Inc.',
-           'Google Inc.']
-CURRENT_YEAR='2016'
+           'Google Inc.',
+           'Pierre Moreau']
+CURRENT_YEAR='2017'
 
-YEARS = '(2014-2016|2015-2016|2016)'
+YEARS = '(2014-2016|2015-2016|2016|2016-2017|2017)'
 COPYRIGHT_RE = re.compile(
         'Copyright \(c\) {} ({})'.format(YEARS, '|'.join(AUTHORS)))
 
@@ -75,7 +76,7 @@ def find(top, filename_glob, skip_glob_list):
 def filtered_descendants(glob):
     """Returns glob-matching filenames under the current directory, but skips
     some irrelevant paths."""
-    return find('.', glob, ['third_party', 'external', 'build*', 'out*'])
+    return find('.', glob, ['third_party', 'external', 'CompilerIdCXX', 'build*', 'out*'])
 
 
 def skip(line):

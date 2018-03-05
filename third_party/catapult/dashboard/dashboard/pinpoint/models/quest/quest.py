@@ -19,3 +19,26 @@ class Quest(object):
 
   def __str__(self):
     raise NotImplementedError()
+
+  @classmethod
+  def FromDict(cls, arguments):
+    """Returns a Quest, configured from a dict of arguments.
+
+    Arguments:
+    arguments: A dict or MultiDict containing arguments.
+
+    Returns:
+      A tuple of (arguments, quests), where arguments is a dict containing the
+      request arguments that were used. ({}, None) if none of the parameters are
+      present.
+
+    Raises:
+      KeyError: An argument must be one of a specific list of values.
+      TypeError: A required argument is missing.
+      ValueError: An argument has an invalid format or value.
+    """
+    # TODO: This method should never return ({}, None) and always throw
+    # TypeError instead. The distinction between the two cases is not clear; the
+    # logic is just used to guess which Quests the user expects. Instead, the
+    # API should require the user to explicitly specify what Quests they want.
+    raise NotImplementedError()

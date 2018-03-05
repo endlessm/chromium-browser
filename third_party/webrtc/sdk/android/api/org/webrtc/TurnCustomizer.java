@@ -11,6 +11,7 @@
 package org.webrtc;
 
 /** Java wrapper for a C++ TurnCustomizer. */
+@JNINamespace("webrtc::jni")
 public class TurnCustomizer {
   final long nativeTurnCustomizer;
 
@@ -22,6 +23,10 @@ public class TurnCustomizer {
     nativeFreeTurnCustomizer(nativeTurnCustomizer);
   }
 
-  private static native void nativeFreeTurnCustomizer(
-      long nativeTurnCustomizer);
+  private static native void nativeFreeTurnCustomizer(long turnCustomizer);
+
+  @CalledByNative
+  long getNativeTurnCustomizer() {
+    return nativeTurnCustomizer;
+  }
 }

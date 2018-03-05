@@ -14,7 +14,6 @@ from telemetry.core import android_platform
 from telemetry.core import exceptions
 from telemetry.core import util
 from telemetry import decorators
-from telemetry.internal import forwarders
 from telemetry.internal.forwarders import android_forwarder
 from telemetry.internal.image_processing import video
 from telemetry.internal.platform import android_device
@@ -25,7 +24,6 @@ from telemetry.internal.platform.power_monitor import android_temperature_monito
 from telemetry.internal.platform.power_monitor import (
     android_power_monitor_controller)
 from telemetry.internal.platform.power_monitor import sysfs_power_monitor
-from telemetry.internal.platform.profiler import android_prebuilt_profiler_helper
 from telemetry.internal.util import binary_manager
 from telemetry.internal.util import external_modules
 
@@ -62,6 +60,8 @@ _DEVICE_COPY_SCRIPT_FILE = os.path.abspath(os.path.join(
     os.path.dirname(__file__), 'efficient_android_directory_copy.sh'))
 _DEVICE_COPY_SCRIPT_LOCATION = (
     '/data/local/tmp/efficient_android_directory_copy.sh')
+_DEVICE_MEMTRACK_HELPER_LOCATION = '/data/local/tmp/profilers/memtrack_helper'
+_DEVICE_CLEAR_SYSTEM_CACHE_TOOL_LOCATION = '/data/local/tmp/clear_system_cache'
 
 
 class AndroidPlatformBackend(
@@ -118,13 +118,8 @@ class AndroidPlatformBackend(
     platform_backend = AndroidPlatformBackend(device)
     return android_platform.AndroidPlatform(platform_backend)
 
-  @property
-  def forwarder_factory(self):
-    if not self._forwarder_factory:
-      self._forwarder_factory = android_forwarder.AndroidForwarderFactory(
-          self._device)
-
-    return self._forwarder_factory
+  def _CreateForwarderFactory(self):
+    return android_forwarder.AndroidForwarderFactory(self._device)
 
   @property
   def device(self):
@@ -171,11 +166,6 @@ class AndroidPlatformBackend(
 
   def GetRemotePort(self, port):
     return forwarder.Forwarder.DevicePortForHostPort(port) or 0
-
-  def CreatePortForwarder(self, port_pair, use_remote_port_forwarding):
-    # use_remote_port_forwarding is ignored as it is always true for
-    # Android device.
-    return self.forwarder_factory.Create(port_pair)
 
   def IsRemoteDevice(self):
     # Android device is connected via adb which is on remote.
@@ -225,6 +215,10 @@ class AndroidPlatformBackend(
   def TakeScreenshot(self, file_path):
     return bool(self._device.TakeScreenshot(host_path=file_path))
 
+  def CooperativelyShutdown(self, proc, app_name):
+    # Suppress the 'abstract-method' lint warning.
+    return False
+
   def SetFullPerformanceModeEnabled(self, enabled):
     if not self._enable_performance_mode:
       logging.warning('CPU governor will not be set!')
@@ -260,12 +254,12 @@ class AndroidPlatformBackend(
       self.KillApplication('memtrack_helper')
       return
 
-    if not android_prebuilt_profiler_helper.InstallOnDevice(
-        self._device, 'memtrack_helper'):
-      raise Exception('Error installing memtrack_helper.')
-    self._device.RunShellCommand([
-        android_prebuilt_profiler_helper.GetDevicePath('memtrack_helper'),
-        '-d'], as_root=True, check_return=True)
+    binary_manager.ReinstallAndroidHelperIfNeeded(
+        'memtrack_helper', _DEVICE_MEMTRACK_HELPER_LOCATION,
+        self._device)
+    self._device.RunShellCommand(
+        [_DEVICE_MEMTRACK_HELPER_LOCATION, '-d'], as_root=True,
+        check_return=True)
 
   def EnsureBackgroundApkInstalled(self):
     app = 'push_apps_to_background_apk'
@@ -276,23 +270,14 @@ class AndroidPlatformBackend(
     self.InstallApplication(host_path)
 
   def GetChildPids(self, pid):
-    child_pids = []
-    ps = self.GetPsOutput(['pid', 'name'])
-    for curr_pid, curr_name in ps:
-      if int(curr_pid) == pid:
-        name = curr_name
-        for curr_pid, curr_name in ps:
-          if curr_name.startswith(name) and curr_name != name:
-            child_pids.append(int(curr_pid))
-        break
-    return child_pids
+    return [p.pid for p in self._device.ListProcesses() if p.ppid == pid]
 
   @decorators.Cache
   def GetCommandLine(self, pid):
-    ps = self.GetPsOutput(['pid', 'name'], pid)
-    if not ps:
+    try:
+      return next(p.name for p in self._device.ListProcesses() if p.pid == pid)
+    except StopIteration:
       raise exceptions.ProcessGoneException()
-    return ps[0][1]
 
   @decorators.Cache
   def GetArchName(self):
@@ -315,7 +300,7 @@ class AndroidPlatformBackend(
     return ''  # TODO(kbr): Implement this.
 
   def CanFlushIndividualFilesFromSystemCache(self):
-    return False
+    return True
 
   def SupportFlushEntireSystemCache(self):
     return self._can_elevate_privilege
@@ -325,7 +310,12 @@ class AndroidPlatformBackend(
     cache.DropRamCaches()
 
   def FlushSystemCacheForDirectory(self, directory):
-    raise NotImplementedError()
+    binary_manager.ReinstallAndroidHelperIfNeeded(
+        'clear_system_cache', _DEVICE_CLEAR_SYSTEM_CACHE_TOOL_LOCATION,
+        self._device)
+    self._device.RunShellCommand(
+        [_DEVICE_CLEAR_SYSTEM_CACHE_TOOL_LOCATION, '--recurse', directory],
+        as_root=True, check_return=True)
 
   def FlushDnsCache(self):
     self._device.RunShellCommand(
@@ -373,7 +363,9 @@ class AndroidPlatformBackend(
                          (application, line))
 
   def IsApplicationRunning(self, application):
-    return len(self._device.GetPids(application)) > 0
+    # For Android apps |application| is usually the package name of the app.
+    # Note that the string provided must match the process name exactly.
+    return bool(self._device.GetApplicationPids(application))
 
   def CanLaunchApplication(self, application):
     if not self._installed_applications:
@@ -444,24 +436,26 @@ class AndroidPlatformBackend(
     return self._device.ReadFile(fname, as_root=True)
 
   def GetPsOutput(self, columns, pid=None):
-    assert columns == ['pid', 'name'] or columns == ['pid'], \
-        'Only know how to return pid and name. Requested: ' + columns
+    """Get information about processes provided via the ps command.
+
+    Args:
+      columns: a list of strings with the ps columns to return; supports those
+        defined in device_utils.PS_COLUMNS, currently: 'name', 'pid', 'ppid'.
+      pid: if given only return rows for processes matching the given pid.
+
+    Returns:
+      A list of rows, one for each process found. Each row is in turn a list
+      with the values corresponding to each of the requested columns.
+    """
+    unknown = [c for c in columns if c not in device_utils.PS_COLUMNS]
+    assert not unknown, 'Requested unknown columns: %s. Supported: %s.' % (
+        ', '.join(unknown), ', '.join(device_utils.PS_COLUMNS))
+
+    processes = self._device.ListProcesses()
     if pid is not None:
-      pid = str(pid)
-    procs_pids = self._device.GetPids()
-    output = []
-    for curr_name, pids_list in procs_pids.iteritems():
-      for curr_pid in pids_list:
-        if columns == ['pid', 'name']:
-          row = [curr_pid, curr_name]
-        else:
-          row = [curr_pid]
-        if pid is not None:
-          if curr_pid == pid:
-            return [row]
-        else:
-          output.append(row)
-    return output
+      processes = [p for p in processes if p.pid == pid]
+
+    return [[getattr(p, c) for c in columns] for p in processes]
 
   def RunCommand(self, command):
     return '\n'.join(self._device.RunShellCommand(
@@ -560,9 +554,6 @@ class AndroidPlatformBackend(
     self._device.RunShellCommand(
         ['sh', self._device_copy_script, source, dest], check_return=True)
 
-  def GetPortPairForForwarding(self, local_port):
-    return forwarders.PortPair(local_port=local_port, remote_port=0)
-
   def RemoveProfile(self, package, ignore_list):
     """Delete application profile on device.
 
@@ -581,40 +572,6 @@ class AndroidPlatformBackend(
     if not files:
       return
     self._device.RemovePath(files, recursive=True, as_root=True)
-
-  def PullProfile(self, package, output_profile_path):
-    """Copy application profile from device to host machine.
-
-    Args:
-      package: The full package name string of the application for which the
-        profile is to be copied.
-      output_profile_dir: Location where profile to be stored on host machine.
-    """
-    profile_dir = self.GetProfileDir(package)
-    logging.info("Pulling profile directory from device: '%s'->'%s'.",
-                 profile_dir, output_profile_path)
-    # To minimize bandwidth it might be good to look at whether all the data
-    # pulled down is really needed e.g. .pak files.
-    if not os.path.exists(output_profile_path):
-      os.makedirs(output_profile_path)
-    problem_files = []
-    for filename in self._device.ListDirectory(profile_dir, as_root=True):
-      # Don't pull lib, since it is created by the installer.
-      if filename == 'lib':
-        continue
-      source = posixpath.join(profile_dir, filename)
-      dest = os.path.join(output_profile_path, filename)
-      try:
-        self._device.PullFile(source, dest, timeout=240)
-      except device_errors.CommandFailedError:
-        problem_files.append(source)
-    if problem_files:
-      # Some paths (e.g. 'files', 'app_textures') consistently fail to be
-      # pulled from the device.
-      logging.warning(
-          'There were errors retrieving the following paths from the profile:')
-      for filepath in problem_files:
-        logging.warning('- %s', filepath)
 
   def GetProfileDir(self, package):
     """Returns the on-device location where the application profile is stored

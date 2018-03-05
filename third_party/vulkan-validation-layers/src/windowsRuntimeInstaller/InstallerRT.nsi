@@ -45,6 +45,9 @@
 !ifndef HIDE_PUBLISHER
   !define PUBLISHER "YourCompany, Inc."
 !endif
+!ifndef COPYRIGHT
+  !define COPYRIGHT ""
+!endif
 #!define VERSION_BUILDNO "0"
 !define PRODUCTVERSION "${VERSION_API_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}.${VERSION_BUILDNO}"
 
@@ -213,6 +216,82 @@ Function .onInit
 
 FunctionEnd
 
+; Initialize Explode variables
+Var /GLOBAL explString
+Var /GLOBAL explSeparator
+Var /GLOBAL explStrLen
+Var /GLOBAL explSepLen
+Var /GLOBAL explOffset
+Var /GLOBAL explTmp
+Var /GLOBAL explTmp2
+Var /GLOBAL explTmp3
+Var /GLOBAL explArrCount
+
+!macro Func_Explode un
+Function ${un}Explode
+  ; Get input from user
+  Pop $explString
+  Pop $explSeparator
+
+  ; Calculates initial values
+  StrLen $explStrLen $explString
+  StrLen $explSepLen $explSeparator
+  StrCpy $explArrCount 1
+
+  ${If}   $explStrLen <= 1          ;   If we got a single character
+  ${OrIf} $explSepLen > $explStrLen ;   or separator is larger than the string,
+    Push    $explString             ;   then we return initial string with no change
+    Push    1                       ;   and set array's length to 1
+    Return
+  ${EndIf}
+
+  ; Set offset to the last symbol of the string
+  StrCpy $explOffset $explStrLen
+  IntOp  $explOffset $explOffset - 1
+
+  ; Clear temp string to exclude the possibility of appearance of occasional data
+  StrCpy $explTmp   ""
+  StrCpy $explTmp2  ""
+  StrCpy $explTmp3  ""
+
+  ; Loop until the offset becomes negative
+  ${Do}
+    ;   If offset becomes negative, it is time to leave the function
+    ${IfThen} $explOffset == -1 ${|} ${ExitDo} ${|}
+
+    ;   Remove everything before and after the searched part ("TempStr")
+    StrCpy $explTmp $explString $explSepLen $explOffset
+
+    ${If} $explTmp == $explSeparator
+        ;   Calculating offset to start copy from
+        IntOp   $explTmp2 $explOffset + $explSepLen ;   Offset equals to the current offset plus length of separator
+        StrCpy  $explTmp3 $explString "" $explTmp2
+
+        Push    $explTmp3                           ;   Throwing array item to the stack
+        IntOp   $explArrCount $explArrCount + 1     ;   Increasing array's counter
+
+        StrCpy  $explString $explString $explOffset 0   ;   Cutting all characters beginning with the separator entry
+        StrLen  $explStrLen $explString
+    ${EndIf}
+
+    ${If} $explOffset = 0                       ;   If the beginning of the line met and there is no separator,
+                                                ;   copying the rest of the string
+        ${If} $explSeparator == ""              ;   Fix for the empty separator
+            IntOp   $explArrCount   $explArrCount - 1
+        ${Else}
+            Push    $explString
+        ${EndIf}
+    ${EndIf}
+
+    IntOp   $explOffset $explOffset - 1
+  ${Loop}
+
+  Push $explArrCount
+FunctionEnd
+!macroend
+!insertmacro Func_Explode ""
+!insertmacro Func_Explode "un."
+
 AddBrandingImage left 150
 Caption "${PRODUCTNAME} ${PRODUCTVERSION} Setup"
 Name "${PRODUCTNAME} ${PRODUCTVERSION}"
@@ -232,7 +311,7 @@ VIProductVersion "${PRODUCTVERSION}"
 VIAddVersionKey  "ProductName" "${APINAME} Runtime"
 VIAddVersionKey  "FileVersion" "${PRODUCTVERSION}"
 VIAddVersionKey  "ProductVersion" "${PRODUCTVERSION}"
-VIAddVersionKey  "LegalCopyright" ""
+VIAddVersionKey  "LegalCopyright" "${COPYRIGHT}"
 
 !ifdef UNINSTALLER
     VIAddVersionKey  "FileDescription" "${APINAME} Runtime Uninstaller"
@@ -251,6 +330,27 @@ Function ${un}ConfigLayersAndVulkanDLL
     Delete "$TEMP\VulkanRT\configure_rt.log"
     Rename "configure_rt.log" "$TEMP\VulkanRT\configure_rt.log"
     pop $0
+
+    ${IF} $0 == 0
+        Pop $1
+        LogText "Output from ConfigureRT: $1"
+        Push ";"
+        Push "$1"
+        Call ${un}Explode
+        Pop $2
+        ${For} $4 1 $2
+            Pop $3
+            Push ">"
+            Push "$3"
+            Call ${un}Explode
+            Pop $5
+            ${IF} "$5" == "2"
+                Pop $6
+                Pop $7
+                CopyFiles /SILENT "$6" "$7"
+            ${ENDIF}
+        ${Next}
+    ${ENDIF}
 
     # Ignore errors. If something went wrong, the return value will indicate it.
     ClearErrors
@@ -406,15 +506,10 @@ Section
 
     # Set SystemComponent to 1 for those instances that are not to be visible to Add/Remove Programs.
     # Set SystemComponent to 0 for the instance that is to be visible to Add/Remove Programs.
-    ${If} $IC > 2
-        IntOp $1 $IC - 1
-        WriteRegDword HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}${PRODUCTVERSION}-$IC" "SystemComponent" 0
-        WriteRegDword HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}${PRODUCTVERSION}-$1" "SystemComponent" 1
-    ${ElseIf} $IC = 2
-        WriteRegDword HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}${PRODUCTVERSION}-$IC" "SystemComponent" 0
-        WriteRegDword HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}${PRODUCTVERSION}" "SystemComponent" 1
+    ${If} $IC > 1
+        WriteRegDword HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}${PRODUCTVERSION}-$IC" "SystemComponent" 1
     ${Else}
-        WriteRegDword HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}${PRODUCTVERSION}" "SystemComponent" 0
+        WriteRegDword HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}${PRODUCTVERSION}" "SystemComponent" 1
     ${EndIf}
 
     StrCpy $1 25
@@ -469,7 +564,7 @@ Section
         # vulkaninfo.exe
         File /oname=${APILOWER}info-$FileVersion.exe ..\build32\demos\RelWithDebInfo\${APILOWER}info.exe
         SetOutPath "$INSTDIR"
-        File /oname=${APILOWER}info ..\build32\demos\RelWithDebInfo\${APILOWER}info.exe
+        File /oname=${APILOWER}info.exe ..\build32\demos\RelWithDebInfo\${APILOWER}info.exe
         StrCpy $1 55
         Call CheckForError
 
@@ -564,9 +659,9 @@ Section "uninstall"
     ${EndIf}
     ${If} $IC > 2
         IntOp $IC $IC - 1
-        WriteRegDword HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}${PRODUCTVERSION}-$IC" "SystemComponent" 0
+        WriteRegDword HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}${PRODUCTVERSION}-$IC" "SystemComponent" 1
     ${ElseIf} $IC = 2
-        WriteRegDword HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}${PRODUCTVERSION}" "SystemComponent" 0
+        WriteRegDword HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}${PRODUCTVERSION}" "SystemComponent" 1
     ${Else}
         # Last uninstall
         IntOp $IC $IC - 1

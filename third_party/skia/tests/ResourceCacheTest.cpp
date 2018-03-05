@@ -16,6 +16,7 @@
 #include "GrGpu.h"
 #include "GrGpuResourceCacheAccess.h"
 #include "GrGpuResourcePriv.h"
+#include "GrProxyProvider.h"
 #include "GrRenderTargetPriv.h"
 #include "GrResourceCache.h"
 #include "GrResourceProvider.h"
@@ -126,14 +127,15 @@ DEF_GPUTEST_FOR_CONTEXTS(ResourceCacheStencilBuffers, &is_rendering_and_not_angl
         return;
     }
 
-    GrResourceProvider* provider = context->resourceProvider();
+    GrResourceProvider* resourceProvider = context->contextPriv().resourceProvider();
 
-    sk_sp<GrRenderTarget> smallRT0 = create_RT_with_SB(provider, 4, 0, SkBudgeted::kYes);
+    sk_sp<GrRenderTarget> smallRT0 = create_RT_with_SB(resourceProvider, 4, 0, SkBudgeted::kYes);
     REPORTER_ASSERT(reporter, smallRT0);
 
     {
        // Two budgeted RTs with the same desc should share a stencil buffer.
-        sk_sp<GrRenderTarget> smallRT1 = create_RT_with_SB(provider, 4, 0, SkBudgeted::kYes);
+        sk_sp<GrRenderTarget> smallRT1 = create_RT_with_SB(resourceProvider, 4, 0,
+                                                           SkBudgeted::kYes);
         REPORTER_ASSERT(reporter, smallRT1);
 
         REPORTER_ASSERT(reporter, get_SB(smallRT0.get()) == get_SB(smallRT1.get()));
@@ -141,7 +143,7 @@ DEF_GPUTEST_FOR_CONTEXTS(ResourceCacheStencilBuffers, &is_rendering_and_not_angl
 
     {
         // An unbudgeted RT with the same desc should also share.
-        sk_sp<GrRenderTarget> smallRT2 = create_RT_with_SB(provider, 4, 0, SkBudgeted::kNo);
+        sk_sp<GrRenderTarget> smallRT2 = create_RT_with_SB(resourceProvider, 4, 0, SkBudgeted::kNo);
         REPORTER_ASSERT(reporter, smallRT2);
 
         REPORTER_ASSERT(reporter, get_SB(smallRT0.get()) == get_SB(smallRT2.get()));
@@ -149,7 +151,7 @@ DEF_GPUTEST_FOR_CONTEXTS(ResourceCacheStencilBuffers, &is_rendering_and_not_angl
 
     {
         // An RT with a much larger size should not share.
-        sk_sp<GrRenderTarget> bigRT = create_RT_with_SB(provider, 400, 0, SkBudgeted::kNo);
+        sk_sp<GrRenderTarget> bigRT = create_RT_with_SB(resourceProvider, 400, 0, SkBudgeted::kNo);
         REPORTER_ASSERT(reporter, bigRT);
 
         REPORTER_ASSERT(reporter, get_SB(smallRT0.get()) != get_SB(bigRT.get()));
@@ -158,8 +160,8 @@ DEF_GPUTEST_FOR_CONTEXTS(ResourceCacheStencilBuffers, &is_rendering_and_not_angl
     int smallSampleCount = context->caps()->getSampleCount(4, kRGBA_8888_GrPixelConfig);
     if (smallSampleCount > 0) {
         // An RT with a different sample count should not share.
-        sk_sp<GrRenderTarget> smallMSAART0 = create_RT_with_SB(provider, 4, smallSampleCount,
-                                                               SkBudgeted::kNo);
+        sk_sp<GrRenderTarget> smallMSAART0 = create_RT_with_SB(resourceProvider, 4,
+                                                               smallSampleCount, SkBudgeted::kNo);
 #ifdef SK_BUILD_FOR_ANDROID
         if (!smallMSAART0) {
             // The nexus player seems to fail to create MSAA textures.
@@ -173,7 +175,8 @@ DEF_GPUTEST_FOR_CONTEXTS(ResourceCacheStencilBuffers, &is_rendering_and_not_angl
 
         {
             // A second MSAA RT should share with the first MSAA RT.
-            sk_sp<GrRenderTarget> smallMSAART1 = create_RT_with_SB(provider, 4, smallSampleCount,
+            sk_sp<GrRenderTarget> smallMSAART1 = create_RT_with_SB(resourceProvider, 4,
+                                                                   smallSampleCount,
                                                                    SkBudgeted::kNo);
             REPORTER_ASSERT(reporter, smallMSAART1);
 
@@ -184,7 +187,8 @@ DEF_GPUTEST_FOR_CONTEXTS(ResourceCacheStencilBuffers, &is_rendering_and_not_angl
         // samples didn't get rounded up to >= 8 or else they could share.).
         int bigSampleCount = context->caps()->getSampleCount(8, kRGBA_8888_GrPixelConfig);
         if (bigSampleCount != smallSampleCount) {
-            sk_sp<GrRenderTarget> smallMSAART2 = create_RT_with_SB(provider, 4, bigSampleCount,
+            sk_sp<GrRenderTarget> smallMSAART2 = create_RT_with_SB(resourceProvider, 4,
+                                                                   bigSampleCount,
                                                                    SkBudgeted::kNo);
             REPORTER_ASSERT(reporter, smallMSAART2);
 
@@ -195,38 +199,36 @@ DEF_GPUTEST_FOR_CONTEXTS(ResourceCacheStencilBuffers, &is_rendering_and_not_angl
 
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceCacheWrappedResources, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
+    GrResourceProvider* resourceProvider = context->contextPriv().resourceProvider();
     GrGpu* gpu = context->getGpu();
     // this test is only valid for GL
     if (!gpu || !gpu->glContextForTesting()) {
         return;
     }
 
-    GrBackendObject texHandles[2];
+    GrBackendTexture backendTextures[2];
     static const int kW = 100;
     static const int kH = 100;
 
-    texHandles[0] = gpu->createTestingOnlyBackendTexture(nullptr, kW, kH, kRGBA_8888_GrPixelConfig);
-    texHandles[1] = gpu->createTestingOnlyBackendTexture(nullptr, kW, kH, kRGBA_8888_GrPixelConfig);
+    backendTextures[0] = gpu->createTestingOnlyBackendTexture(nullptr, kW, kH,
+                                                              kRGBA_8888_GrPixelConfig,
+                                                              false, GrMipMapped::kNo);
+    backendTextures[1] = gpu->createTestingOnlyBackendTexture(nullptr, kW, kH,
+                                                              kRGBA_8888_GrPixelConfig,
+                                                              false, GrMipMapped::kNo);
+    REPORTER_ASSERT(reporter, backendTextures[0].isValid());
+    REPORTER_ASSERT(reporter, backendTextures[1].isValid());
+    if (!backendTextures[0].isValid() || !backendTextures[1].isValid()) {
+        return;
+    }
 
     context->resetContext();
 
-    GrBackendTexture backendTex1 = GrTest::CreateBackendTexture(context->contextPriv().getBackend(),
-                                                                kW,
-                                                                kH,
-                                                                kRGBA_8888_GrPixelConfig,
-                                                                GrMipMapped::kNo,
-                                                                texHandles[0]);
-    sk_sp<GrTexture> borrowed(context->resourceProvider()->wrapBackendTexture(
-            backendTex1, kBorrow_GrWrapOwnership));
+    sk_sp<GrTexture> borrowed(resourceProvider->wrapBackendTexture(
+            backendTextures[0], kBorrow_GrWrapOwnership));
 
-    GrBackendTexture backendTex2 = GrTest::CreateBackendTexture(context->contextPriv().getBackend(),
-                                                                kW,
-                                                                kH,
-                                                                kRGBA_8888_GrPixelConfig,
-                                                                GrMipMapped::kNo,
-                                                                texHandles[1]);
-    sk_sp<GrTexture> adopted(context->resourceProvider()->wrapBackendTexture(
-            backendTex2, kAdopt_GrWrapOwnership));
+    sk_sp<GrTexture> adopted(resourceProvider->wrapBackendTexture(
+            backendTextures[1], kAdopt_GrWrapOwnership));
 
     REPORTER_ASSERT(reporter, borrowed != nullptr && adopted != nullptr);
     if (!borrowed || !adopted) {
@@ -238,14 +240,14 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ResourceCacheWrappedResources, reporter, ctxI
 
     context->flush();
 
-    bool borrowedIsAlive = gpu->isTestingOnlyBackendTexture(texHandles[0]);
-    bool adoptedIsAlive = gpu->isTestingOnlyBackendTexture(texHandles[1]);
+    bool borrowedIsAlive = gpu->isTestingOnlyBackendTexture(backendTextures[0]);
+    bool adoptedIsAlive = gpu->isTestingOnlyBackendTexture(backendTextures[1]);
 
     REPORTER_ASSERT(reporter, borrowedIsAlive);
     REPORTER_ASSERT(reporter, !adoptedIsAlive);
 
-    gpu->deleteTestingOnlyBackendTexture(texHandles[0], !borrowedIsAlive);
-    gpu->deleteTestingOnlyBackendTexture(texHandles[1], !adoptedIsAlive);
+    gpu->deleteTestingOnlyBackendTexture(&(backendTextures[0]), !borrowedIsAlive);
+    gpu->deleteTestingOnlyBackendTexture(&(backendTextures[1]), !adoptedIsAlive);
 
     context->resetContext();
 }
@@ -351,12 +353,12 @@ public:
         fContext = GrContext::MakeMock(nullptr);
         SkASSERT(fContext);
         fContext->setResourceCacheLimits(maxCnt, maxBytes);
-        GrResourceCache* cache = fContext->getResourceCache();
+        GrResourceCache* cache = fContext->contextPriv().getResourceCache();
         cache->purgeAllUnlocked();
         SkASSERT(0 == cache->getResourceCount() && 0 == cache->getResourceBytes());
     }
 
-    GrResourceCache* cache() { return fContext->getResourceCache(); }
+    GrResourceCache* cache() { return fContext->contextPriv().getResourceCache(); }
 
     GrContext* context() { return fContext.get(); }
 
@@ -1635,7 +1637,7 @@ static sk_sp<GrTexture> make_normal_texture(GrResourceProvider* provider,
     return provider->createTexture(desc, SkBudgeted::kYes);
 }
 
-static sk_sp<GrTextureProxy> make_mipmap_proxy(GrResourceProvider* provider,
+static sk_sp<GrTextureProxy> make_mipmap_proxy(GrProxyProvider* proxyProvider,
                                                GrSurfaceFlags flags,
                                                int width, int height,
                                                int sampleCnt) {
@@ -1671,15 +1673,15 @@ static sk_sp<GrTextureProxy> make_mipmap_proxy(GrResourceProvider* provider,
     desc.fConfig = kRGBA_8888_GrPixelConfig;
     desc.fSampleCnt = sampleCnt;
 
-    return GrSurfaceProxy::MakeDeferredMipMap(provider, desc, SkBudgeted::kYes,
-                                              texels.get(), mipLevelCount);
+    return proxyProvider->createMipMapProxy(desc, SkBudgeted::kYes, texels.get(), mipLevelCount);
 }
 
 // Exercise GrSurface::gpuMemorySize for different combos of MSAA, RT-only,
 // Texture-only, both-RT-and-Texture and MIPmapped
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GPUMemorySize, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
-    GrResourceProvider* provider = context->resourceProvider();
+    GrProxyProvider* proxyProvider = context->contextPriv().proxyProvider();
+    GrResourceProvider* resourceProvider = context->contextPriv().resourceProvider();
 
     static const int kSize = 64;
 
@@ -1687,13 +1689,13 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GPUMemorySize, reporter, ctxInfo) {
     {
         sk_sp<GrTexture> tex;
 
-        tex = make_normal_texture(provider, kRenderTarget_GrSurfaceFlag, kSize, kSize, 0);
+        tex = make_normal_texture(resourceProvider, kRenderTarget_GrSurfaceFlag, kSize, kSize, 0);
         size_t size = tex->gpuMemorySize();
         REPORTER_ASSERT(reporter, kSize*kSize*4 == size);
 
         size_t sampleCount = (size_t)context->caps()->getSampleCount(4, kRGBA_8888_GrPixelConfig);
         if (sampleCount >= 4) {
-            tex = make_normal_texture(provider, kRenderTarget_GrSurfaceFlag, kSize, kSize,
+            tex = make_normal_texture(resourceProvider, kRenderTarget_GrSurfaceFlag, kSize, kSize,
                                       sampleCount);
             size = tex->gpuMemorySize();
             REPORTER_ASSERT(reporter,
@@ -1702,7 +1704,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GPUMemorySize, reporter, ctxInfo) {
                             kSize*kSize*4*(sampleCount+1) == size);   // explicit resolve buffer
         }
 
-        tex = make_normal_texture(provider, kNone_GrSurfaceFlags, kSize, kSize, 0);
+        tex = make_normal_texture(resourceProvider, kNone_GrSurfaceFlags, kSize, kSize, 0);
         size = tex->gpuMemorySize();
         REPORTER_ASSERT(reporter, kSize*kSize*4 == size);
     }
@@ -1712,13 +1714,13 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GPUMemorySize, reporter, ctxInfo) {
     if (context->caps()->mipMapSupport()) {
         sk_sp<GrTextureProxy> proxy;
 
-        proxy = make_mipmap_proxy(provider, kRenderTarget_GrSurfaceFlag, kSize, kSize, 0);
+        proxy = make_mipmap_proxy(proxyProvider, kRenderTarget_GrSurfaceFlag, kSize, kSize, 0);
         size_t size = proxy->gpuMemorySize();
         REPORTER_ASSERT(reporter, kSize*kSize*4+(kSize*kSize*4)/3 == size);
 
         size_t sampleCount = (size_t)context->caps()->getSampleCount(4, kRGBA_8888_GrPixelConfig);
         if (sampleCount >= 4) {
-            proxy = make_mipmap_proxy(provider, kRenderTarget_GrSurfaceFlag, kSize, kSize,
+            proxy = make_mipmap_proxy(proxyProvider, kRenderTarget_GrSurfaceFlag, kSize, kSize,
                                       sampleCount);
             size = proxy->gpuMemorySize();
             REPORTER_ASSERT(reporter,
@@ -1727,7 +1729,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GPUMemorySize, reporter, ctxInfo) {
                kSize*kSize*4*(sampleCount+1)+(kSize*kSize*4)/3 == size);  // explicit resolve buffer
         }
 
-        proxy = make_mipmap_proxy(provider, kNone_GrSurfaceFlags, kSize, kSize, 0);
+        proxy = make_mipmap_proxy(proxyProvider, kNone_GrSurfaceFlags, kSize, kSize, 0);
         size = proxy->gpuMemorySize();
         REPORTER_ASSERT(reporter, kSize*kSize*4+(kSize*kSize*4)/3 == size);
     }

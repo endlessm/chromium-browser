@@ -2,10 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import weakref
-
 from battor import battor_wrapper
-from telemetry.internal import forwarders
 from telemetry.internal.forwarders import do_nothing_forwarder
 from telemetry.internal.platform import network_controller_backend
 from telemetry.internal.platform import tracing_controller_backend
@@ -28,7 +25,6 @@ class PlatformBackend(object):
     if device and not self.SupportsDevice(device):
       raise ValueError('Unsupported device: %s' % device.name)
     self._platform = None
-    self._running_browser_backends = weakref.WeakSet()
     self._network_controller_backend = None
     self._tracing_controller_backend = None
     self._forwarder_factory = None
@@ -68,10 +64,6 @@ class PlatformBackend(object):
     return self._platform.is_host_platform
 
   @property
-  def running_browser_backends(self):
-    return list(self._running_browser_backends)
-
-  @property
   def network_controller_backend(self):
     return self._network_controller_backend
 
@@ -82,11 +74,11 @@ class PlatformBackend(object):
   @property
   def forwarder_factory(self):
     if not self._forwarder_factory:
-      self._forwarder_factory = do_nothing_forwarder.DoNothingForwarderFactory()
+      self._forwarder_factory = self._CreateForwarderFactory()
     return self._forwarder_factory
 
-  def GetPortPairForForwarding(self, local_port):
-    return forwarders.PortPair(local_port=local_port, remote_port=local_port)
+  def _CreateForwarderFactory(self):
+    return do_nothing_forwarder.DoNothingForwarderFactory()
 
   def GetRemotePort(self, port):
     return port
@@ -94,24 +86,6 @@ class PlatformBackend(object):
   def GetSystemLog(self):
     return None
 
-  def DidCreateBrowser(self, browser, browser_backend):
-    browser_options = browser_backend.browser_options
-    self.SetFullPerformanceModeEnabled(browser_options.full_performance_mode)
-
-  def DidStartBrowser(self, browser, browser_backend):
-    assert browser not in self._running_browser_backends
-    self._running_browser_backends.add(browser_backend)
-
-  def WillCloseBrowser(self, browser, browser_backend):
-    is_last_browser = len(self._running_browser_backends) <= 1
-    if is_last_browser:
-      self.SetFullPerformanceModeEnabled(False)
-
-    self._running_browser_backends.discard(browser_backend)
-
-  def CreatePortForwarder(self, port_pair, use_remote_port_forwarding):
-    """Use forwarder_factory to create a port forwarder."""
-    raise NotImplementedError()
 
   def IsRemoteDevice(self):
     """Check if target platform is on remote device.

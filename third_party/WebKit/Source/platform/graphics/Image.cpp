@@ -83,7 +83,7 @@ Image::Image(ImageObserver* observer, bool is_multipart)
       high_contrast_classification_(
           HighContrastClassification::kNotClassified) {}
 
-Image::~Image() {}
+Image::~Image() = default;
 
 Image* Image::NullImage() {
   DCHECK(IsMainThread());
@@ -128,6 +128,9 @@ void Image::DrawTiledBackground(GraphicsContext& ctxt,
                                 const FloatSize& scaled_tile_size,
                                 SkBlendMode op,
                                 const FloatSize& repeat_spacing) {
+  if (scaled_tile_size.IsEmpty())
+    return;
+
   FloatSize intrinsic_tile_size(Size());
   if (HasRelativeSize()) {
     intrinsic_tile_size.SetWidth(scaled_tile_size.Width());

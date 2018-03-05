@@ -14,8 +14,8 @@
 
 #include "name_mapper.h"
 
-#include <cassert>
 #include <algorithm>
+#include <cassert>
 #include <iterator>
 #include <sstream>
 #include <string>
@@ -23,7 +23,7 @@
 #include <unordered_set>
 
 #include "spirv-tools/libspirv.h"
-#include "spirv/1.1/spirv.h"
+#include "spirv/1.2/spirv.h"
 
 #include "parsed_operand.h"
 
@@ -288,6 +288,12 @@ spv_result_t FriendlyNameMapper::ParseInstruction(
       // Structs are mapped rather simplisitically. Just indicate that they
       // are a struct and then give the raw Id number.
       SaveName(result_id, std::string("_struct_") + to_string(result_id));
+      break;
+    case SpvOpConstantTrue:
+      SaveName(result_id, "true");
+      break;
+    case SpvOpConstantFalse:
+      SaveName(result_id, "false");
       break;
     case SpvOpConstant: {
       std::ostringstream value;

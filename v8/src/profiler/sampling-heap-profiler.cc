@@ -66,24 +66,15 @@ SamplingHeapProfiler::SamplingHeapProfiler(
       rate_(rate),
       flags_(flags) {
   CHECK_GT(rate_, 0u);
-  heap->new_space()->AddAllocationObserver(new_space_observer_.get());
-  AllSpaces spaces(heap);
-  for (Space* space = spaces.next(); space != nullptr; space = spaces.next()) {
-    if (space != heap->new_space()) {
-      space->AddAllocationObserver(other_spaces_observer_.get());
-    }
-  }
+
+  heap_->AddAllocationObserversToAllSpaces(other_spaces_observer_.get(),
+                                           new_space_observer_.get());
 }
 
 
 SamplingHeapProfiler::~SamplingHeapProfiler() {
-  heap_->new_space()->RemoveAllocationObserver(new_space_observer_.get());
-  AllSpaces spaces(heap_);
-  for (Space* space = spaces.next(); space != nullptr; space = spaces.next()) {
-    if (space != heap_->new_space()) {
-      space->RemoveAllocationObserver(other_spaces_observer_.get());
-    }
-  }
+  heap_->RemoveAllocationObserversFromAllSpaces(other_spaces_observer_.get(),
+                                                new_space_observer_.get());
 
   for (auto sample : samples_) {
     delete sample;
@@ -157,12 +148,21 @@ SamplingHeapProfiler::AllocationNode* SamplingHeapProfiler::AddStack() {
   std::vector<SharedFunctionInfo*> stack;
   JavaScriptFrameIterator it(isolate_);
   int frames_captured = 0;
+  bool found_arguments_marker_frames = false;
   while (!it.done() && frames_captured < stack_depth_) {
     JavaScriptFrame* frame = it.frame();
-    SharedFunctionInfo* shared = frame->function()->shared();
-    stack.push_back(shared);
-
-    frames_captured++;
+    // If we are materializing objects during deoptimization, inlined
+    // closures may not yet be materialized, and this includes the
+    // closure on the stack. Skip over any such frames (they'll be
+    // in the top frames of the stack). The allocations made in this
+    // sensitive moment belong to the formerly optimized frame anyway.
+    if (frame->unchecked_function()->IsJSFunction()) {
+      SharedFunctionInfo* shared = frame->function()->shared();
+      stack.push_back(shared);
+      frames_captured++;
+    } else {
+      found_arguments_marker_frames = true;
+    }
     it.Advance();
   }
 
@@ -209,6 +209,12 @@ SamplingHeapProfiler::AllocationNode* SamplingHeapProfiler::AddStack() {
     }
     node = node->FindOrAddChildNode(name, script_id, shared->start_position());
   }
+
+  if (found_arguments_marker_frames) {
+    node =
+        node->FindOrAddChildNode("(deopt)", v8::UnboundScript::kNoScriptId, 0);
+  }
+
   return node;
 }
 

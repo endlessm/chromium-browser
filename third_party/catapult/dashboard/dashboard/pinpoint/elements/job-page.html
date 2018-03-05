@@ -8,13 +8,13 @@ found in the LICENSE file.
 <link rel="import" href="/components/app-route/app-route.html">
 <link rel="import" href="/components/paper-tooltip/paper-tooltip.html">
 
-<link rel="import" href="/dashboard/pinpoint/elements/base-style.html">
-<link rel="import" href="/dashboard/pinpoint/elements/job-page-change-table.html">
-<link rel="import" href="/dashboard/pinpoint/elements/job-page-chart-icon.html">
-<link rel="import" href="/dashboard/pinpoint/elements/job-page-chart.html">
-<link rel="import" href="/dashboard/pinpoint/elements/job-page-header.html">
-<link rel="import" href="/dashboard/pinpoint/elements/loading-wrapper.html">
-<link rel="import" href="/dashboard/pinpoint/elements/try-job-fab.html">
+<link rel="import" href="/elements/base-style.html">
+<link rel="import" href="/elements/job-page/change-details.html">
+<link rel="import" href="/elements/job-page/job-chart-icon.html">
+<link rel="import" href="/elements/job-page/job-chart.html">
+<link rel="import" href="/elements/job-page/job-details.html">
+<link rel="import" href="/elements/job-page/patch-job-fab.html">
+<link rel="import" href="/elements/loading-wrapper.html">
 
 <dom-module id="job-page">
   <template>
@@ -39,7 +39,22 @@ found in the LICENSE file.
         margin-bottom: 0.1em;
       }
 
-      try-job-fab {
+      .columns {
+        display: flex;
+        margin: 0 -0.5em;
+      }
+
+      #details-column {
+        flex: 1;
+        margin: 0 0.5em;
+      }
+
+      #main-column {
+        flex: 3;
+        margin: 0 0.5em;
+      }
+
+      patch-job-fab {
         bottom: 2em;
         position: fixed;
         right: 2em;
@@ -72,10 +87,16 @@ found in the LICENSE file.
         <span class="middle-dot"></span>
         [[start(job)]]
       </p>
-      <job-page-header job="[[job]]"></job-page-header>
-      <job-page-chart job="[[job]]" change-index="{{changeIndex}}"></job-page-chart>
-      <job-page-change-table job="[[job]]" change-index="[[changeIndex]]"></job-page-change-table>
-      <try-job-fab job="[[job]]" auth-headers="[[authHeaders]]"></try-job-fab>
+      <div class="columns">
+        <div id="details-column">
+          <job-details job="[[job]]"></job-details>
+        </div>
+        <div id="main-column">
+          <job-chart job="[[job]]" change-index="{{changeIndex}}"></job-chart>
+          <change-details job="[[job]]" change-index="[[changeIndex]]"></change-details>
+        </div>
+      </div>
+      <patch-job-fab job="[[job]]" auth-headers="[[authHeaders]]"></patch-job-fab>
     </loading-wrapper>
   </template>
 

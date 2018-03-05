@@ -28,6 +28,7 @@ spv_context spvContextCreate(spv_target_env env) {
     case SPV_ENV_OPENGL_4_2:
     case SPV_ENV_OPENGL_4_3:
     case SPV_ENV_OPENGL_4_5:
+    case SPV_ENV_UNIVERSAL_1_2:
       break;
     default:
       return nullptr;
@@ -47,7 +48,7 @@ spv_context spvContextCreate(spv_target_env env) {
 
 void spvContextDestroy(spv_context context) { delete context; }
 
-void SetContextMessageConsumer(spv_context context,
-                               spvtools::MessageConsumer consumer) {
+void libspirv::SetContextMessageConsumer(spv_context context,
+                                         spvtools::MessageConsumer consumer) {
   context->consumer = std::move(consumer);
 }

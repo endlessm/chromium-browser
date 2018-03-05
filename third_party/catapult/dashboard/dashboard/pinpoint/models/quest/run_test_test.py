@@ -7,7 +7,70 @@ import unittest
 
 import mock
 
+from dashboard.common import namespaced_stored_object
+from dashboard.common import testing_common
 from dashboard.pinpoint.models.quest import run_test
+
+
+_MIN_TELEMETRY_ARGUMENTS = [
+    'speedometer', '--pageset-repeat', '1', '--browser', 'release',
+    '-v', '--upload-results', '--output-format', 'histograms',
+    '--results-label', '',
+    '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
+    '--isolated-script-test-chartjson-output',
+    '${ISOLATED_OUTDIR}/chartjson-output.json',
+]
+
+
+_ALL_TELEMETRY_ARGUMENTS = [
+    'speedometer', '--story-filter', 'http://www.fifa.com/',
+    '--pageset-repeat', '1', '--browser', 'release',
+    '--custom-arg', 'custom value',
+    '-v', '--upload-results', '--output-format', 'histograms',
+    '--results-label', '',
+    '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
+    '--isolated-script-test-chartjson-output',
+    '${ISOLATED_OUTDIR}/chartjson-output.json',
+]
+
+
+_STARTUP_BENCHMARK_ARGUMENTS = [
+    'start_with_url.warm.startup_pages',
+    '--pageset-repeat', '2', '--browser', 'release',
+    '-v', '--upload-results', '--output-format', 'histograms',
+    '--results-label', '',
+    '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
+    '--isolated-script-test-chartjson-output',
+    '${ISOLATED_OUTDIR}/chartjson-output.json',
+]
+
+
+_WEBVIEW_ARGUMENTS = [
+    'speedometer', '--pageset-repeat', '1', '--browser', 'android-webview',
+    '-v', '--upload-results', '--output-format', 'histograms',
+    '--results-label', '',
+    '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
+    '--isolated-script-test-chartjson-output',
+    '${ISOLATED_OUTDIR}/chartjson-output.json',
+    '--webview-embedder-apk', '../../out/Release/apks/SystemWebViewShell.apk',
+]
+
+
+_MIN_GTEST_ARGUMENTS = [
+    '--gtest_repeat=1',
+    '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
+    '--isolated-script-test-chartjson-output',
+    '${ISOLATED_OUTDIR}/chartjson-output.json',
+]
+
+
+_ALL_GTEST_ARGUMENTS = [
+    '--gtest_filter=test_name', '--gtest_repeat=1',
+    '--custom-arg', 'custom value',
+    '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
+    '--isolated-script-test-chartjson-output',
+    '${ISOLATED_OUTDIR}/chartjson-output.json',
+]
 
 
 _SWARMING_EXTRA_ARGS = [
@@ -27,14 +90,139 @@ _SWARMING_DIMENSIONS = [
 ]
 
 
-def _CreateSwarmingArgs(label):
-  i = _SWARMING_EXTRA_ARGS.index('--results-label')
-  swarming_args_with_results_label = copy.copy(_SWARMING_EXTRA_ARGS)
-  swarming_args_with_results_label[i+1] = label
-  return swarming_args_with_results_label
+class _QuestTest(testing_common.TestCase):
+
+  def setUp(self):
+    super(_QuestTest, self).setUp()
+    self.SetCurrentUser('internal@chromium.org', is_admin=True)
+    namespaced_stored_object.Set('bot_configurations', {
+        'chromium-rel-mac11-pro': {
+            'browser': 'release',
+            'dimensions': {'key': 'value'},
+        },
+    })
 
 
-class _RunTestTest(unittest.TestCase):
+class TelemetryQuestTest(_QuestTest):
+
+  def testMissingArguments(self):
+    arguments = {
+        'configuration': 'chromium-rel-mac11-pro',
+        'target': 'telemetry_perf_tests',
+        # benchmark is missing.
+    }
+    with self.assertRaises(TypeError):
+      run_test.RunTest.FromDict(arguments)
+
+  def testUnknownConfiguration(self):
+    arguments = {
+        'configuration': 'unknown configuration',
+        'target': 'telemetry_perf_tests',
+        'benchmark': 'speedometer',
+    }
+    with self.assertRaises(KeyError):
+      run_test.RunTest.FromDict(arguments)
+
+  def testMinimumArguments(self):
+    arguments = {
+        'configuration': 'chromium-rel-mac11-pro',
+        'target': 'telemetry_perf_tests',
+        'benchmark': 'speedometer',
+    }
+
+    expected = run_test.RunTest({'key': 'value'}, _MIN_TELEMETRY_ARGUMENTS)
+    self.assertEqual(run_test.RunTest.FromDict(arguments),
+                     (arguments, expected))
+
+  def testAllArguments(self):
+    arguments = {
+        'target': 'telemetry_perf_tests',
+        'dimensions': '{"key": "value"}',
+        'benchmark': 'speedometer',
+        'browser': 'release',
+        'story': 'http://www.fifa.com/',
+        'extra_test_args': '["--custom-arg", "custom value"]',
+    }
+
+    expected = run_test.RunTest(
+        {'key': 'value'}, _ALL_TELEMETRY_ARGUMENTS)
+    self.assertEqual(run_test.RunTest.FromDict(arguments),
+                     (arguments, expected))
+
+  def testInvalidExtraTestArgs(self):
+    arguments = {
+        'configuration': 'chromium-rel-mac11-pro',
+        'target': 'telemetry_perf_tests',
+        'benchmark': 'speedometer',
+        'extra_test_args': '"this is a string"',
+    }
+
+    with self.assertRaises(TypeError):
+      run_test.RunTest.FromDict(arguments)
+
+  def testWithNoConfiguration(self):
+    arguments = {
+        'target': 'telemetry_perf_tests',
+        'dimensions': '{"key": "value"}',
+        'benchmark': 'speedometer',
+        'browser': 'release',
+    }
+
+    expected = run_test.RunTest({'key': 'value'}, _MIN_TELEMETRY_ARGUMENTS)
+    self.assertEqual(run_test.RunTest.FromDict(arguments),
+                     (arguments, expected))
+
+  def testStartupBenchmarkRepeatCount(self):
+    arguments = {
+        'configuration': 'chromium-rel-mac11-pro',
+        'target': 'telemetry_perf_tests',
+        'benchmark': 'start_with_url.warm.startup_pages',
+    }
+
+    expected = run_test.RunTest({'key': 'value'}, _STARTUP_BENCHMARK_ARGUMENTS)
+    self.assertEqual(run_test.RunTest.FromDict(arguments),
+                     (arguments, expected))
+
+  def testWebviewFlag(self):
+    arguments = {
+        'configuration': 'chromium-rel-mac11-pro',
+        'target': 'telemetry_perf_webview_tests',
+        'benchmark': 'speedometer',
+        'browser': 'android-webview',
+    }
+
+    expected = run_test.RunTest({'key': 'value'}, _WEBVIEW_ARGUMENTS)
+    self.assertEqual(run_test.RunTest.FromDict(arguments),
+                     (arguments, expected))
+
+
+class GTestQuestTest(_QuestTest):
+
+  def testMinimumArguments(self):
+    arguments = {
+        'configuration': 'chromium-rel-mac11-pro',
+        'target': 'net_perftests',
+    }
+
+    expected = run_test.RunTest({'key': 'value'}, _MIN_GTEST_ARGUMENTS)
+    self.assertEqual(run_test.RunTest.FromDict(arguments),
+                     (arguments, expected))
+
+  def testAllArguments(self):
+    arguments = {
+        'target': 'net_perftests',
+        'dimensions': '{"key": "value"}',
+        'test': 'test_name',
+        'extra_test_args': '["--custom-arg", "custom value"]',
+    }
+
+    expected = run_test.RunTest(
+        {'key': 'value'}, _ALL_GTEST_ARGUMENTS)
+    self.assertEqual(run_test.RunTest.FromDict(arguments),
+                     (arguments, expected))
+
+
+class _RunTestExecutionTest(unittest.TestCase):
 
   def assertNewTaskHasDimensions(self, swarming_tasks_new, label):
     body = {
@@ -73,9 +261,16 @@ class _RunTestTest(unittest.TestCase):
     swarming_tasks_new.assert_called_with(body)
 
 
+def _CreateSwarmingArgs(label):
+  i = _SWARMING_EXTRA_ARGS.index('--results-label')
+  swarming_args_with_results_label = copy.copy(_SWARMING_EXTRA_ARGS)
+  swarming_args_with_results_label[i+1] = label
+  return swarming_args_with_results_label
+
+
 @mock.patch('dashboard.services.swarming_service.Tasks.New')
 @mock.patch('dashboard.services.swarming_service.Task.Result')
-class RunTestFullTest(_RunTestTest):
+class RunTestFullTest(_RunTestExecutionTest):
 
   def testSuccess(self, swarming_task_result, swarming_tasks_new):
     # Goes through a full run of two Executions.
@@ -147,7 +342,7 @@ class RunTestFullTest(_RunTestTest):
 
 @mock.patch('dashboard.services.swarming_service.Tasks.New')
 @mock.patch('dashboard.services.swarming_service.Task.Result')
-class SwarmingTaskStatusTest(_RunTestTest):
+class SwarmingTaskStatusTest(_RunTestExecutionTest):
 
   def testSwarmingError(self, swarming_task_result, swarming_tasks_new):
     swarming_task_result.return_value = {'state': 'BOT_DIED'}
@@ -185,7 +380,7 @@ class SwarmingTaskStatusTest(_RunTestTest):
 
 @mock.patch('dashboard.services.swarming_service.Tasks.New')
 @mock.patch('dashboard.services.swarming_service.Task.Result')
-class BotIdHandlingTest(_RunTestTest):
+class BotIdHandlingTest(_RunTestExecutionTest):
 
   def testFirstExecutionFailedWithNoBotId(
       self, swarming_task_result, swarming_tasks_new):

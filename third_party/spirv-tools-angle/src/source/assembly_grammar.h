@@ -17,7 +17,7 @@
 
 #include "operand.h"
 #include "spirv-tools/libspirv.h"
-#include "spirv/1.1/spirv.h"
+#include "spirv/1.2/spirv.h"
 #include "table.h"
 
 namespace libspirv {
@@ -95,17 +95,19 @@ class AssemblyGrammar {
   spv_result_t lookupExtInst(spv_ext_inst_type_t type, uint32_t firstWord,
                              spv_ext_inst_desc* extInst) const;
 
-  // Inserts the operands expected after the given typed mask onto the front
+  // Inserts the operands expected after the given typed mask onto the end
   // of the given pattern.
   //
-  // Each set bit in the mask represents zero or more operand types that should
-  // be prepended onto the pattern. Operands for a less significant bit always
-  // appear before operands for a more significant bit.
+  // Each set bit in the mask represents zero or more operand types that
+  // should be appended onto the pattern. Operands for a less significant
+  // bit must always match before operands for a more significant bit, so
+  // the operands for a less significant bit must appear closer to the end
+  // of the pattern stack.
   //
   // If a set bit is unknown, then we assume it has no operands.
-  void prependOperandTypesForMask(const spv_operand_type_t type,
-                                  const uint32_t mask,
-                                  spv_operand_pattern_t* pattern) const;
+  void pushOperandTypesForMask(const spv_operand_type_t type,
+                               const uint32_t mask,
+                               spv_operand_pattern_t* pattern) const;
 
  private:
   const spv_target_env target_env_;
@@ -113,6 +115,6 @@ class AssemblyGrammar {
   const spv_opcode_table opcodeTable_;
   const spv_ext_inst_table extInstTable_;
 };
-}
+}  // namespace libspirv
 
 #endif  // LIBSPIRV_ASSEMBLY_GRAMMAR_H_

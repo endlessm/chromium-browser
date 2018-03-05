@@ -99,6 +99,14 @@ tr.b.unittest.testSuite(function() {
       }));
 
       mainThread.sliceGroup.pushSlice(tr.c.TestUtils.newSliceEx({
+        cat: 'blink.user_timing',
+        title: 'domContentLoadedEventEnd',
+        start: 9200,
+        duration: 0.0,
+        args: {frame: '0xdeadbeef'}
+      }));
+
+      mainThread.sliceGroup.pushSlice(tr.c.TestUtils.newSliceEx({
         cat: 'toplevel',
         title: 'TaskQueueManager::ProcessTaskFromWorkQueue',
         start: 9350,
@@ -208,14 +216,16 @@ tr.b.unittest.testSuite(function() {
 
     const histograms = new tr.v.HistogramSet();
     tr.metrics.v8.runtimeStatsMetric(histograms, model);
-    assert.strictEqual(histograms.length, 38);
-    assert.strictEqual(histograms.sourceHistograms.length, 38);
+    assert.strictEqual(histograms.length, 52);
+    assert.strictEqual(histograms.sourceHistograms.length, 50);
 
     // A few of the top level ones.
     checkRuntimeHistogram_(histograms, 'IC', 8, 0.088);
     checkRuntimeHistogram_(histograms, 'API', 18, 0.198);
     checkRuntimeHistogram_(histograms, 'Compile', 6, 0.066);
     checkRuntimeHistogram_(histograms, 'Total', 95, 1.045);
+    // Lower level one for Blink.
+    checkRuntimeHistogram_(histograms, 'Blink_UpdateLayout', 15, 0.06);
   });
 
   test('runtimeStatsMetricUsingDomContentLoaded', function() {
@@ -321,8 +331,8 @@ tr.b.unittest.testSuite(function() {
 
     const histograms = new tr.v.HistogramSet();
     tr.metrics.v8.runtimeStatsMetric(histograms, model);
-    assert.strictEqual(histograms.length, 24);
-    assert.strictEqual(histograms.sourceHistograms.length, 24);
+    assert.strictEqual(histograms.length, 36);
+    assert.strictEqual(histograms.sourceHistograms.length, 36);
 
     // A few of the top level ones.
     checkRuntimeHistogram_(histograms, 'IC', 8, 0.088);
@@ -546,7 +556,7 @@ tr.b.unittest.testSuite(function() {
 
     const histograms = new tr.v.HistogramSet();
     tr.metrics.v8.runtimeStatsTotalMetric(histograms, model);
-    assert.strictEqual(histograms.length, 200);
+    assert.strictEqual(histograms.length, 260);
 
     // Check total:
     checkRuntimeHistogram_(histograms, 'IC', 20, 0.109);
@@ -672,7 +682,7 @@ tr.b.unittest.testSuite(function() {
 
     const histograms = new tr.v.HistogramSet();
     tr.metrics.v8.runtimeStatsTotalMetric(histograms, model);
-    assert.strictEqual(histograms.length, 40);
+    assert.strictEqual(histograms.length, 52);
 
     // Check total:
     checkRuntimeHistogram_(histograms, 'IC', 8, 0.057);

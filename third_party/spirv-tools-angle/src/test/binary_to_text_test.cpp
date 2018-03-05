@@ -18,19 +18,19 @@
 
 #include "gmock/gmock.h"
 
-#include "test_fixture.h"
 #include "source/spirv_constant.h"
+#include "test_fixture.h"
 
 namespace {
 
-using ::testing::Combine;
-using ::testing::Eq;
-using ::testing::HasSubstr;
 using spvtest::AutoText;
 using spvtest::ScopedContext;
 using spvtest::TextToBinaryTest;
 using std::get;
 using std::tuple;
+using ::testing::Combine;
+using ::testing::Eq;
+using ::testing::HasSubstr;
 
 class BinaryToText : public ::testing::Test {
  public:
@@ -235,10 +235,12 @@ TEST_P(RoundTripInstructionsTest, Sample) {
               Eq(get<1>(GetParam())));
 }
 
+// clang-format off
 INSTANTIATE_TEST_CASE_P(
     NumericLiterals, RoundTripInstructionsTest,
     // This test is independent of environment, so just test the one.
-    Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0),
+    Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+                              SPV_ENV_UNIVERSAL_1_2),
             ::testing::ValuesIn(std::vector<std::string>{
                 "%1 = OpTypeInt 12 0\n%2 = OpConstant %1 1867\n",
                 "%1 = OpTypeInt 12 1\n%2 = OpConstant %1 1867\n",
@@ -267,14 +269,17 @@ INSTANTIATE_TEST_CASE_P(
                 "%1 = OpTypeFloat 64\n%2 = OpConstant %1 0x1p+1024\n", // Inf
                 "%1 = OpTypeFloat 64\n%2 = OpConstant %1 -0x1p+1024\n", // -Inf
             })), );
+// clang-format on
 
 INSTANTIATE_TEST_CASE_P(
     MemoryAccessMasks, RoundTripInstructionsTest,
-    Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1),
+    Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+                              SPV_ENV_UNIVERSAL_1_2),
             ::testing::ValuesIn(std::vector<std::string>{
                 "OpStore %1 %2\n",       // 3 words long.
                 "OpStore %1 %2 None\n",  // 4 words long, explicit final 0.
-                "OpStore %1 %2 Volatile\n", "OpStore %1 %2 Aligned 8\n",
+                "OpStore %1 %2 Volatile\n",
+                "OpStore %1 %2 Aligned 8\n",
                 "OpStore %1 %2 Nontemporal\n",
                 // Combinations show the names from LSB to MSB
                 "OpStore %1 %2 Volatile|Aligned 16\n",
@@ -285,7 +290,8 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     FPFastMathModeMasks, RoundTripInstructionsTest,
     Combine(
-        ::testing::Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1),
+        ::testing::Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+                          SPV_ENV_UNIVERSAL_1_2),
         ::testing::ValuesIn(std::vector<std::string>{
             "OpDecorate %1 FPFastMathMode None\n",
             "OpDecorate %1 FPFastMathMode NotNaN\n",
@@ -299,46 +305,54 @@ INSTANTIATE_TEST_CASE_P(
             "OpDecorate %1 FPFastMathMode NotNaN|NotInf|NSZ|AllowRecip|Fast\n",
         })), );
 
-INSTANTIATE_TEST_CASE_P(
-    LoopControlMasks, RoundTripInstructionsTest,
-    Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1),
-            ::testing::ValuesIn(std::vector<std::string>{
-                "OpLoopMerge %1 %2 None\n", "OpLoopMerge %1 %2 Unroll\n",
-                "OpLoopMerge %1 %2 DontUnroll\n",
-                "OpLoopMerge %1 %2 Unroll|DontUnroll\n",
-            })), );
+INSTANTIATE_TEST_CASE_P(LoopControlMasks, RoundTripInstructionsTest,
+                        Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0,
+                                                  SPV_ENV_UNIVERSAL_1_1,
+                                                  SPV_ENV_UNIVERSAL_1_2),
+                                ::testing::ValuesIn(std::vector<std::string>{
+                                    "OpLoopMerge %1 %2 None\n",
+                                    "OpLoopMerge %1 %2 Unroll\n",
+                                    "OpLoopMerge %1 %2 DontUnroll\n",
+                                    "OpLoopMerge %1 %2 Unroll|DontUnroll\n",
+                                })), );
 
 INSTANTIATE_TEST_CASE_P(LoopControlMasksV11, RoundTripInstructionsTest,
-                        Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_1),
+                        Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_1,
+                                                  SPV_ENV_UNIVERSAL_1_2),
                                 ::testing::ValuesIn(std::vector<std::string>{
                                     "OpLoopMerge %1 %2 DependencyInfinite\n",
                                     "OpLoopMerge %1 %2 DependencyLength 8\n",
                                 })), );
 
-INSTANTIATE_TEST_CASE_P(
-    SelectionControlMasks, RoundTripInstructionsTest,
-    Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1),
-            ::testing::ValuesIn(std::vector<std::string>{
-                "OpSelectionMerge %1 None\n", "OpSelectionMerge %1 Flatten\n",
-                "OpSelectionMerge %1 DontFlatten\n",
-                "OpSelectionMerge %1 Flatten|DontFlatten\n",
-            })), );
+INSTANTIATE_TEST_CASE_P(SelectionControlMasks, RoundTripInstructionsTest,
+                        Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0,
+                                                  SPV_ENV_UNIVERSAL_1_1,
+                                                  SPV_ENV_UNIVERSAL_1_2),
+                                ::testing::ValuesIn(std::vector<std::string>{
+                                    "OpSelectionMerge %1 None\n",
+                                    "OpSelectionMerge %1 Flatten\n",
+                                    "OpSelectionMerge %1 DontFlatten\n",
+                                    "OpSelectionMerge %1 Flatten|DontFlatten\n",
+                                })), );
 
-INSTANTIATE_TEST_CASE_P(
-    FunctionControlMasks, RoundTripInstructionsTest,
-    Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1),
-            ::testing::ValuesIn(std::vector<std::string>{
-                "%2 = OpFunction %1 None %3\n",
-                "%2 = OpFunction %1 Inline %3\n",
-                "%2 = OpFunction %1 DontInline %3\n",
-                "%2 = OpFunction %1 Pure %3\n", "%2 = OpFunction %1 Const %3\n",
-                "%2 = OpFunction %1 Inline|Pure|Const %3\n",
-                "%2 = OpFunction %1 DontInline|Const %3\n",
-            })), );
+INSTANTIATE_TEST_CASE_P(FunctionControlMasks, RoundTripInstructionsTest,
+                        Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0,
+                                                  SPV_ENV_UNIVERSAL_1_1,
+                                                  SPV_ENV_UNIVERSAL_1_2),
+                                ::testing::ValuesIn(std::vector<std::string>{
+                                    "%2 = OpFunction %1 None %3\n",
+                                    "%2 = OpFunction %1 Inline %3\n",
+                                    "%2 = OpFunction %1 DontInline %3\n",
+                                    "%2 = OpFunction %1 Pure %3\n",
+                                    "%2 = OpFunction %1 Const %3\n",
+                                    "%2 = OpFunction %1 Inline|Pure|Const %3\n",
+                                    "%2 = OpFunction %1 DontInline|Const %3\n",
+                                })), );
 
 INSTANTIATE_TEST_CASE_P(
     ImageMasks, RoundTripInstructionsTest,
-    Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1),
+    Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+                              SPV_ENV_UNIVERSAL_1_2),
             ::testing::ValuesIn(std::vector<std::string>{
                 "%2 = OpImageFetch %1 %3 %4\n",
                 "%2 = OpImageFetch %1 %3 %4 None\n",
@@ -357,6 +371,17 @@ INSTANTIATE_TEST_CASE_P(
                 "%2 = OpImageFetch %1 %3 %4"
                 " Bias|Lod|Grad|ConstOffset|Offset|ConstOffsets|Sample|MinLod"
                 " %5 %6 %7 %8 %9 %10 %11 %12 %13\n"})), );
+
+INSTANTIATE_TEST_CASE_P(
+    NewInstructionsInSPIRV1_2, RoundTripInstructionsTest,
+    Combine(::testing::Values(SPV_ENV_UNIVERSAL_1_2),
+            ::testing::ValuesIn(std::vector<std::string>{
+                "OpExecutionModeId %1 SubgroupsPerWorkgroupId %2\n",
+                "OpExecutionModeId %1 LocalSizeId %2 %3 %4\n",
+                "OpExecutionModeId %1 LocalSizeHintId %2\n",
+                "OpDecorateId %1 AlignmentId %2\n",
+                "OpDecorateId %1 MaxByteOffsetId %2\n",
+            })), );
 
 using MaskSorting = TextToBinaryTest;
 
@@ -509,8 +534,7 @@ INSTANTIATE_TEST_CASE_P(GeneratorStrings, GeneratorStringTest,
                             {SPV_GENERATOR_KHRONOS, 12, "Khronos; 12"},
                             {SPV_GENERATOR_LUNARG, 99, "LunarG; 99"},
                             {SPV_GENERATOR_VALVE, 1, "Valve; 1"},
-                            {SPV_GENERATOR_CODEPLAY, 65535,
-                             "Codeplay; 65535"},
+                            {SPV_GENERATOR_CODEPLAY, 65535, "Codeplay; 65535"},
                             {SPV_GENERATOR_NVIDIA, 19, "NVIDIA; 19"},
                             {SPV_GENERATOR_ARM, 1000, "ARM; 1000"},
                             {SPV_GENERATOR_KHRONOS_LLVM_TRANSLATOR, 38,

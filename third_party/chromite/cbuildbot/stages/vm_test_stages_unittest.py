@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import os
+import mock
 
 from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot import commands
@@ -17,9 +18,13 @@ from chromite.lib import cgroups
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib_unittest
+from chromite.lib import cros_logging
 from chromite.lib import cros_test_lib
 from chromite.lib import failures_lib
+from chromite.lib import gs
+from chromite.lib import moblab_vm
 from chromite.lib import osutils
+from chromite.lib import path_util
 
 
 # pylint: disable=too-many-ancestors
@@ -59,17 +64,20 @@ class GCETestStageTest(generic_stages_unittest.AbstractStageTestCase,
     return stage
 
   def testGceTests(self):
-    """Verifies that GCE_SMOKE_TEST_TYPE tests are run on GCE."""
+    """Verifies that GCE_SUITE_TEST_TYPE tests are run on GCE."""
     self._run.config['gce_tests'] = [
-        config_lib.GCETestConfig(constants.GCE_SMOKE_TEST_TYPE)
+        config_lib.GCETestConfig(constants.GCE_SUITE_TEST_TYPE,
+                                 test_suite='gce-smoke')
     ]
     gce_tarball = constants.TEST_IMAGE_GCE_TAR
 
     # pylint: disable=unused-argument
-    def _MockRunTestSuite(buildroot, board, image_path, results_dir, test_type,
-                          *args, **kwargs):
+    def _MockRunTestSuite(buildroot, board, image_path, results_dir,
+                          test_config, *args, **kwargs):
+      test_type = test_config.test_type
       self.assertEndsWith(image_path, gce_tarball)
-      self.assertEqual(test_type, constants.GCE_SMOKE_TEST_TYPE)
+      self.assertEqual(test_type, constants.GCE_SUITE_TEST_TYPE)
+      self.assertEqual(test_config.test_suite, 'gce-smoke')
     # pylint: enable=unused-argument
 
     vm_test_stages.RunTestSuite.side_effect = _MockRunTestSuite
@@ -156,45 +164,163 @@ class VMTestStageTest(generic_stages_unittest.AbstractStageTestCase,
     self.RunStage()
 
 
+class MoblabVMTestStageTestCase(
+    cros_build_lib_unittest.RunCommandTestCase,
+    generic_stages_unittest.AbstractStageTestCase,
+    cbuildbot_unittest.SimpleBuilderTestCase,
+):
+  """Does what it says above."""
+
+  BOT_ID = 'moblab-generic-vm-paladin'
+  RELEASE_TAG = ''
+
+  def setUp(self):
+    self._temp_chroot_prefix = os.path.join(self.tempdir, 'chroot')
+    osutils.SafeMakedirsNonRoot(self._temp_chroot_prefix)
+    self._temp_host_prefix = os.path.join(self.tempdir, 'host')
+    osutils.SafeMakedirsNonRoot(self._temp_host_prefix)
+    self.PatchObject(commands, 'UploadArchivedFile', autospec=True)
+    self._Prepare()
+
+  def ConstructStage(self):
+    self._run.GetArchive().SetupArchivePath()
+    self._run.config['moblab_vm_tests'] = [
+        config_lib.MoblabVMTestConfig(constants.MOBLAB_VM_SMOKE_TEST_TYPE),
+    ]
+    stage = vm_test_stages.MoblabVMTestStage(self._run, self._current_board)
+    # Unblock stage from dependencies on other stages.
+    board_runattrs = self._run.GetBoardRunAttrs(self._current_board)
+    board_runattrs.SetParallelDefault('test_artifacts_uploaded', True)
+    return stage
+
+  def _temp_chroot_path(self, suffix):
+    return os.path.join(self._temp_chroot_prefix, suffix)
+
+  def _temp_host_path(self, suffix):
+    return os.path.join(self._temp_host_prefix, suffix)
+
+  def _strip_path_prefix(self, full_path):
+    """Strips the host / chroot prefix from the given path."""
+    if full_path.startswith(self._temp_chroot_prefix):
+      return full_path.lstrip(self._temp_chroot_prefix)
+    elif full_path.startswith(self._temp_host_prefix):
+      return full_path.lstrip(self._temp_host_prefix)
+
+  def testPerformStageSuccess(self):
+    mock_create_test_root = self.PatchObject(
+        commands, 'CreateTestRoot', autospec=True,
+        return_value=self._temp_chroot_prefix)
+    self.PatchObject(
+        path_util,
+        'FromChrootPath',
+        new=lambda x: self._temp_host_path(self._strip_path_prefix(x)),
+    )
+    self.PatchObject(
+        path_util,
+        'ToChrootPath',
+        new=lambda x: self._temp_chroot_path(self._strip_path_prefix(x)),
+    )
+
+    mock_gs_context = mock.create_autospec(gs.GSContext)
+    self.PatchObject(gs, 'GSContext', autospec=True,
+                     return_value=mock_gs_context)
+    mock_buildbot_link = self.PatchObject(cros_logging, 'PrintBuildbotLink')
+    mock_moblab_vm = mock.create_autospec(moblab_vm.MoblabVm)
+    self.PatchObject(moblab_vm, 'MoblabVm', autospec=True,
+                     return_value=mock_moblab_vm)
+    mock_run_moblab_tests = self.PatchObject(vm_test_stages, 'RunMoblabTests',
+                                             autospec=True)
+    mock_validate_results = self.PatchObject(vm_test_stages,
+                                             'ValidateMoblabTestSuccess',
+                                             autospec=True)
+
+    # Prepopulate results in the results directory to test result link printing.
+    osutils.SafeMakedirsNonRoot(os.path.join(
+        self._temp_host_prefix, 'results',
+        'results-1-moblab_DummyServerNoSspSuite',
+        'moblab_RunSuite', 'sysinfo', 'var', 'log', 'bootup',
+    ))
+    osutils.SafeMakedirsNonRoot(os.path.join(
+        self._temp_host_prefix, 'results',
+        'results-1-moblab_DummyServerNoSspSuite',
+        'moblab_RunSuite', 'sysinfo', 'var', 'log', 'autotest',
+    ))
+    osutils.SafeMakedirsNonRoot(os.path.join(
+        self._temp_host_prefix, 'results',
+        'results-1-moblab_DummyServerNoSspSuite',
+        'moblab_RunSuite', 'sysinfo', 'var', 'log_diff', 'autotest',
+    ))
+    osutils.SafeMakedirsNonRoot(os.path.join(
+        self._temp_host_prefix, 'results',
+        'results-1-moblab_DummyServerNoSspSuite',
+        'sysinfo', 'mnt', 'moblab', 'results',
+    ))
+    self.RunStage()
+
+    self.assertEqual(mock_create_test_root.call_count, 1)
+
+    mock_moblab_vm.Create.assert_called_once_with(mock.ANY, mock.ANY)
+    self.assertEqual(mock_moblab_vm.Start.call_count, 1)
+
+    mock_run_moblab_tests.assert_called_once_with(
+        'moblab-generic-vm', mock.ANY, mock.ANY,
+        self._temp_host_path('results'), mock.ANY)
+
+    self.assertEqual(mock_validate_results.call_count, 1)
+    # 1 for the overall results during _Upload, 4 more for the detailed logs.
+    self.assertEqual(mock_buildbot_link.call_count, 5)
+
+    self.assertEqual(mock_moblab_vm.Stop.call_count, 1)
+    self.assertEqual(mock_moblab_vm.Destroy.call_count, 1)
+
+
 class RunTestSuiteTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
   """Test RunTestSuite functionality."""
 
   TEST_BOARD = 'betty'
   BUILD_ROOT = '/fake/root'
 
-  def _RunTestSuite(self, test_type):
+  def _RunTestSuite(self, test_config):
     vm_test_stages.RunTestSuite(self.BUILD_ROOT, self.TEST_BOARD, self.tempdir,
                                 '/tmp/taco', archive_dir='/fake/root',
                                 whitelist_chrome_crashes=False,
-                                test_type=test_type)
+                                test_config=test_config)
     self.assertCommandContains(['--no_graphics', '--verbose'])
 
   def testFull(self):
     """Test running FULL config."""
-    self._RunTestSuite(constants.FULL_AU_TEST_TYPE)
+    config = config_lib.VMTestConfig(constants.FULL_AU_TEST_TYPE)
+    self._RunTestSuite(config)
     self.assertCommandContains(['--quick'], expected=False)
     self.assertCommandContains(['--only_verify'], expected=False)
 
   def testSimple(self):
     """Test SIMPLE config."""
-    self._RunTestSuite(constants.SIMPLE_AU_TEST_TYPE)
+    config = config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)
+    self._RunTestSuite(config)
     self.assertCommandContains(['--quick_update'])
 
   def testSmoke(self):
     """Test SMOKE config."""
-    self._RunTestSuite(constants.SMOKE_SUITE_TEST_TYPE)
+    config = config_lib.VMTestConfig(
+        constants.VM_SUITE_TEST_TYPE, test_suite='smoke')
+    self._RunTestSuite(config)
     self.assertCommandContains(['--only_verify'])
 
   def testGceSmokeTestType(self):
-    """Test GCE_SMOKE_TEST_TYPE."""
-    self._RunTestSuite(constants.GCE_SMOKE_TEST_TYPE)
+    """Test GCE test with gce-smoke suite."""
+    config = config_lib.GCETestConfig(
+        constants.GCE_SUITE_TEST_TYPE, test_suite='gce-smoke')
+    self._RunTestSuite(config)
     self.assertCommandContains(['--only_verify'])
     self.assertCommandContains(['--type=gce'])
     self.assertCommandContains(['--suite=gce-smoke'])
 
   def testGceSanityTestType(self):
-    """Test GCE_SANITY_TEST_TYPE."""
-    self._RunTestSuite(constants.GCE_SANITY_TEST_TYPE)
+    """Test GCE test with gce-sanity suite."""
+    config = config_lib.GCETestConfig(
+        constants.GCE_SUITE_TEST_TYPE, test_suite='gce-sanity')
+    self._RunTestSuite(config)
     self.assertCommandContains(['--only_verify'])
     self.assertCommandContains(['--type=gce'])
     self.assertCommandContains(['--suite=gce-sanity'])
@@ -254,3 +380,52 @@ class UnmockedTests(cros_test_lib.TempDirTestCase):
     self.assertNotExists(
         os.path.join(archive_dir, 'chromiumos_qemu_disk.bin.foo'))
     self.assertNotExists(os.path.join(archive_dir, 'taco_link'))
+
+  def testValidateMoblabTestSuccessNoLogsRaises(self):
+    """ValidateMoblabTestSuccess raises when logs are missing."""
+    os.makedirs(os.path.join(self.tempdir, 'debug'))
+    with self.assertRaises(failures_lib.TestFailure):
+      vm_test_stages.ValidateMoblabTestSuccess(self.tempdir)
+
+  def testValidateMoblabTestSuccessTestNotRunRaises(self):
+    """ValidateMoblabTestSuccess raises when logs indicate no test run."""
+    os.makedirs(os.path.join(self.tempdir, 'debug'))
+    osutils.WriteFile(
+        os.path.join(self.tempdir, 'debug', 'test_that.INFO'),
+        """
+Some random stuff.
+01/08 15:00:28.679 INFO  autoserv| [stderr] Suite job          [ PASSED ]
+01/08 15:00:28.681 INFO  autoserv| [stderr]
+01/08 15:00:28.681 INFO  autoserv| [stderr] Suite timings:"""
+    )
+    with self.assertRaises(failures_lib.TestFailure):
+      vm_test_stages.ValidateMoblabTestSuccess(self.tempdir)
+
+  def testValidateMoblabTestSuccessTestFailedRaises(self):
+    """ValidateMoblabTestSuccess raises when logs indicate test failed."""
+    os.makedirs(os.path.join(self.tempdir, 'debug'))
+    osutils.WriteFile(
+        os.path.join(self.tempdir, 'debug', 'test_that.INFO'),
+        """
+Some random stuff.
+01/08 15:00:28.679 INFO  autoserv| [stderr] Suite job          [ PASSED ]
+01/08 15:00:28.680 INFO  autoserv| [stderr] dummy_PassServer   [ FAILED ]
+01/08 15:00:28.681 INFO  autoserv| [stderr]
+01/08 15:00:28.681 INFO  autoserv| [stderr] Suite timings:"""
+    )
+    with self.assertRaises(failures_lib.TestFailure):
+      vm_test_stages.ValidateMoblabTestSuccess(self.tempdir)
+
+  def testValidateMoblabTestSuccessTestPassed(self):
+    """ValidateMoblabTestSuccess succeeds when logs indicate test passed."""
+    os.makedirs(os.path.join(self.tempdir, 'debug'))
+    osutils.WriteFile(
+        os.path.join(self.tempdir, 'debug', 'test_that.INFO'),
+        """
+Some random stuff.
+01/08 15:00:28.679 INFO  autoserv| [stderr] Suite job          [ PASSED ]
+01/08 15:00:28.680 INFO  autoserv| [stderr] dummy_PassServer   [ PASSED ]
+01/08 15:00:28.681 INFO  autoserv| [stderr]
+01/08 15:00:28.681 INFO  autoserv| [stderr] Suite timings:"""
+    )
+    vm_test_stages.ValidateMoblabTestSuccess(self.tempdir)

@@ -4,7 +4,6 @@
 
 from telemetry import decorators
 from telemetry.page import page as page_module
-from telemetry.testing import browser_test_case
 from telemetry.testing import options_for_unittests
 from telemetry.testing import page_test_test_case
 from telemetry.timeline import chrome_trace_category_filter
@@ -12,6 +11,7 @@ from telemetry.util import wpr_modes
 from telemetry.web_perf import timeline_based_measurement as tbm_module
 from telemetry.web_perf.metrics import smoothness
 from tracing.value import histogram
+from tracing.value.diagnostics import generic_set
 from tracing.value.diagnostics import reserved_infos
 
 class TestTimelinebasedMeasurementPage(page_module.Page):
@@ -58,7 +58,6 @@ class FailedTimelinebasedMeasurementPage(page_module.Page):
 class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
 
   def setUp(self):
-    browser_test_case.teardown_browser()
     self._options = self.createDefaultRunnerOptions()
 
   def createDefaultRunnerOptions(self):
@@ -144,15 +143,15 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     self.assertEquals(1, len(foos))
     hist = foos[0]
     benchmarks = hist.diagnostics.get(reserved_infos.BENCHMARKS.name)
-    self.assertIsInstance(benchmarks, histogram.GenericSet)
+    self.assertIsInstance(benchmarks, generic_set.GenericSet)
     self.assertEquals(1, len(benchmarks))
     self.assertEquals('', list(benchmarks)[0])
     stories = hist.diagnostics.get(reserved_infos.STORIES.name)
-    self.assertIsInstance(stories, histogram.GenericSet)
+    self.assertIsInstance(stories, generic_set.GenericSet)
     self.assertEquals(1, len(stories))
     self.assertEquals('interaction_enabled_page.html', list(stories)[0])
     repeats = hist.diagnostics.get(reserved_infos.STORYSET_REPEATS.name)
-    self.assertIsInstance(repeats, histogram.GenericSet)
+    self.assertIsInstance(repeats, generic_set.GenericSet)
     self.assertEquals(1, len(repeats))
     self.assertEquals(0, list(repeats)[0])
     hist = list(results.histograms)[0]

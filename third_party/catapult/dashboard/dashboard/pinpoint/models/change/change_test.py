@@ -26,6 +26,7 @@ class _ChangeTest(testing_common.TestCase):
     namespaced_stored_object.Set('repositories', {
         'catapult': {'repository_url': _CATAPULT_URL},
         'chromium': {'repository_url': _CHROMIUM_URL},
+        'another_repo': {'repository_url': 'https://another/url'},
     })
     namespaced_stored_object.Set('repository_urls_to_names', {
         _CATAPULT_URL: 'catapult',
@@ -47,8 +48,7 @@ class ChangeTest(_ChangeTest):
     c = change.Change([base_commit, dep], p)
 
     self.assertEqual(c, change.Change((base_commit, dep), p))
-    string = ('chromium@aaa7336 catapult@e0a2efb + '
-              'https://codereview.com/672011/2f0d5c7')
+    string = 'chromium@aaa7336 catapult@e0a2efb + 2f0d5c7'
     id_string = ('catapult@e0a2efbb3d1a81aac3c90041eefec24f066d26ba '
                  'chromium@aaa7336c821888839f759c6c0a36b56c + '
                  'https://codereview.com/672011/2f0d5c7')
@@ -160,14 +160,14 @@ class MidpointTest(_ChangeTest):
 
   def testDifferingRepository(self):
     change_a = change.Change((commit.Commit('chromium', '0e57e2b'),))
-    change_b = change.Change((commit.Commit('not_chromium', 'babe852'),))
+    change_b = change.Change((commit.Commit('another_repo', 'babe852'),))
     with self.assertRaises(commit.NonLinearError):
       change.Change.Midpoint(change_a, change_b)
 
   def testDifferingCommitCount(self):
     change_a = change.Change((commit.Commit('chromium', 0),))
     change_b = change.Change((commit.Commit('chromium', 9),
-                              commit.Commit('not_chromium', 'babe852')))
+                              commit.Commit('another_repo', 'babe852')))
     with self.assertRaises(commit.NonLinearError):
       change.Change.Midpoint(change_a, change_b)
 

@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
 
 #include <algorithm>
+#include <memory>
 #include <string>
 
 #include "base/location.h"
@@ -50,13 +51,13 @@ ToolbarActionsModel::ToolbarActionsModel(
       extension_action_manager_(
           extensions::ExtensionActionManager::Get(profile_)),
       component_actions_factory_(
-          base::MakeUnique<ComponentToolbarActionsFactory>(profile_)),
+          std::make_unique<ComponentToolbarActionsFactory>(profile_)),
       actions_initialized_(false),
       highlight_type_(HIGHLIGHT_NONE),
       has_active_bubble_(false),
       extension_action_observer_(this),
       extension_registry_observer_(this),
-      extension_error_reporter_observer_(this),
+      load_error_reporter_observer_(this),
       weak_ptr_factory_(this) {
   extensions::ExtensionSystem::Get(profile_)->ready().Post(
       FROM_HERE, base::Bind(&ToolbarActionsModel::OnReady,
@@ -183,7 +184,7 @@ ToolbarActionsModel::CreateActionForItem(Browser* browser,
       DCHECK(extension);
 
       // Create and add an ExtensionActionViewController for the extension.
-      result = base::MakeUnique<ExtensionActionViewController>(
+      result = std::make_unique<ExtensionActionViewController>(
           extension, browser,
           extension_action_manager_->GetExtensionAction(*extension), bar);
       break;
@@ -256,7 +257,8 @@ void ToolbarActionsModel::RemovePref(const ToolbarItem& item) {
 void ToolbarActionsModel::OnReady() {
   InitializeActionList();
 
-  extension_error_reporter_observer_.Add(ExtensionErrorReporter::GetInstance());
+  load_error_reporter_observer_.Add(
+      extensions::LoadErrorReporter::GetInstance());
 
   // Wait until the extension system is ready before observing any further
   // changes so that the toolbar buttons can be shown in their stable ordering

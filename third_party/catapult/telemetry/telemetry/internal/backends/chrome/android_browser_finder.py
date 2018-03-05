@@ -19,6 +19,7 @@ from telemetry.core import util
 from telemetry import decorators
 from telemetry.internal.backends import android_browser_backend_settings
 from telemetry.internal.backends.chrome import android_browser_backend
+from telemetry.internal.backends.chrome import chrome_startup_args
 from telemetry.internal.browser import browser
 from telemetry.internal.browser import possible_browser
 from telemetry.internal.platform import android_device
@@ -119,21 +120,46 @@ class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
   def __repr__(self):
     return 'PossibleAndroidBrowser(browser_type=%s)' % self.browser_type
 
+  @property
+  def browser_directory(self):
+    # On Android L+ the directory where base APK resides is also used for
+    # keeping extracted native libraries and .odex. Here is an example layout:
+    # /data/app/$package.apps.chrome-1/
+    #                                  base.apk
+    #                                  lib/arm/libchrome.so
+    #                                  oat/arm/base.odex
+    # Declaring this toplevel directory as 'browser_directory' allows the cold
+    # startup benchmarks to flush OS pagecache for the native library, .odex and
+    # the APK.
+    apks = self._platform_backend.device.GetApplicationPaths(
+        self._backend_settings.package)
+    # A package can map to multiple APKs iff the package overrides the app on
+    # the system image. Such overrides should not happen on perf bots.
+    assert len(apks) == 1
+    base_apk = apks[0]
+    if not base_apk or not base_apk.endswith('/base.apk'):
+      return None
+    return base_apk[:-9]
+
+  @property
+  def profile_directory(self):
+    return self._platform_backend.GetProfileDir(self._backend_settings.package)
+
   def _InitPlatformIfNeeded(self):
     pass
 
-  def Create(self, finder_options):
+  def Create(self):
+    startup_args = self.GetBrowserStartupArgs(self._browser_options)
+
     self._InitPlatformIfNeeded()
-
-    browser_options = finder_options.browser_options
-
     browser_backend = android_browser_backend.AndroidBrowserBackend(
-        self._platform_backend, browser_options, self._backend_settings)
-
+        self._platform_backend, self._browser_options,
+        self.browser_directory, self.profile_directory,
+        self._backend_settings)
     browser_backend.ClearCaches()
     try:
       return browser.Browser(
-          browser_backend, self._platform_backend)
+          browser_backend, self._platform_backend, startup_args)
     except Exception:
       exc_info = sys.exc_info()
       logging.error(
@@ -145,6 +171,28 @@ class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
         logging.exception('Secondary failure while closing browser backend.')
 
       raise exc_info[0], exc_info[1], exc_info[2]
+
+  def GetBrowserStartupArgs(self, browser_options):
+    startup_args = chrome_startup_args.GetFromBrowserOptions(browser_options)
+
+    # TODO(crbug.com/753948): spki-list is not yet supported on WebView,
+    # make this True when support is implemented.
+    supports_spki_list = not isinstance(
+        self._backend_settings,
+        android_browser_backend_settings.WebviewBackendSettings)
+    startup_args.extend(chrome_startup_args.GetReplayArgs(
+        self._platform_backend.network_controller_backend,
+        supports_spki_list=supports_spki_list))
+
+    startup_args.append('--enable-remote-debugging')
+    startup_args.append('--disable-fre')
+    startup_args.append('--disable-external-intent-requests')
+
+    # Need to specify the user profile directory for
+    # --ignore-certificate-errors-spki-list to work.
+    startup_args.append('--user-data-dir=' + self.profile_directory)
+
+    return startup_args
 
   def SupportsOptions(self, browser_options):
     if len(browser_options.extensions_to_load) != 0:

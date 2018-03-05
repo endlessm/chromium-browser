@@ -11,9 +11,18 @@
 package org.webrtc;
 
 /** Java wrapper for a C++ MediaStreamTrackInterface. */
+@JNINamespace("webrtc::jni")
 public class MediaStreamTrack {
   /** Tracks MediaStreamTrackInterface.TrackState */
-  public enum State { LIVE, ENDED }
+  public enum State {
+    LIVE,
+    ENDED;
+
+    @CalledByNative("State")
+    static State fromNativeIndex(int nativeIndex) {
+      return values()[nativeIndex];
+    }
+  }
 
   // Must be kept in sync with cricket::MediaType.
   public enum MediaType {
@@ -49,36 +58,32 @@ public class MediaStreamTrack {
   }
 
   public String id() {
-    return getNativeId(nativeTrack);
+    return nativeGetId(nativeTrack);
   }
 
   public String kind() {
-    return getNativeKind(nativeTrack);
+    return nativeGetKind(nativeTrack);
   }
 
   public boolean enabled() {
-    return getNativeEnabled(nativeTrack);
+    return nativeGetEnabled(nativeTrack);
   }
 
   public boolean setEnabled(boolean enable) {
-    return setNativeEnabled(nativeTrack, enable);
+    return nativeSetEnabled(nativeTrack, enable);
   }
 
   public State state() {
-    return getNativeState(nativeTrack);
+    return nativeGetState(nativeTrack);
   }
 
   public void dispose() {
     JniCommon.nativeReleaseRef(nativeTrack);
   }
 
-  private static native String getNativeId(long nativeTrack);
-
-  private static native String getNativeKind(long nativeTrack);
-
-  private static native boolean getNativeEnabled(long nativeTrack);
-
-  private static native boolean setNativeEnabled(long nativeTrack, boolean enabled);
-
-  private static native State getNativeState(long nativeTrack);
+  private static native String nativeGetId(long track);
+  private static native String nativeGetKind(long track);
+  private static native boolean nativeGetEnabled(long track);
+  private static native boolean nativeSetEnabled(long track, boolean enabled);
+  private static native State nativeGetState(long track);
 }

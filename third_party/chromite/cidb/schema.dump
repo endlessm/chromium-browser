@@ -141,8 +141,8 @@ CREATE TABLE `buildTable` (
   `unibuild` tinyint(1) NOT NULL DEFAULT '0',
   `suite_scheduling` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `buildbot_generation` (`buildbot_generation`,`builder_name`,`waterfall`,`build_number`),
   UNIQUE KEY `buildbucket_id_index` (`buildbucket_id`),
+  UNIQUE KEY `unique_externals` (`buildbot_generation`,`builder_name`,`waterfall`,`build_number`,`buildbucket_id`),
   KEY `master_build_id` (`master_build_id`),
   KEY `build_config_index` (`build_config`),
   KEY `last_updated_index` (`last_updated`),
@@ -397,4 +397,3 @@ CREATE TABLE `schemaVersionTable` (
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
-

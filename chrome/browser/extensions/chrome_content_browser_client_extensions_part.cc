@@ -6,12 +6,12 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <set>
 
 #include "base/command_line.h"
 #include "base/debug/alias.h"
 #include "base/debug/dump_without_crashing.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/browser_process.h"
@@ -27,7 +27,6 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "chrome/common/extensions/extension_process_policy.h"
 #include "chrome/common/url_constants.h"
 #include "components/dom_distiller/core/url_constants.h"
 #include "components/guest_view/browser/guest_view_message_filter.h"
@@ -543,16 +542,6 @@ bool ChromeContentBrowserClientExtensionsPart::
 }
 
 // static
-bool ChromeContentBrowserClientExtensionsPart::ShouldSwapProcessesForRedirect(
-    content::BrowserContext* browser_context,
-    const GURL& current_url,
-    const GURL& new_url) {
-  return CrossesExtensionProcessBoundary(
-      ExtensionRegistry::Get(browser_context)->enabled_extensions(),
-      current_url, new_url, false);
-}
-
-// static
 bool ChromeContentBrowserClientExtensionsPart::AllowServiceWorker(
     const GURL& scope,
     const GURL& first_party_url,
@@ -646,14 +635,8 @@ bool ChromeContentBrowserClientExtensionsPart::ShouldAllowOpenURL(
     // TODO(alexmos): Temporary instrumentation to find any regressions for
     // this blocking.  Remove after verifying that this is not breaking any
     // legitimate use cases.
-    char site_url_copy[256];
-    base::strlcpy(site_url_copy, site_url.spec().c_str(),
-                  arraysize(site_url_copy));
-    base::debug::Alias(&site_url_copy);
-    char to_origin_copy[256];
-    base::strlcpy(to_origin_copy, to_origin.Serialize().c_str(),
-                  arraysize(to_origin_copy));
-    base::debug::Alias(&to_origin_copy);
+    DEBUG_ALIAS_FOR_GURL(site_url_copy, site_url);
+    DEBUG_ALIAS_FOR_ORIGIN(to_origin_copy, to_origin);
     base::debug::DumpWithoutCrashing();
 
     *result = false;
@@ -935,10 +918,10 @@ void ChromeContentBrowserClientExtensionsPart::GetAdditionalFileSystemBackends(
     std::vector<std::unique_ptr<storage::FileSystemBackend>>*
         additional_backends) {
   additional_backends->push_back(
-      base::MakeUnique<MediaFileSystemBackend>(storage_partition_path));
+      std::make_unique<MediaFileSystemBackend>(storage_partition_path));
 
   additional_backends->push_back(
-      base::MakeUnique<sync_file_system::SyncFileSystemBackend>(
+      std::make_unique<sync_file_system::SyncFileSystemBackend>(
           Profile::FromBrowserContext(browser_context)));
 }
 

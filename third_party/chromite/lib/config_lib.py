@@ -19,7 +19,7 @@ from chromite.lib import osutils
 
 GS_PATH_DEFAULT = 'default' # Means gs://chromeos-image-archive/ + bot_id
 
-# Contains the valid build config suffixes in the order that they are dumped.
+# Contains the valid build config suffixes.
 CONFIG_TYPE_PRECQ = 'pre-cq'
 CONFIG_TYPE_PALADIN = 'paladin'
 CONFIG_TYPE_RELEASE = 'release'
@@ -29,47 +29,7 @@ CONFIG_TYPE_FACTORY = 'factory'
 CONFIG_TYPE_RELEASE_AFDO = 'release-afdo'
 CONFIG_TYPE_TOOLCHAIN = 'toolchain'
 
-# This is only used for unitests... find a better solution?
-CONFIG_TYPE_DUMP_ORDER = (
-    CONFIG_TYPE_PALADIN,
-    CONFIG_TYPE_PRECQ,
-    constants.PRE_CQ_LAUNCHER_CONFIG,
-    'incremental',
-    'telemetry',
-    CONFIG_TYPE_FULL,
-    'full-group',
-    CONFIG_TYPE_RELEASE,
-    'release-group',
-    'release-afdo',
-    'release-afdo-generate',
-    'release-afdo-use',
-    'sdk',
-    'chromium-pfq',
-    'chromium-pfq-informational',
-    'chrome-perf',
-    'chrome-pfq',
-    'chrome-pfq-cheets-informational',
-    'chrome-pfq-informational',
-    'android-pfq',
-    'vmtest-informational',
-    'som-dispatcher',
-    'config-updater',
-    'pre-flight-branch',
-    CONFIG_TYPE_FACTORY,
-    CONFIG_TYPE_FIRMWARE,
-    'toolchain',
-    'asan',
-    'asan-informational',
-    'refresh-packages',
-    'test-ap',
-    'test-ap-group',
-    constants.BRANCH_UTIL_CONFIG,
-    constants.PAYLOADS_TYPE,
-    'cbuildbot',
-    'unittest-stress',
-    'infra-go',
-    'tryjob',
-)
+# DISPLAY labels are used to group related builds together in the GE UI.
 
 DISPLAY_LABEL_PRECQ = 'pre_cq'
 DISPLAY_LABEL_TRYJOB = 'tryjob'
@@ -188,7 +148,8 @@ def UseBuildbucketScheduler(config):
   """Returns True if this build uses Buildbucket to schedule builds."""
   return (config.active_waterfall in (waterfall.WATERFALL_INTERNAL,
                                       waterfall.WATERFALL_EXTERNAL,
-                                      waterfall.WATERFALL_TRYBOT) and
+                                      waterfall.WATERFALL_TRYBOT,
+                                      waterfall.WATERFALL_RELEASE) and
           config.name in (constants.CQ_MASTER,
                           constants.CANARY_MASTER,
                           constants.PFQ_MASTER,
@@ -428,15 +389,19 @@ class VMTestConfig(object):
 
   Members:
     test_type: Test type to be run.
+    test_suite: Test suite to be run in VMTest.
     timeout: Number of seconds to wait before timing out waiting for
              results.
   """
   DEFAULT_TEST_TIMEOUT = 60 * 60
 
-  def __init__(self, test_type, timeout=DEFAULT_TEST_TIMEOUT):
+  def __init__(self, test_type, test_suite=None,
+               timeout=DEFAULT_TEST_TIMEOUT):
     """Constructor -- see members above."""
     self.test_type = test_type
+    self.test_suite = test_suite
     self.timeout = timeout
+
 
   def __eq__(self, other):
     return self.__dict__ == other.__dict__
@@ -447,14 +412,17 @@ class GCETestConfig(object):
 
   Members:
     test_type: Test type to be run.
+    test_suite: Test suite to be run in GCETest.
     timeout: Number of seconds to wait before timing out waiting for
              results.
   """
   DEFAULT_TEST_TIMEOUT = 60 * 60
 
-  def __init__(self, test_type, timeout=DEFAULT_TEST_TIMEOUT):
+  def __init__(self, test_type, test_suite=None,
+               timeout=DEFAULT_TEST_TIMEOUT):
     """Constructor -- see members above."""
     self.test_type = test_type
+    self.test_suite = test_suite
     self.timeout = timeout
 
   def __eq__(self, other):
@@ -482,6 +450,25 @@ class TastVMTestConfig(object):
       raise TypeError('test_exprs must be list of strings')
     self.suite_name = suite_name
     self.test_exprs = test_exprs
+    self.timeout = timeout
+
+  def __eq__(self, other):
+    return self.__dict__ == other.__dict__
+
+
+class MoblabVMTestConfig(object):
+  """Config object for moblab tests suites.
+
+  Members:
+    test_type: Test type to be run.
+    timeout: Number of seconds to wait before timing out waiting for
+             results.
+  """
+  DEFAULT_TEST_TIMEOUT = 60 * 60
+
+  def __init__(self, test_type, timeout=DEFAULT_TEST_TIMEOUT):
+    """Constructor -- see members above."""
+    self.test_type = test_type
     self.timeout = timeout
 
   def __eq__(self, other):
@@ -530,7 +517,6 @@ class HWTestConfig(object):
     priority:  Priority at which tests in the suite will be scheduled in
                the hw lab.
     file_bugs: Should we file bugs if a test fails in a suite run.
-    num: Maximum number of DUTs to use when scheduling tests in the hw lab.
     minimum_duts: minimum number of DUTs required for testing in the hw lab.
     retry: Whether we should retry tests that fail in a suite run.
     max_retries: Integer, maximum job retries allowed at suite level.
@@ -566,7 +552,6 @@ class HWTestConfig(object):
   ASYNC_HW_TEST_TIMEOUT = int(250.0 * _MINUTE)
 
   def __init__(self, suite,
-               num=constants.HWTEST_DEFAULT_NUM,
                pool=constants.HWTEST_MACH_POOL,
                timeout=SHARED_HW_TEST_TIMEOUT,
                async=False,
@@ -585,7 +570,6 @@ class HWTestConfig(object):
     assert not async or not blocking
     assert not warn_only or not critical
     self.suite = suite
-    self.num = num
     self.pool = pool
     self.timeout = timeout
     self.blocking = blocking
@@ -847,7 +831,7 @@ def DefaultSettings():
       afdo_use=False,
 
       # A list of VMTestConfig objects to run by default.
-      vm_tests=[VMTestConfig(constants.SMOKE_SUITE_TEST_TYPE),
+      vm_tests=[VMTestConfig(constants.VM_SUITE_TEST_TYPE, test_suite='smoke'),
                 VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)],
 
       # A list of all VMTestConfig objects to use if VM Tests are forced on
@@ -885,6 +869,10 @@ def DefaultSettings():
       # A list of TastVMTestConfig objects describing Tast-based test suites
       # that should be run in a VM.
       tast_vm_tests=[],
+
+      # Default to not run moblab tests. Currently the blessed moblab board runs
+      # these tests.
+      moblab_vm_tests=[],
 
       # List of patterns for portage packages for which stripped binpackages
       # should be uploaded to GS. The patterns are used to search for packages
@@ -1875,6 +1863,7 @@ def _DeserializeTestConfigs(build_dict):
                          preserve_none=True)
   _DeserializeTestConfig(build_dict, 'gce_tests', GCETestConfig)
   _DeserializeTestConfig(build_dict, 'tast_vm_tests', TastVMTestConfig)
+  _DeserializeTestConfig(build_dict, 'moblab_vm_tests', MoblabVMTestConfig)
 
 
 def _CreateBuildConfig(name, default, build_dict, templates):

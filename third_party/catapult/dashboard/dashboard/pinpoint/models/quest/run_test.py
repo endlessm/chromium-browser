@@ -10,10 +10,21 @@ modify the Quest.
 
 import collections
 import copy
+import json
 
+from dashboard.common import namespaced_stored_object
 from dashboard.pinpoint.models.quest import execution as execution_module
 from dashboard.pinpoint.models.quest import quest
 from dashboard.services import swarming_service
+
+
+_BOT_CONFIGURATIONS = 'bot_configurations'
+
+_SWARMING_EXTRA_ARGS = (
+    '--isolated-script-test-output', '${ISOLATED_OUTDIR}/output.json',
+    '--isolated-script-test-chartjson-output',
+    '${ISOLATED_OUTDIR}/chartjson-output.json',
+)
 
 
 class RunTestError(Exception):
@@ -97,6 +108,122 @@ class RunTest(quest.Quest):
           previous_execution=self._canonical_executions[index])
 
     return execution
+
+  @classmethod
+  def FromDict(cls, arguments):
+    # TODO: Create separate Telemetry and GTest subclasses.
+    target = arguments.get('target')
+    if target in ('telemetry_perf_tests', 'telemetry_perf_webview_tests'):
+      used_arguments, q = cls._TelemetryFromDict(arguments)
+    else:
+      used_arguments, q = cls._GTestFromDict(arguments)
+
+    used_arguments['target'] = target
+    return used_arguments, q
+
+  @classmethod
+  def _TelemetryFromDict(cls, arguments):
+    used_arguments = {}
+    swarming_extra_args = []
+
+    benchmark = arguments.get('benchmark')
+    if not benchmark:
+      raise TypeError('Missing "benchmark" argument.')
+    used_arguments['benchmark'] = benchmark
+    swarming_extra_args.append(benchmark)
+
+    dimensions = _GetDimensions(arguments, used_arguments)
+
+    story = arguments.get('story')
+    if story:
+      used_arguments['story'] = story
+      swarming_extra_args += ('--story-filter', story)
+
+    # TODO: Workaround for crbug.com/677843.
+    if (benchmark.startswith('startup.warm') or
+        benchmark.startswith('start_with_url.warm')):
+      swarming_extra_args += ('--pageset-repeat', '2')
+    else:
+      swarming_extra_args += ('--pageset-repeat', '1')
+
+    browser = _GetBrowser(arguments, used_arguments)
+    swarming_extra_args += ('--browser', browser)
+
+    extra_test_args = arguments.get('extra_test_args')
+    if extra_test_args:
+      extra_test_args = json.loads(extra_test_args)
+      if not isinstance(extra_test_args, list):
+        raise TypeError('extra_test_args must be a list: %s' % extra_test_args)
+      used_arguments['extra_test_args'] = json.dumps(extra_test_args)
+      swarming_extra_args += extra_test_args
+
+    swarming_extra_args += (
+        '-v', '--upload-results', '--output-format', 'histograms',
+        '--results-label', '')
+    swarming_extra_args += _SWARMING_EXTRA_ARGS
+    if browser == 'android-webview':
+      # TODO: Share code with the perf waterfall configs. crbug.com/771680
+      swarming_extra_args += ('--webview-embedder-apk',
+                              '../../out/Release/apks/SystemWebViewShell.apk')
+
+    return used_arguments, cls(dimensions, swarming_extra_args)
+
+  @classmethod
+  def _GTestFromDict(cls, arguments):
+    used_arguments = {}
+    swarming_extra_args = []
+
+    dimensions = _GetDimensions(arguments, used_arguments)
+
+    test = arguments.get('test')
+    if test:
+      used_arguments['test'] = test
+      swarming_extra_args.append('--gtest_filter=' + test)
+
+    swarming_extra_args.append('--gtest_repeat=1')
+
+    extra_test_args = arguments.get('extra_test_args')
+    if extra_test_args:
+      extra_test_args = json.loads(extra_test_args)
+      if not isinstance(extra_test_args, list):
+        raise TypeError('extra_test_args must be a list: %s' % extra_test_args)
+      used_arguments['extra_test_args'] = json.dumps(extra_test_args)
+      swarming_extra_args += extra_test_args
+
+    swarming_extra_args += _SWARMING_EXTRA_ARGS
+
+    return used_arguments, cls(dimensions, swarming_extra_args)
+
+
+def _GetDimensions(arguments, used_arguments):
+  configuration = arguments.get('configuration')
+  dimensions = arguments.get('dimensions')
+  if dimensions:
+    dimensions = json.loads(dimensions)
+    used_arguments['dimensions'] = json.dumps(dimensions)
+  elif configuration:
+    used_arguments['configuration'] = configuration
+    bots = namespaced_stored_object.Get(_BOT_CONFIGURATIONS)
+    dimensions = bots[configuration]['dimensions']
+  else:
+    raise TypeError('Missing a "configuration" or a "dimensions" argument.')
+
+  return dimensions
+
+
+def _GetBrowser(arguments, used_arguments):
+  configuration = arguments.get('configuration')
+  browser = arguments.get('browser')
+  if browser:
+    used_arguments['browser'] = browser
+  elif configuration:
+    used_arguments['configuration'] = configuration
+    bots = namespaced_stored_object.Get(_BOT_CONFIGURATIONS)
+    browser = bots[configuration]['browser']
+  else:
+    raise TypeError('Missing a "configuration" or a "browser" argument.')
+
+  return browser
 
 
 class _RunTestExecution(execution_module.Execution):

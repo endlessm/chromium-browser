@@ -340,7 +340,7 @@ class ManagedGitWrapperTestCase(BaseGitWrapperTestCase):
     scm.status(options, self.args, file_list)
     self.assertEquals(file_list, [file_path])
     self.checkstdout(
-        ('\n________ running \'git diff --name-status '
+        ('\n________ running \'git -c core.quotePath=false diff --name-status '
          '069c602044c5388d2d15c3f875b057c852003458\' in \'%s\'\nM\ta\n') %
             join(self.root_dir, '.'))
 
@@ -360,7 +360,7 @@ class ManagedGitWrapperTestCase(BaseGitWrapperTestCase):
     expected_file_list = [join(self.base_path, x) for x in ['a', 'b']]
     self.assertEquals(sorted(file_list), expected_file_list)
     self.checkstdout(
-        ('\n________ running \'git diff --name-status '
+        ('\n________ running \'git -c core.quotePath=false diff --name-status '
          '069c602044c5388d2d15c3f875b057c852003458\' in \'%s\'\nM\ta\nM\tb\n') %
             join(self.root_dir, '.'))
 
@@ -631,7 +631,7 @@ class ManagedGitWrapperTestCaseMox(BaseTestCase):
                                   options)
     self.mox.StubOutWithMock(gclient_scm.subprocess2, 'check_output', True)
     gclient_scm.subprocess2.check_output(
-        ['git', 'ls-files'], cwd=self.base_path,
+        ['git', '-c', 'core.quotePath=false', 'ls-files'], cwd=self.base_path,
         env=gclient_scm.scm.GIT.ApplyEnvVars({}), stderr=-1,).AndReturn('')
     gclient_scm.subprocess2.check_output(
         ['git', 'rev-parse', '--verify', 'HEAD'],
@@ -668,7 +668,7 @@ class ManagedGitWrapperTestCaseMox(BaseTestCase):
                                   options)
     self.mox.StubOutWithMock(gclient_scm.subprocess2, 'check_output', True)
     gclient_scm.subprocess2.check_output(
-        ['git', 'ls-files'], cwd=self.base_path,
+        ['git', '-c', 'core.quotePath=false', 'ls-files'], cwd=self.base_path,
         env=gclient_scm.scm.GIT.ApplyEnvVars({}), stderr=-1,).AndReturn('')
     gclient_scm.subprocess2.check_output(
         ['git', 'rev-parse', '--verify', 'HEAD'],

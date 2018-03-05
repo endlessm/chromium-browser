@@ -24,6 +24,7 @@
 #include "rtc_base/constructormagic.h"
 #include "rtc_base/refcount.h"
 #include "rtc_base/thread_checker.h"
+#include "sdk/android/src/jni/scoped_java_ref.h"
 
 // Abort the process if |jni| has a Java exception pending.
 // This macros uses the comma operator to execute ExceptionDescribe
@@ -32,12 +33,6 @@
 #define CHECK_EXCEPTION(jni)        \
   RTC_CHECK(!jni->ExceptionCheck()) \
       << (jni->ExceptionDescribe(), jni->ExceptionClear(), "")
-
-// Helper that calls ptr->Release() and aborts the process with a useful
-// message if that didn't actually delete *ptr because of extra refcounts.
-#define CHECK_RELEASE(ptr)                                                   \
-  RTC_CHECK((ptr)->Release() == rtc::RefCountReleaseStatus::kDroppedLastRef) \
-      << "Unexpected refcount."
 
 // Convenience macro defining JNI-accessible methods in the org.webrtc package.
 // Eliminates unnecessary boilerplate and line-wraps, reducing visual clutter.
@@ -62,76 +57,55 @@ JNIEnv* AttachCurrentThreadIfNeeded();
 // function expecting a 64-bit param) picks up garbage in the high 32 bits.
 jlong jlongFromPointer(void* ptr);
 
-// JNIEnv-helper methods that RTC_CHECK success: no Java exception thrown and
-// found object/class/method/field is non-null.
-jmethodID GetMethodID(
-    JNIEnv* jni, jclass c, const std::string& name, const char* signature);
-
-jmethodID GetStaticMethodID(
-    JNIEnv* jni, jclass c, const char* name, const char* signature);
-
-jfieldID GetFieldID(JNIEnv* jni, jclass c, const char* name,
-                    const char* signature);
-
-jfieldID GetStaticFieldID(JNIEnv* jni,
-                          jclass c,
-                          const char* name,
-                          const char* signature);
-
-jclass GetObjectClass(JNIEnv* jni, jobject object);
-
-// Throws an exception if the object field is null.
-jobject GetObjectField(JNIEnv* jni, jobject object, jfieldID id);
-
-jobject GetStaticObjectField(JNIEnv* jni, jclass c, jfieldID id);
-
-jobject GetNullableObjectField(JNIEnv* jni, jobject object, jfieldID id);
-
-jstring GetStringField(JNIEnv* jni, jobject object, jfieldID id);
-
-jlong GetLongField(JNIEnv* jni, jobject object, jfieldID id);
-
-jint GetIntField(JNIEnv* jni, jobject object, jfieldID id);
-
-bool GetBooleanField(JNIEnv* jni, jobject object, jfieldID id);
-
 // Returns true if |obj| == null in Java.
-bool IsNull(JNIEnv* jni, jobject obj);
+bool IsNull(JNIEnv* jni, const JavaRef<jobject>& obj);
 
+ScopedJavaLocalRef<jobject> NewDirectByteBuffer(JNIEnv* env,
+                                                void* address,
+                                                jlong capacity);
 // Given a (UTF-16) jstring return a new UTF-8 native string.
-std::string JavaToStdString(JNIEnv* jni, const jstring& j_string);
+std::string JavaToStdString(JNIEnv* jni, const JavaRef<jstring>& j_string);
+
+// Deprecated. Use scoped jobjects instead.
+inline std::string JavaToStdString(JNIEnv* jni, jstring j_string) {
+  return JavaToStdString(jni, JavaParamRef<jstring>(j_string));
+}
 
 // Given a List of (UTF-16) jstrings
 // return a new vector of UTF-8 native strings.
-std::vector<std::string> JavaToStdVectorStrings(JNIEnv* jni, jobject list);
+std::vector<std::string> JavaToStdVectorStrings(JNIEnv* jni,
+                                                const JavaRef<jobject>& list);
 
-rtc::Optional<int32_t> JavaToNativeOptionalInt(JNIEnv* jni, jobject integer);
+rtc::Optional<int32_t> JavaToNativeOptionalInt(JNIEnv* jni,
+                                               const JavaRef<jobject>& integer);
+rtc::Optional<bool> JavaToNativeOptionalBool(JNIEnv* jni,
+                                             const JavaRef<jobject>& boolean);
+int64_t JavaToNativeLong(JNIEnv* env, const JavaRef<jobject>& j_long);
 
-jobject NativeToJavaBoolean(JNIEnv* env, bool b);
-jobject NativeToJavaInteger(JNIEnv* jni, int32_t i);
-jobject NativeToJavaLong(JNIEnv* env, int64_t u);
-jobject NativeToJavaDouble(JNIEnv* env, double d);
-// Given a UTF-8 encoded |native| string return a new (UTF-16) jstring.
-jstring NativeToJavaString(JNIEnv* jni, const std::string& native);
-jobject NativeToJavaInteger(JNIEnv* jni,
-                            const rtc::Optional<int32_t>& optional_int);
-
-// Return the (singleton) Java Enum object corresponding to |index|;
-jobject JavaEnumFromIndex(JNIEnv* jni, jclass state_class,
-                          const std::string& state_class_name, int index);
-
-// Return the (singleton) Java Enum object corresponding to |index|;
-// |state_class_fragment| is something like "MediaSource$State".
-jobject JavaEnumFromIndexAndClassName(JNIEnv* jni,
-                                      const std::string& state_class_fragment,
-                                      int index);
+ScopedJavaLocalRef<jobject> NativeToJavaBoolean(JNIEnv* env, bool b);
+ScopedJavaLocalRef<jobject> NativeToJavaInteger(JNIEnv* jni, int32_t i);
+ScopedJavaLocalRef<jobject> NativeToJavaLong(JNIEnv* env, int64_t u);
+ScopedJavaLocalRef<jobject> NativeToJavaDouble(JNIEnv* env, double d);
+ScopedJavaLocalRef<jstring> NativeToJavaString(JNIEnv* jni, const char* str);
+ScopedJavaLocalRef<jstring> NativeToJavaString(JNIEnv* jni,
+                                               const std::string& str);
+ScopedJavaLocalRef<jobject> NativeToJavaInteger(
+    JNIEnv* jni,
+    const rtc::Optional<int32_t>& optional_int);
 
 // Parses Map<String, String> to std::map<std::string, std::string>.
-std::map<std::string, std::string> JavaToStdMapStrings(JNIEnv* jni,
-                                                       jobject j_map);
+std::map<std::string, std::string> JavaToStdMapStrings(
+    JNIEnv* jni,
+    const JavaRef<jobject>& j_map);
+
+// Deprecated. Use scoped jobjects instead.
+inline std::map<std::string, std::string> JavaToStdMapStrings(JNIEnv* jni,
+                                                              jobject j_map) {
+  return JavaToStdMapStrings(jni, JavaParamRef<jobject>(j_map));
+}
 
 // Returns the name of a Java enum.
-std::string GetJavaEnumName(JNIEnv* jni, jobject j_enum);
+std::string GetJavaEnumName(JNIEnv* jni, const JavaRef<jobject>& j_enum);
 
 jobject NewGlobalRef(JNIEnv* jni, jobject o);
 
@@ -149,22 +123,6 @@ class ScopedLocalRefFrame {
   JNIEnv* jni_;
 };
 
-// Scoped holder for global Java refs.
-template<class T>  // T is jclass, jobject, jintArray, etc.
-class ScopedGlobalRef {
- public:
-  ScopedGlobalRef(JNIEnv* jni, T obj)
-      : obj_(static_cast<T>(jni->NewGlobalRef(obj))) {}
-  ~ScopedGlobalRef() {
-    DeleteGlobalRef(AttachCurrentThreadIfNeeded(), obj_);
-  }
-  T operator*() const {
-    return obj_;
-  }
- private:
-  T obj_;
-};
-
 // Provides a convenient way to iterate over a Java Iterable using the
 // C++ range-for loop.
 // E.g. for (jobject value : Iterable(jni, j_iterable)) { ... }
@@ -173,7 +131,8 @@ class ScopedGlobalRef {
 // Java iterator.
 class Iterable {
  public:
-  Iterable(JNIEnv* jni, jobject iterable) : jni_(jni), iterable_(iterable) {}
+  Iterable(JNIEnv* jni, const JavaRef<jobject>& iterable);
+  ~Iterable();
 
   class Iterator {
    public:
@@ -181,11 +140,13 @@ class Iterable {
     Iterator();
     // Creates an iterator pointing to the beginning of the specified
     // collection.
-    Iterator(JNIEnv* jni, jobject iterable);
+    Iterator(JNIEnv* jni, const JavaRef<jobject>& iterable);
 
     // Move constructor - necessary to be able to return iterator types from
     // functions.
     Iterator(Iterator&& other);
+
+    ~Iterator();
 
     // Move assignment should not be used.
     Iterator& operator=(Iterator&&) = delete;
@@ -203,17 +164,14 @@ class Iterable {
     // iterators.
     bool operator==(const Iterator& other);
     bool operator!=(const Iterator& other) { return !(*this == other); }
-    jobject operator*();
+    ScopedJavaLocalRef<jobject>& operator*();
 
    private:
     bool AtEnd() const;
 
     JNIEnv* jni_ = nullptr;
-    jobject iterator_ = nullptr;
-    jobject value_ = nullptr;
-    jmethodID has_next_id_ = nullptr;
-    jmethodID next_id_ = nullptr;
-    jmethodID remove_id_ = nullptr;
+    ScopedJavaLocalRef<jobject> iterator_;
+    ScopedJavaLocalRef<jobject> value_;
     rtc::ThreadChecker thread_checker_;
 
     RTC_DISALLOW_COPY_AND_ASSIGN(Iterator);
@@ -224,41 +182,111 @@ class Iterable {
 
  private:
   JNIEnv* jni_;
-  jobject iterable_;
+  ScopedJavaLocalRef<jobject> iterable_;
 
   RTC_DISALLOW_COPY_AND_ASSIGN(Iterable);
 };
 
 // Helper function for converting std::vector<T> into a Java array.
 template <typename T, typename Convert>
-jobjectArray NativeToJavaObjectArray(JNIEnv* env,
-                                     const std::vector<T>& container,
-                                     jclass clazz,
-                                     Convert convert) {
-  jobjectArray j_container =
-      env->NewObjectArray(container.size(), clazz, nullptr);
+ScopedJavaLocalRef<jobjectArray> NativeToJavaObjectArray(
+    JNIEnv* env,
+    const std::vector<T>& container,
+    jclass clazz,
+    Convert convert) {
+  ScopedJavaLocalRef<jobjectArray> j_container(
+      env, env->NewObjectArray(container.size(), clazz, nullptr));
   int i = 0;
   for (const T& element : container) {
-    jobject j_element = convert(env, element);
-    env->SetObjectArrayElement(j_container, i, j_element);
-    // Delete local ref immediately since we might create a lot of local
-    // references in this loop.
-    env->DeleteLocalRef(j_element);
+    env->SetObjectArrayElement(j_container.obj(), i,
+                               convert(env, element).obj());
     ++i;
   }
   return j_container;
 }
 
-jobjectArray NativeToJavaIntegerArray(JNIEnv* env,
-                                      const std::vector<int32_t>& container);
-jobjectArray NativeToJavaBooleanArray(JNIEnv* env,
-                                      const std::vector<bool>& container);
-jobjectArray NativeToJavaLongArray(JNIEnv* env,
-                                   const std::vector<int64_t>& container);
-jobjectArray NativeToJavaDoubleArray(JNIEnv* env,
-                                     const std::vector<double>& container);
-jobjectArray NativeToJavaStringArray(JNIEnv* env,
-                                     const std::vector<std::string>& container);
+ScopedJavaLocalRef<jobjectArray> NativeToJavaIntegerArray(
+    JNIEnv* env,
+    const std::vector<int32_t>& container);
+ScopedJavaLocalRef<jobjectArray> NativeToJavaBooleanArray(
+    JNIEnv* env,
+    const std::vector<bool>& container);
+ScopedJavaLocalRef<jobjectArray> NativeToJavaLongArray(
+    JNIEnv* env,
+    const std::vector<int64_t>& container);
+ScopedJavaLocalRef<jobjectArray> NativeToJavaDoubleArray(
+    JNIEnv* env,
+    const std::vector<double>& container);
+ScopedJavaLocalRef<jobjectArray> NativeToJavaStringArray(
+    JNIEnv* env,
+    const std::vector<std::string>& container);
+
+template <typename T, typename Convert>
+std::vector<T> JavaToNativeVector(JNIEnv* env,
+                                  const JavaRef<jobjectArray>& j_container,
+                                  Convert convert) {
+  std::vector<T> container;
+  const size_t size = env->GetArrayLength(j_container.obj());
+  container.reserve(size);
+  for (size_t i = 0; i < size; ++i) {
+    container.emplace_back(convert(
+        env, ScopedJavaLocalRef<jobject>(
+                 env, env->GetObjectArrayElement(j_container.obj(), i))));
+  }
+  CHECK_EXCEPTION(env) << "Error during JavaToNativeVector";
+  return container;
+}
+
+// This is a helper class for NativeToJavaList(). Use that function instead of
+// using this class directly.
+class JavaListBuilder {
+ public:
+  explicit JavaListBuilder(JNIEnv* env);
+  ~JavaListBuilder();
+  void add(const JavaRef<jobject>& element);
+  ScopedJavaLocalRef<jobject> java_list() { return j_list_; }
+
+ private:
+  JNIEnv* env_;
+  ScopedJavaLocalRef<jobject> j_list_;
+};
+
+template <typename C, typename Convert>
+ScopedJavaLocalRef<jobject> NativeToJavaList(JNIEnv* env,
+                                             const C& container,
+                                             Convert convert) {
+  JavaListBuilder builder(env);
+  for (const auto& e : container)
+    builder.add(convert(env, e));
+  return builder.java_list();
+}
+
+// This is a helper class for NativeToJavaMap(). Use that function instead of
+// using this class directly.
+class JavaMapBuilder {
+ public:
+  explicit JavaMapBuilder(JNIEnv* env);
+  ~JavaMapBuilder();
+  void put(const JavaRef<jobject>& key, const JavaRef<jobject>& value);
+  ScopedJavaLocalRef<jobject> GetJavaMap() { return j_map_; }
+
+ private:
+  JNIEnv* env_;
+  ScopedJavaLocalRef<jobject> j_map_;
+};
+
+template <typename C, typename Convert>
+ScopedJavaLocalRef<jobject> NativeToJavaMap(JNIEnv* env,
+                                            const C& container,
+                                            Convert convert) {
+  JavaMapBuilder builder(env);
+  for (const auto& e : container) {
+    ScopedLocalRefFrame local_ref_frame(env);
+    const auto key_value_pair = convert(env, e);
+    builder.put(key_value_pair.first, key_value_pair.second);
+  }
+  return builder.GetJavaMap();
+}
 
 }  // namespace jni
 }  // namespace webrtc

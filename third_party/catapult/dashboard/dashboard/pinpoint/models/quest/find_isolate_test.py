@@ -10,12 +10,53 @@ from google.appengine.ext import ndb
 from google.appengine.ext import testbed
 
 from dashboard.common import namespaced_stored_object
+from dashboard.common import testing_common
 from dashboard.pinpoint.models import change as change_module
 from dashboard.pinpoint.models import isolate
 from dashboard.pinpoint.models.quest import find_isolate
 
 
-class _FindIsolateTest(unittest.TestCase):
+class FindIsolateQuestTest(testing_common.TestCase):
+
+  def setUp(self):
+    super(FindIsolateQuestTest, self).setUp()
+    self.SetCurrentUser('internal@chromium.org', is_admin=True)
+    namespaced_stored_object.Set('bot_configurations', {
+        'chromium-rel-mac11-pro': {
+            'builder': 'Mac Builder',
+        },
+    })
+
+  def testMissingArguments(self):
+    arguments = {'target': 'telemetry_perf_tests'}
+    # configuration is missing.
+    with self.assertRaises(TypeError):
+      find_isolate.FindIsolate.FromDict(arguments)
+
+    arguments = {'configuration': 'chromium-rel-mac11-pro'}
+    # target is missing.
+    with self.assertRaises(TypeError):
+      find_isolate.FindIsolate.FromDict(arguments)
+
+  def testUnknownConfiguration(self):
+    arguments = {
+        'configuration': 'not a real bot',
+        'target': 'telemetry_perf_tests',
+    }
+    with self.assertRaises(KeyError):
+      find_isolate.FindIsolate.FromDict(arguments)
+
+  def testAllArguments(self):
+    arguments = {
+        'configuration': 'chromium-rel-mac11-pro',
+        'target': 'telemetry_perf_tests',
+    }
+    expected = find_isolate.FindIsolate('Mac Builder', 'telemetry_perf_tests')
+    self.assertEqual(find_isolate.FindIsolate.FromDict(arguments),
+                     (arguments, expected))
+
+
+class _FindIsolateExecutionTest(unittest.TestCase):
 
   def setUp(self):
     self.testbed = testbed.Testbed()
@@ -55,11 +96,11 @@ class _FindIsolateTest(unittest.TestCase):
     self.assertIsNone(execution.exception)
 
 
-class IsolateLookupTest(_FindIsolateTest):
+class IsolateLookupTest(_FindIsolateExecutionTest):
 
   def testIsolateLookupSuccess(self):
     change = change_module.Change((change_module.Commit('src', 'f9f2b720'),))
-    quest = find_isolate.FindIsolate('Mac Pro Perf', 'telemetry_perf_tests')
+    quest = find_isolate.FindIsolate('Mac Builder', 'telemetry_perf_tests')
     execution = quest.Start(change)
     execution.Poll()
 
@@ -70,48 +111,16 @@ class IsolateLookupTest(_FindIsolateTest):
         {
             'completed': True,
             'exception': None,
-            'details': {'build': None},
+            'details': {'build': None, 'builder': 'Mac Builder'},
             'result_arguments': {'isolate_hash': u'7c7e90be'},
             'result_values': (),
         },
         execution.AsDict())
 
 
-class BuilderLookupTest(_FindIsolateTest):
-
-  def testSuccesfulBuilderLookupForAllBuilders(self):
-    builder_testers = (
-        ('arm-builder-rel', 'health-plan-clankium-phone'),
-        ('Android Builder', 'Android Nexus5 Perf'),
-        ('Android arm64 Builder', 'Android Nexus5X Perf'),
-        ('Linux Builder', 'Linux Perf'),
-        ('Mac Builder', 'Mac Air Perf'),
-        ('Win Builder', 'Win 7 Perf'),
-        ('Win x64 Builder', 'Win Zenbook Perf'),
-    )
-
-    change = change_module.Change((change_module.Commit('src', 'git hash'),))
-    isolate.Put(
-        (builder, change, 'telemetry_perf_tests', hex(hash(builder)))
-        for builder, _ in builder_testers)
-
-    for builder, tester in builder_testers:
-      quest = find_isolate.FindIsolate(tester, 'telemetry_perf_tests')
-      execution = quest.Start(change)
-      execution.Poll()
-
-      self.assertExecutionSuccess(execution)
-      self.assertEqual(execution.result_arguments,
-                       {'isolate_hash': hex(hash(builder))})
-
-  def testUnknownBuilder(self):
-    with self.assertRaises(NotImplementedError):
-      find_isolate.FindIsolate('Unix Perf', 'telemetry_perf_tests')
-
-
 @mock.patch('dashboard.services.buildbucket_service.GetJobStatus')
 @mock.patch('dashboard.services.buildbucket_service.Put')
-class BuildTest(_FindIsolateTest):
+class BuildTest(_FindIsolateExecutionTest):
 
   @mock.patch.object(change_module.GerritPatch, 'BuildParameters')
   def testBuildLifecycle(self, build_parameters, put, get_job_status):
@@ -119,7 +128,7 @@ class BuildTest(_FindIsolateTest):
         (change_module.Commit('src', 'base git hash'),
          change_module.Commit('v8', 'dep git hash')),
         patch=change_module.GerritPatch('https://example.org', 672011, '2f0d'))
-    quest = find_isolate.FindIsolate('Mac Pro Perf', 'telemetry_perf_tests')
+    quest = find_isolate.FindIsolate('Mac Builder', 'telemetry_perf_tests')
     execution = quest.Start(change)
 
     # Request a build.
@@ -159,7 +168,7 @@ class BuildTest(_FindIsolateTest):
     # same build request.
     change = change_module.Change(
         (change_module.Commit('src', 'base git hash'),))
-    quest = find_isolate.FindIsolate('Mac Pro Perf', 'telemetry_perf_tests')
+    quest = find_isolate.FindIsolate('Mac Builder', 'telemetry_perf_tests')
     execution_1 = quest.Start(change)
     execution_2 = quest.Start(change)
 
@@ -193,7 +202,7 @@ class BuildTest(_FindIsolateTest):
   def testBuildFailure(self, put, get_job_status):
     change = change_module.Change(
         (change_module.Commit('src', 'base git hash'),))
-    quest = find_isolate.FindIsolate('Mac Pro Perf', 'telemetry_perf_tests')
+    quest = find_isolate.FindIsolate('Mac Builder', 'telemetry_perf_tests')
     execution = quest.Start(change)
 
     # Request a build.
@@ -215,7 +224,7 @@ class BuildTest(_FindIsolateTest):
   def testBuildCanceled(self, put, get_job_status):
     change = change_module.Change(
         (change_module.Commit('src', 'base git hash'),))
-    quest = find_isolate.FindIsolate('Mac Pro Perf', 'telemetry_perf_tests')
+    quest = find_isolate.FindIsolate('Mac Builder', 'telemetry_perf_tests')
     execution = quest.Start(change)
 
     # Request a build.
@@ -237,7 +246,7 @@ class BuildTest(_FindIsolateTest):
   def testBuildSucceededButIsolateIsMissing(self, put, get_job_status):
     change = change_module.Change(
         (change_module.Commit('src', 'base git hash'),))
-    quest = find_isolate.FindIsolate('Mac Pro Perf', 'telemetry_perf_tests')
+    quest = find_isolate.FindIsolate('Mac Builder', 'telemetry_perf_tests')
     execution = quest.Start(change)
 
     # Request a build.

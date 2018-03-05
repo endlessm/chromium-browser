@@ -17,7 +17,8 @@ import datetime
 
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
-# MUST be kept in sync with GetParser's build-type option.
+
+
 BUILD_TYPE_MAP = {
     'cq': constants.CQ_MASTER,
     'canary': constants.CANARY_MASTER,
@@ -118,8 +119,8 @@ def FilterBuildStatuses(build_statuses):
   Returns:
     List of all build statuses that weren't removed.
   """
-  # Ignore tryserver, release branches, branch builders, chrome waterfall, etc.
-  WATERFALLS = ('chromeos', 'chromiumos')
+  # Ignore release branches, branch builders, chrome waterfall, etc.
+  WATERFALLS = ('chromeos', 'chromiumos', 'chromiumos.tryserver')
 
   return [status for status in build_statuses
           if status['waterfall'] in WATERFALLS]

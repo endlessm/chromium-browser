@@ -17,6 +17,7 @@
 #ifndef LIBSPIRV_TEST_VALIDATE_FIXTURES_H_
 #define LIBSPIRV_TEST_VALIDATE_FIXTURES_H_
 
+#include "source/val/validation_state.h"
 #include "unit_spirv.h"
 
 namespace spvtest {
@@ -45,11 +46,19 @@ class ValidateBase : public ::testing::Test,
   // spvValidate function
   spv_result_t ValidateInstructions(spv_target_env env = SPV_ENV_UNIVERSAL_1_0);
 
+  // Performs validation. Returns the status and stores validation state into
+  // the vstate_ member.
+  spv_result_t ValidateAndRetrieveValidationState(
+      spv_target_env env = SPV_ENV_UNIVERSAL_1_0);
+
   std::string getDiagnosticString();
   spv_position_t getErrorPosition();
+  spv_validator_options getValidatorOptions();
 
   spv_binary binary_;
   spv_diagnostic diagnostic_;
+  spv_validator_options options_;
+  std::unique_ptr<libspirv::ValidationState_t> vstate_;
 };
-}
+}  // namespace spvtest
 #endif

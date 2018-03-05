@@ -14,8 +14,32 @@
 
 #include "function.h"
 
+#include "make_unique.h"
+
 namespace spvtools {
 namespace ir {
+
+Function* Function::Clone(IRContext* context) const {
+  Function* clone =
+      new Function(std::unique_ptr<Instruction>(DefInst().Clone(context)));
+  clone->params_.reserve(params_.size());
+  ForEachParam(
+      [clone, context](const Instruction* inst) {
+        clone->AddParameter(std::unique_ptr<Instruction>(inst->Clone(context)));
+      },
+      true);
+
+  clone->blocks_.reserve(blocks_.size());
+  for (const auto& b : blocks_) {
+    std::unique_ptr<BasicBlock> bb(b->Clone(context));
+    bb->SetParent(clone);
+    clone->AddBasicBlock(std::move(bb));
+  }
+
+  clone->SetFunctionEnd(
+      std::unique_ptr<Instruction>(function_end().Clone(context)));
+  return clone;
+}
 
 void Function::ForEachInst(const std::function<void(Instruction*)>& f,
                            bool run_on_debug_line_insts) {
@@ -41,6 +65,13 @@ void Function::ForEachInst(const std::function<void(const Instruction*)>& f,
 
   if (end_inst_)
     static_cast<const Instruction*>(end_inst_.get())
+        ->ForEachInst(f, run_on_debug_line_insts);
+}
+
+void Function::ForEachParam(const std::function<void(const Instruction*)>& f,
+                            bool run_on_debug_line_insts) const {
+  for (const auto& param : params_)
+    static_cast<const Instruction*>(param.get())
         ->ForEachInst(f, run_on_debug_line_insts);
 }
 

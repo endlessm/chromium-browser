@@ -560,7 +560,8 @@ class GitCookiesCheckerTest(TestCase):
     # Specical case because we know there are no subdomains in chromium.org.
     self.assertEqual(self.c._parse_identity('git-note.period.chromium.org'),
                      ('note.period', 'chromium.org'))
-    # Pathological: .period. can be either ldap OR domain, more likely domain.
+    # Pathological: ".period." can be either username OR domain, more likely
+    # domain.
     self.assertEqual(self.c._parse_identity('git-note.period.example.com'),
                      ('note', 'period.example.com'))
 
@@ -813,8 +814,8 @@ class TestGitCl(TestCase):
     ] + cls._git_sanity_checks('fake_ancestor_sha', 'master') + [
       ((['git', 'rev-parse', '--show-cdup'],), ''),
       ((['git', 'rev-parse', 'HEAD'],), '12345'),
-      ((['git', 'diff', '--name-status', '--no-renames', '-r',
-         'fake_ancestor_sha...', '.'],),
+      ((['git', '-c', 'core.quotePath=false', 'diff',
+         '--name-status', '--no-renames', '-r', 'fake_ancestor_sha...', '.'],),
         'M\t.gitignore\n'),
       ((['git', 'config', 'branch.master.rietveldpatchset'],), CERR1),
       ((['git', 'log', '--pretty=format:%s%n%n%b',
@@ -1110,8 +1111,8 @@ class TestGitCl(TestCase):
     ] + self._git_sanity_checks('fake_ancestor_sha', 'feature') + [
       ((['git', 'rev-parse', '--show-cdup'],), ''),
       ((['git', 'rev-parse', 'HEAD'],), 'fake_sha'),
-      ((['git', 'diff', '--name-status', '--no-renames', '-r',
-         'fake_ancestor_sha...', '.'],),
+      ((['git', '-c', 'core.quotePath=false', 'diff',
+         '--name-status', '--no-renames', '-r', 'fake_ancestor_sha...', '.'],),
        'M\tfile1.cpp'),
       ((['git', 'config', 'branch.feature.rietveldpatchset'],), '20001'),
       ((['git', 'config', 'branch.feature.rietveldserver'],),
@@ -1228,7 +1229,8 @@ class TestGitCl(TestCase):
         fail_cherry_pick=True,
         debug=False)
     self.calls += [
-      ((['git', 'diff', '--name-status', '--diff-filter=U'],),
+      ((['git', '-c', 'core.quotePath=false', 'diff',
+         '--name-status', '--diff-filter=U'],),
        'U       path/file1\n'
        'U       file2.cpp\n'),
       ((['git', 'cherry-pick', '--abort'],), ''),
@@ -1445,8 +1447,8 @@ class TestGitCl(TestCase):
       ((['git', 'rev-parse', '--show-cdup'],), ''),
       ((['git', 'rev-parse', 'HEAD'],), '12345'),
 
-      ((['git', 'diff', '--name-status', '--no-renames', '-r',
-         ancestor_revision + '...', '.'],),
+      ((['git', '-c', 'core.quotePath=false', 'diff', '--name-status',
+         '--no-renames', '-r', ancestor_revision + '...', '.'],),
        'M\t.gitignore\n'),
       ((['git', 'config', 'branch.master.gerritpatchset'],), CERR1),
     ]
@@ -3175,50 +3177,87 @@ class TestGitCl(TestCase):
     self.assertRegexpMatches(out.getvalue(), 'Landed as: .*deadbeef')
 
   BUILDBUCKET_BUILDS_MAP = {
-        '9000': {
-            'id': '9000',
-            'status': 'STARTED',
-            'url': 'http://build.cr.org/p/x.y/builders/my-builder/builds/2',
-            'result_details_json': '{"properties": {}}',
-            'bucket': 'master.x.y',
-            'created_by': 'user:someone@chromium.org',
-            'created_ts': '147200002222000',
-            'parameters_json': '{"builder_name": "my-builder", "category": ""}',
-        },
-        '8000': {
-            'id': '8000',
-            'status': 'COMPLETED',
-            'result': 'FAILURE',
-            'failure_reason': 'BUILD_FAILURE',
-            'url': 'http://build.cr.org/p/x.y/builders/my-builder/builds/1',
-            'result_details_json': '{"properties": {}}',
-            'bucket': 'master.x.y',
-            'created_by': 'user:someone@chromium.org',
-            'created_ts': '147200001111000',
-            'parameters_json': '{"builder_name": "my-builder", "category": ""}',
-        },
-    }
+    '9000': {
+      'id': '9000',
+      'bucket': 'master.x.y',
+      'created_by': 'user:someone@chromium.org',
+      'created_ts': '147200002222000',
+      'experimental': False,
+      'parameters_json': json.dumps({
+        'builder_name': 'my-bot',
+        'properties': {'category': 'cq'},
+      }),
+      'status': 'STARTED',
+      'tags': [
+        'build_address:x.y/my-bot/2',
+        'builder:my-bot',
+        'experimental:false',
+        'user_agent:cq',
+      ],
+      'url': 'http://build.cr.org/p/x.y/builders/my-bot/builds/2',
+    },
+    '8000': {
+      'id': '8000',
+      'bucket': 'master.x.y',
+      'created_by': 'user:someone@chromium.org',
+      'created_ts': '147200001111000',
+      'experimental': False,
+      'failure_reason': 'BUILD_FAILURE',
+      'parameters_json': json.dumps({
+        'builder_name': 'my-bot',
+        'properties': {'category': 'cq'},
+      }),
+      'result_details_json': json.dumps({
+        'properties': {'buildnumber': 1},
+      }),
+      'result': 'FAILURE',
+      'status': 'COMPLETED',
+      'tags': [
+        'build_address:x.y/my-bot/1',
+        'builder:my-bot',
+        'experimental:false',
+        'user_agent:cq',
+      ],
+      'url': 'http://build.cr.org/p/x.y/builders/my-bot/builds/1',
+    },
+  }
 
   def test_write_try_results_json(self):
     expected_output = [
-        {
-            'buildbucket_id': '8000',
-            'bucket': 'master.x.y',
-            'builder_name': 'my-builder',
-            'status': 'COMPLETED',
-            'result': 'FAILURE',
-            'failure_reason': 'BUILD_FAILURE',
-            'url': 'http://build.cr.org/p/x.y/builders/my-builder/builds/1',
-        },
-        {
-            'buildbucket_id': '9000',
-            'bucket': 'master.x.y',
-            'builder_name': 'my-builder',
-            'status': 'STARTED',
-            'result': None,
-            'failure_reason': None,
-            'url': 'http://build.cr.org/p/x.y/builders/my-builder/builds/2',
-        }
+      {
+        'bucket': 'master.x.y',
+        'buildbucket_id': '8000',
+        'builder_name': 'my-bot',
+        'created_ts': '147200001111000',
+        'experimental': False,
+        'failure_reason': 'BUILD_FAILURE',
+        'result': 'FAILURE',
+        'status': 'COMPLETED',
+        'tags': [
+          'build_address:x.y/my-bot/1',
+          'builder:my-bot',
+          'experimental:false',
+          'user_agent:cq',
+        ],
+        'url': 'http://build.cr.org/p/x.y/builders/my-bot/builds/1',
+      },
+      {
+        'bucket': 'master.x.y',
+        'buildbucket_id': '9000',
+        'builder_name': 'my-bot',
+        'created_ts': '147200002222000',
+        'experimental': False,
+        'failure_reason': None,
+        'result': None,
+        'status': 'STARTED',
+        'tags': [
+          'build_address:x.y/my-bot/2',
+          'builder:my-bot',
+          'experimental:false',
+          'user_agent:cq',
+        ],
+        'url': 'http://build.cr.org/p/x.y/builders/my-bot/builds/2',
+      },
     ]
     self.calls = [(('write_json', 'output.json', expected_output), '')]
     git_cl.write_try_results_json('output.json', self.BUILDBUCKET_BUILDS_MAP)

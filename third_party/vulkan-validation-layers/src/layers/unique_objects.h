@@ -21,6 +21,9 @@
 
 #include "vulkan/vulkan.h"
 
+#include <unordered_map>
+#include <unordered_set>
+
 #include "vk_layer_data.h"
 #include "vk_safe_struct.h"
 #include "vk_layer_utils.h"
@@ -41,13 +44,12 @@ struct TEMPLATE_STATE {
         : desc_update_template(update_template), create_info(*pCreateInfo) {}
 };
 
-struct layer_data {
+struct instance_layer_data {
     VkInstance instance;
 
     debug_report_data *report_data;
     std::vector<VkDebugReportCallbackEXT> logging_callback;
-    VkLayerDispatchTable *device_dispatch_table;
-    VkLayerInstanceDispatchTable *instance_dispatch_table;
+    VkLayerInstanceDispatchTable dispatch_table = {};
 
     // The following are for keeping track of the temporary callbacks that can
     // be used in vkCreateInstance and vkDestroyInstance:
@@ -55,27 +57,32 @@ struct layer_data {
     VkDebugReportCallbackCreateInfoEXT *tmp_dbg_create_infos;
     VkDebugReportCallbackEXT *tmp_callbacks;
 
+    std::unordered_map<uint64_t, uint64_t> unique_id_mapping;  // Map uniqueID to actual object handle
+};
+
+struct layer_data {
+    instance_layer_data *instance_data;
+
+    debug_report_data *report_data;
+    VkLayerDispatchTable dispatch_table = {};
+
     std::unordered_map<uint64_t, std::unique_ptr<TEMPLATE_STATE>> desc_template_map;
 
     bool wsi_enabled;
     std::unordered_map<uint64_t, uint64_t> unique_id_mapping;  // Map uniqueID to actual object handle
     VkPhysicalDevice gpu;
 
+    struct SubpassesUsageStates {
+        std::unordered_set<uint32_t> subpasses_using_color_attachment;
+        std::unordered_set<uint32_t> subpasses_using_depthstencil_attachment;
+    };
+    // uses unwrapped handles
+    std::unordered_map<VkRenderPass, SubpassesUsageStates> renderpasses_states;
+
     layer_data() : wsi_enabled(false), gpu(VK_NULL_HANDLE){};
 };
 
-struct instance_extension_enables {
-    bool wsi_enabled;
-    bool xlib_enabled;
-    bool xcb_enabled;
-    bool wayland_enabled;
-    bool mir_enabled;
-    bool android_enabled;
-    bool win32_enabled;
-    bool display_enabled;
-};
-
-static std::unordered_map<void *, struct instance_extension_enables> instance_ext_map;
+static std::unordered_map<void *, instance_layer_data *> instance_layer_data_map;
 static std::unordered_map<void *, layer_data *> layer_data_map;
 
 static std::mutex global_lock;  // Protect map accesses and unique_id increments
@@ -100,6 +107,24 @@ bool ContainsExtStruct(const T *target, VkStructureType ext_type) {
     }
 
     return false;
+}
+
+
+/* Unwrap a handle. */
+// must hold lock!
+template<typename HandleType, typename MapType>
+HandleType Unwrap(MapType *layer_data, HandleType wrappedHandle) {
+    // TODO: don't use operator[] here.
+    return (HandleType)layer_data->unique_id_mapping[reinterpret_cast<uint64_t const &>(wrappedHandle)];
+}
+
+/* Wrap a newly created handle with a new unique ID, and return the new ID. */
+// must hold lock!
+template<typename HandleType, typename MapType>
+HandleType WrapNew(MapType *layer_data, HandleType newlyCreatedHandle) {
+    auto unique_id = global_unique_id++;
+    layer_data->unique_id_mapping[unique_id] = reinterpret_cast<uint64_t const &>(newlyCreatedHandle);
+    return (HandleType)unique_id;
 }
 
 }  // namespace unique_objects

@@ -431,6 +431,9 @@ type testCase struct {
 	exportLabel          string
 	exportContext        string
 	useExportContext     bool
+	// exportEarlyKeyingMaterial, if non-zero, behaves like
+	// exportKeyingMaterial, but for the early exporter.
+	exportEarlyKeyingMaterial int
 	// flags, if not empty, contains a list of command-line flags that will
 	// be passed to the shim program.
 	flags []string
@@ -694,6 +697,20 @@ func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool, tr
 		}
 	}
 
+	if isResume && test.exportEarlyKeyingMaterial > 0 {
+		actual := make([]byte, test.exportEarlyKeyingMaterial)
+		if _, err := io.ReadFull(tlsConn, actual); err != nil {
+			return err
+		}
+		expected, err := tlsConn.ExportEarlyKeyingMaterial(test.exportEarlyKeyingMaterial, []byte(test.exportLabel), []byte(test.exportContext))
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(actual, expected) {
+			return fmt.Errorf("early keying material mismatch; got %x, wanted %x", actual, expected)
+		}
+	}
+
 	if test.exportKeyingMaterial > 0 {
 		actual := make([]byte, test.exportKeyingMaterial)
 		if _, err := io.ReadFull(tlsConn, actual); err != nil {
@@ -704,7 +721,7 @@ func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool, tr
 			return err
 		}
 		if !bytes.Equal(actual, expected) {
-			return fmt.Errorf("keying material mismatch")
+			return fmt.Errorf("keying material mismatch; got %x, wanted %x", actual, expected)
 		}
 	}
 
@@ -1037,12 +1054,18 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 
 	if test.exportKeyingMaterial > 0 {
 		flags = append(flags, "-export-keying-material", strconv.Itoa(test.exportKeyingMaterial))
-		flags = append(flags, "-export-label", test.exportLabel)
-		flags = append(flags, "-export-context", test.exportContext)
 		if test.useExportContext {
 			flags = append(flags, "-use-export-context")
 		}
 	}
+	if test.exportEarlyKeyingMaterial > 0 {
+		flags = append(flags, "-on-resume-export-early-keying-material", strconv.Itoa(test.exportEarlyKeyingMaterial))
+	}
+	if test.exportKeyingMaterial > 0 || test.exportEarlyKeyingMaterial > 0 {
+		flags = append(flags, "-export-label", test.exportLabel)
+		flags = append(flags, "-export-context", test.exportContext)
+	}
+
 	if test.expectResumeRejected {
 		flags = append(flags, "-expect-session-miss")
 	}
@@ -1298,20 +1321,6 @@ var tlsVersions = []tlsVersion{
 		versionDTLS: VersionDTLS12,
 	},
 	{
-		name:         "TLS13",
-		version:      VersionTLS13,
-		excludeFlag:  "-no-tls13",
-		versionWire:  tls13DraftVersion,
-		tls13Variant: TLS13Default,
-	},
-	{
-		name:         "TLS13Draft21",
-		version:      VersionTLS13,
-		excludeFlag:  "-no-tls13",
-		versionWire:  tls13Draft21Version,
-		tls13Variant: TLS13Draft21,
-	},
-	{
 		name:         "TLS13Draft22",
 		version:      VersionTLS13,
 		excludeFlag:  "-no-tls13",
@@ -1319,25 +1328,11 @@ var tlsVersions = []tlsVersion{
 		tls13Variant: TLS13Draft22,
 	},
 	{
-		name:         "TLS13Experiment",
-		version:      VersionTLS13,
-		excludeFlag:  "-no-tls13",
-		versionWire:  tls13ExperimentVersion,
-		tls13Variant: TLS13Experiment,
-	},
-	{
 		name:         "TLS13Experiment2",
 		version:      VersionTLS13,
 		excludeFlag:  "-no-tls13",
 		versionWire:  tls13Experiment2Version,
 		tls13Variant: TLS13Experiment2,
-	},
-	{
-		name:         "TLS13Experiment3",
-		version:      VersionTLS13,
-		excludeFlag:  "-no-tls13",
-		versionWire:  tls13Experiment3Version,
-		tls13Variant: TLS13Experiment3,
 	},
 }
 
@@ -2247,6 +2242,21 @@ read alert 1 0
 			expectedLocalError: "tls: peer did not false start: EOF",
 		},
 		{
+			name: "FalseStart-NoALPNAllowed",
+			config: Config{
+				MaxVersion:   VersionTLS12,
+				CipherSuites: []uint16{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
+				Bugs: ProtocolBugs{
+					ExpectFalseStart: true,
+				},
+			},
+			flags: []string{
+				"-false-start",
+				"-allow-false-start-without-alpn",
+			},
+			shimWritesFirst: true,
+		},
+		{
 			name: "NoFalseStart-NoAEAD",
 			config: Config{
 				MaxVersion:   VersionTLS12,
@@ -2783,6 +2793,34 @@ read alert 1 0
 			shouldFail:         true,
 			expectedError:      ":UNSUPPORTED_COMPRESSION_ALGORITHM:",
 			expectedLocalError: "remote error: illegal parameter",
+		},
+		{
+			testType: clientTest,
+			name:     "TLS13Draft22-InvalidCompressionMethod",
+			config: Config{
+				MaxVersion: VersionTLS13,
+				Bugs: ProtocolBugs{
+					SendCompressionMethod: 1,
+				},
+			},
+			tls13Variant:  TLS13Draft22,
+			shouldFail:    true,
+			expectedError: ":DECODE_ERROR:",
+		},
+		{
+			testType: clientTest,
+			name:     "TLS13Draft22-HRR-InvalidCompressionMethod",
+			config: Config{
+				MaxVersion:       VersionTLS13,
+				CurvePreferences: []CurveID{CurveP384},
+				Bugs: ProtocolBugs{
+					SendCompressionMethod: 1,
+				},
+			},
+			tls13Variant:       TLS13Draft22,
+			shouldFail:         true,
+			expectedError:      ":DECODE_ERROR:",
+			expectedLocalError: "remote error: error decoding message",
 		},
 		{
 			name: "GREASE-Client-TLS12",
@@ -3857,7 +3895,7 @@ func addClientAuthTests() {
 	// Test that an empty client CA list doesn't send a CA extension.
 	testCases = append(testCases, testCase{
 		testType: serverTest,
-		name:     "TLS13Draft21-Empty-Client-CA-List",
+		name:     "TLS13Draft22-Empty-Client-CA-List",
 		config: Config{
 			MaxVersion:   VersionTLS13,
 			Certificates: []Certificate{rsaCertificate},
@@ -3865,7 +3903,7 @@ func addClientAuthTests() {
 				ExpectNoCertificateAuthoritiesExtension: true,
 			},
 		},
-		tls13Variant: TLS13Draft21,
+		tls13Variant: TLS13Draft22,
 		flags: []string{
 			"-require-any-client-certificate",
 			"-use-client-ca-list", "<EMPTY>",
@@ -4803,8 +4841,6 @@ func addStateMachineCoverageTests(config stateMachineTestConfig) {
 			expectedNextProtoType: npn,
 		})
 
-		// TODO(davidben): Add tests for when False Start doesn't trigger.
-
 		// Client does False Start and negotiates NPN.
 		tests = append(tests, testCase{
 			name: "FalseStart",
@@ -5270,9 +5306,8 @@ func addVersionNegotiationTests() {
 				expectedClientVersion := expectedVersion
 				if expectedVersion == VersionTLS13 && runnerVers.tls13Variant != shimVers.tls13Variant {
 					expectedClientVersion = VersionTLS12
-					expectedServerVersion = VersionTLS12
-					if shimVers.tls13Variant != TLS13Default && runnerVers.tls13Variant != TLS13Draft21 && runnerVers.tls13Variant != TLS13Draft22 {
-						expectedServerVersion = VersionTLS13
+					if shimVers.tls13Variant == TLS13Draft23 {
+						expectedServerVersion = VersionTLS12
 					}
 				}
 
@@ -5289,10 +5324,7 @@ func addVersionNegotiationTests() {
 				clientVers = recordVersionToWire(clientVers, protocol)
 				serverVers := expectedServerVersion
 				if expectedServerVersion >= VersionTLS13 {
-					serverVers = VersionTLS10
-					if runnerVers.tls13Variant == TLS13Experiment2 || runnerVers.tls13Variant == TLS13Experiment3 || runnerVers.tls13Variant == TLS13Draft22 {
-						serverVers = VersionTLS12
-					}
+					serverVers = VersionTLS12
 				}
 				serverVers = recordVersionToWire(serverVers, protocol)
 
@@ -5477,21 +5509,6 @@ func addVersionNegotiationTests() {
 		expectedError: ":UNEXPECTED_EXTENSION:",
 	})
 
-	// Test that the non-experimental TLS 1.3 isn't negotiated by the
-	// supported_versions extension in the ServerHello.
-	testCases = append(testCases, testCase{
-		testType: clientTest,
-		name:     "SupportedVersionSelection-TLS13",
-		config: Config{
-			MaxVersion: VersionTLS13,
-			Bugs: ProtocolBugs{
-				SendServerSupportedExtensionVersion: tls13DraftVersion,
-			},
-		},
-		shouldFail:    true,
-		expectedError: ":UNEXPECTED_EXTENSION:",
-	})
-
 	// Test that the maximum version is selected regardless of the
 	// client-sent order.
 	testCases = append(testCases, testCase{
@@ -5499,7 +5516,7 @@ func addVersionNegotiationTests() {
 		name:     "IgnoreClientVersionOrder",
 		config: Config{
 			Bugs: ProtocolBugs{
-				SendSupportedVersions: []uint16{VersionTLS12, tls13DraftVersion},
+				SendSupportedVersions: []uint16{VersionTLS12, tls13Draft23Version},
 			},
 		},
 		expectedVersion: VersionTLS13,
@@ -5629,6 +5646,27 @@ func addVersionNegotiationTests() {
 		expectedVersion: VersionTLS12,
 		// TODO(davidben): This test should fail once TLS 1.3 is final
 		// and the fallback signal restored.
+	})
+
+	testCases = append(testCases, testCase{
+		name: "Draft-Downgrade-Client",
+		config: Config{
+			MaxVersion: VersionTLS12,
+			Bugs: ProtocolBugs{
+				SendDraftTLS13DowngradeRandom: true,
+			},
+		},
+		flags: []string{"-expect-draft-downgrade"},
+	})
+	testCases = append(testCases, testCase{
+		testType: serverTest,
+		name:     "Draft-Downgrade-Server",
+		config: Config{
+			MaxVersion: VersionTLS12,
+			Bugs: ProtocolBugs{
+				ExpectDraftTLS13DowngradeRandom: true,
+			},
+		},
 	})
 }
 
@@ -6712,6 +6750,32 @@ func addExtensionTests() {
 		shouldFail:    true,
 		expectedError: ":INVALID_SCT_LIST:",
 	})
+
+	for _, version := range allVersions(tls) {
+		if version.version < VersionTLS12 {
+			continue
+		}
+
+		for _, paddingLen := range []int{1, 9700} {
+			flags := []string{
+				"-max-version", version.shimFlag(tls),
+				"-dummy-pq-padding-len", strconv.Itoa(paddingLen),
+			}
+
+			testCases = append(testCases, testCase{
+				name:         fmt.Sprintf("DummyPQPadding-%d-%s", paddingLen, version.name),
+				testType:     clientTest,
+				tls13Variant: version.tls13Variant,
+				config: Config{
+					MaxVersion: version.version,
+					Bugs: ProtocolBugs{
+						ExpectDummyPQPaddingLength: paddingLen,
+					},
+				},
+				flags: flags,
+			})
+		}
+	}
 }
 
 func addResumptionVersionTests() {
@@ -6750,8 +6814,7 @@ func addResumptionVersionTests() {
 							MaxVersion:   sessionVers.version,
 							TLS13Variant: sessionVers.tls13Variant,
 							Bugs: ProtocolBugs{
-								ExpectNoTLS12Session: sessionVers.version >= VersionTLS13,
-								ExpectNoTLS13PSK:     sessionVers.version < VersionTLS13,
+								ExpectNoTLS13PSK: sessionVers.version < VersionTLS13,
 							},
 						},
 						expectedVersion:       sessionVers.version,
@@ -7258,6 +7321,25 @@ func addRenegotiationTests() {
 			},
 		},
 		renegotiate: 1,
+		// Test renegotiation after both an initial and resumption
+		// handshake.
+		resumeSession: true,
+		flags: []string{
+			"-renegotiate-freely",
+			"-expect-total-renegotiations", "1",
+			"-expect-secure-renegotiation",
+		},
+	})
+	testCases = append(testCases, testCase{
+		name: "Renegotiate-Client-TLS13Draft22",
+		config: Config{
+			MaxVersion: VersionTLS12,
+			Bugs: ProtocolBugs{
+				FailIfResumeOnRenego: true,
+			},
+		},
+		tls13Variant: TLS13Draft22,
+		renegotiate:  1,
 		// Test renegotiation after both an initial and resumption
 		// handshake.
 		resumeSession: true,
@@ -8987,6 +9069,9 @@ func addExportKeyingMaterialTests() {
 			config: Config{
 				MaxVersion: vers.version,
 			},
+			// Test the exporter in both initial and resumption
+			// handshakes.
+			resumeSession:        true,
 			tls13Variant:         vers.tls13Variant,
 			exportKeyingMaterial: 1024,
 			exportLabel:          "label",
@@ -9021,6 +9106,229 @@ func addExportKeyingMaterialTests() {
 			exportContext:        "context",
 			useExportContext:     true,
 		})
+
+		if vers.version >= VersionTLS13 {
+			// Test the exporters do not work while the client is
+			// sending 0-RTT data.
+			testCases = append(testCases, testCase{
+				name: "NoEarlyKeyingMaterial-Client-InEarlyData-" + vers.name,
+				config: Config{
+					MaxVersion:       vers.version,
+					MaxEarlyDataSize: 16384,
+				},
+				resumeSession: true,
+				tls13Variant:  vers.tls13Variant,
+				flags: []string{
+					"-enable-early-data",
+					"-expect-ticket-supports-early-data",
+					"-expect-accept-early-data",
+					"-on-resume-export-keying-material", "1024",
+					"-on-resume-export-label", "label",
+					"-on-resume-export-context", "context",
+				},
+				shouldFail:    true,
+				expectedError: ":HANDSHAKE_NOT_COMPLETE:",
+			})
+
+			// Test the early exporter works while the client is
+			// sending 0-RTT data. This data arrives during the
+			// server handshake, so we test it with ProtocolBugs.
+			testCases = append(testCases, testCase{
+				name: "ExportEarlyKeyingMaterial-Client-InEarlyData-" + vers.name,
+				config: Config{
+					MaxVersion:       vers.version,
+					MaxEarlyDataSize: 16384,
+				},
+				resumeConfig: &Config{
+					MaxVersion:       vers.version,
+					MaxEarlyDataSize: 16384,
+					Bugs: ProtocolBugs{
+						ExpectEarlyKeyingMaterial: 1024,
+						ExpectEarlyKeyingLabel:    "label",
+						ExpectEarlyKeyingContext:  "context",
+					},
+				},
+				resumeSession: true,
+				tls13Variant:  vers.tls13Variant,
+				flags: []string{
+					"-enable-early-data",
+					"-expect-ticket-supports-early-data",
+					"-expect-accept-early-data",
+					"-on-resume-export-early-keying-material", "1024",
+					"-on-resume-export-label", "label",
+					"-on-resume-export-context", "context",
+				},
+			})
+
+			// Test the early exporter still works on the client
+			// after the handshake is confirmed. This arrives after
+			// the server handshake, so the normal hooks work.
+			testCases = append(testCases, testCase{
+				name: "ExportEarlyKeyingMaterial-Client-EarlyDataAccept-" + vers.name,
+				config: Config{
+					MaxVersion:       vers.version,
+					MaxEarlyDataSize: 16384,
+				},
+				resumeConfig: &Config{
+					MaxVersion:       vers.version,
+					MaxEarlyDataSize: 16384,
+				},
+				resumeSession:             true,
+				tls13Variant:              vers.tls13Variant,
+				exportEarlyKeyingMaterial: 1024,
+				exportLabel:               "label",
+				exportContext:             "context",
+				flags: []string{
+					"-enable-early-data",
+					"-expect-ticket-supports-early-data",
+					"-expect-accept-early-data",
+					// Handshake twice on the client to force
+					// handshake confirmation.
+					"-handshake-twice",
+				},
+			})
+
+			// Test the early exporter does not work on the client
+			// if 0-RTT was not offered.
+			testCases = append(testCases, testCase{
+				name: "NoExportEarlyKeyingMaterial-Client-Initial-" + vers.name,
+				config: Config{
+					MaxVersion: vers.version,
+				},
+				tls13Variant:  vers.tls13Variant,
+				flags:         []string{"-export-early-keying-material", "1024"},
+				shouldFail:    true,
+				expectedError: ":EARLY_DATA_NOT_IN_USE:",
+			})
+			testCases = append(testCases, testCase{
+				name: "NoExportEarlyKeyingMaterial-Client-Resume-" + vers.name,
+				config: Config{
+					MaxVersion: vers.version,
+				},
+				resumeSession: true,
+				tls13Variant:  vers.tls13Variant,
+				flags:         []string{"-on-resume-export-early-keying-material", "1024"},
+				shouldFail:    true,
+				expectedError: ":EARLY_DATA_NOT_IN_USE:",
+			})
+
+			// Test the early exporter does not work on the client
+			// after a 0-RTT reject.
+			testCases = append(testCases, testCase{
+				name: "NoExportEarlyKeyingMaterial-Client-EarlyDataReject-" + vers.name,
+				config: Config{
+					MaxVersion:       vers.version,
+					MaxEarlyDataSize: 16384,
+					Bugs: ProtocolBugs{
+						AlwaysRejectEarlyData: true,
+					},
+				},
+				resumeSession: true,
+				tls13Variant:  vers.tls13Variant,
+				flags: []string{
+					"-enable-early-data",
+					"-expect-ticket-supports-early-data",
+					"-expect-reject-early-data",
+					"-on-retry-export-early-keying-material", "1024",
+				},
+				shouldFail:    true,
+				expectedError: ":EARLY_DATA_NOT_IN_USE:",
+			})
+
+			// Test the normal exporter on the server in half-RTT.
+			testCases = append(testCases, testCase{
+				testType: serverTest,
+				name:     "ExportKeyingMaterial-Server-HalfRTT-" + vers.name,
+				config: Config{
+					MaxVersion: vers.version,
+					Bugs: ProtocolBugs{
+						SendEarlyData:           [][]byte{},
+						ExpectEarlyDataAccepted: true,
+					},
+				},
+				tls13Variant:         vers.tls13Variant,
+				resumeSession:        true,
+				exportKeyingMaterial: 1024,
+				exportLabel:          "label",
+				exportContext:        "context",
+				useExportContext:     true,
+				flags:                []string{"-enable-early-data"},
+			})
+
+			// Test the early exporter works on the server in half-RTT.
+			testCases = append(testCases, testCase{
+				testType: serverTest,
+				name:     "ExportEarlyKeyingMaterial-Server-HalfRTT-" + vers.name,
+				config: Config{
+					MaxVersion: vers.version,
+					Bugs: ProtocolBugs{
+						SendEarlyData:           [][]byte{},
+						ExpectEarlyDataAccepted: true,
+					},
+				},
+				tls13Variant:              vers.tls13Variant,
+				resumeSession:             true,
+				exportEarlyKeyingMaterial: 1024,
+				exportLabel:               "label",
+				exportContext:             "context",
+				flags:                     []string{"-enable-early-data"},
+			})
+
+			// Test the early exporter does not work on the server
+			// if 0-RTT was not offered.
+			testCases = append(testCases, testCase{
+				testType: serverTest,
+				name:     "NoExportEarlyKeyingMaterial-Server-Initial-" + vers.name,
+				config: Config{
+					MaxVersion: vers.version,
+				},
+				tls13Variant:  vers.tls13Variant,
+				flags:         []string{"-export-early-keying-material", "1024"},
+				shouldFail:    true,
+				expectedError: ":EARLY_DATA_NOT_IN_USE:",
+			})
+			testCases = append(testCases, testCase{
+				testType: serverTest,
+				name:     "NoExportEarlyKeyingMaterial-Server-Resume-" + vers.name,
+				config: Config{
+					MaxVersion: vers.version,
+				},
+				resumeSession: true,
+				tls13Variant:  vers.tls13Variant,
+				flags:         []string{"-on-resume-export-early-keying-material", "1024"},
+				shouldFail:    true,
+				expectedError: ":EARLY_DATA_NOT_IN_USE:",
+			})
+		} else {
+			// Test the early exporter fails before TLS 1.3.
+			testCases = append(testCases, testCase{
+				name: "NoExportEarlyKeyingMaterial-Client-" + vers.name,
+				config: Config{
+					MaxVersion: vers.version,
+				},
+				resumeSession:             true,
+				tls13Variant:              vers.tls13Variant,
+				exportEarlyKeyingMaterial: 1024,
+				exportLabel:               "label",
+				exportContext:             "context",
+				shouldFail:                true,
+				expectedError:             ":WRONG_SSL_VERSION:",
+			})
+			testCases = append(testCases, testCase{
+				testType: serverTest,
+				name:     "NoExportEarlyKeyingMaterial-Server-" + vers.name,
+				config: Config{
+					MaxVersion: vers.version,
+				},
+				resumeSession:             true,
+				tls13Variant:              vers.tls13Variant,
+				exportEarlyKeyingMaterial: 1024,
+				exportLabel:               "label",
+				exportContext:             "context",
+				shouldFail:                true,
+				expectedError:             ":WRONG_SSL_VERSION:",
+			})
+		}
 	}
 
 	testCases = append(testCases, testCase{
@@ -9364,11 +9672,11 @@ func addCustomExtensionTests() {
 	// custom extension should be accepted.
 	testCases = append(testCases, testCase{
 		testType: serverTest,
-		name:     "CustomExtensions-Server-EarlyDataAccepted",
+		name:     "CustomExtensions-Server-EarlyDataOffered",
 		config: Config{
-			MaxVersion:       VersionTLS13,
-			MaxEarlyDataSize: 16384,
+			MaxVersion: VersionTLS13,
 			Bugs: ProtocolBugs{
+				SendEarlyData:           [][]byte{{1, 2, 3, 4}},
 				CustomExtension:         expectedContents,
 				ExpectedCustomExtension: &expectedContents,
 				ExpectEarlyDataAccepted: false,
@@ -9378,7 +9686,6 @@ func addCustomExtensionTests() {
 		flags: []string{
 			"-enable-server-custom-extension",
 			"-enable-early-data",
-			"-expect-ticket-supports-early-data",
 		},
 	})
 
@@ -11017,6 +11324,23 @@ func addTLS13HandshakeTests() {
 			resumeSession: true,
 		})
 
+		// Test that the client correctly handles a TLS 1.3 ServerHello which echoes
+		// a TLS 1.2 session ID.
+		testCases = append(testCases, testCase{
+			testType: clientTest,
+			name:     "TLS12SessionID-" + name,
+			config: Config{
+				MaxVersion:             VersionTLS12,
+				SessionTicketsDisabled: true,
+			},
+			resumeConfig: &Config{
+				MaxVersion: VersionTLS13,
+			},
+			tls13Variant:         variant,
+			resumeSession:        true,
+			expectResumeRejected: true,
+		})
+
 		// Test that the server correctly echoes back session IDs of
 		// various lengths.
 		testCases = append(testCases, testCase{
@@ -11055,22 +11379,31 @@ func addTLS13HandshakeTests() {
 			tls13Variant: variant,
 		})
 
-		hasSessionID := false
-		if variant != TLS13Default {
-			hasSessionID = true
-		}
-
-		// Test that the client sends a fake session ID in the correct experiments.
+		// Test that the client sends a fake session ID in TLS 1.3.
 		testCases = append(testCases, testCase{
 			testType: clientTest,
 			name:     "TLS13SessionID-" + name,
 			config: Config{
 				MaxVersion: VersionTLS13,
 				Bugs: ProtocolBugs{
-					ExpectClientHelloSessionID: hasSessionID,
+					ExpectClientHelloSessionID: true,
 				},
 			},
 			tls13Variant: variant,
+		})
+
+		// Test that the client omits the fake session ID when the max version is TLS 1.2 and below.
+		testCases = append(testCases, testCase{
+			testType: clientTest,
+			name:     "TLS12NoSessionID-" + name,
+			config: Config{
+				MaxVersion: VersionTLS13,
+				Bugs: ProtocolBugs{
+					ExpectNoTLS12Session: true,
+				},
+			},
+			tls13Variant: variant,
+			flags:        []string{"-max-version", strconv.Itoa(VersionTLS12)},
 		})
 
 		testCases = append(testCases, testCase{
@@ -11370,7 +11703,7 @@ func addTLS13HandshakeTests() {
 			expectedError: ":WRONG_CURVE:",
 		})
 
-		if isDraft21(version.versionWire) {
+		if isDraft22(version.versionWire) {
 			testCases = append(testCases, testCase{
 				name: "HelloRetryRequest-CipherChange-" + name,
 				config: Config{
@@ -11657,7 +11990,7 @@ func addTLS13HandshakeTests() {
 			expectedError: ":DECODE_ERROR:",
 		})
 
-		if isDraft21(version.versionWire) {
+		if isDraft22(version.versionWire) {
 			testCases = append(testCases, testCase{
 				name: "UnknownExtensionInCertificateRequest-" + name,
 				config: Config{
@@ -12339,7 +12672,7 @@ func addTLS13HandshakeTests() {
 		})
 
 		expectedError := ":UNEXPECTED_RECORD:"
-		if isDraft21(version.versionWire) {
+		if isDraft22(version.versionWire) {
 			// In draft-21 and up, early data is expected to be
 			// terminated by a handshake message, though we test
 			// with the wrong one.
@@ -12419,12 +12752,10 @@ func addTLS13HandshakeTests() {
 			testType: serverTest,
 			name:     "EarlyData-Server-BadFinished-" + name,
 			config: Config{
-				MaxVersion:       VersionTLS13,
-				MaxEarlyDataSize: 16384,
+				MaxVersion: VersionTLS13,
 			},
 			resumeConfig: &Config{
-				MaxVersion:       VersionTLS13,
-				MaxEarlyDataSize: 16384,
+				MaxVersion: VersionTLS13,
 				Bugs: ProtocolBugs{
 					SendEarlyData:           [][]byte{{1, 2, 3, 4}},
 					ExpectEarlyDataAccepted: true,
@@ -12443,17 +12774,15 @@ func addTLS13HandshakeTests() {
 			expectedLocalError: "remote error: error decrypting message",
 		})
 
-		if isDraft21(version.versionWire) {
+		if isDraft22(version.versionWire) {
 			testCases = append(testCases, testCase{
 				testType: serverTest,
 				name:     "Server-NonEmptyEndOfEarlyData-" + name,
 				config: Config{
-					MaxVersion:       VersionTLS13,
-					MaxEarlyDataSize: 16384,
+					MaxVersion: VersionTLS13,
 				},
 				resumeConfig: &Config{
-					MaxVersion:       VersionTLS13,
-					MaxEarlyDataSize: 16384,
+					MaxVersion: VersionTLS13,
 					Bugs: ProtocolBugs{
 						SendEarlyData:           [][]byte{{1, 2, 3, 4}},
 						ExpectEarlyDataAccepted: true,

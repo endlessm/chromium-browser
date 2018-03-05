@@ -245,6 +245,14 @@ class GerritAccessor(object):
 
     return rev_info['commit']['message']
 
+  def GetDestRef(self, issue):
+    ref = self.GetChangeInfo(issue)['branch']
+    if not ref.startswith('refs/'):
+      # NOTE: it is possible to create 'refs/x' branch,
+      # aka 'refs/heads/refs/x'. However, this is ill-advised.
+      ref = 'refs/heads/%s' % ref
+    return ref
+
   def GetChangeOwner(self, issue):
     return self.GetChangeInfo(issue)['owner']['email']
 
@@ -1038,7 +1046,8 @@ class GitChange(Change):
     """List all files under source control in the repo."""
     root = root or self.RepositoryRoot()
     return subprocess.check_output(
-        ['git', 'ls-files', '--', '.'], cwd=root).splitlines()
+        ['git', '-c', 'core.quotePath=false', 'ls-files', '--', '.'],
+        cwd=root).splitlines()
 
 
 def ListRelevantPresubmitFiles(files, root):

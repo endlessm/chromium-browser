@@ -17,16 +17,28 @@
 
 #include <functional>
 #include <list>
+#include <map>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "spirv-tools/libspirv.h"
-#include "spirv/1.1/spirv.h"
+#include "spirv/1.2/spirv.h"
 #include "val/basic_block.h"
 #include "val/construct.h"
 
 namespace libspirv {
+
+struct bb_constr_type_pair_hash {
+  std::size_t operator()(
+      const std::pair<const BasicBlock*, ConstructType>& p) const {
+    auto h1 = std::hash<const BasicBlock*>{}(p.first);
+    auto h2 = std::hash<std::underlying_type<ConstructType>::type>{}(
+        static_cast<std::underlying_type<ConstructType>::type>(p.second));
+    return (h1 ^ h2);
+  }
+};
 
 enum class FunctionDecl {
   kFunctionDeclUnknown,      /// < Unknown function declaration
@@ -123,8 +135,11 @@ class Function {
   /// Returns the number of blocks in the current function being parsed
   size_t block_count() const;
 
-  /// Returns the id of the funciton
+  /// Returns the id of the function
   uint32_t id() const { return id_; }
+
+  /// Returns return type id of the function
+  uint32_t GetResultTypeId() const { return result_type_id_; }
 
   /// Returns the number of blocks in the current function being parsed
   size_t undefined_block_count() const;
@@ -170,15 +185,46 @@ class Function {
   GetBlocksFunction AugmentedCFGSuccessorsFunction() const;
   /// Like AugmentedCFGSuccessorsFunction, but also includes a forward edge from
   /// a loop header block to its continue target, if they are different blocks.
-  GetBlocksFunction AugmentedCFGSuccessorsFunctionIncludingHeaderToContinueEdge() const;
+  GetBlocksFunction
+  AugmentedCFGSuccessorsFunctionIncludingHeaderToContinueEdge() const;
   /// Returns the block predecessors function for the augmented CFG.
   GetBlocksFunction AugmentedCFGPredecessorsFunction() const;
+
+  /// Returns the control flow nesting depth of the given basic block.
+  /// This function only works when you have structured control flow.
+  /// This function should only be called after the control flow constructs have
+  /// been identified and dominators have been computed.
+  int GetBlockDepth(BasicBlock* bb);
 
   /// Prints a GraphViz digraph of the CFG of the current funciton
   void PrintDotGraph() const;
 
   /// Prints a directed graph of the CFG of the current funciton
   void PrintBlocks() const;
+
+  /// Registers execution model limitation such as "Feature X is only available
+  /// with Execution Model Y". Only the first message per model type is
+  /// registered.
+  void RegisterExecutionModelLimitation(SpvExecutionModel model,
+                                        const std::string& message) {
+    execution_model_limitations_.emplace(model, message);
+  }
+
+  /// Returns true if the given execution model passes the limitations stored in
+  /// execution_model_limitations_. Returns false otherwise and fills optional
+  /// |reason| parameter.
+  bool IsCompatibleWithExecutionModel(SpvExecutionModel model,
+                                      std::string* reason = nullptr) const;
+
+  // Inserts id to the set of functions called from this function.
+  void AddFunctionCallTarget(uint32_t call_target_id) {
+    function_call_targets_.insert(call_target_id);
+  }
+
+  // Returns a set with ids of all functions called from this function.
+  const std::set<uint32_t> function_call_targets() const {
+    return function_call_targets_;
+  }
 
  private:
   // Computes the representation of the augmented CFG.
@@ -191,7 +237,8 @@ class Function {
 
   // Returns a reference to the construct corresponding to the given entry
   // block.
-  Construct& FindConstructForEntryBlock(const BasicBlock* entry_block);
+  Construct& FindConstructForEntryBlock(const BasicBlock* entry_block,
+                                        ConstructType t);
 
   /// The result id of the OpLabel that defined this block
   uint32_t id_;
@@ -276,10 +323,29 @@ class Function {
   /// The function parameter ids of the functions
   std::vector<uint32_t> parameter_ids_;
 
-  /// Maps a construct's entry block to the construct.
-  std::unordered_map<const BasicBlock*, Construct*> entry_block_to_construct_;
+  /// Maps a construct's entry block to the construct(s).
+  /// Since a basic block may be the entry block of different types of
+  /// constructs, the type of the construct should also be specified in order to
+  /// get the unique construct.
+  std::unordered_map<std::pair<const BasicBlock*, ConstructType>, Construct*,
+                     libspirv::bb_constr_type_pair_hash>
+      entry_block_to_construct_;
+
+  /// This map provides the header block for a given merge block.
+  std::unordered_map<BasicBlock*, BasicBlock*> merge_block_header_;
+
+  /// Stores the control flow nesting depth of a given basic block
+  std::unordered_map<BasicBlock*, int> block_depth_;
+
+  /// Stores execution model limitations imposed by instructions used within the
+  /// function. The string contains message explaining why the limitation was
+  /// imposed.
+  std::map<SpvExecutionModel, std::string> execution_model_limitations_;
+
+  /// Stores ids of all functions called from this function.
+  std::set<uint32_t> function_call_targets_;
 };
 
-}  /// namespace libspirv
+}  // namespace libspirv
 
 #endif  /// LIBSPIRV_VAL_FUNCTION_H_

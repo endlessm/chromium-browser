@@ -67,7 +67,7 @@
 #include "url/origin.h"
 
 #if defined(OS_WIN)
-#include "content/common/font_cache_dispatcher_win.h"
+#include "content/public/common/font_cache_dispatcher_win.h"
 #endif
 
 #if defined(OS_POSIX)
@@ -88,9 +88,7 @@ using blink::mojom::CacheStorageError;
 namespace content {
 namespace {
 
-const uint32_t kRenderFilteredMessageClasses[] = {
-    ChildProcessMsgStart, ViewMsgStart,
-};
+const uint32_t kRenderFilteredMessageClasses[] = {ViewMsgStart};
 
 #if defined(OS_MACOSX)
 void ResizeHelperHandleMsgOnUIThread(int render_process_id,

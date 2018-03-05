@@ -21,11 +21,8 @@ tr.exportTo('tr.metrics.sh', function() {
     if (!chromeHelper) return;
     for (const helper of chromeHelper.browserHelpers) {
       for (const ev of helper.mainThread.asyncSliceGroup.childEvents()) {
-        // This messageloop start time does not include the time to initialize
-        // the native library. TODO(pasko): Improve the metric by covering the
-        // earlier parts of browser initialization.
         if (ev.title ===
-            'Startup.BrowserMessageLoopStartTimeFromMainEntry2') {
+            'Startup.BrowserMessageLoopStartTimeFromMainEntry3') {
           messageLoopStartHistogram.addSample(ev.duration,
               { events: new tr.v.d.RelatedEventSet([ev]) });
         }

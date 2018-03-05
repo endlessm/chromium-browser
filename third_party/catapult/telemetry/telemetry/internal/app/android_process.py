@@ -4,7 +4,6 @@
 
 from telemetry.internal.backends.chrome_inspector import devtools_client_backend
 from telemetry.internal.browser import web_contents
-from telemetry.internal import forwarders
 
 
 class WebViewNotFoundException(Exception):
@@ -18,7 +17,7 @@ class AndroidProcess(object):
     self._app_backend = app_backend
     self._pid = pid
     self._name = name
-    # TODO(#1977): Move forwarder to network_controller.
+    # TODO(crbug.com/799415): Move forwarder into DevToolsClientBackend
     self._forwarder = None
     self._devtools_client = None
 
@@ -44,13 +43,13 @@ class AndroidProcess(object):
     if self._devtools_client is None:
       platform_backend = self._app_backend.platform_backend
       self._forwarder = platform_backend.forwarder_factory.Create(
-          forwarders.PortPair(0, self._remote_devtools_port), reverse=True)
-      devtools_port = self._forwarder.port_pair.local_port
-      if devtools_client_backend.IsDevToolsAgentAvailable(
-          devtools_port, None, self._app_backend):
-        self._devtools_client = devtools_client_backend.DevToolsClientBackend(
-            devtools_port, None, self._remote_devtools_port,
-            self._app_backend)
+          local_port=0, remote_port=self._remote_devtools_port, reverse=True)
+      devtools_config = devtools_client_backend.DevToolsClientConfig(
+          local_port=self._forwarder.local_port,
+          remote_port=self._forwarder.remote_port,
+          app_backend=self._app_backend)
+      if devtools_config.IsAgentReady():
+        self._devtools_client = devtools_config.Create()
 
   def GetWebViews(self):
     webviews = []

@@ -20,8 +20,8 @@
 
 namespace libspirv {
 
-enum class ConstructType {
-  kNone,
+enum class ConstructType : int {
+  kNone = 0,
   /// The set of blocks dominated by a selection header, minus the set of blocks
   /// dominated by the header's merge block
   kSelection,
@@ -85,6 +85,12 @@ class Construct {
   /// constructs which do not know the back-edge block during construction
   void set_exit(BasicBlock* exit_block);
 
+  // Returns whether the exit block of this construct is the merge block
+  // for an OpLoopMerge or OpSelectionMerge
+  bool ExitBlockIsMergeBlock() const {
+    return type_ == ConstructType::kLoop || type_ == ConstructType::kSelection;
+  }
+
  private:
   /// The type of the construct
   ConstructType type_;
@@ -121,6 +127,6 @@ class Construct {
   BasicBlock* exit_block_;
 };
 
-}  /// namespace libspirv
+}  // namespace libspirv
 
 #endif  /// LIBSPIRV_VAL_CONSTRUCT_H_

@@ -479,6 +479,10 @@ class CBuildBotTest(ChromeosConfigTestBase):
         self.assertTrue(
             vm_test.test_type in constants.VALID_VM_TEST_TYPES,
             'Config %s: has unexpected vm test type value.' % build_name)
+        if vm_test.test_type == constants.VM_SUITE_TEST_TYPE:
+          self.assertTrue(
+              vm_test.test_suite is not None,
+              'Config %s: has unexpected vm test suite value.' % build_name)
 
   def testValidGCETestType(self):
     """Verify gce_tests has an expected value"""
@@ -487,8 +491,11 @@ class CBuildBotTest(ChromeosConfigTestBase):
         continue
       for gce_test in config['gce_tests']:
         self.assertTrue(
-            gce_test.test_type in constants.VALID_GCE_TEST_TYPES,
+            gce_test.test_type == constants.GCE_SUITE_TEST_TYPE,
             'Config %s: has unexpected gce test type value.' % build_name)
+        self.assertTrue(
+            gce_test.test_suite in constants.VALID_GCE_TEST_SUITES,
+            'Config %s: has unexpected gce test suite value.' % build_name)
 
   def testImageTestMustHaveBaseImage(self):
     """Verify image_test build is only enabled with 'base' in images."""
@@ -862,22 +869,6 @@ class CBuildBotTest(ChromeosConfigTestBase):
 
     return False
 
-  def testNonOverlappingConfigTypes(self):
-    """Test that a config can only match one build suffix."""
-    # This test belongs in config_lib_unittest, except nobody else cares.
-    for config_type in config_lib.CONFIG_TYPE_DUMP_ORDER:
-      trimmed_configs = list(config_lib.CONFIG_TYPE_DUMP_ORDER)
-      trimmed_configs.remove(config_type)
-      self.assertFalse(self._HasValidSuffix(config_type, trimmed_configs))
-
-  def testConfigTypesComplete(self):
-    """Verify CONFIG_TYPE_DUMP_ORDER contains all valid config types."""
-    for config_name in self.site_config:
-      self.assertTrue(
-          self._HasValidSuffix(config_name, config_lib.CONFIG_TYPE_DUMP_ORDER),
-          '%s did not match any types in %s' %
-          (config_name, 'config_lib.CONFIG_TYPE_DUMP_ORDER'))
-
   def testCantBeBothTypesOfLKGM(self):
     """Using lkgm and chrome_lkgm doesn't make sense."""
     for config in self.site_config.values():
@@ -1127,7 +1118,8 @@ class OverrideForTrybotTest(ChromeosConfigTestBase):
     old = self.site_config['betty-paladin']
     new = config_lib.OverrideConfigForTrybot(old, mock_options)
     self.assertEquals(new['vm_tests'], [
-        config_lib.VMTestConfig(constants.SMOKE_SUITE_TEST_TYPE),
+        config_lib.VMTestConfig(constants.VM_SUITE_TEST_TYPE,
+                                test_suite='smoke'),
         config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE),
         config_lib.VMTestConfig(constants.CROS_VM_TEST_TYPE)])
 

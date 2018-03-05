@@ -81,6 +81,24 @@ class UptrVectorIterator
   inline typename std::enable_if<!IsConstForMethod, UptrVectorIterator>::type
   InsertBefore(Uptr value);
 
+  // Inserts the given |valueVector| to the position pointed to by this iterator
+  // and returns an iterator to the first newly inserted value.
+  // If the underlying vector changes capacity, all previous iterators will be
+  // invalidated. Otherwise, those previous iterators pointing to after the
+  // insertion point will be invalidated.
+  template <bool IsConstForMethod = IsConst>
+  inline typename std::enable_if<!IsConstForMethod, UptrVectorIterator>::type
+  InsertBefore(UptrVector* valueVector);
+
+  // Erases the value at the position pointed to by this iterator
+  // and returns an iterator to the following value.
+  // If the underlying vector changes capacity, all previous iterators will be
+  // invalidated. Otherwise, those previous iterators pointing to after the
+  // erasure point will be invalidated.
+  template <bool IsConstForMethod = IsConst>
+  inline typename std::enable_if<!IsConstForMethod, UptrVectorIterator>::type
+  Erase();
+
  private:
   UptrVector* container_;        // The container we are manipulating.
   UnderlyingIterator iterator_;  // The raw iterator from the container.
@@ -90,7 +108,10 @@ class UptrVectorIterator
 template <typename IteratorType>
 class IteratorRange {
  public:
-  IteratorRange(IteratorType b, IteratorType e) : begin_(b), end_(e) {}
+  IteratorRange(const IteratorType& b, const IteratorType& e)
+      : begin_(b), end_(e) {}
+  IteratorRange(IteratorType&& b, IteratorType&& e)
+      : begin_(std::move(b)), end_(std::move(e)) {}
 
   IteratorType begin() const { return begin_; }
   IteratorType end() const { return end_; }
@@ -102,6 +123,22 @@ class IteratorRange {
   IteratorType begin_;
   IteratorType end_;
 };
+
+// Returns a (begin, end) iterator pair for the given iterators.
+// The iterators must belong to the same container.
+template <typename IteratorType>
+inline IteratorRange<IteratorType> make_range(const IteratorType& begin,
+                                              const IteratorType& end) {
+  return {begin, end};
+}
+
+// Returns a (begin, end) iterator pair for the given iterators.
+// The iterators must belong to the same container.
+template <typename IteratorType>
+inline IteratorRange<IteratorType> make_range(IteratorType&& begin,
+                                              IteratorType&& end) {
+  return {std::move(begin), std::move(end)};
+}
 
 // Returns a (begin, end) iterator pair for the given container.
 template <typename ValueType,
@@ -180,6 +217,30 @@ inline
     UptrVectorIterator<VT, IC>::InsertBefore(Uptr value) {
   auto index = iterator_ - container_->begin();
   container_->insert(iterator_, std::move(value));
+  return UptrVectorIterator(container_, container_->begin() + index);
+}
+
+template <typename VT, bool IC>
+template <bool IsConstForMethod>
+inline
+    typename std::enable_if<!IsConstForMethod, UptrVectorIterator<VT, IC>>::type
+    UptrVectorIterator<VT, IC>::InsertBefore(UptrVector* values) {
+  const auto pos = iterator_ - container_->begin();
+  const auto origsz = container_->size();
+  container_->resize(origsz + values->size());
+  std::move_backward(container_->begin() + pos, container_->begin() + origsz,
+                     container_->end());
+  std::move(values->begin(), values->end(), container_->begin() + pos);
+  return UptrVectorIterator(container_, container_->begin() + pos);
+}
+
+template <typename VT, bool IC>
+template <bool IsConstForMethod>
+inline
+    typename std::enable_if<!IsConstForMethod, UptrVectorIterator<VT, IC>>::type
+    UptrVectorIterator<VT, IC>::Erase() {
+  auto index = iterator_ - container_->begin();
+  (void)container_->erase(iterator_);
   return UptrVectorIterator(container_, container_->begin() + index);
 }
 

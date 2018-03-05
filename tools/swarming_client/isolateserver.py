@@ -152,7 +152,8 @@ def fileobj_path(fileobj):
   # the standard library). We want all our paths to be unicode objects, so we
   # decode it.
   if not isinstance(name, unicode):
-    name = name.decode(sys.getfilesystemencoding())
+    # We incorrectly assume that UTF-8 is used everywhere.
+    name = name.decode('utf-8')
 
   # fs.exists requires an absolute path, otherwise it will fail with an
   # assertion error.
@@ -1162,37 +1163,38 @@ class DiskCache(LocalCache):
     At that point, the cache was already loaded, trimmed to respect cache
     policies.
     """
-    fs.chmod(self.cache_dir, 0700)
-    # Ensure that all files listed in the state still exist and add new ones.
-    previous = self._lru.keys_set()
-    # It'd be faster if there were a readdir() function.
-    for filename in fs.listdir(self.cache_dir):
-      if filename == self.STATE_FILE:
-        fs.chmod(os.path.join(self.cache_dir, filename), 0600)
-        continue
-      if filename in previous:
-        fs.chmod(os.path.join(self.cache_dir, filename), 0400)
-        previous.remove(filename)
+    with self._lock:
+      fs.chmod(self.cache_dir, 0700)
+      # Ensure that all files listed in the state still exist and add new ones.
+      previous = self._lru.keys_set()
+      # It'd be faster if there were a readdir() function.
+      for filename in fs.listdir(self.cache_dir):
+        if filename == self.STATE_FILE:
+          fs.chmod(os.path.join(self.cache_dir, filename), 0600)
+          continue
+        if filename in previous:
+          fs.chmod(os.path.join(self.cache_dir, filename), 0400)
+          previous.remove(filename)
+          continue
+
+        # An untracked file. Delete it.
+        logging.warning('Removing unknown file %s from cache', filename)
+        p = self._path(filename)
+        if fs.isdir(p):
+          try:
+            file_path.rmtree(p)
+          except OSError:
+            pass
+        else:
+          file_path.try_remove(p)
         continue
 
-      # An untracked file. Delete it.
-      logging.warning('Removing unknown file %s from cache', filename)
-      p = self._path(filename)
-      if fs.isdir(p):
-        try:
-          file_path.rmtree(p)
-        except OSError:
-          pass
-      else:
-        file_path.try_remove(p)
-      continue
-
-    if previous:
-      # Filter out entries that were not found.
-      logging.warning('Removed %d lost files', len(previous))
-      for filename in previous:
-        self._lru.pop(filename)
-      self._save()
+      if previous:
+        # Filter out entries that were not found.
+        logging.warning('Removed %d lost files', len(previous))
+        for filename in previous:
+          self._lru.pop(filename)
+        self._save()
 
     # What remains to be done is to hash every single item to
     # detect corruption, then save to ensure state.json is up to date.
@@ -1697,8 +1699,8 @@ def fetch_isolated(isolated_hash, storage, cache, outdir, use_symlinks):
 
               elif filetype == 'tar':
                 basedir = os.path.dirname(fullpath)
-                with tarfile.TarFile(fileobj=srcfileobj) as extractor:
-                  for ti in extractor:
+                with tarfile.TarFile(fileobj=srcfileobj, encoding='utf-8') as t:
+                  for ti in t:
                     if not ti.isfile():
                       logging.warning(
                           'Path(%r) is nonfile (%s), skipped',
@@ -1709,7 +1711,7 @@ def fetch_isolated(isolated_hash, storage, cache, outdir, use_symlinks):
                       logging.error(
                           'Path(%r) is outside root directory',
                           fp)
-                    ifd = extractor.extractfile(ti)
+                    ifd = t.extractfile(ti)
                     file_path.ensure_tree(os.path.dirname(fp))
                     putfile(ifd, fp, 0700, ti.size)
 
@@ -1736,7 +1738,7 @@ def directory_to_metadata(root, algo, blacklist):
   """Returns the FileItem list and .isolated metadata for a directory."""
   root = file_path.get_native_path_case(root)
   paths = isolated_format.expand_directory_and_symlink(
-      root, '.' + os.path.sep, blacklist, sys.platform != 'win32')
+      root, u'.' + os.path.sep, blacklist, sys.platform != 'win32')
   metadata = {
     relpath: isolated_format.file_to_metadata(
         os.path.join(root, relpath), {}, 0, algo, False)

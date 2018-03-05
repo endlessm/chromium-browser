@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import contextlib
 import logging
 import optparse
 import os
@@ -11,6 +12,7 @@ import time
 import py_utils
 from py_utils import cloud_storage  # pylint: disable=import-error
 from py_utils import memory_debug  # pylint: disable=import-error
+from py_utils import logging_util  # pylint: disable=import-error
 
 from telemetry.core import exceptions
 from telemetry import decorators
@@ -27,6 +29,7 @@ from telemetry.value import skip
 from telemetry.value import scalar
 from telemetry.web_perf import story_test
 from tracing.value import histogram
+from tracing.value.diagnostics import generic_set
 from tracing.value.diagnostics import reserved_infos
 
 
@@ -86,59 +89,77 @@ def _GenerateTagMapFromStorySet(stories):
   return tagmap
 
 
+@contextlib.contextmanager
+def CaptureLogsAsArtifacts(results, test_name):
+  with results.CreateArtifact(test_name, 'logs') as log_file:
+    with logging_util.CaptureLogs(log_file):
+      yield
+
+
 def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
-  def ProcessError(description=None):
+  def ProcessError(exc=None, description=None):
     state.DumpStateUponFailure(story, results)
+
+    # Dump app crash, if present
+    if exc:
+      if isinstance(exc, exceptions.AppCrashException):
+        minidump_path = exc.minidump_path
+        if minidump_path:
+          results.AddArtifact(story.name, 'minidump', minidump_path)
+
     # Note: adding the FailureValue to the results object also normally
     # cause the progress_reporter to log it in the output.
     results.AddValue(failure.FailureValue(story, sys.exc_info(), description))
-  try:
-    if isinstance(test, story_test.StoryTest):
-      test.WillRunStory(state.platform)
-    state.WillRunStory(story)
-    if not state.CanRunStory(story):
-      results.AddValue(skip.SkipValue(
-          story,
-          'Skipped because story is not supported '
-          '(SharedState.CanRunStory() returns False).'))
-      return
-    state.RunStory(results)
-    if isinstance(test, story_test.StoryTest):
-      test.Measure(state.platform, results)
-  except (legacy_page_test.Failure, exceptions.TimeoutException,
-          exceptions.LoginException, exceptions.ProfilingException,
-          py_utils.TimeoutException):
-    ProcessError()
-  except exceptions.Error:
-    ProcessError()
-    raise
-  except page_action.PageActionNotSupported as e:
-    results.AddValue(
-        skip.SkipValue(story, 'Unsupported page action: %s' % e))
-  except Exception:
-    ProcessError(description='Unhandlable exception raised.')
-    raise
-  finally:
-    has_existing_exception = (sys.exc_info() != (None, None, None))
+
+  with CaptureLogsAsArtifacts(results, story.name):
     try:
-      # We attempt to stop tracing and/or metric collecting before possibly
-      # closing the browser. Closing the browser first and stopping tracing
-      # later appeared to cause issues where subsequent browser instances would
-      # not launch correctly on some devices (see: crbug.com/720317).
-      # The following normally cause tracing and/or metric collecting to stop.
       if isinstance(test, story_test.StoryTest):
-        test.DidRunStory(state.platform, results)
-      else:
-        test.DidRunPage(state.platform)
-      # And the following normally causes the browser to be closed.
-      state.DidRunStory(results)
-    except Exception: # pylint: disable=broad-except
-      if not has_existing_exception:
-        state.DumpStateUponFailure(story, results)
-        raise
-      # Print current exception and propagate existing exception.
-      exception_formatter.PrintFormattedException(
-          msg='Exception raised when cleaning story run: ')
+        test.WillRunStory(state.platform)
+      state.WillRunStory(story)
+
+      if not state.CanRunStory(story):
+        results.AddValue(skip.SkipValue(
+            story,
+            'Skipped because story is not supported '
+            '(SharedState.CanRunStory() returns False).'))
+        return
+      state.RunStory(results)
+      if isinstance(test, story_test.StoryTest):
+        test.Measure(state.platform, results)
+    except (legacy_page_test.Failure, exceptions.TimeoutException,
+            exceptions.LoginException, exceptions.ProfilingException,
+            py_utils.TimeoutException) as exc:
+      ProcessError(exc)
+    except exceptions.Error as exc:
+      ProcessError(exc)
+      raise
+    except page_action.PageActionNotSupported as exc:
+      results.AddValue(
+          skip.SkipValue(story, 'Unsupported page action: %s' % exc))
+    except Exception:
+      ProcessError(description='Unhandlable exception raised.')
+      raise
+    finally:
+      has_existing_exception = (sys.exc_info() != (None, None, None))
+      try:
+        # We attempt to stop tracing and/or metric collecting before possibly
+        # closing the browser. Closing the browser first and stopping tracing
+        # later appeared to cause issues where subsequent browser instances
+        # would not launch correctly on some devices (see: crbug.com/720317).
+        # The following normally cause tracing and/or metric collecting to stop.
+        if isinstance(test, story_test.StoryTest):
+          test.DidRunStory(state.platform, results)
+        else:
+          test.DidRunPage(state.platform)
+        # And the following normally causes the browser to be closed.
+        state.DidRunStory(results)
+      except Exception: # pylint: disable=broad-except
+        if not has_existing_exception:
+          state.DumpStateUponFailure(story, results)
+          raise
+        # Print current exception and propagate existing exception.
+        exception_formatter.PrintFormattedException(
+            msg='Exception raised when cleaning story run: ')
 
 
 def Run(test, story_set, finder_options, results, max_failures=None,
@@ -269,16 +290,14 @@ def RunBenchmark(benchmark, finder_options):
   """Run this test with the given options.
 
   Returns:
-    The number of failure values (up to 254) or 255 if there is an uncaught
-    exception.
+    1 if there is failure or 2 if there is an uncaught exception.
   """
   start = time.time()
   benchmark.CustomizeBrowserOptions(finder_options.browser_options)
 
   benchmark_metadata = benchmark.GetMetadata()
   possible_browser = browser_finder.FindBrowser(finder_options)
-  expectations = benchmark.InitializeExpectations()
-
+  expectations = benchmark.expectations
   if not possible_browser:
     print ('Cannot find browser of type %s. To list out all '
            'available browsers, rerun your command with '
@@ -337,14 +356,14 @@ def RunBenchmark(benchmark, finder_options):
       Run(pt, stories, finder_options, results, benchmark.max_failures,
           expectations=expectations, metadata=benchmark.GetMetadata(),
           max_num_values=benchmark.MAX_NUM_VALUES)
-      return_code = min(254, len(results.failures))
+      return_code = 1 if results.failures else 0
       # We want to make sure that all expectations are linked to real stories,
       # this will log error messages if names do not match what is in the set.
       benchmark.GetBrokenExpectations(stories)
     except Exception: # pylint: disable=broad-except
       results.telemetry_info.InterruptBenchmark()
       exception_formatter.PrintFormattedException()
-      return_code = 255
+      return_code = 2
 
     benchmark_owners = benchmark.GetOwners()
     benchmark_component = benchmark.GetBugComponents()
@@ -361,10 +380,15 @@ def RunBenchmark(benchmark, finder_options):
       if finder_options.upload_results:
         results.UploadTraceFilesToCloud()
         results.UploadProfilingFilesToCloud()
+        results.UploadArtifactsToCloud()
     finally:
       duration = time.time() - start
       results.AddSummaryValue(scalar.ScalarValue(
           None, 'benchmark_duration', 'minutes', duration / 60.0))
+      hist = histogram.Histogram(
+          'benchmark_total_duration', 'ms_smallerIsBetter')
+      hist.AddSample(duration * 1000.0)
+      results.histograms.AddHistogram(hist)
       memory_debug.LogHostMemoryUsage()
       results.PrintSummary()
   return return_code
@@ -473,5 +497,5 @@ def _MakeDeviceInfoDiagnostics(state):
   for name, value in device_info_data.iteritems():
     if not value:
       continue
-    device_info_diangostics[name] = histogram.GenericSet([value])
+    device_info_diangostics[name] = generic_set.GenericSet([value])
   return device_info_diangostics

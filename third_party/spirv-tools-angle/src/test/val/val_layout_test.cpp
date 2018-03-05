@@ -28,15 +28,16 @@ using std::function;
 using std::ostream;
 using std::ostream_iterator;
 using std::pair;
-using std::stringstream;
 using std::string;
+using std::stringstream;
 using std::tie;
 using std::tuple;
 using std::vector;
 
-using ::testing::StrEq;
-
 using libspirv::spvResultToString;
+using ::testing::Eq;
+using ::testing::HasSubstr;
+using ::testing::StrEq;
 
 using pred_type = function<spv_result_t(int)>;
 using ValidateLayout =
@@ -107,13 +108,15 @@ const vector<string>& getInstructions() {
     "OpLine %str 3 4",
     "OpNoLine",
     "%func     = OpFunction %voidt None %vfunct",
-    "OpFunctionEnd",
+    "%l = OpLabel",
+    "OpReturn ; %func return",
+    "OpFunctionEnd ; %func end",
     "%func2    = OpFunction %voidt None %viifunct",
     "%funcp1   = OpFunctionParameter %intt",
     "%funcp2   = OpFunctionParameter %intt",
     "%fLabel   = OpLabel",
-    "            OpNop",
-    "            OpReturn",
+    "OpNop",
+    "OpReturn ; %func2 return",
     "OpFunctionEnd"
   };
   return instructions;
@@ -151,16 +154,16 @@ INSTANTIATE_TEST_CASE_P(InstructionsOrder,
                      , make_tuple(string("OpTypeVoid")                , Range<17, 30>()        , Range<0, 25>())
                      , make_tuple(string("OpTypeFloat")               , Range<17, 30>()        , Range<0,20>())
                      , make_tuple(string("OpTypeInt")                 , Range<17, 30>()        , Range<0, 20>())
-                     , make_tuple(string("OpTypeVector %floatt 4")      , Range<17, 30>()        , Range<19, 23>())
+                     , make_tuple(string("OpTypeVector %floatt 4")    , Range<17, 30>()        , Range<19, 23>())
                      , make_tuple(string("OpTypeMatrix %vec4 4")      , Range<17, 30>()        , Range<22, kRangeEnd>())
                      , make_tuple(string("OpTypeStruct")              , Range<17, 30>()        , Range<24, kRangeEnd>())
                      , make_tuple(string("%vfunct   = OpTypeFunction"), Range<17, 30>()        , Range<20, 30>())
                      , make_tuple(string("OpConstant")                , Range<17, 30>()        , Range<20, kRangeEnd>())
                      , make_tuple(string("OpLine ")                   , Range<17, kRangeEnd>() , Range<7, kRangeEnd>())
                      , make_tuple(string("OpNoLine")                  , Range<17, kRangeEnd>() , All)
-                     , make_tuple(string("OpLabel")                   , Equals<36>             , All)
-                     , make_tuple(string("OpNop")                     , Equals<37>             , All)
-                     , make_tuple(string("OpReturn")                  , Equals<38>             , All)
+                     , make_tuple(string("%fLabel   = OpLabel")       , Equals<38>             , All)
+                     , make_tuple(string("OpNop")                     , Equals<39>             , Range<39,kRangeEnd>())
+                     , make_tuple(string("OpReturn ; %func2 return")  , Equals<40>             , All)
     )),);
 // clang-format on
 
@@ -225,6 +228,10 @@ TEST_F(ValidateLayout, MemoryModelMissing) {
 
   CompileSuccessfully(str);
   ASSERT_EQ(SPV_ERROR_INVALID_LAYOUT, ValidateInstructions());
+  EXPECT_THAT(
+      getDiagnosticString(),
+      HasSubstr(
+          "EntryPoint cannot appear before the memory model instruction"));
 }
 
 TEST_F(ValidateLayout, FunctionDefinitionBeforeDeclarationBad) {
@@ -249,6 +256,10 @@ TEST_F(ValidateLayout, FunctionDefinitionBeforeDeclarationBad) {
 
   CompileSuccessfully(str);
   ASSERT_EQ(SPV_ERROR_INVALID_LAYOUT, ValidateInstructions());
+  EXPECT_THAT(
+      getDiagnosticString(),
+      HasSubstr(
+          "Function declarations must appear before function definitions."));
 }
 
 // TODO(umar): Passes but gives incorrect error message. Should be fixed after
@@ -273,6 +284,9 @@ TEST_F(ValidateLayout, LabelBeforeFunctionParameterBad) {
 
   CompileSuccessfully(str);
   ASSERT_EQ(SPV_ERROR_INVALID_LAYOUT, ValidateInstructions());
+  EXPECT_THAT(getDiagnosticString(),
+              HasSubstr("Function parameters must only appear immediately "
+                        "after the function definition"));
 }
 
 TEST_F(ValidateLayout, FuncParameterNotImmediatlyAfterFuncBad) {
@@ -298,11 +312,15 @@ TEST_F(ValidateLayout, FuncParameterNotImmediatlyAfterFuncBad) {
 
   CompileSuccessfully(str);
   ASSERT_EQ(SPV_ERROR_INVALID_LAYOUT, ValidateInstructions());
+  EXPECT_THAT(getDiagnosticString(),
+              HasSubstr("Function parameters must only appear immediately "
+                        "after the function definition"));
 }
 
 TEST_F(ValidateLayout, OpUndefCanAppearInTypeDeclarationSection) {
   string str = R"(
          OpCapability Kernel
+         OpCapability Linkage
          OpMemoryModel Logical OpenCL
 %voidt = OpTypeVoid
 %uintt = OpTypeInt 32 0
@@ -321,6 +339,7 @@ TEST_F(ValidateLayout, OpUndefCanAppearInTypeDeclarationSection) {
 TEST_F(ValidateLayout, OpUndefCanAppearInBlock) {
   string str = R"(
          OpCapability Kernel
+         OpCapability Linkage
          OpMemoryModel Logical OpenCL
 %voidt = OpTypeVoid
 %uintt = OpTypeInt 32 0
@@ -339,6 +358,7 @@ TEST_F(ValidateLayout, OpUndefCanAppearInBlock) {
 TEST_F(ValidateLayout, MissingFunctionEndForFunctionWithBody) {
   const auto s = R"(
 OpCapability Shader
+OpCapability Linkage
 OpMemoryModel Logical GLSL450
 %void = OpTypeVoid
 %tf = OpTypeFunction %void
@@ -356,6 +376,7 @@ OpReturn
 TEST_F(ValidateLayout, MissingFunctionEndForFunctionPrototype) {
   const auto s = R"(
 OpCapability Shader
+OpCapability Linkage
 OpMemoryModel Logical GLSL450
 %void = OpTypeVoid
 %tf = OpTypeFunction %void
@@ -373,6 +394,7 @@ using ValidateOpFunctionParameter = spvtest::ValidateBase<int>;
 TEST_F(ValidateOpFunctionParameter, OpLineBetweenParameters) {
   const auto s = R"(
 OpCapability Shader
+OpCapability Linkage
 OpMemoryModel Logical GLSL450
 %foo_frag = OpString "foo.frag"
 %i32 = OpTypeInt 32 1
@@ -394,6 +416,7 @@ OpFunctionEnd
 TEST_F(ValidateOpFunctionParameter, TooManyParameters) {
   const auto s = R"(
 OpCapability Shader
+OpCapability Linkage
 OpMemoryModel Logical GLSL450
 %i32 = OpTypeInt 32 1
 %tf = OpTypeFunction %i32 %i32 %i32
@@ -413,5 +436,177 @@ OpFunctionEnd
   CompileSuccessfully(s);
   ASSERT_EQ(SPV_ERROR_INVALID_ID, ValidateInstructions());
 }
-// TODO(umar): Test optional instructions
+
+using ValidateEntryPoint = spvtest::ValidateBase<bool>;
+
+// Tests that not having OpEntryPoint causes an error.
+TEST_F(ValidateEntryPoint, NoEntryPointBad) {
+  std::string spirv = R"(
+      OpCapability Shader
+      OpMemoryModel Logical GLSL450)";
+  CompileSuccessfully(spirv);
+  EXPECT_EQ(SPV_ERROR_INVALID_BINARY, ValidateInstructions());
+  EXPECT_THAT(getDiagnosticString(),
+              HasSubstr("No OpEntryPoint instruction was found. This is only "
+                        "allowed if the Linkage capability is being used."));
 }
+
+// Invalid. A function may not be a target of both OpEntryPoint and
+// OpFunctionCall.
+TEST_F(ValidateEntryPoint, FunctionIsTargetOfEntryPointAndFunctionCallBad) {
+  std::string spirv = R"(
+           OpCapability Shader
+           OpMemoryModel Logical GLSL450
+           OpEntryPoint Fragment %foo "foo"
+%voidt   = OpTypeVoid
+%funct   = OpTypeFunction %voidt
+%foo     = OpFunction %voidt None %funct
+%entry   = OpLabel
+%recurse = OpFunctionCall %voidt %foo
+           OpReturn
+           OpFunctionEnd
+      )";
+  CompileSuccessfully(spirv);
+  EXPECT_EQ(SPV_ERROR_INVALID_BINARY, ValidateInstructions());
+  EXPECT_THAT(
+      getDiagnosticString(),
+      HasSubstr("A function (1) may not be targeted by both an OpEntryPoint "
+                "instruction and an OpFunctionCall instruction."));
+}
+
+// Valid. Module with a function but no entry point is valid when Linkage
+// Capability is used.
+TEST_F(ValidateEntryPoint, NoEntryPointWithLinkageCapGood) {
+  std::string spirv = R"(
+           OpCapability Shader
+           OpCapability Linkage
+           OpMemoryModel Logical GLSL450
+%voidt   = OpTypeVoid
+%funct   = OpTypeFunction %voidt
+%foo     = OpFunction %voidt None %funct
+%entry   = OpLabel
+           OpReturn
+           OpFunctionEnd
+  )";
+  CompileSuccessfully(spirv);
+  EXPECT_EQ(SPV_SUCCESS, ValidateInstructions());
+}
+
+TEST_F(ValidateLayout, ModuleProcessedInvalidIn10) {
+  char str[] = R"(
+           OpCapability Shader
+           OpCapability Linkage
+           OpMemoryModel Logical GLSL450
+           OpName %void "void"
+           OpModuleProcessed "this is ok in 1.1 and later"
+           OpDecorate %void Volatile ; bogus, but makes the example short
+%void    = OpTypeVoid
+)";
+
+  CompileSuccessfully(str, SPV_ENV_UNIVERSAL_1_1);
+  ASSERT_EQ(SPV_ERROR_INVALID_BINARY,
+            ValidateInstructions(SPV_ENV_UNIVERSAL_1_0));
+  // In a 1.0 environment the binary parse fails before we even get to
+  // validation.  This occurs no matter where the OpModuleProcessed is placed.
+  EXPECT_THAT(getDiagnosticString(), HasSubstr("Invalid opcode: 330"));
+}
+
+TEST_F(ValidateLayout, ModuleProcessedValidIn11) {
+  char str[] = R"(
+           OpCapability Shader
+           OpCapability Linkage
+           OpMemoryModel Logical GLSL450
+           OpName %void "void"
+           OpModuleProcessed "this is ok in 1.1 and later"
+           OpDecorate %void Volatile ; bogus, but makes the example short
+%void    = OpTypeVoid
+)";
+
+  CompileSuccessfully(str, SPV_ENV_UNIVERSAL_1_1);
+  ASSERT_EQ(SPV_SUCCESS, ValidateInstructions(SPV_ENV_UNIVERSAL_1_1));
+  EXPECT_THAT(getDiagnosticString(), Eq(""));
+}
+
+TEST_F(ValidateLayout, ModuleProcessedBeforeLastNameIsTooEarly) {
+  char str[] = R"(
+           OpCapability Shader
+           OpCapability Linkage
+           OpMemoryModel Logical GLSL450
+           OpModuleProcessed "this is too early"
+           OpName %void "void"
+%void    = OpTypeVoid
+)";
+
+  CompileSuccessfully(str, SPV_ENV_UNIVERSAL_1_1);
+  ASSERT_EQ(SPV_ERROR_INVALID_LAYOUT,
+            ValidateInstructions(SPV_ENV_UNIVERSAL_1_1));
+  // By the mechanics of the validator, we assume ModuleProcessed is in the
+  // right spot, but then that OpName is in the wrong spot.
+  EXPECT_THAT(getDiagnosticString(),
+              HasSubstr("Name cannot appear in a function declaration"));
+}
+
+TEST_F(ValidateLayout, ModuleProcessedInvalidAfterFirstAnnotation) {
+  char str[] = R"(
+           OpCapability Shader
+           OpCapability Linkage
+           OpMemoryModel Logical GLSL450
+           OpDecorate %void Volatile ; this is bogus, but keeps the example short
+           OpModuleProcessed "this is too late"
+%void    = OpTypeVoid
+)";
+
+  CompileSuccessfully(str, SPV_ENV_UNIVERSAL_1_1);
+  ASSERT_EQ(SPV_ERROR_INVALID_LAYOUT,
+            ValidateInstructions(SPV_ENV_UNIVERSAL_1_1));
+  EXPECT_THAT(
+      getDiagnosticString(),
+      HasSubstr("ModuleProcessed cannot appear in a function declaration"));
+}
+
+TEST_F(ValidateLayout, ModuleProcessedInvalidInFunctionBeforeLabel) {
+  char str[] = R"(
+           OpCapability Shader
+           OpMemoryModel Logical GLSL450
+           OpEntryPoint GLCompute %main "main"
+%void    = OpTypeVoid
+%voidfn  = OpTypeFunction %void
+%main    = OpFunction %void None %voidfn
+           OpModuleProcessed "this is too late, in function before label"
+%entry  =  OpLabel
+           OpReturn
+           OpFunctionEnd
+)";
+
+  CompileSuccessfully(str, SPV_ENV_UNIVERSAL_1_1);
+  ASSERT_EQ(SPV_ERROR_INVALID_LAYOUT,
+            ValidateInstructions(SPV_ENV_UNIVERSAL_1_1));
+  EXPECT_THAT(
+      getDiagnosticString(),
+      HasSubstr("ModuleProcessed cannot appear in a function declaration"));
+}
+
+TEST_F(ValidateLayout, ModuleProcessedInvalidInBasicBlock) {
+  char str[] = R"(
+           OpCapability Shader
+           OpMemoryModel Logical GLSL450
+           OpEntryPoint GLCompute %main "main"
+%void    = OpTypeVoid
+%voidfn  = OpTypeFunction %void
+%main    = OpFunction %void None %voidfn
+%entry   = OpLabel
+           OpModuleProcessed "this is too late, in basic block"
+           OpReturn
+           OpFunctionEnd
+)";
+
+  CompileSuccessfully(str, SPV_ENV_UNIVERSAL_1_1);
+  ASSERT_EQ(SPV_ERROR_INVALID_LAYOUT,
+            ValidateInstructions(SPV_ENV_UNIVERSAL_1_1));
+  EXPECT_THAT(
+      getDiagnosticString(),
+      HasSubstr("ModuleProcessed cannot appear in a function declaration"));
+}
+
+// TODO(umar): Test optional instructions
+}  // namespace

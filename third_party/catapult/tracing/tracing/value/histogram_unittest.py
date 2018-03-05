@@ -4,13 +4,13 @@
 
 import json
 import math
-import sys
 import time
 import unittest
 
 from tracing.value import histogram
 from tracing.value.diagnostics import diagnostic
 from tracing.value.diagnostics import diagnostic_ref
+from tracing.value.diagnostics import generic_set
 from tracing.value.diagnostics import reserved_infos
 
 # pylint: disable=too-many-lines
@@ -206,7 +206,7 @@ class HistogramUnittest(unittest.TestCase):
     self.assertIsInstance(d['allBins'], dict)
     self.assertDeepEqual(d, histogram.Histogram.FromDict(d).AsDict())
 
-    hist.AddSample(271, {'foo': histogram.GenericSet(['bar'])})
+    hist.AddSample(271, {'foo': generic_set.GenericSet(['bar'])})
     d = hist.AsDict()
     self.assertEqual(268, len(ToJSON(d)))
     self.assertIsInstance(d['allBins'], dict)
@@ -568,28 +568,34 @@ class HistogramUnittest(unittest.TestCase):
     self.assertEqual(3, hist.GetApproximatePercentile(0.9))
     self.assertEqual(4, hist.GetApproximatePercentile(1))
 
-class BreakdownUnittest(unittest.TestCase):
-
-  def testRoundtrip(self):
-    bd = histogram.Breakdown()
-    bd.Set('one', 1)
-    bd.Set('m1', -1)
-    bd.Set('inf', float('inf'))
-    bd.Set('nun', float('nan'))
-    bd.Set('ninf', float('-inf'))
-    bd.Set('long', 1 + sys.maxint)
-    d = bd.AsDict()
-    clone = diagnostic.Diagnostic.FromDict(d)
-    self.assertEqual(ToJSON(d), ToJSON(clone.AsDict()))
-    self.assertEqual(clone.Get('one'), 1)
-    self.assertEqual(clone.Get('m1'), -1)
-    self.assertEqual(clone.Get('inf'), float('inf'))
-    self.assertTrue(math.isnan(clone.Get('nun')))
-    self.assertEqual(clone.Get('ninf'), float('-inf'))
-    self.assertEqual(clone.Get('long'), 1 + sys.maxint)
-
 
 class TagMapUnittest(unittest.TestCase):
+
+  def testEquality(self):
+    tags0 = {
+        'tag1': ['path1', 'path2'],
+        'tag2': ['path1', 'path2', 'path3']
+    }
+    tags1 = {
+        'tag1': ['path1', 'path2'],
+        'tag2': ['path1', 'path2', 'path3']
+    }
+    info0 = histogram.TagMap({'tagsToStoryNames': tags0})
+    info1 = histogram.TagMap({'tagsToStoryNames': tags1})
+    self.assertEqual(info0, info1)
+
+  def testInequality(self):
+    tags0 = {
+        'tag1': ['path1', 'path2'],
+        'tag2': ['path1', 'path2', 'path3']
+    }
+    tags1 = {
+        'tag1': ['path1', 'path2']
+    }
+    info0 = histogram.TagMap({'tagsToStoryNames': tags0})
+    info1 = histogram.TagMap({'tagsToStoryNames': tags1})
+    self.assertNotEqual(info0, info1)
+
   def testRoundtrip(self):
     tags = {
         'tag1': ['path1', 'path2', 'path3'],
@@ -633,14 +639,14 @@ class TagMapUnittest(unittest.TestCase):
             'android': ['story3', 'story4', 'story5']
         }})
 
-    self.assertFalse(t0.CanAddDiagnostic(histogram.GenericSet([])))
+    self.assertFalse(t0.CanAddDiagnostic(generic_set.GenericSet([])))
     self.assertTrue(t0.CanAddDiagnostic(t1))
 
     m0 = diagnostic.Diagnostic.FromDict(t0.AsDict())
 
     self.assertTrue(isinstance(m0, histogram.TagMap))
     self.assertFalse(
-        m0.CanAddDiagnostic(histogram.GenericSet([])))
+        m0.CanAddDiagnostic(generic_set.GenericSet([])))
     self.assertTrue(m0.CanAddDiagnostic(t1))
 
     m0.AddDiagnostic(t1)
@@ -707,7 +713,7 @@ class RelatedNameMapUnittest(unittest.TestCase):
     b_names.Set('b', 'B')
     self.assertTrue(a_names.CanAddDiagnostic(b_names))
     self.assertTrue(b_names.CanAddDiagnostic(a_names))
-    self.assertFalse(a_names.CanAddDiagnostic(histogram.GenericSet([])))
+    self.assertFalse(a_names.CanAddDiagnostic(generic_set.GenericSet([])))
 
     a_names.AddDiagnostic(b_names)
     self.assertEqual(a_names.Get('b'), 'B')
@@ -721,7 +727,7 @@ class RelatedNameMapUnittest(unittest.TestCase):
   def testEquals(self):
     a_names = histogram.RelatedNameMap()
     a_names.Set('a', 'A')
-    self.assertNotEqual(a_names, histogram.GenericSet([]))
+    self.assertNotEqual(a_names, generic_set.GenericSet([]))
     b_names = histogram.RelatedNameMap()
     self.assertNotEqual(a_names, b_names)
     b_names.Set('a', 'B')
@@ -755,106 +761,30 @@ class DateRangeUnittest(unittest.TestCase):
     self.assertEqual(clone.max_date, dr.max_date)
 
 
-class GenericSetUnittest(unittest.TestCase):
-  def testRoundtrip(self):
-    a_set = histogram.GenericSet([
-        None,
-        True,
-        False,
-        0,
-        1,
-        42,
-        [],
-        {},
-        [0, False],
-        {'a': 1, 'b': True},
-    ])
-    self.assertEqual(a_set, diagnostic.Diagnostic.FromDict(a_set.AsDict()))
-
-  def testEq(self):
-    a_set = histogram.GenericSet([
-        None,
-        True,
-        False,
-        0,
-        1,
-        42,
-        [],
-        {},
-        [0, False],
-        {'a': 1, 'b': True},
-    ])
-    b_set = histogram.GenericSet([
-        {'b': True, 'a': 1},
-        [0, False],
-        {},
-        [],
-        42,
-        1,
-        0,
-        False,
-        True,
-        None,
-    ])
-    self.assertEqual(a_set, b_set)
-
-  def testMerge(self):
-    a_set = histogram.GenericSet([
-        None,
-        True,
-        False,
-        0,
-        1,
-        42,
-        [],
-        {},
-        [0, False],
-        {'a': 1, 'b': True},
-    ])
-    b_set = histogram.GenericSet([
-        {'b': True, 'a': 1},
-        [0, False],
-        {},
-        [],
-        42,
-        1,
-        0,
-        False,
-        True,
-        None,
-    ])
-    self.assertTrue(a_set.CanAddDiagnostic(b_set))
-    self.assertTrue(b_set.CanAddDiagnostic(a_set))
-    a_set.AddDiagnostic(b_set)
-    self.assertEqual(a_set, b_set)
-    b_set.AddDiagnostic(a_set)
-    self.assertEqual(a_set, b_set)
-
-    c_dict = {'a': 1, 'b': 1}
-    c_set = histogram.GenericSet([c_dict])
-    a_set.AddDiagnostic(c_set)
-    self.assertEqual(len(a_set), 1 + len(b_set))
-    self.assertIn(c_dict, a_set)
-
-
 class DiagnosticMapUnittest(unittest.TestCase):
   def testDisallowReservedNames(self):
     diagnostics = histogram.DiagnosticMap()
     with self.assertRaises(TypeError):
-      diagnostics[None] = histogram.GenericSet(())
+      diagnostics[None] = generic_set.GenericSet(())
     with self.assertRaises(TypeError):
       diagnostics['generic'] = None
     diagnostics[reserved_infos.TRACE_URLS.name] = histogram.DateRange(0)
     diagnostics.DisallowReservedNames()
-    diagnostics[reserved_infos.TRACE_URLS.name] = histogram.GenericSet(())
+    diagnostics[reserved_infos.TRACE_URLS.name] = generic_set.GenericSet(())
     with self.assertRaises(TypeError):
       diagnostics[reserved_infos.TRACE_URLS.name] = histogram.DateRange(0)
 
+  def testResetGuid(self):
+    generic = generic_set.GenericSet(['generic diagnostic'])
+    guid1 = generic.guid
+    generic.ResetGuid()
+    guid2 = generic.guid
+    self.assertNotEqual(guid1, guid2)
 
   # TODO(eakuefner): Find a better place for these non-map tests once we
   # break up the Python implementation more.
   def testInlineSharedDiagnostic(self):
-    generic = histogram.GenericSet(['generic diagnostic'])
+    generic = generic_set.GenericSet(['generic diagnostic'])
     hist = histogram.Histogram('', 'count')
     _ = generic.guid  # First access sets guid
     hist.diagnostics['foo'] = generic
@@ -890,8 +820,8 @@ class DiagnosticMapUnittest(unittest.TestCase):
         'start': 0,
         'duration': 1,
     })
-    generic = histogram.GenericSet(['generic diagnostic'])
-    generic2 = histogram.GenericSet(['generic diagnostic 2'])
+    generic = generic_set.GenericSet(['generic diagnostic'])
+    generic2 = generic_set.GenericSet(['generic diagnostic 2'])
     related_map = histogram.RelatedHistogramMap()
     related_map.Set('a', histogram.Histogram('histogram', 'count'))
 

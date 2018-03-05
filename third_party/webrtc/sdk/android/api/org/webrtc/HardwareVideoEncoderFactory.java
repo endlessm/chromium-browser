@@ -25,6 +25,7 @@ import java.util.Map;
 
 /** Factory for android hardware video encoders. */
 @SuppressWarnings("deprecation") // API 16 requires the use of deprecated methods.
+@JNINamespace("webrtc::jni")
 public class HardwareVideoEncoderFactory implements VideoEncoderFactory {
   private static final String TAG = "HardwareVideoEncoderFactory";
 
@@ -94,9 +95,10 @@ public class HardwareVideoEncoderFactory implements VideoEncoderFactory {
         MediaCodecUtils.ENCODER_COLOR_FORMATS, info.getCapabilitiesForType(mime));
 
     if (type == VideoCodecType.H264) {
-      boolean isHighProfile = isSameH264Profile(input.params, getCodecProperties(type, true))
+      boolean isHighProfile = nativeIsSameH264Profile(input.params, getCodecProperties(type, true))
           && isH264HighProfileSupported(info);
-      boolean isBaselineProfile = isSameH264Profile(input.params, getCodecProperties(type, false));
+      boolean isBaselineProfile =
+          nativeIsSameH264Profile(input.params, getCodecProperties(type, false));
 
       if (!isHighProfile && !isBaselineProfile) {
         return null;
@@ -259,7 +261,8 @@ public class HardwareVideoEncoderFactory implements VideoEncoderFactory {
   }
 
   private boolean isH264HighProfileSupported(MediaCodecInfo info) {
-    return enableH264HighProfile && info.getName().startsWith(QCOM_PREFIX);
+    return enableH264HighProfile && Build.VERSION.SDK_INT > Build.VERSION_CODES.M
+        && info.getName().startsWith(EXYNOS_PREFIX);
   }
 
   private Map<String, String> getCodecProperties(VideoCodecType type, boolean highProfile) {
@@ -280,6 +283,6 @@ public class HardwareVideoEncoderFactory implements VideoEncoderFactory {
     }
   }
 
-  private static native boolean isSameH264Profile(
+  private static native boolean nativeIsSameH264Profile(
       Map<String, String> params1, Map<String, String> params2);
 }

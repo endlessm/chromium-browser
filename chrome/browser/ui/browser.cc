@@ -39,6 +39,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/mixed_content_settings_tab_helper.h"
 #include "chrome/browser/content_settings/sound_content_setting_observer.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
@@ -50,7 +51,6 @@
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/download/download_core_service.h"
 #include "chrome/browser/download/download_core_service_factory.h"
-#include "chrome/browser/extensions/api/tab_capture/offscreen_tab.h"
 #include "chrome/browser/extensions/api/tabs/tabs_event_router.h"
 #include "chrome/browser/extensions/api/tabs/tabs_windows_api.h"
 #include "chrome/browser/extensions/browser_extension_window_controller.h"
@@ -66,6 +66,8 @@
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/pepper_broker_infobar_delegate.h"
 #include "chrome/browser/permissions/permission_request_manager.h"
+#include "chrome/browser/plugins/plugin_finder.h"
+#include "chrome/browser/plugins/plugin_metadata.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/printing/background_printing_manager.h"
 #include "chrome/browser/profiles/profile.h"
@@ -89,6 +91,7 @@
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
+#include "chrome/browser/ui/blocked_content/framebust_block_tab_helper.h"
 #include "chrome/browser/ui/blocked_content/popup_blocker_tab_helper.h"
 #include "chrome/browser/ui/blocked_content/popup_tracker.h"
 #include "chrome/browser/ui/bluetooth/bluetooth_chooser_controller.h"
@@ -135,9 +138,8 @@
 #include "chrome/browser/ui/tab_dialogs.h"
 #include "chrome/browser/ui/tab_helpers.h"
 #include "chrome/browser/ui/tab_modal_confirm_dialog.h"
-#include "chrome/browser/ui/tabs/tab_features.h"
 #include "chrome/browser/ui/tabs/tab_menu_model.h"
-#include "chrome/browser/ui/tabs/tab_strip_model_impl.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_utils.h"
 #include "chrome/browser/ui/unload_controller.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
@@ -367,7 +369,8 @@ Browser::Browser(const CreateParams& params)
       window_(NULL),
       tab_strip_model_delegate_(new chrome::BrowserTabStripModelDelegate(this)),
       tab_strip_model_(
-          CreateTabStripModel(tab_strip_model_delegate_.get(), params.profile)),
+          std::make_unique<TabStripModel>(tab_strip_model_delegate_.get(),
+                                          params.profile)),
       app_name_(params.app_name),
       is_trusted_source_(params.trusted_source),
       cancel_download_confirmation_state_(NOT_PROMPTED),
@@ -534,13 +537,14 @@ Browser::~Browser() {
   // because the ProfileManager needs to be able to destroy all profiles when
   // it is destroyed. See crbug.com/527035
   //
-  // A profile used to render an offscreen tab should not be destroyed while
-  // that tab is still alive.  The offscreen tab is not associated with a
-  // browser (similar to the user manager window case). See crbug.com/664351
+  // A profile created with Profile::CreateOffTheRecordProfile() should not be
+  // destroyed directly by Browser (e.g. for offscreen tabs,
+  // https://crbug.com/664351).
   if (profile_->IsOffTheRecord() &&
+      profile_->GetOriginalProfile()->HasOffTheRecordProfile() &&
+      profile_->GetOriginalProfile()->GetOffTheRecordProfile() == profile_ &&
       !BrowserList::IsIncognitoSessionActiveForProfile(profile_) &&
-      !profile_->GetOriginalProfile()->IsSystemProfile() &&
-      !extensions::OffscreenTabsOwner::IsOffscreenProfile(profile_)) {
+      !profile_->GetOriginalProfile()->IsSystemProfile()) {
     if (profile_->IsGuestSession()) {
 // ChromeOS handles guest data independently.
 #if !defined(OS_CHROMEOS)
@@ -905,11 +909,10 @@ void Browser::UpdateDownloadShelfVisibility(bool visible) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void Browser::UpdateUIForNavigationInTab(
-    WebContents* contents,
-    ui::PageTransition transition,
-    chrome::NavigateParams::WindowAction action,
-    bool user_initiated) {
+void Browser::UpdateUIForNavigationInTab(WebContents* contents,
+                                         ui::PageTransition transition,
+                                         NavigateParams::WindowAction action,
+                                         bool user_initiated) {
   tab_strip_model_->TabNavigating(contents, transition);
 
   bool contents_is_selected =
@@ -933,7 +936,7 @@ void Browser::UpdateUIForNavigationInTab(
   ScheduleUIUpdate(contents, content::INVALIDATE_TYPE_URL);
 
   if (contents_is_selected &&
-      (window()->IsActive() || action == chrome::NavigateParams::SHOW_WINDOW)) {
+      (window()->IsActive() || action == NavigateParams::SHOW_WINDOW)) {
     contents->SetInitialFocus();
   }
 }
@@ -1399,6 +1402,17 @@ void Browser::OnAudioStateChanged(content::WebContents* web_contents,
     sound_content_setting_observer->OnAudioStateChanged(is_audible);
 }
 
+void Browser::OnDidBlockFramebust(content::WebContents* web_contents,
+                                  const GURL& url) {
+  TabSpecificContentSettings* content_settings =
+      TabSpecificContentSettings::FromWebContents(web_contents);
+  DCHECK(content_settings);
+  // TODO(csharrison): Add a click callback here to collect framebusting
+  // click-through metrics.
+  content_settings->OnFramebustBlocked(
+      url, FramebustBlockTabHelper::ClickCallback());
+}
+
 bool Browser::IsMouseLocked() const {
   return exclusive_access_manager_->mouse_lock_controller()->IsMouseLocked();
 }
@@ -1437,12 +1451,12 @@ WebContents* Browser::OpenURLFromTab(WebContents* source,
     return window->OpenURLFromTab(source, params);
   }
 
-  chrome::NavigateParams nav_params(this, params.url, params.transition);
-  FillNavigateParamsFromOpenURLParams(&nav_params, params);
+  NavigateParams nav_params(this, params.url, params.transition);
+  nav_params.FillNavigateParamsFromOpenURLParams(params);
   nav_params.source_contents = source;
   nav_params.tabstrip_add_types = TabStripModel::ADD_NONE;
   if (params.user_gesture)
-    nav_params.window_action = chrome::NavigateParams::SHOW_WINDOW;
+    nav_params.window_action = NavigateParams::SHOW_WINDOW;
   nav_params.user_gesture = params.user_gesture;
   bool is_popup = source && PopupBlockerTabHelper::ConsiderForPopupBlocking(
                                 params.disposition);
@@ -1452,7 +1466,7 @@ WebContents* Browser::OpenURLFromTab(WebContents* source,
     return nullptr;
   }
 
-  chrome::Navigate(&nav_params);
+  Navigate(&nav_params);
 
   if (is_popup && nav_params.target_contents)
     PopupTracker::CreateForWebContents(nav_params.target_contents, source);
@@ -1485,10 +1499,6 @@ void Browser::VisibleSecurityStateChanged(WebContents* source) {
   DCHECK(source);
   if (tab_strip_model_->GetActiveWebContents() == source)
     UpdateToolbar(false);
-
-  SecurityStateTabHelper* helper =
-      SecurityStateTabHelper::FromWebContents(source);
-  helper->VisibleSecurityStateChanged();
 }
 
 void Browser::AddNewContents(WebContents* source,
@@ -1661,17 +1671,14 @@ void Browser::WebContentsCreated(WebContents* source_contents,
   task_manager::WebContentsTags::CreateForTabContents(new_contents);
 }
 
-void Browser::RendererUnresponsive(
-    WebContents* source,
-    const content::WebContentsUnresponsiveState& unresponsive_state) {
+void Browser::RendererUnresponsive(WebContents* source) {
   // Ignore hangs if a tab is blocked.
   int index = tab_strip_model_->GetIndexOfWebContents(source);
   DCHECK_NE(TabStripModel::kNoTab, index);
   if (tab_strip_model_->IsTabBlocked(index))
     return;
 
-  TabDialogs::FromWebContents(source)->ShowHungRendererDialog(
-      unresponsive_state);
+  TabDialogs::FromWebContents(source)->ShowHungRendererDialog();
 }
 
 void Browser::RendererResponsive(WebContents* source) {
@@ -1689,9 +1696,9 @@ content::JavaScriptDialogManager* Browser::GetJavaScriptDialogManager(
 }
 
 content::ColorChooser* Browser::OpenColorChooser(
-      WebContents* web_contents,
-      SkColor initial_color,
-      const std::vector<content::ColorSuggestion>& suggestions) {
+    WebContents* web_contents,
+    SkColor initial_color,
+    const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions) {
   return chrome::ShowColorChooser(web_contents, initial_color);
 }
 
@@ -1866,7 +1873,46 @@ bool Browser::RequestPpapiBrokerPermission(
     const GURL& url,
     const base::FilePath& plugin_path,
     const base::Callback<void(bool)>& callback) {
-  PepperBrokerInfoBarDelegate::Create(web_contents, url, plugin_path, callback);
+  Profile* profile =
+      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  // TODO(wad): Add ephemeral device ID support for broker in guest mode.
+  if (profile->IsGuestSession()) {
+    callback.Run(false);
+    return true;
+  }
+
+  TabSpecificContentSettings* tab_content_settings =
+      TabSpecificContentSettings::FromWebContents(web_contents);
+
+  HostContentSettingsMap* content_settings =
+      HostContentSettingsMapFactory::GetForProfile(profile);
+  ContentSetting setting = content_settings->GetContentSetting(
+      url, url, CONTENT_SETTINGS_TYPE_PPAPI_BROKER, std::string());
+
+  if (setting == CONTENT_SETTING_ASK) {
+    base::RecordAction(base::UserMetricsAction("PPAPI.BrokerInfobarDisplayed"));
+
+    content::PluginService* plugin_service =
+        content::PluginService::GetInstance();
+    content::WebPluginInfo plugin;
+    bool success = plugin_service->GetPluginInfoByPath(plugin_path, &plugin);
+    DCHECK(success);
+    std::unique_ptr<PluginMetadata> plugin_metadata(
+        PluginFinder::GetInstance()->GetPluginMetadata(plugin));
+
+    PepperBrokerInfoBarDelegate::Create(
+        InfoBarService::FromWebContents(web_contents), url,
+        plugin_metadata->name(), content_settings, tab_content_settings,
+        callback);
+    return true;
+  }
+
+  bool allowed = (setting == CONTENT_SETTING_ALLOW);
+  base::RecordAction(allowed
+                         ? base::UserMetricsAction("PPAPI.BrokerSettingAllow")
+                         : base::UserMetricsAction("PPAPI.BrokerSettingDeny"));
+  tab_content_settings->SetPepperBrokerAllowed(allowed);
+  callback.Run(allowed);
   return true;
 }
 
@@ -2057,7 +2103,21 @@ void Browser::OnExtensionUnloaded(content::BrowserContext* browser_context,
            web_contents->GetURL().host_piece() == extension->id()) ||
           (extensions::TabHelper::FromWebContents(web_contents)
                ->extension_app() == extension)) {
-        tab_strip_model_->CloseWebContentsAt(i, TabStripModel::CLOSE_NONE);
+        if (tab_strip_model_->count() > 1) {
+          tab_strip_model_->CloseWebContentsAt(i, TabStripModel::CLOSE_NONE);
+        } else {
+          // If there is only 1 tab remaining, do not close it and instead
+          // navigate to the default NTP. Note that if there is an installed
+          // extension that overrides the NTP page, that extension's content
+          // will override the NTP contents.
+          GURL url(chrome::kChromeUINewTabURL);
+          web_contents->GetController().LoadURL(
+              url,
+              content::Referrer::SanitizeForRequest(
+                  url,
+                  content::Referrer(url, blink::kWebReferrerPolicyDefault)),
+              ui::PAGE_TRANSITION_RELOAD, std::string());
+        }
       } else {
         chrome::UnmuteIfMutedByExtension(web_contents, extension->id());
       }

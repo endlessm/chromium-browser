@@ -69,10 +69,10 @@ class VkTestFramework : public ::testing::Test {
     static void Finish();
 
     bool GLSLtoSPV(const VkShaderStageFlagBits shader_type, const char *pshader, std::vector<unsigned int> &spv);
-    static bool m_use_glsl;
     static bool m_canonicalize_spv;
     static bool m_strip_spv;
     static bool m_do_everything_spv;
+    static bool m_devsim_layer;
 
     char **ReadFileData(const char *fileName);
     void FreeFileData(char **data);

@@ -1,31 +1,33 @@
 /*
-* Copyright (c) 2015-2016 The Khronos Group Inc.
-* Copyright (c) 2015-2016 Valve Corporation
-* Copyright (c) 2015-2016 LunarG, Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* Author: Chia-I Wu <olv@lunarg.com>
-* Author: Courtney Goeltzenleuchter <courtney@LunarG.com>
-* Author: Ian Elliott <ian@LunarG.com>
-* Author: Jon Ashburn <jon@lunarg.com>
-* Author: Gwan-gyeong Mun <elongbug@gmail.com>
-* Author: Tony Barbour <tony@LunarG.com>
-* Author: Bill Hollings <bill.hollings@brenwill.com>
-*/
+ * Copyright (c) 2015-2016 The Khronos Group Inc.
+ * Copyright (c) 2015-2016 Valve Corporation
+ * Copyright (c) 2015-2016 LunarG, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Author: Chia-I Wu <olv@lunarg.com>
+ * Author: Courtney Goeltzenleuchter <courtney@LunarG.com>
+ * Author: Ian Elliott <ian@LunarG.com>
+ * Author: Ian Elliott <ianelliott@google.com>
+ * Author: Jon Ashburn <jon@lunarg.com>
+ * Author: Gwan-gyeong Mun <elongbug@gmail.com>
+ * Author: Tony Barbour <tony@LunarG.com>
+ * Author: Bill Hollings <bill.hollings@brenwill.com>
+ */
 
 #define _GNU_SOURCE
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -33,6 +35,8 @@
 #include <signal.h>
 #if defined(VK_USE_PLATFORM_XLIB_KHR) || defined(VK_USE_PLATFORM_XCB_KHR)
 #include <X11/Xutil.h>
+#elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
+#include <linux/input.h>
 #endif
 
 #ifdef _WIN32
@@ -52,6 +56,11 @@
 
 #include <vulkan/vk_sdk_platform.h>
 #include "linmath.h"
+
+#include "gettime.h"
+#include "inttypes.h"
+#define MILLION 1000000L
+#define BILLION 1000000000L
 
 #define DEMO_TEXTURE_COUNT 1
 #define APP_SHORT_NAME "cube"
@@ -81,6 +90,13 @@ bool in_callback = false;
         if (!demo->suppress_popups) MessageBox(NULL, err_msg, err_class, MB_OK); \
         exit(1);                                                                 \
     } while (0)
+void DbgMsg(char *fmt, ...) {
+    va_list va;
+    va_start(va, fmt);
+    printf(fmt, va);
+    fflush(stdout);
+    va_end(va);
+}
 
 #elif defined __ANDROID__
 #include <android/log.h>
@@ -89,6 +105,19 @@ bool in_callback = false;
         ((void)__android_log_print(ANDROID_LOG_INFO, "Cube", err_msg)); \
         exit(1);                                                        \
     } while (0)
+#ifdef VARARGS_WORKS_ON_ANDROID
+void DbgMsg(const char *fmt, ...) {
+    va_list va;
+    va_start(va, fmt);
+    __android_log_print(ANDROID_LOG_INFO, "Cube", fmt, va);
+    va_end(va);
+}
+#else  // VARARGS_WORKS_ON_ANDROID
+#define DbgMsg(fmt, ...)                                                           \
+    do {                                                                           \
+        ((void)__android_log_print(ANDROID_LOG_INFO, "Cube", fmt, ##__VA_ARGS__)); \
+    } while (0)
+#endif  // VARARGS_WORKS_ON_ANDROID
 #else
 #define ERR_EXIT(err_msg, err_class) \
     do {                             \
@@ -96,6 +125,13 @@ bool in_callback = false;
         fflush(stdout);              \
         exit(1);                     \
     } while (0)
+void DbgMsg(char *fmt, ...) {
+    va_list va;
+    va_start(va, fmt);
+    printf(fmt, va);
+    fflush(stdout);
+    va_end(va);
+}
 #endif
 
 #define GET_INSTANCE_PROC_ADDR(inst, entrypoint)                                                              \
@@ -275,7 +311,6 @@ typedef struct {
     VkDeviceMemory uniform_memory;
     VkFramebuffer framebuffer;
     VkDescriptorSet descriptor_set;
-    VkFence fence;
 } SwapchainImageResources;
 
 struct demo {
@@ -302,6 +337,9 @@ struct demo {
     struct wl_surface *window;
     struct wl_shell *shell;
     struct wl_shell_surface *shell_surface;
+    struct wl_seat *seat;
+    struct wl_pointer *pointer;
+    struct wl_keyboard *keyboard;
 #elif defined(VK_USE_PLATFORM_MIR_KHR)
 #elif defined(VK_USE_PLATFORM_ANDROID_KHR)
     ANativeWindow *window;
@@ -312,6 +350,18 @@ struct demo {
     bool prepared;
     bool use_staging_buffer;
     bool separate_present_queue;
+
+    bool VK_KHR_incremental_present_enabled;
+
+    bool VK_GOOGLE_display_timing_enabled;
+    bool syncd_with_actual_presents;
+    uint64_t refresh_duration;
+    uint64_t refresh_duration_multiplier;
+    uint64_t target_IPD;  // image present duration (inverse of frame rate)
+    uint64_t prev_desired_present_time;
+    uint32_t next_present_id;
+    uint32_t last_early_id;  // 0 if no early images
+    uint32_t last_late_id;   // 0 if no late images
 
     VkInstance inst;
     VkPhysicalDevice gpu;
@@ -345,6 +395,8 @@ struct demo {
     PFN_vkGetSwapchainImagesKHR fpGetSwapchainImagesKHR;
     PFN_vkAcquireNextImageKHR fpAcquireNextImageKHR;
     PFN_vkQueuePresentKHR fpQueuePresentKHR;
+    PFN_vkGetRefreshCycleDurationGOOGLE fpGetRefreshCycleDurationGOOGLE;
+    PFN_vkGetPastPresentationTimingGOOGLE fpGetPastPresentationTimingGOOGLE;
     uint32_t swapchainImageCount;
     VkSwapchainKHR swapchain;
     SwapchainImageResources *swapchain_image_resources;
@@ -463,7 +515,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL dbgFunc(VkFlags msgFlags, VkDebugReportObjectType
 
     free(message);
 
-    //clang-format on
+    // clang-format on
 
     /*
     * false indicates that layer should not bail-out of an
@@ -472,6 +524,43 @@ VKAPI_ATTR VkBool32 VKAPI_CALL dbgFunc(VkFlags msgFlags, VkDebugReportObjectType
     * That's what would happen without validation layers, so we'll
     * keep that behavior here.
     */
+    return false;
+}
+
+bool ActualTimeLate(uint64_t desired, uint64_t actual, uint64_t rdur) {
+    // The desired time was the earliest time that the present should have
+    // occured.  In almost every case, the actual time should be later than the
+    // desired time.  We should only consider the actual time "late" if it is
+    // after "desired + rdur".
+    if (actual <= desired) {
+        // The actual time was before or equal to the desired time.  This will
+        // probably never happen, but in case it does, return false since the
+        // present was obviously NOT late.
+        return false;
+    }
+    uint64_t deadline = actual + rdur;
+    if (actual > deadline) {
+        return true;
+    } else {
+        return false;
+    }
+}
+bool CanPresentEarlier(uint64_t earliest,
+                       uint64_t actual,
+                       uint64_t margin,
+                       uint64_t rdur) {
+    if (earliest < actual) {
+        // Consider whether this present could have occured earlier.  Make sure
+        // that earliest time was at least 2msec earlier than actual time, and
+        // that the margin was at least 2msec:
+        uint64_t diff = actual - earliest;
+        if ((diff >= (2 * MILLION)) && (margin >= (2 * MILLION))) {
+            // This present could have occured earlier because both: 1) the
+            // earliest time was at least 2 msec before actual time, and 2) the
+            // margin was at least 2msec.
+            return true;
+        }
+    }
     return false;
 }
 
@@ -724,9 +813,6 @@ void demo_update_data_buffer(struct demo *demo) {
                   (float)degreesToRadians(demo->spin_angle));
     mat4x4_mul(MVP, VP, demo->model_matrix);
 
-    vkWaitForFences(demo->device, 1, &demo->swapchain_image_resources[demo->current_buffer].fence,
-                    VK_TRUE, UINT64_MAX);
-
     err = vkMapMemory(demo->device,
                       demo->swapchain_image_resources[demo->current_buffer].uniform_memory, 0,
                       VK_WHOLE_SIZE, 0, (void **)&pData);
@@ -737,36 +823,178 @@ void demo_update_data_buffer(struct demo *demo) {
     vkUnmapMemory(demo->device, demo->swapchain_image_resources[demo->current_buffer].uniform_memory);
 }
 
+void DemoUpdateTargetIPD(struct demo *demo) {
+    // Look at what happened to previous presents, and make appropriate
+    // adjustments in timing:
+    VkResult U_ASSERT_ONLY err;
+    VkPastPresentationTimingGOOGLE* past = NULL;
+    uint32_t count = 0;
+
+    err = demo->fpGetPastPresentationTimingGOOGLE(demo->device,
+                                                  demo->swapchain,
+                                                  &count,
+                                                  NULL);
+    assert(!err);
+    if (count) {
+        past = (VkPastPresentationTimingGOOGLE*) malloc(sizeof(VkPastPresentationTimingGOOGLE) * count);
+        assert(past);
+        err = demo->fpGetPastPresentationTimingGOOGLE(demo->device,
+                                                      demo->swapchain,
+                                                      &count,
+                                                      past);
+        assert(!err);
+
+        bool early = false;
+        bool late = false;
+        bool calibrate_next = false;
+        for (uint32_t i = 0 ; i < count ; i++) {
+            if (!demo->syncd_with_actual_presents) {
+                // This is the first time that we've received an
+                // actualPresentTime for this swapchain.  In order to not
+                // perceive these early frames as "late", we need to sync-up
+                // our future desiredPresentTime's with the
+                // actualPresentTime(s) that we're receiving now.
+                calibrate_next = true;
+
+                // So that we don't suspect any pending presents as late,
+                // record them all as suspected-late presents:
+                demo->last_late_id = demo->next_present_id - 1;
+                demo->last_early_id = 0;
+                demo->syncd_with_actual_presents = true;
+                break;
+            } else if (CanPresentEarlier(past[i].earliestPresentTime,
+                                         past[i].actualPresentTime,
+                                         past[i].presentMargin,
+                                         demo->refresh_duration)) {
+                // This image could have been presented earlier.  We don't want
+                // to decrease the target_IPD until we've seen early presents
+                // for at least two seconds.
+                if (demo->last_early_id == past[i].presentID) {
+                    // We've now seen two seconds worth of early presents.
+                    // Flag it as such, and reset the counter:
+                    early = true;
+                    demo->last_early_id = 0;
+                } else if (demo->last_early_id == 0) {
+                    // This is the first early present we've seen.
+                    // Calculate the presentID for two seconds from now.
+                    uint64_t lastEarlyTime =
+                        past[i].actualPresentTime + (2 * BILLION);
+                    uint32_t howManyPresents =
+                        (uint32_t)((lastEarlyTime - past[i].actualPresentTime) / demo->target_IPD);
+                    demo->last_early_id = past[i].presentID + howManyPresents;
+                } else {
+                    // We are in the midst of a set of early images,
+                    // and so we won't do anything.
+                }
+                late = false;
+                demo->last_late_id = 0;
+            } else if (ActualTimeLate(past[i].desiredPresentTime,
+                                      past[i].actualPresentTime,
+                                      demo->refresh_duration)) {
+                // This image was presented after its desired time.  Since
+                // there's a delay between calling vkQueuePresentKHR and when
+                // we get the timing data, several presents may have been late.
+                // Thus, we need to threat all of the outstanding presents as
+                // being likely late, so that we only increase the target_IPD
+                // once for all of those presents.
+                if ((demo->last_late_id == 0) ||
+                    (demo->last_late_id < past[i].presentID)) {
+                    late = true;
+                    // Record the last suspected-late present:
+                    demo->last_late_id = demo->next_present_id - 1;
+                } else {
+                    // We are in the midst of a set of likely-late images,
+                    // and so we won't do anything.
+                }
+                early = false;
+                demo->last_early_id = 0;
+            } else {
+                // Since this image was not presented early or late, reset
+                // any sets of early or late presentIDs:
+                early = false;
+                late = false;
+                calibrate_next = true;
+                demo->last_early_id = 0;
+                demo->last_late_id = 0;
+            }
+        }
+
+        if (early) {
+            // Since we've seen at least two-seconds worth of presnts that
+            // could have occured earlier than desired, let's decrease the
+            // target_IPD (i.e. increase the frame rate):
+            //
+            // TODO(ianelliott): Try to calculate a better target_IPD based
+            // on the most recently-seen present (this is overly-simplistic).
+            demo->refresh_duration_multiplier--;
+            if (demo->refresh_duration_multiplier == 0) {
+                // This should never happen, but in case it does, don't
+                // try to go faster.
+                demo->refresh_duration_multiplier = 1;
+            }
+            demo->target_IPD =
+                demo->refresh_duration * demo->refresh_duration_multiplier;
+        }
+        if (late) {
+            // Since we found a new instance of a late present, we want to
+            // increase the target_IPD (i.e. decrease the frame rate):
+            //
+            // TODO(ianelliott): Try to calculate a better target_IPD based
+            // on the most recently-seen present (this is overly-simplistic).
+            demo->refresh_duration_multiplier++;
+            demo->target_IPD =
+                demo->refresh_duration * demo->refresh_duration_multiplier;
+        }
+
+        if (calibrate_next) {
+            int64_t multiple = demo->next_present_id - past[count-1].presentID;
+            demo->prev_desired_present_time =
+                (past[count-1].actualPresentTime +
+                 (multiple * demo->target_IPD));
+        }
+    }
+}
+
 static void demo_draw(struct demo *demo) {
     VkResult U_ASSERT_ONLY err;
 
-    // Ensure no more than FRAME_LAG presentations are outstanding
+    // Ensure no more than FRAME_LAG renderings are outstanding
     vkWaitForFences(demo->device, 1, &demo->fences[demo->frame_index], VK_TRUE, UINT64_MAX);
     vkResetFences(demo->device, 1, &demo->fences[demo->frame_index]);
 
-    // Get the index of the next available swapchain image:
-    err = demo->fpAcquireNextImageKHR(demo->device, demo->swapchain, UINT64_MAX,
-                                      demo->image_acquired_semaphores[demo->frame_index],
-                                      demo->fences[demo->frame_index],
-                                      &demo->current_buffer);
+    do {
+        // Get the index of the next available swapchain image:
+        err = demo->fpAcquireNextImageKHR(demo->device, demo->swapchain, UINT64_MAX,
+                                          demo->image_acquired_semaphores[demo->frame_index],
+                                          VK_NULL_HANDLE, &demo->current_buffer);
+
+        if (err == VK_ERROR_OUT_OF_DATE_KHR) {
+            // demo->swapchain is out of date (e.g. the window was resized) and
+            // must be recreated:
+            demo_resize(demo);
+        } else if (err == VK_SUBOPTIMAL_KHR) {
+            // demo->swapchain is not as optimal as it could be, but the platform's
+            // presentation engine will still present the image correctly.
+            break;
+        } else {
+            assert(!err);
+        }
+    } while (err != VK_SUCCESS);
 
     demo_update_data_buffer(demo);
 
-    if (err == VK_ERROR_OUT_OF_DATE_KHR) {
-        // demo->swapchain is out of date (e.g. the window was resized) and
-        // must be recreated:
-        demo->frame_index += 1;
-        demo->frame_index %= FRAME_LAG;
+    if (demo->VK_GOOGLE_display_timing_enabled) {
+        // Look at what happened to previous presents, and make appropriate
+        // adjustments in timing:
+        DemoUpdateTargetIPD(demo);
 
-        demo_resize(demo);
-        demo_draw(demo);
-        return;
-    } else if (err == VK_SUBOPTIMAL_KHR) {
-        // demo->swapchain is not as optimal as it could be, but the platform's
-        // presentation engine will still present the image correctly.
-    } else {
-        assert(!err);
+        // Note: a real application would position its geometry to that it's in
+        // the correct locatoin for when the next image is presented.  It might
+        // also wait, so that there's less latency between any input and when
+        // the next image is rendered/presented.  This demo program is so
+        // simple that it doesn't do either of those.
     }
+
     // Wait for the image acquired semaphore to be signaled to ensure
     // that the image won't be rendered to until the presentation
     // engine has fully released ownership to the application, and it is
@@ -783,9 +1011,8 @@ static void demo_draw(struct demo *demo) {
     submit_info.pCommandBuffers = &demo->swapchain_image_resources[demo->current_buffer].cmd;
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = &demo->draw_complete_semaphores[demo->frame_index];
-    vkResetFences(demo->device, 1, &demo->swapchain_image_resources[demo->current_buffer].fence);
     err = vkQueueSubmit(demo->graphics_queue, 1, &submit_info,
-                        demo->swapchain_image_resources[demo->current_buffer].fence);
+                        demo->fences[demo->frame_index]);
     assert(!err);
 
     if (demo->separate_present_queue) {
@@ -818,6 +1045,71 @@ static void demo_draw(struct demo *demo) {
         .pSwapchains = &demo->swapchain,
         .pImageIndices = &demo->current_buffer,
     };
+
+    if (demo->VK_KHR_incremental_present_enabled) {
+        // If using VK_KHR_incremental_present, we provide a hint of the region
+        // that contains changed content relative to the previously-presented
+        // image.  The implementation can use this hint in order to save
+        // work/power (by only copying the region in the hint).  The
+        // implementation is free to ignore the hint though, and so we must
+        // ensure that the entire image has the correctly-drawn content.
+        uint32_t eighthOfWidth = demo->width / 8;
+        uint32_t eighthOfHeight = demo->height / 8;
+        VkRectLayerKHR rect = {
+            .offset.x = eighthOfWidth,
+            .offset.y = eighthOfHeight,
+            .extent.width = eighthOfWidth * 6,
+            .extent.height = eighthOfHeight * 6,
+            .layer = 0,
+        };
+        VkPresentRegionKHR region = {
+            .rectangleCount = 1,
+            .pRectangles = &rect,
+        };
+        VkPresentRegionsKHR regions = {
+            .sType = VK_STRUCTURE_TYPE_PRESENT_REGIONS_KHR,
+            .pNext = present.pNext,
+            .swapchainCount = present.swapchainCount,
+            .pRegions = &region,
+        };
+        present.pNext = &regions;
+    }
+
+    if (demo->VK_GOOGLE_display_timing_enabled) {
+        VkPresentTimeGOOGLE ptime;
+        if (demo->prev_desired_present_time == 0) {
+            // This must be the first present for this swapchain.
+            //
+            // We don't know where we are relative to the presentation engine's
+            // display's refresh cycle.  We also don't know how long rendering
+            // takes.  Let's make a grossly-simplified assumption that the
+            // desiredPresentTime should be half way between now and
+            // now+target_IPD.  We will adjust over time.
+            uint64_t curtime = getTimeInNanoseconds();
+            if (curtime == 0) {
+                // Since we didn't find out the current time, don't give a
+                // desiredPresentTime:
+                ptime.desiredPresentTime = 0;
+            } else {
+                ptime.desiredPresentTime = curtime + (demo->target_IPD >> 1);
+            }
+        } else {
+            ptime.desiredPresentTime = (demo->prev_desired_present_time +
+                                        demo->target_IPD);            
+        }
+        ptime.presentID = demo->next_present_id++;
+        demo->prev_desired_present_time = ptime.desiredPresentTime;
+
+        VkPresentTimesInfoGOOGLE present_time = {
+            .sType = VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE,
+            .pNext = present.pNext,
+            .swapchainCount = present.swapchainCount,
+            .pTimes = &ptime,
+        };
+        if (demo->VK_GOOGLE_display_timing_enabled) {
+            present.pNext = &present_time;
+        }
+    }
 
     err = demo->fpQueuePresentKHR(demo->present_queue, &present);
     demo->frame_index += 1;
@@ -958,7 +1250,7 @@ static void demo_prepare_buffers(struct demo *demo) {
         VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
         VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
     };
-    for (uint32_t i = 0; i < sizeof(compositeAlphaFlags); i++) {
+    for (uint32_t i = 0; i < ARRAY_SIZE(compositeAlphaFlags); i++) {
         if (surfCapabilities.supportedCompositeAlpha & compositeAlphaFlags[i]) {
             compositeAlpha = compositeAlphaFlags[i];
             break;
@@ -1016,12 +1308,6 @@ static void demo_prepare_buffers(struct demo *demo) {
                                                demo->swapchainImageCount);
     assert(demo->swapchain_image_resources);
 
-    VkFenceCreateInfo fence_ci = {
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = VK_FENCE_CREATE_SIGNALED_BIT
-    };
-
     for (i = 0; i < demo->swapchainImageCount; i++) {
         VkImageViewCreateInfo color_image_view = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -1050,9 +1336,22 @@ static void demo_prepare_buffers(struct demo *demo) {
         err = vkCreateImageView(demo->device, &color_image_view, NULL,
                                 &demo->swapchain_image_resources[i].view);
         assert(!err);
+    }
 
-        err = vkCreateFence(demo->device, &fence_ci, NULL, &demo->swapchain_image_resources[i].fence);
+    if (demo->VK_GOOGLE_display_timing_enabled) {
+        VkRefreshCycleDurationGOOGLE rc_dur;
+        err = demo->fpGetRefreshCycleDurationGOOGLE(demo->device,
+                                                    demo->swapchain,
+                                                    &rc_dur);
         assert(!err);
+        demo->refresh_duration = rc_dur.refreshDuration;
+
+        demo->syncd_with_actual_presents = false;
+        // Initially target 1X the refresh duration:
+        demo->target_IPD = demo->refresh_duration;
+        demo->refresh_duration_multiplier = 1;
+        demo->prev_desired_present_time = 0;
+        demo->next_present_id = 1;
     }
 
     if (NULL != presentModes) {
@@ -1331,7 +1630,7 @@ static void demo_prepare_textures(struct demo *demo) {
             // shader to run until layout transition completes
             demo_set_image_layout(demo, demo->textures[i].image, VK_IMAGE_ASPECT_COLOR_BIT,
                                   VK_IMAGE_LAYOUT_PREINITIALIZED, demo->textures[i].imageLayout,
-                                  VK_ACCESS_HOST_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                  0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             demo->staging_texture.image = 0;
         } else if (props.optimalTilingFeatures &
@@ -1354,7 +1653,7 @@ static void demo_prepare_textures(struct demo *demo) {
                                   VK_IMAGE_ASPECT_COLOR_BIT,
                                   VK_IMAGE_LAYOUT_PREINITIALIZED,
                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                  VK_ACCESS_HOST_WRITE_BIT,
+                                  0,
                                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                                   VK_PIPELINE_STAGE_TRANSFER_BIT);
 
@@ -1362,7 +1661,7 @@ static void demo_prepare_textures(struct demo *demo) {
                                   VK_IMAGE_ASPECT_COLOR_BIT,
                                   VK_IMAGE_LAYOUT_PREINITIALIZED,
                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                  VK_ACCESS_HOST_WRITE_BIT,
+                                  0,
                                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                                   VK_PIPELINE_STAGE_TRANSFER_BIT);
 
@@ -1625,109 +1924,35 @@ static void demo_prepare_render_pass(struct demo *demo) {
     assert(!err);
 }
 
-//TODO: Merge shader reading
-#ifndef __ANDROID__
-static VkShaderModule
-demo_prepare_shader_module(struct demo *demo, const void *code, size_t size) {
+static VkShaderModule demo_prepare_shader_module(struct demo *demo, const uint32_t *code, size_t size) {
     VkShaderModule module;
     VkShaderModuleCreateInfo moduleCreateInfo;
     VkResult U_ASSERT_ONLY err;
 
     moduleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     moduleCreateInfo.pNext = NULL;
-
+    moduleCreateInfo.flags = 0;
     moduleCreateInfo.codeSize = size;
     moduleCreateInfo.pCode = code;
-    moduleCreateInfo.flags = 0;
+
     err = vkCreateShaderModule(demo->device, &moduleCreateInfo, NULL, &module);
     assert(!err);
 
     return module;
 }
 
-char *demo_read_spv(const char *filename, size_t *psize) {
-    long int size;
-    size_t U_ASSERT_ONLY retval;
-    void *shader_code;
-
-#if (defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK))
-    filename =[[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent: @(filename)].UTF8String;
-#endif
-
-    FILE *fp = fopen(filename, "rb");
-    if (!fp)
-        return NULL;
-
-    fseek(fp, 0L, SEEK_END);
-    size = ftell(fp);
-
-    fseek(fp, 0L, SEEK_SET);
-
-    shader_code = malloc(size);
-    retval = fread(shader_code, size, 1, fp);
-    assert(retval == 1);
-
-    *psize = size;
-
-    fclose(fp);
-    return shader_code;
-}
-#endif
-
-static VkShaderModule demo_prepare_vs(struct demo *demo) {
-#ifdef __ANDROID__
-    VkShaderModuleCreateInfo sh_info = {};
-    sh_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-
-#include "cube.vert.h"
-    sh_info.codeSize = sizeof(cube_vert);
-    sh_info.pCode = cube_vert;
-    VkResult U_ASSERT_ONLY err = vkCreateShaderModule(demo->device, &sh_info, NULL, &demo->vert_shader_module);
-    assert(!err);
-#else
-    void *vertShaderCode;
-    size_t size;
-
-    vertShaderCode = demo_read_spv("cube-vert.spv", &size);
-    if (!vertShaderCode) {
-        ERR_EXIT("Failed to load cube-vert.spv", "Load Shader Failure");
-    }
-
-    demo->vert_shader_module =
-        demo_prepare_shader_module(demo, vertShaderCode, size);
-
-    free(vertShaderCode);
-#endif
-
-    return demo->vert_shader_module;
+static void demo_prepare_vs(struct demo *demo) {
+    const uint32_t vs_code[] = {
+#include "cube.vert.inc"
+    };
+    demo->vert_shader_module = demo_prepare_shader_module(demo, vs_code, sizeof(vs_code));
 }
 
-static VkShaderModule demo_prepare_fs(struct demo *demo) {
-#ifdef __ANDROID__
-    VkShaderModuleCreateInfo sh_info = {};
-    sh_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-
-#include "cube.frag.h"
-    sh_info.codeSize = sizeof(cube_frag);
-    sh_info.pCode = cube_frag;
-    VkResult U_ASSERT_ONLY err = vkCreateShaderModule(demo->device, &sh_info, NULL, &demo->frag_shader_module);
-    assert(!err);
-#else
-    void *fragShaderCode;
-    size_t size;
-
-    fragShaderCode = demo_read_spv("cube-frag.spv", &size);
-    if (!fragShaderCode) {
-        ERR_EXIT("Failed to load cube-frag.spv", "Load Shader Failure");
-    }
-
-    demo->frag_shader_module =
-        demo_prepare_shader_module(demo, fragShaderCode, size);
-
-    free(fragShaderCode);
-#endif
-
-    return demo->frag_shader_module;
+static void demo_prepare_fs(struct demo *demo) {
+    const uint32_t fs_code[] = {
+#include "cube.frag.inc"
+    };
+    demo->frag_shader_module = demo_prepare_shader_module(demo, fs_code, sizeof(fs_code));
 }
 
 static void demo_prepare_pipeline(struct demo *demo) {
@@ -1805,19 +2030,21 @@ static void demo_prepare_pipeline(struct demo *demo) {
     ms.pSampleMask = NULL;
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
+    demo_prepare_vs(demo);
+    demo_prepare_fs(demo);
+
     // Two stages: vs and fs
-    pipeline.stageCount = 2;
     VkPipelineShaderStageCreateInfo shaderStages[2];
     memset(&shaderStages, 0, 2 * sizeof(VkPipelineShaderStageCreateInfo));
 
     shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    shaderStages[0].module = demo_prepare_vs(demo);
+    shaderStages[0].module = demo->vert_shader_module;
     shaderStages[0].pName = "main";
 
     shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    shaderStages[1].module = demo_prepare_fs(demo);
+    shaderStages[1].module = demo->frag_shader_module;
     shaderStages[1].pName = "main";
 
     memset(&pipelineCache, 0, sizeof(pipelineCache));
@@ -1834,6 +2061,7 @@ static void demo_prepare_pipeline(struct demo *demo) {
     pipeline.pMultisampleState = &ms;
     pipeline.pViewportState = &vp;
     pipeline.pDepthStencilState = &ds;
+    pipeline.stageCount = ARRAY_SIZE(shaderStages);
     pipeline.pStages = shaderStages;
     pipeline.renderPass = demo->render_pass;
     pipeline.pDynamicState = &dynamicState;
@@ -2086,7 +2314,6 @@ static void demo_cleanup(struct demo *demo) {
                              &demo->swapchain_image_resources[i].cmd);
         vkDestroyBuffer(demo->device, demo->swapchain_image_resources[i].uniform_buffer, NULL);
         vkFreeMemory(demo->device, demo->swapchain_image_resources[i].uniform_memory, NULL);
-        vkDestroyFence(demo->device, demo->swapchain_image_resources[i].fence, NULL);
     }
     free(demo->swapchain_image_resources);
     free(demo->queue_props);
@@ -2101,7 +2328,6 @@ static void demo_cleanup(struct demo *demo) {
         demo->DestroyDebugReportCallback(demo->inst, demo->msg_callback, NULL);
     }
     vkDestroySurfaceKHR(demo->inst, demo->surface, NULL);
-    vkDestroyInstance(demo->inst, NULL);
 
 #if defined(VK_USE_PLATFORM_XLIB_KHR)
     XDestroyWindow(demo->display, demo->xlib_window);
@@ -2111,6 +2337,9 @@ static void demo_cleanup(struct demo *demo) {
     xcb_disconnect(demo->connection);
     free(demo->atom_wm_delete_window);
 #elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
+    wl_keyboard_destroy(demo->keyboard);
+    wl_pointer_destroy(demo->pointer);
+    wl_seat_destroy(demo->seat);
     wl_shell_surface_destroy(demo->shell_surface);
     wl_surface_destroy(demo->window);
     wl_shell_destroy(demo->shell);
@@ -2119,6 +2348,8 @@ static void demo_cleanup(struct demo *demo) {
     wl_display_disconnect(demo->display);
 #elif defined(VK_USE_PLATFORM_MIR_KHR)
 #endif
+
+    vkDestroyInstance(demo->inst, NULL);
 }
 
 static void demo_resize(struct demo *demo) {
@@ -2163,7 +2394,6 @@ static void demo_resize(struct demo *demo) {
                              &demo->swapchain_image_resources[i].cmd);
         vkDestroyBuffer(demo->device, demo->swapchain_image_resources[i].uniform_buffer, NULL);
         vkFreeMemory(demo->device, demo->swapchain_image_resources[i].uniform_memory, NULL);
-        vkDestroyFence(demo->device, demo->swapchain_image_resources[i].fence, NULL);
     }
     vkDestroyCommandPool(demo->device, demo->cmd_pool, NULL);
     if (demo->separate_present_queue) {
@@ -2478,10 +2708,14 @@ static void demo_create_xcb_window(struct demo *demo) {
 #elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
 static void demo_run(struct demo *demo) {
     while (!demo->quit) {
-        demo_draw(demo);
-        demo->curFrame++;
-        if (demo->frameCount != INT32_MAX && demo->curFrame == demo->frameCount)
-            demo->quit = true;
+        if (demo->pause) {
+            wl_display_dispatch(demo->display);  // block and wait for input
+        } else {
+            wl_display_dispatch_pending(demo->display);  // don't block
+            demo_draw(demo);
+            demo->curFrame++;
+            if (demo->frameCount != INT32_MAX && demo->curFrame == demo->frameCount) demo->quit = true;
+        }
     }
 }
 
@@ -2640,8 +2874,8 @@ static VkResult demo_create_display_surface(struct demo *demo) {
     VkDisplayPlaneCapabilitiesKHR planeCaps;
     vkGetDisplayPlaneCapabilitiesKHR(demo->gpu, mode_props.displayMode, plane_index, &planeCaps);
     // Find a supported alpha mode
-    VkCompositeAlphaFlagBitsKHR alphaMode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
-    VkCompositeAlphaFlagBitsKHR alphaModes[4] = {
+    VkDisplayPlaneAlphaFlagBitsKHR alphaMode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
+    VkDisplayPlaneAlphaFlagBitsKHR alphaModes[4] = {
         VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR,
         VK_DISPLAY_PLANE_ALPHA_GLOBAL_BIT_KHR,
         VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR,
@@ -2722,7 +2956,7 @@ static void demo_init_vk(struct demo *demo) {
     char *instance_validation_layers_alt2[] = {
         "VK_LAYER_GOOGLE_threading",      "VK_LAYER_LUNARG_parameter_validation",
         "VK_LAYER_LUNARG_object_tracker", "VK_LAYER_LUNARG_core_validation",
-        "VK_LAYER_LUNARG_swapchain",      "VK_LAYER_GOOGLE_unique_objects"
+        "VK_LAYER_GOOGLE_unique_objects"
     };
 
     /* Look for validation layers */
@@ -3048,6 +3282,48 @@ static void demo_init_vk(struct demo *demo) {
             assert(demo->enabled_extension_count < 64);
         }
 
+        if (demo->VK_KHR_incremental_present_enabled) {
+            // Even though the user "enabled" the extension via the command
+            // line, we must make sure that it's enumerated for use with the
+            // device.  Therefore, disable it here, and re-enable it again if
+            // enumerated.
+            demo->VK_KHR_incremental_present_enabled = false;
+            for (uint32_t i = 0; i < device_extension_count; i++) {
+                if (!strcmp(VK_KHR_INCREMENTAL_PRESENT_EXTENSION_NAME,
+                            device_extensions[i].extensionName)) {
+                    demo->extension_names[demo->enabled_extension_count++] =
+                        VK_KHR_INCREMENTAL_PRESENT_EXTENSION_NAME;
+                    demo->VK_KHR_incremental_present_enabled = true;
+                    DbgMsg("VK_KHR_incremental_present extension enabled\n");
+                }
+                assert(demo->enabled_extension_count < 64);
+            }
+            if (!demo->VK_KHR_incremental_present_enabled) {
+                DbgMsg("VK_KHR_incremental_present extension NOT AVAILABLE\n");
+            }
+        }
+
+        if (demo->VK_GOOGLE_display_timing_enabled) {
+            // Even though the user "enabled" the extension via the command
+            // line, we must make sure that it's enumerated for use with the
+            // device.  Therefore, disable it here, and re-enable it again if
+            // enumerated.
+            demo->VK_GOOGLE_display_timing_enabled = false;
+            for (uint32_t i = 0; i < device_extension_count; i++) {
+                if (!strcmp(VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME,
+                            device_extensions[i].extensionName)) {
+                    demo->extension_names[demo->enabled_extension_count++] =
+                        VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME;
+                    demo->VK_GOOGLE_display_timing_enabled = true;
+                    DbgMsg("VK_GOOGLE_display_timing extension enabled\n");
+                }
+                assert(demo->enabled_extension_count < 64);
+            }
+            if (!demo->VK_GOOGLE_display_timing_enabled) {
+                DbgMsg("VK_GOOGLE_display_timing extension NOT AVAILABLE\n");
+            }
+        }
+
         free(device_extensions);
     }
 
@@ -3301,6 +3577,10 @@ static void demo_init_vk_swapchain(struct demo *demo) {
     GET_DEVICE_PROC_ADDR(demo->device, GetSwapchainImagesKHR);
     GET_DEVICE_PROC_ADDR(demo->device, AcquireNextImageKHR);
     GET_DEVICE_PROC_ADDR(demo->device, QueuePresentKHR);
+    if (demo->VK_GOOGLE_display_timing_enabled) {
+        GET_DEVICE_PROC_ADDR(demo->device, GetRefreshCycleDurationGOOGLE);
+        GET_DEVICE_PROC_ADDR(demo->device, GetPastPresentationTimingGOOGLE);
+    }
 
     vkGetDeviceQueue(demo->device, demo->graphics_queue_family_index, 0,
                      &demo->graphics_queue);
@@ -3376,17 +3656,96 @@ static void demo_init_vk_swapchain(struct demo *demo) {
 }
 
 #if defined(VK_USE_PLATFORM_WAYLAND_KHR)
-static void registry_handle_global(void *data, struct wl_registry *registry,
-                                   uint32_t name, const char *interface,
+static void pointer_handle_enter(void *data, struct wl_pointer *pointer, uint32_t serial, struct wl_surface *surface, wl_fixed_t sx,
+                                 wl_fixed_t sy) {}
+
+static void pointer_handle_leave(void *data, struct wl_pointer *pointer, uint32_t serial, struct wl_surface *surface) {}
+
+static void pointer_handle_motion(void *data, struct wl_pointer *pointer, uint32_t time, wl_fixed_t sx, wl_fixed_t sy) {}
+
+static void pointer_handle_button(void *data, struct wl_pointer *wl_pointer, uint32_t serial, uint32_t time, uint32_t button,
+                                  uint32_t state) {
+    struct demo *demo = data;
+    if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
+        wl_shell_surface_move(demo->shell_surface, demo->seat, serial);
+    }
+}
+
+static void pointer_handle_axis(void *data, struct wl_pointer *wl_pointer, uint32_t time, uint32_t axis, wl_fixed_t value) {}
+
+static const struct wl_pointer_listener pointer_listener = {
+    pointer_handle_enter, pointer_handle_leave, pointer_handle_motion, pointer_handle_button, pointer_handle_axis,
+};
+
+static void keyboard_handle_keymap(void *data, struct wl_keyboard *keyboard, uint32_t format, int fd, uint32_t size) {}
+
+static void keyboard_handle_enter(void *data, struct wl_keyboard *keyboard, uint32_t serial, struct wl_surface *surface,
+                                  struct wl_array *keys) {}
+
+static void keyboard_handle_leave(void *data, struct wl_keyboard *keyboard, uint32_t serial, struct wl_surface *surface) {}
+
+static void keyboard_handle_key(void *data, struct wl_keyboard *keyboard, uint32_t serial, uint32_t time, uint32_t key,
+                                uint32_t state) {
+    if (state != WL_KEYBOARD_KEY_STATE_RELEASED) return;
+    struct demo *demo = data;
+    switch (key) {
+        case KEY_ESC:  // Escape
+            demo->quit = true;
+            break;
+        case KEY_LEFT:  // left arrow key
+            demo->spin_angle -= demo->spin_increment;
+            break;
+        case KEY_RIGHT:  // right arrow key
+            demo->spin_angle += demo->spin_increment;
+            break;
+        case KEY_SPACE:  // space bar
+            demo->pause = !demo->pause;
+            break;
+    }
+}
+
+static void keyboard_handle_modifiers(void *data, struct wl_keyboard *keyboard, uint32_t serial, uint32_t mods_depressed,
+                                      uint32_t mods_latched, uint32_t mods_locked, uint32_t group) {}
+
+static const struct wl_keyboard_listener keyboard_listener = {
+    keyboard_handle_keymap, keyboard_handle_enter, keyboard_handle_leave, keyboard_handle_key, keyboard_handle_modifiers,
+};
+
+static void seat_handle_capabilities(void *data, struct wl_seat *seat, enum wl_seat_capability caps) {
+    // Subscribe to pointer events
+    struct demo *demo = data;
+    if ((caps & WL_SEAT_CAPABILITY_POINTER) && !demo->pointer) {
+        demo->pointer = wl_seat_get_pointer(seat);
+        wl_pointer_add_listener(demo->pointer, &pointer_listener, demo);
+    } else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && demo->pointer) {
+        wl_pointer_destroy(demo->pointer);
+        demo->pointer = NULL;
+    }
+    // Subscribe to keyboard events
+    if (caps & WL_SEAT_CAPABILITY_KEYBOARD) {
+        demo->keyboard = wl_seat_get_keyboard(seat);
+        wl_keyboard_add_listener(demo->keyboard, &keyboard_listener, demo);
+    } else if (!(caps & WL_SEAT_CAPABILITY_KEYBOARD)) {
+        wl_keyboard_destroy(demo->keyboard);
+        demo->keyboard = NULL;
+    }
+}
+
+static const struct wl_seat_listener seat_listener = {
+    seat_handle_capabilities,
+};
+
+static void registry_handle_global(void *data, struct wl_registry *registry, uint32_t id, const char *interface,
                                    uint32_t version UNUSED) {
     struct demo *demo = data;
+    // pickup wayland objects when they appear
     if (strcmp(interface, "wl_compositor") == 0) {
-        demo->compositor =
-            wl_registry_bind(registry, name, &wl_compositor_interface, 3);
-        /* Todo: When xdg_shell protocol has stablized, we should move wl_shell
-         * tp xdg_shell */
+        demo->compositor = wl_registry_bind(registry, id, &wl_compositor_interface, 1);
     } else if (strcmp(interface, "wl_shell") == 0) {
-        demo->shell = wl_registry_bind(registry, name, &wl_shell_interface, 1);
+        demo->shell = wl_registry_bind(registry, id, &wl_shell_interface, 1);
+    } else if (strcmp(interface, "wl_seat") == 0) {
+        demo->seat = wl_registry_bind(registry, id, &wl_seat_interface, 1);
+        wl_seat_add_listener(demo->seat, &seat_listener, demo);
     }
 }
 
@@ -3483,18 +3842,31 @@ static void demo_init(struct demo *demo, int argc, char **argv) {
             demo->suppress_popups = true;
             continue;
         }
+        if (strcmp(argv[i], "--display_timing") == 0) {
+            demo->VK_GOOGLE_display_timing_enabled = true;
+            continue;
+        }
+        if (strcmp(argv[i], "--incremental_present") == 0) {
+            demo->VK_KHR_incremental_present_enabled = true;
+            continue;
+        }
 
 #if defined(ANDROID)
         ERR_EXIT("Usage: cube [--validate]\n", "Usage");
 #else
-        fprintf(stderr, "Usage:\n  %s [--use_staging] [--validate] [--validate-checks-disabled] [--break] "
-                        "[--c <framecount>] [--suppress_popups] [--present_mode <present mode enum>]\n"
-                        "VK_PRESENT_MODE_IMMEDIATE_KHR = %d\n"
-                        "VK_PRESENT_MODE_MAILBOX_KHR = %d\n"
-                        "VK_PRESENT_MODE_FIFO_KHR = %d\n"
-                        "VK_PRESENT_MODE_FIFO_RELAXED_KHR = %d\n",
-                APP_SHORT_NAME, VK_PRESENT_MODE_IMMEDIATE_KHR, VK_PRESENT_MODE_MAILBOX_KHR,
-                VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_FIFO_RELAXED_KHR);
+        fprintf(stderr,
+                "Usage:\n  %s [--use_staging] [--validate] [--validate-checks-disabled]\n"
+                "       [--break] [--c <framecount>] [--suppress_popups]\n"
+                "       [--incremental_present] [--display_timing]\n"
+                "       [--present_mode {0,1,2,3}]\n"
+                "\n"
+                "Options for --present_mode:\n"
+                "  %d: VK_PRESENT_MODE_IMMEDIATE_KHR\n"
+                "  %d: VK_PRESENT_MODE_MAILBOX_KHR\n"
+                "  %d: VK_PRESENT_MODE_FIFO_KHR (default)\n"
+                "  %d: VK_PRESENT_MODE_FIFO_RELAXED_KHR\n",
+                APP_SHORT_NAME, VK_PRESENT_MODE_IMMEDIATE_KHR, VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_KHR,
+                VK_PRESENT_MODE_FIFO_RELAXED_KHR);
         fflush(stderr);
         exit(1);
 #endif
@@ -3693,8 +4065,6 @@ static void processCommand(struct android_app* app, int32_t cmd) {
 
 void android_main(struct android_app *app)
 {
-    app_dummy();
-
 #ifdef ANDROID
     int vulkanSupport = InitVulkan();
     if (vulkanSupport == 0)

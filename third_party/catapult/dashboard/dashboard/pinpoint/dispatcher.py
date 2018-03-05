@@ -11,6 +11,7 @@ from dashboard.pinpoint import handlers
 
 _URL_MAPPING = [
     # Public API.
+    webapp2.Route(r'/api/config', handlers.Config),
     webapp2.Route(r'/api/gitiles', handlers.Gitiles),
     webapp2.Route(r'/api/isolate', handlers.Isolate),
     webapp2.Route(r'/api/isolate/<builder_name>/<git_hash>/<target>',
@@ -20,6 +21,7 @@ _URL_MAPPING = [
     webapp2.Route(r'/api/login', handlers.Login),
     webapp2.Route(r'/api/migrate', handlers.Migrate),
     webapp2.Route(r'/api/new', handlers.New),
+    webapp2.Route(r'/api/stats', handlers.Stats),
 
     # Used internally by Pinpoint. Not accessible from the public API.
     webapp2.Route(r'/api/run/<job_id>', handlers.Run),

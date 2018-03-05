@@ -122,6 +122,7 @@ const char kEapUseProactiveKeyCachingProperty[] = "EAP.UseProactiveKeyCaching";
 const char kEapPinProperty[] = "EAP.PIN";
 const char kEapPasswordProperty[] = "EAP.Password";
 const char kEapKeyMgmtProperty[] = "EAP.KeyMgmt";
+const char kEapUseLoginPasswordProperty[] = "EAP.UseLoginPassword";
 
 // Flimflam Cellular Service property names.
 const char kTechnologyFamilyProperty[] = "Cellular.Family";
@@ -191,9 +192,8 @@ const char kImsiProperty[] = "Cellular.IMSI";
 const char kEsnProperty[] = "Cellular.ESN";
 const char kMdnProperty[] = "Cellular.MDN";
 const char kMinProperty[] = "Cellular.MIN";
-// TODO(ejcaruso): remove this when the correctly-cased name is used in chrome
-const char kModelIDProperty[] = "Cellular.ModelID";
 const char kModelIdProperty[] = "Cellular.ModelID";
+const char kEquipmentIdProperty[] = "Cellular.EquipmentID";
 const char kManufacturerProperty[] = "Cellular.Manufacturer";
 const char kFirmwareRevisionProperty[] = "Cellular.FirmwareRevision";
 const char kHardwareRevisionProperty[] = "Cellular.HardwareRevision";

@@ -634,7 +634,6 @@ CQ_CONFIG_PRE_CQ_CONFIGS = 'pre-cq-configs'
 CQ_CONFIG_PRE_CQ_CONFIGS_REGEX = CQ_CONFIG_PRE_CQ_CONFIGS + ':'
 
 # Define pool of machines for Hardware tests.
-HWTEST_DEFAULT_NUM = 6
 HWTEST_TRYBOT_NUM = 3
 HWTEST_MACH_POOL = 'bvt'
 HWTEST_MACH_POOL_UNI = 'bvt-uni'
@@ -742,19 +741,17 @@ JOB_KEYVAL_CIDB_BUILD_STAGE_ID = 'cidb_build_stage_id'
 # Defines VM Test types.
 FULL_AU_TEST_TYPE = 'full_suite'
 SIMPLE_AU_TEST_TYPE = 'pfq_suite'
-SMOKE_SUITE_TEST_TYPE = 'smoke_suite'
-TELEMETRY_SUITE_TEST_TYPE = 'telemetry_suite'
-VMTEST_INFORMATIONAL_TEST_TYPE = 'vmtest_informational_suite'
+VM_SUITE_TEST_TYPE = 'vm_suite'
+GCE_SUITE_TEST_TYPE = 'gce_suite'
 CROS_VM_TEST_TYPE = 'cros_vm_test'
 DEV_MODE_TEST_TYPE = 'dev_mode_test'
 VALID_VM_TEST_TYPES = [FULL_AU_TEST_TYPE, SIMPLE_AU_TEST_TYPE,
-                       SMOKE_SUITE_TEST_TYPE, TELEMETRY_SUITE_TEST_TYPE,
-                       CROS_VM_TEST_TYPE, DEV_MODE_TEST_TYPE,
-                       VMTEST_INFORMATIONAL_TEST_TYPE]
-# GCE tests are suites of tests that run on GCE instances.
-GCE_SMOKE_TEST_TYPE = 'gce_smoke_test'  # suite:gce-smoke
-GCE_SANITY_TEST_TYPE = 'gce_sanity_test'  # suite:gce-sanity
-VALID_GCE_TEST_TYPES = [GCE_SMOKE_TEST_TYPE, GCE_SANITY_TEST_TYPE]
+                       VM_SUITE_TEST_TYPE, GCE_SUITE_TEST_TYPE,
+                       CROS_VM_TEST_TYPE, DEV_MODE_TEST_TYPE]
+VALID_GCE_TEST_SUITES = ['gce-smoke', 'gce-sanity']
+# MoblabVM tests are suites of tests used to validate a moblab image via
+# VMTests.
+MOBLAB_VM_SMOKE_TEST_TYPE = 'moblab_smoke_test'
 
 CHROMIUMOS_OVERLAY_DIR = 'src/third_party/chromiumos-overlay'
 VERSION_FILE = os.path.join(CHROMIUMOS_OVERLAY_DIR,
@@ -1031,8 +1028,6 @@ VM_IMAGE_TAR = '%s.tar.xz' % VM_IMAGE_NAME
 VM_DISK_PREFIX = 'chromiumos_qemu_disk.bin'
 VM_MEM_PREFIX = 'chromiumos_qemu_mem.bin'
 VM_NUM_RETRIES = 1
-VM_TEST_RESULTS = 'vm_test_results_%(attempt)s'
-GCE_TEST_RESULTS = 'gce_test_results_%(attempt)s'
 TAST_VM_TEST_RESULTS = 'tast_vm_test_results_%(attempt)s'
 
 TEST_IMAGE_NAME = 'chromiumos_test_image'
@@ -1147,6 +1142,7 @@ CHROMEOS_SERVICE_ACCOUNT = os.path.join('/', 'creds', 'service_accounts',
 
 # Buildbucket buckets
 TRYSERVER_BUILDBUCKET_BUCKET = 'master.chromiumos.tryserver'
+CHROMEOS_RELEASE_BUILDBUCKET_BUCKET = 'master.chromeos_release'
 CHROMEOS_BUILDBUCKET_BUCKET = 'master.chromeos'
 CHROMIUMOS_BUILDBUCKET_BUCKET = 'master.chromiumos'
 INTERNAL_SWARMING_BUILDBUCKET_BUCKET = 'luci.chromeos.general'

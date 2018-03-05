@@ -739,7 +739,6 @@ def RunHWTestSuite(
     build, suite, board,
     model=None,
     pool=None,
-    num=None,
     file_bugs=None,
     wait_for_results=None,
     priority=None,
@@ -754,7 +753,8 @@ def RunHWTestSuite(
     debug=True,
     subsystems=frozenset(),
     skip_duts_check=False,
-    job_keyvals=None):
+    job_keyvals=None,
+    test_args=None):
   """Run the test suite in the Autotest lab.
 
   Args:
@@ -764,8 +764,6 @@ def RunHWTestSuite(
     board: The board the test suite should be scheduled against.
     model: A specific model to schedule the test suite against.
     pool: The pool of machines we should use to run the hw tests on.
-    num: Maximum number of devices to use when scheduling tests in the
-         hardware test lab.
     file_bugs: File bugs on test failures for this suite run.
     wait_for_results: If True, wait for autotest results before returning.
     priority: Priority of this suite run.
@@ -790,6 +788,7 @@ def RunHWTestSuite(
                 testing purposes.
     skip_duts_check: If True, skip minimum available DUTs check.
     job_keyvals: A dict of job keyvals to be inject to suite control file.
+    test_args: A dict of test parameters to be inject to suite control file.
 
   Returns:
     An instance of named tuple HWTestSuiteResult, the first element is the
@@ -802,7 +801,6 @@ def RunHWTestSuite(
         build, suite, board,
         model=model,
         pool=pool,
-        num=num,
         file_bugs=file_bugs,
         priority=priority,
         timeout_mins=timeout_mins,
@@ -815,7 +813,8 @@ def RunHWTestSuite(
         offload_failures_only=offload_failures_only,
         subsystems=subsystems,
         skip_duts_check=skip_duts_check,
-        job_keyvals=job_keyvals)
+        job_keyvals=job_keyvals,
+        test_args=test_args)
     swarming_args = _CreateSwarmingArgs(build, suite, board, priority,
                                         timeout_mins)
     running_json_dump_flag = False
@@ -824,7 +823,7 @@ def RunHWTestSuite(
     if job_id:
       if wait_for_results:
         pass_hwtest = _HWTestWait(cmd, job_id, **swarming_args)
-      suite_details_link = tree_status.ConstructViceroySuiteDetailsURL(
+      suite_details_link = tree_status.ConstructGoldenEyeSuiteDetailsURL(
           job_id=job_id)
       logging.PrintBuildbotLink('Suite details', suite_details_link)
       if wait_for_results:
@@ -926,7 +925,6 @@ def _GetRunSuiteArgs(
     build, suite, board,
     model=None,
     pool=None,
-    num=None,
     file_bugs=None,
     priority=None,
     timeout_mins=None,
@@ -939,7 +937,8 @@ def _GetRunSuiteArgs(
     offload_failures_only=None,
     subsystems=frozenset(),
     skip_duts_check=False,
-    job_keyvals=None):
+    job_keyvals=None,
+    test_args=None):
   """Get a list of args for run_suite.
 
   Args:
@@ -962,9 +961,6 @@ def _GetRunSuiteArgs(
   # Add optional arguments to command, if present.
   if pool is not None:
     args += ['--pool', pool]
-
-  if num is not None:
-    args += ['--num', str(num)]
 
   if file_bugs is not None:
     args += ['--file_bugs', str(file_bugs)]
@@ -1018,6 +1014,9 @@ def _GetRunSuiteArgs(
 
   if job_keyvals:
     args += ['--job_keyvals', repr(job_keyvals)]
+
+  if test_args:
+    args += ['--test_args', repr(test_args)]
 
   return args
 

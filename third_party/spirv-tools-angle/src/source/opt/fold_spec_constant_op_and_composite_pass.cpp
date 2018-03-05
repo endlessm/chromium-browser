@@ -19,6 +19,7 @@
 #include <tuple>
 
 #include "constants.h"
+#include "ir_context.h"
 #include "make_unique.h"
 
 namespace spvtools {
@@ -242,28 +243,24 @@ std::vector<uint32_t> OperateVectors(
 }  // anonymous namespace
 
 FoldSpecConstantOpAndCompositePass::FoldSpecConstantOpAndCompositePass()
-    : max_id_(0),
-      module_(nullptr),
-      def_use_mgr_(nullptr),
-      type_mgr_(nullptr),
-      id_to_const_val_() {}
+    : max_id_(0), type_mgr_(nullptr), id_to_const_val_() {}
 
-Pass::Status FoldSpecConstantOpAndCompositePass::Process(ir::Module* module) {
-  Initialize(module);
-  return ProcessImpl(module);
+Pass::Status FoldSpecConstantOpAndCompositePass::Process(
+    ir::IRContext* irContext) {
+  Initialize(irContext);
+  return ProcessImpl(irContext);
 }
 
-void FoldSpecConstantOpAndCompositePass::Initialize(ir::Module* module) {
-  type_mgr_.reset(new analysis::TypeManager(consumer(), *module));
-  def_use_mgr_.reset(new analysis::DefUseManager(consumer(), module));
-  for (const auto& id_def : def_use_mgr_->id_to_defs()) {
+void FoldSpecConstantOpAndCompositePass::Initialize(ir::IRContext* irContext) {
+  InitializeProcessing(irContext);
+  type_mgr_.reset(new analysis::TypeManager(consumer(), *irContext->module()));
+  for (const auto& id_def : get_def_use_mgr()->id_to_defs()) {
     max_id_ = std::max(max_id_, id_def.first);
   }
-  module_ = module;
 };
 
 Pass::Status FoldSpecConstantOpAndCompositePass::ProcessImpl(
-    ir::Module* module) {
+    ir::IRContext* irContext) {
   bool modified = false;
   // Traverse through all the constant defining instructions. For Normal
   // Constants whose values are determined and do not depend on OpUndef
@@ -285,10 +282,10 @@ Pass::Status FoldSpecConstantOpAndCompositePass::ProcessImpl(
   // the dependee Spec Constants, all its dependent constants must have been
   // processed and all its dependent Spec Constants should have been folded if
   // possible.
-  for (ir::Module::inst_iterator inst_iter = module->types_values_begin();
+  for (ir::Module::inst_iterator inst_iter = irContext->types_values_begin();
        // Need to re-evaluate the end iterator since we may modify the list of
        // instructions in this section of the module as the process goes.
-       inst_iter != module->types_values_end(); ++inst_iter) {
+       inst_iter != irContext->types_values_end(); ++inst_iter) {
     ir::Instruction* inst = &*inst_iter;
     // Collect constant values of normal constants and process the
     // OpSpecConstantOp and OpSpecConstantComposite instructions if possible.
@@ -376,8 +373,8 @@ bool FoldSpecConstantOpAndCompositePass::ProcessOpSpecConstantOp(
   // original constant.
   uint32_t new_id = folded_inst->result_id();
   uint32_t old_id = inst->result_id();
-  def_use_mgr_->ReplaceAllUsesWith(old_id, new_id);
-  def_use_mgr_->KillDef(old_id);
+  context()->ReplaceAllUsesWith(old_id, new_id);
+  context()->KillDef(old_id);
   return true;
 }
 
@@ -518,7 +515,7 @@ bool IsValidTypeForComponentWiseOperation(const analysis::Type* type) {
   }
   return false;
 }
-}
+}  // namespace
 
 ir::Instruction* FoldSpecConstantOpAndCompositePass::DoComponentWiseOperation(
     ir::Module::inst_iterator* pos) {
@@ -585,15 +582,15 @@ FoldSpecConstantOpAndCompositePass::BuildInstructionAndAddToModule(
     std::unique_ptr<analysis::Constant> c, ir::Module::inst_iterator* pos) {
   analysis::Constant* new_const = c.get();
   uint32_t new_id = ++max_id_;
-  module_->SetIdBound(new_id + 1);
+  get_module()->SetIdBound(new_id + 1);
   const_val_to_id_[new_const] = new_id;
   id_to_const_val_[new_id] = std::move(c);
   auto new_inst = CreateInstruction(new_id, new_const);
   if (!new_inst) return nullptr;
   auto* new_inst_ptr = new_inst.get();
   *pos = pos->InsertBefore(std::move(new_inst));
-  (*pos)++;
-  def_use_mgr_->AnalyzeInstDefUse(new_inst_ptr);
+  ++(*pos);
+  get_def_use_mgr()->AnalyzeInstDefUse(new_inst_ptr);
   return new_inst_ptr;
 }
 
@@ -727,22 +724,23 @@ std::unique_ptr<ir::Instruction>
 FoldSpecConstantOpAndCompositePass::CreateInstruction(uint32_t id,
                                                       analysis::Constant* c) {
   if (c->AsNullConstant()) {
-    return MakeUnique<ir::Instruction>(SpvOp::SpvOpConstantNull,
+    return MakeUnique<ir::Instruction>(context(), SpvOp::SpvOpConstantNull,
                                        type_mgr_->GetId(c->type()), id,
                                        std::initializer_list<ir::Operand>{});
   } else if (analysis::BoolConstant* bc = c->AsBoolConstant()) {
     return MakeUnique<ir::Instruction>(
+        context(),
         bc->value() ? SpvOp::SpvOpConstantTrue : SpvOp::SpvOpConstantFalse,
         type_mgr_->GetId(c->type()), id, std::initializer_list<ir::Operand>{});
   } else if (analysis::IntConstant* ic = c->AsIntConstant()) {
     return MakeUnique<ir::Instruction>(
-        SpvOp::SpvOpConstant, type_mgr_->GetId(c->type()), id,
+        context(), SpvOp::SpvOpConstant, type_mgr_->GetId(c->type()), id,
         std::initializer_list<ir::Operand>{ir::Operand(
             spv_operand_type_t::SPV_OPERAND_TYPE_TYPED_LITERAL_NUMBER,
             ic->words())});
   } else if (analysis::FloatConstant* fc = c->AsFloatConstant()) {
     return MakeUnique<ir::Instruction>(
-        SpvOp::SpvOpConstant, type_mgr_->GetId(c->type()), id,
+        context(), SpvOp::SpvOpConstant, type_mgr_->GetId(c->type()), id,
         std::initializer_list<ir::Operand>{ir::Operand(
             spv_operand_type_t::SPV_OPERAND_TYPE_TYPED_LITERAL_NUMBER,
             fc->words())});
@@ -768,7 +766,7 @@ FoldSpecConstantOpAndCompositePass::CreateCompositeInstruction(
     operands.emplace_back(spv_operand_type_t::SPV_OPERAND_TYPE_ID,
                           std::initializer_list<uint32_t>{id});
   }
-  return MakeUnique<ir::Instruction>(SpvOp::SpvOpConstantComposite,
+  return MakeUnique<ir::Instruction>(context(), SpvOp::SpvOpConstantComposite,
                                      type_mgr_->GetId(cc->type()), result_id,
                                      std::move(operands));
 }

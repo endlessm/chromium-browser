@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import base64
 import httplib2
 import json
 import unittest
@@ -22,7 +21,6 @@ from dashboard.models import bug_data
 from dashboard.models import graph_data
 from dashboard.models import try_job
 from dashboard.services import issue_tracker_service
-from dashboard.services import rietveld_service
 
 # pylint: disable=too-many-lines
 
@@ -246,22 +244,6 @@ _TEST_EXPECTED_BOT = None
 _TEST_EXPECTED_CONFIG_CONTENTS = None
 
 
-def _MockFetch(url=None, deadline=None):
-  del deadline
-  if start_try_job._BISECT_CONFIG_PATH in url:
-    return testing_common.FakeResponseObject(
-        200, base64.encodestring(_BISECT_CONFIG_CONTENTS))
-  elif start_try_job._PERF_CONFIG_PATH in url:
-    return testing_common.FakeResponseObject(
-        200, base64.encodestring(_PERF_CONFIG_CONTENTS))
-
-
-def _MockFailedFetch(url=None, deadline=None):
-  del url
-  del deadline
-  return testing_common.FakeResponseObject(404, {})
-
-
 def _MockMakeRequest(path, *args, **kwargs):  # pylint: disable=unused-argument
   """Mocks out a request, returning a canned response."""
   if path.endswith('xsrf_token'):
@@ -326,13 +308,6 @@ class StartBisectTest(testing_common.TestCase):
             'ChromiumPerf': 'master.tryserver.chromium.perf'
         })
     testing_common.SetSheriffDomains(['chromium.org'])
-    # Add fake Rietveld auth info.
-    rietveld_config = rietveld_service.RietveldConfig(
-        id='default_rietveld_config',
-        client_email='sullivan@chromium.org',
-        service_account_key='Fake Account Key',
-        server_url='https://test-rietveld.appspot.com')
-    rietveld_config.put()
 
   @mock.patch.object(utils, 'IsGroupMember', mock.MagicMock(return_value=False))
   def testPost_InvalidUser_ShowsErrorMessage(self):
@@ -365,7 +340,7 @@ class StartBisectTest(testing_common.TestCase):
                     'dev.chromium.org': {},
                     'test.blogspot.com': {},
                     'http___test.com_': {},
-                    'Wikipedia (1 tab)': {}
+                    'Wikipedia_(1_tab)': {}
                 },
                 'vm_final_size_renderer': {
                     'ref': {},
@@ -405,14 +380,14 @@ class StartBisectTest(testing_common.TestCase):
 
     response = self.testapp.post('/start_try_job', {
         'test_path': ('ChromiumPerf/win7/page_cycler.morejs/'
-                      'times/Wikipedia (1 tab)'),
+                      'times/Wikipedia_(1_tab)'),
         'step': 'prefill-info',
     })
     info = json.loads(response.body)
     self.assertEqual('win_perf_bisect', info['bisect_bot'])
     self.assertEqual('foo@chromium.org', info['email'])
     self.assertEqual('page_cycler.morejs', info['suite'])
-    self.assertEqual('times/Wikipedia (1 tab)', info['default_metric'])
+    self.assertEqual('times/Wikipedia_(1_tab)', info['default_metric'])
     self.assertEqual('ChromiumPerf', info['master'])
     self.assertFalse(info['internal_only'])
     self.assertFalse(info['is_admin'])
@@ -428,7 +403,7 @@ class StartBisectTest(testing_common.TestCase):
         ], info['all_bots'])
     self.assertEqual(
         [
-            'times/Wikipedia (1 tab)',
+            'times/Wikipedia_(1_tab)',
             'times/blog.chromium.org',
             'times/dev.chromium.org',
             'times/http___test.com_',
@@ -761,14 +736,8 @@ class StartBisectTest(testing_common.TestCase):
   @mock.patch(
       'google.appengine.api.app_identity.get_default_version_hostname',
       mock.MagicMock(return_value='my-dashboard.appspot.com'))
-  @mock.patch(
-      'google.appengine.api.urlfetch.fetch',
-      mock.MagicMock(side_effect=_MockFetch))
   @mock.patch.object(start_try_job.buildbucket_service, 'PutJob',
                      mock.MagicMock(return_value='33001'))
-  @mock.patch.object(
-      start_try_job.rietveld_service.RietveldService, 'MakeRequest',
-      mock.MagicMock(side_effect=_MockMakeRequest))
   def testPerformBisect(self, _):
     self.SetCurrentUser('foo@chromium.org')
 
@@ -804,64 +773,9 @@ class StartBisectTest(testing_common.TestCase):
     self.assertEqual(issue_url, try_jobs[0].results_data['issue_url'])
     self.assertEqual('33001', try_jobs[0].results_data['issue_id'])
 
-  @mock.patch(
-      'google.appengine.api.urlfetch.fetch',
-      mock.MagicMock(side_effect=_MockFetch))
-  @mock.patch.object(
-      start_try_job.rietveld_service.RietveldService, 'MakeRequest',
-      mock.MagicMock(side_effect=_MockMakeRequest))
-  def testPerformPerfTry(self):
-    self.SetCurrentUser('foo@chromium.org')
-
-    query_parameters = {
-        'bisect_bot': 'linux_perf_bisect',
-        'suite': 'dromaeo.jslibstylejquery',
-        'good_revision': '215806',
-        'bad_revision': '215828',
-        'step': 'perform-perf-try',
-    }
-    global _EXPECTED_CONFIG_DIFF
-    global _TEST_EXPECTED_CONFIG_CONTENTS
-    global _TEST_EXPECTED_BOT
-    _EXPECTED_CONFIG_DIFF = _EXPECTED_PERF_CONFIG_DIFF
-    _TEST_EXPECTED_CONFIG_CONTENTS = _PERF_CONFIG_CONTENTS
-    _TEST_EXPECTED_BOT = 'linux_perf_bisect'
-    response = self.testapp.post('/start_try_job', query_parameters)
-    self.assertEqual(json.dumps({'issue_id': '33001'}), response.body)
-
-  @mock.patch(
-      'google.appengine.api.urlfetch.fetch',
-      mock.MagicMock(side_effect=_MockFetch))
-  @mock.patch.object(
-      start_try_job.rietveld_service.RietveldService, 'MakeRequest',
-      mock.MagicMock(side_effect=_MockMakeRequest))
-  def testPerformPerfTryWithTracing(self):
-    self.SetCurrentUser('foo@chromium.org')
-
-    query_parameters = {
-        'bisect_bot': 'linux_perf_bisect',
-        'suite': 'dromaeo.jslibstylejquery',
-        'good_revision': '215806',
-        'bad_revision': '215828',
-        'step': 'perform-perf-try',
-        'chrome_trace_filter_string': 'toplevel',
-        'atrace_filter_string': 'battor',
-    }
-    global _EXPECTED_CONFIG_DIFF
-    global _TEST_EXPECTED_CONFIG_CONTENTS
-    global _TEST_EXPECTED_BOT
-    _EXPECTED_CONFIG_DIFF = _EXPECTED_PERF_CONFIG_TRACING_DIFF
-    _TEST_EXPECTED_CONFIG_CONTENTS = _PERF_CONFIG_CONTENTS
-    _TEST_EXPECTED_BOT = 'linux_perf_bisect'
-    response = self.testapp.post('/start_try_job', query_parameters)
-    self.assertEqual(json.dumps({'issue_id': '33001'}), response.body)
-
   @mock.patch.object(issue_tracker_service.IssueTrackerService, 'AddBugComment')
   @mock.patch.object(start_try_job.buildbucket_service, 'PutJob',
                      mock.MagicMock(side_effect=httplib2.HttpLib2Error))
-  @mock.patch.object(
-      start_try_job.rietveld_service.RietveldService, 'MakeRequest',
-      mock.MagicMock(side_effect=_MockMakeRequest))
   def testPerformBisectStep_DeleteJobOnFailedBisect(self, _):
     self.SetCurrentUser('foo@chromium.org')
     query_parameters = {
@@ -883,35 +797,6 @@ class StartBisectTest(testing_common.TestCase):
     try_jobs = try_job.TryJob.query().fetch()
     self.assertEqual(0, len(try_jobs))
 
-  @mock.patch(
-      'google.appengine.api.urlfetch.fetch',
-      mock.MagicMock(side_effect=_MockFailedFetch))
-  @mock.patch.object(
-      start_try_job.rietveld_service.RietveldService, 'MakeRequest',
-      mock.MagicMock(side_effect=_MockMakeRequest))
-  def testPerformPerfTryStep_DeleteJobOnFailedBisect(self):
-    self.SetCurrentUser('foo@chromium.org')
-    query_parameters = {
-        'bisect_bot': 'linux_perf_bisect',
-        'suite': 'dromaeo.jslibstylejquery',
-        'good_revision': '215806',
-        'bad_revision': '215828',
-    }
-    global _EXPECTED_CONFIG_DIFF
-    global _TEST_EXPECTED_CONFIG_CONTENTS
-    global _TEST_EXPECTED_BOT
-    _EXPECTED_CONFIG_DIFF = _EXPECTED_PERF_CONFIG_DIFF
-    _TEST_EXPECTED_CONFIG_CONTENTS = _PERF_CONFIG_CONTENTS
-    _TEST_EXPECTED_BOT = 'linux_perf_bisect'
-
-    query_parameters['step'] = 'perform-perf-try'
-    self.testapp.post('/start_try_job', query_parameters)
-    try_jobs = try_job.TryJob.query().fetch()
-    self.assertEqual(0, len(try_jobs))
-
-  @mock.patch(
-      'google.appengine.api.urlfetch.fetch',
-      mock.MagicMock(side_effect=_MockFetch))
   @mock.patch(
       'google.appengine.api.app_identity.get_default_version_hostname',
       mock.MagicMock(return_value='my-dashboard.appspot.com'))

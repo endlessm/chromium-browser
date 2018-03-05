@@ -40,8 +40,8 @@ TEST_F(EliminateDeadConstantBasicTest, BasicAllDeadConstants) {
        "%void = OpTypeVoid",
           "%4 = OpTypeFunction %void",
        "%bool = OpTypeBool",
-          "%6 = OpConstantTrue %bool",
-          "%7 = OpConstantFalse %bool",
+       "%true = OpConstantTrue %bool",
+      "%false = OpConstantFalse %bool",
         "%int = OpTypeInt 32 1",
           "%9 = OpConstant %int 1",
        "%uint = OpTypeInt 32 0",
@@ -59,7 +59,9 @@ TEST_F(EliminateDeadConstantBasicTest, BasicAllDeadConstants) {
   // None of the above constants is ever used, so all of them should be
   // eliminated.
   const char* const_decl_opcodes[] = {
-      " OpConstantTrue ", " OpConstantFalse ", " OpConstant ",
+      " OpConstantTrue ",
+      " OpConstantFalse ",
+      " OpConstant ",
   };
   // Skip lines that have any one of const_decl_opcodes.
   const std::string expected_disassembly =
@@ -94,8 +96,8 @@ TEST_F(EliminateDeadConstantBasicTest, BasicNoneDeadConstants) {
           "%10 = OpTypeFunction %void",
         "%bool = OpTypeBool",
  "%_ptr_Function_bool = OpTypePointer Function %bool",
-          "%13 = OpConstantTrue %bool",
-          "%14 = OpConstantFalse %bool",
+        "%true = OpConstantTrue %bool",
+       "%false = OpConstantFalse %bool",
          "%int = OpTypeInt 32 1",
  "%_ptr_Function_int = OpTypePointer Function %int",
        "%int_1 = OpConstant %int 1",
@@ -116,8 +118,8 @@ TEST_F(EliminateDeadConstantBasicTest, BasicNoneDeadConstants) {
           "%uv = OpVariable %_ptr_Function_uint Function",
           "%fv = OpVariable %_ptr_Function_float Function",
           "%dv = OpVariable %_ptr_Function_double Function",
-                "OpStore %btv %13",
-                "OpStore %bfv %14",
+                "OpStore %btv %true",
+                "OpStore %bfv %false",
                 "OpStore %iv %int_1",
                 "OpStore %uv %uint_2",
                 "OpStore %fv %float_3_14",

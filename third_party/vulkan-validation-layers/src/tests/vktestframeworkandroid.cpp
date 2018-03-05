@@ -24,7 +24,8 @@
 VkTestFramework::VkTestFramework() {}
 VkTestFramework::~VkTestFramework() {}
 
-bool VkTestFramework::m_use_glsl = false;
+// Define static elements
+bool VkTestFramework::m_devsim_layer = false;
 
 VkFormat VkTestFramework::GetFormat(VkInstance instance, vk_testing::Device *device) {
     VkFormatProperties format_props;

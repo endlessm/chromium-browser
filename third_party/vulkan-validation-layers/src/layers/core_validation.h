@@ -98,6 +98,12 @@ struct GENERIC_HEADER {
     const void *pNext;
 };
 
+enum SyncScope {
+    kSyncScopeInternal,
+    kSyncScopeExternalTemporary,
+    kSyncScopeExternalPermanent,
+};
+
 enum FENCE_STATE { FENCE_UNSIGNALED, FENCE_INFLIGHT, FENCE_RETIRED };
 
 class FENCE_NODE {
@@ -106,15 +112,17 @@ class FENCE_NODE {
     VkFenceCreateInfo createInfo;
     std::pair<VkQueue, uint64_t> signaler;
     FENCE_STATE state;
+    SyncScope scope;
 
     // Default constructor
-    FENCE_NODE() : state(FENCE_UNSIGNALED) {}
+    FENCE_NODE() : state(FENCE_UNSIGNALED), scope(kSyncScopeInternal) {}
 };
 
 class SEMAPHORE_NODE : public BASE_NODE {
    public:
     std::pair<VkQueue, uint64_t> signaler;
     bool signaled;
+    SyncScope scope;
 };
 
 class EVENT_STATE : public BASE_NODE {
@@ -140,29 +148,24 @@ class QUERY_POOL_NODE : public BASE_NODE {
     VkQueryPoolCreateInfo createInfo;
 };
 
-// Stuff from Device Limits Layer
-enum CALL_STATE {
-    UNCALLED,       // Function has not been called
-    QUERY_COUNT,    // Function called once to query a count
-    QUERY_DETAILS,  // Function called w/ a count to query details
-};
-
 struct PHYSICAL_DEVICE_STATE {
     // Track the call state and array sizes for various query functions
     CALL_STATE vkGetPhysicalDeviceQueueFamilyPropertiesState = UNCALLED;
-    uint32_t queueFamilyPropertiesCount = 0;
     CALL_STATE vkGetPhysicalDeviceLayerPropertiesState = UNCALLED;
     CALL_STATE vkGetPhysicalDeviceExtensionPropertiesState = UNCALLED;
     CALL_STATE vkGetPhysicalDeviceFeaturesState = UNCALLED;
     CALL_STATE vkGetPhysicalDeviceSurfaceCapabilitiesKHRState = UNCALLED;
     CALL_STATE vkGetPhysicalDeviceSurfacePresentModesKHRState = UNCALLED;
     CALL_STATE vkGetPhysicalDeviceSurfaceFormatsKHRState = UNCALLED;
+    CALL_STATE vkGetPhysicalDeviceDisplayPlanePropertiesKHRState = UNCALLED;
     VkPhysicalDeviceFeatures features = {};
     VkPhysicalDevice phys_device = VK_NULL_HANDLE;
+    uint32_t queue_family_count = 0;
     std::vector<VkQueueFamilyProperties> queue_family_properties;
     VkSurfaceCapabilitiesKHR surfaceCapabilities = {};
     std::vector<VkPresentModeKHR> present_modes;
     std::vector<VkSurfaceFormatKHR> surface_formats;
+    uint32_t display_plane_property_count = 0;
 };
 
 struct GpuQueue {

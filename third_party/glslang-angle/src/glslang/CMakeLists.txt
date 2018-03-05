@@ -31,9 +31,7 @@ set(SOURCES
     MachineIndependent/preprocessor/Pp.cpp
     MachineIndependent/preprocessor/PpAtom.cpp
     MachineIndependent/preprocessor/PpContext.cpp
-    MachineIndependent/preprocessor/PpMemory.cpp
     MachineIndependent/preprocessor/PpScanner.cpp
-    MachineIndependent/preprocessor/PpSymbols.cpp
     MachineIndependent/preprocessor/PpTokens.cpp
     MachineIndependent/propagateNoContraction.cpp
     GenericCodeGen/CodeGen.cpp
@@ -82,6 +80,11 @@ set(HEADERS
 
 add_library(glslang STATIC ${BISON_GLSLParser_OUTPUT_SOURCE} ${SOURCES} ${HEADERS})
 set_property(TARGET glslang PROPERTY FOLDER glslang)
+set_property(TARGET glslang PROPERTY POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(glslang OGLCompiler OSDependent)
+if(ENABLE_HLSL)
+    target_link_libraries(glslang HLSL)
+endif()
 
 if(WIN32)
     source_group("Public" REGULAR_EXPRESSION "Public/*")
@@ -91,5 +94,14 @@ if(WIN32)
     source_group("MachineIndependent\\Preprocessor" REGULAR_EXPRESSION "MachineIndependent/preprocessor/*")
 endif(WIN32)
 
-install(TARGETS glslang 
-        ARCHIVE DESTINATION lib)
+if(ENABLE_GLSLANG_INSTALL)
+    install(TARGETS glslang
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+endif(ENABLE_GLSLANG_INSTALL)
+
+if(ENABLE_GLSLANG_INSTALL)
+    foreach(file ${HEADERS})
+        get_filename_component(dir ${file} DIRECTORY)
+        install(FILES ${file} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/glslang/${dir})
+    endforeach()
+endif(ENABLE_GLSLANG_INSTALL)

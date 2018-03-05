@@ -11,6 +11,7 @@
 package org.webrtc;
 
 import java.nio.ByteBuffer;
+import org.webrtc.VideoFrame;
 
 /**
  * Java version of VideoSinkInterface.  In addition to allowing clients to
@@ -18,6 +19,7 @@ import java.nio.ByteBuffer;
  * class also provides a createGui() method for creating a GUI-rendering window
  * on various platforms.
  */
+@JNINamespace("webrtc::jni")
 public class VideoRenderer {
   /**
    * Java version of webrtc::VideoFrame. Frames are only constructed from native code and test
@@ -92,6 +94,7 @@ public class VideoRenderer {
     /**
      * Construct a frame from VideoFrame.Buffer.
      */
+    @CalledByNative("I420Frame")
     public I420Frame(int rotationDegree, VideoFrame.Buffer buffer, long nativeFramePointer) {
       this.width = buffer.getWidth();
       this.height = buffer.getHeight();
@@ -174,10 +177,25 @@ public class VideoRenderer {
       }
       return new VideoFrame(buffer, rotationDegree, 0 /* timestampNs */);
     }
+
+    @CalledByNative("I420Frame")
+    static I420Frame createI420Frame(int width, int height, int rotationDegree, int y_stride,
+        ByteBuffer y_buffer, int u_stride, ByteBuffer u_buffer, int v_stride, ByteBuffer v_buffer,
+        long nativeFramePointer) {
+      return new I420Frame(width, height, rotationDegree, new int[] {y_stride, u_stride, v_stride},
+          new ByteBuffer[] {y_buffer, u_buffer, v_buffer}, nativeFramePointer);
+    }
+
+    @CalledByNative("I420Frame")
+    static I420Frame createTextureFrame(int width, int height, int rotationDegree, int textureId,
+        float[] samplingMatrix, long nativeFramePointer) {
+      return new I420Frame(
+          width, height, rotationDegree, textureId, samplingMatrix, nativeFramePointer);
+    }
   }
 
   // Helper native function to do a video frame plane copying.
-  public static native void nativeCopyPlane(
+  static native void nativeCopyPlane(
       ByteBuffer src, int width, int height, int srcStride, ByteBuffer dst, int dstStride);
 
   /** The real meat of VideoSinkInterface. */
@@ -186,7 +204,7 @@ public class VideoRenderer {
     // should handle that by applying rotation during rendering. The callee
     // is responsible for signaling when it is done with |frame| by calling
     // renderFrameDone(frame).
-    public void renderFrame(I420Frame frame);
+    @CalledByNative("Callbacks") void renderFrame(I420Frame frame);
   }
 
   /**
@@ -196,7 +214,7 @@ public class VideoRenderer {
     frame.yuvPlanes = null;
     frame.textureId = 0;
     if (frame.nativeFramePointer != 0) {
-      releaseNativeFrame(frame.nativeFramePointer);
+      nativeReleaseFrame(frame.nativeFramePointer);
       frame.nativeFramePointer = 0;
     }
   }
@@ -204,7 +222,7 @@ public class VideoRenderer {
   long nativeVideoRenderer;
 
   public VideoRenderer(Callbacks callbacks) {
-    nativeVideoRenderer = nativeWrapVideoRenderer(callbacks);
+    nativeVideoRenderer = nativeCreateVideoRenderer(callbacks);
   }
 
   public void dispose() {
@@ -213,11 +231,11 @@ public class VideoRenderer {
       return;
     }
 
-    freeWrappedVideoRenderer(nativeVideoRenderer);
+    nativeFreeWrappedVideoRenderer(nativeVideoRenderer);
     nativeVideoRenderer = 0;
   }
 
-  private static native long nativeWrapVideoRenderer(Callbacks callbacks);
-  private static native void freeWrappedVideoRenderer(long nativeVideoRenderer);
-  private static native void releaseNativeFrame(long nativeFramePointer);
+  private static native long nativeCreateVideoRenderer(Callbacks callbacks);
+  private static native void nativeFreeWrappedVideoRenderer(long videoRenderer);
+  private static native void nativeReleaseFrame(long framePointer);
 }

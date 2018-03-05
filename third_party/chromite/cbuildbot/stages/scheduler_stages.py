@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import json
+import os
 import time
 
 from chromite.cbuildbot.stages import generic_stages
@@ -17,6 +18,30 @@ from chromite.lib import constants
 from chromite.lib import config_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
+from chromite.lib.const import waterfall
+
+
+def BuilderName(build_config, active_waterfall, current_builder):
+  """Gets the corresponding builder name of the build.
+
+  Args:
+    build_config: build config (string) of the build.
+    active_waterfall: active waterfall to run the build.
+    current_builder: buildbot builder name of the current builder, or None.
+
+  Returns:
+    Builder name to run the build on.
+  """
+  # The builder name is configured differently for release builds in
+  # chromeos and chromeos_release waterfalls. (see crbug.com/755276)
+  if active_waterfall == waterfall.WATERFALL_RELEASE:
+    assert current_builder
+    # Example: master-release release-R64-10176.B
+    named_branch = current_builder.split()[1]
+    return '%s %s' % (build_config, named_branch)
+  else:
+    return build_config
+
 
 class ScheduleSlavesStage(generic_stages.BuilderStage):
   """Stage that schedules slaves for the master build."""
@@ -59,6 +84,10 @@ class ScheduleSlavesStage(generic_stages.BuilderStage):
                     More context: crbug.com/661689
       dryrun: Whether a dryrun, default to False.
     """
+    current_buildername = os.environ.get('BUILDBOT_BUILDERNAME', None)
+    builder_name = BuilderName(
+        build_name, build_config.active_waterfall, current_buildername)
+
     # TODO: Find a way to unify these tags with
     #       remote_try._GetRequestBody
     tags = ['buildset:%s' % buildset_tag,
@@ -78,7 +107,7 @@ class ScheduleSlavesStage(generic_stages.BuilderStage):
     body = json.dumps({
         'bucket': self._GetBuildbucketBucket(build_name, build_config),
         'parameters_json': json.dumps({
-            'builder_name': build_name,
+            'builder_name': builder_name,
             'properties': {
                 'cbb_config': build_name,
                 'cbb_branch': self._run.manifest_branch,
