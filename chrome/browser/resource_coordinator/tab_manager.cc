@@ -391,7 +391,7 @@ bool TabManager::CanDiscardTab(const TabStats& tab_stats,
   if (!IsTabAutoDiscardable(web_contents))
     return false;
 
-#if defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS) || defined(OS_LINUX)
   // The following protections are ignored on ChromeOS during urgent discard,
   // because running out of memory would lead to a kernel panic.
   if (reason == DiscardReason::kUrgent)
