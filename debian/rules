@@ -146,6 +146,14 @@ $(warning unanticipated arch $(DEB_HOST_ARCH))
 common_defines += target_arch="$(DEB_HOST_ARCH)"
 endif
 
+# Temporary disable all symbols for ARM while there is not enough
+# memory available for the OBS to complete the linking stage
+ifeq (armel,$(DEB_HOST_ARCH))
+common_defines += symbol_level=0
+else ifeq (armhf,$(DEB_HOST_ARCH))
+common_defines += symbol_level=0
+endif
+
 ifeq (armel,$(DEB_BUILD_ARCH))
 else ifeq (armhf,$(DEB_BUILD_ARCH))
 else ifeq (arm64,$(DEB_BUILD_ARCH))
