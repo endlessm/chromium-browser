@@ -28,7 +28,7 @@ scoped_refptr<V4L2Device> V4L2Device::Create() {
 
   scoped_refptr<V4L2Device> device;
 
-#if defined(ARCH_CPU_ARMEL) && defined(OS_CHROMEOS)
+#if defined(ARCH_CPU_ARMEL)
   device = new TegraV4L2Device();
   if (device->Initialize())
     return device;
@@ -49,6 +49,9 @@ VideoPixelFormat V4L2Device::V4L2PixFmtToVideoPixelFormat(uint32_t pix_fmt) {
     case V4L2_PIX_FMT_NV12M:
       return PIXEL_FORMAT_NV12;
 
+    case V4L2_PIX_FMT_MT21:
+      return PIXEL_FORMAT_MT21;
+
     case V4L2_PIX_FMT_YUV420:
     case V4L2_PIX_FMT_YUV420M:
       return PIXEL_FORMAT_I420;
@@ -56,10 +59,8 @@ VideoPixelFormat V4L2Device::V4L2PixFmtToVideoPixelFormat(uint32_t pix_fmt) {
     case V4L2_PIX_FMT_YVU420:
       return PIXEL_FORMAT_YV12;
 
-#if 0
     case V4L2_PIX_FMT_YUV422M:
       return PIXEL_FORMAT_I422;
-#endif
 
     case V4L2_PIX_FMT_RGB32:
       return PIXEL_FORMAT_ARGB;
@@ -76,6 +77,9 @@ uint32_t V4L2Device::VideoPixelFormatToV4L2PixFmt(VideoPixelFormat format) {
     case PIXEL_FORMAT_NV12:
       return V4L2_PIX_FMT_NV12M;
 
+    case PIXEL_FORMAT_MT21:
+      return V4L2_PIX_FMT_MT21;
+
     case PIXEL_FORMAT_I420:
       return V4L2_PIX_FMT_YUV420M;
 
@@ -91,31 +95,20 @@ uint32_t V4L2Device::VideoPixelFormatToV4L2PixFmt(VideoPixelFormat format) {
 // static
 uint32_t V4L2Device::VideoCodecProfileToV4L2PixFmt(VideoCodecProfile profile,
                                                    bool slice_based) {
-  if (slice_based){
-    LOG(FATAL) << "Endless does not support the V4L2 slice video decode accelerator!";
-    return 0;
-  }
-
   if (profile >= H264PROFILE_MIN && profile <= H264PROFILE_MAX) {
-#if 0
     if (slice_based)
       return V4L2_PIX_FMT_H264_SLICE;
     else
-#endif
       return V4L2_PIX_FMT_H264;
   } else if (profile >= VP8PROFILE_MIN && profile <= VP8PROFILE_MAX) {
-#if 0
     if (slice_based)
       return V4L2_PIX_FMT_VP8_FRAME;
     else
-#endif
       return V4L2_PIX_FMT_VP8;
   } else if (profile >= VP9PROFILE_MIN && profile <= VP9PROFILE_MAX) {
-#if 0
     if (slice_based)
       return V4L2_PIX_FMT_VP9_FRAME;
     else
-#endif
       return V4L2_PIX_FMT_VP9;
   } else {
     LOG(FATAL) << "Add more cases as needed";
@@ -132,9 +125,7 @@ std::vector<VideoCodecProfile> V4L2Device::V4L2PixFmtToVideoCodecProfiles(
 
   switch (pix_fmt) {
     case V4L2_PIX_FMT_H264:
-#if 0
     case V4L2_PIX_FMT_H264_SLICE:
-#endif
       if (is_encoder) {
         // TODO(posciak): need to query the device for supported H.264 profiles,
         // for now choose Main as a sensible default.
@@ -145,18 +136,15 @@ std::vector<VideoCodecProfile> V4L2Device::V4L2PixFmtToVideoCodecProfiles(
         max_profile = H264PROFILE_MAX;
       }
       break;
+
     case V4L2_PIX_FMT_VP8:
-#if 0
     case V4L2_PIX_FMT_VP8_FRAME:
-#endif
       min_profile = VP8PROFILE_MIN;
       max_profile = VP8PROFILE_MAX;
       break;
 
     case V4L2_PIX_FMT_VP9:
-#if 0
     case V4L2_PIX_FMT_VP9_FRAME:
-#endif
       // TODO(posciak): https://crbug.com/819930 Query supported profiles.
       // Currently no devices support Profiles > 0 https://crbug.com/796297.
       min_profile = VP9PROFILE_PROFILE0;
@@ -191,10 +179,8 @@ uint32_t V4L2Device::V4L2PixFmtToDrmFormat(uint32_t format) {
     case V4L2_PIX_FMT_RGB32:
       return DRM_FORMAT_ARGB8888;
 
-#if 0
     case V4L2_PIX_FMT_MT21:
       return DRM_FORMAT_MT21;
-#endif
 
     default:
       DVLOGF(1) << "Unrecognized format " << std::hex << "0x" << format;
