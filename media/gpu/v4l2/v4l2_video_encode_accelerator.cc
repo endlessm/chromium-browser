@@ -505,10 +505,6 @@ void V4L2VideoEncodeAccelerator::EncodeTask(
   encoder_input_queue_.push(frame);
   Enqueue();
 
-  // V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME requires a newer V4L2 driver than
-  // the one we currently ship to compile. Fortunately, we don't really use
-  // this file on Endless, so we can just comment the whole block out.
-#if 0
   if (force_keyframe) {
     // TODO(posciak): this presently makes for slightly imprecise encoding
     // parameters updates.  To precisely align the parameter updates with the
@@ -526,7 +522,6 @@ void V4L2VideoEncodeAccelerator::EncodeTask(
       return;
     }
   }
-#endif
 }
 
 void V4L2VideoEncodeAccelerator::UseOutputBitstreamBufferTask(
