@@ -33,6 +33,8 @@
 #include "ui/gl/gl_image.h"
 #include "ui/gl/scoped_binders.h"
 
+#include "uapi/videodev2.h"
+
 #define DVLOGF(level) DVLOG(level) << __func__ << "(): "
 #define VLOGF(level) VLOG(level) << __func__ << "(): "
 #define VPLOGF(level) VPLOG(level) << __func__ << "(): "
