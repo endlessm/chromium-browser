@@ -34,6 +34,7 @@
 #include "ui/gl/scoped_binders.h"
 
 #include "uapi/videodev2.h"
+#include "uapi/v4l2-controls.h"
 
 #define DVLOGF(level) DVLOG(level) << __func__ << "(): "
 #define VLOGF(level) VLOG(level) << __func__ << "(): "
