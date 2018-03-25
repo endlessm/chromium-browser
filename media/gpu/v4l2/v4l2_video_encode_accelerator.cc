@@ -5,7 +5,7 @@
 #include "media/gpu/v4l2/v4l2_video_encode_accelerator.h"
 
 #include <fcntl.h>
-#include <linux/videodev2.h>
+#include "uapi/videodev2.h"
 #include <poll.h>
 #include <string.h>
 #include <sys/eventfd.h>

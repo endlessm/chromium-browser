@@ -5,7 +5,7 @@
 #include "media/gpu/v4l2/v4l2_jpeg_decode_accelerator.h"
 
 #include <errno.h>
-#include <linux/videodev2.h>
+#include "uapi/videodev2.h"
 #include <string.h>
 #include <sys/mman.h>
 

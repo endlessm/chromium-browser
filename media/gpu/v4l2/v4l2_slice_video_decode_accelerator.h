@@ -5,7 +5,7 @@
 #ifndef MEDIA_GPU_V4L2_V4L2_SLICE_VIDEO_DECODE_ACCELERATOR_H_
 #define MEDIA_GPU_V4L2_V4L2_SLICE_VIDEO_DECODE_ACCELERATOR_H_
 
-#include <linux/videodev2.h>
+#include "uapi/videodev2.h"
 #include <stddef.h>
 #include <stdint.h>
 
