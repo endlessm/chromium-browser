@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include <libdrm/drm_fourcc.h>
-#include <linux/videodev2.h>
+#include "uapi/videodev2.h"
 #include <string.h>
 
 #include "base/numerics/safe_conversions.h"

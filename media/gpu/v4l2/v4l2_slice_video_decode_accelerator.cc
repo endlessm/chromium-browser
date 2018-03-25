@@ -6,7 +6,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/videodev2.h>
+#include "uapi/videodev2.h"
 #include <poll.h>
 #include <string.h>
 #include <sys/eventfd.h>
@@ -33,7 +33,6 @@
 #include "ui/gl/gl_image.h"
 #include "ui/gl/scoped_binders.h"
 
-#include "uapi/videodev2.h"
 #include "uapi/v4l2-controls.h"
 
 #define DVLOGF(level) DVLOG(level) << __func__ << "(): "
