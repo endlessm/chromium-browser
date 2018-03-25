@@ -12,7 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <linux/videodev2.h>
+#include "uapi/videodev2.h"
 
 #include "base/files/scoped_file.h"
 #include "base/memory/ref_counted.h"
