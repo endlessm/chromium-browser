@@ -4,7 +4,7 @@
 
 #include <dlfcn.h>
 #include <fcntl.h>
-#include <linux/videodev2.h>
+#include "uapi/videodev2.h"
 
 #include "base/posix/eintr_wrapper.h"
 #include "base/trace_event/trace_event.h"

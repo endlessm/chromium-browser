@@ -4,7 +4,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/videodev2.h>
+#include "uapi/videodev2.h"
 #include <poll.h>
 #include <string.h>
 #include <sys/eventfd.h>
