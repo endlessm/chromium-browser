@@ -78,7 +78,7 @@ void DropGLImage(scoped_refptr<gl::GLImage> gl_image,
 
 // static
 const uint32_t V4L2SliceVideoDecodeAccelerator::supported_input_fourccs_[] = {
-    V4L2_PIX_FMT_H264_SLICE, V4L2_PIX_FMT_VP8_FRAME, V4L2_PIX_FMT_VP9_FRAME,
+    V4L2_PIX_FMT_H264_SLICE, V4L2_PIX_FMT_VP8_FRAME,
 };
 
 class V4L2SliceVideoDecodeAccelerator::V4L2DecodeSurface
