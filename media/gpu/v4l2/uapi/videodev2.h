@@ -61,7 +61,10 @@
 #endif
 #include <linux/ioctl.h>
 #include <linux/types.h>
+
+#include "compiler.h"
 #include "v4l2-controls.h"
+#include "v4l2-common.h"
 
 /*
  * Common stuff for both V4L1 and V4L2
