@@ -2793,10 +2793,10 @@ V4L2SliceVideoDecodeAccelerator::V4L2VP9Accelerator::V4L2VP9Accelerator(
     : v4l2_dec_(v4l2_dec) {
   DCHECK(v4l2_dec_);
 
-  device_needs_frame_context_ =
+/*  device_needs_frame_context_ =
       v4l2_dec_->IsCtrlExposed(V4L2_CID_MPEG_VIDEO_VP9_ENTROPY);
   DVLOG_IF(1, device_needs_frame_context_)
-      << "Device requires frame context parsing";
+      << "Device requires frame context parsing"; */
 }
 
 V4L2SliceVideoDecodeAccelerator::V4L2VP9Accelerator::~V4L2VP9Accelerator() {}
@@ -2815,24 +2815,25 @@ static void FillV4L2VP9LoopFilterParams(
     struct v4l2_vp9_loop_filter_params* v4l2_lf_params) {
 #define SET_LF_PARAMS_FLAG_IF(cond, flag) \
   v4l2_lf_params->flags |= ((vp9_lf_params.cond) ? (flag) : 0)
-  SET_LF_PARAMS_FLAG_IF(delta_enabled, V4L2_VP9_LOOP_FLTR_FLAG_DELTA_ENABLED);
-  SET_LF_PARAMS_FLAG_IF(delta_update, V4L2_VP9_LOOP_FLTR_FLAG_DELTA_UPDATE);
+/*  SET_LF_PARAMS_FLAG_IF(delta_enabled, V4L2_VP9_LOOP_FLTR_FLAG_DELTA_ENABLED);
+  SET_LF_PARAMS_FLAG_IF(delta_update, V4L2_VP9_LOOP_FLTR_FLAG_DELTA_UPDATE); */
 #undef SET_LF_PARAMS_FLAG_IF
 
-  v4l2_lf_params->level = vp9_lf_params.level;
+/*  v4l2_lf_params->level = vp9_lf_params.level;
   v4l2_lf_params->sharpness = vp9_lf_params.sharpness;
 
   ARRAY_MEMCPY_CHECKED(v4l2_lf_params->deltas, vp9_lf_params.ref_deltas);
   ARRAY_MEMCPY_CHECKED(v4l2_lf_params->mode_deltas, vp9_lf_params.mode_deltas);
-  ARRAY_MEMCPY_CHECKED(v4l2_lf_params->lvl_lookup, vp9_lf_params.lvl);
+  ARRAY_MEMCPY_CHECKED(v4l2_lf_params->lvl_lookup, vp9_lf_params.lvl); */
 }
 
 static void FillV4L2VP9QuantizationParams(
     const Vp9QuantizationParams& vp9_quant_params,
     struct v4l2_vp9_quantization_params* v4l2_q_params) {
 #define SET_Q_PARAMS_FLAG_IF(cond, flag) \
-  v4l2_q_params->flags |= ((vp9_quant_params.cond) ? (flag) : 0)
+/*  v4l2_q_params->flags |= ((vp9_quant_params.cond) ? (flag) : 0)
   SET_Q_PARAMS_FLAG_IF(IsLossless(), V4L2_VP9_QUANT_PARAMS_FLAG_LOSSLESS);
+
 #undef SET_Q_PARAMS_FLAG_IF
 
 #define Q_PARAMS_TO_V4L2_Q_PARAMS(a) v4l2_q_params->a = vp9_quant_params.a
@@ -2841,11 +2842,13 @@ static void FillV4L2VP9QuantizationParams(
   Q_PARAMS_TO_V4L2_Q_PARAMS(delta_q_uv_dc);
   Q_PARAMS_TO_V4L2_Q_PARAMS(delta_q_uv_ac);
 #undef Q_PARAMS_TO_V4L2_Q_PARAMS
+*/
 }
 
 static void FillV4L2VP9SegmentationParams(
     const Vp9SegmentationParams& vp9_segm_params,
     struct v4l2_vp9_segmentation_params* v4l2_segm_params) {
+/*
 #define SET_SEG_PARAMS_FLAG_IF(cond, flag) \
   v4l2_segm_params->flags |= ((vp9_segm_params.cond) ? (flag) : 0)
   SET_SEG_PARAMS_FLAG_IF(enabled, V4L2_VP9_SGMNT_PARAM_FLAG_ENABLED);
@@ -2876,11 +2879,13 @@ static void FillV4L2VP9SegmentationParams(
           vp9_segm_params.feature_enabled[i][j];
     }
   }
+*/
 }
 
 static void FillV4L2Vp9EntropyContext(
     const Vp9FrameContext& vp9_frame_ctx,
     struct v4l2_vp9_entropy_ctx* v4l2_entropy_ctx) {
+/*
 #define ARRAY_MEMCPY_CHECKED_FRM_CTX_TO_V4L2_ENTR(a) \
   ARRAY_MEMCPY_CHECKED(v4l2_entropy_ctx->a, vp9_frame_ctx.a)
   ARRAY_MEMCPY_CHECKED_FRM_CTX_TO_V4L2_ENTR(tx_probs_8x8);
@@ -2912,6 +2917,7 @@ static void FillV4L2Vp9EntropyContext(
   ARRAY_MEMCPY_CHECKED_FRM_CTX_TO_V4L2_ENTR(mv_class0_hp_prob);
   ARRAY_MEMCPY_CHECKED_FRM_CTX_TO_V4L2_ENTR(mv_hp_prob);
 #undef ARRAY_MEMCPY_CHECKED_FRM_CTX_TO_V4L2_ENTR
+*/
 }
 
 bool V4L2SliceVideoDecodeAccelerator::V4L2VP9Accelerator::SubmitDecode(
@@ -2923,6 +2929,7 @@ bool V4L2SliceVideoDecodeAccelerator::V4L2VP9Accelerator::SubmitDecode(
   const Vp9FrameHeader* frame_hdr = pic->frame_hdr.get();
   DCHECK(frame_hdr);
 
+/*
   struct v4l2_ctrl_vp9_frame_hdr v4l2_frame_hdr;
   memset(&v4l2_frame_hdr, 0, sizeof(v4l2_frame_hdr));
 
@@ -3072,6 +3079,7 @@ bool V4L2SliceVideoDecodeAccelerator::V4L2VP9Accelerator::SubmitDecode(
 
   v4l2_dec_->DecodeSurface(dec_surface);
   return true;
+*/
 }
 
 bool V4L2SliceVideoDecodeAccelerator::V4L2VP9Accelerator::OutputPicture(
@@ -3085,6 +3093,7 @@ bool V4L2SliceVideoDecodeAccelerator::V4L2VP9Accelerator::OutputPicture(
 
 static void FillVp9FrameContext(struct v4l2_vp9_entropy_ctx& v4l2_entropy_ctx,
                                 Vp9FrameContext* vp9_frame_ctx) {
+/*
 #define ARRAY_MEMCPY_CHECKED_V4L2_ENTR_TO_FRM_CTX(a) \
   ARRAY_MEMCPY_CHECKED(vp9_frame_ctx->a, v4l2_entropy_ctx.a)
   ARRAY_MEMCPY_CHECKED_V4L2_ENTR_TO_FRM_CTX(tx_probs_8x8);
@@ -3116,11 +3125,13 @@ static void FillVp9FrameContext(struct v4l2_vp9_entropy_ctx& v4l2_entropy_ctx,
   ARRAY_MEMCPY_CHECKED_V4L2_ENTR_TO_FRM_CTX(mv_class0_hp_prob);
   ARRAY_MEMCPY_CHECKED_V4L2_ENTR_TO_FRM_CTX(mv_hp_prob);
 #undef ARRAY_MEMCPY_CHECKED_V4L2_ENTR_TO_FRM_CTX
+*/
 }
 
 bool V4L2SliceVideoDecodeAccelerator::V4L2VP9Accelerator::GetFrameContext(
     const scoped_refptr<VP9Picture>& pic,
     Vp9FrameContext* frame_ctx) {
+/*
   struct v4l2_ctrl_vp9_entropy v4l2_entropy;
   memset(&v4l2_entropy, 0, sizeof(v4l2_entropy));
 
@@ -3143,6 +3154,7 @@ bool V4L2SliceVideoDecodeAccelerator::V4L2VP9Accelerator::GetFrameContext(
     return false;
 
   FillVp9FrameContext(v4l2_entropy.current_entropy_ctx, frame_ctx);
+*/
   return true;
 }
 

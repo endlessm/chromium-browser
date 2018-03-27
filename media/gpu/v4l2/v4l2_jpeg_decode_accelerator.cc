@@ -583,7 +583,11 @@ bool V4L2JpegDecodeAccelerator::DequeueSourceChangeEvent() {
     if (ev.type == V4L2_EVENT_SOURCE_CHANGE) {
       VLOGF(2) << ": got source change event: " << ev.u.src_change.changes;
       if (ev.u.src_change.changes &
+#if 0
           (V4L2_EVENT_SRC_CH_RESOLUTION | V4L2_EVENT_SRC_CH_PIXELFORMAT)) {
+#else
+          (V4L2_EVENT_SRC_CH_RESOLUTION)) {
+#endif
         return true;
       }
       VLOGF(1) << "unexpected source change event.";
