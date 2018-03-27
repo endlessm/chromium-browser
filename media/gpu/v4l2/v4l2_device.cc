@@ -106,10 +106,12 @@ uint32_t V4L2Device::VideoCodecProfileToV4L2PixFmt(VideoCodecProfile profile,
     else
       return V4L2_PIX_FMT_VP8;
   } else if (profile >= VP9PROFILE_MIN && profile <= VP9PROFILE_MAX) {
+#if 0
     if (slice_based)
-      return V4L2_PIX_FMT_VP9_FRAME;
+       return V4L2_PIX_FMT_VP9_FRAME;
     else
-      return V4L2_PIX_FMT_VP9;
+       return V4L2_PIX_FMT_VP9;
+#endif
   } else {
     LOG(FATAL) << "Add more cases as needed";
     return 0;
@@ -143,6 +145,7 @@ std::vector<VideoCodecProfile> V4L2Device::V4L2PixFmtToVideoCodecProfiles(
       max_profile = VP8PROFILE_MAX;
       break;
 
+#if 0
     case V4L2_PIX_FMT_VP9:
     case V4L2_PIX_FMT_VP9_FRAME:
       // TODO(posciak): https://crbug.com/819930 Query supported profiles.
@@ -150,6 +153,7 @@ std::vector<VideoCodecProfile> V4L2Device::V4L2PixFmtToVideoCodecProfiles(
       min_profile = VP9PROFILE_PROFILE0;
       max_profile = VP9PROFILE_PROFILE0;
       break;
+#endif
 
     default:
       VLOGF(1) << "Unhandled pixelformat " << std::hex << "0x" << pix_fmt;
@@ -179,8 +183,10 @@ uint32_t V4L2Device::V4L2PixFmtToDrmFormat(uint32_t format) {
     case V4L2_PIX_FMT_RGB32:
       return DRM_FORMAT_ARGB8888;
 
+#if 0
     case V4L2_PIX_FMT_MT21:
       return DRM_FORMAT_MT21;
+#endif
 
     default:
       DVLOGF(1) << "Unrecognized format " << std::hex << "0x" << format;
