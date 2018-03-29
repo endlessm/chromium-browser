@@ -54,6 +54,7 @@ typedef enum spv_result_t {
   SPV_ERROR_INVALID_LAYOUT = -12,
   SPV_ERROR_INVALID_CAPABILITY = -13,
   SPV_ERROR_INVALID_DATA = -14,  // Indicates data rules validation failure.
+  SPV_ERROR_MISSING_EXTENSION = -15,
   SPV_FORCE_32_BIT_ENUM(spv_result_t)
 } spv_result_t;
 
@@ -67,7 +68,7 @@ typedef enum spv_message_level_t {
                            // Will exit the program immediately. E.g.,
                            // unimplemented feature.
   SPV_MSG_ERROR,           // Normal error due to user input.
-  SPV_MSG_WARNINING,       // Warning information.
+  SPV_MSG_WARNING,         // Warning information.
   SPV_MSG_INFO,            // General information.
   SPV_MSG_DEBUG,           // Debug information.
 } spv_message_level_t;
@@ -226,6 +227,10 @@ typedef enum spv_ext_inst_type_t {
   SPV_EXT_INST_TYPE_NONE = 0,
   SPV_EXT_INST_TYPE_GLSL_STD_450,
   SPV_EXT_INST_TYPE_OPENCL_STD,
+  SPV_EXT_INST_TYPE_SPV_AMD_SHADER_EXPLICIT_VERTEX_PARAMETER,
+  SPV_EXT_INST_TYPE_SPV_AMD_SHADER_TRINARY_MINMAX,
+  SPV_EXT_INST_TYPE_SPV_AMD_GCN_SHADER,
+  SPV_EXT_INST_TYPE_SPV_AMD_SHADER_BALLOT,
 
   SPV_FORCE_32_BIT_ENUM(spv_ext_inst_type_t)
 } spv_ext_inst_type_t;
@@ -241,6 +246,15 @@ typedef enum spv_number_kind_t {
   SPV_NUMBER_SIGNED_INT,
   SPV_NUMBER_FLOATING,
 } spv_number_kind_t;
+
+typedef enum spv_text_to_binary_options_t {
+  SPV_TEXT_TO_BINARY_OPTION_NONE = SPV_BIT(0),
+  // Numeric IDs in the binary will have the same values as in the source.
+  // Non-numeric IDs are allocated by filling in the gaps, starting with 1
+  // and going up.
+  SPV_TEXT_TO_BINARY_OPTION_PRESERVE_NUMERIC_IDS = SPV_BIT(1),
+  SPV_FORCE_32_BIT_ENUM(spv_text_to_binary_options_t)
+} spv_text_to_binary_options_t;
 
 typedef enum spv_binary_to_text_options_t {
   SPV_BINARY_TO_TEXT_OPTION_NONE = SPV_BIT(0),
@@ -327,6 +341,8 @@ typedef struct spv_diagnostic_t {
 // Its object is used by various translation API functions.
 typedef struct spv_context_t spv_context_t;
 
+typedef struct spv_validator_options_t spv_validator_options_t;
+
 // Type Definitions
 
 typedef spv_const_binary_t* spv_const_binary;
@@ -336,6 +352,8 @@ typedef spv_position_t* spv_position;
 typedef spv_diagnostic_t* spv_diagnostic;
 typedef const spv_context_t* spv_const_context;
 typedef spv_context_t* spv_context;
+typedef spv_validator_options_t* spv_validator_options;
+typedef const spv_validator_options_t* spv_const_validator_options;
 
 // Platform API
 
@@ -363,8 +381,21 @@ typedef enum {
   SPV_ENV_OPENGL_4_2,     // OpenGL 4.2 plus GL_ARB_gl_spirv, latest revisions.
   SPV_ENV_OPENGL_4_3,     // OpenGL 4.3 plus GL_ARB_gl_spirv, latest revisions.
   // There is no variant for OpenGL 4.4.
-  SPV_ENV_OPENGL_4_5,  // OpenGL 4.5 plus GL_ARB_gl_spirv, latest revisions.
+  SPV_ENV_OPENGL_4_5,     // OpenGL 4.5 plus GL_ARB_gl_spirv, latest revisions.
+  SPV_ENV_UNIVERSAL_1_2,  // SPIR-V 1.2, latest revision, no other restrictions.
 } spv_target_env;
+
+// SPIR-V Validator can be parameterized with the following Universal Limits.
+typedef enum {
+  spv_validator_limit_max_struct_members,
+  spv_validator_limit_max_struct_depth,
+  spv_validator_limit_max_local_variables,
+  spv_validator_limit_max_global_variables,
+  spv_validator_limit_max_switch_branches,
+  spv_validator_limit_max_function_args,
+  spv_validator_limit_max_control_flow_nesting_depth,
+  spv_validator_limit_max_access_chain_indexes,
+} spv_validator_limit;
 
 // Returns a string describing the given SPIR-V target environment.
 const char* spvTargetEnvDescription(spv_target_env env);
@@ -375,6 +406,33 @@ spv_context spvContextCreate(spv_target_env env);
 // Destroys the given context object.
 void spvContextDestroy(spv_context context);
 
+// Creates a Validator options object with default options. Returns a valid
+// options object. The object remains valid until it is passed into
+// spvValidatorOptionsDestroy.
+spv_validator_options spvValidatorOptionsCreate();
+
+// Destroys the given Validator options object.
+void spvValidatorOptionsDestroy(spv_validator_options options);
+
+// Records the maximum Universal Limit that is considered valid in the given
+// Validator options object. <options> argument must be a valid options object.
+void spvValidatorOptionsSetUniversalLimit(spv_validator_options options,
+                                          spv_validator_limit limit_type,
+                                          uint32_t limit);
+
+// Record whether or not the validator should relax the rules on types for
+// stores to structs.  When relaxed, it will allow a type mismatch as long as
+// the types are structs with the same layout.  Two structs have the same layout
+// if
+//
+// 1) the members of the structs are either the same type or are structs with
+// same layout, and
+//
+// 2) the decorations that affect the memory layout are identical for both
+// types.  Other decorations are not relevant.
+void spvValidatorOptionsSetRelaxStoreStruct(spv_validator_options options,
+                                            bool val);
+
 // Encodes the given SPIR-V assembly text to its binary representation. The
 // length parameter specifies the number of bytes for text. Encoded binary will
 // be stored into *binary. Any error will be written into *diagnostic if
@@ -383,6 +441,15 @@ void spvContextDestroy(spv_context context);
 spv_result_t spvTextToBinary(const spv_const_context context, const char* text,
                              const size_t length, spv_binary* binary,
                              spv_diagnostic* diagnostic);
+
+// Encodes the given SPIR-V assembly text to its binary representation. Same as
+// spvTextToBinary but with options. The options parameter is a bit field of
+// spv_text_to_binary_options_t.
+spv_result_t spvTextToBinaryWithOptions(const spv_const_context context,
+                                        const char* text, const size_t length,
+                                        const uint32_t options,
+                                        spv_binary* binary,
+                                        spv_diagnostic* diagnostic);
 
 // Frees an allocated text stream. This is a no-op if the text parameter
 // is a null pointer.
@@ -407,6 +474,14 @@ void spvBinaryDestroy(spv_binary binary);
 spv_result_t spvValidate(const spv_const_context context,
                          const spv_const_binary binary,
                          spv_diagnostic* diagnostic);
+
+// Validates a SPIR-V binary for correctness. Uses the provided Validator
+// options. Any errors will be written into *diagnostic if diagnostic is
+// non-null.
+spv_result_t spvValidateWithOptions(const spv_const_context context,
+                                    const spv_const_validator_options options,
+                                    const spv_const_binary binary,
+                                    spv_diagnostic* diagnostic);
 
 // Validates a raw SPIR-V binary for correctness. Any errors will be written
 // into *diagnostic if diagnostic is non-null.

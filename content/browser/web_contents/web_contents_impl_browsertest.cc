@@ -5,18 +5,20 @@
 #include <utility>
 
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
+#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/strings/pattern.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "content/browser/frame_host/frame_tree.h"
 #include "content/browser/frame_host/navigation_entry_impl.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/browser/web_contents/web_contents_view.h"
 #include "content/common/frame_messages.h"
-#include "content/common/site_isolation_policy.h"
 #include "content/public/browser/javascript_dialog_manager.h"
 #include "content/public/browser/load_notification_details.h"
 #include "content/public/browser/navigation_controller.h"
@@ -26,6 +28,8 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/resource_dispatcher_host.h"
+#include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/common/url_constants.h"
@@ -40,6 +44,7 @@
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "url/gurl.h"
 
 namespace content {
 
@@ -515,55 +520,6 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
   EXPECT_TRUE(new_web_contents_observer.RenderViewCreatedCalled());
 }
 
-namespace {
-
-class DidGetResourceResponseStartObserver : public WebContentsObserver {
- public:
-  explicit DidGetResourceResponseStartObserver(Shell* shell)
-      : WebContentsObserver(shell->web_contents()), shell_(shell) {
-    shell->web_contents()->SetDelegate(&delegate_);
-    EXPECT_FALSE(shell->web_contents()->IsWaitingForResponse());
-    EXPECT_FALSE(shell->web_contents()->IsLoading());
-  }
-
-  ~DidGetResourceResponseStartObserver() override {}
-
-  void DidGetResourceResponseStart(
-      const ResourceRequestDetails& details) override {
-    EXPECT_FALSE(shell_->web_contents()->IsWaitingForResponse());
-    EXPECT_TRUE(shell_->web_contents()->IsLoading());
-    EXPECT_GT(delegate_.loadingStateChangedCount(), 0);
-    ++resource_response_start_count_;
-  }
-
-  int resource_response_start_count() const {
-    return resource_response_start_count_;
-  }
-
- private:
-  Shell* shell_;
-  LoadingStateChangedDelegate delegate_;
-  int resource_response_start_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(DidGetResourceResponseStartObserver);
-};
-
-}  // namespace
-
-// Makes sure that the WebContents is no longer marked as waiting for a response
-// after DidGetResourceResponseStart() is called.
-IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
-                       DidGetResourceResponseStartUpdatesWaitingState) {
-  DidGetResourceResponseStartObserver observer(shell());
-
-  ASSERT_TRUE(embedded_test_server()->Start());
-  LoadStopNotificationObserver load_observer(
-      &shell()->web_contents()->GetController());
-  NavigateToURL(shell(), embedded_test_server()->GetURL("/title1.html"));
-  load_observer.Wait();
-  EXPECT_GT(observer.resource_response_start_count(), 0);
-}
-
 struct LoadProgressDelegateAndObserver : public WebContentsDelegate,
                                          public WebContentsObserver {
   explicit LoadProgressDelegateAndObserver(Shell* shell)
@@ -1004,7 +960,7 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
   // schedule it for afterwards. Since the BeforeUnload event is synchronous,
   // clicking on the link right away would cause the ExecuteScript to never
   // return.
-  SetShouldProceedOnBeforeUnload(shell(), false);
+  SetShouldProceedOnBeforeUnload(shell(), false, false);
   EXPECT_TRUE(ExecuteScript(shell(), "clickLinkSoon()"));
   WaitForAppModalDialog(shell());
 
@@ -1647,6 +1603,58 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
   TitleWatcher title_watcher(web_contents, base::ASCIIToUTF16("done"));
   base::string16 title = title_watcher.WaitAndGetTitle();
   ASSERT_EQ(title, base::ASCIIToUTF16("done"));
+}
+
+class UpdateTargetURLWaiter : public WebContentsDelegate {
+ public:
+  UpdateTargetURLWaiter(WebContents* web_contents) {
+    web_contents->SetDelegate(this);
+  }
+
+  const GURL& WaitForUpdatedTargetURL() {
+    if (updated_target_url_.has_value())
+      return updated_target_url_.value();
+
+    runner_ = new MessageLoopRunner();
+    runner_->Run();
+    return updated_target_url_.value();
+  }
+
+ private:
+  void UpdateTargetURL(WebContents* source, const GURL& url) override {
+    updated_target_url_ = url;
+    if (runner_.get())
+      runner_->QuitClosure().Run();
+  }
+
+  base::Optional<GURL> updated_target_url_;
+  scoped_refptr<MessageLoopRunner> runner_;
+
+  DISALLOW_COPY_AND_ASSIGN(UpdateTargetURLWaiter);
+};
+
+// Verifies that focusing a link in a cross-site frame will correctly tell
+// WebContentsDelegate to show a link status bubble.  This is a regression test
+// for https://crbug.com/807776.
+IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest, UpdateTargetURL) {
+  // Navigate to a test page.
+  ASSERT_TRUE(embedded_test_server()->Start());
+  WebContentsImpl* web_contents =
+      static_cast<WebContentsImpl*>(shell()->web_contents());
+  GURL url = embedded_test_server()->GetURL(
+      "a.com", "/cross_site_iframe_factory.html?a(b)");
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+  FrameTreeNode* subframe = web_contents->GetFrameTree()->root()->child_at(0);
+  GURL subframe_url =
+      embedded_test_server()->GetURL("b.com", "/simple_links.html");
+  NavigateFrameToURL(subframe, subframe_url);
+
+  // Focusing the link should fire the UpdateTargetURL notification.
+  UpdateTargetURLWaiter target_url_waiter(web_contents);
+  EXPECT_TRUE(ExecuteScript(
+      subframe, "document.getElementById('cross_site_link').focus();"));
+  EXPECT_EQ(GURL("http://foo.com/title2.html"),
+            target_url_waiter.WaitForUpdatedTargetURL());
 }
 
 }  // namespace content

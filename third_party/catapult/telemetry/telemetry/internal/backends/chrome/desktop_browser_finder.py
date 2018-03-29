@@ -5,12 +5,15 @@
 
 import logging
 import os
+import shutil
 import sys
+import tempfile
 
 import dependency_manager  # pylint: disable=import-error
 
 from telemetry.core import exceptions
 from telemetry.core import platform as platform_module
+from telemetry.internal.backends.chrome import chrome_startup_args
 from telemetry.internal.backends.chrome import desktop_browser_backend
 from telemetry.internal.browser import browser
 from telemetry.internal.browser import possible_browser
@@ -35,11 +38,16 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
     self._flash_path = flash_path
     self._is_content_shell = is_content_shell
     self._browser_directory = browser_directory
+    self._profile_directory = None
     self.is_local_build = is_local_build
 
   def __repr__(self):
     return 'PossibleDesktopBrowser(type=%s, executable=%s, flash=%s)' % (
         self.browser_type, self._local_executable, self._flash_path)
+
+  @property
+  def profile_directory(self):
+    return self._profile_directory
 
   def _InitPlatformIfNeeded(self):
     if self._platform:
@@ -50,7 +58,36 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
     # pylint: disable=protected-access
     self._platform_backend = self._platform._platform_backend
 
-  def Create(self, finder_options):
+  def SetUpEnvironment(self, browser_options):
+    super(PossibleDesktopBrowser, self).SetUpEnvironment(browser_options)
+    if self._browser_options.dont_override_profile:
+      return
+
+    # If given, this directory's contents will be used to seed the profile.
+    source_profile = self._browser_options.profile_dir
+    if source_profile and self._is_content_shell:
+      raise RuntimeError('Profiles cannot be used with content shell')
+
+    self._profile_directory = tempfile.mkdtemp()
+    if source_profile:
+      logging.info('Seeding profile directory from: %s', source_profile)
+      shutil.copytree(source_profile, self._profile_directory)
+
+      # When using an existing profile directory, we need to make sure to
+      # delete the file containing the active DevTools port number.
+      devtools_file_path = os.path.join(
+          self._profile_directory,
+          desktop_browser_backend.DEVTOOLS_ACTIVE_PORT_FILE)
+      if os.path.isfile(devtools_file_path):
+        os.remove(devtools_file_path)
+
+  def _TearDownEnvironment(self):
+    if self._profile_directory and os.path.exists(self._profile_directory):
+      # Remove the profile directory, which was hosted on a temp dir.
+      shutil.rmtree(self._profile_directory, ignore_errors=True)
+      self._profile_directory = None
+
+  def Create(self):
     if self._flash_path and not os.path.exists(self._flash_path):
       logging.warning(
           'Could not find Flash at %s. Continuing without Flash.\n'
@@ -60,22 +97,23 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
 
     self._InitPlatformIfNeeded()
 
+    startup_args = self.GetBrowserStartupArgs(self._browser_options)
+
     num_retries = 3
     for x in range(0, num_retries):
       returned_browser = None
       try:
         returned_browser = None
 
-        browser_options = finder_options.browser_options
         browser_backend = desktop_browser_backend.DesktopBrowserBackend(
-            self._platform_backend,
-            browser_options, self._local_executable,
-            self._flash_path, self._is_content_shell, self._browser_directory)
+            self._platform_backend, self._browser_options,
+            self._browser_directory, self._profile_directory,
+            self._local_executable, self._flash_path, self._is_content_shell)
 
         browser_backend.ClearCaches()
 
         returned_browser = browser.Browser(
-            browser_backend, self._platform_backend)
+            browser_backend, self._platform_backend, startup_args)
 
         return returned_browser
       except Exception: # pylint: disable=broad-except
@@ -93,6 +131,31 @@ class PossibleDesktopBrowser(possible_browser.PossibleBrowser):
         # Re-raise the exception the last time through.
         if x == num_retries - 1:
           raise
+
+  def GetBrowserStartupArgs(self, browser_options):
+    startup_args = chrome_startup_args.GetFromBrowserOptions(browser_options)
+    startup_args.extend(chrome_startup_args.GetReplayArgs(
+        self._platform_backend.network_controller_backend))
+
+    # Setting port=0 allows the browser to choose a suitable port.
+    startup_args.append('--remote-debugging-port=0')
+    startup_args.append('--enable-crash-reporter-for-testing')
+    startup_args.append('--disable-component-update')
+
+    if not self._is_content_shell:
+      startup_args.append('--window-size=1280,1024')
+      if self._flash_path:
+        startup_args.append('--ppapi-flash-path=%s' % self._flash_path)
+        # Also specify the version of Flash as a large version, so that it is
+        # not overridden by the bundled or component-updated version of Flash.
+        startup_args.append('--ppapi-flash-version=99.9.999.999')
+
+    trace_config_file = (self._platform_backend.tracing_controller_backend
+                         .GetChromeTraceConfigFile())
+    if trace_config_file:
+      startup_args.append('--trace-config-file=%s' % trace_config_file)
+
+    return startup_args
 
   def SupportsOptions(self, browser_options):
     if ((len(browser_options.extensions_to_load) != 0)

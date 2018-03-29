@@ -26,7 +26,6 @@ import functools
 import glob
 import multiprocessing
 import os
-import sys
 import tempfile
 
 from chromite.lib import constants
@@ -40,7 +39,6 @@ from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import portage_util
-from chromite.lib import retry_util
 from chromite.lib import toolchain
 
 # How many times to retry uploads.
@@ -217,12 +215,7 @@ def _GsUpload(gs_context, acl, local_file, remote_file):
       # Apply the passed in ACL xml file to the uploaded object.
       gs_context.SetACL(remote_file, acl=acl)
     else:
-      # Some versions of gsutil bubble up precondition failures even when we
-      # didn't request it due to how ACL changes happen internally to gsutil.
-      # https://crbug.com/763450
-      retry_util.RetryException(
-          gs.GSContextPreconditionFailed, 3, gs_context.ChangeACL,
-          remote_file, acl_args_file=acl)
+      gs_context.ChangeACL(remote_file, acl_args_file=acl)
 
 
 def RemoteUpload(gs_context, acl, files, pool=10):
@@ -333,7 +326,7 @@ def UpdateBinhostConfFile(path, key, value):
     git.AddPath(path)
     git.Commit(cwd, desc)
 
-def GenerateHtmlIndex(files, index, board, version):
+def GenerateHtmlIndex(files, index, board, version, remote_location):
   """Given the list of |files|, generate an index.html at |index|.
 
   Args:
@@ -341,6 +334,7 @@ def GenerateHtmlIndex(files, index, board, version):
     index: The path to the html index.
     board: Name of the board this index is for.
     version: Build version this index is for.
+    remote_location: Remote gs location prebuilts are uploaded to.
   """
   title = 'Package Prebuilt Index: %s / %s' % (board, version)
 
@@ -348,7 +342,8 @@ def GenerateHtmlIndex(files, index, board, version):
       '.|Google Storage Index',
       '..|',
   ]
-  commands.GenerateHtmlIndex(index, files, title=title)
+  commands.GenerateHtmlIndex(index, files, title=title,
+                             url_base=gs.GsUrlToHttp(remote_location))
 
 
 def _GrabAllRemotePackageIndexes(binhost_urls):
@@ -422,14 +417,10 @@ class PrebuiltUploader(object):
   def _ShouldFilterPackage(self, pkg):
     if not self._packages:
       return False
-    pym_path = os.path.abspath(os.path.join(self._build_path, _PYM_PATH))
-    sys.path.insert(0, pym_path)
-    # pylint: disable=F0401
-    import portage.versions
-    cat, pkgname = portage.versions.catpkgsplit(pkg['CPV'])[0:2]
-    cp = '%s/%s' % (cat, pkgname)
+    cpv = portage_util.SplitCPV(pkg['CPV'])
+    cp = '%s/%s' % (cpv.category, cpv.package)
     self._found_packages.add(cp)
-    return pkgname not in self._packages and cp not in self._packages
+    return cpv.package not in self._packages and cp not in self._packages
 
   def _UploadPrebuilt(self, package_path, url_suffix):
     """Upload host or board prebuilt files to Google Storage space.
@@ -470,7 +461,7 @@ class PrebuiltUploader(object):
         prefix='chromite.upload_prebuilts.index.') as index:
       GenerateHtmlIndex(
           [x[len(remote_location) + 1:] for x in upload_files.values()],
-          index.name, self._target, self._version)
+          index.name, self._target, self._version, remote_location)
       self._Upload(index.name, '%s/index.html' % remote_location.rstrip('/'))
 
       link_name = 'Prebuilts[%s]: %s' % (self._target, self._version)

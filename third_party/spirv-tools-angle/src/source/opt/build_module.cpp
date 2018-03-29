@@ -14,6 +14,7 @@
 
 #include "build_module.h"
 
+#include "ir_context.h"
 #include "ir_loader.h"
 #include "make_unique.h"
 #include "table.h"
@@ -41,17 +42,17 @@ spv_result_t SetSpvInst(void* builder, const spv_parsed_instruction_t* inst) {
   return SPV_ERROR_INVALID_BINARY;
 };
 
-}  // annoymous namespace
+}  // namespace
 
-std::unique_ptr<ir::Module> BuildModule(spv_target_env env,
-                                        MessageConsumer consumer,
-                                        const uint32_t* binary,
-                                        const size_t size) {
+std::unique_ptr<ir::IRContext> BuildModule(spv_target_env env,
+                                           MessageConsumer consumer,
+                                           const uint32_t* binary,
+                                           const size_t size) {
   auto context = spvContextCreate(env);
-  SetContextMessageConsumer(context, consumer);
+  libspirv::SetContextMessageConsumer(context, consumer);
 
-  auto module = MakeUnique<ir::Module>();
-  ir::IrLoader loader(context->consumer, module.get());
+  auto irContext = MakeUnique<ir::IRContext>(consumer);
+  ir::IrLoader loader(consumer, irContext->module());
 
   spv_result_t status = spvBinaryParse(context, &loader, binary, size,
                                        SetSpvHeader, SetSpvInst, nullptr);
@@ -59,16 +60,17 @@ std::unique_ptr<ir::Module> BuildModule(spv_target_env env,
 
   spvContextDestroy(context);
 
-  return status == SPV_SUCCESS ? std::move(module) : nullptr;
+  return status == SPV_SUCCESS ? std::move(irContext) : nullptr;
 }
 
-std::unique_ptr<ir::Module> BuildModule(spv_target_env env,
-                                        MessageConsumer consumer,
-                                        const std::string& text) {
+std::unique_ptr<ir::IRContext> BuildModule(spv_target_env env,
+                                           MessageConsumer consumer,
+                                           const std::string& text,
+                                           uint32_t assemble_options) {
   SpirvTools t(env);
   t.SetMessageConsumer(consumer);
   std::vector<uint32_t> binary;
-  if (!t.Assemble(text, &binary)) return nullptr;
+  if (!t.Assemble(text, &binary, assemble_options)) return nullptr;
   return BuildModule(env, consumer, binary.data(), binary.size());
 }
 

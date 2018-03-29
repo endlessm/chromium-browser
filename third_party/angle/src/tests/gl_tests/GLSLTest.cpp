@@ -431,6 +431,24 @@ class GLSLTest : public ANGLETest
         }
     }
 
+    std::string QueryErrorMessage(GLuint program)
+    {
+        GLint infoLogLength;
+        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &infoLogLength);
+        EXPECT_GL_NO_ERROR();
+
+        if (infoLogLength >= 1)
+        {
+            std::vector<GLchar> infoLog(infoLogLength);
+            glGetProgramInfoLog(program, static_cast<GLsizei>(infoLog.size()), nullptr,
+                                infoLog.data());
+            EXPECT_GL_NO_ERROR();
+            return infoLog.data();
+        }
+
+        return "";
+    }
+
     std::string mSimpleVSSource;
 };
 
@@ -1629,22 +1647,28 @@ std::string GenerateSmallPowShader(double base, double exponent)
 // See http://anglebug.com/851
 TEST_P(GLSLTest, PowOfSmallConstant)
 {
-    std::vector<double> bads;
-    for (int eps = -1; eps <= 1; ++eps)
+    // Test with problematic exponents that are close to an integer.
+    std::vector<double> testExponents;
+    std::array<double, 5> epsilonMultipliers = {-100.0, -1.0, 0.0, 1.0, 100.0};
+    for (double epsilonMultiplier : epsilonMultipliers)
     {
         for (int i = -4; i <= 5; ++i)
         {
             if (i >= -1 && i <= 1)
                 continue;
             const double epsilon = 1.0e-8;
-            double bad           = static_cast<double>(i) + static_cast<double>(eps) * epsilon;
-            bads.push_back(bad);
+            double bad           = static_cast<double>(i) + epsilonMultiplier * epsilon;
+            testExponents.push_back(bad);
         }
     }
 
-    for (double bad : bads)
+    // Also test with a few exponents that are not close to an integer.
+    testExponents.push_back(3.6);
+    testExponents.push_back(3.4);
+
+    for (double testExponent : testExponents)
     {
-        const std::string &fragmentShaderSource = GenerateSmallPowShader(1.0e-6, bad);
+        const std::string &fragmentShaderSource = GenerateSmallPowShader(1.0e-6, testExponent);
 
         ANGLE_GL_PROGRAM(program, mSimpleVSSource, fragmentShaderSource);
 
@@ -3873,6 +3897,100 @@ TEST_P(GLSLTest, VectorScalarDivideAndAddInLoop)
     ANGLE_GL_PROGRAM(program, mSimpleVSSource, fragmentShader);
     drawQuad(program.get(), "inputAttribute", 0.5f);
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+// Test that a varying with a flat qualifier that is used as an operand of a folded ternary operator
+// is handled correctly.
+TEST_P(GLSLTest_ES3, FlatVaryingUsedInFoldedTernary)
+{
+    const std::string &vertexShader =
+        R"(#version 300 es
+
+        in vec4 inputAttribute;
+
+        flat out int v;
+
+        void main()
+        {
+            v = 1;
+            gl_Position = inputAttribute;
+        })";
+
+    const std::string &fragmentShader =
+        R"(#version 300 es
+
+        precision highp float;
+        out vec4 my_FragColor;
+
+        flat in int v;
+
+        void main()
+        {
+            my_FragColor = vec4(0, (true ? v : 0), 0, 1);
+        })";
+
+    ANGLE_GL_PROGRAM(program, vertexShader, fragmentShader);
+    drawQuad(program.get(), "inputAttribute", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+// Verify that the link error message from last link failure is cleared when the new link is
+// finished.
+TEST_P(GLSLTest, ClearLinkErrorLog)
+{
+    const std::string &vertexShader =
+        R"(
+
+        attribute vec4 vert_in;
+        varying vec4 vert_out;
+        void main()
+        {
+            gl_Position = vert_in;
+            vert_out = vert_in;
+        })";
+
+    const std::string &fragmentShader =
+        R"(
+
+        precision mediump float;
+        varying vec4 frag_in;
+        void main()
+        {
+            gl_FragColor = frag_in;
+        })";
+
+    GLuint vs = CompileShader(GL_VERTEX_SHADER, vertexShader);
+    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, fragmentShader);
+
+    GLuint program = glCreateProgram();
+
+    // The first time the program link fails because of lack of fragment shader.
+    glAttachShader(program, vs);
+    glLinkProgram(program);
+    GLint linkStatus = GL_TRUE;
+    glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    ASSERT_FALSE(linkStatus);
+
+    const std::string &lackOfFragmentShader = QueryErrorMessage(program);
+
+    // The second time the program link fails because of the mismatch of the varying types.
+    glAttachShader(program, fs);
+    glLinkProgram(program);
+    linkStatus = GL_TRUE;
+    glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    ASSERT_FALSE(linkStatus);
+
+    const std::string &varyingTypeMismatch = QueryErrorMessage(program);
+
+    EXPECT_EQ(std::string::npos, varyingTypeMismatch.find(lackOfFragmentShader));
+
+    glDetachShader(program, vs);
+    glDetachShader(program, fs);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    glDeleteProgram(program);
+
+    ASSERT_GL_NO_ERROR();
 }
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these tests should be run against.

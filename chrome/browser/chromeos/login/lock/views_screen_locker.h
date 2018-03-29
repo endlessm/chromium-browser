@@ -49,16 +49,19 @@ class ViewsScreenLocker : public LoginScreenClient::Delegate,
   content::WebContents* GetWebContents() override;
 
   // LoginScreenClient::Delegate
-  void HandleAuthenticateUser(const AccountId& account_id,
-                              const std::string& hashed_password,
-                              bool authenticated_by_pin,
-                              AuthenticateUserCallback callback) override;
+  void HandleAuthenticateUser(
+      const AccountId& account_id,
+      const std::string& hashed_password,
+      const password_manager::SyncPasswordData& sync_password_data,
+      bool authenticated_by_pin,
+      AuthenticateUserCallback callback) override;
   void HandleAttemptUnlock(const AccountId& account_id) override;
   void HandleHardlockPod(const AccountId& account_id) override;
   void HandleRecordClickOnLockIcon(const AccountId& account_id) override;
   void HandleOnFocusPod(const AccountId& account_id) override;
   void HandleOnNoPodFocused() override;
   bool HandleFocusLockScreenApps(bool reverse) override;
+  void HandleLoginAsGuest() override;
 
   // PowerManagerClient::Observer:
   void SuspendDone(const base::TimeDelta& sleep_duration) override;
@@ -80,6 +83,9 @@ class ViewsScreenLocker : public LoginScreenClient::Delegate,
   void UpdatePinKeyboardState(const AccountId& account_id);
   void OnAllowedInputMethodsChanged();
   void OnDevChannelInfoUpdated();
+
+  // Notifies the session manager that the lock animations are complete.
+  void NotifyChromeLockAnimationsComplete();
 
   std::unique_ptr<UserSelectionScreenProxy> user_selection_screen_proxy_;
   std::unique_ptr<UserSelectionScreen> user_selection_screen_;

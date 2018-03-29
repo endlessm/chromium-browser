@@ -126,6 +126,11 @@ THIRD_PARTY_PKG_LIST = ['cherrypy', 'google/protobuf']
 UPDATE_PAYLOAD_DIR = os.path.join(
     constants.UPDATE_ENGINE_SCRIPTS_PATH, 'update_payload')
 
+# Number of seconds to wait for the post check version to settle.
+POST_CHECK_SETTLE_SECONDS = 5
+
+# Number of seconds to delay between post check retries.
+POST_CHECK_RETRY_SECONDS = 5
 
 class ChromiumOSUpdateError(Exception):
   """Thrown when there is a general ChromiumOS-specific update error."""
@@ -174,6 +179,7 @@ class ChromiumOSFlashUpdater(BaseUpdater):
   REMOTE_UPDATE_ENGINE_LOGFILE_PATH = '/var/log/update_engine.log'
   REMOTE_PROVISION_FAILED_FILE_PATH = '/var/tmp/provision_failed'
   REMOTE_HOSTLOG_FILE_PATH = '/var/log/devserver_hostlog'
+  REMOTE_QUICK_PROVISION_LOGFILE_PATH = '/var/log/quick-provision.log'
 
   UPDATE_CHECK_INTERVAL_PROGRESSBAR = 0.5
   UPDATE_CHECK_INTERVAL_NORMAL = 10
@@ -751,6 +757,12 @@ class ChromiumOSFlashUpdater(BaseUpdater):
               self.REMOTE_UPDATE_ENGINE_LOGFILE_PATH)),
           follow_symlinks=True,
           **self._cmd_kwargs_omit_error)
+      self.device.CopyFromDevice(
+          self.REMOTE_QUICK_PROVISION_LOGFILE_PATH,
+          os.path.join(self.tempdir, os.path.basename(
+              self.REMOTE_QUICK_PROVISION_LOGFILE_PATH)),
+          follow_symlinks=True,
+          **self._cmd_kwargs_omit_error)
       self._CopyHostLogFromDevice('rootfs')
       self._StopPerformanceMonitoringForAUTest()
 
@@ -1129,7 +1141,8 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
       raise PreSetupUpdateError('%s is not in an installable state' %
                                 self.device.hostname)
 
-  def _VerifyBootExpectations(self, expected_kernel_state, rollback_message):
+  def _VerifyBootExpectations(self, expected_kernel_state, rollback_message,
+                              old_boot_id=None):
     """Verify that we fully booted given expected kernel state.
 
     It verifies that we booted using the correct kernel state, and that the
@@ -1140,8 +1153,15 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
         expect to be booted onto partition 4 etc. See output of _GetKernelState.
       rollback_message: string to raise as a RootfsUpdateError if we booted
         with the wrong partition.
+      old_boot_id: string of previous boot id.  If specified, will verify
+        that this is a different boot.
     """
     logging.debug('Start verifying boot expectations...')
+
+    if old_boot_id and not self.device.CheckIfRebooted(old_boot_id):
+      raise RootfsUpdateError('Device has not rebooted, still boot_id %s' %
+                              old_boot_id)
+
     # Figure out the newly active kernel
     active_kernel_state = self._GetKernelState()[0]
 
@@ -1366,26 +1386,43 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
                          **self._cmd_kwargs_omit_error)
     self._Reboot('post check of rootfs update')
 
-  def PostCheckCrOSUpdate(self):
+  def PostCheckCrOSUpdate(self, old_boot_id=None):
     """Post check for the whole auto-update process."""
     logging.debug('Post check for the whole CrOS update...')
+    start_time = time.time()
     # Not use 'sh' here since current device.RunCommand cannot recognize
     # the content of $FILE.
     autoreboot_cmd = ('FILE="%s" ; [ -f "$FILE" ] || '
                       '( touch "$FILE" ; start autoreboot )')
     self._RetryCommand(autoreboot_cmd % self.REMOTE_LAB_MACHINE_FILE_PATH,
                        **self._cmd_kwargs)
-    self._VerifyBootExpectations(
-        self.inactive_kernel, rollback_message=
-        'Build %s failed to boot on %s; system rolled back to previous '
-        'build' % (self.update_version, self.device.hostname))
-    # Check that we've got the build we meant to install.
-    if not self._CheckVersionToConfirmInstall():
-      raise ChromiumOSUpdateError(
-          'Failed to update %s to build %s; found build '
-          '%s instead' % (self.device.hostname,
-                          self.update_version,
-                          self._GetReleaseVersion()))
+
+    # Loop in case the initial check happens before the reboot.
+    while True:
+      try:
+        self._VerifyBootExpectations(
+            self.inactive_kernel, rollback_message=
+            'Build %s failed to boot on %s; system rolled back to previous '
+            'build' % (self.update_version, self.device.hostname),
+            old_boot_id=old_boot_id)
+
+        # Check that we've got the build we meant to install.
+        if not self._CheckVersionToConfirmInstall():
+          raise ChromiumOSUpdateError(
+              'Failed to update %s to build %s; found build '
+              '%s instead' % (self.device.hostname,
+                              self.update_version,
+                              self._GetReleaseVersion()))
+      except (ChromiumOSUpdateError, RootfsUpdateError) as e:
+        # If a minimum amount of time since starting the check has not
+        # occurred, wait and retry.
+        if time.time() - start_time < POST_CHECK_SETTLE_SECONDS:
+          logging.warning('Delaying for re-check of %s to update to %s (%s)' %
+                          (self.device.hostname, self.update_version, e))
+          time.sleep(POST_CHECK_RETRY_SECONDS)
+          continue
+        raise
+      break
 
     # For autoupdate_EndToEndTest only, we have one extra step to verify.
     if self.is_au_endtoendtest and not self._clobber_stateful:

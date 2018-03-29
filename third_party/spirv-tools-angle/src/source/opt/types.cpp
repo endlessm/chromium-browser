@@ -34,7 +34,7 @@ bool CompareTwoVectors(const U32VecVec a, const U32VecVec b) {
   if (size == 0) return true;
   if (size == 1) return a.front() == b.front();
 
-  std::vector<const std::vector<uint32_t> *> a_ptrs, b_ptrs;
+  std::vector<const std::vector<uint32_t>*> a_ptrs, b_ptrs;
   a_ptrs.reserve(size);
   a_ptrs.reserve(size);
   for (uint32_t i = 0; i < size; ++i) {
@@ -220,8 +220,8 @@ Struct::Struct(const std::vector<Type*>& types) : element_types_(types) {
   }
 }
 
-void Struct::AddMemeberDecoration(uint32_t index,
-                                  std::vector<uint32_t>&& decoration) {
+void Struct::AddMemberDecoration(uint32_t index,
+                                 std::vector<uint32_t>&& decoration) {
   if (index >= element_types_.size()) {
     assert(0 && "index out of bound");
     return;

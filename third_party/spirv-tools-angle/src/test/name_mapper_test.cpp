@@ -19,8 +19,8 @@
 
 #include "source/name_mapper.h"
 
-using libspirv::NameMapper;
 using libspirv::FriendlyNameMapper;
+using libspirv::NameMapper;
 using spvtest::ScopedContext;
 using ::testing::Eq;
 
@@ -197,7 +197,8 @@ INSTANTIATE_TEST_CASE_P(ExoticTypes, FriendlyNameTest,
                             {"%1 = OpTypeDeviceEvent", 1, "DeviceEvent"},
                             {"%1 = OpTypeReserveId", 1, "ReserveId"},
                             {"%1 = OpTypeQueue", 1, "Queue"},
-                            {"%1 = OpTypeOpaque \"hello world!\"", 1, "Opaque_hello_world_"},
+                            {"%1 = OpTypeOpaque \"hello world!\"", 1,
+                             "Opaque_hello_world_"},
                             {"%1 = OpTypePipe ReadOnly", 1, "PipeReadOnly"},
                             {"%1 = OpTypePipe WriteOnly", 1, "PipeWriteOnly"},
                             {"%1 = OpTypePipe ReadWrite", 1, "PipeReadWrite"},
@@ -333,6 +334,13 @@ INSTANTIATE_TEST_CASE_P(
          "double_0x1p_1024"},  // Inf
         {"%1 = OpTypeFloat 64\n%2 = OpConstant %1 -0x1p+1024", 2,
          "double_n0x1p_1024"},  // -Inf
+    }), );
+
+INSTANTIATE_TEST_CASE_P(
+    BooleanConstants, FriendlyNameTest,
+    ::testing::ValuesIn(std::vector<NameIdCase>{
+        {"%1 = OpTypeBool\n%2 = OpConstantTrue %1", 2, "true"},
+        {"%1 = OpTypeBool\n%2 = OpConstantFalse %1", 2, "false"},
     }), );
 
 }  // anonymous namespace

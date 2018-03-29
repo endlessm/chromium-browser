@@ -85,6 +85,8 @@ class SharedPageState(story_module.SharedState):
       wpr_mode = wpr_modes.WPR_REPLAY
     self._extra_wpr_args = browser_options.extra_wpr_args
 
+    self.platform.SetFullPerformanceModeEnabled(
+        finder_options.full_performance_mode)
     self.platform.network_controller.Open(wpr_mode)
     self.platform.Initialize()
 
@@ -131,7 +133,7 @@ class SharedPageState(story_module.SharedState):
     if self._finder_options.browser_options.take_screenshot_for_failed_page:
       fh = screenshot.TryCaptureScreenShot(self.platform, self._current_tab)
       if fh is not None:
-        results.AddProfilingFile(page, fh)
+        results.AddArtifact(page.name, 'screenshot', fh)
     else:
       logging.warning('Taking screenshots upon failures disabled.')
 
@@ -186,14 +188,14 @@ class SharedPageState(story_module.SharedState):
     self._AllowInteractionForStage('before-start-browser')
 
     self._test.WillStartBrowser(self.platform)
-    # Create a deep copy of finder options so that we can add page-level
+    # Create a deep copy of browser_options so that we can add page-level
     # arguments and url to it without polluting the run for the next page.
-    finder_options_for_page = self._finder_options.Copy()
+    browser_options = self._finder_options.browser_options.Copy()
     if page.startup_url:
-      finder_options_for_page.browser_options.startup_url = page.startup_url
-    finder_options_for_page.browser_options.AppendExtraBrowserArgs(
-        page.extra_browser_args)
-    self._browser = self._possible_browser.Create(finder_options_for_page)
+      browser_options.startup_url = page.startup_url
+    browser_options.AppendExtraBrowserArgs(page.extra_browser_args)
+    self._possible_browser.SetUpEnvironment(browser_options)
+    self._browser = self._possible_browser.Create()
     self._test.DidStartBrowser(self.browser)
 
     if self._first_browser:
@@ -210,11 +212,6 @@ class SharedPageState(story_module.SharedState):
 
     page_set = page.page_set
     self._current_page = page
-    if (self._current_page.credentials and
-        self._finder_options.browser_options.wpr_mode == wpr_modes.WPR_RECORD):
-      raise Exception(
-          'Setting page credentials is deprecated, please conver page %s to '
-          'use login_helper instead (Examples: https://goo.gl/fXi6ii)' % page)
 
     if self._browser and page.startup_url:
       assert not self.platform.tracing_controller.is_tracing_running, (
@@ -319,11 +316,14 @@ class SharedPageState(story_module.SharedState):
     self._StopBrowser()
     self.platform.StopAllLocalServers()
     self.platform.network_controller.Close()
+    self.platform.SetFullPerformanceModeEnabled(False)
 
   def _StopBrowser(self):
     if self._browser:
       self._browser.Close()
       self._browser = None
+    if self._possible_browser:
+      self._possible_browser.CleanUpEnvironment()
 
   def _StartProfiling(self, page):
     output_file = os.path.join(self._finder_options.output_dir,

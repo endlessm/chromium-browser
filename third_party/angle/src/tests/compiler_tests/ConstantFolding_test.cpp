@@ -175,7 +175,7 @@ TEST_F(ConstantFoldingTest, Fold3x3MatrixInverse)
         "                                23.0f, 29.0f, 31.0f,\n"
         "                                37.0f, 41.0f, 43.0f));\n"
         "   mat3 m = m3 * mat3(i);\n"
-        "   my_Vec = m3[0];\n"
+        "   my_Vec = m[0];\n"
         "}\n";
     compileAssumeSuccess(shaderString);
     float inputElements[] =
@@ -1416,4 +1416,194 @@ TEST_F(ConstantFoldingExpressionTest, FoldLdexp)
     const std::string &floatString = "ldexp(0.625, 1)";
     evaluateFloat(floatString);
     ASSERT_TRUE(constantFoundInAST(1.25f));
+}
+
+// Fold a ternary operator.
+TEST_F(ConstantFoldingTest, FoldTernary)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision highp int;
+        uniform int u;
+        out int my_FragColor;
+        void main()
+        {
+            my_FragColor = (true ? 1 : u);
+        })";
+    compileAssumeSuccess(shaderString);
+    ASSERT_TRUE(constantFoundInAST(1));
+    ASSERT_FALSE(symbolFoundInMain("u"));
+}
+
+// Fold a ternary operator inside a consuming expression.
+TEST_F(ConstantFoldingTest, FoldTernaryInsideExpression)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision highp int;
+        uniform int u;
+        out int my_FragColor;
+        void main()
+        {
+            my_FragColor = ivec2((true ? 1 : u) + 2, 4).x;
+        })";
+    compileAssumeSuccess(shaderString);
+    ASSERT_TRUE(constantFoundInAST(3));
+    ASSERT_FALSE(symbolFoundInMain("u"));
+}
+
+// Fold indexing into an array constructor.
+TEST_F(ConstantFoldingExpressionTest, FoldArrayConstructorIndexing)
+{
+    const std::string &floatString = "(float[3](-1.0, 1.0, 2.0))[2]";
+    evaluateFloat(floatString);
+    ASSERT_FALSE(constantFoundInAST(-1.0f));
+    ASSERT_FALSE(constantFoundInAST(1.0f));
+    ASSERT_TRUE(constantFoundInAST(2.0f));
+}
+
+// Fold indexing into an array of arrays constructor.
+TEST_F(ConstantFoldingExpressionTest, FoldArrayOfArraysConstructorIndexing)
+{
+    const std::string &floatString = "(float[2][2](float[2](-1.0, 1.0), float[2](2.0, 3.0)))[1][0]";
+    evaluateFloat(floatString);
+    ASSERT_FALSE(constantFoundInAST(-1.0f));
+    ASSERT_FALSE(constantFoundInAST(1.0f));
+    ASSERT_FALSE(constantFoundInAST(3.0f));
+    ASSERT_TRUE(constantFoundInAST(2.0f));
+}
+
+// Fold indexing into a named constant array.
+TEST_F(ConstantFoldingTest, FoldNamedArrayIndexing)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision highp float;
+        const float[3] arr = float[3](-1.0, 1.0, 2.0);
+        out float my_FragColor;
+        void main()
+        {
+            my_FragColor = arr[1];
+        })";
+    compileAssumeSuccess(shaderString);
+    ASSERT_FALSE(constantFoundInAST(-1.0f));
+    ASSERT_FALSE(constantFoundInAST(2.0f));
+    ASSERT_TRUE(constantFoundInAST(1.0f));
+    // The variable should be pruned out since after folding the indexing, there are no more
+    // references to it.
+    ASSERT_FALSE(symbolFoundInAST("arr"));
+}
+
+// Fold indexing into a named constant array of arrays.
+TEST_F(ConstantFoldingTest, FoldNamedArrayOfArraysIndexing)
+{
+    const std::string &shaderString =
+        R"(#version 310 es
+        precision highp float;
+        const float[2][2] arr = float[2][2](float[2](-1.0, 1.0), float[2](2.0, 3.0));
+        out float my_FragColor;
+        void main()
+        {
+            my_FragColor = arr[0][1];
+        })";
+    compileAssumeSuccess(shaderString);
+    ASSERT_FALSE(constantFoundInAST(-1.0f));
+    ASSERT_FALSE(constantFoundInAST(2.0f));
+    ASSERT_FALSE(constantFoundInAST(3.0f));
+    ASSERT_TRUE(constantFoundInAST(1.0f));
+    // The variable should be pruned out since after folding the indexing, there are no more
+    // references to it.
+    ASSERT_FALSE(symbolFoundInAST("arr"));
+}
+
+// Fold indexing into an array constructor where some of the arguments are constant and others are
+// non-constant but without side effects.
+TEST_F(ConstantFoldingTest, FoldArrayConstructorIndexingWithMixedArguments)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision highp float;
+        uniform float u;
+        out float my_FragColor;
+        void main()
+        {
+            my_FragColor = float[2](u, 1.0)[1];
+        })";
+    compileAssumeSuccess(shaderString);
+    ASSERT_TRUE(constantFoundInAST(1.0f));
+    ASSERT_FALSE(constantFoundInAST(1));
+    ASSERT_FALSE(symbolFoundInMain("u"));
+}
+
+// Indexing into an array constructor where some of the arguments have side effects can't be folded.
+TEST_F(ConstantFoldingTest, CantFoldArrayConstructorIndexingWithSideEffects)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision highp float;
+        out float my_FragColor;
+        void main()
+        {
+            float sideEffectTarget = 0.0;
+            float f = float[3](sideEffectTarget = 1.0, 1.0, 2.0)[1];
+            my_FragColor = f + sideEffectTarget;
+        })";
+    compileAssumeSuccess(shaderString);
+    // All of the array constructor arguments should be present in the final AST.
+    ASSERT_TRUE(constantFoundInAST(1.0f));
+    ASSERT_TRUE(constantFoundInAST(2.0f));
+}
+
+// Fold comparing two array constructors.
+TEST_F(ConstantFoldingTest, FoldArrayConstructorEquality)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision highp float;
+        out float my_FragColor;
+        void main()
+        {
+            const bool b = (float[3](2.0, 1.0, -1.0) == float[3](2.0, 1.0, -1.0));
+            my_FragColor = b ? 3.0 : 4.0;
+        })";
+    compileAssumeSuccess(shaderString);
+    ASSERT_TRUE(constantFoundInAST(3.0f));
+    ASSERT_FALSE(constantFoundInAST(4.0f));
+}
+
+// Fold comparing two named constant arrays.
+TEST_F(ConstantFoldingExpressionTest, FoldNamedArrayEquality)
+{
+    const std::string &shaderString =
+        R"(#version 300 es
+        precision highp float;
+        const float[3] arrA = float[3](-1.0, 1.0, 2.0);
+        const float[3] arrB = float[3](-1.0, 1.0, 2.0);
+        out float my_FragColor;
+        void main()
+        {
+            const bool b = (arrA == arrB);
+            my_FragColor = b ? 3.0 : 4.0;
+        })";
+    compileAssumeSuccess(shaderString);
+    ASSERT_TRUE(constantFoundInAST(3.0f));
+    ASSERT_FALSE(constantFoundInAST(4.0f));
+}
+
+// Fold comparing two array of arrays constructors.
+TEST_F(ConstantFoldingTest, FoldArrayOfArraysConstructorEquality)
+{
+    const std::string &shaderString =
+        R"(#version 310 es
+        precision highp float;
+        out float my_FragColor;
+        void main()
+        {
+            const bool b = (float[2][2](float[2](-1.0, 1.0), float[2](2.0, 3.0)) ==
+                            float[2][2](float[2](-1.0, 1.0), float[2](2.0, 1000.0)));
+            my_FragColor = b ? 4.0 : 5.0;
+        })";
+    compileAssumeSuccess(shaderString);
+    ASSERT_TRUE(constantFoundInAST(5.0f));
+    ASSERT_FALSE(constantFoundInAST(4.0f));
 }

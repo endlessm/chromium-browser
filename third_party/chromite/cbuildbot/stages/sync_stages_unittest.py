@@ -733,11 +733,11 @@ class PreCQLauncherStageTest(MasterCQSyncTestCase):
 
     configs = ['test-pre-cq', 'lumpy-pre-cq']
     self.assertDictEqual(self.sync_stage._LaunchTrybots(mock_pool, configs), {})
-    self.assertTrue(mock_pool.HandleNoConfigTargetFailure.assert_not_called())
+    mock_pool.HandleNoConfigTargetFailure.assert_not_called()
 
     self.assertDictEqual(self.sync_stage._LaunchTrybots(
         mock_pool, configs, plan=[change]), {})
-    self.assertTrue(mock_pool.HandleNoConfigTargetFailure.assert_called_once())
+    mock_pool.HandleNoConfigTargetFailure.assert_called_once()
 
   def testLaunchSanityPreCQs(self):
     """Test LaunchSanityPreCQs."""
@@ -871,7 +871,7 @@ pre-cq-configs: link-pre-cq
     # Create a pre-cq submittable change, let it be screened,
     # and have the trybot mark it as verified.
     change = self._PrepareChangesWithPendingVerifications()[0]
-    self.PatchObject(sync_stages.PreCQLauncherStage,
+    self.PatchObject(cq_config.CQConfigParser,
                      'CanSubmitChangeInPreCQ',
                      return_value=True)
     change[0].approval_timestamp = 0

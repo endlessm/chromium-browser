@@ -18,6 +18,7 @@ class ReadValueError(Exception):
 
 
 class ReadChartJsonValue(quest.Quest):
+  # TODO: Deprecated.
 
   def __init__(self, chart, tir_label=None, trace=None, statistic=None):
     self._chart = chart
@@ -49,6 +50,29 @@ class ReadChartJsonValue(quest.Quest):
                                         self._trace, self._statistic,
                                         isolate_hash)
 
+  @classmethod
+  def FromDict(cls, arguments):
+    used_arguments = {}
+
+    chart = arguments.get('chart')
+    if not chart:
+      return {}, None
+    used_arguments['chart'] = chart
+
+    tir_label = arguments.get('tir_label')
+    if tir_label:
+      used_arguments['tir_label'] = tir_label
+
+    trace = arguments.get('trace')
+    if trace:
+      used_arguments['trace'] = trace
+
+    statistic = arguments.get('statistic')
+    if statistic:
+      used_arguments['statistic'] = statistic
+
+    return used_arguments, cls(chart, tir_label, trace, statistic)
+
 
 class _ReadChartJsonValueExecution(execution.Execution):
 
@@ -79,11 +103,15 @@ class _ReadChartJsonValueExecution(execution.Execution):
     chartjson = _RetrieveOutputJson(self._isolate_hash, 'chartjson-output.json')
 
     # Get and cache any trace URLs.
+    unique_trace_urls = set()
     if 'trace' in chartjson['charts']:
       traces = chartjson['charts']['trace']
       traces = sorted(traces.iteritems(), key=lambda item: item[1]['page_id'])
-      for name, details in traces:
-        self._trace_urls.append({'name': name, 'url': details['cloud_url']})
+      unique_trace_urls.update([d['cloud_url'] for _, d in traces])
+
+    sorted_urls = sorted(unique_trace_urls)
+    self._trace_urls = [
+        {'name': t.split('/')[-1], 'url': t} for t in sorted_urls]
 
     # Look up chart.
     if self._tir_label:
@@ -140,6 +168,28 @@ class ReadHistogramsJsonValue(quest.Quest):
                                              self._story, self._statistic,
                                              isolate_hash)
 
+  @classmethod
+  def FromDict(cls, arguments):
+    used_arguments = {}
+
+    chart = arguments.get('chart')
+    if chart:
+      used_arguments['chart'] = chart
+
+    tir_label = arguments.get('tir_label')
+    if tir_label:
+      used_arguments['tir_label'] = tir_label
+
+    trace = arguments.get('trace')
+    if trace:
+      used_arguments['trace'] = trace
+
+    statistic = arguments.get('statistic')
+    if statistic:
+      used_arguments['statistic'] = statistic
+
+    return used_arguments, cls(chart, tir_label, trace, statistic)
+
 
 class _ReadHistogramsJsonValueExecution(execution.Execution):
 
@@ -170,24 +220,33 @@ class _ReadHistogramsJsonValueExecution(execution.Execution):
     matching_histograms = histograms.GetHistogramsNamed(self._hist_name)
 
     # Get and cache any trace URLs.
+    unique_trace_urls = set()
     for hist in histograms:
       trace_urls = hist.diagnostics.get(reserved_infos.TRACE_URLS.name)
       if trace_urls:
-        for t in list(trace_urls):
-          self._trace_urls.append({'name': hist.name, 'url': t})
-    self._trace_urls = sorted(self._trace_urls, key=lambda x: x['name'])
+        unique_trace_urls.update(trace_urls)
+
+    sorted_urls = sorted(unique_trace_urls)
+    self._trace_urls = [
+        {'name': t.split('/')[-1], 'url': t} for t in sorted_urls]
 
     # Filter the histograms by tir_label and story. Getting either the
     # tir_label or the story from a histogram involves pulling out and
     # examining various diagnostics associated with the histogram.
     tir_label = self._tir_label or ''
-    def _MatchesStoryAndTIRLabel(hist):
-      return (
-          tir_label == histogram_helpers.GetTIRLabelFromHistogram(hist) and
-          self._story == _GetStoryFromHistogram(hist))
 
     matching_histograms = [
-        h for h in matching_histograms if _MatchesStoryAndTIRLabel(h)]
+        h for h in matching_histograms
+        if tir_label == histogram_helpers.GetTIRLabelFromHistogram(h)]
+
+
+    # If no story is supplied, we're looking for a summary metric so just match
+    # on name and tir_label. This is equivalent to the chartjson condition that
+    # if no story is specified, look for "summary".
+    if self._story:
+      matching_histograms = [
+          h for h in matching_histograms
+          if self._story == _GetStoryFromHistogram(h)]
 
     # Have to pull out either the raw sample values, or the statistic
     result_values = []
@@ -207,6 +266,9 @@ class _ReadHistogramsJsonValueExecution(execution.Execution):
   def _GetValuesOrStatistic(self, hist):
     if not self._statistic:
       return hist.sample_values
+
+    if not hist.sample_values:
+      return []
 
     # TODO(simonhatch): Use Histogram.getStatisticScalar when it's ported from
     # js.
@@ -259,6 +321,23 @@ class ReadGraphJsonValue(quest.Quest):
     del change
     return _ReadGraphJsonValueExecution(self._chart, self._trace, isolate_hash)
 
+  @classmethod
+  def FromDict(cls, arguments):
+    used_arguments = {}
+
+    chart = arguments.get('chart')
+    trace = arguments.get('trace')
+    if not (chart or trace):
+      return {}, None
+    if chart and not trace:
+      raise TypeError('"chart" specified but no "trace" given.')
+    if trace and not chart:
+      raise TypeError('"trace" specified but no "chart" given.')
+    used_arguments['chart'] = chart
+    used_arguments['trace'] = trace
+
+    return used_arguments, cls(chart, trace)
+
 
 class _ReadGraphJsonValueExecution(execution.Execution):
 
@@ -286,7 +365,7 @@ class _ReadGraphJsonValueExecution(execution.Execution):
 
 
 def _RetrieveOutputJson(isolate_hash, filename):
-  output_files = isolate_service.Retrieve(isolate_hash)['files']
+  output_files = json.loads(isolate_service.Retrieve(isolate_hash))['files']
 
   if filename not in output_files:
     raise ReadValueError("The test didn't produce %s." % filename)

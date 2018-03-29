@@ -20,6 +20,7 @@ import android.opengl.EGLExt;
 import android.opengl.EGLSurface;
 import android.os.Build;
 import android.view.Surface;
+import org.webrtc.EglBase;
 
 /**
  * Holds EGL state and utility methods for handling an EGL14 EGLContext, an EGLDisplay,
@@ -27,7 +28,7 @@ import android.view.Surface;
  */
 @SuppressWarnings("ReferenceEquality") // We want to compare to EGL14 constants.
 @TargetApi(18)
-class EglBase14 extends EglBase {
+class EglBase14 implements EglBase {
   private static final String TAG = "EglBase14";
   private static final int EGLExt_SDK_VERSION = android.os.Build.VERSION_CODES.JELLY_BEAN_MR2;
   private static final int CURRENT_SDK_VERSION = android.os.Build.VERSION.SDK_INT;
@@ -58,6 +59,11 @@ class EglBase14 extends EglBase {
 
     public Context(android.opengl.EGLContext eglContext) {
       this.egl14Context = eglContext;
+    }
+
+    @CalledByNative("Context")
+    static boolean isEgl14Context(EglBase.Context context) {
+      return context instanceof EglBase14.Context;
     }
   }
 

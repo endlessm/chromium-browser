@@ -1,6 +1,13 @@
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     add_definitions(-DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN)
     set(DisplayServer Win32)
+    if (NOT MSVC_VERSION LESS 1900)
+        # Enable control flow guard
+        message(STATUS "Building demos with control flow guard")
+        add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/guard:cf>")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /guard:cf")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /guard:cf")
+    endif()
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
     add_definitions(-DVK_USE_PLATFORM_ANDROID_KHR)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -81,28 +88,27 @@ if(WIN32)
         endif()
     endforeach()
 
-    add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/demos/cube-vert.spv
-       COMMAND ${GLSLANG_VALIDATOR} -s -V -o ${CMAKE_BINARY_DIR}/demos/cube-vert.spv ${PROJECT_SOURCE_DIR}/demos/cube.vert
-       DEPENDS cube.vert ${GLSLANG_VALIDATOR}
-       )
-    add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/demos/cube-frag.spv
-       COMMAND ${GLSLANG_VALIDATOR} -s -V -o ${CMAKE_BINARY_DIR}/demos/cube-frag.spv ${PROJECT_SOURCE_DIR}/demos/cube.frag
-       DEPENDS cube.frag ${GLSLANG_VALIDATOR}
-       )
    file(COPY cube.vcxproj.user DESTINATION ${CMAKE_BINARY_DIR}/demos)
    file(COPY vulkaninfo.vcxproj.user DESTINATION ${CMAKE_BINARY_DIR}/demos)
-else()
-    if (${CMAKE_SYSTEM_PROCESSOR} STREQUAL ${CMAKE_HOST_SYSTEM_PROCESSOR})
-        add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/demos/cube-vert.spv
-            COMMAND ${GLSLANG_VALIDATOR} -s -V -o cube-vert.spv ${PROJECT_SOURCE_DIR}/demos/cube.vert
-            DEPENDS cube.vert ${GLSLANG_VALIDATOR}
-            )
-        add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/demos/cube-frag.spv
-            COMMAND ${GLSLANG_VALIDATOR} -s -V -o cube-frag.spv ${PROJECT_SOURCE_DIR}/demos/cube.frag
-            DEPENDS cube.frag ${GLSLANG_VALIDATOR}
-            )
-    endif()         
 endif()
+
+add_custom_command(
+    COMMENT "Compiling cube demo vertex shader"
+    OUTPUT cube.vert.inc
+    COMMAND ${GLSLANG_VALIDATOR} -V -x -o ${CMAKE_CURRENT_BINARY_DIR}/cube.vert.inc ${PROJECT_SOURCE_DIR}/demos/cube.vert
+    MAIN_DEPENDENCY ${PROJECT_SOURCE_DIR}/demos/cube.vert
+    DEPENDS ${PROJECT_SOURCE_DIR}/demos/cube.vert ${GLSLANG_VALIDATOR}
+)
+add_custom_command(
+    COMMENT "Compiling cube demo fragment shader"
+    OUTPUT cube.frag.inc
+    COMMAND ${GLSLANG_VALIDATOR} -V -x -o ${CMAKE_CURRENT_BINARY_DIR}/cube.frag.inc ${PROJECT_SOURCE_DIR}/demos/cube.frag
+    MAIN_DEPENDENCY ${PROJECT_SOURCE_DIR}/demos/cube.frag
+    DEPENDS ${PROJECT_SOURCE_DIR}/demos/cube.frag ${GLSLANG_VALIDATOR}
+)
+
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
 
 if(WIN32)
     include_directories (
@@ -118,7 +124,7 @@ target_link_libraries(${API_LOWERCASE}info ${LIBRARIES})
 
 if(NOT WIN32)
     if (${CMAKE_SYSTEM_PROCESSOR} STREQUAL ${CMAKE_HOST_SYSTEM_PROCESSOR})
-        add_executable(cube cube.c ${CMAKE_BINARY_DIR}/demos/cube-vert.spv ${CMAKE_BINARY_DIR}/demos/cube-frag.spv)
+        add_executable(cube cube.c ${PROJECT_SOURCE_DIR}/demos/cube.vert ${PROJECT_SOURCE_DIR}/demos/cube.frag cube.vert.inc cube.frag.inc)
         target_link_libraries(cube ${LIBRARIES})
     endif()
 else()
@@ -128,13 +134,13 @@ else()
         set (LIB_DIR "Win32")
     endif()
 
-    add_executable(cube WIN32 cube.c ${CMAKE_BINARY_DIR}/demos/cube-vert.spv ${CMAKE_BINARY_DIR}/demos/cube-frag.spv)
+    add_executable(cube WIN32 cube.c ${PROJECT_SOURCE_DIR}/demos/cube.vert ${PROJECT_SOURCE_DIR}/demos/cube.frag cube.vert.inc cube.frag.inc)
     target_link_libraries(cube ${LIBRARIES})
 endif()
 
 if(NOT WIN32)
     if (${CMAKE_SYSTEM_PROCESSOR} STREQUAL ${CMAKE_HOST_SYSTEM_PROCESSOR})
-        add_executable(cubepp cube.cpp ${CMAKE_BINARY_DIR}/demos/cube-vert.spv ${CMAKE_BINARY_DIR}/demos/cube-frag.spv)
+        add_executable(cubepp cube.cpp ${PROJECT_SOURCE_DIR}/demos/cube.vert ${PROJECT_SOURCE_DIR}/demos/cube.frag cube.vert.inc cube.frag.inc)
         target_link_libraries(cubepp ${LIBRARIES})
     endif()
 else()
@@ -144,7 +150,7 @@ else()
         set (LIB_DIR "Win32")
     endif()
 
-    add_executable(cubepp WIN32 cube.cpp ${CMAKE_BINARY_DIR}/demos/cube-vert.spv ${CMAKE_BINARY_DIR}/demos/cube-frag.spv)
+    add_executable(cubepp WIN32 cube.cpp ${PROJECT_SOURCE_DIR}/demos/cube.vert ${PROJECT_SOURCE_DIR}/demos/cube.frag cube.vert.inc cube.frag.inc)
     target_link_libraries(cubepp ${LIBRARIES})
 endif()
 
@@ -155,5 +161,7 @@ if ((${CMAKE_SYSTEM_PROCESSOR} STREQUAL ${CMAKE_HOST_SYSTEM_PROCESSOR}))
 endif()
 
 if(UNIX)
-    install(TARGETS ${API_LOWERCASE}info DESTINATION ${CMAKE_INSTALL_BINDIR})
+    if(INSTALL_LVL_FILES)
+        install(TARGETS ${API_LOWERCASE}info DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
 endif()

@@ -52,15 +52,18 @@ TEST(WideString, ElementAccess) {
 TEST(WideString, OperatorLT) {
   WideString empty;
   WideString a(L"a");
+  WideString ab(L"ab");
   WideString abc(L"\x0110qq");  // Comes before despite endianness.
   WideString def(L"\x1001qq");  // Comes after despite endianness.
   WideStringView v_empty;
   WideStringView v_a(L"a");
+  WideStringView v_ab(L"ab");
   WideStringView v_abc(L"\x0110qq");
   WideStringView v_def(L"\x1001qq");
   const wchar_t* const c_null = nullptr;
   const wchar_t* const c_empty = L"";
   const wchar_t* const c_a = L"a";
+  const wchar_t* const c_ab = L"ab";
   const wchar_t* const c_abc = L"\x0110qq";
   const wchar_t* const c_def = L"\x1001qq";
 
@@ -142,6 +145,14 @@ TEST(WideString, OperatorLT) {
   EXPECT_FALSE(def < c_abc);
   EXPECT_TRUE(abc < v_def);
   EXPECT_FALSE(def < v_abc);
+
+  EXPECT_TRUE(a < ab);
+  EXPECT_TRUE(a < c_ab);
+  EXPECT_TRUE(a < v_ab);
+  EXPECT_TRUE(c_a < ab);
+  EXPECT_TRUE(c_a < v_ab);
+  EXPECT_TRUE(v_a < c_ab);
+  EXPECT_TRUE(v_a < v_ab);
 }
 
 TEST(WideString, OperatorEQ) {
@@ -575,7 +586,7 @@ TEST(WideString, Find) {
   EXPECT_FALSE(empty_string.Find(L'a').has_value());
   EXPECT_FALSE(empty_string.Find(L'\0').has_value());
 
-  pdfium::Optional<size_t> result;
+  Optional<size_t> result;
   WideString single_string(L"a");
   result = single_string.Find(L'a');
   ASSERT_TRUE(result.has_value());
@@ -1146,7 +1157,7 @@ TEST(WideStringView, Find) {
   EXPECT_FALSE(empty_string.Find(L'a').has_value());
   EXPECT_FALSE(empty_string.Find(L'\0').has_value());
 
-  pdfium::Optional<size_t> result;
+  Optional<size_t> result;
   WideStringView single_string(L"a");
   result = single_string.Find(L'a');
   ASSERT_TRUE(result.has_value());
@@ -1330,7 +1341,7 @@ TEST(WideString, FormatPrecision) {
 }
 
 TEST(WideString, FormatOutOfRangeChar) {
-  WideString::Format(L"unsupported char '%c'", 0x00FF00FF);
+  EXPECT_NE(L"", WideString::Format(L"unsupported char '%c'", 0x00FF00FF));
 }
 
 TEST(WideString, Empty) {

@@ -128,6 +128,9 @@ const Flag<bool> kBoolFlags[] = {
   { "-allow-unknown-alpn-protos", &TestConfig::allow_unknown_alpn_protos },
   { "-enable-ed25519", &TestConfig::enable_ed25519 },
   { "-use-custom-verify-callback", &TestConfig::use_custom_verify_callback },
+  { "-allow-false-start-without-alpn",
+    &TestConfig::allow_false_start_without_alpn },
+  { "-expect-draft-downgrade", &TestConfig::expect_draft_downgrade },
 };
 
 const Flag<std::string> kStringFlags[] = {
@@ -175,6 +178,8 @@ const Flag<int> kIntFlags[] = {
   { "-max-version", &TestConfig::max_version },
   { "-expect-version", &TestConfig::expect_version },
   { "-mtu", &TestConfig::mtu },
+  { "-export-early-keying-material",
+    &TestConfig::export_early_keying_material },
   { "-export-keying-material", &TestConfig::export_keying_material },
   { "-expect-total-renegotiations", &TestConfig::expect_total_renegotiations },
   { "-expect-peer-signature-algorithm",
@@ -189,6 +194,7 @@ const Flag<int> kIntFlags[] = {
   { "-read-size", &TestConfig::read_size },
   { "-expect-ticket-age-skew", &TestConfig::expect_ticket_age_skew },
   { "-tls13-variant", &TestConfig::tls13_variant },
+  { "-dummy-pq-padding-len", &TestConfig::dummy_pq_padding_len },
 };
 
 const Flag<std::vector<int>> kIntVectorFlags[] = {

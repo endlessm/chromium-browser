@@ -171,16 +171,23 @@ class SDKFetcher(object):
 
     return json.loads(raw_json)
 
-  def _GetChromeLKGM(self, chrome_src_dir):
+  @staticmethod
+  def GetChromeLKGM(chrome_src_dir=None):
     """Get ChromeOS LKGM checked into the Chrome tree.
 
+    Args:
+      chrome_src_dir: chrome source directory.
+
     Returns:
-      Version number in format '3929.0.0'.
+      Version number in format '10171.0.0'.
     """
-    version = osutils.ReadFile(os.path.join(
-        chrome_src_dir, constants.PATH_TO_CHROME_LKGM)).rstrip()
-    logging.debug('Loading LKGM version from "%s": %s',
-                  constants.PATH_TO_CHROME_LKGM, version)
+    if not chrome_src_dir:
+      chrome_src_dir = path_util.DetermineCheckout(os.getcwd()).chrome_src_dir
+    if not chrome_src_dir:
+      return None
+    lkgm_file = os.path.join(chrome_src_dir, constants.PATH_TO_CHROME_LKGM)
+    version = osutils.ReadFile(lkgm_file).rstrip()
+    logging.debug('Read LKGM version from %s: %s', lkgm_file, version)
     return version
 
   def _GetFullVersionFromRecentLatest(self, version):
@@ -279,7 +286,7 @@ class SDKFetcher(object):
     if not checkout.chrome_src_dir:
       raise NoChromiumSrcDir(checkout_dir)
 
-    target = self._GetChromeLKGM(checkout.chrome_src_dir)
+    target = self.GetChromeLKGM(checkout.chrome_src_dir)
     if target is None:
       raise MissingLKGMFile(checkout.chrome_src_dir)
 
@@ -530,7 +537,7 @@ class ChromeSDKCommand(command.CliCommand):
         help='Provides extra args to "gn gen". Uses the same format as '
              'gn gen, e.g. "foo = true bar = 1".')
     parser.add_argument(
-        '--gn-gen', action='store_true', default=False, dest='gn_gen',
+        '--gn-gen', action='store_true', default=True, dest='gn_gen',
         help='Run "gn gen" if args.gn is stale.')
     parser.add_argument(
         '--nogn-gen', action='store_false', dest='gn_gen',
@@ -861,6 +868,24 @@ class ChromeSDKCommand(command.CliCommand):
 
     gn_args.pop('internal_khronos_glcts_tests', None)  # crbug.com/588080
 
+    # Disable ThinLTO for simplechrome. Tryjob machines do not have
+    # enough file descriptors to use. crbug.com/789607
+    if 'use_thin_lto' in gn_args:
+      gn_args['use_thin_lto'] = False
+    # We need to remove the flag below from cros_target_extra_ldflags.
+    # The format of ld flags is something like
+    # '-Wl,-O1 -Wl,-O2 -Wl,--as-needed -stdlib=libc++'
+    extra_thinlto_flag = '-Wl,-plugin-opt,-import-instr-limit=30'
+    extra_ldflags = gn_args.get('cros_target_extra_ldflags', '')
+    if extra_thinlto_flag in extra_ldflags:
+      gn_args['cros_target_extra_ldflags'] = extra_ldflags.replace(
+          extra_thinlto_flag, '')
+
+    # We removed webcore debug symbols on release builds on arm.
+    # See crbug.com/792999. However, we want to keep the symbols
+    # for simplechrome builds.
+    gn_args['remove_webcore_debug_symbols'] = False
+
     if options.gn_extra_args:
       gn_args.update(gn_helpers.FromGNArgs(options.gn_extra_args))
 
@@ -1063,13 +1088,6 @@ class ChromeSDKCommand(command.CliCommand):
                           toolchain_url=self.options.toolchain_url) as ctx:
       env = self._SetupEnvironment(self.options.board, ctx, self.options,
                                    goma_dir=goma_dir, goma_port=goma_port)
-
-      if constants.VM_IMAGE_TAR in ctx.key_map:
-        vm_image_path = os.path.join(ctx.key_map[constants.VM_IMAGE_TAR].path,
-                                     constants.VM_IMAGE_BIN)
-        if os.path.exists(vm_image_path):
-          env['VM_IMAGE_PATH'] = vm_image_path
-
 
       with self._GetRCFile(env, self.options.bashrc) as rcfile:
         bash_cmd = ['/bin/bash']

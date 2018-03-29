@@ -18,6 +18,7 @@
 #include <utility>
 
 #include "def_use_manager.h"
+#include "ir_context.h"
 #include "make_unique.h"
 
 namespace spvtools {
@@ -102,15 +103,15 @@ class ResultIdTrie {
 };
 }  // anonymous namespace
 
-Pass::Status UnifyConstantPass::Process(ir::Module* module) {
+Pass::Status UnifyConstantPass::Process(ir::IRContext* c) {
+  InitializeProcessing(c);
   bool modified = false;
   ResultIdTrie defined_constants;
-  analysis::DefUseManager def_use_mgr(consumer(), module);
 
-  for (ir::Instruction& inst : module->types_values()) {
+  for (ir::Instruction& inst : context()->types_values()) {
     // Do not handle the instruction when there are decorations upon the result
     // id.
-    if (def_use_mgr.GetAnnotations(inst.result_id()).size() != 0) {
+    if (get_def_use_mgr()->GetAnnotations(inst.result_id()).size() != 0) {
       continue;
     }
 
@@ -154,8 +155,8 @@ Pass::Status UnifyConstantPass::Process(ir::Module* module) {
         if (id != inst.result_id()) {
           // The constant is a duplicated one, use the cached constant to
           // replace the uses of this duplicated one, then turn it to nop.
-          def_use_mgr.ReplaceAllUsesWith(inst.result_id(), id);
-          def_use_mgr.KillInst(&inst);
+          context()->ReplaceAllUsesWith(inst.result_id(), id);
+          context()->KillInst(&inst);
           modified = true;
         }
         break;
@@ -167,5 +168,5 @@ Pass::Status UnifyConstantPass::Process(ir::Module* module) {
   return modified ? Status::SuccessWithChange : Status::SuccessWithoutChange;
 }
 
-}  // opt
+}  // namespace opt
 }  // namespace spvtools

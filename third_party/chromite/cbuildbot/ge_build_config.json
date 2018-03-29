@@ -494,6 +494,30 @@
       ]
     },
     {
+      "name": "fizz-accelerator",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "fizz",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "fizz-moblab",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
       "name": "gale",
       "configs": [
         {
@@ -562,18 +586,6 @@
           "leader_board": true,
           "board_group": "gru",
           "arch": "ARM_INTERNAL"
-        }
-      ]
-    },
-    {
-      "name": "grunt",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": true,
-          "board_group": "",
-          "arch": "X86_INTERNAL"
         }
       ]
     },
@@ -926,11 +938,23 @@
       ]
     },
     {
-      "name": "nautilus",
+      "name": "nami",
       "configs": [
         {
           "builder": "RELEASE",
           "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "nautilus",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": false,
           "leader_board": false,
           "board_group": "",
           "arch": "X86_INTERNAL"
@@ -1254,7 +1278,7 @@
       "configs": [
         {
           "builder": "RELEASE",
-          "experimental": true,
+          "experimental": false,
           "leader_board": true,
           "board_group": "scarlet",
           "arch": "ARM_INTERNAL"
@@ -1635,11 +1659,9 @@
           "board_name": "coral",
           "name": "astronaut",
           "test_suites": [
-            "sanity",
             "bvt-inline",
             "bvt-installer",
             "bvt-arc",
-            "au",
             "bvt-cq",
             "bvt-perbuild"
           ],
@@ -1660,6 +1682,12 @@
         },
         {
           "board_name": "coral",
+          "name": "coral",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt"
+        },
+        {
+          "board_name": "coral",
           "name": "lava",
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
@@ -1667,12 +1695,27 @@
         {
           "board_name": "coral",
           "name": "nasher",
+          "test_suites": [
+            "bvt-inline",
+            "bvt-installer",
+            "bvt-arc",
+            "au",
+            "bvt-cq",
+            "bvt-perbuild"
+          ],
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
         },
         {
           "board_name": "coral",
           "name": "nasher360",
+          "test_suites": [
+            "bvt-inline",
+            "bvt-installer",
+            "bvt-arc",
+            "bvt-cq",
+            "bvt-perbuild"
+          ],
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
         },
@@ -1685,12 +1728,26 @@
         {
           "board_name": "coral",
           "name": "robo",
+          "test_suites": [
+            "bvt-inline",
+            "bvt-installer",
+            "bvt-arc",
+            "bvt-cq",
+            "bvt-perbuild"
+          ],
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
         },
         {
           "board_name": "coral",
           "name": "robo360",
+          "test_suites": [
+            "bvt-inline",
+            "bvt-installer",
+            "bvt-arc",
+            "bvt-cq",
+            "bvt-perbuild"
+          ],
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
         },
@@ -1698,14 +1755,18 @@
           "board_name": "coral",
           "name": "santa",
           "test_suites": [
-            "sanity",
             "bvt-inline",
             "bvt-installer",
             "bvt-arc",
-            "au",
             "bvt-cq",
             "bvt-perbuild"
           ],
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt"
+        },
+        {
+          "board_name": "coral",
+          "name": "whitetip",
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
         },
@@ -1739,6 +1800,15 @@
         {
           "board_name": "fizz",
           "name": "kench",
+          "test_suites": [
+            "sanity",
+            "bvt-inline",
+            "bvt-installer",
+            "bvt-arc",
+            "au",
+            "bvt-cq",
+            "bvt-perbuild"
+          ],
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
         },
@@ -1757,6 +1827,27 @@
         {
           "board_name": "fizz",
           "name": "teemo",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt"
+        },
+        {
+          "board_name": "fizz",
+          "name": "wukong",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt"
+        }
+      ]
+    },
+    {
+      "name": "grunt",
+      "reference_board_name": "grunt",
+      "arch": "X86_INTERNAL",
+      "builder": "RELEASE",
+      "experimental": true,
+      "models": [
+        {
+          "board_name": "grunt",
+          "name": "grunt",
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt"
         }
@@ -1782,7 +1873,7 @@
       "reference_board_name": "rainier",
       "arch": "ARM_INTERNAL",
       "builder": "RELEASE",
-      "experimental": true,
+      "experimental": false,
       "models": [
         {
           "board_name": "rainier",
@@ -1808,6 +1899,12 @@
         {
           "board_name": "reef",
           "name": "electro",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt"
+        },
+        {
+          "board_name": "reef",
+          "name": "reef",
           "test_suites": [
             "sanity",
             "bvt-inline",

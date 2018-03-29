@@ -48,7 +48,7 @@ void ImportLockDialogView::Show(gfx::NativeWindow parent,
 ImportLockDialogView::ImportLockDialogView(
     const base::Callback<void(bool)>& callback)
     : callback_(callback) {
-  SetLayoutManager(new views::FillLayout());
+  SetLayoutManager(std::make_unique<views::FillLayout>());
   views::Label* description_label =
       new views::Label(l10n_util::GetStringUTF16(IDS_IMPORTER_LOCK_TEXT));
   description_label->SetBorder(views::CreateEmptyBorder(
@@ -65,7 +65,7 @@ ImportLockDialogView::~ImportLockDialogView() {
 
 gfx::Size ImportLockDialogView::CalculatePreferredSize() const {
   const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-      DISTANCE_MODAL_DIALOG_WIDTH_CONTAINING_MULTILINE_TEXT);
+      DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH);
   return gfx::Size(width, GetHeightForWidth(width));
 }
 

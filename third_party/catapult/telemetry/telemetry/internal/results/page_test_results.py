@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 import traceback
+import uuid
 
 from py_utils import cloud_storage  # pylint: disable=import-error
 
@@ -428,11 +429,14 @@ class PageTestResults(object):
     self._current_page_run.AddValue(value)
     self._progress_reporter.DidAddValue(value)
 
-  def AddArtifact(self, story, item, reason):
-    self._artifact_results.AddArtifact(story, item, reason)
+  def CreateArtifact(self, story, name):
+    return self._artifact_results.CreateArtifact(story, name)
 
-  def AddProfilingFile(self, page, file_handle):
-    self._pages_to_profiling_files[page].append(file_handle)
+  def AddArtifact(self, story, name, path):
+    self._artifact_results.AddArtifact(story, name, path)
+
+  def AddProfilingFile(self, page, fh):
+    self._pages_to_profiling_files[page].append(fh)
 
   def AddSummaryValue(self, value):
     assert value.page is None
@@ -502,18 +506,38 @@ class PageTestResults(object):
     for value in self.FindAllTraceValues():
       value.UploadToCloud()
 
+  #TODO(crbug.com/772216): Remove this once the uploading is done by Chromium
+  # test recipe.
+  def UploadArtifactsToCloud(self):
+    bucket = self.telemetry_info.upload_bucket
+    for test_name, artifacts in self._artifact_results.IterTestAndArtifacts():
+      for artifact_type in artifacts:
+        total_num_artifacts = len(artifacts[artifact_type])
+        for i, artifact_path in enumerate(artifacts[artifact_type]):
+          artifact_path = artifacts[artifact_type][i]
+          abs_artifact_path = os.path.abspath(os.path.join(
+              self._artifact_results.artifact_dir, '..', artifact_path))
+          remote_path = str(uuid.uuid1())
+          cloud_url = cloud_storage.Insert(
+              bucket, remote_path, abs_artifact_path)
+          sys.stderr.write(
+              'Uploading %s of page %s to %s (%d out of %d)\n' %
+              (artifact_type, test_name, cloud_url, i + 1,
+               total_num_artifacts))
+
+
   def UploadProfilingFilesToCloud(self):
     bucket = self.telemetry_info.upload_bucket
     for page, file_handle_list in self._pages_to_profiling_files.iteritems():
-      for file_handle in file_handle_list:
+      for fh in file_handle_list:
         remote_path = ('profiler-file-id_%s-%s%-d%s' % (
-            file_handle.id,
+            fh.id,
             datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'),
             random.randint(1, 100000),
-            file_handle.extension))
+            fh.extension))
         try:
           cloud_url = cloud_storage.Insert(
-              bucket, remote_path, file_handle.GetAbsPath())
+              bucket, remote_path, fh.GetAbsPath())
           sys.stderr.write(
               'View generated profiler files online at %s for page %s\n' %
               (cloud_url, page.name))

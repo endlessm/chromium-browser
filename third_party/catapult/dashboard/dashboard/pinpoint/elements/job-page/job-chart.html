@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<!--
+Copyright 2017 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<script src="/jquery/jquery-2.1.4.min.js"></script>
+<script src="/flot/jquery.flot.min.js"></script>
+<script src="/flot/jquery.flot.crosshair.min.js"></script>
+<script src="/flot/jquery.flot.errorbars.js"></script>
+<script src="/flot/jquery.flot.fillbetween.min.js"></script>
+<script src="/flot/jquery.flot.selection.min.js"></script>
+
+<link rel="import" href="/elements/job-page/job-chart-dot.html">
+<link rel="import" href="/elements/job-page/job-chart-icon.html">
+
+<dom-module id="job-chart">
+  <template>
+    <style>
+      #plot {
+        height: 240px;
+        margin-top: 1em;
+        min-width: 500px;
+      }
+    </style>
+
+    <div id="plot"></div>
+  </template>
+
+  <script>
+    'use strict';
+    Polymer({
+      is: 'job-chart',
+
+      properties: {
+        job: {
+          type: Object,
+          observer: '_jobChanged',
+        },
+
+        changeIndex: {
+          type: Number,
+          value: null,
+          notify: true
+        },
+      },
+
+      ready() {
+        this.initializePlotEventListeners();
+      },
+
+      initializePlotEventListeners() {
+        const plot = $(this.$.plot);
+        plot.bind('plotclick', this.onPlotClick.bind(this));
+      },
+
+      onPlotClick(event, pos, item) {
+        if (item == null) {
+          this.set('changeIndex', null);
+          return;
+        }
+
+        this.set('changeIndex', item.datapoint[0]);
+      },
+
+      onBuildStatusClick(index) {
+        this.set('changeIndex', index);
+      },
+
+      _jobChanged() {
+        this.async(this.draw, 1);
+      },
+
+      draw() {
+        let valuesByChange = this.job.result_values.map(
+            valuesByQuest => valuesByQuest[valuesByQuest.length - 1]);
+
+        const anyNumbers = valuesByChange.some(row => row.length);
+        // No numeric data. Show "success rate" instead.
+        if (!anyNumbers) {
+          valuesByChange = [];
+          // TODO: Create a MergeAttempts helper function.
+          for (const attempts of this.job.attempts) {
+            const exceptions = [];
+            for (const attempt of attempts) {
+              const lastExecution =
+                attempt.executions[attempt.executions.length - 1];
+              exceptions.push(lastExecution.exception);
+            }
+            const sum = exceptions.filter(exception => !exception).length;
+            valuesByChange.push([sum / exceptions.length]);
+          }
+        }
+
+        // Calculate the chart bounds.
+        let lowerBound = 0;
+        let upperBound = 1;
+
+        if (anyNumbers) {
+          // Numeric data. Set the bounds based on the data.
+          // The bounds are the interquartile range of all points, but at the
+          // same time ensuring that every median point shows up on the graph.
+          const allValues = [].concat(...valuesByChange);
+          const changeMedians =
+            valuesByChange.filter(v => v.length).map(v => percentile(v, 0.5));
+          lowerBound =
+            Math.min(percentile(allValues, 0.25), Math.min(...changeMedians));
+          upperBound =
+            Math.max(percentile(allValues, 0.75), Math.max(...changeMedians));
+          if (!(isFinite(lowerBound) && isFinite(upperBound))) {
+            lowerBound = 0;
+            upperBound = 0;
+          }
+          if (lowerBound == upperBound) {
+            lowerBound -= 1;
+            upperBound += 1;
+          }
+        }
+
+        const padding = 0.2 * (upperBound - lowerBound);
+        lowerBound -= padding;
+        upperBound += padding;
+
+        // Calculate the data series, points, and error bars.
+        const data = [];
+
+        let seriesData = [];
+        for (let i = 0; i < valuesByChange.length; ++i) {
+          const values = valuesByChange[i];
+          if (!values.length) {
+            continue;
+          }
+
+          const mid = percentile(values, 0.5);
+          const lowError = mid - Math.min(...values);
+          const highError = Math.max(...values) - mid;
+          seriesData.push([i, mid, lowError, highError]);
+
+          if (this.job.comparisons[i] !== 'same' &&
+              this.job.comparisons[i] !== 'unknown') {
+            if (seriesData.length) {
+              data.push(annotateSeries(seriesData));
+              seriesData = [];
+            }
+          }
+        }
+
+        // Chart options to be given when initializing the Flot chart.
+        // See: https://github.com/flot/flot/blob/master/API.md#plot-options
+        const options = {
+          grid: {
+            clickable: true,
+            hoverable: true,
+            borderWidth: 1,
+            borderColor: 'rgba(0, 0, 0, 0.5)'
+          },
+          xaxis: {
+            min: -0.5,
+            max: valuesByChange.length - 0.5,
+            show: false
+          },
+          yaxis: {
+            min: lowerBound,
+            max: upperBound
+          }
+        };
+
+        // Plot the chart!
+        const chart = $.plot(this.$.plot, data, options);
+
+        // Draw overlays.
+        for (let i = 0; i < valuesByChange.length; ++i) {
+          const y = valuesByChange[i].length ?
+            percentile(valuesByChange[i], 0.5) :
+            (lowerBound + upperBound) / 2;
+          const offset = chart.pointOffset({x: i, y});
+
+          if (valuesByChange[i].length) {
+            // Draw pulsing dots for important points.
+            if (this.job.comparisons[i - 1] === 'different') {
+              const dot = document.createElement('job-chart-dot');
+              dot.setPosition(offset.left, offset.top);
+              this.$.plot.appendChild(dot);
+            }
+          } else {
+            // Draw icons for failed and pending attempts.
+            const status = document.createElement('job-chart-icon');
+            status.setPosition(offset.left, offset.top);
+            // TODO: Plumb through real "pending" information from the Job.
+            if (this.job.comparisons[i] === 'pending' ||
+                this.job.comparisons[i - 1] === 'pending') {
+              status.setType('pending');
+            } else {
+              status.setType('failed');
+            }
+            status.onclick = this.onBuildStatusClick.bind(this, i);
+            this.$.plot.appendChild(status);
+          }
+        }
+      }
+    });
+
+    function annotateSeries(data) {
+      const color = '#ff4081';
+      return {
+        color,
+        data,
+        lines: {
+          show: true
+        },
+        points: {
+          errorbars: 'y',
+          fillColor: color,
+          show: true,
+          yerr: {
+            asymmetric: true,
+            upperCap: '-',
+            lowerCap: '-',
+            show: true
+          }
+        }
+      };
+    }
+
+    function percentile(values, p) {
+      values.sort(function(a, b) {return a - b;});
+      const index = (values.length - 1) * p;
+      const lower = Math.floor(index);
+      const upper = Math.ceil(index);
+      const weight = index % 1;
+      return values[lower] * (1 - weight) + values[upper] * weight;
+    }
+  </script>
+</dom-module>

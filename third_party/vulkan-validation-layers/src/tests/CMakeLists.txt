@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 2.8.11)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     add_definitions(-DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN)
+    # Workaround for TR1 deprecation in Visual Studio 15.5 until Google Test is updated
+    add_definitions(-D_SILENCE_TR1_NAMESPACE_DEPRECATION_WARNING)
     set(DisplayServer Win32)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
     add_definitions(-DVK_USE_PLATFORM_ANDROID_KHR)
@@ -63,6 +65,7 @@ set(COMMON_CPP
    )
 
 include_directories(
+    "${PROJECT_SOURCE_DIR}/tests"
     "${PROJECT_SOURCE_DIR}/tests/gtest-1.7.0/include"
     "${PROJECT_SOURCE_DIR}/icd/common"
     "${PROJECT_SOURCE_DIR}/layers"
@@ -120,7 +123,6 @@ endif()
 add_dependencies(vk_layer_validation_tests
    VkLayer_core_validation
    VkLayer_object_tracker
-   VkLayer_swapchain
    VkLayer_threading
    VkLayer_unique_objects
    VkLayer_parameter_validation

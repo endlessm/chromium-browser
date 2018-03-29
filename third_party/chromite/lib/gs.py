@@ -40,6 +40,8 @@ except (ImportError, RuntimeError):
   import mock
   ts_mon = mock.Mock()
 
+# This bucket has the allAuthenticatedUsers:READER ACL.
+AUTHENTICATION_BUCKET = 'gs://chromeos-authentication-bucket/'
 
 # Public path, only really works for files.
 PUBLIC_BASE_HTTPS_URL = 'https://storage.googleapis.com/'
@@ -346,7 +348,8 @@ class GSContext(object):
   """A class to wrap common google storage operations."""
 
   # Error messages that indicate an invalid BOTO config.
-  AUTHORIZATION_ERRORS = ('no configured', 'detail=Authorization')
+  AUTHORIZATION_ERRORS = ('no configured', 'none configured',
+                          'detail=Authorization')
 
   DEFAULT_BOTO_FILE = os.path.expanduser('~/.boto')
   DEFAULT_GSUTIL_TRACKER_DIR = os.path.expanduser('~/.gsutil/tracker-files')
@@ -617,10 +620,19 @@ class GSContext(object):
 
   def _TestGSLs(self):
     """Quick test of gsutil functionality."""
-    result = self.DoCommand(['ls'], retries=0, debug_level=logging.DEBUG,
+    # The bucket in question is readable by any authenticated account.
+    # If we can list it's contents, we have valid authentication.
+    cmd = ['ls', AUTHENTICATION_BUCKET]
+    result = self.DoCommand(cmd, retries=0, debug_level=logging.DEBUG,
                             redirect_stderr=True, error_code_ok=True)
-    return not (result.returncode == 1 and
-                any(e in result.error for e in self.AUTHORIZATION_ERRORS))
+
+    # Did we fail with an authentication error?
+    if (result.returncode == 1 and
+        any(e in result.error for e in self.AUTHORIZATION_ERRORS)):
+      logging.warning('gsutil authentication failure msg: %s', result.error)
+      return False
+
+    return True
 
   def _ConfigureBotoConfig(self):
     """Make sure we can access protected bits in GS."""
@@ -1110,7 +1122,14 @@ class GSContext(object):
       lines = [x.split('#', 1)[0].strip() for x in lines]
       acl_args = ' '.join([x for x in lines if x]).split()
 
-    self.DoCommand(['acl', 'ch'] + acl_args + [upload_url], **kwargs)
+    # Some versions of gsutil bubble up precondition failures even when we
+    # didn't request it due to how ACL changes happen internally to gsutil.
+    # https://crbug.com/763450
+    # We keep the retry limit a bit low because DoCommand already has its
+    # own level of retries.
+    retry_util.RetryException(
+        GSContextPreconditionFailed, 3, self.DoCommand,
+        ['acl', 'ch'] + acl_args + [upload_url], **kwargs)
 
   def Exists(self, path, **kwargs):
     """Checks whether the given object exists.

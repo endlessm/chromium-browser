@@ -62,7 +62,7 @@ class SymbolOccurrenceCounterByName : public SymbolOccurrenceCounter
 
     bool shouldCountSymbol(const TIntermSymbol *node) const override
     {
-        return node->getName().getString() == mSymbolName;
+        return node->variable().symbolType() != SymbolType::Empty && node->getName() == mSymbolName;
     }
 
   private:
@@ -79,8 +79,8 @@ class SymbolOccurrenceCounterByNameAndQualifier : public SymbolOccurrenceCounter
 
     bool shouldCountSymbol(const TIntermSymbol *node) const override
     {
-        return node->getName().getString() == mSymbolName &&
-               node->getQualifier() == mSymbolQualifier;
+        return node->variable().symbolType() != SymbolType::Empty &&
+               node->getName() == mSymbolName && node->getQualifier() == mSymbolQualifier;
     }
 
   private:
@@ -575,10 +575,6 @@ TEST_F(WEBGLMultiviewVertexShaderOutputCodeTest, StrippedOVRMultiviewDirective)
     EXPECT_FALSE(foundInESSLCode("GL_OVR_multiview"));
     EXPECT_FALSE(foundInGLSLCode("GL_OVR_multiview"));
 
-    compile(shaderString, SH_TRANSLATE_VIEWID_OVR_TO_UNIFORM);
-    EXPECT_FALSE(foundInESSLCode("GL_OVR_multiview"));
-    EXPECT_FALSE(foundInGLSLCode("GL_OVR_multiview"));
-
     // The directive should be outputted from the ESSL translator with none of the options being
     // set.
     compile(shaderString);
@@ -714,21 +710,11 @@ TEST_F(WEBGLMultiviewVertexShaderOutputCodeTest, GlViewportIndexIsSet)
         "}\n";
     compile(shaderString, SH_INITIALIZE_BUILTINS_FOR_INSTANCED_MULTIVIEW |
                               SH_SELECT_VIEW_IN_NV_GLSL_VERTEX_SHADER);
-    const char glViewportIndexAssignment[] = "gl_ViewportIndex = int(ViewID_OVR)";
 
-    // Check that the viewport index is selected.
-    EXPECT_TRUE(foundInAllGLSLCode(glViewportIndexAssignment));
-
-    // Setting gl_ViewportIndex must happen after ViewID_OVR's initialization.
-    const char viewIDOVRAssignment[] = "ViewID_OVR = (uint(gl_InstanceID) % 3u)";
-    size_t viewIDOVRAssignmentLoc = findInCode(SH_GLSL_COMPATIBILITY_OUTPUT, viewIDOVRAssignment);
-    size_t glViewportIndexAssignmentLoc =
-        findInCode(SH_GLSL_COMPATIBILITY_OUTPUT, glViewportIndexAssignment);
-    EXPECT_LT(viewIDOVRAssignmentLoc, glViewportIndexAssignmentLoc);
-
-    viewIDOVRAssignmentLoc       = findInCode(SH_ESSL_OUTPUT, viewIDOVRAssignment);
-    glViewportIndexAssignmentLoc = findInCode(SH_ESSL_OUTPUT, glViewportIndexAssignment);
-    EXPECT_LT(viewIDOVRAssignmentLoc, glViewportIndexAssignmentLoc);
+    std::vector<const char *> expectedStrings = {"ViewID_OVR = (uint(gl_InstanceID) % 3u)",
+                                                 "gl_ViewportIndex = int(ViewID_OVR)"};
+    EXPECT_TRUE(foundInCodeInOrder(SH_ESSL_OUTPUT, expectedStrings));
+    EXPECT_TRUE(foundInCodeInOrder(SH_GLSL_COMPATIBILITY_OUTPUT, expectedStrings));
 }
 
 // The test checks that the layer is selected after the initialization of ViewID_OVR for
@@ -744,20 +730,38 @@ TEST_F(WEBGLMultiviewVertexShaderOutputCodeTest, GlLayerIsSet)
         "}\n";
     compile(shaderString, SH_INITIALIZE_BUILTINS_FOR_INSTANCED_MULTIVIEW |
                               SH_SELECT_VIEW_IN_NV_GLSL_VERTEX_SHADER);
-    const char glLayerAssignment[] = "gl_Layer = (int(ViewID_OVR) + multiviewBaseViewLayerIndex)";
 
-    // Check that the layer is selected.
-    EXPECT_TRUE(foundInAllGLSLCode(glLayerAssignment));
+    std::vector<const char *> expectedStrings = {
+        "ViewID_OVR = (uint(gl_InstanceID) % 3u)",
+        "gl_Layer = (int(ViewID_OVR) + multiviewBaseViewLayerIndex)"};
+    EXPECT_TRUE(foundInCodeInOrder(SH_ESSL_OUTPUT, expectedStrings));
+    EXPECT_TRUE(foundInCodeInOrder(SH_GLSL_COMPATIBILITY_OUTPUT, expectedStrings));
+}
 
-    // Setting gl_Layer must happen after ViewID_OVR's initialization.
-    const char viewIDOVRAssignment[] = "ViewID_OVR = (uint(gl_InstanceID) % 3u)";
-    size_t viewIDOVRAssignmentLoc = findInCode(SH_GLSL_COMPATIBILITY_OUTPUT, viewIDOVRAssignment);
-    size_t glLayerAssignmentLoc   = findInCode(SH_GLSL_COMPATIBILITY_OUTPUT, glLayerAssignment);
-    EXPECT_LT(viewIDOVRAssignmentLoc, glLayerAssignmentLoc);
+// Test that a warning is generated in an ESSL 1.00 shader when using a layout qualifier to set
+// num_views and the extension is set to warn.
+TEST_F(WEBGLMultiviewVertexShaderTest, WarnOnGlobalLayoutQualifier)
+{
+    const std::string &shaderString =
+        R"(
+        #extension GL_OVR_multiview : warn
+        layout(num_views=2) in;
 
-    viewIDOVRAssignmentLoc = findInCode(SH_ESSL_OUTPUT, viewIDOVRAssignment);
-    glLayerAssignmentLoc   = findInCode(SH_ESSL_OUTPUT, glLayerAssignment);
-    EXPECT_LT(viewIDOVRAssignmentLoc, glLayerAssignmentLoc);
+        void main()
+        {
+        })";
+    if (compile(shaderString))
+    {
+        if (!hasWarning())
+        {
+            FAIL() << "Shader compilation succeeded without warnings, expecting warning:\n"
+                   << mInfoLog;
+        }
+    }
+    else
+    {
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
+    }
 }
 
 }  // namespace

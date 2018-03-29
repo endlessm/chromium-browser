@@ -8,7 +8,6 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -37,9 +36,12 @@
 
 #if defined(OS_CHROMEOS)
 #include "base/run_loop.h"
+#include "chrome/browser/chromeos/extensions/active_tab_permission_granter_delegate_chromeos.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ui/ash/test_wallpaper_controller.h"
+#include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chromeos/chromeos_switches.h"
@@ -422,7 +424,7 @@ TEST_F(ActiveTabTest, ChromeUrlGrants) {
 // Test that the custom platform delegate works as expected.
 TEST_F(ActiveTabTest, Delegate) {
   auto test_delegate =
-      base::MakeUnique<ActiveTabPermissionGranterTestDelegate>();
+      std::make_unique<ActiveTabPermissionGranterTestDelegate>();
   ActiveTabPermissionGranter::SetPlatformDelegate(test_delegate.get());
 
   GURL google("http://www.google.com");
@@ -442,6 +444,18 @@ TEST_F(ActiveTabTest, Delegate) {
 }
 
 #if defined(OS_CHROMEOS)
+// Keep the unique_ptr around until callback has been run.
+std::unique_ptr<permission_helper::RequestResolvedCallback>
+QuitRunLoopOnRequestResolved(base::RunLoop* run_loop) {
+  auto callback = std::make_unique<permission_helper::RequestResolvedCallback>(
+      base::BindRepeating([](base::RunLoop* run_loop, const PermissionIDSet&) {
+        run_loop->Quit();
+      }, run_loop));
+  ActiveTabPermissionGranterDelegateChromeOS::
+      SetRequestResolvedCallbackForTesting(callback.get());
+  return callback;
+}
+
 // Test that the platform delegate is being set and the permission is prompted
 // for.
 TEST_F(ActiveTabTest, DelegateIsSet) {
@@ -461,6 +475,11 @@ TEST_F(ActiveTabTest, DelegateIsSet) {
       GetUserIdHashByUserIdForTesting(user_id);
   ScopedTestingLocalState local_state(TestingBrowserProcess::GetGlobal());
   chromeos::WallpaperManager::Initialize();
+  std::unique_ptr<WallpaperControllerClient> wallpaper_controller_client_ =
+      std::make_unique<WallpaperControllerClient>();
+  TestWallpaperController test_wallpaper_controller_;
+  wallpaper_controller_client_->InitForTesting(
+      test_wallpaper_controller_.CreateInterfacePtr());
   g_browser_process->local_state()->SetString(
       "PublicAccountPendingDataRemoval", user_email);
   user_manager::UserManager::Get()->UserLoggedIn(account_id, user_id_hash,
@@ -474,11 +493,17 @@ TEST_F(ActiveTabTest, DelegateIsSet) {
   {
     ScopedTestDialogAutoConfirm auto_confirm(
         ScopedTestDialogAutoConfirm::ACCEPT);
+
+    base::RunLoop run_loop;
+    auto cb = QuitRunLoopOnRequestResolved(&run_loop);
     active_tab_permission_granter()->GrantIfRequested(extension.get());
-    base::RunLoop().RunUntilIdle();
+    run_loop.Run();
     EXPECT_TRUE(IsBlocked(extension, google));
+
+    base::RunLoop run_loop2;
+    cb = QuitRunLoopOnRequestResolved(&run_loop2);
     active_tab_permission_granter()->GrantIfRequested(extension.get());
-    base::RunLoop().RunUntilIdle();
+    run_loop2.Run();
     EXPECT_TRUE(IsAllowed(extension, google));
   }
 
@@ -486,15 +511,23 @@ TEST_F(ActiveTabTest, DelegateIsSet) {
   {
     ScopedTestDialogAutoConfirm auto_confirm(
         ScopedTestDialogAutoConfirm::CANCEL);
+
+    base::RunLoop run_loop;
+    auto cb = QuitRunLoopOnRequestResolved(&run_loop);
     active_tab_permission_granter()->GrantIfRequested(another_extension.get());
-    base::RunLoop().RunUntilIdle();
+    run_loop.Run();
     EXPECT_TRUE(IsBlocked(another_extension, google));
+
+    base::RunLoop run_loop2;
+    cb = QuitRunLoopOnRequestResolved(&run_loop2);
     active_tab_permission_granter()->GrantIfRequested(another_extension.get());
-    base::RunLoop().RunUntilIdle();
+    run_loop2.Run();
     EXPECT_TRUE(IsBlocked(another_extension, google));
   }
 
   // Cleanup.
+  ActiveTabPermissionGranterDelegateChromeOS::
+      SetRequestResolvedCallbackForTesting(nullptr);
   chromeos::WallpaperManager::Shutdown();
   delete ActiveTabPermissionGranter::SetPlatformDelegate(nullptr);
   chromeos::ChromeUserManager::Get()->Shutdown();

@@ -17,10 +17,10 @@
 
 #include "unit_spirv.h"
 
-#include "test_fixture.h"
 #include "gmock/gmock.h"
 #include "spirv/1.0/GLSL.std.450.h"
 #include "spirv/1.0/OpenCL.std.h"
+#include "test_fixture.h"
 
 namespace {
 
@@ -89,12 +89,22 @@ TEST_F(TextToBinaryTest, ExtInstFromTwoDifferentImports) {
   EXPECT_THAT(EncodeAndDecodeSuccessfully(input), Eq(input));
 }
 
-
 // A test case for assembling into words in an instruction.
 struct AssemblyCase {
   std::string input;
   std::vector<uint32_t> expected;
 };
+
+using ExtensionAssemblyTest = spvtest::TextToBinaryTestBase<
+    ::testing::TestWithParam<std::tuple<spv_target_env, AssemblyCase>>>;
+
+TEST_P(ExtensionAssemblyTest, Samples) {
+  const spv_target_env& env = std::get<0>(GetParam());
+  const AssemblyCase& ac = std::get<1>(GetParam());
+
+  // Check that it assembles correctly.
+  EXPECT_THAT(CompiledInstructions(ac.input, env), Eq(ac.expected));
+}
 
 using ExtensionRoundTripTest = spvtest::TextToBinaryTestBase<
     ::testing::TestWithParam<std::tuple<spv_target_env, AssemblyCase>>>;
@@ -167,5 +177,257 @@ INSTANTIATE_TEST_CASE_P(
              MakeInstruction(SpvOpDecorate,
                              {1, SpvDecorationBuiltIn, SpvBuiltInDrawIndex})},
         })), );
+
+// SPV_KHR_subgroup_vote
+
+INSTANTIATE_TEST_CASE_P(
+    SPV_KHR_subgroup_vote, ExtensionRoundTripTest,
+    // We'll get coverage over operand tables by trying the universal
+    // environments, and at least one specific environment.
+    Combine(Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+                   SPV_ENV_VULKAN_1_0),
+            ValuesIn(std::vector<AssemblyCase>{
+                {"OpCapability SubgroupVoteKHR\n",
+                 MakeInstruction(SpvOpCapability,
+                                 {SpvCapabilitySubgroupVoteKHR})},
+                {"%2 = OpSubgroupAnyKHR %1 %3\n",
+                 MakeInstruction(SpvOpSubgroupAnyKHR, {1, 2, 3})},
+                {"%2 = OpSubgroupAllKHR %1 %3\n",
+                 MakeInstruction(SpvOpSubgroupAllKHR, {1, 2, 3})},
+                {"%2 = OpSubgroupAllEqualKHR %1 %3\n",
+                 MakeInstruction(SpvOpSubgroupAllEqualKHR, {1, 2, 3})},
+            })), );
+
+// SPV_KHR_16bit_storage
+
+INSTANTIATE_TEST_CASE_P(
+    SPV_KHR_16bit_storage, ExtensionRoundTripTest,
+    // We'll get coverage over operand tables by trying the universal
+    // environments, and at least one specific environment.
+    Combine(Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+                   SPV_ENV_VULKAN_1_0),
+            ValuesIn(std::vector<AssemblyCase>{
+                {"OpCapability StorageBuffer16BitAccess\n",
+                 MakeInstruction(SpvOpCapability,
+                                 {SpvCapabilityStorageUniformBufferBlock16})},
+                {"OpCapability StorageBuffer16BitAccess\n",
+                 MakeInstruction(SpvOpCapability,
+                                 {SpvCapabilityStorageBuffer16BitAccess})},
+                {"OpCapability UniformAndStorageBuffer16BitAccess\n",
+                 MakeInstruction(
+                     SpvOpCapability,
+                     {SpvCapabilityUniformAndStorageBuffer16BitAccess})},
+                {"OpCapability UniformAndStorageBuffer16BitAccess\n",
+                 MakeInstruction(SpvOpCapability,
+                                 {SpvCapabilityStorageUniform16})},
+                {"OpCapability StoragePushConstant16\n",
+                 MakeInstruction(SpvOpCapability,
+                                 {SpvCapabilityStoragePushConstant16})},
+                {"OpCapability StorageInputOutput16\n",
+                 MakeInstruction(SpvOpCapability,
+                                 {SpvCapabilityStorageInputOutput16})},
+            })), );
+
+INSTANTIATE_TEST_CASE_P(
+    SPV_KHR_16bit_storage_alias_check, ExtensionAssemblyTest,
+    Combine(Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+                   SPV_ENV_VULKAN_1_0),
+            ValuesIn(std::vector<AssemblyCase>{
+                // The old name maps to the new enum.
+                {"OpCapability StorageUniformBufferBlock16\n",
+                 MakeInstruction(SpvOpCapability,
+                                 {SpvCapabilityStorageBuffer16BitAccess})},
+                // The old name maps to the new enum.
+                {"OpCapability StorageUniform16\n",
+                 MakeInstruction(
+                     SpvOpCapability,
+                     {SpvCapabilityUniformAndStorageBuffer16BitAccess})},
+            })), );
+
+// SPV_KHR_device_group
+
+INSTANTIATE_TEST_CASE_P(
+    SPV_KHR_device_group, ExtensionRoundTripTest,
+    // We'll get coverage over operand tables by trying the universal
+    // environments, and at least one specific environment.
+    Combine(Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+                   SPV_ENV_VULKAN_1_0),
+            ValuesIn(std::vector<AssemblyCase>{
+                {"OpCapability DeviceGroup\n",
+                 MakeInstruction(SpvOpCapability, {SpvCapabilityDeviceGroup})},
+                {"OpDecorate %1 BuiltIn DeviceIndex\n",
+                 MakeInstruction(SpvOpDecorate, {1, SpvDecorationBuiltIn,
+                                                 SpvBuiltInDeviceIndex})},
+            })), );
+
+// SPV_KHR_multiview
+
+INSTANTIATE_TEST_CASE_P(
+    SPV_KHR_multiview, ExtensionRoundTripTest,
+    // We'll get coverage over operand tables by trying the universal
+    // environments, and at least one specific environment.
+    Combine(Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+                   SPV_ENV_VULKAN_1_0),
+            ValuesIn(std::vector<AssemblyCase>{
+                {"OpCapability MultiView\n",
+                 MakeInstruction(SpvOpCapability, {SpvCapabilityMultiView})},
+                {"OpDecorate %1 BuiltIn ViewIndex\n",
+                 MakeInstruction(SpvOpDecorate, {1, SpvDecorationBuiltIn,
+                                                 SpvBuiltInViewIndex})},
+            })), );
+
+// SPV_AMD_shader_explicit_vertex_parameter
+
+#define PREAMBLE \
+  "%1 = OpExtInstImport \"SPV_AMD_shader_explicit_vertex_parameter\"\n"
+INSTANTIATE_TEST_CASE_P(
+    SPV_AMD_shader_explicit_vertex_parameter, ExtensionRoundTripTest,
+    // We'll get coverage over operand tables by trying the universal
+    // environments, and at least one specific environment.
+    Combine(
+        Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+               SPV_ENV_VULKAN_1_0),
+        ValuesIn(std::vector<AssemblyCase>{
+            {PREAMBLE "%3 = OpExtInst %2 %1 InterpolateAtVertexAMD %4 %5\n",
+             Concatenate(
+                 {MakeInstruction(
+                      SpvOpExtInstImport, {1},
+                      MakeVector("SPV_AMD_shader_explicit_vertex_parameter")),
+                  MakeInstruction(SpvOpExtInst, {2, 3, 1, 1, 4, 5})})},
+        })), );
+#undef PREAMBLE
+
+// SPV_AMD_shader_trinary_minmax
+
+#define PREAMBLE "%1 = OpExtInstImport \"SPV_AMD_shader_trinary_minmax\"\n"
+INSTANTIATE_TEST_CASE_P(
+    SPV_AMD_shader_trinary_minmax, ExtensionRoundTripTest,
+    // We'll get coverage over operand tables by trying the universal
+    // environments, and at least one specific environment.
+    Combine(
+        Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+               SPV_ENV_VULKAN_1_0),
+        ValuesIn(std::vector<AssemblyCase>{
+            {PREAMBLE "%3 = OpExtInst %2 %1 FMin3AMD %4 %5 %6\n",
+             Concatenate(
+                 {MakeInstruction(SpvOpExtInstImport, {1},
+                                  MakeVector("SPV_AMD_shader_trinary_minmax")),
+                  MakeInstruction(SpvOpExtInst, {2, 3, 1, 1, 4, 5, 6})})},
+            {PREAMBLE "%3 = OpExtInst %2 %1 UMin3AMD %4 %5 %6\n",
+             Concatenate(
+                 {MakeInstruction(SpvOpExtInstImport, {1},
+                                  MakeVector("SPV_AMD_shader_trinary_minmax")),
+                  MakeInstruction(SpvOpExtInst, {2, 3, 1, 2, 4, 5, 6})})},
+            {PREAMBLE "%3 = OpExtInst %2 %1 SMin3AMD %4 %5 %6\n",
+             Concatenate(
+                 {MakeInstruction(SpvOpExtInstImport, {1},
+                                  MakeVector("SPV_AMD_shader_trinary_minmax")),
+                  MakeInstruction(SpvOpExtInst, {2, 3, 1, 3, 4, 5, 6})})},
+            {PREAMBLE "%3 = OpExtInst %2 %1 FMax3AMD %4 %5 %6\n",
+             Concatenate(
+                 {MakeInstruction(SpvOpExtInstImport, {1},
+                                  MakeVector("SPV_AMD_shader_trinary_minmax")),
+                  MakeInstruction(SpvOpExtInst, {2, 3, 1, 4, 4, 5, 6})})},
+            {PREAMBLE "%3 = OpExtInst %2 %1 UMax3AMD %4 %5 %6\n",
+             Concatenate(
+                 {MakeInstruction(SpvOpExtInstImport, {1},
+                                  MakeVector("SPV_AMD_shader_trinary_minmax")),
+                  MakeInstruction(SpvOpExtInst, {2, 3, 1, 5, 4, 5, 6})})},
+            {PREAMBLE "%3 = OpExtInst %2 %1 SMax3AMD %4 %5 %6\n",
+             Concatenate(
+                 {MakeInstruction(SpvOpExtInstImport, {1},
+                                  MakeVector("SPV_AMD_shader_trinary_minmax")),
+                  MakeInstruction(SpvOpExtInst, {2, 3, 1, 6, 4, 5, 6})})},
+            {PREAMBLE "%3 = OpExtInst %2 %1 FMid3AMD %4 %5 %6\n",
+             Concatenate(
+                 {MakeInstruction(SpvOpExtInstImport, {1},
+                                  MakeVector("SPV_AMD_shader_trinary_minmax")),
+                  MakeInstruction(SpvOpExtInst, {2, 3, 1, 7, 4, 5, 6})})},
+            {PREAMBLE "%3 = OpExtInst %2 %1 UMid3AMD %4 %5 %6\n",
+             Concatenate(
+                 {MakeInstruction(SpvOpExtInstImport, {1},
+                                  MakeVector("SPV_AMD_shader_trinary_minmax")),
+                  MakeInstruction(SpvOpExtInst, {2, 3, 1, 8, 4, 5, 6})})},
+            {PREAMBLE "%3 = OpExtInst %2 %1 SMid3AMD %4 %5 %6\n",
+             Concatenate(
+                 {MakeInstruction(SpvOpExtInstImport, {1},
+                                  MakeVector("SPV_AMD_shader_trinary_minmax")),
+                  MakeInstruction(SpvOpExtInst, {2, 3, 1, 9, 4, 5, 6})})},
+        })), );
+#undef PREAMBLE
+
+// SPV_AMD_gcn_shader
+
+#define PREAMBLE "%1 = OpExtInstImport \"SPV_AMD_gcn_shader\"\n"
+INSTANTIATE_TEST_CASE_P(
+    SPV_AMD_gcn_shader, ExtensionRoundTripTest,
+    // We'll get coverage over operand tables by trying the universal
+    // environments, and at least one specific environment.
+    Combine(Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+                   SPV_ENV_VULKAN_1_0),
+            ValuesIn(std::vector<AssemblyCase>{
+                {PREAMBLE "%3 = OpExtInst %2 %1 CubeFaceIndexAMD %4\n",
+                 Concatenate({MakeInstruction(SpvOpExtInstImport, {1},
+                                              MakeVector("SPV_AMD_gcn_shader")),
+                              MakeInstruction(SpvOpExtInst, {2, 3, 1, 1, 4})})},
+                {PREAMBLE "%3 = OpExtInst %2 %1 CubeFaceCoordAMD %4\n",
+                 Concatenate({MakeInstruction(SpvOpExtInstImport, {1},
+                                              MakeVector("SPV_AMD_gcn_shader")),
+                              MakeInstruction(SpvOpExtInst, {2, 3, 1, 2, 4})})},
+                {PREAMBLE "%3 = OpExtInst %2 %1 TimeAMD\n",
+                 Concatenate({MakeInstruction(SpvOpExtInstImport, {1},
+                                              MakeVector("SPV_AMD_gcn_shader")),
+                              MakeInstruction(SpvOpExtInst, {2, 3, 1, 3})})},
+            })), );
+#undef PREAMBLE
+
+// SPV_AMD_shader_ballot
+
+#define PREAMBLE "%1 = OpExtInstImport \"SPV_AMD_shader_ballot\"\n"
+INSTANTIATE_TEST_CASE_P(
+    SPV_AMD_shader_ballot, ExtensionRoundTripTest,
+    // We'll get coverage over operand tables by trying the universal
+    // environments, and at least one specific environment.
+    Combine(
+        Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+               SPV_ENV_VULKAN_1_0),
+        ValuesIn(std::vector<AssemblyCase>{
+            {PREAMBLE "%3 = OpExtInst %2 %1 SwizzleInvocationsAMD %4 %5\n",
+             Concatenate({MakeInstruction(SpvOpExtInstImport, {1},
+                                          MakeVector("SPV_AMD_shader_ballot")),
+                          MakeInstruction(SpvOpExtInst, {2, 3, 1, 1, 4, 5})})},
+            {PREAMBLE
+             "%3 = OpExtInst %2 %1 SwizzleInvocationsMaskedAMD %4 %5\n",
+             Concatenate({MakeInstruction(SpvOpExtInstImport, {1},
+                                          MakeVector("SPV_AMD_shader_ballot")),
+                          MakeInstruction(SpvOpExtInst, {2, 3, 1, 2, 4, 5})})},
+            {PREAMBLE "%3 = OpExtInst %2 %1 WriteInvocationAMD %4 %5 %6\n",
+             Concatenate({MakeInstruction(SpvOpExtInstImport, {1},
+                                          MakeVector("SPV_AMD_shader_ballot")),
+                          MakeInstruction(SpvOpExtInst,
+                                          {2, 3, 1, 3, 4, 5, 6})})},
+            {PREAMBLE "%3 = OpExtInst %2 %1 MbcntAMD %4\n",
+             Concatenate({MakeInstruction(SpvOpExtInstImport, {1},
+                                          MakeVector("SPV_AMD_shader_ballot")),
+                          MakeInstruction(SpvOpExtInst, {2, 3, 1, 4, 4})})},
+        })), );
+#undef PREAMBLE
+
+// SPV_KHR_variable_pointers
+
+INSTANTIATE_TEST_CASE_P(
+    SPV_KHR_variable_pointers, ExtensionRoundTripTest,
+    // We'll get coverage over operand tables by trying the universal
+    // environments, and at least one specific environment.
+    Combine(Values(SPV_ENV_UNIVERSAL_1_0, SPV_ENV_UNIVERSAL_1_1,
+                   SPV_ENV_VULKAN_1_0),
+            ValuesIn(std::vector<AssemblyCase>{
+                {"OpCapability VariablePointers\n",
+                 MakeInstruction(SpvOpCapability,
+                                 {SpvCapabilityVariablePointers})},
+                {"OpCapability VariablePointersStorageBuffer\n",
+                 MakeInstruction(SpvOpCapability,
+                                 {SpvCapabilityVariablePointersStorageBuffer})},
+            })), );
 
 }  // anonymous namespace

@@ -11,6 +11,8 @@ const char kSessionManagerServicePath[] = "/org/chromium/SessionManager";
 const char kSessionManagerServiceName[] = "org.chromium.SessionManager";
 // Methods
 const char kSessionManagerEmitLoginPromptVisible[] = "EmitLoginPromptVisible";
+const char kSessionManagerEnableChromeTesting[] = "EnableChromeTesting";
+const char kSessionManagerSaveLoginPassword[] = "SaveLoginPassword";
 const char kSessionManagerStartSession[] = "StartSession";
 const char kSessionManagerStopSession[] = "StopSession";
 const char kSessionManagerRestartJob[] = "RestartJob";

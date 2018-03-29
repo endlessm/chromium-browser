@@ -19,6 +19,9 @@ class Diagnostic(object):
   def __init__(self):
     self._guid = None
 
+  def __ne__(self, other):
+    return not self == other
+
   @property
   def guid(self):
     if self._guid is None:
@@ -51,13 +54,16 @@ class Diagnostic(object):
 
   @staticmethod
   def FromDict(dct):
-    cls = all_diagnostics.DIAGNOSTICS_BY_NAME.get(dct['type'])
+    cls = all_diagnostics.GetDiagnosticClassForName(dct['type'])
     if not cls:
       raise ValueError('Unrecognized diagnostic type: ' + dct['type'])
     diagnostic = cls.FromDict(dct)
     if 'guid' in dct:
       diagnostic.guid = dct['guid']
     return diagnostic
+
+  def ResetGuid(self):
+    self._guid = str(uuid.uuid4())
 
   def Inline(self):
     """Inlines a shared diagnostic.

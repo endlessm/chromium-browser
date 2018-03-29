@@ -38,17 +38,18 @@ class IntermNodeTest : public testing::Test
     {
         TInfoSinkBase symbolNameOut;
         symbolNameOut << "test" << mUniqueIndex;
-        TString symbolName = symbolNameOut.c_str();
+        TString *symbolName = NewPoolTString(symbolNameOut.c_str());
         ++mUniqueIndex;
 
         // We're using a dummy symbol table here, don't need to assign proper symbol ids to these
         // nodes.
         TSymbolTable symbolTable;
-
-        TIntermSymbol *node = new TIntermSymbol(symbolTable.nextUniqueId(), symbolName, type);
+        TType variableType(type);
+        variableType.setQualifier(EvqTemporary);
+        TVariable *variable =
+            new TVariable(&symbolTable, symbolName, variableType, SymbolType::AngleInternal);
+        TIntermSymbol *node = new TIntermSymbol(variable);
         node->setLine(createUniqueSourceLoc());
-        node->setInternal(true);
-        node->getTypePointer()->setQualifier(EvqTemporary);
         return node;
     }
 
@@ -73,9 +74,9 @@ class IntermNodeTest : public testing::Test
         ASSERT_NE(nullptr, copy);
         ASSERT_NE(nullptr, original);
         ASSERT_NE(original, copy);
-        ASSERT_EQ(original->getId(), copy->getId());
-        ASSERT_EQ(original->getName().getString(), copy->getName().getString());
-        ASSERT_EQ(original->getName().isInternal(), copy->getName().isInternal());
+        ASSERT_EQ(&original->variable(), &copy->variable());
+        ASSERT_EQ(original->uniqueId(), copy->uniqueId());
+        ASSERT_EQ(original->getName(), copy->getName());
         checkTypeEqualWithQualifiers(original->getType(), copy->getType());
         ASSERT_EQ(original->getLine().first_file, copy->getLine().first_file);
         ASSERT_EQ(original->getLine().first_line, copy->getLine().first_line);
@@ -126,9 +127,10 @@ TEST_F(IntermNodeTest, DeepCopySymbolNode)
     // We're using a dummy symbol table here, don't need to assign proper symbol ids to these nodes.
     TSymbolTable symbolTable;
 
-    TIntermSymbol *original = new TIntermSymbol(symbolTable.nextUniqueId(), TString("name"), type);
+    TVariable *variable =
+        new TVariable(&symbolTable, NewPoolTString("name"), type, SymbolType::AngleInternal);
+    TIntermSymbol *original = new TIntermSymbol(variable);
     original->setLine(getTestSourceLoc());
-    original->setInternal(true);
     TIntermTyped *copy = original->deepCopy();
     checkSymbolCopy(original, copy);
     checkTestSourceLoc(copy->getLine());

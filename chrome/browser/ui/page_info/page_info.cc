@@ -15,7 +15,6 @@
 #include "base/command_line.h"
 #include "base/i18n/time_formatting.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
@@ -140,10 +139,12 @@ bool IsPermissionFactoryDefault(HostContentSettingsMap* content_settings,
 
 // Determines whether to show permission |type| in the Page Info UI. Only
 // applies to permissions listed in |kPermissionType|.
-bool ShouldShowPermission(const PageInfoUI::PermissionInfo& info,
-                          const GURL& site_url,
-                          HostContentSettingsMap* content_settings,
-                          content::WebContents* web_contents) {
+bool ShouldShowPermission(
+    const PageInfoUI::PermissionInfo& info,
+    const GURL& site_url,
+    HostContentSettingsMap* content_settings,
+    content::WebContents* web_contents,
+    TabSpecificContentSettings* tab_specific_content_settings) {
   // Note |CONTENT_SETTINGS_TYPE_ADS| will show up regardless of its default
   // value when it has been activated on the current origin.
   if (info.type == CONTENT_SETTINGS_TYPE_ADS) {
@@ -185,18 +186,24 @@ bool ShouldShowPermission(const PageInfoUI::PermissionInfo& info,
     return true;
 #endif
 
-  // All other content settings only show when they are non-factory-default.
-  if (IsPermissionFactoryDefault(content_settings, info)) {
-    return false;
-  }
-
 #if !defined(OS_ANDROID)
   // Autoplay is Android-only at the moment.
   if (info.type == CONTENT_SETTINGS_TYPE_AUTOPLAY)
     return false;
 #endif
 
-  return true;
+  // Show the content setting if it has been changed by the user since the last
+  // page load.
+  if (tab_specific_content_settings->HasContentSettingChangedViaPageInfo(
+          info.type)) {
+    return true;
+  }
+
+  // Show the content setting when it has a non-default value.
+  if (!IsPermissionFactoryDefault(content_settings, info))
+    return true;
+
+  return false;
 }
 
 void CheckContentStatus(security_state::ContentStatus content_status,
@@ -313,8 +320,7 @@ ChooserContextBase* GetUsbChooserContext(Profile* profile) {
 // email security-dev@chromium.org.
 const PageInfo::ChooserUIInfo kChooserUIInfo[] = {
     {CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA, &GetUsbChooserContext,
-     IDR_BLOCKED_USB, IDR_ALLOWED_USB, IDS_PAGE_INFO_USB_DEVICE_LABEL,
-     IDS_PAGE_INFO_DELETE_USB_DEVICE, "name"},
+     IDS_PAGE_INFO_USB_DEVICE_LABEL, IDS_PAGE_INFO_DELETE_USB_DEVICE, "name"},
 };
 
 }  // namespace
@@ -403,6 +409,8 @@ void PageInfo::RecordPageInfoAction(PageInfoAction action) {
 
 void PageInfo::OnSitePermissionChanged(ContentSettingsType type,
                                        ContentSetting setting) {
+  tab_specific_content_settings()->ContentSettingChangedViaPageInfo(type);
+
   // Count how often a permission for a specific content type is changed using
   // the Page Info UI.
   size_t num_values;
@@ -844,7 +852,7 @@ void PageInfo::PresentSitePermissions() {
     }
 
     if (ShouldShowPermission(permission_info, site_url_, content_settings_,
-                             web_contents())) {
+                             web_contents(), tab_specific_content_settings())) {
       permission_info_list.push_back(permission_info);
     }
   }
@@ -855,7 +863,7 @@ void PageInfo::PresentSitePermissions() {
     auto chosen_objects = context->GetGrantedObjects(origin, origin);
     for (std::unique_ptr<base::DictionaryValue>& object : chosen_objects) {
       chosen_object_info_list.push_back(
-          base::MakeUnique<PageInfoUI::ChosenObjectInfo>(ui_info,
+          std::make_unique<PageInfoUI::ChosenObjectInfo>(ui_info,
                                                          std::move(object)));
     }
   }

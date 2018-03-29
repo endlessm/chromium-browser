@@ -21,6 +21,8 @@
 #include "gmock/gmock.h"
 #include "val_fixtures.h"
 
+using ::testing::HasSubstr;
+
 using ValidateStorage = spvtest::ValidateBase<std::string>;
 
 namespace {
@@ -28,6 +30,7 @@ namespace {
 TEST_F(ValidateStorage, FunctionStorageInsideFunction) {
   char str[] = R"(
           OpCapability Shader
+          OpCapability Linkage
           OpMemoryModel Logical GLSL450
 %intt   = OpTypeInt 32 1
 %voidt  = OpTypeVoid
@@ -47,6 +50,7 @@ TEST_F(ValidateStorage, FunctionStorageInsideFunction) {
 TEST_F(ValidateStorage, FunctionStorageOutsideFunction) {
   char str[] = R"(
           OpCapability Shader
+          OpCapability Linkage
           OpMemoryModel Logical GLSL450
 %intt   = OpTypeInt 32 1
 %voidt  = OpTypeVoid
@@ -61,6 +65,9 @@ TEST_F(ValidateStorage, FunctionStorageOutsideFunction) {
 
   CompileSuccessfully(str);
   ASSERT_EQ(SPV_ERROR_INVALID_LAYOUT, ValidateInstructions());
+  EXPECT_THAT(getDiagnosticString(),
+              HasSubstr("Variables can not have a function[7] storage class "
+                        "outside of a function"));
 }
 
 TEST_F(ValidateStorage, OtherStorageOutsideFunction) {
@@ -68,8 +75,9 @@ TEST_F(ValidateStorage, OtherStorageOutsideFunction) {
           OpCapability Shader
           OpCapability Kernel
           OpCapability AtomicStorage
+          OpCapability Linkage
           OpMemoryModel Logical GLSL450
-%intt   = OpTypeInt 32 1
+%intt   = OpTypeInt 32 0
 %voidt  = OpTypeVoid
 %vfunct = OpTypeFunction %voidt
 %ptrt   = OpTypePointer Function %intt
@@ -100,8 +108,9 @@ TEST_P(ValidateStorage, OtherStorageInsideFunction) {
           OpCapability Shader
           OpCapability Kernel
           OpCapability AtomicStorage
+          OpCapability Linkage
           OpMemoryModel Logical GLSL450
-%intt   = OpTypeInt 32 1
+%intt   = OpTypeInt 32 0
 %voidt  = OpTypeVoid
 %vfunct = OpTypeFunction %voidt
 %ptrt   = OpTypePointer Function %intt
@@ -114,6 +123,8 @@ TEST_P(ValidateStorage, OtherStorageInsideFunction) {
 
   CompileSuccessfully(ss.str());
   ASSERT_EQ(SPV_ERROR_INVALID_LAYOUT, ValidateInstructions());
+  EXPECT_THAT(getDiagnosticString(), HasSubstr(
+      "Variables must have a function[7] storage class inside of a function"));
 }
 
 INSTANTIATE_TEST_CASE_P(MatrixOp, ValidateStorage,
@@ -132,18 +143,22 @@ INSTANTIATE_TEST_CASE_P(MatrixOp, ValidateStorage,
 TEST_F(ValidateStorage, GenericVariableOutsideFunction) {
   const auto str = R"(
           OpCapability Kernel
+          OpCapability Linkage
           OpMemoryModel Logical OpenCL
-%intt   = OpTypeInt 32 1
+%intt   = OpTypeInt 32 0
 %ptrt   = OpTypePointer Function %intt
 %var    = OpVariable %ptrt Generic
 )";
   CompileSuccessfully(str);
   ASSERT_EQ(SPV_ERROR_INVALID_BINARY, ValidateInstructions());
+  EXPECT_THAT(getDiagnosticString(),
+              HasSubstr("OpVariable storage class cannot be Generic"));
 }
 
 TEST_F(ValidateStorage, GenericVariableInsideFunction) {
   const auto str = R"(
           OpCapability Shader
+          OpCapability Linkage
           OpMemoryModel Logical GLSL450
 %intt   = OpTypeInt 32 1
 %voidt  = OpTypeVoid
@@ -157,5 +172,7 @@ TEST_F(ValidateStorage, GenericVariableInsideFunction) {
 )";
   CompileSuccessfully(str);
   ASSERT_EQ(SPV_ERROR_INVALID_BINARY, ValidateInstructions());
+  EXPECT_THAT(getDiagnosticString(),
+              HasSubstr("OpVariable storage class cannot be Generic"));
 }
-}
+}  // namespace

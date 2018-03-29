@@ -15,12 +15,17 @@
 #include <unistd.h>
 #include <vector>
 
+#include "sdk/android/generated_base_jni/jni/JniHelper_jni.h"
+#include "sdk/android/generated_external_classes_jni/jni/ArrayList_jni.h"
 #include "sdk/android/generated_external_classes_jni/jni/Boolean_jni.h"
 #include "sdk/android/generated_external_classes_jni/jni/Double_jni.h"
+#include "sdk/android/generated_external_classes_jni/jni/Enum_jni.h"
 #include "sdk/android/generated_external_classes_jni/jni/Integer_jni.h"
+#include "sdk/android/generated_external_classes_jni/jni/Iterable_jni.h"
+#include "sdk/android/generated_external_classes_jni/jni/Iterator_jni.h"
+#include "sdk/android/generated_external_classes_jni/jni/LinkedHashMap_jni.h"
 #include "sdk/android/generated_external_classes_jni/jni/Long_jni.h"
-#include "sdk/android/src/jni/class_loader.h"
-#include "sdk/android/src/jni/classreferenceholder.h"
+#include "sdk/android/generated_external_classes_jni/jni/Map_jni.h"
 
 namespace webrtc {
 namespace jni {
@@ -145,226 +150,111 @@ jlong jlongFromPointer(void* ptr) {
   return ret;
 }
 
-// JNIEnv-helper methods that RTC_CHECK success: no Java exception thrown and
-// found object/class/method/field is non-null.
-jmethodID GetMethodID(
-    JNIEnv* jni, jclass c, const std::string& name, const char* signature) {
-  jmethodID m = jni->GetMethodID(c, name.c_str(), signature);
-  CHECK_EXCEPTION(jni) << "error during GetMethodID: " << name << ", "
-                       << signature;
-  RTC_CHECK(m) << name << ", " << signature;
-  return m;
+bool IsNull(JNIEnv* jni, const JavaRef<jobject>& obj) {
+  return jni->IsSameObject(obj.obj(), nullptr);
 }
 
-jmethodID GetStaticMethodID(
-    JNIEnv* jni, jclass c, const char* name, const char* signature) {
-  jmethodID m = jni->GetStaticMethodID(c, name, signature);
-  CHECK_EXCEPTION(jni) << "error during GetStaticMethodID: " << name << ", "
-                       << signature;
-  RTC_CHECK(m) << name << ", " << signature;
-  return m;
-}
-
-jfieldID GetFieldID(
-    JNIEnv* jni, jclass c, const char* name, const char* signature) {
-  jfieldID f = jni->GetFieldID(c, name, signature);
-  CHECK_EXCEPTION(jni) << "error during GetFieldID";
-  RTC_CHECK(f) << name << ", " << signature;
-  return f;
-}
-
-jfieldID GetStaticFieldID(JNIEnv* jni,
-                          jclass c,
-                          const char* name,
-                          const char* signature) {
-  jfieldID f = jni->GetStaticFieldID(c, name, signature);
-  CHECK_EXCEPTION(jni) << "error during GetStaticFieldID";
-  RTC_CHECK(f) << name << ", " << signature;
-  return f;
-}
-
-jclass GetObjectClass(JNIEnv* jni, jobject object) {
-  jclass c = jni->GetObjectClass(object);
-  CHECK_EXCEPTION(jni) << "error during GetObjectClass";
-  RTC_CHECK(c) << "GetObjectClass returned NULL";
-  return c;
-}
-
-jobject GetObjectField(JNIEnv* jni, jobject object, jfieldID id) {
-  jobject o = jni->GetObjectField(object, id);
-  CHECK_EXCEPTION(jni) << "error during GetObjectField";
-  RTC_CHECK(!IsNull(jni, o)) << "GetObjectField returned NULL";
-  return o;
-}
-
-jobject GetStaticObjectField(JNIEnv* jni, jclass c, jfieldID id) {
-  jobject o = jni->GetStaticObjectField(c, id);
-  CHECK_EXCEPTION(jni) << "error during GetStaticObjectField";
-  RTC_CHECK(!IsNull(jni, o)) << "GetStaticObjectField returned NULL";
-  return o;
-}
-
-jobject GetNullableObjectField(JNIEnv* jni, jobject object, jfieldID id) {
-  jobject o = jni->GetObjectField(object, id);
-  CHECK_EXCEPTION(jni) << "error during GetObjectField";
-  return o;
-}
-
-jstring GetStringField(JNIEnv* jni, jobject object, jfieldID id) {
-  return static_cast<jstring>(GetObjectField(jni, object, id));
-}
-
-jlong GetLongField(JNIEnv* jni, jobject object, jfieldID id) {
-  jlong l = jni->GetLongField(object, id);
-  CHECK_EXCEPTION(jni) << "error during GetLongField";
-  return l;
-}
-
-jint GetIntField(JNIEnv* jni, jobject object, jfieldID id) {
-  jint i = jni->GetIntField(object, id);
-  CHECK_EXCEPTION(jni) << "error during GetIntField";
-  return i;
-}
-
-bool GetBooleanField(JNIEnv* jni, jobject object, jfieldID id) {
-  jboolean b = jni->GetBooleanField(object, id);
-  CHECK_EXCEPTION(jni) << "error during GetBooleanField";
-  return b;
-}
-
-bool IsNull(JNIEnv* jni, jobject obj) {
-  return jni->IsSameObject(obj, nullptr);
+ScopedJavaLocalRef<jobject> NewDirectByteBuffer(JNIEnv* env,
+                                                void* address,
+                                                jlong capacity) {
+  ScopedJavaLocalRef<jobject> buffer(
+      env, env->NewDirectByteBuffer(address, capacity));
+  CHECK_EXCEPTION(env) << "error NewDirectByteBuffer";
+  return buffer;
 }
 
 // Given a jstring, reinterprets it to a new native string.
-std::string JavaToStdString(JNIEnv* jni, const jstring& j_string) {
-  // Invoke String.getBytes(String charsetName) method to convert |j_string|
-  // to a byte array.
-  const jclass string_class = GetObjectClass(jni, j_string);
-  const jmethodID get_bytes =
-      GetMethodID(jni, string_class, "getBytes", "(Ljava/lang/String;)[B");
-  const jstring charset_name = jni->NewStringUTF("ISO-8859-1");
-  CHECK_EXCEPTION(jni) << "error during NewStringUTF";
-  const jbyteArray j_byte_array =
-      (jbyteArray)jni->CallObjectMethod(j_string, get_bytes, charset_name);
-  CHECK_EXCEPTION(jni) << "error during CallObjectMethod";
+std::string JavaToStdString(JNIEnv* jni, const JavaRef<jstring>& j_string) {
+  const ScopedJavaLocalRef<jbyteArray> j_byte_array =
+      Java_JniHelper_getStringBytes(jni, j_string);
 
-  const size_t len = jni->GetArrayLength(j_byte_array);
+  const size_t len = jni->GetArrayLength(j_byte_array.obj());
   CHECK_EXCEPTION(jni) << "error during GetArrayLength";
-  std::vector<char> buf(len);
-  jni->GetByteArrayRegion(j_byte_array, 0, len,
-                          reinterpret_cast<jbyte*>(&buf[0]));
+  std::string str(len, '\0');
+  jni->GetByteArrayRegion(j_byte_array.obj(), 0, len,
+                          reinterpret_cast<jbyte*>(&str[0]));
   CHECK_EXCEPTION(jni) << "error during GetByteArrayRegion";
-
-  return std::string(buf.begin(), buf.end());
+  return str;
 }
 
 // Given a list of jstrings, reinterprets it to a new vector of native strings.
-std::vector<std::string> JavaToStdVectorStrings(JNIEnv* jni, jobject list) {
+std::vector<std::string> JavaToStdVectorStrings(JNIEnv* jni,
+                                                const JavaRef<jobject>& list) {
   std::vector<std::string> converted_list;
-  if (list != nullptr) {
-    for (jobject str : Iterable(jni, list)) {
-      converted_list.push_back(
-          JavaToStdString(jni, reinterpret_cast<jstring>(str)));
+  if (!list.is_null()) {
+    for (const JavaRef<jobject>& str : Iterable(jni, list)) {
+      converted_list.push_back(JavaToStdString(
+          jni, JavaParamRef<jstring>(static_cast<jstring>(str.obj()))));
     }
   }
   return converted_list;
 }
 
-rtc::Optional<int32_t> JavaToNativeOptionalInt(JNIEnv* jni, jobject integer) {
+rtc::Optional<int32_t> JavaToNativeOptionalInt(
+    JNIEnv* jni,
+    const JavaRef<jobject>& integer) {
   if (IsNull(jni, integer))
     return rtc::nullopt;
   return JNI_Integer::Java_Integer_intValue(jni, integer);
 }
 
-jobject NativeToJavaBoolean(JNIEnv* env, bool b) {
+rtc::Optional<bool> JavaToNativeOptionalBool(JNIEnv* jni,
+                                             const JavaRef<jobject>& boolean) {
+  if (IsNull(jni, boolean))
+    return rtc::nullopt;
+  return JNI_Boolean::Java_Boolean_booleanValue(jni, boolean);
+}
+
+int64_t JavaToNativeLong(JNIEnv* env, const JavaRef<jobject>& j_long) {
+  return JNI_Long::Java_Long_longValue(env, j_long);
+}
+
+ScopedJavaLocalRef<jobject> NativeToJavaBoolean(JNIEnv* env, bool b) {
   return JNI_Boolean::Java_Boolean_ConstructorJLB_Z(env, b);
 }
 
-jobject NativeToJavaInteger(JNIEnv* jni, int32_t i) {
+ScopedJavaLocalRef<jobject> NativeToJavaInteger(JNIEnv* jni, int32_t i) {
   return JNI_Integer::Java_Integer_ConstructorJLI_I(jni, i);
 }
 
-jobject NativeToJavaLong(JNIEnv* env, int64_t u) {
+ScopedJavaLocalRef<jobject> NativeToJavaLong(JNIEnv* env, int64_t u) {
   return JNI_Long::Java_Long_ConstructorJLLO_J(env, u);
 }
 
-jobject NativeToJavaDouble(JNIEnv* env, double d) {
+ScopedJavaLocalRef<jobject> NativeToJavaDouble(JNIEnv* env, double d) {
   return JNI_Double::Java_Double_ConstructorJLD_D(env, d);
 }
 
-jstring NativeToJavaString(JNIEnv* jni, const std::string& native) {
-  jstring jstr = jni->NewStringUTF(native.c_str());
-  CHECK_EXCEPTION(jni) << "error during NewStringUTF";
-  return jstr;
+ScopedJavaLocalRef<jstring> NativeToJavaString(JNIEnv* env, const char* str) {
+  jstring j_str = env->NewStringUTF(str);
+  CHECK_EXCEPTION(env) << "error during NewStringUTF";
+  return ScopedJavaLocalRef<jstring>(env, j_str);
 }
 
-jobject NativeToJavaInteger(JNIEnv* jni,
-                            const rtc::Optional<int32_t>& optional_int) {
+ScopedJavaLocalRef<jstring> NativeToJavaString(JNIEnv* jni,
+                                               const std::string& str) {
+  return NativeToJavaString(jni, str.c_str());
+}
+
+ScopedJavaLocalRef<jobject> NativeToJavaInteger(
+    JNIEnv* jni,
+    const rtc::Optional<int32_t>& optional_int) {
   return optional_int ? NativeToJavaInteger(jni, *optional_int) : nullptr;
 }
 
-// Return the (singleton) Java Enum object corresponding to |index|;
-jobject JavaEnumFromIndex(JNIEnv* jni, jclass state_class,
-                          const std::string& state_class_name, int index) {
-  jmethodID state_values_id = GetStaticMethodID(
-      jni, state_class, "values", ("()[L" + state_class_name  + ";").c_str());
-  jobjectArray state_values = static_cast<jobjectArray>(
-      jni->CallStaticObjectMethod(state_class, state_values_id));
-  CHECK_EXCEPTION(jni) << "error during CallStaticObjectMethod";
-  jobject ret = jni->GetObjectArrayElement(state_values, index);
-  CHECK_EXCEPTION(jni) << "error during GetObjectArrayElement";
-  return ret;
+std::string GetJavaEnumName(JNIEnv* jni, const JavaRef<jobject>& j_enum) {
+  return JavaToStdString(jni, JNI_Enum::Java_Enum_name(jni, j_enum));
 }
 
-jobject JavaEnumFromIndexAndClassName(JNIEnv* jni,
-                                      const std::string& state_class_fragment,
-                                      int index) {
-  const std::string state_class = "org/webrtc/" + state_class_fragment;
-  return JavaEnumFromIndex(jni, FindClass(jni, state_class.c_str()),
-                           state_class, index);
-}
-
-std::string GetJavaEnumName(JNIEnv* jni, jobject j_enum) {
-  jclass enum_class = GetClass(jni, "java/lang/Enum");
-  jmethodID nameMethod =
-      GetMethodID(jni, enum_class, "name", "()Ljava/lang/String;");
-  jstring name =
-      reinterpret_cast<jstring>(jni->CallObjectMethod(j_enum, nameMethod));
-  CHECK_EXCEPTION(jni);
-  return JavaToStdString(jni, name);
-}
-
-std::map<std::string, std::string> JavaToStdMapStrings(JNIEnv* jni,
-                                                       jobject j_map) {
-  jclass map_class = jni->FindClass("java/util/Map");
-  jclass set_class = jni->FindClass("java/util/Set");
-  jclass iterator_class = jni->FindClass("java/util/Iterator");
-  jclass entry_class = jni->FindClass("java/util/Map$Entry");
-  jmethodID entry_set_method =
-      jni->GetMethodID(map_class, "entrySet", "()Ljava/util/Set;");
-  jmethodID iterator_method =
-      jni->GetMethodID(set_class, "iterator", "()Ljava/util/Iterator;");
-  jmethodID has_next_method =
-      jni->GetMethodID(iterator_class, "hasNext", "()Z");
-  jmethodID next_method =
-      jni->GetMethodID(iterator_class, "next", "()Ljava/lang/Object;");
-  jmethodID get_key_method =
-      jni->GetMethodID(entry_class, "getKey", "()Ljava/lang/Object;");
-  jmethodID get_value_method =
-      jni->GetMethodID(entry_class, "getValue", "()Ljava/lang/Object;");
-
-  jobject j_entry_set = jni->CallObjectMethod(j_map, entry_set_method);
-  jobject j_iterator = jni->CallObjectMethod(j_entry_set, iterator_method);
-
+std::map<std::string, std::string> JavaToStdMapStrings(
+    JNIEnv* jni,
+    const JavaRef<jobject>& j_map) {
+  const JavaRef<jobject>& j_entry_set = JNI_Map::Java_Map_entrySet(jni, j_map);
   std::map<std::string, std::string> result;
-  while (jni->CallBooleanMethod(j_iterator, has_next_method)) {
-    jobject j_entry = jni->CallObjectMethod(j_iterator, next_method);
-    jstring j_key =
-        static_cast<jstring>(jni->CallObjectMethod(j_entry, get_key_method));
-    jstring j_value =
-        static_cast<jstring>(jni->CallObjectMethod(j_entry, get_value_method));
-    result[JavaToStdString(jni, j_key)] = JavaToStdString(jni, j_value);
+  for (const JavaRef<jobject>& j_entry : Iterable(jni, j_entry_set)) {
+    result.insert(std::make_pair(
+        JavaToStdString(jni, Java_JniHelper_getKey(jni, j_entry)),
+        JavaToStdString(jni, Java_JniHelper_getValue(jni, j_entry))));
   }
 
   return result;
@@ -392,23 +282,19 @@ ScopedLocalRefFrame::~ScopedLocalRefFrame() {
   jni_->PopLocalFrame(nullptr);
 }
 
+Iterable::Iterable(JNIEnv* jni, const JavaRef<jobject>& iterable)
+    : jni_(jni), iterable_(jni, iterable) {}
+
+Iterable::~Iterable() = default;
+
 // Creates an iterator representing the end of any collection.
-Iterable::Iterator::Iterator() : iterator_(nullptr) {}
+Iterable::Iterator::Iterator() = default;
 
 // Creates an iterator pointing to the beginning of the specified collection.
-Iterable::Iterator::Iterator(JNIEnv* jni, jobject iterable) : jni_(jni) {
-  jclass j_class = GetObjectClass(jni, iterable);
-  jmethodID iterator_id =
-      GetMethodID(jni, j_class, "iterator", "()Ljava/util/Iterator;");
-  iterator_ = jni->CallObjectMethod(iterable, iterator_id);
-  CHECK_EXCEPTION(jni) << "error during CallObjectMethod";
-  RTC_CHECK(iterator_ != nullptr);
-
-  jclass iterator_class = GetObjectClass(jni, iterator_);
-  has_next_id_ = GetMethodID(jni, iterator_class, "hasNext", "()Z");
-  next_id_ = GetMethodID(jni, iterator_class, "next", "()Ljava/lang/Object;");
-  remove_id_ = GetMethodID(jni, iterator_class, "remove", "()V");
-
+Iterable::Iterator::Iterator(JNIEnv* jni, const JavaRef<jobject>& iterable)
+    : jni_(jni) {
+  iterator_ = JNI_Iterable::Java_Iterable_iterator(jni, iterable);
+  RTC_CHECK(!iterator_.is_null());
   // Start at the first element in the collection.
   ++(*this);
 }
@@ -419,9 +305,9 @@ Iterable::Iterator::Iterator(Iterator&& other)
     : jni_(std::move(other.jni_)),
       iterator_(std::move(other.iterator_)),
       value_(std::move(other.value_)),
-      has_next_id_(std::move(other.has_next_id_)),
-      next_id_(std::move(other.next_id_)),
       thread_checker_(std::move(other.thread_checker_)){};
+
+Iterable::Iterator::~Iterator() = default;
 
 // Advances the iterator one step.
 Iterable::Iterator& Iterable::Iterator::operator++() {
@@ -430,22 +316,19 @@ Iterable::Iterator& Iterable::Iterator::operator++() {
     // Can't move past the end.
     return *this;
   }
-  bool has_next = jni_->CallBooleanMethod(iterator_, has_next_id_);
-  CHECK_EXCEPTION(jni_) << "error during CallBooleanMethod";
+  bool has_next = JNI_Iterator::Java_Iterator_hasNext(jni_, iterator_);
   if (!has_next) {
     iterator_ = nullptr;
     value_ = nullptr;
     return *this;
   }
 
-  value_ = jni_->CallObjectMethod(iterator_, next_id_);
-  CHECK_EXCEPTION(jni_) << "error during CallObjectMethod";
+  value_ = JNI_Iterator::Java_Iterator_next(jni_, iterator_);
   return *this;
 }
 
 void Iterable::Iterator::Remove() {
-  jni_->CallVoidMethod(iterator_, remove_id_);
-  CHECK_EXCEPTION(jni_) << "error during CallVoidMethod";
+  JNI_Iterator::Java_Iterator_remove(jni_, iterator_);
 }
 
 // Provides a way to compare the iterator with itself and with the end iterator.
@@ -457,7 +340,7 @@ bool Iterable::Iterator::operator==(const Iterable::Iterator& other) {
   return AtEnd() == other.AtEnd();
 }
 
-jobject Iterable::Iterator::operator*() {
+ScopedJavaLocalRef<jobject>& Iterable::Iterator::operator*() {
   RTC_CHECK(!AtEnd());
   return value_;
 }
@@ -467,38 +350,64 @@ bool Iterable::Iterator::AtEnd() const {
   return jni_ == nullptr || IsNull(jni_, iterator_);
 }
 
-jobjectArray NativeToJavaIntegerArray(JNIEnv* env,
-                                      const std::vector<int32_t>& container) {
-  jobject (*convert_function)(JNIEnv*, int32_t) = &NativeToJavaInteger;
+ScopedJavaLocalRef<jobjectArray> NativeToJavaIntegerArray(
+    JNIEnv* env,
+    const std::vector<int32_t>& container) {
+  ScopedJavaLocalRef<jobject> (*convert_function)(JNIEnv*, int32_t) =
+      &NativeToJavaInteger;
   return NativeToJavaObjectArray(env, container, java_lang_Integer_clazz(env),
                                  convert_function);
 }
 
-jobjectArray NativeToJavaBooleanArray(JNIEnv* env,
-                                      const std::vector<bool>& container) {
+ScopedJavaLocalRef<jobjectArray> NativeToJavaBooleanArray(
+    JNIEnv* env,
+    const std::vector<bool>& container) {
   return NativeToJavaObjectArray(env, container, java_lang_Boolean_clazz(env),
                                  &NativeToJavaBoolean);
 }
 
-jobjectArray NativeToJavaDoubleArray(JNIEnv* env,
-                                     const std::vector<double>& container) {
+ScopedJavaLocalRef<jobjectArray> NativeToJavaDoubleArray(
+    JNIEnv* env,
+    const std::vector<double>& container) {
   return NativeToJavaObjectArray(env, container, java_lang_Double_clazz(env),
                                  &NativeToJavaDouble);
 }
 
-jobjectArray NativeToJavaLongArray(JNIEnv* env,
-                                   const std::vector<int64_t>& container) {
+ScopedJavaLocalRef<jobjectArray> NativeToJavaLongArray(
+    JNIEnv* env,
+    const std::vector<int64_t>& container) {
   return NativeToJavaObjectArray(env, container, java_lang_Long_clazz(env),
                                  &NativeToJavaLong);
 }
 
-jobjectArray NativeToJavaStringArray(
+ScopedJavaLocalRef<jobjectArray> NativeToJavaStringArray(
     JNIEnv* env,
     const std::vector<std::string>& container) {
-  // TODO(magjed): Remove this class when we can generate it from String.class
-  // directly (the script currently chokes on that class).
+  ScopedJavaLocalRef<jstring> (*convert)(JNIEnv*, const std::string&) =
+      &NativeToJavaString;
   return NativeToJavaObjectArray(
-      env, container, FindClass(env, "java/lang/String"), &NativeToJavaString);
+      env, container,
+      static_cast<jclass>(Java_JniHelper_getStringClass(env).obj()), convert);
+}
+
+JavaMapBuilder::JavaMapBuilder(JNIEnv* env)
+    : env_(env),
+      j_map_(JNI_LinkedHashMap::Java_LinkedHashMap_ConstructorJULIHM(env)) {}
+
+JavaMapBuilder::~JavaMapBuilder() = default;
+
+void JavaMapBuilder::put(const JavaRef<jobject>& key,
+                         const JavaRef<jobject>& value) {
+  JNI_Map::Java_Map_put(env_, j_map_, key, value);
+}
+
+JavaListBuilder::JavaListBuilder(JNIEnv* env)
+    : env_(env), j_list_(JNI_ArrayList::Java_ArrayList_ConstructorJUALI(env)) {}
+
+JavaListBuilder::~JavaListBuilder() = default;
+
+void JavaListBuilder::add(const JavaRef<jobject>& element) {
+  JNI_ArrayList::Java_ArrayList_addZ_JUE(env_, j_list_, element);
 }
 
 }  // namespace jni

@@ -716,14 +716,18 @@ def write_try_results_json(output_file, builds):
   """
 
   def convert_build_dict(build):
+    """Extracts some of the information from one build dict."""
+    parameters = json.loads(build.get('parameters_json', '{}')) or {}
     return {
         'buildbucket_id': build.get('id'),
-        'status': build.get('status'),
-        'result': build.get('result'),
         'bucket': build.get('bucket'),
-        'builder_name': json.loads(
-            build.get('parameters_json', '{}')).get('builder_name'),
+        'builder_name': parameters.get('builder_name'),
+        'created_ts': build.get('created_ts'),
+        'experimental': build.get('experimental'),
         'failure_reason': build.get('failure_reason'),
+        'result': build.get('result'),
+        'status': build.get('status'),
+        'tags': build.get('tags'),
         'url': build.get('url'),
     }
 
@@ -2574,7 +2578,9 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
 
   def GetMostRecentPatchset(self):
     data = self._GetChangeDetail(['CURRENT_REVISION'])
-    return data['revisions'][data['current_revision']]['_number']
+    patchset = data['revisions'][data['current_revision']]['_number']
+    self.SetPatchset(patchset)
+    return patchset
 
   def FetchDescription(self, force=False):
     data = self._GetChangeDetail(['CURRENT_REVISION', 'CURRENT_COMMIT'],
@@ -3467,8 +3473,9 @@ class ChangeDescription(object):
       DieWithError('Running editor failed')
     lines = content.splitlines()
 
-    # Strip off comments.
-    clean_lines = [line.rstrip() for line in lines if not line.startswith('#')]
+    # Strip off comments and default inserted "Bug:" line.
+    clean_lines = [line.rstrip() for line in lines if not
+                   (line.startswith('#') or line.rstrip() == "Bug:")]
     if not clean_lines:
       DieWithError('No CL description, aborting')
     self.set_description(clean_lines)
@@ -3877,8 +3884,8 @@ class _GitCookiesChecker(object):
 
   @staticmethod
   def _parse_identity(identity):
-    """Parses identity "git-<ldap>.example.com" into <ldap> and domain."""
-    # Special case: users whose ldaps contain ".", which are generally not
+    """Parses identity "git-<username>.domain" into <username> and domain."""
+    # Special case: usernames that contain ".", which are generally not
     # distinguishable from sub-domains. But we do know typical domains:
     if identity.endswith('.chromium.org'):
       domain = 'chromium.org'
@@ -4427,7 +4434,7 @@ def CMDstatus(parser, args):
       if issueid:
         print(issueid)
     elif options.field == 'patch':
-      patchset = cl.GetPatchset()
+      patchset = cl.GetMostRecentPatchset()
       if patchset:
         print(patchset)
     elif options.field == 'status':
@@ -4533,7 +4540,7 @@ def CMDissue(parser, args):
 
   if options.reverse:
     branches = RunGit(['for-each-ref', 'refs/heads',
-                       '--format=%(refname:short)']).splitlines()
+                       '--format=%(refname)']).splitlines()
     # Reverse issue lookup.
     issue_branch_map = {}
     for branch in branches:
@@ -5050,6 +5057,10 @@ def CMDsplit(parser, args):
                          "$directory will be replaced by each CL's directory.")
   parser.add_option("-c", "--comment", dest="comment_file",
                     help="A text file containing a CL comment.")
+  parser.add_option("-n", "--dry-run", dest="dry_run", action='store_true',
+                    default=False,
+                    help="List the files and reviewers for each CL that would "
+                         "be created, but don't create branches or CLs.")
   options, _ = parser.parse_args(args)
 
   if not options.description_file:
@@ -5059,7 +5070,7 @@ def CMDsplit(parser, args):
     return CMDupload(OptionParser(), args)
 
   return split_cl.SplitCl(options.description_file, options.comment_file,
-                          Changelist, WrappedCMDupload)
+                          Changelist, WrappedCMDupload, options.dry_run)
 
 
 @subcommand.usage('DEPRECATED')
@@ -5357,7 +5368,8 @@ def PushToGitWithAutoRebase(remote, branch, original_description,
       print('Your patch doesn\'t apply cleanly to \'%s\' HEAD @ %s, '
             'the following files have merge conflicts:' %
             (branch, parent_hash))
-      print(RunGit(['diff', '--name-status', '--diff-filter=U']).strip())
+      print(RunGit(['-c', 'core.quotePath=false', 'diff',
+                    '--name-status', '--diff-filter=U']).strip())
       print('Please rebase your patch and try again.')
       RunGitWithCode(['cherry-pick', '--abort'])
       break
@@ -5582,7 +5594,9 @@ def CMDtry(parser, args):
       help='Host of buildbucket. The default host is %default.')
   parser.add_option_group(group)
   auth.add_auth_options(parser)
+  _add_codereview_issue_select_options(parser)
   options, args = parser.parse_args(args)
+  _process_codereview_issue_select_options(parser, options)
   auth_config = auth.extract_auth_config_from_options(options)
 
   if options.master and options.master.startswith('luci.'):
@@ -5596,7 +5610,8 @@ def CMDtry(parser, args):
   if args:
     parser.error('Unknown arguments: %s' % args)
 
-  cl = Changelist(auth_config=auth_config)
+  cl = Changelist(auth_config=auth_config, issue=options.issue,
+                  codereview=options.forced_codereview)
   if not cl.GetIssue():
     parser.error('Need to upload first')
 
@@ -5878,7 +5893,8 @@ def CMDowners(parser, args):
 def BuildGitDiffCmd(diff_type, upstream_commit, args):
   """Generates a diff command."""
   # Generate diff for the current branch's changes.
-  diff_cmd = ['diff', '--no-ext-diff', '--no-prefix', diff_type,
+  diff_cmd = ['-c', 'core.quotePath=false', 'diff',
+              '--no-ext-diff', '--no-prefix', diff_type,
               upstream_commit, '--']
 
   if args:

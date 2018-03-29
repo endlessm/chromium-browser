@@ -1304,6 +1304,10 @@ static bssl::UniquePtr<SSL_CTX> SetupCtx(SSL_CTX *old_ctx,
 
   SSL_CTX_set_msg_callback(ssl_ctx.get(), MessageCallback);
 
+  if (config->allow_false_start_without_alpn) {
+    SSL_CTX_set_false_start_allowed_without_alpn(ssl_ctx.get(), 1);
+  }
+
   if (old_ctx) {
     uint8_t keys[48];
     if (!SSL_CTX_get_tlsext_ticket_keys(old_ctx, &keys, sizeof(keys)) ||
@@ -1804,6 +1808,11 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume,
     return false;
   }
 
+  if (config->expect_draft_downgrade != !!SSL_is_draft_downgrade(ssl)) {
+    fprintf(stderr, "Got %sdraft downgrade signal, but wanted the opposite.\n",
+            SSL_is_draft_downgrade(ssl) ? "" : "no ");
+  }
+
   return true;
 }
 
@@ -2045,6 +2054,10 @@ static bool DoConnection(bssl::UniquePtr<SSL_SESSION> *out_session,
   if (config->max_send_fragment > 0) {
     SSL_set_max_send_fragment(ssl.get(), config->max_send_fragment);
   }
+  if (config->dummy_pq_padding_len > 0 &&
+      !SSL_set_dummy_pq_padding_size(ssl.get(), config->dummy_pq_padding_len)) {
+    return false;
+  }
 
   int sock = Connect(config->port);
   if (sock == -1) {
@@ -2199,6 +2212,22 @@ static bool DoExchange(bssl::UniquePtr<SSL_SESSION> *out_session, SSL *ssl,
     // Reset the state to assert later that the callback isn't called in
     // renegotations.
     GetTestState(ssl)->got_new_session = false;
+  }
+
+  if (config->export_early_keying_material > 0) {
+    std::vector<uint8_t> result(
+        static_cast<size_t>(config->export_early_keying_material));
+    if (!SSL_export_early_keying_material(
+            ssl, result.data(), result.size(), config->export_label.data(),
+            config->export_label.size(),
+            reinterpret_cast<const uint8_t *>(config->export_context.data()),
+            config->export_context.size())) {
+      fprintf(stderr, "failed to export keying material\n");
+      return false;
+    }
+    if (WriteAll(ssl, result.data(), result.size()) < 0) {
+      return false;
+    }
   }
 
   if (config->export_keying_material > 0) {

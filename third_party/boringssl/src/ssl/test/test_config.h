@@ -79,6 +79,7 @@ struct TestConfig {
   bool fail_cert_callback = false;
   std::string cipher;
   bool handshake_never_done = false;
+  int export_early_keying_material = 0;
   int export_keying_material = 0;
   std::string export_label;
   std::string export_context;
@@ -144,6 +145,9 @@ struct TestConfig {
   bool enable_ed25519 = false;
   bool use_custom_verify_callback = false;
   std::string expect_msg_callback;
+  bool allow_false_start_without_alpn = false;
+  bool expect_draft_downgrade = false;
+  int dummy_pq_padding_len = 0;
 };
 
 bool ParseConfig(int argc, char **argv, TestConfig *out_initial,

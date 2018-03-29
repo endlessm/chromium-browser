@@ -48,6 +48,9 @@ class BrowserFinderOptions(optparse.Values):
 
     self.remote_platform_options = None
 
+    self.full_performance_mode = True
+
+    # TODO(crbug.com/798703): remove this
     self.no_performance_mode = False
 
   def __repr__(self):
@@ -254,6 +257,10 @@ class BrowserFinderOptions(optparse.Values):
 
 class BrowserOptions(object):
   """Options to be used for launching a browser."""
+  # Allows clients to check whether they are dealing with a browser_options
+  # object, without having to import this module. This may be needed in some
+  # cases to avoid cyclic-imports.
+  IS_BROWSER_OPTIONS = True
 
   # Levels of browser logging.
   NO_LOGGING = 'none'
@@ -271,9 +278,6 @@ class BrowserOptions(object):
 
     self.extensions_to_load = []
 
-    # If set, copy the generated profile to this path on exit.
-    self.output_profile_path = None
-
     # When set to True, the browser will use the default profile.  Telemetry
     # will not provide an alternate profile directory.
     self.dont_override_profile = False
@@ -282,7 +286,6 @@ class BrowserOptions(object):
     self._extra_browser_args = set()
     self.extra_wpr_args = []
     self.wpr_mode = wpr_modes.WPR_OFF
-    self.full_performance_mode = True
 
     # The amount of time Telemetry should wait for the browser to start.
     # This property is not exposed as a command line option.
@@ -319,17 +322,15 @@ class BrowserOptions(object):
     # profiling results.
     self.take_screenshot_for_failed_page = False
 
-    # TODO(crbug.com/760319): This is a hack to temporarily disable modal
-    # permission prompts on Android. Remove after implementing a longer term
-    # solution.
-    self.block_modal_permission_prompts = True
-
   def __repr__(self):
     # This works around the infinite loop caused by the introduction of a
     # circular reference with _finder_options.
     obj = self.__dict__.copy()
     del obj['_finder_options']
     return str(sorted(obj.items()))
+
+  def Copy(self):
+    return copy.deepcopy(self)
 
   def IsCrosBrowserOptions(self):
     return False

@@ -68,6 +68,7 @@ const char kLoadComponent[] = "LoadComponent";
 const char kLoadComponentAtPath[] = "LoadComponentAtPath";
 const char kGetComponentVersion[] = "GetComponentVersion";
 const char kRemoveComponent[] = "RemoveComponent";
+const char kUnmountComponent[] = "UnmountComponent";
 // Constants
 const char kBadResult[] = "";
 const char kTerminaComponentName[] = "cros-termina";
@@ -135,7 +136,7 @@ const char kComponentUpdaterServicePath[] =
 const char kComponentUpdaterServiceInterface[] =
     "org.chromium.ComponentUpdaterService";
 const char kComponentUpdaterServiceLoadComponentMethod[] = "LoadComponent";
-const char kComponentUpdaterServiceRemoveComponentMethod[] = "RemoveComponent";
+const char kComponentUpdaterServiceUnloadComponentMethod[] = "UnloadComponent";
 
 const char kKioskAppServiceName[] = "org.chromium.KioskAppService";
 const char kKioskAppServicePath[] = "/org/chromium/KioskAppService";

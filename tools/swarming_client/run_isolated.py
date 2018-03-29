@@ -27,7 +27,7 @@ state of the host to tasks. It is written to by the swarming bot's
 on_before_task() hook in the swarming server's custom bot_config.py.
 """
 
-__version__ = '0.9.3'
+__version__ = '0.10.4'
 
 import argparse
 import base64
@@ -142,6 +142,60 @@ for more information.
 """
 
 
+TaskData = collections.namedtuple(
+    'TaskData', [
+      # List of strings; the command line to use, independent of what was
+      # specified in the isolated file.
+      'command',
+      # Relative directory to start command into.
+      'relative_cwd',
+      # List of strings; the arguments to add to the command specified in the
+      # isolated file.
+      'extra_args',
+      # Hash of the .isolated file that must be retrieved to recreate the tree
+      # of files to run the target executable. The command specified in the
+      # .isolated is executed.  Mutually exclusive with command argument.
+      'isolated_hash',
+      # isolateserver.Storage instance to retrieve remote objects. This object
+      # has a reference to an isolateserver.StorageApi, which does the actual
+      # I/O.
+      'storage',
+      # isolateserver.LocalCache instance to keep from retrieving the same
+      # objects constantly by caching the objects retrieved. Can be on-disk or
+      # in-memory.
+      'isolate_cache',
+      # List of paths relative to root_dir to put into the output isolated
+      # bundle upon task completion (see link_outputs_to_outdir).
+      'outputs',
+      # Function (run_dir) => context manager that installs named caches into
+      # |run_dir|.
+      'install_named_caches',
+      # If True, the temporary directory will be deliberately leaked for later
+      # examination.
+      'leak_temp_dir',
+      # Path to the directory to use to create the temporary directory. If not
+      # specified, a random temporary directory is created.
+      'root_dir',
+      # Kills the process if it lasts more than this amount of seconds.
+      'hard_timeout',
+      # Number of seconds to wait between SIGTERM and SIGKILL.
+      'grace_period',
+      # Path to a file with bot state, used in place of ${SWARMING_BOT_FILE}
+      # task command line argument.
+      'bot_file',
+      # Logical account to switch LUCI_CONTEXT into.
+      'switch_to_account',
+      # Context manager dir => CipdInfo, see install_client_and_packages.
+      'install_packages_fn',
+      # Create tree with symlinks instead of hardlinks.
+      'use_symlinks',
+      # Environment variables to set.
+      'env',
+      # Environment variables to mutate with relative directories.
+      # Example: {"ENV_KEY": ['relative', 'paths', 'to', 'prepend']}
+      'env_prefix'])
+
+
 def get_as_zip_package(executable=True):
   """Returns ZipPackage with this module and all its dependencies.
 
@@ -165,6 +219,24 @@ def get_as_zip_package(executable=True):
   package.add_directory(os.path.join(BASE_DIR, 'third_party'))
   package.add_directory(os.path.join(BASE_DIR, 'utils'))
   return package
+
+
+def _to_str(s):
+  """Downgrades a unicode instance to str. Pass str through as-is."""
+  if isinstance(s, str):
+    return s
+  # This is technically incorrect, especially on Windows. In theory
+  # sys.getfilesystemencoding() should be used to use the right 'ANSI code
+  # page' on Windows, but that causes other problems, as the character set
+  # is very limited.
+  return s.encode('utf-8')
+
+
+def _to_unicode(s):
+  """Upgrades a str instance to unicode. Pass unicode through as-is."""
+  if isinstance(s, unicode) or s is None:
+    return s
+  return s.decode('utf-8')
 
 
 def make_temp_dir(prefix, root_dir):
@@ -281,22 +353,38 @@ def process_command(command, out_dir, bot_file):
   return [fix(arg) for arg in command]
 
 
-def get_command_env(tmp_dir, cipd_info):
+def get_command_env(tmp_dir, cipd_info, run_dir, env, env_prefixes):
   """Returns full OS environment to run a command in.
 
-  Sets up TEMP, puts directory with cipd binary in front of PATH, and exposes
-  CIPD_CACHE_DIR env var.
+  Sets up TEMP, puts directory with cipd binary in front of PATH, exposes
+  CIPD_CACHE_DIR env var, and installs all env_prefixes.
 
   Args:
     tmp_dir: temp directory.
     cipd_info: CipdInfo object is cipd client is used, None if not.
+    run_dir: The root directory the isolated tree is mapped in.
+    env: environment variables to use
+    env_prefixes: {"ENV_KEY": ['cwd', 'relative', 'paths', 'to', 'prepend']}
   """
-  def to_fs_enc(s):
-    if isinstance(s, str):
-      return s
-    return s.encode(sys.getfilesystemencoding())
+  out = os.environ.copy()
+  for k, v in env.iteritems():
+    if not v:
+      out.pop(k, None)
+    else:
+      out[k] = v
 
-  env = os.environ.copy()
+  if cipd_info:
+    bin_dir = os.path.dirname(cipd_info.client.binary_path)
+    out['PATH'] = '%s%s%s' % (_to_str(bin_dir), os.pathsep, out['PATH'])
+    out['CIPD_CACHE_DIR'] = _to_str(cipd_info.cache_dir)
+
+  for key, paths in env_prefixes.iteritems():
+    assert isinstance(paths, list), paths
+    paths = [os.path.normpath(os.path.join(run_dir, p)) for p in paths]
+    cur = out.get(key)
+    if cur:
+      paths.append(cur)
+    out[key] = _to_str(os.path.pathsep.join(paths))
 
   # TMPDIR is specified as the POSIX standard envvar for the temp directory.
   #   * mktemp on linux respects $TMPDIR, not $TMP
@@ -307,14 +395,9 @@ def get_command_env(tmp_dir, cipd_info):
   #   * python respects TMPDIR, TEMP, and TMP (regardless of platform)
   #   * golang respects TMPDIR on linux+mac, TEMP on windows.
   key = {'win32': 'TEMP'}.get(sys.platform, 'TMPDIR')
-  env[key] = to_fs_enc(tmp_dir)
+  out[key] = _to_str(tmp_dir)
 
-  if cipd_info:
-    bin_dir = os.path.dirname(cipd_info.client.binary_path)
-    env['PATH'] = '%s%s%s' % (to_fs_enc(bin_dir), os.pathsep, env['PATH'])
-    env['CIPD_CACHE_DIR'] = to_fs_enc(cipd_info.cache_dir)
-
-  return env
+  return out
 
 
 def run_command(command, cwd, env, hard_timeout, grace_period):
@@ -488,24 +571,20 @@ def delete_and_upload(storage, out_dir, leak_temp_dir):
   return outputs_ref, success, stats
 
 
-def map_and_run(
-    command, isolated_hash, storage, isolate_cache, outputs,
-    install_named_caches, leak_temp_dir, root_dir, hard_timeout, grace_period,
-    bot_file, switch_to_account, install_packages_fn, use_symlinks, raw_cmd,
-    constant_run_path):
+def map_and_run(data, constant_run_path):
   """Runs a command with optional isolated input/output.
 
-  See run_tha_test for argument documentation.
+  Arguments:
+  - data: TaskData instance.
+  - constant_run_path: TODO
 
   Returns metadata about the result.
   """
-  assert isinstance(command, list), command
-  assert root_dir or root_dir is None
   result = {
     'duration': None,
     'exit_code': None,
     'had_hard_timeout': False,
-    'internal_failure': None,
+    'internal_failure': 'run_isolated did not complete properly',
     'stats': {
     # 'isolated': {
     #    'cipd': {
@@ -537,45 +616,49 @@ def map_and_run(
     'version': 5,
   }
 
-  if root_dir:
-    file_path.ensure_tree(root_dir, 0700)
-  elif isolate_cache.cache_dir:
-    root_dir = os.path.dirname(isolate_cache.cache_dir)
+  if data.root_dir:
+    file_path.ensure_tree(data.root_dir, 0700)
+  elif data.isolate_cache.cache_dir:
+    data = data._replace(
+        root_dir=os.path.dirname(data.isolate_cache.cache_dir))
   # See comment for these constants.
   # If root_dir is not specified, it is not constant.
   # TODO(maruel): This is not obvious. Change this to become an error once we
   # make the constant_run_path an exposed flag.
-  if constant_run_path and root_dir:
-    run_dir = os.path.join(root_dir, ISOLATED_RUN_DIR)
+  if constant_run_path and data.root_dir:
+    run_dir = os.path.join(data.root_dir, ISOLATED_RUN_DIR)
     if os.path.isdir(run_dir):
       file_path.rmtree(run_dir)
-    os.mkdir(run_dir)
+    os.mkdir(run_dir, 0700)
   else:
-    run_dir = make_temp_dir(ISOLATED_RUN_DIR, root_dir)
+    run_dir = make_temp_dir(ISOLATED_RUN_DIR, data.root_dir)
   # storage should be normally set but don't crash if it is not. This can happen
   # as Swarming task can run without an isolate server.
-  out_dir = make_temp_dir(ISOLATED_OUT_DIR, root_dir) if storage else None
-  tmp_dir = make_temp_dir(ISOLATED_TMP_DIR, root_dir)
+  out_dir = make_temp_dir(
+      ISOLATED_OUT_DIR, data.root_dir) if data.storage else None
+  tmp_dir = make_temp_dir(ISOLATED_TMP_DIR, data.root_dir)
   cwd = run_dir
-
+  if data.relative_cwd:
+    cwd = os.path.normpath(os.path.join(cwd, data.relative_cwd))
+  command = data.command
   try:
-    with install_packages_fn(run_dir) as cipd_info:
+    with data.install_packages_fn(run_dir) as cipd_info:
       if cipd_info:
         result['stats']['cipd'] = cipd_info.stats
         result['cipd_pins'] = cipd_info.pins
 
-      if isolated_hash:
+      if data.isolated_hash:
         isolated_stats = result['stats'].setdefault('isolated', {})
         bundle, isolated_stats['download'] = fetch_and_map(
-            isolated_hash=isolated_hash,
-            storage=storage,
-            cache=isolate_cache,
+            isolated_hash=data.isolated_hash,
+            storage=data.storage,
+            cache=data.isolate_cache,
             outdir=run_dir,
-            use_symlinks=use_symlinks)
+            use_symlinks=data.use_symlinks)
         change_tree_read_only(run_dir, bundle.read_only)
         # Inject the command
-        if not raw_cmd and bundle.command:
-          command = bundle.command + command
+        if not command and bundle.command:
+          command = bundle.command + data.extra_args
           # Only set the relative directory if the isolated file specified a
           # command, and no raw command was specified.
           if bundle.relative_cwd:
@@ -589,27 +672,43 @@ def map_and_run(
         result['exit_code'] = 1
         return result
 
+      if not cwd.startswith(run_dir):
+        # Handle this as a task failure, not an internal failure. This is a
+        # 'last chance' way to gate against directory escape.
+        sys.stderr.write('<Relative CWD is outside of run directory!>\n')
+        result['exit_code'] = 1
+        return result
+
+      if not os.path.isdir(cwd):
+        # Accepts relative_cwd that does not exist.
+        os.makedirs(cwd, 0700)
+
       # If we have an explicit list of files to return, make sure their
       # directories exist now.
-      if storage and outputs:
-        isolateserver.create_directories(run_dir, outputs)
+      if data.storage and data.outputs:
+        isolateserver.create_directories(run_dir, data.outputs)
 
       command = tools.fix_python_path(command)
-      command = process_command(command, out_dir, bot_file)
+      command = process_command(command, out_dir, data.bot_file)
       file_path.ensure_command_has_abs_path(command, cwd)
 
-      with install_named_caches(run_dir):
+      with data.install_named_caches(run_dir):
         sys.stdout.flush()
         start = time.time()
         try:
           # Need to switch the default account before 'get_command_env' call,
           # so it can grab correct value of LUCI_CONTEXT env var.
-          with set_luci_context_account(switch_to_account, tmp_dir):
+          with set_luci_context_account(data.switch_to_account, tmp_dir):
+            env = get_command_env(
+                tmp_dir, cipd_info, run_dir, data.env, data.env_prefix)
             result['exit_code'], result['had_hard_timeout'] = run_command(
-                command, cwd, get_command_env(tmp_dir, cipd_info),
-                hard_timeout, grace_period)
+                command, cwd, env, data.hard_timeout, data.grace_period)
         finally:
           result['duration'] = max(time.time() - start, 0)
+
+    # We successfully ran the command, set internal_failure back to
+    # None (even if the command failed, it's not an internal error).
+    result['internal_failure'] = None
   except Exception as e:
     # An internal error occurred. Report accordingly so the swarming task will
     # be retried automatically.
@@ -622,10 +721,10 @@ def map_and_run(
     try:
       # Try to link files to the output directory, if specified.
       if out_dir:
-        link_outputs_to_outdir(run_dir, out_dir, outputs)
+        link_outputs_to_outdir(run_dir, out_dir, data.outputs)
 
       success = False
-      if leak_temp_dir:
+      if data.leak_temp_dir:
         success = True
         logging.warning(
             'Deliberately leaking %s for later examination', run_dir)
@@ -642,7 +741,7 @@ def map_and_run(
             logging.error('Failure with %s', e)
             success = False
           if not success:
-            sys.stderr.write(OUTLIVING_ZOMBIE_MSG % ('run', grace_period))
+            sys.stderr.write(OUTLIVING_ZOMBIE_MSG % ('run', data.grace_period))
             if result['exit_code'] == 0:
               result['exit_code'] = 1
         if fs.isdir(tmp_dir):
@@ -652,7 +751,7 @@ def map_and_run(
             logging.error('Failure with %s', e)
             success = False
           if not success:
-            sys.stderr.write(OUTLIVING_ZOMBIE_MSG % ('temp', grace_period))
+            sys.stderr.write(OUTLIVING_ZOMBIE_MSG % ('temp', data.grace_period))
             if result['exit_code'] == 0:
               result['exit_code'] = 1
 
@@ -660,7 +759,7 @@ def map_and_run(
       if out_dir:
         isolated_stats = result['stats'].setdefault('isolated', {})
         result['outputs_ref'], success, isolated_stats['upload'] = (
-            delete_and_upload(storage, out_dir, leak_temp_dir))
+            delete_and_upload(data.storage, out_dir, data.leak_temp_dir))
       if not success and result['exit_code'] == 0:
         result['exit_code'] = 1
     except Exception as e:
@@ -671,14 +770,8 @@ def map_and_run(
   return result
 
 
-def run_tha_test(
-    command, isolated_hash, storage, isolate_cache, outputs,
-    install_named_caches, leak_temp_dir, result_json, root_dir, hard_timeout,
-    grace_period, bot_file, switch_to_account, install_packages_fn,
-    use_symlinks, raw_cmd):
+def run_tha_test(data, result_json):
   """Runs an executable and records execution metadata.
-
-  Either command or isolated_hash must be specified.
 
   If isolated_hash is specified, downloads the dependencies in the cache,
   hardlinks them into a temporary directory and runs the command specified in
@@ -689,39 +782,9 @@ def run_tha_test(
   file.
 
   Arguments:
-    command: a list of string; the command to run OR optional arguments to add
-             to the command stated in the .isolated file if a command was
-             specified.
-    isolated_hash: the SHA-1 of the .isolated file that must be retrieved to
-                   recreate the tree of files to run the target executable.
-                   The command specified in the .isolated is executed.
-                   Mutually exclusive with command argument.
-    storage: an isolateserver.Storage object to retrieve remote objects. This
-             object has a reference to an isolateserver.StorageApi, which does
-             the actual I/O.
-    isolate_cache: an isolateserver.LocalCache to keep from retrieving the
-                   same objects constantly by caching the objects retrieved.
-                   Can be on-disk or in-memory.
-    outputs: list of paths relative to root_dir to put into the output isolated
-             bundle upon task completion (see link_outputs_to_outdir).
-    install_named_caches: a function (run_dir) => context manager that installs
-                          named caches into |run_dir|.
-    leak_temp_dir: if true, the temporary directory will be deliberately leaked
-                   for later examination.
-    result_json: file path to dump result metadata into. If set, the process
-                 exit code is always 0 unless an internal error occurred.
-    root_dir: path to the directory to use to create the temporary directory. If
-              not specified, a random temporary directory is created.
-    hard_timeout: kills the process if it lasts more than this amount of
-                  seconds.
-    grace_period: number of seconds to wait between SIGTERM and SIGKILL.
-    bot_file: path to a file with bot state, used in place of
-              ${SWARMING_BOT_FILE} task command line argument.
-    switch_to_account: a logical account to switch LUCI_CONTEXT into.
-    install_packages_fn: context manager dir => CipdInfo, see
-                         install_client_and_packages.
-    use_symlinks: create tree with symlinks instead of hardlinks.
-    raw_cmd: ignore the command in the isolated file.
+  - data: TaskData instance.
+  - result_json: File path to dump result metadata into. If set, the process
+    exit code is always 0 unless an internal error occurred.
 
   Returns:
     Process exit code that should be used.
@@ -738,11 +801,7 @@ def run_tha_test(
     tools.write_json(result_json, result, dense=True)
 
   # run_isolated exit code. Depends on if result_json is used or not.
-  result = map_and_run(
-      command, isolated_hash, storage, isolate_cache, outputs,
-      install_named_caches, leak_temp_dir, root_dir, hard_timeout, grace_period,
-      bot_file, switch_to_account, install_packages_fn, use_symlinks, raw_cmd,
-      True)
+  result = map_and_run(data, True)
   logging.info('Result:\n%s', tools.format_json(result, dense=True))
 
   if result_json:
@@ -833,7 +892,7 @@ def _install_packages(run_dir, cipd_cache_dir, client, packages, timeout):
     for i, (name, version) in enumerate(pin_list):
       insert_pin(subdir, name, version, this_subdir[i][2])
 
-  assert None not in package_pins
+  assert None not in package_pins, (packages, pins, package_pins)
 
   return package_pins
 
@@ -983,6 +1042,21 @@ def create_option_parser():
       help='Ignore the isolated command, use the one supplied at the command '
            'line')
   parser.add_option(
+      '--relative-cwd',
+      help='Ignore the isolated \'relative_cwd\' and use this one instead; '
+           'requires --raw-cmd')
+  parser.add_option(
+      '--env', default=[], action='append',
+      help='Environment variables to set for the child process')
+  parser.add_option(
+      '--env-prefix', default=[], action='append',
+      help='Specify a VAR=./path/fragment to put in the environment variable '
+           'before executing the command. The path fragment must be relative '
+           'to the isolated run directory, and must not contain a `..` token. '
+           'The path will be made absolute and prepended to the indicated '
+           '$VAR using the OS\'s path separator. Multiple items for the same '
+           '$VAR will be prepended in order.')
+  parser.add_option(
       '--bot-file',
       help='Path to a file describing the state of the host. The content is '
            'defined by on_before_task() in bot_config.')
@@ -1065,6 +1139,8 @@ def parse_args(args):
 
 
 def main(args):
+  # Warning: when --argsfile is used, the strings are unicode instances, when
+  # parsed normally, the strings are str instances.
   (parser, options, args) = parse_args(args)
 
   if not file_path.enable_symlink():
@@ -1106,6 +1182,30 @@ def main(args):
   if options.json:
     options.json = unicode(os.path.abspath(options.json))
 
+  if any('=' not in i for i in options.env):
+    parser.error(
+        '--env required key=value form. value can be skipped to delete '
+        'the variable')
+  options.env = dict(i.split('=', 1) for i in options.env)
+
+  prefixes = {}
+  cwd = os.path.realpath(os.getcwd())
+  for item in options.env_prefix:
+    if '=' not in item:
+      parser.error(
+        '--env-prefix %r is malformed, must be in the form `VAR=./path`'
+        % item)
+    key, opath = item.split('=', 1)
+    if os.path.isabs(opath):
+      parser.error('--env-prefix %r path is bad, must be relative.' % opath)
+    opath = os.path.normpath(opath)
+    if not os.path.realpath(os.path.join(cwd, opath)).startswith(cwd):
+      parser.error(
+        '--env-prefix %r path is bad, must be relative and not contain `..`.'
+        % opath)
+    prefixes.setdefault(key, []).append(opath)
+  options.env_prefix = prefixes
+
   cipd.validate_cipd_options(parser, options)
 
   install_packages_fn = noop_install_packages
@@ -1143,46 +1243,49 @@ def main(args):
             logging.exception('Error while removing named cache %r at %r. '
                               'The cache will be lost.', path, name)
 
+  extra_args = []
+  command = []
+  if options.raw_cmd:
+    command = args
+    if options.relative_cwd:
+      a = os.path.normpath(os.path.abspath(options.relative_cwd))
+      if not a.startswith(os.getcwd()):
+        parser.error(
+            '--relative-cwd must not try to escape the working directory')
+  else:
+    if options.relative_cwd:
+      parser.error('--relative-cwd requires --raw-cmd')
+    extra_args = args
+
+  data = TaskData(
+      command=command,
+      relative_cwd=options.relative_cwd,
+      extra_args=extra_args,
+      isolated_hash=options.isolated,
+      storage=None,
+      isolate_cache=isolate_cache,
+      outputs=options.output,
+      install_named_caches=install_named_caches,
+      leak_temp_dir=options.leak_temp_dir,
+      root_dir=_to_unicode(options.root_dir),
+      hard_timeout=options.hard_timeout,
+      grace_period=options.grace_period,
+      bot_file=options.bot_file,
+      switch_to_account=options.switch_to_account,
+      install_packages_fn=install_packages_fn,
+      use_symlinks=options.use_symlinks,
+      env=options.env,
+      env_prefix=options.env_prefix)
   try:
     if options.isolate_server:
       storage = isolateserver.get_storage(
           options.isolate_server, options.namespace)
       with storage:
+        data = data._replace(storage=storage)
         # Hashing schemes used by |storage| and |isolate_cache| MUST match.
         assert storage.hash_algo == isolate_cache.hash_algo
-        return run_tha_test(
-            args,
-            options.isolated,
-            storage,
-            isolate_cache,
-            options.output,
-            install_named_caches,
-            options.leak_temp_dir,
-            options.json, options.root_dir,
-            options.hard_timeout,
-            options.grace_period,
-            options.bot_file,
-            options.switch_to_account,
-            install_packages_fn,
-            options.use_symlinks,
-            options.raw_cmd)
-    return run_tha_test(
-        args,
-        options.isolated,
-        None,
-        isolate_cache,
-        options.output,
-        install_named_caches,
-        options.leak_temp_dir,
-        options.json,
-        options.root_dir,
-        options.hard_timeout,
-        options.grace_period,
-        options.bot_file,
-        options.switch_to_account,
-        install_packages_fn,
-        options.use_symlinks,
-        options.raw_cmd)
+        return run_tha_test(data, options.json)
+    return run_tha_test(data, options.json)
   except (cipd.Error, named_cache.Error) as ex:
     print >> sys.stderr, ex.message
     return 1

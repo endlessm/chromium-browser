@@ -6,13 +6,14 @@ import optparse
 import sys
 
 from py_utils import class_util
+from py_utils import expectations_parser
 from telemetry import decorators
 from telemetry.internal import story_runner
 from telemetry.internal.util import command_line
 from telemetry.page import legacy_page_test
-from telemetry.story import expectations
+from telemetry.story import expectations as expectations_module
 from telemetry.web_perf import timeline_based_measurement
-from tracing.value import histogram
+from tracing.value.diagnostics import generic_set
 
 Owner = decorators.Owner # pylint: disable=invalid-name
 
@@ -62,7 +63,7 @@ class Benchmark(command_line.Command):
   options = {}
   page_set = None
   test = timeline_based_measurement.TimelineBasedMeasurement
-  SUPPORTED_PLATFORMS = [expectations.ALL]
+  SUPPORTED_PLATFORMS = [expectations_module.ALL]
 
   MAX_NUM_VALUES = sys.maxint
 
@@ -73,7 +74,7 @@ class Benchmark(command_line.Command):
       max_failures: The number of story run's failures before bailing
           from executing subsequent page runs. If None, we never bail.
     """
-    self._expectations = None
+    self._expectations = expectations_module.StoryExpectations()
     self._max_failures = max_failures
     # TODO: There should be an assertion here that checks that only one of
     # the following is true:
@@ -196,7 +197,7 @@ class Benchmark(command_line.Command):
     benchmark_component = decorators.GetComponent(self)
     component_diagnostic_value = (
         [benchmark_component] if benchmark_component else [])
-    return histogram.GenericSet(component_diagnostic_value)
+    return generic_set.GenericSet(component_diagnostic_value)
 
   def GetOwners(self):
     """Returns a Generic Diagnostic containing the benchmark's owners' emails
@@ -205,7 +206,7 @@ class Benchmark(command_line.Command):
     Returns:
       Diagnostic with a list of the benchmark's owners' emails
     """
-    return histogram.GenericSet(decorators.GetEmails(self) or [])
+    return generic_set.GenericSet(decorators.GetEmails(self) or [])
 
   @decorators.Deprecated(
       2017, 7, 29, 'Use CreateCoreTimelineBasedMeasurementOptions instead.')
@@ -323,31 +324,18 @@ class Benchmark(command_line.Command):
     return self.page_set()  # pylint: disable=not-callable
 
   def GetBrokenExpectations(self, story_set):
-    self.InitializeExpectations()
     if self._expectations:
       return self._expectations.GetBrokenExpectations(story_set)
     return []
 
-  # TODO(rnephew): Rename InitializeExpectations to GetExpectations
-  def InitializeExpectations(self):
-    """Returns StoryExpectation object.
+  def AugmentExpectationsWithParser(self, data):
+    parser = expectations_parser.TestExpectationParser(data)
+    self._expectations.GetBenchmarkExpectationsFromParser(
+        parser.expectations, self.Name())
 
-    This is a wrapper for GetExpectations. The user overrides GetExpectatoins
-    in the benchmark class to have it use the correct expectations. This is what
-    story_runner.py uses to get the expectations.
-    """
-    if not self._expectations:
-      self._expectations = self.GetExpectations()
+  @property
+  def expectations(self):
     return self._expectations
-
-  # TODO(rnephew): Rename GetExpectations to CreateExpectations
-  def GetExpectations(self):
-    """Returns a StoryExpectation object.
-
-    This object is used to determine what stories are disabled. This needs to be
-    overridden by the subclass. It defaults to an empty expectations object.
-    """
-    return expectations.StoryExpectations()
 
 
 def AddCommandLineArgs(parser):

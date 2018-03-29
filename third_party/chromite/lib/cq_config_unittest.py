@@ -84,7 +84,7 @@ class CQConfigParserTest(cros_test_lib.MockTestCase):
     self.common_config_file = '/build_root/repo/COMMIT-QUEUE.ini'
 
   def CreateCQConfigParser(self, build_root=None, change=None, checkout=None,
-                           common_config_file=None):
+                           common_config_file=None, forgiving=True):
     if build_root is None:
       build_root = self.build_root
     if change is None:
@@ -98,7 +98,7 @@ class CQConfigParserTest(cros_test_lib.MockTestCase):
                      return_value=checkout)
     self.PatchObject(cq_config.CQConfigParser, 'GetCommonConfigFileForChange',
                      return_value=common_config_file)
-    return cq_config.CQConfigParser(build_root, change)
+    return cq_config.CQConfigParser(build_root, change, forgiving=forgiving)
 
   def testGetOption(self):
     """Test GetOption."""
@@ -128,15 +128,16 @@ class CQConfigParserTest(cros_test_lib.MockTestCase):
 
       self.assertEqual(None, result)
 
-  def testGetOptionForBadConfigFileWithFalseForgiven(self):
+  def testGetOptionForBadConfigFileWithFalseForgiving(self):
     """Test whether exception is raised when handle a malformat config file."""
     with osutils.TempDir(set_global=True) as tempdir:
       path = os.path.join(tempdir, 'COMMIT-QUEUE.ini')
       osutils.WriteFile(path, 'foo\n')
-      parser = self.CreateCQConfigParser(common_config_file=path)
+      parser = self.CreateCQConfigParser(common_config_file=path,
+                                         forgiving=False)
 
-      self.assertRaises(cq_config.MalformedCQConfigException,
-                        parser.GetOption, 'a', 'b', forgiven=False)
+      with self.assertRaises(cq_config.MalformedCQConfigException):
+        parser.GetOption('a', 'b')
 
   def testGetPreCQConfigs(self):
     """Test GetPreCQConfigs."""
@@ -206,8 +207,8 @@ class CQConfigParserTest(cros_test_lib.MockTestCase):
     osutils.WriteFile(changed_file, '#test#', makedirs=True)
     return os.path.relpath(changed_file, root_dir)
 
-  def testGetUnionedOptionsFromSubConfigs(self):
-    """Test GetUnionedOptionsFromSubConfigs."""
+  def testGetUnionedPreCQConfigs(self):
+    """Test GetUnionedPreCQConfigs."""
     mock_checkout = mock.Mock()
     with osutils.TempDir(set_global=True) as tempdir:
       root_dir = os.path.join(tempdir, 'overlays')
@@ -234,27 +235,145 @@ class CQConfigParserTest(cros_test_lib.MockTestCase):
       change = self._patch_factory.MockPatch()
       self.PatchObject(cros_patch.GerritPatch, 'GetDiffStatus',
                        return_value=diff_dict)
+
       parser = self.CreateCQConfigParser(
           change=change, common_config_file=root_ini, checkout=mock_checkout)
-      union_options = parser.GetUnionedOptionsFromSubConfigs(
-          constants.CQ_CONFIG_SECTION_GENERAL,
-          constants.CQ_CONFIG_PRE_CQ_CONFIGS)
+      pre_cq_configs = parser.GetUnionedPreCQConfigs()
 
-      self.assertItemsEqual(union_options,
-                            ['default lumpy-pre-cq', 'lakitu-pre-cq',
-                             'stumpy-pre-cq'])
+      self.assertItemsEqual(pre_cq_configs,
+                            {'default', 'lumpy-pre-cq', 'lakitu-pre-cq',
+                             'stumpy-pre-cq'})
 
-  def testGetUnionedPreCQConfigs(self):
-    """Test GetUnionedPreCQConfigs."""
-    self.PatchObject(
-        cq_config.CQConfigParser, 'GetUnionedOptionsFromSubConfigs',
-        return_value={'default lumpy-pre-cq', 'lakitu-pre-cq', 'stumpy-pre-cq'})
-    parser = self.CreateCQConfigParser()
-    pre_cq_configs = parser.GetUnionedPreCQConfigs()
+  def testCanSubmitChangeInPreCqMissingSubConfigsOption(self):
+    """Test CanSubmitChangeInPreCq when sub-configs option is missing."""
+    mock_checkout = mock.Mock()
+    with osutils.TempDir(set_global=True) as tempdir:
+      root_dir = os.path.join(tempdir, 'overlays')
+      mock_checkout.GetPath.return_value = root_dir
+      root_ini = os.path.join(root_dir, 'COMMIT-QUEUE.ini')
+      osutils.WriteFile(
+          root_ini,
+          '[GENERAL]\nsubmit-in-pre-cq: no\n',
+          makedirs=True)
+      f_1 = self._CreateOverlayPaths(
+          root_dir, 'overlay-lumpy',
+          '[GENERAL]\nsubmit-in-pre-cq: yes\n')
+      diff_dict = {f_1: 'M'}
+      change = self._patch_factory.MockPatch()
+      self.PatchObject(cros_patch.GerritPatch, 'GetDiffStatus',
+                       return_value=diff_dict)
 
-    self.assertItemsEqual(pre_cq_configs,
-                          {'default', 'lumpy-pre-cq', 'lakitu-pre-cq',
-                           'stumpy-pre-cq'})
+      parser = self.CreateCQConfigParser(
+          change=change, common_config_file=root_ini, checkout=mock_checkout)
+      self.assertFalse(parser.CanSubmitChangeInPreCQ())
+
+  def testCanSubmitChangeInPreCqNoExplicitNoSubConfigs(self):
+    """Test CanSubmitChangeInPreCq when sub-configs are disabled."""
+    mock_checkout = mock.Mock()
+    with osutils.TempDir(set_global=True) as tempdir:
+      root_dir = os.path.join(tempdir, 'overlays')
+      mock_checkout.GetPath.return_value = root_dir
+      root_ini = os.path.join(root_dir, 'COMMIT-QUEUE.ini')
+      osutils.WriteFile(
+          root_ini,
+          '[GENERAL]\n'
+          'submit-in-pre-cq: no\n'
+          'union-pre-cq-sub-configs: no\n',
+          makedirs=True)
+      f_1 = self._CreateOverlayPaths(
+          root_dir, 'overlay-lumpy',
+          '[GENERAL]\nsubmit-in-pre-cq: yes\n')
+      diff_dict = {f_1: 'M'}
+      change = self._patch_factory.MockPatch()
+      self.PatchObject(cros_patch.GerritPatch, 'GetDiffStatus',
+                       return_value=diff_dict)
+
+      parser = self.CreateCQConfigParser(
+          change=change, common_config_file=root_ini, checkout=mock_checkout)
+      self.assertFalse(parser.CanSubmitChangeInPreCQ())
+
+  def testCanSubmitChangeAllowedByAllSubConfigs(self):
+    """Test CanSubmitChangeInPreCq when all sub-configs allow it."""
+    mock_checkout = mock.Mock()
+    with osutils.TempDir(set_global=True) as tempdir:
+      root_dir = os.path.join(tempdir, 'overlays')
+      mock_checkout.GetPath.return_value = root_dir
+      root_ini = os.path.join(root_dir, 'COMMIT-QUEUE.ini')
+      osutils.WriteFile(
+          root_ini,
+          '[GENERAL]\n'
+          'submit-in-pre-cq: no\n'
+          'union-pre-cq-sub-configs: yes\n',
+          makedirs=True)
+      f_1 = self._CreateOverlayPaths(
+          root_dir, 'overlay-lumpy',
+          '[GENERAL]\nsubmit-in-pre-cq: yes\n')
+      f_2 = self._CreateOverlayPaths(
+          root_dir, 'overlay-link',
+          '[GENERAL]\nsubmit-in-pre-cq: yes\n')
+      diff_dict = {f: 'M' for f in (f_1, f_2)}
+      change = self._patch_factory.MockPatch()
+      self.PatchObject(cros_patch.GerritPatch, 'GetDiffStatus',
+                       return_value=diff_dict)
+
+      parser = self.CreateCQConfigParser(
+          change=change, common_config_file=root_ini, checkout=mock_checkout)
+      self.assertTrue(parser.CanSubmitChangeInPreCQ())
+
+  def testCanSubmitChangeDisallwedByParentConfig(self):
+    """Test CanSubmitChangeInPreCq when sub-config allows it, but not root."""
+    mock_checkout = mock.Mock()
+    with osutils.TempDir(set_global=True) as tempdir:
+      root_dir = os.path.join(tempdir, 'overlays')
+      mock_checkout.GetPath.return_value = root_dir
+      root_ini = os.path.join(root_dir, 'COMMIT-QUEUE.ini')
+      osutils.WriteFile(
+          root_ini,
+          '[GENERAL]\n'
+          'submit-in-pre-cq: no\n'
+          'union-pre-cq-sub-configs: yes\n',
+          makedirs=True)
+      f_1 = self._CreateOverlayPaths(
+          root_dir, 'overlay-lumpy',
+          '[GENERAL]\nsubmit-in-pre-cq: yes\n')
+      f_2 = self._CreateOverlayPaths(
+          root_dir, 'overlay-link',
+          '[GENERAL]\n')
+      diff_dict = {f: 'M' for f in (f_1, f_2)}
+      change = self._patch_factory.MockPatch()
+      self.PatchObject(cros_patch.GerritPatch, 'GetDiffStatus',
+                       return_value=diff_dict)
+
+      parser = self.CreateCQConfigParser(
+          change=change, common_config_file=root_ini, checkout=mock_checkout)
+      self.assertFalse(parser.CanSubmitChangeInPreCQ())
+
+  def testCanSubmitChangeDisallwedByParentConfigByDefault(self):
+    """Test CanSubmitChangeInPreCq when sub-config allows it, but not root."""
+    mock_checkout = mock.Mock()
+    with osutils.TempDir(set_global=True) as tempdir:
+      root_dir = os.path.join(tempdir, 'overlays')
+      mock_checkout.GetPath.return_value = root_dir
+      root_ini = os.path.join(root_dir, 'COMMIT-QUEUE.ini')
+      osutils.WriteFile(
+          root_ini,
+          '[GENERAL]\n'
+          'union-pre-cq-sub-configs: yes\n',
+          makedirs=True)
+      f_1 = self._CreateOverlayPaths(
+          root_dir, 'overlay-lumpy',
+          '[GENERAL]\nsubmit-in-pre-cq: yes\n')
+      f_2 = self._CreateOverlayPaths(
+          root_dir, 'overlay-link',
+          '[GENERAL]\n')
+      diff_dict = {f: 'M' for f in (f_1, f_2)}
+      change = self._patch_factory.MockPatch()
+      self.PatchObject(cros_patch.GerritPatch, 'GetDiffStatus',
+                       return_value=diff_dict)
+
+      parser = self.CreateCQConfigParser(
+          change=change, common_config_file=root_ini, checkout=mock_checkout)
+      self.assertFalse(parser.CanSubmitChangeInPreCQ())
 
   def GetOption(self, path, section='a', option='b'):
     # pylint: disable=protected-access

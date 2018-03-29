@@ -19,9 +19,11 @@
 #include "android_util.h"
 #include <android_native_app_glue.h>
 #include <cassert>
+#include <cstring>
 #include <vector>
 #include <string>
 #include <sstream>
+#include <stdlib.h>
 
 extern "C" {
 

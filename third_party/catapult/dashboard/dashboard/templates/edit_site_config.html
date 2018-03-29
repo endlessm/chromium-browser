@@ -46,8 +46,6 @@ found in the LICENSE file.
     <h2>Keys</h2>
     <h3>Non-namespaced</h3>
     <ul>
-      <li><a href="?key=bisect_fyi_config_map">bisect_fyi_config_map</a>:
-        Bisect FYI test cases.</li>
       <li><a href="?key=internal_domain_key">internal_domain_key</a>:
         The domain of users belong to to view internal data.</li>
       <li><a href="?key=ip_whitelist">ip_whitelist</a>:
@@ -64,7 +62,7 @@ found in the LICENSE file.
       <li><a href="?key=bisect_builder_types">bisect_builder_types</a>:
         Map of master names to bisect "test types".</li>
       <li><a href="?key=bot_browser_map">bot_browser_map</a>:
-        Browsers to use for Telemetry.</li>
+        Browsers to use for Telemetry. Uses a prefix match.</li>
       <li><a href="?key=master_try_server_map">master_try_server_map</a>:
         Try servers to use for bisect jobs.</li>
       <li><a href="?key=revision_info">revision_info</a>:
@@ -73,8 +71,8 @@ found in the LICENSE file.
         Pinpoint: Details about known repositories.</li>
       <li><a href="?key=repository_urls_to_names">repository_urls_to_names</a>:
         Pinpoint: Map of repository URLs to their short names. If a repository has moved locations, both the old and new URLs should map to the same name.</li>
-      <li><a href="?key=bot_dimensions_map">bot_dimensions_map</a>:
-        Pinpoint: Map of bot names to dimensions.</li>
+      <li><a href="?key=bot_configurations">bot_configurations</a>:
+        Pinpoint: Details about known bots.</li>
     </ul>
   {% endif %}
 </body>

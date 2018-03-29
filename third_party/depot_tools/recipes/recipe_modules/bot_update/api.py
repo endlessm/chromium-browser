@@ -34,10 +34,7 @@ class BotUpdateApi(recipe_api.RecipeApi):
     bot_update_path = self.resource('bot_update.py')
     kwargs.setdefault('infra_step', True)
 
-    env_prefixes = {
-        'PATH': [self.m.depot_tools.root],
-    }
-    with self.m.context(env_prefixes=env_prefixes):
+    with self.m.depot_tools.on_path():
       return self.m.python(name, bot_update_path, cmd, **kwargs)
 
   @property

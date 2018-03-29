@@ -26,8 +26,6 @@ import subcommand
 
 # Analogous to gc.autopacklimit git config.
 GC_AUTOPACKLIMIT = 50
-if sys.platform.startswith('win'):
-  GC_AUTOPACKLIMIT = 9
 
 GIT_CACHE_CORRUPT_MESSAGE = 'WARNING: The Git cache is corrupt.'
 

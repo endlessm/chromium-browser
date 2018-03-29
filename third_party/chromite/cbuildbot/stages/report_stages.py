@@ -37,6 +37,7 @@ from chromite.lib import patch as cros_patch
 from chromite.lib import portage_util
 from chromite.lib import results_lib
 from chromite.lib import retry_stats
+from chromite.lib import risk_report
 from chromite.lib import toolchain
 from chromite.lib import tree_status
 from chromite.lib import triage_lib
@@ -707,7 +708,8 @@ class ReportStage(generic_stages.BuilderStage,
       # TODO (sbasi) crbug.com/362776: Rework the way we do uploading to
       # multiple buckets. Currently this can only be done in the Archive Stage
       # therefore index.html will only end up in the normal Chrome OS bucket.
-      commands.GenerateHtmlIndex(index, files, title=title)
+      commands.GenerateHtmlIndex(index, files, title=title,
+                                 url_base=gs.GsUrlToHttp(archive.upload_url))
       commands.UploadArchivedFile(
           archive_path, [archive.upload_url], os.path.basename(index),
           debug=self._run.debug, acl=self.acl)
@@ -890,7 +892,7 @@ class ReportStage(generic_stages.BuilderStage,
       if build_id is not None:
         details_link = tree_status.ConstructViceroyBuildDetailsURL(build_id)
         logging.PrintBuildbotLink('Build details', details_link)
-        suite_details_link = tree_status.ConstructViceroySuiteDetailsURL(
+        suite_details_link = tree_status.ConstructGoldenEyeSuiteDetailsURL(
             build_id=build_id)
         logging.PrintBuildbotLink('Build details', details_link)
         logging.PrintBuildbotLink('Suite details', suite_details_link)
@@ -1045,12 +1047,15 @@ class ReportStage(generic_stages.BuilderStage,
               fields=dict(mon_fields, builder_name=self._run.GetBuilderName()))
 
       if config_lib.IsMasterCQ(self._run.config):
+        logging.PrintBuildbotStepText(risk_report.CLRiskText(build_id))
         self_destructed = self._run.attrs.metadata.GetValueWithDefault(
             constants.SELF_DESTRUCTED_BUILD, False)
         mon_fields = {'status': status_for_db,
                       'self_destructed': self_destructed}
         metrics.SecondsDistribution(constants.MON_CQ_BUILD_DURATION).add(
             duration, fields=mon_fields)
+        annotator_link = tree_status.ConstructAnnotatorURL(build_id)
+        logging.PrintBuildbotLink('Build annotator', annotator_link)
 
       # From this point forward, treat all exceptions as warnings.
       self._post_completion = True

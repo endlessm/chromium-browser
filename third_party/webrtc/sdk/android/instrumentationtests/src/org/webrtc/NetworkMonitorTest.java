@@ -43,7 +43,7 @@ import org.junit.runner.RunWith;
  * Tests for org.webrtc.NetworkMonitor.
  *
  * TODO(deadbeef): These tests don't cover the interaction between
- * NetworkManager.java and androidnetworkmonitor_jni.cc, which is how this
+ * NetworkManager.java and androidnetworkmonitor.cc, which is how this
  * class is used in practice in WebRTC.
  */
 @SuppressLint("NewApi")
@@ -165,9 +165,7 @@ public class NetworkMonitorTest {
    */
   private void createTestMonitor() {
     Context context = InstrumentationRegistry.getTargetContext();
-    NetworkMonitor.resetInstanceForTests();
-    NetworkMonitor.createAutoDetectorForTest();
-    receiver = NetworkMonitor.getAutoDetectorForTest();
+    receiver = NetworkMonitor.getAutoDetectorForTest(context);
     assertNotNull(receiver);
 
     connectivityDelegate = new MockConnectivityManagerDelegate();

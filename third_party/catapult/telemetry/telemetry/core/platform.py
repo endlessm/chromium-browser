@@ -10,7 +10,6 @@ from telemetry.core import memory_cache_http_server
 from telemetry.core import network_controller
 from telemetry.core import tracing_controller
 from telemetry.core import util
-from telemetry.internal import forwarders
 from telemetry.internal.platform import (platform_backend as
                                          platform_backend_module)
 
@@ -380,6 +379,13 @@ class Platform(object):
     """
     return self._platform_backend.TakeScreenshot(file_path)
 
+  def SetFullPerformanceModeEnabled(self, enabled):
+    """ Set full performance mode on the platform.
+
+    Note: this can be no-op on certain platforms.
+    """
+    return self._platform_backend.SetFullPerformanceModeEnabled(enabled)
+
   def StartLocalServer(self, server):
     """Starts a LocalServer and associates it with this platform.
     |server.Close()| should be called manually to close the started server.
@@ -388,6 +394,8 @@ class Platform(object):
 
   @property
   def http_server(self):
+    # TODO(crbug.com/799490): Ownership of the local server should be moved
+    # to the network_controller.
     return self._local_server_controller.GetRunningServer(
         memory_cache_http_server.MemoryCacheHTTPServer, None)
 
@@ -424,10 +432,9 @@ class Platform(object):
     # remote machine with ssh/adb remote port forwarding.
     if (self.GetOSName() == 'chromeos' and
         self._platform_backend.IsRemoteDevice()):
-      self._forwarder = self._platform_backend.CreatePortForwarder(
-          forwarders.PortPair(self.http_server.port, 0),
-          use_remote_port_forwarding=True)
-      self.http_server.port = self._forwarder.host_port
+      self._forwarder = self._platform_backend.forwarder_factory.Create(
+          local_port=self.http_server.port, remote_port=0)
+      self.http_server.port = self._forwarder.remote_port
     return True
 
   def StopAllLocalServers(self):

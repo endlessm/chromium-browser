@@ -274,11 +274,14 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
 
     build_id, db = self._run.GetCIDBHandle()
 
+    test_args = None
+    if config_lib.IsCQType(self._run.config.build_type):
+      test_args = {'fast': 'True'}
+
     cmd_result = commands.RunHWTestSuite(
         build, self.suite_config.suite, self._board_name,
         model=self._model,
         pool=self.suite_config.pool,
-        num=self.suite_config.num,
         file_bugs=self.suite_config.file_bugs,
         wait_for_results=self.wait_for_results,
         priority=self.suite_config.priority,
@@ -292,7 +295,8 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
         debug=not self.TestsEnabled(self._run),
         subsystems=subsystems,
         skip_duts_check=skip_duts_check,
-        job_keyvals=self.GetJobKeyvals())
+        job_keyvals=self.GetJobKeyvals(),
+        test_args=test_args)
 
     if config_lib.IsCQType(self._run.config.build_type):
       self.ReportHWTestResults(cmd_result.json_dump_result, build_id, db)

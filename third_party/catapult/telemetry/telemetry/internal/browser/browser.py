@@ -21,26 +21,31 @@ from telemetry.internal.util import exception_formatter
 class Browser(app.App):
   """A running browser instance that can be controlled in a limited way.
 
-  To create a browser instance, use browser_finder.FindBrowser.
+  To create a browser instance, use browser_finder.FindBrowser, e.g:
 
-  Be sure to clean up after yourself by calling Close() when you are done with
-  the browser. Or better yet:
-    browser_to_create = FindBrowser(options)
-    with browser_to_create.Create(options) as browser:
-      ... do all your operations on browser here
+    possible_browser = browser_finder.FindBrowser(finder_options)
+    with possible_browser.BrowserSession(
+        finder_options.browser_options) as browser:
+      # Do all your operations on browser here.
+
+  See telemetry.internal.browser.possible_browser for more details and use
+  cases.
   """
-  def __init__(self, backend, platform_backend):
+  def __init__(self, backend, platform_backend, startup_args):
     super(Browser, self).__init__(app_backend=backend,
                                   platform_backend=platform_backend)
     try:
       self._browser_backend = backend
       self._platform_backend = platform_backend
       self._tabs = tab_list.TabList(backend.tab_list_backend)
-      self._platform_backend.DidCreateBrowser(self, self._browser_backend)
       self._browser_backend.SetBrowser(self)
-      self._browser_backend.Start()
+      # TODO(crbug.com/787834): Move the statup args and url computation out
+      # of the browser backend and into the callers of this constructor.
+      startup_args = list(startup_args)
+      startup_args.extend(self._browser_backend.GetBrowserStartupArgs())
+      startup_url = self._browser_backend.GetBrowserStartupUrl()
+      self._browser_backend.Start(startup_args, startup_url=startup_url)
       self._LogBrowserInfo()
-      self._platform_backend.DidStartBrowser(self, self._browser_backend)
       self._profiling_controller = profiling_controller.ProfilingController(
           self._browser_backend.profiling_controller_backend)
     except Exception:
@@ -205,7 +210,6 @@ class Browser(app.App):
     try:
       if self._browser_backend.IsBrowserRunning():
         logging.info('Closing browser (pid=%s) ...', self._browser_backend.pid)
-        self._platform_backend.WillCloseBrowser(self, self._browser_backend)
 
       self._browser_backend.profiling_controller_backend.WillCloseBrowser()
       if self._browser_backend.supports_uploading_logs:
@@ -220,7 +224,6 @@ class Browser(app.App):
             'Browser is still running (pid=%s).', self._browser_backend.pid)
       else:
         logging.info('Browser is closed.')
-      self.credentials = None
 
   def Foreground(self):
     """Ensure the browser application is moved to the foreground."""

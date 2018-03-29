@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import collections
+
 from tracing.value import histogram as histogram_module
 from tracing.value.diagnostics import all_diagnostics
 from tracing.value.diagnostics import diagnostic
@@ -74,7 +76,7 @@ class HistogramSet(object):
 
   def ImportDicts(self, dicts):
     for d in dicts:
-      if all_diagnostics.DIAGNOSTICS_BY_NAME.get(d.get('type')):
+      if d.get('type') in all_diagnostics.GetDiagnosticTypenames():
         diag = diagnostic.Diagnostic.FromDict(d)
         self._shared_diagnostics_by_guid[d['guid']] = diag
       else:
@@ -101,16 +103,11 @@ class HistogramSet(object):
 
   def DeduplicateDiagnostics(self):
     names_to_candidates = {}
-    diagnostics_to_histograms = {}
+    diagnostics_to_histograms = collections.defaultdict(list)
 
     for hist in self:
       for name, candidate in hist.diagnostics.iteritems():
-        # TODO(#3695): Remove this check once equality is smoke-tested.
-        if not hasattr(candidate, '__eq__'):
-          self._shared_diagnostics_by_guid[candidate.guid] = candidate
-          continue
-
-        diagnostics_to_histograms[candidate] = hist
+        diagnostics_to_histograms[candidate].append(hist)
 
         if name not in names_to_candidates:
           names_to_candidates[name] = set()
@@ -123,8 +120,9 @@ class HistogramSet(object):
         found = False
         for test in deduplicated_diagnostics:
           if candidate == test:
-            hist = diagnostics_to_histograms.get(candidate)
-            hist.diagnostics[name] = test
+            hists = diagnostics_to_histograms.get(candidate)
+            for h in hists:
+              h.diagnostics[name] = test
             found = True
             break
         if not found:

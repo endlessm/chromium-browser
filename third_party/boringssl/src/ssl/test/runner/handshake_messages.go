@@ -265,6 +265,7 @@ type clientHelloMsg struct {
 	supportedCurves         []CurveID
 	supportedPoints         []uint8
 	hasKeyShares            bool
+	keyShareExtension       uint16
 	keyShares               []keyShareEntry
 	trailingKeyShareData    bool
 	pskIdentities           []pskIdentity
@@ -291,6 +292,7 @@ type clientHelloMsg struct {
 	omitExtensions          bool
 	emptyExtensions         bool
 	pad                     int
+	dummyPQPaddingLen       int
 }
 
 func (m *clientHelloMsg) equal(i interface{}) bool {
@@ -339,7 +341,8 @@ func (m *clientHelloMsg) equal(i interface{}) bool {
 		m.pskBinderFirst == m1.pskBinderFirst &&
 		m.omitExtensions == m1.omitExtensions &&
 		m.emptyExtensions == m1.emptyExtensions &&
-		m.pad == m1.pad
+		m.pad == m1.pad &&
+		m.dummyPQPaddingLen == m1.dummyPQPaddingLen
 }
 
 func (m *clientHelloMsg) marshal() []byte {
@@ -444,7 +447,7 @@ func (m *clientHelloMsg) marshal() []byte {
 		supportedPoints.addBytes(m.supportedPoints)
 	}
 	if m.hasKeyShares {
-		extensions.addU16(extensionKeyShare)
+		extensions.addU16(m.keyShareExtension)
 		keyShareList := extensions.addU16LengthPrefixed()
 
 		keyShares := keyShareList.addU16LengthPrefixed()
@@ -719,7 +722,12 @@ func (m *clientHelloMsg) unmarshal(data []byte) bool {
 			// http://tools.ietf.org/html/rfc5077#section-3.2
 			m.ticketSupported = true
 			m.sessionTicket = []byte(body)
-		case extensionKeyShare:
+		case extensionOldKeyShare, extensionNewKeyShare:
+			// We assume the client only supports one of draft-22 or draft-23.
+			if m.keyShareExtension != 0 {
+				return false
+			}
+			m.keyShareExtension = extension
 			// draft-ietf-tls-tls13 section 6.3.2.3
 			var keyShares byteReader
 			if !body.readU16LengthPrefixed(&keyShares) || len(body) != 0 {
@@ -847,6 +855,11 @@ func (m *clientHelloMsg) unmarshal(data []byte) bool {
 			m.sctListSupported = true
 		case extensionCustom:
 			m.customExtension = string(body)
+		case extensionDummyPQPadding:
+			if len(body) == 0 {
+				return false
+			}
+			m.dummyPQPaddingLen = len(body)
 		}
 
 		if isGREASEValue(extension) {
@@ -896,27 +909,27 @@ func (m *serverHelloMsg) marshal() []byte {
 	}
 	if m.versOverride != 0 {
 		hello.addU16(m.versOverride)
-	} else if isResumptionExperiment(m.vers) {
+	} else if vers >= VersionTLS13 {
 		hello.addU16(VersionTLS12)
 	} else {
 		hello.addU16(m.vers)
 	}
 
 	hello.addBytes(m.random)
-	if vers < VersionTLS13 || isResumptionExperiment(m.vers) {
-		sessionId := hello.addU8LengthPrefixed()
-		sessionId.addBytes(m.sessionId)
-	}
+	sessionId := hello.addU8LengthPrefixed()
+	sessionId.addBytes(m.sessionId)
 	hello.addU16(m.cipherSuite)
-	if vers < VersionTLS13 || isResumptionExperiment(m.vers) {
-		hello.addU8(m.compressionMethod)
-	}
+	hello.addU8(m.compressionMethod)
 
 	extensions := hello.addU16LengthPrefixed()
 
 	if vers >= VersionTLS13 {
 		if m.hasKeyShare {
-			extensions.addU16(extensionKeyShare)
+			if isDraft23(m.vers) {
+				extensions.addU16(extensionNewKeyShare)
+			} else {
+				extensions.addU16(extensionOldKeyShare)
+			}
 			keyShare := extensions.addU16LengthPrefixed()
 			keyShare.addU16(uint16(m.keyShare.group))
 			keyExchange := keyShare.addU16LengthPrefixed()
@@ -927,14 +940,12 @@ func (m *serverHelloMsg) marshal() []byte {
 			extensions.addU16(2) // Length
 			extensions.addU16(m.pskIdentity)
 		}
-		if isResumptionExperiment(m.vers) || m.supportedVersOverride != 0 {
-			extensions.addU16(extensionSupportedVersions)
-			extensions.addU16(2) // Length
-			if m.supportedVersOverride != 0 {
-				extensions.addU16(m.supportedVersOverride)
-			} else {
-				extensions.addU16(m.vers)
-			}
+		extensions.addU16(extensionSupportedVersions)
+		extensions.addU16(2) // Length
+		if m.supportedVersOverride != 0 {
+			extensions.addU16(m.supportedVersOverride)
+		} else {
+			extensions.addU16(m.vers)
 		}
 		if len(m.customExtension) > 0 {
 			extensions.addU16(extensionCustom)
@@ -980,18 +991,10 @@ func (m *serverHelloMsg) unmarshal(data []byte) bool {
 	if !ok {
 		return false
 	}
-	if vers < VersionTLS13 || isResumptionExperiment(m.vers) {
-		if !reader.readU8LengthPrefixedBytes(&m.sessionId) {
-			return false
-		}
-	}
-	if !reader.readU16(&m.cipherSuite) {
+	if !reader.readU8LengthPrefixedBytes(&m.sessionId) ||
+		!reader.readU16(&m.cipherSuite) ||
+		!reader.readU8(&m.compressionMethod) {
 		return false
-	}
-	if vers < VersionTLS13 || isResumptionExperiment(m.vers) {
-		if !reader.readU8(&m.compressionMethod) {
-			return false
-		}
 	}
 
 	if len(reader) == 0 && m.vers < VersionTLS13 {
@@ -1029,6 +1032,10 @@ func (m *serverHelloMsg) unmarshal(data []byte) bool {
 	}
 
 	if vers >= VersionTLS13 {
+		extensionKeyShare := extensionOldKeyShare
+		if isDraft23(m.vers) {
+			extensionKeyShare = extensionNewKeyShare
+		}
 		for len(extensions) > 0 {
 			var extension uint16
 			var body byteReader
@@ -1052,9 +1059,7 @@ func (m *serverHelloMsg) unmarshal(data []byte) bool {
 				}
 				m.hasPSKIdentity = true
 			case extensionSupportedVersions:
-				if !isResumptionExperiment(m.vers) {
-					return false
-				}
+				// Parsed above.
 			default:
 				// Only allow the 3 extensions that are sent in
 				// the clear in TLS 1.3.
@@ -1211,7 +1216,7 @@ func (m *serverExtensions) marshal(extensions *byteBuilder) {
 		}
 	}
 	if m.hasKeyShare {
-		extensions.addU16(extensionKeyShare)
+		extensions.addU16(extensionOldKeyShare)
 		keyShare := extensions.addU16LengthPrefixed()
 		keyShare.addU16(uint16(m.keyShare.group))
 		keyExchange := keyShare.addU16LengthPrefixed()
@@ -1356,6 +1361,7 @@ type helloRetryRequestMsg struct {
 	isServerHello       bool
 	sessionId           []byte
 	cipherSuite         uint16
+	compressionMethod   uint8
 	hasSelectedGroup    bool
 	selectedGroup       CurveID
 	cookie              []byte
@@ -1382,10 +1388,10 @@ func (m *helloRetryRequestMsg) marshal() []byte {
 		sessionId := retryRequest.addU8LengthPrefixed()
 		sessionId.addBytes(m.sessionId)
 		retryRequest.addU16(m.cipherSuite)
-		retryRequest.addU8(0)
+		retryRequest.addU8(m.compressionMethod)
 	} else {
 		retryRequest.addU16(m.vers)
-		if isDraft21(m.vers) {
+		if isDraft22(m.vers) {
 			retryRequest.addU16(m.cipherSuite)
 		}
 	}
@@ -1403,7 +1409,11 @@ func (m *helloRetryRequestMsg) marshal() []byte {
 			extensions.addU16(m.vers)
 		}
 		if m.hasSelectedGroup {
-			extensions.addU16(extensionKeyShare)
+			if isDraft23(m.vers) {
+				extensions.addU16(extensionNewKeyShare)
+			} else {
+				extensions.addU16(extensionOldKeyShare)
+			}
 			extensions.addU16(2) // length
 			extensions.addU16(uint16(m.selectedGroup))
 		}
@@ -1439,12 +1449,34 @@ func (m *helloRetryRequestMsg) unmarshal(data []byte) bool {
 			compressionMethod != 0 {
 			return false
 		}
-	} else if isDraft21(m.vers) && !reader.readU16(&m.cipherSuite) {
+	} else if isDraft22(m.vers) && !reader.readU16(&m.cipherSuite) {
 		return false
 	}
 	var extensions byteReader
 	if !reader.readU16LengthPrefixed(&extensions) || len(reader) != 0 {
 		return false
+	}
+	extensionsCopy := extensions
+	for len(extensionsCopy) > 0 {
+		var extension uint16
+		var body byteReader
+		if !extensionsCopy.readU16(&extension) ||
+			!extensionsCopy.readU16LengthPrefixed(&body) {
+			return false
+		}
+		switch extension {
+		case extensionSupportedVersions:
+			if !m.isServerHello ||
+				!body.readU16(&m.vers) ||
+				len(body) != 0 {
+				return false
+			}
+		default:
+		}
+	}
+	extensionKeyShare := extensionOldKeyShare
+	if isDraft23(m.vers) {
+		extensionKeyShare = extensionNewKeyShare
 	}
 	for len(extensions) > 0 {
 		var extension uint16
@@ -1455,11 +1487,7 @@ func (m *helloRetryRequestMsg) unmarshal(data []byte) bool {
 		}
 		switch extension {
 		case extensionSupportedVersions:
-			if !m.isServerHello ||
-				!body.readU16(&m.vers) ||
-				len(body) != 0 {
-				return false
-			}
+			// Parsed above.
 		case extensionKeyShare:
 			var v uint16
 			if !body.readU16(&v) || len(body) != 0 {
@@ -1603,16 +1631,11 @@ func (m *serverKeyExchangeMsg) marshal() []byte {
 	if m.raw != nil {
 		return m.raw
 	}
-	length := len(m.key)
-	x := make([]byte, length+4)
-	x[0] = typeServerKeyExchange
-	x[1] = uint8(length >> 16)
-	x[2] = uint8(length >> 8)
-	x[3] = uint8(length)
-	copy(x[4:], m.key)
-
-	m.raw = x
-	return x
+	msg := newByteBuilder()
+	msg.addU8(typeServerKeyExchange)
+	msg.addU24LengthPrefixed().addBytes(m.key)
+	m.raw = msg.finish()
+	return m.raw
 }
 
 func (m *serverKeyExchangeMsg) unmarshal(data []byte) bool {
@@ -1637,19 +1660,12 @@ func (m *certificateStatusMsg) marshal() []byte {
 
 	var x []byte
 	if m.statusType == statusTypeOCSP {
-		x = make([]byte, 4+4+len(m.response))
-		x[0] = typeCertificateStatus
-		l := len(m.response) + 4
-		x[1] = byte(l >> 16)
-		x[2] = byte(l >> 8)
-		x[3] = byte(l)
-		x[4] = statusTypeOCSP
-
-		l -= 4
-		x[5] = byte(l >> 16)
-		x[6] = byte(l >> 8)
-		x[7] = byte(l)
-		copy(x[8:], m.response)
+		msg := newByteBuilder()
+		msg.addU8(typeCertificateStatus)
+		body := msg.addU24LengthPrefixed()
+		body.addU8(statusTypeOCSP)
+		body.addU24LengthPrefixed().addBytes(m.response)
+		x = msg.finish()
 	} else {
 		x = []byte{typeCertificateStatus, 0, 0, 1, m.statusType}
 	}
@@ -1660,21 +1676,12 @@ func (m *certificateStatusMsg) marshal() []byte {
 
 func (m *certificateStatusMsg) unmarshal(data []byte) bool {
 	m.raw = data
-	if len(data) < 5 {
+	reader := byteReader(data[4:])
+	if !reader.readU8(&m.statusType) ||
+		m.statusType != statusTypeOCSP ||
+		!reader.readU24LengthPrefixedBytes(&m.response) ||
+		len(reader) != 0 {
 		return false
-	}
-	m.statusType = data[4]
-
-	m.response = nil
-	if m.statusType == statusTypeOCSP {
-		if len(data) < 8 {
-			return false
-		}
-		respLen := uint32(data[5])<<16 | uint32(data[6])<<8 | uint32(data[7])
-		if uint32(len(data)) != 4+4+respLen {
-			return false
-		}
-		m.response = data[8:]
 	}
 	return true
 }
@@ -1700,16 +1707,11 @@ func (m *clientKeyExchangeMsg) marshal() []byte {
 	if m.raw != nil {
 		return m.raw
 	}
-	length := len(m.ciphertext)
-	x := make([]byte, length+4)
-	x[0] = typeClientKeyExchange
-	x[1] = uint8(length >> 16)
-	x[2] = uint8(length >> 8)
-	x[3] = uint8(length)
-	copy(x[4:], m.ciphertext)
-
-	m.raw = x
-	return x
+	msg := newByteBuilder()
+	msg.addU8(typeClientKeyExchange)
+	msg.addU24LengthPrefixed().addBytes(m.ciphertext)
+	m.raw = msg.finish()
+	return m.raw
 }
 
 func (m *clientKeyExchangeMsg) unmarshal(data []byte) bool {
@@ -1730,17 +1732,16 @@ type finishedMsg struct {
 	verifyData []byte
 }
 
-func (m *finishedMsg) marshal() (x []byte) {
+func (m *finishedMsg) marshal() []byte {
 	if m.raw != nil {
 		return m.raw
 	}
 
-	x = make([]byte, 4+len(m.verifyData))
-	x[0] = typeFinished
-	x[3] = byte(len(m.verifyData))
-	copy(x[4:], m.verifyData)
-	m.raw = x
-	return
+	msg := newByteBuilder()
+	msg.addU8(typeFinished)
+	msg.addU24LengthPrefixed().addBytes(m.verifyData)
+	m.raw = msg.finish()
+	return m.raw
 }
 
 func (m *finishedMsg) unmarshal(data []byte) bool {
@@ -1761,52 +1762,38 @@ func (m *nextProtoMsg) marshal() []byte {
 	if m.raw != nil {
 		return m.raw
 	}
-	l := len(m.proto)
-	if l > 255 {
-		l = 255
-	}
 
-	padding := 32 - (l+2)%32
-	length := l + padding + 2
-	x := make([]byte, length+4)
-	x[0] = typeNextProtocol
-	x[1] = uint8(length >> 16)
-	x[2] = uint8(length >> 8)
-	x[3] = uint8(length)
+	padding := 32 - (len(m.proto)+2)%32
 
-	y := x[4:]
-	y[0] = byte(l)
-	copy(y[1:], []byte(m.proto[0:l]))
-	y = y[1+l:]
-	y[0] = byte(padding)
-
-	m.raw = x
-
-	return x
+	msg := newByteBuilder()
+	msg.addU8(typeNextProtocol)
+	body := msg.addU24LengthPrefixed()
+	body.addU8LengthPrefixed().addBytes([]byte(m.proto))
+	body.addU8LengthPrefixed().addBytes(make([]byte, padding))
+	m.raw = msg.finish()
+	return m.raw
 }
 
 func (m *nextProtoMsg) unmarshal(data []byte) bool {
 	m.raw = data
+	reader := byteReader(data[4:])
+	var proto, padding []byte
+	if !reader.readU8LengthPrefixedBytes(&proto) ||
+		!reader.readU8LengthPrefixedBytes(&padding) ||
+		len(reader) != 0 {
+		return false
+	}
+	m.proto = string(proto)
 
-	if len(data) < 5 {
+	// Padding is not meant to be checked normally, but as this is a testing
+	// implementation, we check the padding is as expected.
+	if len(padding) != 32-(len(m.proto)+2)%32 {
 		return false
 	}
-	data = data[4:]
-	protoLen := int(data[0])
-	data = data[1:]
-	if len(data) < protoLen {
-		return false
-	}
-	m.proto = string(data[0:protoLen])
-	data = data[protoLen:]
-
-	if len(data) < 1 {
-		return false
-	}
-	paddingLen := int(data[0])
-	data = data[1:]
-	if len(data) != paddingLen {
-		return false
+	for _, v := range padding {
+		if v != 0 {
+			return false
+		}
 	}
 
 	return true
@@ -1846,7 +1833,7 @@ func (m *certificateRequestMsg) marshal() []byte {
 		requestContext := body.addU8LengthPrefixed()
 		requestContext.addBytes(m.requestContext)
 		extensions := newByteBuilder()
-		if isDraft21(m.vers) {
+		if isDraft22(m.vers) {
 			extensions = body.addU16LengthPrefixed()
 			if m.hasSignatureAlgorithm {
 				extensions.addU16(extensionSignatureAlgorithms)
@@ -1924,7 +1911,7 @@ func (m *certificateRequestMsg) unmarshal(data []byte) bool {
 	m.raw = data
 	reader := byteReader(data[4:])
 
-	if isDraft21(m.vers) {
+	if isDraft22(m.vers) {
 		var extensions byteReader
 		if !reader.readU8LengthPrefixedBytes(&m.requestContext) ||
 			!reader.readU16LengthPrefixed(&extensions) ||
@@ -2077,7 +2064,7 @@ func (m *newSessionTicketMsg) marshal() []byte {
 	body.addU32(m.ticketLifetime)
 	if version >= VersionTLS13 {
 		body.addU32(m.ticketAgeAdd)
-		if isDraft21(m.vers) {
+		if isDraft22(m.vers) {
 			body.addU8LengthPrefixed().addBytes(m.ticketNonce)
 		}
 	}
@@ -2089,7 +2076,7 @@ func (m *newSessionTicketMsg) marshal() []byte {
 		extensions := body.addU16LengthPrefixed()
 		if m.maxEarlyDataSize > 0 {
 			extID := extensionTicketEarlyDataInfo
-			if isDraft21(m.vers) {
+			if isDraft22(m.vers) {
 				extID = extensionEarlyData
 			}
 			extensions.addU16(extID)
@@ -2129,7 +2116,7 @@ func (m *newSessionTicketMsg) unmarshal(data []byte) bool {
 		}
 		m.ticketAgeAdd = uint32(data[0])<<24 | uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3])
 		data = data[4:]
-		if isDraft21(m.vers) {
+		if isDraft22(m.vers) {
 			nonceLen := int(data[0])
 			data = data[1:]
 			if len(data) < nonceLen {
@@ -2168,7 +2155,7 @@ func (m *newSessionTicketMsg) unmarshal(data []byte) bool {
 		}
 
 		extID := extensionTicketEarlyDataInfo
-		if isDraft21(m.vers) {
+		if isDraft22(m.vers) {
 			extID = extensionEarlyData
 		}
 

@@ -17,6 +17,7 @@ import java.util.List;
  * Java wrapper for a C++ PeerConnectionFactoryInterface.  Main entry point to
  * the PeerConnection API for clients.
  */
+@JNINamespace("webrtc::jni")
 public class PeerConnectionFactory {
   public static final String TRIAL_ENABLED = "Enabled";
   public static final String VIDEO_FRAME_EMIT_TRIAL = "VideoFrameEmit";
@@ -104,6 +105,21 @@ public class PeerConnectionFactory {
     public int networkIgnoreMask;
     public boolean disableEncryption;
     public boolean disableNetworkMonitor;
+
+    @CalledByNative("Options")
+    int getNetworkIgnoreMask() {
+      return networkIgnoreMask;
+    }
+
+    @CalledByNative("Options")
+    boolean getDisableEncryption() {
+      return disableEncryption;
+    }
+
+    @CalledByNative("Options")
+    boolean getDisableNetworkMonitor() {
+      return disableNetworkMonitor;
+    }
   }
 
   /**
@@ -129,11 +145,6 @@ public class PeerConnectionFactory {
     }
   }
 
-  // Must be called at least once before creating a PeerConnectionFactory
-  // (for example, at application startup time).
-  private static native void nativeInitializeAndroidGlobals(
-      Context context, boolean videoHwAcceleration);
-
   private static void initializeInternalTracer() {
     internalTracerInitialized = true;
     nativeInitializeInternalTracer();
@@ -147,7 +158,11 @@ public class PeerConnectionFactory {
   // Field trial initialization. Must be called before PeerConnectionFactory
   // is created.
   // Deprecated, use PeerConnectionFactory.initialize instead.
-  @Deprecated public static native void initializeFieldTrials(String fieldTrialsInitString);
+  @Deprecated
+  public static void initializeFieldTrials(String fieldTrialsInitString) {
+    nativeInitializeFieldTrials(fieldTrialsInitString);
+  }
+
   // Wrapper of webrtc::field_trial::FindFullName. Develop the feature with default behaviour off.
   // Example usage:
   // if (PeerConnectionFactory.fieldTrialsFindFullName("WebRTCExperiment").equals("Enabled")) {
@@ -156,19 +171,16 @@ public class PeerConnectionFactory {
   //   method2();
   // }
   public static String fieldTrialsFindFullName(String name) {
-    return NativeLibrary.isLoaded() ? nativeFieldTrialsFindFullName(name) : "";
+    return NativeLibrary.isLoaded() ? nativeFindFieldTrialsFullName(name) : "";
   }
-  private static native String nativeFieldTrialsFindFullName(String name);
-  // Internal tracing initialization. Must be called before PeerConnectionFactory is created to
-  // prevent racing with tracing code.
-  // Deprecated, use PeerConnectionFactory.initialize instead.
-  private static native void nativeInitializeInternalTracer();
-  // Internal tracing shutdown, called to prevent resource leaks. Must be called after
-  // PeerConnectionFactory is gone to prevent races with code performing tracing.
-  private static native void nativeShutdownInternalTracer();
   // Start/stop internal capturing of internal tracing.
-  public static native boolean startInternalTracingCapture(String tracing_filename);
-  public static native void stopInternalTracingCapture();
+  public static boolean startInternalTracingCapture(String tracingFilename) {
+    return nativeStartInternalTracingCapture(tracingFilename);
+  }
+
+  public static void stopInternalTracingCapture() {
+    nativeStopInternalTracingCapture();
+  }
 
   @Deprecated
   public PeerConnectionFactory() {
@@ -204,9 +216,14 @@ public class PeerConnectionFactory {
     }
   }
 
+  /**
+   * Deprecated. PeerConnection constraints are deprecated. Supply values in rtcConfig struct
+   * instead and use the method without constraints in the signature.
+   */
+  @Deprecated
   public PeerConnection createPeerConnection(PeerConnection.RTCConfiguration rtcConfig,
       MediaConstraints constraints, PeerConnection.Observer observer) {
-    long nativeObserver = nativeCreateObserver(observer);
+    long nativeObserver = PeerConnection.createNativePeerConnectionObserver(observer);
     if (nativeObserver == 0) {
       return null;
     }
@@ -215,13 +232,29 @@ public class PeerConnectionFactory {
     if (nativePeerConnection == 0) {
       return null;
     }
-    return new PeerConnection(nativePeerConnection, nativeObserver);
+    return new PeerConnection(nativePeerConnection);
   }
 
+  /**
+   * Deprecated. PeerConnection constraints are deprecated. Supply values in rtcConfig struct
+   * instead and use the method without constraints in the signature.
+   */
+  @Deprecated
   public PeerConnection createPeerConnection(List<PeerConnection.IceServer> iceServers,
       MediaConstraints constraints, PeerConnection.Observer observer) {
     PeerConnection.RTCConfiguration rtcConfig = new PeerConnection.RTCConfiguration(iceServers);
     return createPeerConnection(rtcConfig, constraints, observer);
+  }
+
+  public PeerConnection createPeerConnection(
+      List<PeerConnection.IceServer> iceServers, PeerConnection.Observer observer) {
+    PeerConnection.RTCConfiguration rtcConfig = new PeerConnection.RTCConfiguration(iceServers);
+    return createPeerConnection(rtcConfig, observer);
+  }
+
+  public PeerConnection createPeerConnection(
+      PeerConnection.RTCConfiguration rtcConfig, PeerConnection.Observer observer) {
+    return createPeerConnection(rtcConfig, null /* constraints */, observer);
   }
 
   public MediaStream createLocalMediaStream(String label) {
@@ -306,7 +339,12 @@ public class PeerConnectionFactory {
   }
 
   public void threadsCallbacks() {
-    nativeThreadsCallbacks(nativeFactory);
+    nativeInvokeThreadsCallbacks(nativeFactory);
+  }
+
+  /** Returns a pointer to the native webrtc::PeerConnectionFactoryInterface. */
+  public long getNativePeerConnectionFactory() {
+    return nativeGetNativePeerConnectionFactory(nativeFactory);
   }
 
   private static void printStackTrace(Thread thread, String threadName) {
@@ -327,58 +365,60 @@ public class PeerConnectionFactory {
     printStackTrace(signalingThread, "Signaling thread");
   }
 
+  @CalledByNative
   private static void onNetworkThreadReady() {
     networkThread = Thread.currentThread();
     Logging.d(TAG, "onNetworkThreadReady");
   }
 
+  @CalledByNative
   private static void onWorkerThreadReady() {
     workerThread = Thread.currentThread();
     Logging.d(TAG, "onWorkerThreadReady");
   }
 
+  @CalledByNative
   private static void onSignalingThreadReady() {
     signalingThread = Thread.currentThread();
     Logging.d(TAG, "onSignalingThreadReady");
   }
 
+  // Must be called at least once before creating a PeerConnectionFactory
+  // (for example, at application startup time).
+  private static native void nativeInitializeAndroidGlobals(
+      Context context, boolean videoHwAcceleration);
+  private static native void nativeInitializeFieldTrials(String fieldTrialsInitString);
+  private static native String nativeFindFieldTrialsFullName(String name);
+  // Internal tracing initialization. Must be called before PeerConnectionFactory is created to
+  // prevent racing with tracing code.
+  // Deprecated, use PeerConnectionFactory.initialize instead.
+  private static native void nativeInitializeInternalTracer();
+  // Internal tracing shutdown, called to prevent resource leaks. Must be called after
+  // PeerConnectionFactory is gone to prevent races with code performing tracing.
+  private static native void nativeShutdownInternalTracer();
+  private static native boolean nativeStartInternalTracingCapture(String tracingFilename);
+  private static native void nativeStopInternalTracingCapture();
   private static native long nativeCreatePeerConnectionFactory(
       Options options, VideoEncoderFactory encoderFactory, VideoDecoderFactory decoderFactory);
-
   private static native long nativeCreatePeerConnectionFactoryWithAudioProcessing(Options options,
       VideoEncoderFactory encoderFactory, VideoDecoderFactory decoderFactory,
       long nativeAudioProcessor);
-
-  private static native long nativeCreateObserver(PeerConnection.Observer observer);
-
-  private static native long nativeCreatePeerConnection(long nativeFactory,
+  private static native long nativeCreatePeerConnection(long factory,
       PeerConnection.RTCConfiguration rtcConfig, MediaConstraints constraints, long nativeObserver);
-
-  private static native long nativeCreateLocalMediaStream(long nativeFactory, String label);
-
+  private static native long nativeCreateLocalMediaStream(long factory, String label);
   private static native long nativeCreateVideoSource(
-      long nativeFactory, SurfaceTextureHelper surfaceTextureHelper, boolean is_screencast);
-
+      long factory, SurfaceTextureHelper surfaceTextureHelper, boolean is_screencast);
   private static native long nativeCreateVideoTrack(
-      long nativeFactory, String id, long nativeVideoSource);
-
-  private static native long nativeCreateAudioSource(
-      long nativeFactory, MediaConstraints constraints);
-
-  private static native long nativeCreateAudioTrack(
-      long nativeFactory, String id, long nativeSource);
-
+      long factory, String id, long nativeVideoSource);
+  private static native long nativeCreateAudioSource(long factory, MediaConstraints constraints);
+  private static native long nativeCreateAudioTrack(long factory, String id, long nativeSource);
   private static native boolean nativeStartAecDump(
-      long nativeFactory, int file_descriptor, int filesize_limit_bytes);
-
-  private static native void nativeStopAecDump(long nativeFactory);
-
-  @Deprecated public native void nativeSetOptions(long nativeFactory, Options options);
-
+      long factory, int file_descriptor, int filesize_limit_bytes);
+  private static native void nativeStopAecDump(long factory);
+  @Deprecated public native void nativeSetOptions(long factory, Options options);
   private static native void nativeSetVideoHwAccelerationOptions(
-      long nativeFactory, Object localEGLContext, Object remoteEGLContext);
-
-  private static native void nativeThreadsCallbacks(long nativeFactory);
-
-  private static native void nativeFreeFactory(long nativeFactory);
+      long factory, Object localEGLContext, Object remoteEGLContext);
+  private static native void nativeInvokeThreadsCallbacks(long factory);
+  private static native void nativeFreeFactory(long factory);
+  private static native long nativeGetNativePeerConnectionFactory(long factory);
 }

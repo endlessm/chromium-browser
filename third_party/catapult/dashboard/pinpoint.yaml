@@ -3,7 +3,7 @@ service: pinpoint
 runtime: python27
 api_version: 1
 threadsafe: true
-instance_class: F1
+instance_class: F4_1G
 
 libraries:
 - name: pycrypto
@@ -42,7 +42,7 @@ handlers:
   static_dir: dashboard/pinpoint/static
   secure: always
 
-- url: /dashboard/pinpoint/elements/(.*\.html)$
+- url: /elements/(.*\.html)$
   static_files: dashboard/pinpoint/elements/\1
   upload: dashboard/pinpoint/elements/.*\.html$
   secure: always
@@ -54,7 +54,6 @@ handlers:
 
 - url: /results2/.*
   script: dashboard.pinpoint.dispatcher.APP
-  login: admin
   secure: always
 
 - url: /flot/(.*\.js)$

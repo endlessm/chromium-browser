@@ -39,6 +39,8 @@ function(add_spvtools_unittest)
     spvtools_default_compile_options(${target})
     if(${COMPILER_IS_LIKE_GNU})
       target_compile_options(${target} PRIVATE -Wno-undef)
+      # Effcee and RE2 headers exhibit shadowing.
+      target_compile_options(${target} PRIVATE -Wno-shadow)
     endif()
     if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
       # Disable C4503 "decorated name length exceeded" warning,
@@ -52,12 +54,21 @@ function(add_spvtools_unittest)
       ${spirv-tools_SOURCE_DIR}
       ${spirv-tools_SOURCE_DIR}/include
       ${spirv-tools_SOURCE_DIR}/test
+      ${spirv-tools_BINARY_DIR}
       ${gtest_SOURCE_DIR}/include
       ${gmock_SOURCE_DIR}/include
     )
+    if (TARGET effcee)
+      # If using Effcee for testing, then add its include directory.
+      target_include_directories(${target} PRIVATE ${effcee_SOURCE_DIR})
+    endif()
     target_link_libraries(${target} PRIVATE ${ARG_LIBS})
+    if (TARGET effcee)
+      target_link_libraries(${target} PRIVATE effcee)
+    endif()
     target_link_libraries(${target} PRIVATE gmock_main)
     add_test(NAME spirv-tools-${target} COMMAND ${target})
+    set_property(TARGET ${target} PROPERTY FOLDER "SPIRV-Tools tests")
   endif()
 endfunction()
 
@@ -71,10 +82,12 @@ set(TEST_SOURCES
   binary_endianness_test.cpp
   binary_header_get_test.cpp
   binary_parse_test.cpp
+  binary_strnlen_s_test.cpp
   binary_to_text_test.cpp
   binary_to_text.literal_test.cpp
-  capability_set_test.cpp
   comment_test.cpp
+  enum_string_mapping_test.cpp
+  enum_set_test.cpp
   ext_inst.glsl_test.cpp
   ext_inst.opencl_test.cpp
   fix_word_test.cpp
@@ -146,9 +159,38 @@ add_spvtools_unittest(
   LIBS ${SPIRV_TOOLS})
 
 add_spvtools_unittest(
+  TARGET string_utils
+  SRCS string_utils_test.cpp
+  LIBS ${SPIRV_TOOLS})
+
+add_spvtools_unittest(
   TARGET log
   SRCS log_test.cpp
   LIBS ${SPIRV_TOOLS})
 
+add_spvtools_unittest(
+  TARGET preserve_numeric_ids
+  SRCS preserve_numeric_ids_test.cpp
+  LIBS ${SPIRV_TOOLS})
+
+add_spvtools_unittest(
+  TARGET bit_stream
+  SRCS bit_stream.cpp
+  LIBS ${SPIRV_TOOLS})
+
+add_spvtools_unittest(
+  TARGET huffman_codec
+  SRCS huffman_codec.cpp
+  LIBS ${SPIRV_TOOLS})
+
+add_spvtools_unittest(
+  TARGET move_to_front
+  SRCS move_to_front_test.cpp
+  LIBS ${SPIRV_TOOLS})
+
+add_subdirectory(comp)
+add_subdirectory(link)
 add_subdirectory(opt)
+add_subdirectory(stats)
+add_subdirectory(util)
 add_subdirectory(val)

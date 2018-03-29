@@ -20,7 +20,6 @@ from chromite.lib import cros_test_lib
 # pylint: disable=protected-access
 
 
-
 def MockBuildConfig():
   """Create a BuildConfig object for convenient testing pleasure."""
   site_config = MockSiteConfig()
@@ -157,7 +156,8 @@ class BuildConfigClassTest(cros_test_lib.TestCase):
 
   def testApplyCallable(self):
     # Callable that adds a configurable amount.
-    append = lambda x: lambda base: base + ' ' + x
+    def append(x):
+      return lambda base: base + ' ' + x
 
     site_config = config_lib.SiteConfig()
 
@@ -290,6 +290,7 @@ class BuildConfigClassTest(cros_test_lib.TestCase):
         self.assertRaises(AssertionError, self.AssertDeepCopy, x,
                           copy_x, copy.copy(x))
 
+
 class SiteParametersClassTest(cros_test_lib.TestCase):
   """SiteParameters tests."""
 
@@ -298,7 +299,7 @@ class SiteParametersClassTest(cros_test_lib.TestCase):
     site_params = config_lib.SiteParameters()
 
     # Ensure our test key is not in site_params.
-    self.assertTrue(site_params.get('foo') is None)
+    self.assertNotIn('foo', site_params)
 
     # Test that we raise when accessing a non-existent value.
     # pylint: disable=pointless-statement
@@ -398,7 +399,8 @@ class SiteConfigTest(cros_test_lib.TestCase):
 
     site_config.Add(
         'tast_vm_tests',
-        tast_vm_tests=[config_lib.TastVMTestConfig('tast_vm_suite', ['(bvt)'])])
+        tast_vm_tests=[config_lib.TastVMTestConfig('tast_vm_suite',
+                                                   ['(bvt)'])])
 
     site_config.AddGroup(
         'parent',
@@ -548,7 +550,9 @@ class SiteConfigTest(cros_test_lib.TestCase):
 
     # Try to fetch a non-existent template.
     with self.assertRaises(AttributeError):
-      _ = self.site_config.templates.no_such_template
+      # pylint: disable=pointless-statement
+      self.site_config.templates.no_such_template
+      # pylint: enable=pointless-statement
 
   def testAddForBoards(self):
     per_board = {
@@ -833,7 +837,7 @@ class OverrideForTrybotTest(cros_test_lib.TestCase):
     return mock_options
 
   def testVmTestOverride(self):
-    """Verify that vm_tests override for trybots pay heed to original config."""
+    """Verify that vm_tests override for trybots reference original config."""
     mock_options = self._createMockOptions(hwtest=False, remote_trybot=False)
 
     result = config_lib.OverrideConfigForTrybot(
@@ -917,6 +921,7 @@ class GetConfigTests(cros_test_lib.TestCase):
     self.assertIsInstance(config_c, config_lib.SiteConfig)
     self.assertIs(config_c, config_d)
 
+
 class ConfigLibHelperTests(cros_test_lib.TestCase):
   """Tests related to helper methods in config_lib."""
 
@@ -955,7 +960,7 @@ class ConfigLibHelperTests(cros_test_lib.TestCase):
     release_branch_config = config_lib.BuildConfig(
         name=constants.CANARY_MASTER,
         active_waterfall=waterfall.WATERFALL_RELEASE)
-    self.assertFalse(config_lib.UseBuildbucketScheduler(
+    self.assertTrue(config_lib.UseBuildbucketScheduler(
         release_branch_config))
 
   def testScheduledByBuildbucket(self):
@@ -979,35 +984,9 @@ class ConfigLibHelperTests(cros_test_lib.TestCase):
     self.assertFalse(config_lib.ScheduledByBuildbucket(
         pfq_master_config))
 
+
 class GEBuildConfigTests(cros_test_lib.TestCase):
   """Test GE build config related methods."""
-
-  _fake_ge_build_config_json = '''
-{
-  "metadata_version": "1.0",
-  "reference_board_unified_builds": [
-    {
-      "name": "reef-uni",
-      "reference_board_name": "reef-uni",
-      "builder": "RELEASE",
-      "experimental": true,
-      "arch": "X86_INTERNAL",
-      "models" : [
-        {
-          "board_name": "pyro"
-        },
-        {
-          "board_name": "sand"
-        },
-        {
-          "board_name": "snappy"
-        }
-      ]
-    }
-  ]
-}
-  '''
-  _fake_ge_build_config = json.loads(_fake_ge_build_config_json)
 
   def setUp(self):
     self._fake_ge_build_config_json = '''
@@ -1015,8 +994,8 @@ class GEBuildConfigTests(cros_test_lib.TestCase):
   "metadata_version": "1.0",
   "reference_board_unified_builds": [
     {
-      "name": "reef-uni",
-      "reference_board_name": "reef-uni",
+      "name": "reef",
+      "reference_board_name": "reef",
       "builder": "RELEASE",
       "experimental": true,
       "arch": "X86_INTERNAL",
@@ -1058,7 +1037,7 @@ class GEBuildConfigTests(cros_test_lib.TestCase):
     """Test GetArchBoardDict."""
     arch_board_dict = config_lib.GetArchBoardDict(self._fake_ge_build_config)
     self.assertIsNotNone(arch_board_dict)
-    self.assertIs(2, len(arch_board_dict[config_lib.CONFIG_X86_INTERNAL]))
+    self.assertIs(1, len(arch_board_dict[config_lib.CONFIG_X86_INTERNAL]))
 
   def testGetUnifiedBuildConfigAllBuilds(self):
     uni_builds = config_lib.GetUnifiedBuildConfigAllBuilds(

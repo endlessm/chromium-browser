@@ -23,7 +23,23 @@ _PINPOINT_BOTS = [
     'chromium-rel-mac11-pro',
     'chromium-rel-mac12',
     'chromium-rel-mac12-mini-8gb',
-    'linux-release'
+    'linux-release',
+    'chromium-rel-win7-dual',
+    'chromium-rel-win8-dual',
+    'chromium-rel-win7-x64-dual',
+    'chromium-rel-win10',
+    'chromium-rel-win7-gpu-ati',
+    'chromium-rel-win7-gpu-intel',
+    'chromium-rel-win7-gpu-nvidia',
+    'win-high-dpi',
+    'win-zenbook',
+    'android-nexus5X',
+    'android-nexus5',
+    'android-nexus6',
+    'android-nexus7v2',
+    'android-one',
+    'android-webview-nexus5X',
+    'android-webview-nexus6',
 ]
 
 

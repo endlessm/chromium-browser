@@ -36,7 +36,9 @@ bool AreSymbolsTheSame(const TIntermSymbol *expected, const TIntermSymbol *candi
     const bool sameTypes       = expectedType == candidateType &&
                            expectedType.getPrecision() == candidateType.getPrecision() &&
                            expectedType.getQualifier() == candidateType.getQualifier();
-    const bool sameSymbols = expected->getSymbol() == candidate->getSymbol();
+    const bool sameSymbols = (expected->variable().symbolType() == SymbolType::Empty &&
+                              candidate->variable().symbolType() == SymbolType::Empty) ||
+                             expected->getName() == candidate->getName();
     return sameSymbols && sameTypes;
 }
 
@@ -66,7 +68,9 @@ TIntermTyped *CreateLValueNode(const TString &lValueName, const TType &type)
 {
     // We're using a dummy symbol table here, don't need to assign proper symbol ids to these nodes.
     TSymbolTable symbolTable;
-    return new TIntermSymbol(symbolTable.nextUniqueId(), lValueName, type);
+    TVariable *variable = new TVariable(&symbolTable, NewPoolTString(lValueName.c_str()), type,
+                                        SymbolType::UserDefined);
+    return new TIntermSymbol(variable);
 }
 
 ExpectedLValues CreateIndexedLValueNodeList(const TString &lValueName,
@@ -78,8 +82,9 @@ ExpectedLValues CreateIndexedLValueNodeList(const TString &lValueName,
 
     // We're using a dummy symbol table here, don't need to assign proper symbol ids to these nodes.
     TSymbolTable symbolTable;
-    TIntermSymbol *arraySymbol =
-        new TIntermSymbol(symbolTable.nextUniqueId(), lValueName, elementType);
+    TVariable *variable        = new TVariable(&symbolTable, NewPoolTString(lValueName.c_str()),
+                                        elementType, SymbolType::UserDefined);
+    TIntermSymbol *arraySymbol = new TIntermSymbol(variable);
 
     ExpectedLValues expected(arraySize);
     for (unsigned index = 0u; index < arraySize; ++index)
@@ -162,20 +167,21 @@ class FindStructByName final : public TIntermTraverser
             return;
         }
 
-        TStructure *structure = symbol->getTypePointer()->getStruct();
+        const TStructure *structure = symbol->getType().getStruct();
 
-        if (structure != nullptr && structure->name() == mStructName)
+        if (structure != nullptr && structure->symbolType() != SymbolType::Empty &&
+            structure->name() == mStructName)
         {
             mStructure = structure;
         }
     }
 
     bool isStructureFound() const { return mStructure != nullptr; };
-    TStructure *getStructure() const { return mStructure; }
+    const TStructure *getStructure() const { return mStructure; }
 
   private:
     TString mStructName;
-    TStructure *mStructure;
+    const TStructure *mStructure;
 };
 
 }  // namespace
@@ -295,8 +301,8 @@ TEST_F(InitOutputVariablesWebGL2VertexShaderTest, OutputStruct)
     mASTRoot->traverse(&findStruct);
     ASSERT(findStruct.isStructureFound());
 
-    TType type(EbtStruct, EbpUndefined, EvqVertexOut);
-    type.setStruct(findStruct.getStructure());
+    TType type(findStruct.getStructure());
+    type.setQualifier(EvqVertexOut);
 
     TIntermTyped *expectedLValue = CreateLValueNode("out1", type);
     EXPECT_TRUE(verifier.isExpectedLValueFound(expectedLValue));

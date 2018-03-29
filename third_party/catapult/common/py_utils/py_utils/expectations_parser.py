@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import os
 import re
 
 
@@ -10,42 +9,79 @@ class ParseError(Exception):
   pass
 
 
+class Expectation(object):
+  def __init__(self, reason, test, conditions, results):
+    """Constructor for expectations.
+
+    Args:
+      reason: String that indicates the reason for disabling.
+      test: String indicating which test is being disabled.
+      conditions: List of tags indicating which conditions to disable for.
+          Conditions are combined using logical and. Example: ['Mac', 'Debug']
+      results: List of outcomes for test. Example: ['Skip', 'Pass']
+    """
+    assert isinstance(reason, basestring) or reason is None
+    self._reason = reason
+    assert isinstance(test, basestring)
+    self._test = test
+    assert isinstance(conditions, list)
+    self._conditions = conditions
+    assert isinstance(results, list)
+    self._results = results
+
+  def __eq__(self, other):
+    return (self.reason == other.reason and
+            self.test == other.test and
+            self.conditions == other.conditions and
+            self.results == other.results)
+
+  @property
+  def reason(self):
+    return self._reason
+
+  @property
+  def test(self):
+    return self._test
+
+  @property
+  def conditions(self):
+    return self._conditions
+
+  @property
+  def results(self):
+    return self._results
+
+
 class TestExpectationParser(object):
-  """Parse expectations file.
+  """Parse expectations data in TA/DA format.
 
   This parser covers the 'tagged' test lists format in:
       bit.ly/chromium-test-list-format
 
-  It takes the path to the expectation file as an argument.
+  Takes raw expectations data as a string read from the TA/DA expectation file
+  in the format:
 
-  Example expectation file to parse:
     # This is an example expectation file.
     #
     # tags: Mac Mac10.10 Mac10.11
     # tags: Win Win8
 
     crbug.com/123 [ Win ] benchmark/story [ Skip ]
+    ...
   """
 
   TAG_TOKEN = '# tags:'
-  _MATCH_STRING = r'(?:(crbug.com/\d+) )?'  # The bug field (optional).
+  _MATCH_STRING = r'^(?:(crbug.com/\d+) )?'  # The bug field (optional).
   _MATCH_STRING += r'(?:\[ (.+) \] )?' # The label field (optional).
-  _MATCH_STRING += r'([\w/]+) '  # The test path field.
-  _MATCH_STRING += r'\[ (.+) \]'  # The expectation field.
+  _MATCH_STRING += r'(\S+) ' # The test path field.
+  _MATCH_STRING += r'\[ ([^\[.]+) \]'  # The expectation field.
+  _MATCH_STRING += r'(\s+#.*)?$' # End comment (optional).
   MATCHER = re.compile(_MATCH_STRING)
 
-  def __init__(self, path=None, raw=None):
+  def __init__(self, raw_data):
     self._tags = []
     self._expectations = []
-    if path:
-      if not os.path.exists(path):
-        raise ValueError('Path to expectation file must be valid.')
-      with open(path, 'r') as fp:
-        self._ParseRawExpectationData(fp.read())
-    elif raw:
-      self._ParseRawExpectationData(raw)
-    else:
-      raise ParseError('Must specify raw string or expectation file to decode.')
+    self._ParseRawExpectationData(raw_data)
 
   def _ParseRawExpectationData(self, raw_data):
     for count, line in list(enumerate(raw_data.splitlines(), start=1)):
@@ -68,7 +104,8 @@ class TestExpectationParser(object):
       raise ParseError(
           'Expectation has invalid syntax on line %d: %s'
           % (line_number, line))
-    reason, raw_conditions, test, results = match.groups()
+    # Unused group is optional trailing comment.
+    reason, raw_conditions, test, results, _ = match.groups()
     conditions = [c for c in raw_conditions.split()] if raw_conditions else []
 
     for c in conditions:
@@ -76,13 +113,7 @@ class TestExpectationParser(object):
         raise ParseError(
             'Condition %s not found in expectations tag data. Line %d'
             % (c, line_number))
-
-    return {
-        'reason': reason,
-        'test': test,
-        'conditions': conditions,
-        'results': [r for r in results.split()]
-    }
+    return Expectation(reason, test, conditions, [r for r in results.split()])
 
   @property
   def expectations(self):

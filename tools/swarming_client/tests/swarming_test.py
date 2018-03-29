@@ -9,7 +9,6 @@ import logging
 import os
 import re
 import StringIO
-import subprocess
 import sys
 import tempfile
 import threading
@@ -30,6 +29,7 @@ import test_utils
 from depot_tools import fix_encoding
 from utils import file_path
 from utils import logging_utils
+from utils import subprocess42
 from utils import tools
 
 import httpserver_mock
@@ -96,11 +96,13 @@ def gen_request_data(properties=None, **kwargs):
       'caches': [],
       'cipd_input': None,
       'command': None,
+      'relative_cwd': None,
       'dimensions': [
         {'key': 'foo', 'value': 'bar'},
         {'key': 'os', 'value': 'Mac'},
       ],
       'env': [],
+      'env_prefixes': [],
       'execution_timeout_secs': 60,
       'extra_args': ['--some-arg', '123'],
       'grace_period_secs': 30,
@@ -171,22 +173,20 @@ class SwarmingServerHandler(httpserver_mock.MockHandler):
 
   def do_GET(self):
     logging.info('S GET %s', self.path)
-    if self.path in ('/on/load', '/on/quit'):
-      self._octet_stream('')
-    elif self.path == '/auth/api/v1/server/oauth_config':
-      self._json({
+    if self.path == '/auth/api/v1/server/oauth_config':
+      self.send_json({
           'client_id': 'c',
           'client_not_so_secret': 's',
           'primary_url': self.server.url})
     elif self.path == '/auth/api/v1/accounts/self':
-      self._json({'identity': 'user:joe', 'xsrf_token': 'foo'})
+      self.send_json({'identity': 'user:joe', 'xsrf_token': 'foo'})
     else:
       m = re.match(r'/api/swarming/v1/task/(\d+)/request', self.path)
       if m:
         logging.info('%s', m.group(1))
-        self._json(self.server.tasks[int(m.group(1))])
+        self.send_json(self.server.tasks[int(m.group(1))])
       else:
-        self._json( {'a': 'b'})
+        self.send_json( {'a': 'b'})
         #raise NotImplementedError(self.path)
 
   def do_POST(self):
@@ -253,7 +253,7 @@ class NetTestCase(net_utils.TestCase, Common):
     net_utils.TestCase.setUp(self)
     Common.setUp(self)
     self.mock(time, 'sleep', lambda _: None)
-    self.mock(subprocess, 'call', lambda *_: self.fail())
+    self.mock(subprocess42, 'call', lambda *_: self.fail())
     self.mock(threading, 'Event', NonBlockingEvent)
 
 
@@ -267,10 +267,8 @@ class TestIsolated(auto_stub.TestCase, Common):
 
   def tearDown(self):
     try:
-      self._isolate.close_start()
-      self._swarming.close_start()
-      self._isolate.close_end()
-      self._swarming.close_end()
+      self._isolate.close()
+      self._swarming.close()
     finally:
       Common.tearDown(self)
       auto_stub.TestCase.tearDown(self)
@@ -281,7 +279,11 @@ class TestIsolated(auto_stub.TestCase, Common):
       os.chdir(self.tempdir)
 
       def call(cmd, env, cwd):
-        self.assertEqual([sys.executable, u'main.py', u'foo', '--bar'], cmd)
+        # 'out' is the default value for --output-dir.
+        outdir = os.path.join(self.tempdir, 'out')
+        self.assertTrue(os.path.isdir(outdir))
+        self.assertEqual(
+            [sys.executable, u'main.py', u'foo', outdir, '--bar'], cmd)
         expected = os.environ.copy()
         expected['SWARMING_TASK_ID'] = 'reproduce'
         expected['SWARMING_BOT_ID'] = 'reproduce'
@@ -289,7 +291,7 @@ class TestIsolated(auto_stub.TestCase, Common):
         self.assertEqual(unicode(os.path.abspath('work')), cwd)
         return 0
 
-      self.mock(subprocess, 'call', call)
+      self.mock(subprocess42, 'call', call)
 
       main_hash = self._isolate.add_content_compressed(
           'default-gzip', 'not executed')
@@ -312,7 +314,7 @@ class TestIsolated(auto_stub.TestCase, Common):
             'namespace': 'default-gzip',
             'isolated': isolated_hash,
           },
-          'extra_args': ['foo'],
+          'extra_args': ['foo', '${ISOLATED_OUTDIR}'],
           'secret_bytes': None,
         },
       }
@@ -338,8 +340,10 @@ class TestSwarmingTrigger(NetTestCase):
             caches=[],
             cipd_input=None,
             command=['a', 'b'],
+            relative_cwd=None,
             dimensions=[('foo', 'bar'), ('os', 'Mac')],
             env={},
+            env_prefixes=[],
             execution_timeout_secs=60,
             extra_args=[],
             grace_period_secs=30,
@@ -413,8 +417,10 @@ class TestSwarmingTrigger(NetTestCase):
             caches=[],
             cipd_input=None,
             command=['a', 'b'],
+            relative_cwd=None,
             dimensions=[('foo', 'bar'), ('os', 'Mac')],
             env={},
+            env_prefixes=[],
             execution_timeout_secs=60,
             extra_args=[],
             grace_period_secs=30,
@@ -480,8 +486,10 @@ class TestSwarmingTrigger(NetTestCase):
                         version='abc123')],
                 server=None),
             command=['a', 'b'],
+            relative_cwd=None,
             dimensions=[('foo', 'bar'), ('os', 'Mac')],
             env={},
+            env_prefixes=[],
             execution_timeout_secs=60,
             extra_args=[],
             grace_period_secs=30,
@@ -896,10 +904,12 @@ class TestMain(NetTestCase):
         'caches': [],
         'cipd_input': None,
         'command': ['python', '-c', 'print(\'hi\')'],
+        'relative_cwd': 'deeep',
         'dimensions': [
           {'key': 'foo', 'value': 'bar'},
         ],
         'env': [],
+        'env_prefixes': [],
         'execution_timeout_secs': 3600,
         'extra_args': None,
         'grace_period_secs': 30,
@@ -926,6 +936,7 @@ class TestMain(NetTestCase):
         '--swarming', 'https://localhost:1',
         '--dimension', 'foo', 'bar',
         '--raw-cmd',
+        '--relative-cwd', 'deeep',
         '--',
         'python',
         '-c',
@@ -952,10 +963,12 @@ class TestMain(NetTestCase):
         'caches': [],
         'cipd_input': None,
         'command': ['python', '-c', 'print(\'hi\')'],
+        'relative_cwd': None,
         'dimensions': [
           {'key': 'foo', 'value': 'bar'},
         ],
         'env': [],
+        'env_prefixes': [],
         'execution_timeout_secs': 3600,
         'extra_args': None,
         'grace_period_secs': 30,
@@ -1014,10 +1027,12 @@ class TestMain(NetTestCase):
         'caches': [],
         'cipd_input': None,
         'command': ['python', '-c', 'print(\'hi\')'],
+        'relative_cwd': None,
         'dimensions': [
           {'key': 'foo', 'value': 'bar'},
         ],
         'env': [],
+        'env_prefixes': [],
         'execution_timeout_secs': 3600,
         'extra_args': None,
         'grace_period_secs': 30,
@@ -1119,7 +1134,7 @@ class TestMain(NetTestCase):
     write_json_calls = []
     self.mock(tools, 'write_json', lambda *args: write_json_calls.append(args))
     subprocess_calls = []
-    self.mock(subprocess, 'call', lambda *c: subprocess_calls.append(c))
+    self.mock(subprocess42, 'call', lambda *c: subprocess_calls.append(c))
     self.mock(swarming, 'now', lambda: 123456)
 
     isolated = os.path.join(self.tempdir, 'zaz.isolated')
@@ -1201,11 +1216,13 @@ class TestMain(NetTestCase):
               'caches': [],
               'cipd_input': None,
               'command': None,
+              'relative_cwd': None,
               'dimensions': [
                 {'key': 'foo', 'value': 'bar'},
                 {'key': 'os', 'value': 'Mac'},
               ],
               'env': [],
+              'env_prefixes': [],
               'execution_timeout_secs': 60,
               'extra_args': ['--some-arg', '123'],
               'grace_period_secs': 30,
@@ -1481,13 +1498,16 @@ class TestMain(NetTestCase):
         self.assertEqual([os.path.join(w, 'foo'), '--bar'], cmd)
         expected = os.environ.copy()
         expected['aa'] = 'bb'
+        expected['PATH'] = os.pathsep.join(
+            (os.path.join(w, 'foo', 'bar'), os.path.join(w, 'second'),
+              expected['PATH']))
         expected['SWARMING_TASK_ID'] = 'reproduce'
         expected['SWARMING_BOT_ID'] = 'reproduce'
         self.assertEqual(expected, env)
         self.assertEqual(unicode(w), cwd)
         return 0
 
-      self.mock(subprocess, 'call', call)
+      self.mock(subprocess42, 'call', call)
 
       self.expected_requests(
           [
@@ -1499,6 +1519,9 @@ class TestMain(NetTestCase):
                   'command': ['foo'],
                   'env': [
                     {'key': 'aa', 'value': 'bb'},
+                  ],
+                  'env_prefixes': [
+                    {'key': 'PATH', 'value': ['foo/bar', 'second']},
                   ],
                   'secret_bytes': None,
                 },

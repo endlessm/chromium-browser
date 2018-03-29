@@ -22,17 +22,23 @@
 #include <sstream>
 #include <string>
 
+#include "binary.h"
 #include "diagnostic.h"
 #include "enum_set.h"
+#include "enum_string_mapping.h"
+#include "extensions.h"
 #include "opcode.h"
 #include "operand.h"
 #include "spirv_definition.h"
+#include "spirv_validator_options.h"
+#include "util/string_utils.h"
 #include "val/function.h"
 #include "val/validation_state.h"
 
 using libspirv::AssemblyGrammar;
 using libspirv::CapabilitySet;
 using libspirv::DiagnosticStream;
+using libspirv::ExtensionSet;
 using libspirv::ValidationState_t;
 
 namespace {
@@ -61,8 +67,41 @@ spv_result_t CapabilityError(ValidationState_t& _, int which_operand,
          << " requires one of these capabilities: " << required_capabilities;
 }
 
+// Returns capabilities that enable an opcode.  An empty result is interpreted
+// as no prohibition of use of the opcode.  If the result is non-empty, then
+// the opcode may only be used if at least one of the capabilities is specified
+// by the module.
+CapabilitySet EnablingCapabilitiesForOp(const ValidationState_t& state,
+                                        SpvOp opcode) {
+  // Exceptions for SPV_AMD_shader_ballot
+  switch (opcode) {
+    // Normally these would require Group capability
+    case SpvOpGroupIAddNonUniformAMD:
+    case SpvOpGroupFAddNonUniformAMD:
+    case SpvOpGroupFMinNonUniformAMD:
+    case SpvOpGroupUMinNonUniformAMD:
+    case SpvOpGroupSMinNonUniformAMD:
+    case SpvOpGroupFMaxNonUniformAMD:
+    case SpvOpGroupUMaxNonUniformAMD:
+    case SpvOpGroupSMaxNonUniformAMD:
+      if (state.HasExtension(libspirv::kSPV_AMD_shader_ballot))
+        return CapabilitySet();
+      break;
+    default:
+      break;
+  }
+  // Look it up in the grammar
+  spv_opcode_desc opcode_desc = {};
+  if (SPV_SUCCESS == state.grammar().lookupOpcode(opcode, &opcode_desc)) {
+    CapabilitySet opcode_caps(opcode_desc->numCapabilities,
+                              opcode_desc->capabilities);
+    return opcode_caps;
+  }
+  return CapabilitySet();
+}
+
 // Returns an operand's required capabilities.
-CapabilitySet RequiredCapabilities(const AssemblyGrammar& grammar,
+CapabilitySet RequiredCapabilities(const ValidationState_t& state,
                                    spv_operand_type_t type, uint32_t operand) {
   // Mere mention of PointSize, ClipDistance, or CullDistance in a Builtin
   // decoration does not require the associated capability.  The use of such
@@ -78,30 +117,64 @@ CapabilitySet RequiredCapabilities(const AssemblyGrammar& grammar,
       default:
         break;
     }
+  } else if (type == SPV_OPERAND_TYPE_FP_ROUNDING_MODE) {
+    // Allow all FP rounding modes if requested
+    if (state.features().free_fp_rounding_mode) {
+      return CapabilitySet();
+    }
   }
 
   spv_operand_desc operand_desc;
-  if (SPV_SUCCESS == grammar.lookupOperand(type, operand, &operand_desc)) {
-    return operand_desc->capabilities;
+  const auto ret = state.grammar().lookupOperand(type, operand, &operand_desc);
+  if (ret == SPV_SUCCESS) {
+    CapabilitySet result(operand_desc->numCapabilities,
+                         operand_desc->capabilities);
+
+    // Allow FPRoundingMode decoration if requested.
+    if (state.features().free_fp_rounding_mode &&
+        type == SPV_OPERAND_TYPE_DECORATION &&
+        operand_desc->value == SpvDecorationFPRoundingMode) {
+      return CapabilitySet();
+    }
+    // Allow certain group operations if requested.
+    if (state.features().group_ops_reduce_and_scans &&
+        type == SPV_OPERAND_TYPE_GROUP_OPERATION &&
+        (operand <= uint32_t(SpvGroupOperationExclusiveScan))) {
+      return CapabilitySet();
+    }
+    return result;
   }
 
   return CapabilitySet();
+}
+
+// Returns operand's required extensions.
+ExtensionSet RequiredExtensions(const ValidationState_t& state,
+                                spv_operand_type_t type, uint32_t operand) {
+  spv_operand_desc operand_desc;
+  if (state.grammar().lookupOperand(type, operand, &operand_desc) ==
+      SPV_SUCCESS) {
+    assert(operand_desc);
+    return {operand_desc->numExtensions, operand_desc->extensions};
+  }
+
+  return ExtensionSet();
 }
 
 }  // namespace
 
 namespace libspirv {
 
-spv_result_t CapCheck(ValidationState_t& _,
-                      const spv_parsed_instruction_t* inst) {
-  spv_opcode_desc opcode_desc;
+spv_result_t CapabilityCheck(ValidationState_t& _,
+                             const spv_parsed_instruction_t* inst) {
   const SpvOp opcode = static_cast<SpvOp>(inst->opcode);
-  if (SPV_SUCCESS == _.grammar().lookupOpcode(opcode, &opcode_desc) &&
-      !_.HasAnyOf(opcode_desc->capabilities))
+  CapabilitySet opcode_caps = EnablingCapabilitiesForOp(_, opcode);
+  if (!_.HasAnyOfCapabilities(opcode_caps)) {
     return _.diag(SPV_ERROR_INVALID_CAPABILITY)
            << "Opcode " << spvOpcodeString(opcode)
            << " requires one of these capabilities: "
-           << ToString(opcode_desc->capabilities, _.grammar());
+           << ToString(opcode_caps, _.grammar());
+  }
   for (int i = 0; i < inst->num_operands; ++i) {
     const auto& operand = inst->operands[i];
     const auto word = inst->words[operand.offset];
@@ -109,9 +182,8 @@ spv_result_t CapCheck(ValidationState_t& _,
       // Check for required capabilities for each bit position of the mask.
       for (uint32_t mask_bit = 0x80000000; mask_bit; mask_bit >>= 1) {
         if (word & mask_bit) {
-          const auto caps =
-              RequiredCapabilities(_.grammar(), operand.type, mask_bit);
-          if (!_.HasAnyOf(caps)) {
+          const auto caps = RequiredCapabilities(_, operand.type, mask_bit);
+          if (!_.HasAnyOfCapabilities(caps)) {
             return CapabilityError(_, i + 1, opcode,
                                    ToString(caps, _.grammar()));
           }
@@ -123,13 +195,50 @@ spv_result_t CapCheck(ValidationState_t& _,
       // https://github.com/KhronosGroup/SPIRV-Tools/issues/248
     } else {
       // Check the operand word as a whole.
-      const auto caps = RequiredCapabilities(_.grammar(), operand.type, word);
-      if (!_.HasAnyOf(caps)) {
+      const auto caps = RequiredCapabilities(_, operand.type, word);
+      if (!_.HasAnyOfCapabilities(caps)) {
         return CapabilityError(_, i + 1, opcode, ToString(caps, _.grammar()));
       }
     }
   }
   return SPV_SUCCESS;
+}
+
+// Checks that all required extensions were declared in the module.
+spv_result_t ExtensionCheck(ValidationState_t& _,
+                            const spv_parsed_instruction_t* inst) {
+  const SpvOp opcode = static_cast<SpvOp>(inst->opcode);
+  for (size_t operand_index = 0; operand_index < inst->num_operands;
+       ++operand_index) {
+    const auto& operand = inst->operands[operand_index];
+    const uint32_t word = inst->words[operand.offset];
+    const ExtensionSet required_extensions =
+        RequiredExtensions(_, operand.type, word);
+    if (!_.HasAnyOfExtensions(required_extensions)) {
+      return _.diag(SPV_ERROR_MISSING_EXTENSION)
+             << spvutils::CardinalToOrdinal(operand_index + 1) << " operand of "
+             << spvOpcodeString(opcode) << ": operand " << word
+             << " requires one of these extensions: "
+             << ExtensionSetToString(required_extensions);
+    }
+  }
+  return SPV_SUCCESS;
+}
+
+// Checks that the instruction is not reserved for future use.
+spv_result_t ReservedCheck(ValidationState_t& _,
+                           const spv_parsed_instruction_t* inst) {
+  const SpvOp opcode = static_cast<SpvOp>(inst->opcode);
+  switch (opcode) {
+    case SpvOpImageSparseSampleProjImplicitLod:
+    case SpvOpImageSparseSampleProjExplicitLod:
+    case SpvOpImageSparseSampleProjDrefImplicitLod:
+    case SpvOpImageSparseSampleProjDrefExplicitLod:
+      return _.diag(SPV_ERROR_INVALID_VALUE)
+             << spvOpcodeString(opcode) << " is reserved for future use.";
+    default:
+      return SPV_SUCCESS;
+  }
 }
 
 // Checks that the Resuld <id> is within the valid bound.
@@ -152,7 +261,8 @@ spv_result_t LimitCheckStruct(ValidationState_t& _,
 
   // Number of members is the number of operands of the instruction minus 1.
   // One operand is the result ID.
-  const uint16_t limit = 0x3fff;
+  const uint16_t limit =
+      static_cast<uint16_t>(_.options()->universal_limits_.max_struct_members);
   if (inst->num_operands - 1 > limit) {
     return _.diag(SPV_ERROR_INVALID_BINARY)
            << "Number of OpTypeStruct members (" << inst->num_operands - 1
@@ -177,7 +287,7 @@ spv_result_t LimitCheckStruct(ValidationState_t& _,
     }
   }
 
-  const uint32_t depth_limit = 255;
+  const uint32_t depth_limit = _.options()->universal_limits_.max_struct_depth;
   const uint32_t cur_depth = 1 + max_member_depth;
   _.set_struct_nesting_depth(inst->result_id, cur_depth);
   if (cur_depth > depth_limit) {
@@ -198,7 +308,8 @@ spv_result_t LimitCheckSwitch(ValidationState_t& _,
     // literal,label pairs come after the first 2 operands.
     // It is guaranteed at this point that num_operands is an even numner.
     unsigned int num_pairs = (inst->num_operands - 2) / 2;
-    const unsigned int num_pairs_limit = 16383;
+    const unsigned int num_pairs_limit =
+        _.options()->universal_limits_.max_switch_branches;
     if (num_pairs > num_pairs_limit) {
       return _.diag(SPV_ERROR_INVALID_BINARY)
              << "Number of (literal, label) pairs in OpSwitch (" << num_pairs
@@ -209,11 +320,12 @@ spv_result_t LimitCheckSwitch(ValidationState_t& _,
 }
 
 // Ensure the number of variables of the given class does not exceed the limit.
-spv_result_t LimitCheckNumVars(ValidationState_t& _,
+spv_result_t LimitCheckNumVars(ValidationState_t& _, const uint32_t var_id,
                                const SpvStorageClass storage_class) {
   if (SpvStorageClassFunction == storage_class) {
-    _.incrementNumLocalVars();
-    const uint32_t num_local_vars_limit = 0x7FFFF;
+    _.registerLocalVariable(var_id);
+    const uint32_t num_local_vars_limit =
+        _.options()->universal_limits_.max_local_variables;
     if (_.num_local_vars() > num_local_vars_limit) {
       return _.diag(SPV_ERROR_INVALID_BINARY)
              << "Number of local variables ('Function' Storage Class) "
@@ -221,8 +333,9 @@ spv_result_t LimitCheckNumVars(ValidationState_t& _,
              << num_local_vars_limit << ").";
     }
   } else {
-    _.incrementNumGlobalVars();
-    const uint32_t num_global_vars_limit = 0xFFFF;
+    _.registerGlobalVariable(var_id);
+    const uint32_t num_global_vars_limit =
+        _.options()->universal_limits_.max_global_variables;
     if (_.num_global_vars() > num_global_vars_limit) {
       return _.diag(SPV_ERROR_INVALID_BINARY)
              << "Number of Global Variables (Storage Class other than "
@@ -233,12 +346,98 @@ spv_result_t LimitCheckNumVars(ValidationState_t& _,
   return SPV_SUCCESS;
 }
 
+// Registers necessary decoration(s) for the appropriate IDs based on the
+// instruction.
+spv_result_t RegisterDecorations(ValidationState_t& _,
+                                 const spv_parsed_instruction_t* inst) {
+  switch (inst->opcode) {
+    case SpvOpDecorate: {
+      const uint32_t target_id = inst->words[1];
+      const SpvDecoration dec_type = static_cast<SpvDecoration>(inst->words[2]);
+      std::vector<uint32_t> dec_params;
+      if (inst->num_words > 3) {
+        dec_params.insert(dec_params.end(), inst->words + 3,
+                          inst->words + inst->num_words);
+      }
+      _.RegisterDecorationForId(target_id, Decoration(dec_type, dec_params));
+      break;
+    }
+    case SpvOpMemberDecorate: {
+      const uint32_t struct_id = inst->words[1];
+      const uint32_t index = inst->words[2];
+      const SpvDecoration dec_type = static_cast<SpvDecoration>(inst->words[3]);
+      std::vector<uint32_t> dec_params;
+      if (inst->num_words > 4) {
+        dec_params.insert(dec_params.end(), inst->words + 4,
+                          inst->words + inst->num_words);
+      }
+      _.RegisterDecorationForId(struct_id,
+                                Decoration(dec_type, dec_params, index));
+      break;
+    }
+    case SpvOpDecorationGroup: {
+      // We don't need to do anything right now. Assigning decorations to groups
+      // will be taken care of via OpGroupDecorate.
+      break;
+    }
+    case SpvOpGroupDecorate: {
+      // Word 1 is the group <id>. All subsequent words are target <id>s that
+      // are going to be decorated with the decorations.
+      const uint32_t decoration_group_id = inst->words[1];
+      std::vector<Decoration>& group_decorations =
+          _.id_decorations(decoration_group_id);
+      for (int i = 2; i < inst->num_words; ++i) {
+        const uint32_t target_id = inst->words[i];
+        _.RegisterDecorationsForId(target_id, group_decorations.begin(),
+                                   group_decorations.end());
+      }
+      break;
+    }
+    case SpvOpGroupMemberDecorate: {
+      // Word 1 is the Decoration Group <id> followed by (struct<id>,literal)
+      // pairs. All decorations of the group should be applied to all the struct
+      // members that are specified in the instructions.
+      const uint32_t decoration_group_id = inst->words[1];
+      std::vector<Decoration>& group_decorations =
+          _.id_decorations(decoration_group_id);
+      // Grammar checks ensures that the number of arguments to this instruction
+      // is an odd number: 1 decoration group + (id,literal) pairs.
+      for (int i = 2; i + 1 < inst->num_words; i = i + 2) {
+        const uint32_t struct_id = inst->words[i];
+        const uint32_t index = inst->words[i + 1];
+        // ID validation phase ensures this is in fact a struct instruction and
+        // that the index is not out of bound.
+        _.RegisterDecorationsForStructMember(struct_id, index,
+                                             group_decorations.begin(),
+                                             group_decorations.end());
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  return SPV_SUCCESS;
+}
+
+// Parses OpExtension instruction and logs warnings if unsuccessful.
+void CheckIfKnownExtension(ValidationState_t& _,
+                           const spv_parsed_instruction_t* inst) {
+  const std::string extension_str = GetExtensionString(inst);
+  Extension extension;
+  if (!GetExtensionFromString(extension_str, &extension)) {
+    _.diag(SPV_SUCCESS) << "Found unrecognized extension " << extension_str;
+    return;
+  }
+}
+
 spv_result_t InstructionPass(ValidationState_t& _,
                              const spv_parsed_instruction_t* inst) {
   const SpvOp opcode = static_cast<SpvOp>(inst->opcode);
-  if (opcode == SpvOpCapability)
+  if (opcode == SpvOpExtension) CheckIfKnownExtension(_, inst);
+  if (opcode == SpvOpCapability) {
     _.RegisterCapability(
         static_cast<SpvCapability>(inst->words[inst->operands[0].offset]));
+  }
   if (opcode == SpvOpMemoryModel) {
     _.set_addressing_model(
         static_cast<SpvAddressingModel>(inst->words[inst->operands[0].offset]));
@@ -248,7 +447,7 @@ spv_result_t InstructionPass(ValidationState_t& _,
   if (opcode == SpvOpVariable) {
     const auto storage_class =
         static_cast<SpvStorageClass>(inst->words[inst->operands[2].offset]);
-    if (auto error = LimitCheckNumVars(_, storage_class)) {
+    if (auto error = LimitCheckNumVars(_, inst->result_id, storage_class)) {
       return error;
     }
     if (storage_class == SpvStorageClassGeneric)
@@ -275,10 +474,25 @@ spv_result_t InstructionPass(ValidationState_t& _,
     }
   }
 
-  if (auto error = CapCheck(_, inst)) return error;
+  // SPIR-V Spec 2.16.3: Validation Rules for Kernel Capabilities: The
+  // Signedness in OpTypeInt must always be 0.
+  if (SpvOpTypeInt == inst->opcode && _.HasCapability(SpvCapabilityKernel) &&
+      inst->words[inst->operands[2].offset] != 0u) {
+    return _.diag(SPV_ERROR_INVALID_BINARY) << "The Signedness in OpTypeInt "
+                                               "must always be 0 when Kernel "
+                                               "capability is used.";
+  }
+
+  // In order to validate decoration rules, we need to know all the decorations
+  // that are applied to any given <id>.
+  RegisterDecorations(_, inst);
+
+  if (auto error = ExtensionCheck(_, inst)) return error;
+  if (auto error = CapabilityCheck(_, inst)) return error;
   if (auto error = LimitCheckIdBound(_, inst)) return error;
   if (auto error = LimitCheckStruct(_, inst)) return error;
   if (auto error = LimitCheckSwitch(_, inst)) return error;
+  if (auto error = ReservedCheck(_, inst)) return error;
 
   // All instruction checks have passed.
   return SPV_SUCCESS;

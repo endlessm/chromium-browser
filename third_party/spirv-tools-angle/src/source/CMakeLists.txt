@@ -13,6 +13,7 @@
 # limitations under the License.
 
 set(GRAMMAR_PROCESSING_SCRIPT "${spirv-tools_SOURCE_DIR}/utils/generate_grammar_tables.py")
+set(VIMSYNTAX_PROCESSING_SCRIPT "${spirv-tools_SOURCE_DIR}/utils/generate_vim_syntax.py")
 set(XML_REGISTRY_PROCESSING_SCRIPT "${spirv-tools_SOURCE_DIR}/utils/generate_registry_tables.py")
 
 # macro() definitions are used in the following because we need to append .inc
@@ -34,6 +35,38 @@ macro(spvtools_core_tables VERSION)
   list(APPEND OPERAND_CPP_DEPENDS ${GRAMMAR_KINDS_INC_FILE})
 endmacro(spvtools_core_tables)
 
+macro(spvtools_enum_string_mapping VERSION)
+  set(GRAMMAR_JSON_FILE "${SPIRV_HEADER_INCLUDE_DIR}/spirv/${VERSION}/spirv.core.grammar.json")
+  set(GRAMMAR_EXTENSION_ENUM_INC_FILE "${spirv-tools_BINARY_DIR}/extension_enum.inc")
+  set(GRAMMAR_ENUM_STRING_MAPPING_INC_FILE "${spirv-tools_BINARY_DIR}/enum_string_mapping.inc")
+  add_custom_command(OUTPUT ${GRAMMAR_EXTENSION_ENUM_INC_FILE}
+     ${GRAMMAR_ENUM_STRING_MAPPING_INC_FILE}
+    COMMAND ${PYTHON_EXECUTABLE} ${GRAMMAR_PROCESSING_SCRIPT}
+      --spirv-core-grammar=${GRAMMAR_JSON_FILE}
+      --extension-enum-output=${GRAMMAR_EXTENSION_ENUM_INC_FILE}
+      --enum-string-mapping-output=${GRAMMAR_ENUM_STRING_MAPPING_INC_FILE}
+    DEPENDS ${GRAMMAR_PROCESSING_SCRIPT} ${GRAMMAR_JSON_FILE}
+    COMMENT "Generate enum-string mapping for SPIR-V v${VERSION}.")
+  list(APPEND EXTENSION_H_DEPENDS ${GRAMMAR_EXTENSION_ENUM_INC_FILE})
+  list(APPEND ENUM_STRING_MAPPING_CPP_DEPENDS ${GRAMMAR_ENUM_STRING_MAPPING_INC_FILE})
+endmacro(spvtools_enum_string_mapping)
+
+macro(spvtools_vimsyntax VERSION CLVERSION)
+  set(GRAMMAR_JSON_FILE "${SPIRV_HEADER_INCLUDE_DIR}/spirv/${VERSION}/spirv.core.grammar.json")
+  set(GLSL_GRAMMAR_JSON_FILE "${SPIRV_HEADER_INCLUDE_DIR}/spirv/${VERSION}/extinst.glsl.std.450.grammar.json")
+  set(OPENCL_GRAMMAR_JSON_FILE "${SPIRV_HEADER_INCLUDE_DIR}/spirv/${VERSION}/extinst.opencl.std.100.grammar.json")
+  set(VIMSYNTAX_FILE "${spirv-tools_BINARY_DIR}/spvasm.vim")
+  add_custom_command(OUTPUT ${VIMSYNTAX_FILE}
+      COMMAND ${PYTHON_EXECUTABLE} ${VIMSYNTAX_PROCESSING_SCRIPT}
+      --spirv-core-grammar=${GRAMMAR_JSON_FILE}
+      --extinst-glsl-grammar=${GLSL_GRAMMAR_JSON_FILE}
+      --extinst-opencl-grammar=${OPENCL_GRAMMAR_JSON_FILE}
+      >${VIMSYNTAX_FILE}
+    DEPENDS ${VIMSYNTAX_PROCESSING_SCRIPT} ${GRAMMAR_JSON_FILE}
+            ${GLSL_GRAMMAR_JSON_FILE} ${OPENCL_GRAMMAR_JSON_FILE}
+    COMMENT "Generate spvasm.vim: Vim syntax file for SPIR-V assembly.")
+endmacro(spvtools_vimsyntax)
+
 macro(spvtools_glsl_tables VERSION)
   set(CORE_GRAMMAR_JSON_FILE "${SPIRV_HEADER_INCLUDE_DIR}/spirv/${VERSION}/spirv.core.grammar.json")
   set(GLSL_GRAMMAR_JSON_FILE "${SPIRV_HEADER_INCLUDE_DIR}/spirv/${VERSION}/extinst.glsl.std.450.grammar.json")
@@ -50,7 +83,7 @@ endmacro(spvtools_glsl_tables)
 
 macro(spvtools_opencl_tables VERSION)
   set(CORE_GRAMMAR_JSON_FILE "${SPIRV_HEADER_INCLUDE_DIR}/spirv/${VERSION}/spirv.core.grammar.json")
-  set(OPENCL_GRAMMAR_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/extinst-${VERSION}.opencl.std.grammar.json")
+  set(OPENCL_GRAMMAR_JSON_FILE "${SPIRV_HEADER_INCLUDE_DIR}/spirv/${VERSION}/extinst.opencl.std.100.grammar.json")
   set(GRAMMAR_INC_FILE "${spirv-tools_BINARY_DIR}/opencl.std.insts-${VERSION}.inc")
   add_custom_command(OUTPUT ${GRAMMAR_INC_FILE}
     COMMAND ${PYTHON_EXECUTABLE} ${GRAMMAR_PROCESSING_SCRIPT}
@@ -62,11 +95,34 @@ macro(spvtools_opencl_tables VERSION)
   list(APPEND EXTINST_CPP_DEPENDS ${GRAMMAR_INC_FILE})
 endmacro(spvtools_opencl_tables)
 
+macro(spvtools_vendor_tables VENDOR_TABLE)
+  set(INSTS_FILE "${spirv-tools_BINARY_DIR}/${VENDOR_TABLE}.insts.inc")
+  set(GRAMMAR_FILE "${spirv-tools_SOURCE_DIR}/source/extinst.${VENDOR_TABLE}.grammar.json")
+  add_custom_command(OUTPUT ${INSTS_FILE}
+    COMMAND ${PYTHON_EXECUTABLE} ${GRAMMAR_PROCESSING_SCRIPT}
+      --extinst-vendor-grammar=${GRAMMAR_FILE}
+      --vendor-insts-output=${INSTS_FILE}
+    DEPENDS ${GRAMMAR_PROCESSING_SCRIPT} ${GRAMMAR_FILE}
+    COMMENT "Generate extended instruction tables for ${VENDOR_TABLE}.")
+  list(APPEND EXTINST_CPP_DEPENDS ${INSTS_FILE})
+  add_custom_target(spirv-tools-${VENDOR_TABLE} DEPENDS ${INSTS_FILE})
+  set_property(TARGET spirv-tools-${VENDOR_TABLE} PROPERTY FOLDER "SPIRV-Tools build")
+endmacro(spvtools_vendor_tables)
+
 spvtools_core_tables("1.0")
 spvtools_core_tables("1.1")
+spvtools_core_tables("1.2")
+spvtools_enum_string_mapping("1.2")
 spvtools_opencl_tables("1.0")
 spvtools_glsl_tables("1.0")
+spvtools_vendor_tables("spv-amd-shader-explicit-vertex-parameter")
+spvtools_vendor_tables("spv-amd-shader-trinary-minmax")
+spvtools_vendor_tables("spv-amd-gcn-shader")
+spvtools_vendor_tables("spv-amd-shader-ballot")
 
+spvtools_vimsyntax("1.2" "1.0")
+add_custom_target(spirv-tools-vimsyntax DEPENDS ${VIMSYNTAX_FILE})
+set_property(TARGET spirv-tools-vimsyntax PROPERTY FOLDER "SPIRV-Tools utilities")
 
 # Extract the list of known generators from the SPIR-V XML registry file.
 set(GENERATOR_INC_FILE ${spirv-tools_BINARY_DIR}/generators.inc)
@@ -102,6 +158,16 @@ set_source_files_properties(
 set_source_files_properties(
   ${CMAKE_CURRENT_SOURCE_DIR}/ext_inst.cpp
   PROPERTIES OBJECT_DEPENDS "${EXTINST_CPP_DEPENDS}")
+set_source_files_properties(
+  ${CMAKE_CURRENT_SOURCE_DIR}/enum_string_mapping.cpp
+  PROPERTIES OBJECT_DEPENDS "${ENUM_STRING_MAPPING_CPP_DEPENDS}")
+
+set_source_files_properties(
+  ${CMAKE_CURRENT_SOURCE_DIR}/extension.h
+  PROPERTIES HEADER_FILE_ONLY TRUE)
+set_source_files_properties(
+  ${CMAKE_CURRENT_SOURCE_DIR}/extension.h
+  PROPERTIES OBJECT_DEPENDS "${EXTENSION_H_DEPENDS}")
 
 set(SPIRV_TOOLS_BUILD_VERSION_INC
   ${spirv-tools_BINARY_DIR}/build-version.inc)
@@ -120,20 +186,29 @@ add_custom_command(OUTPUT ${SPIRV_TOOLS_BUILD_VERSION_INC}
 # This is not required for any dependence chain.
 add_custom_target(spirv-tools-build-version
    DEPENDS ${SPIRV_TOOLS_BUILD_VERSION_INC})
+set_property(TARGET spirv-tools-build-version PROPERTY FOLDER "SPIRV-Tools build")
 
+add_subdirectory(comp)
 add_subdirectory(opt)
+add_subdirectory(link)
 
 set(SPIRV_SOURCES
   ${spirv-tools_SOURCE_DIR}/include/spirv-tools/libspirv.h
 
   ${CMAKE_CURRENT_SOURCE_DIR}/util/bitutils.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/util/bit_stream.h
   ${CMAKE_CURRENT_SOURCE_DIR}/util/hex_float.h
   ${CMAKE_CURRENT_SOURCE_DIR}/util/parse_number.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/util/string_utils.h
   ${CMAKE_CURRENT_SOURCE_DIR}/assembly_grammar.h
   ${CMAKE_CURRENT_SOURCE_DIR}/binary.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/cfa.h
   ${CMAKE_CURRENT_SOURCE_DIR}/diagnostic.h
   ${CMAKE_CURRENT_SOURCE_DIR}/enum_set.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/enum_string_mapping.h
   ${CMAKE_CURRENT_SOURCE_DIR}/ext_inst.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/extensions.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/id_descriptor.h
   ${CMAKE_CURRENT_SOURCE_DIR}/instruction.h
   ${CMAKE_CURRENT_SOURCE_DIR}/macro.h
   ${CMAKE_CURRENT_SOURCE_DIR}/name_mapper.h
@@ -145,17 +220,23 @@ set(SPIRV_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/spirv_definition.h
   ${CMAKE_CURRENT_SOURCE_DIR}/spirv_endian.h
   ${CMAKE_CURRENT_SOURCE_DIR}/spirv_target_env.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/spirv_validator_options.h
   ${CMAKE_CURRENT_SOURCE_DIR}/table.h
   ${CMAKE_CURRENT_SOURCE_DIR}/text.h
   ${CMAKE_CURRENT_SOURCE_DIR}/text_handler.h
   ${CMAKE_CURRENT_SOURCE_DIR}/validate.h
 
+  ${CMAKE_CURRENT_SOURCE_DIR}/util/bit_stream.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/util/parse_number.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/util/string_utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/assembly_grammar.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/binary.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/diagnostic.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/disassemble.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/enum_string_mapping.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ext_inst.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/extensions.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/id_descriptor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/libspirv.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/message.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/name_mapper.cpp
@@ -165,16 +246,28 @@ set(SPIRV_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/print.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/software_version.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/spirv_endian.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/spirv_stats.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/spirv_target_env.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/spirv_validator_options.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/table.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/text.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/text_handler.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/validate.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/validate_arithmetics.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/validate_bitwise.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/validate_capability.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/validate_cfg.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/validate_id.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/validate_instruction.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/validate_conversion.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/validate_datarules.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/validate_decorations.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/validate_derivatives.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/validate_id.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/validate_image.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/validate_instruction.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/validate_layout.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/validate_logicals.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/validate_type_unique.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/val/decoration.h
   ${CMAKE_CURRENT_SOURCE_DIR}/val/basic_block.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/val/construct.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/val/function.cpp
@@ -203,8 +296,12 @@ target_include_directories(${SPIRV_TOOLS}
   PRIVATE ${spirv-tools_BINARY_DIR}
   PRIVATE ${SPIRV_HEADER_INCLUDE_DIR}
   )
+set_property(TARGET ${SPIRV_TOOLS} PROPERTY FOLDER "SPIRV-Tools libraries")
+spvtools_check_symbol_exports(${SPIRV_TOOLS})
 
-install(TARGETS ${SPIRV_TOOLS}
-  RUNTIME DESTINATION bin
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib)
+if(ENABLE_SPIRV_TOOLS_INSTALL)
+  install(TARGETS ${SPIRV_TOOLS}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+endif(ENABLE_SPIRV_TOOLS_INSTALL)

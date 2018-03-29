@@ -1014,7 +1014,9 @@ class ValidationPool(object):
   # Basically all code from this point forward.
   def _SubmitChangeWithDeps(self, patches, change, errors, limit_to,
                             reason=None):
-    """Submit |change| and its dependencies.
+    """Submit |change| and its dependencies via Gerrit Submit API.
+
+    This method is only used for non-manifest changes.
 
     If you call this function multiple times with the same PatchSeries, each
     CL will only be submitted once.
@@ -1291,10 +1293,14 @@ class ValidationPool(object):
     project_url = next(iter(changes)).project_url
     remote_ref = git.GetTrackingBranch(repo)
     push_to = git.RemoteRef(project_url, branch)
+
+    use_merge = any(c.IsMerge(repo) for c in changes)
+
     for _ in range(3):
       # try to resync and push.
       try:
-        git.SyncPushBranch(repo, remote_ref.remote, remote_ref.ref)
+        git.SyncPushBranch(repo, remote_ref.remote, remote_ref.ref,
+                           use_merge=use_merge, print_cmd=True)
       except cros_build_lib.RunCommandError:
         # TODO(phobbs) parse the sync failure output and find which change was
         # at fault.
@@ -1304,7 +1310,7 @@ class ValidationPool(object):
         break
 
       try:
-        git.GitPush(repo, 'HEAD', push_to, skip=self.dryrun)
+        git.GitPush(repo, 'HEAD', push_to, skip=self.dryrun, print_cmd=True)
         return {}
       except cros_build_lib.RunCommandError:
         logging.warn('git push failed for %s:%s; was a change chumped in the '

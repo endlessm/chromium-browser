@@ -3,14 +3,22 @@
 # found in the LICENSE file.
 
 import httplib
+import httplib2
 import json
 import socket
 import urllib
 
+from google.appengine.api import memcache
+
 from dashboard.common import utils
 
 
+_CACHE_DURATION = 60 * 60 * 24 * 7  # 1 week.
 _VULNERABILITY_PREFIX = ")]}'\n"
+
+
+class NotFoundError(httplib.HTTPException):
+  """Raised when a request gives a HTTP 404 error."""
 
 
 def RequestJson(*args, **kwargs):
@@ -25,21 +33,27 @@ def RequestJson(*args, **kwargs):
   return json.loads(content)
 
 
-def Request(url, method='GET', body=None, **parameters):
+def Request(url, method='GET', body=None,
+            use_cache=False, use_auth=True, **parameters):
   """Fetch a URL while authenticated as the service account.
 
   Args:
     method: The HTTP request method. E.g. 'GET', 'POST', 'PUT'.
     body: The request body as a Python object. It will be JSON-encoded.
+    use_cache: If True, use memcache to cache the response.
     parameters: Parameters to be encoded in the URL query string.
 
   Returns:
     The reponse body.
 
   Raises:
+    NotFoundError: The HTTP status code is 404.
     httplib.HTTPException: The request or response is malformed, or there is a
         network or server error, or the HTTP status code is not 2xx.
   """
+  if use_cache and body:
+    raise NotImplementedError('Caching not supported with request body.')
+
   if parameters:
     # URL-encode the parameters.
     for key, value in parameters.iteritems():
@@ -55,17 +69,37 @@ def Request(url, method='GET', body=None, **parameters):
     kwargs['body'] = json.dumps(body)
     kwargs['headers'] = {'Content-Type': 'application/json'}
 
+  if use_cache:
+    content = memcache.get(key=url)
+    if content is not None:
+      return content
+
   try:
-    return _RequestAndProcessHttpErrors(url, **kwargs)
+    content = _RequestAndProcessHttpErrors(url, use_auth, **kwargs)
+  except NotFoundError:
+    raise
   except (httplib.HTTPException, socket.error):
     # Retry once.
-    return _RequestAndProcessHttpErrors(url, **kwargs)
+    content = _RequestAndProcessHttpErrors(url, use_auth, **kwargs)
+
+  if use_cache:
+    memcache.add(key=url, value=content, time=_CACHE_DURATION)
+
+  return content
 
 
-def _RequestAndProcessHttpErrors(*args, **kwargs):
+def _RequestAndProcessHttpErrors(url, use_auth, **kwargs):
   """Requests a URL, converting HTTP errors to Python exceptions."""
-  http = utils.ServiceAccountHttp(timeout=10)
-  response, content = http.request(*args, **kwargs)
+  if use_auth:
+    http = utils.ServiceAccountHttp(timeout=10)
+  else:
+    http = httplib2.Http(timeout=10)
+
+  response, content = http.request(url, **kwargs)
+
+  if response['status'] == '404':
+    raise NotFoundError(
+        'HTTP status code %s: %s' % (response['status'], content))
   if not response['status'].startswith('2'):
     raise httplib.HTTPException(
         'HTTP status code %s: %s' % (response['status'], content))

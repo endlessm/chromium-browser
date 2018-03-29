@@ -13,6 +13,7 @@
 #include "GrContextOptions.h"
 #include "GrContextPriv.h"
 #include "GrGpu.h"
+#include "GrProxyProvider.h"
 #include "GrTest.h"
 #include "GrXferProcessor.h"
 #include "effects/GrPorterDuffXferProcessor.h"
@@ -1060,25 +1061,21 @@ DEF_GPUTEST(PorterDuffNoDualSourceBlending, reporter, options) {
         return;
     }
 
+    GrProxyProvider* proxyProvider = ctx->contextPriv().proxyProvider();
     const GrCaps& caps = *ctx->caps();
     if (caps.shaderCaps()->dualSourceBlendingSupport()) {
         SK_ABORT("Null context failed to honor request for no ARB_blend_func_extended.");
         return;
     }
 
-    GrBackendObject backendTexHandle =
-        ctx->getGpu()->createTestingOnlyBackendTexture(nullptr, 100, 100, kRGBA_8888_GrPixelConfig);
-    GrBackendTexture backendTex = GrTest::CreateBackendTexture(ctx->contextPriv().getBackend(),
-                                                               100,
-                                                               100,
-                                                               kRGBA_8888_GrPixelConfig,
-                                                               GrMipMapped::kNo,
-                                                               backendTexHandle);
+    GrBackendTexture backendTex =
+        ctx->getGpu()->createTestingOnlyBackendTexture(nullptr, 100, 100, kRGBA_8888_GrPixelConfig,
+                                                       false, GrMipMapped::kNo);
 
     GrXferProcessor::DstProxy fakeDstProxy;
     {
-        sk_sp<GrTextureProxy> proxy = GrSurfaceProxy::MakeWrappedBackend(ctx, backendTex,
-                                                                         kTopLeft_GrSurfaceOrigin);
+        sk_sp<GrTextureProxy> proxy = proxyProvider->createWrappedTextureProxy(
+                                                             backendTex, kTopLeft_GrSurfaceOrigin);
         fakeDstProxy.setProxy(std::move(proxy));
     }
 
@@ -1104,7 +1101,7 @@ DEF_GPUTEST(PorterDuffNoDualSourceBlending, reporter, options) {
             }
         }
     }
-    ctx->getGpu()->deleteTestingOnlyBackendTexture(backendTexHandle);
+    ctx->getGpu()->deleteTestingOnlyBackendTexture(&backendTex);
 }
 
 #endif

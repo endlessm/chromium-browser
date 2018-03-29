@@ -13,7 +13,6 @@ import mock
 
 from telemetry.core import cros_interface
 from telemetry import decorators
-from telemetry.internal import forwarders
 from telemetry.internal.forwarders import cros_forwarder
 from telemetry.testing import options_for_unittests
 
@@ -72,7 +71,7 @@ class CrOSInterfaceTest(unittest.TestCase):
     with self._GetCRI() as cri:
       self.assertTrue(cri.IsServiceRunning('openssh-server'))
 
-  # TODO(achuith): Fix this test. crbug.com/619767.
+  # TODO(crbug.com/799484): Fix this test.
   @decorators.Disabled('all')
   def testGetRemotePortAndIsHTTPServerRunningOnPort(self):
     with self._GetCRI() as cri:
@@ -88,9 +87,7 @@ class CrOSInterfaceTest(unittest.TestCase):
 
       # Forward local server's port to remote device's remote_port.
       forwarder = cros_forwarder.CrOsForwarderFactory(cri).Create(
-          forwarders.PortPairs(http=forwarders.PortPair(port, remote_port),
-                               https=None,
-                               dns=None))
+          local_port=port, remote_port=remote_port)
 
       # At this point, remote device should be able to connect to local server.
       self.assertTrue(cri.IsHTTPServerRunningOnPort(remote_port))
@@ -229,12 +226,16 @@ class CrOSInterfaceTest(unittest.TestCase):
         if 'unmount' in args[2]:
           # For the user unmount@gmail.com, returns the unmounted state.
           source, target = '/dev/sda1', '/home'
+        elif 'ephemeral_mount' in args[2]:
+          # For ephemeral mount, returns no mount.
+          # TODO(poromov): Add test for ephemeral mount.
+          return ('df %s: No such file or directory\n' % (args[2]), '')
         elif 'mount' in args[2]:
           # For the user mount@gmail.com, returns the mounted state.
           source, target = '/dev/sda1', args[2]
         elif 'guest' in args[2]:
           # For the user $guest, returns the guest-mounted state.
-          source, target = '/dev/loop7', args[2]
+          source, target = 'guestfs', args[2]
         return ('Filesystem Mounted on\n%s %s\n' % (source, target), '')
     mock_run_cmd.side_effect = mockRunCmdOnDevice
 

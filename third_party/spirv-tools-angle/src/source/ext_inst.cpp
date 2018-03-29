@@ -23,33 +23,42 @@
 
 #include "macro.h"
 
-static const spv_ext_inst_desc_t glslStd450Entries_1_0[] = {
-#include "glsl.std.450.insts-1.0.inc"
+#include "glsl.std.450.insts-1.0.inc"  // defines glsl_entries
+#include "opencl.std.insts-1.0.inc"    // defines opencl_entries
+
+#include "spv-amd-gcn-shader.insts.inc"
+#include "spv-amd-shader-ballot.insts.inc"
+#include "spv-amd-shader-explicit-vertex-parameter.insts.inc"
+#include "spv-amd-shader-trinary-minmax.insts.inc"
+
+static const spv_ext_inst_group_t kGroups_1_0[] = {
+    {SPV_EXT_INST_TYPE_GLSL_STD_450, ARRAY_SIZE(glsl_entries), glsl_entries},
+    {SPV_EXT_INST_TYPE_OPENCL_STD, ARRAY_SIZE(opencl_entries), opencl_entries},
+    {SPV_EXT_INST_TYPE_SPV_AMD_SHADER_EXPLICIT_VERTEX_PARAMETER,
+     ARRAY_SIZE(spv_amd_shader_explicit_vertex_parameter_entries),
+     spv_amd_shader_explicit_vertex_parameter_entries},
+    {SPV_EXT_INST_TYPE_SPV_AMD_SHADER_TRINARY_MINMAX,
+     ARRAY_SIZE(spv_amd_shader_trinary_minmax_entries),
+     spv_amd_shader_trinary_minmax_entries},
+    {SPV_EXT_INST_TYPE_SPV_AMD_GCN_SHADER,
+     ARRAY_SIZE(spv_amd_gcn_shader_entries), spv_amd_gcn_shader_entries},
+    {SPV_EXT_INST_TYPE_SPV_AMD_SHADER_BALLOT,
+     ARRAY_SIZE(spv_amd_shader_ballot_entries), spv_amd_shader_ballot_entries},
 };
 
-static const spv_ext_inst_desc_t openclEntries_1_0[] = {
-#include "opencl.std.insts-1.0.inc"
-};
+static const spv_ext_inst_table_t kTable_1_0 = {ARRAY_SIZE(kGroups_1_0),
+                                                kGroups_1_0};
 
 spv_result_t spvExtInstTableGet(spv_ext_inst_table* pExtInstTable,
                                 spv_target_env env) {
   if (!pExtInstTable) return SPV_ERROR_INVALID_POINTER;
-
-  static const spv_ext_inst_group_t groups_1_0[] = {
-      {SPV_EXT_INST_TYPE_GLSL_STD_450, ARRAY_SIZE(glslStd450Entries_1_0),
-       glslStd450Entries_1_0},
-      {SPV_EXT_INST_TYPE_OPENCL_STD, ARRAY_SIZE(openclEntries_1_0),
-       openclEntries_1_0},
-  };
-
-  static const spv_ext_inst_table_t table_1_0 = {ARRAY_SIZE(groups_1_0),
-                                                 groups_1_0};
 
   switch (env) {
     // The extended instruction sets are all version 1.0 so far.
     case SPV_ENV_UNIVERSAL_1_0:
     case SPV_ENV_VULKAN_1_0:
     case SPV_ENV_UNIVERSAL_1_1:
+    case SPV_ENV_UNIVERSAL_1_2:
     case SPV_ENV_OPENCL_2_1:
     case SPV_ENV_OPENCL_2_2:
     case SPV_ENV_OPENGL_4_0:
@@ -57,7 +66,7 @@ spv_result_t spvExtInstTableGet(spv_ext_inst_table* pExtInstTable,
     case SPV_ENV_OPENGL_4_2:
     case SPV_ENV_OPENGL_4_3:
     case SPV_ENV_OPENGL_4_5:
-      *pExtInstTable = &table_1_0;
+      *pExtInstTable = &kTable_1_0;
       return SPV_SUCCESS;
     default:
       assert(0 && "Unknown spv_target_env in spvExtInstTableGet()");
@@ -73,6 +82,18 @@ spv_ext_inst_type_t spvExtInstImportTypeGet(const char* name) {
   }
   if (!strcmp("OpenCL.std", name)) {
     return SPV_EXT_INST_TYPE_OPENCL_STD;
+  }
+  if (!strcmp("SPV_AMD_shader_explicit_vertex_parameter", name)) {
+    return SPV_EXT_INST_TYPE_SPV_AMD_SHADER_EXPLICIT_VERTEX_PARAMETER;
+  }
+  if (!strcmp("SPV_AMD_shader_trinary_minmax", name)) {
+    return SPV_EXT_INST_TYPE_SPV_AMD_SHADER_TRINARY_MINMAX;
+  }
+  if (!strcmp("SPV_AMD_gcn_shader", name)) {
+    return SPV_EXT_INST_TYPE_SPV_AMD_GCN_SHADER;
+  }
+  if (!strcmp("SPV_AMD_shader_ballot", name)) {
+    return SPV_EXT_INST_TYPE_SPV_AMD_SHADER_BALLOT;
   }
   return SPV_EXT_INST_TYPE_NONE;
 }

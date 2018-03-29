@@ -66,18 +66,74 @@ Optimizer& Optimizer::RegisterPass(PassToken&& p) {
   return *this;
 }
 
+Optimizer& Optimizer::RegisterLegalizationPasses() {
+  return RegisterPass(CreateInlineExhaustivePass())
+      .RegisterPass(CreateLocalAccessChainConvertPass())
+      .RegisterPass(CreateLocalSingleBlockLoadStoreElimPass())
+      .RegisterPass(CreateLocalSingleStoreElimPass())
+      .RegisterPass(CreateInsertExtractElimPass())
+      .RegisterPass(CreateAggressiveDCEPass())
+      .RegisterPass(CreateDeadBranchElimPass())
+      .RegisterPass(CreateCFGCleanupPass())
+      .RegisterPass(CreateBlockMergePass())
+      .RegisterPass(CreateLocalMultiStoreElimPass())
+      .RegisterPass(CreateInsertExtractElimPass())
+      .RegisterPass(CreateAggressiveDCEPass());
+}
+
+Optimizer& Optimizer::RegisterPerformancePasses() {
+  return RegisterPass(CreateMergeReturnPass())
+      .RegisterPass(CreateInlineExhaustivePass())
+      .RegisterPass(CreateEliminateDeadFunctionsPass())
+      .RegisterPass(CreateLocalAccessChainConvertPass())
+      .RegisterPass(CreateLocalSingleBlockLoadStoreElimPass())
+      .RegisterPass(CreateLocalSingleStoreElimPass())
+      .RegisterPass(CreateInsertExtractElimPass())
+      .RegisterPass(CreateAggressiveDCEPass())
+      .RegisterPass(CreateDeadBranchElimPass())
+      .RegisterPass(CreateBlockMergePass())
+      .RegisterPass(CreateLocalMultiStoreElimPass())
+      .RegisterPass(CreateInsertExtractElimPass())
+      .RegisterPass(CreateLocalRedundancyEliminationPass())
+      // Currently exposing driver bugs resulting in crashes (#946)
+      // .RegisterPass(CreateCommonUniformElimPass())
+      .RegisterPass(CreateDeadVariableEliminationPass());
+}
+
+Optimizer& Optimizer::RegisterSizePasses() {
+  return RegisterPass(CreateMergeReturnPass())
+      .RegisterPass(CreateInlineExhaustivePass())
+      .RegisterPass(CreateEliminateDeadFunctionsPass())
+      .RegisterPass(CreateLocalAccessChainConvertPass())
+      .RegisterPass(CreateLocalSingleBlockLoadStoreElimPass())
+      .RegisterPass(CreateLocalSingleStoreElimPass())
+      .RegisterPass(CreateInsertExtractElimPass())
+      .RegisterPass(CreateAggressiveDCEPass())
+      .RegisterPass(CreateDeadBranchElimPass())
+      .RegisterPass(CreateBlockMergePass())
+      .RegisterPass(CreateLocalMultiStoreElimPass())
+      .RegisterPass(CreateInsertExtractElimPass())
+      .RegisterPass(CreateLocalRedundancyEliminationPass())
+      // Currently exposing driver bugs resulting in crashes (#946)
+      // .RegisterPass(CreateCommonUniformElimPass())
+      .RegisterPass(CreateDeadVariableEliminationPass());
+}
+
 bool Optimizer::Run(const uint32_t* original_binary,
                     const size_t original_binary_size,
                     std::vector<uint32_t>* optimized_binary) const {
-  std::unique_ptr<ir::Module> module =
+  std::unique_ptr<ir::IRContext> context =
       BuildModule(impl_->target_env, impl_->pass_manager.consumer(),
                   original_binary, original_binary_size);
-  if (module == nullptr) return false;
+  if (context == nullptr) return false;
 
-  auto status = impl_->pass_manager.Run(module.get());
-  if (status == opt::Pass::Status::SuccessWithChange) {
+  auto status = impl_->pass_manager.Run(context.get());
+  if (status == opt::Pass::Status::SuccessWithChange ||
+      (status == opt::Pass::Status::SuccessWithoutChange &&
+       (optimized_binary->data() != original_binary ||
+        optimized_binary->size() != original_binary_size))) {
     optimized_binary->clear();
-    module->ToBinary(optimized_binary, /* skip_nop = */ true);
+    context->module()->ToBinary(optimized_binary, /* skip_nop = */ true);
   }
 
   return status != opt::Pass::Status::Failure;
@@ -92,10 +148,26 @@ Optimizer::PassToken CreateStripDebugInfoPass() {
       MakeUnique<opt::StripDebugInfoPass>());
 }
 
+Optimizer::PassToken CreateEliminateDeadFunctionsPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::EliminateDeadFunctionsPass>());
+}
+
 Optimizer::PassToken CreateSetSpecConstantDefaultValuePass(
     const std::unordered_map<uint32_t, std::string>& id_value_map) {
   return MakeUnique<Optimizer::PassToken::Impl>(
       MakeUnique<opt::SetSpecConstantDefaultValuePass>(id_value_map));
+}
+
+Optimizer::PassToken CreateSetSpecConstantDefaultValuePass(
+    const std::unordered_map<uint32_t, std::vector<uint32_t>>& id_value_map) {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::SetSpecConstantDefaultValuePass>(id_value_map));
+}
+
+Optimizer::PassToken CreateFlattenDecorationPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::FlattenDecorationPass>());
 }
 
 Optimizer::PassToken CreateFreezeSpecConstantValuePass() {
@@ -118,4 +190,96 @@ Optimizer::PassToken CreateEliminateDeadConstantPass() {
       MakeUnique<opt::EliminateDeadConstantPass>());
 }
 
+Optimizer::PassToken CreateDeadVariableEliminationPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::DeadVariableElimination>());
+}
+
+Optimizer::PassToken CreateStrengthReductionPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::StrengthReductionPass>());
+}
+
+Optimizer::PassToken CreateBlockMergePass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::BlockMergePass>());
+}
+
+Optimizer::PassToken CreateInlineExhaustivePass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::InlineExhaustivePass>());
+}
+
+Optimizer::PassToken CreateInlineOpaquePass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::InlineOpaquePass>());
+}
+
+Optimizer::PassToken CreateLocalAccessChainConvertPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::LocalAccessChainConvertPass>());
+}
+
+Optimizer::PassToken CreateLocalSingleBlockLoadStoreElimPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::LocalSingleBlockLoadStoreElimPass>());
+}
+
+Optimizer::PassToken CreateLocalSingleStoreElimPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::LocalSingleStoreElimPass>());
+}
+
+Optimizer::PassToken CreateInsertExtractElimPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::InsertExtractElimPass>());
+}
+
+Optimizer::PassToken CreateDeadBranchElimPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::DeadBranchElimPass>());
+}
+
+Optimizer::PassToken CreateLocalMultiStoreElimPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::LocalMultiStoreElimPass>());
+}
+
+Optimizer::PassToken CreateAggressiveDCEPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::AggressiveDCEPass>());
+}
+
+Optimizer::PassToken CreateCommonUniformElimPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::CommonUniformElimPass>());
+}
+
+Optimizer::PassToken CreateCompactIdsPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::CompactIdsPass>());
+}
+
+Optimizer::PassToken CreateMergeReturnPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::MergeReturnPass>());
+}
+
+std::vector<const char*> Optimizer::GetPassNames() const {
+  std::vector<const char*> v;
+  for (uint32_t i = 0; i < impl_->pass_manager.NumPasses(); i++) {
+    v.push_back(impl_->pass_manager.GetPass(i)->name());
+  }
+  return v;
+}
+
+Optimizer::PassToken CreateCFGCleanupPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::CFGCleanupPass>());
+}
+
+Optimizer::PassToken CreateLocalRedundancyEliminationPass() {
+  return MakeUnique<Optimizer::PassToken::Impl>(
+      MakeUnique<opt::LocalRedundancyEliminationPass>());
+}
 }  // namespace spvtools

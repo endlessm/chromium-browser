@@ -40,6 +40,8 @@ cd dbuild
 make
 ```
 
+If your build system supports ccache, you can enable that via cmake option `-DUSE_CCACHE=On`
+
 If you have installed a Vulkan driver obtained from your graphics hardware vendor, the install process should
 have configured the driver so that the Vulkan loader can find and load it.
 
@@ -142,6 +144,7 @@ This list may vary depending on your distro and which windowing systems you are 
 Set up your environment for building 32-bit targets:
 
 ```
+export ASFLAGS=--32
 export CFLAGS=-m32
 export CXXFLAGS=-m32
 export PKG_CONFIG_LIBDIR=/usr/lib/i386-linux-gnu
@@ -184,7 +187,7 @@ cmake -H. -Bbuild -DCMAKE_BUILD_TYPE=Debug -DDEMOS_WSI_SELECTION=XLIB
 
 Windows 7+ with additional required software packages:
 
-- Microsoft Visual Studio 2013 Professional.  Note: it is possible that lesser/older versions may work, but that has not been tested.
+- Microsoft Visual Studio 2015 Professional.  Note: it is possible that lesser/older versions may work, but that has not been tested.
 - [CMake](http://www.cmake.org/download/).  Notes:
   - Tell the installer to "Add CMake to the system PATH" environment variable.
 - [Python 3](https://www.python.org/downloads).  Notes:
@@ -193,13 +196,13 @@ Windows 7+ with additional required software packages:
   - Need python3.3 or later to get the Windows py.exe launcher that is used to get python3 rather than python2 if both are installed on Windows
   - 32 bit python works
 - [Git](http://git-scm.com/download/win).
-  - Note: If you use Cygwin, you can normally use Cygwin's "git.exe".  However, in order to use the "update\_external\_sources.bat" script, you must have this version.
+  - Note: If you use Cygwin, you can normally use Cygwin's "git.exe", and "update\_external\_sources.sh --no-build" does support Cygwin's git.  However, in order to use the "update\_external\_sources.bat" script, you must have this version.
   - Tell the installer to allow it to be used for "Developer Prompt" as well as "Git Bash".
   - Tell the installer to treat line endings "as is" (i.e. both DOS and Unix-style line endings).
   - Install each a 32-bit and a 64-bit version, as the 64-bit installer does not install the 32-bit libraries and tools.
 - glslang is required for demos and tests.
   - [You can download and configure it (in a peer directory) here](https://github.com/KhronosGroup/glslang/blob/master/README.md)
-  - A windows batch file has been included that will pull and build the correct version.  Run it from Developer Command Prompt for VS2013 like so:
+  - A windows batch file has been included that will pull and build the correct version.  Run it from Developer Command Prompt for VS2015 like so:
     - update\_external\_sources.bat --build-glslang (Note: see **Loader and Validation Layer Dependencies** below for other options)
 
 ## Windows Build - MSVC
@@ -208,10 +211,10 @@ Before building on Windows, you may want to modify the customize section in load
 set the version numbers and build description for your build. Doing so will set the information displayed
 for the Properties->Details tab of the loader vulkan-1.dll file that is built.
 
-Build all Windows targets after installing required software and cloning the Loader and Validation Layer repo as described above by completing the following steps in a "Developer Command Prompt for VS2013" window (Note that the update\_external\_sources script used below builds external tools into predefined locations. See **Loader and Validation Layer Dependencies** for more information and other options):
+Build all Windows targets after installing required software and cloning the Loader and Validation Layer repo as described above by completing the following steps in a "Developer Command Prompt for VS2015" window (Note that the update\_external\_sources script used below builds external tools into predefined locations. See **Loader and Validation Layer Dependencies** for more information and other options):
 ```
 cd Vulkan-LoaderAndValidationLayers  # cd to the root of the cloned git repository
-update_external_sources.bat --all
+update_external_sources.bat
 build_windows_targets.bat
 ```
 
@@ -224,31 +227,62 @@ This is described in a `LoaderAndLayerInterface` document in the `loader` folder
 This specification describes both how ICDs and layers should be properly
 packaged, and how developers can point to ICDs and layers within their builds.
 
-## Android Build
-Install the required tools for Linux and Windows covered above, then add the
-following.
-### Android Studio
-- Install [Android Studio 2.1](http://tools.android.com/download/studio/canary), latest Preview (tested with 4):
-- From the "Welcome to Android Studio" splash screen, add the following components using Configure > SDK Manager:
-  - SDK Platforms > Android N Preview
-  - SDK Tools > Android NDK
+### Using Cygwin Git
 
-#### Add NDK to path
+If you are using Cygwin git instead of win32-native git, you can use the *sh* script to sync using Cygwin's git (but not also build), then use the *bat* script to build (but not also sync).
+
+In a cygwin shell do this:
+```
+./update_external_sources.sh --no-build
+```
+
+Then in a Visual Studio Developer Command Prompt shell do this:
+```
+update_external_sources.bat --no-sync
+```
+
+## Android Build
+Install the required tools for Linux and Windows covered above, then add the following.
+### Android Studio
+- Install [Android Studio 2.3](https://developer.android.com/studio/index.html) or later.
+- From the "Welcome to Android Studio" splash screen, add the following components using Configure > SDK Manager:
+  - SDK Platforms > Android 6.0 and newer
+  - SDK Tools > Android SDK Build-Tools
+  - SDK Tools > Android SDK Platform-Tools
+  - SDK Tools > Android SDK Tools
+  - SDK Tools > NDK
+
+#### Add Android specifics to environment
+For each of the below, you may need to specify a different build-tools version, as Android Studio will roll it forward fairly regularly.
 
 On Linux:
 ```
-export PATH=$HOME/Android/sdk/ndk-bundle:$PATH
+export ANDROID_SDK_HOME=$HOME/Android/sdk
+export ANDROID_NDK_HOME=$HOME/Android/sdk/ndk-bundle
+export PATH=$ANDROID_SDK_HOME:$PATH
+export PATH=$ANDROID_NDK_HOME:$PATH
+export PATH=$ANDROID_SDK_HOME/build-tools/23.0.3:$PATH
 ```
 On Windows:
 ```
+set ANDROID_SDK_HOME=%LOCALAPPDATA%\Android\sdk
+set ANDROID_NDK_HOME=%LOCALAPPDATA%\Android\sdk\ndk-bundle
 set PATH=%LOCALAPPDATA%\Android\sdk\ndk-bundle;%PATH%
 ```
 On OSX:
 ```
-export PATH=$HOME/Library/Android/sdk/ndk-bundle:$PATH
+export ANDROID_SDK_HOME=$HOME/Library/Android/sdk
+export ANDROID_NDK_HOME=$HOME/Library/Android/sdk/ndk-bundle
+export PATH=$ANDROID_NDK_PATH:$PATH
+export PATH=$ANDROID_SDK_HOME/build-tools/23.0.3:$PATH
 ```
+Note: If jarsigner is missing from your platform, you can find it in the Android Studio install or in your Java installation.  If you do not have Java, you can get it with something like the following:
+```
+sudo apt-get install openjdk-8-jdk
+```
+
 ### Additional OSX System Requirements
-Tested on OSX version 10.11.4
+Tested on OSX version 10.12.4
 
  Setup Homebrew and components
 - Follow instructions on [brew.sh](http://brew.sh) to get homebrew installed.
@@ -264,43 +298,82 @@ export PATH=/usr/local/bin:$PATH
 brew install cmake python python3 git
 ```
 ### Build steps for Android
-Use the following to ensure the Android build works.
+
+There are two options for building the Android layers. One using the SPIRV tools
+provided as part of the Android NDK or build using upstream sources.
+To build with SPIRV tools from the NDK, remove the build-android/third_party directory created
+by running update_external_sources_android.sh, (or never run update_external_sources_android.sh).
+Use the following script to build everything in the repo for Android, including validation layers, tests, demos, and APK packaging:
+This script does retrieve and use the upstream SPRIV tools.
+```
+cd build-android
+./build_all.sh
+```
+Resulting validation layer binaries will be in build-android/libs.
+Test and demo APKs can be installed on production devices with:
+```
+./install_all.sh [-s <serial number>]
+```
+Note that there are no equivalent scripts on Windows yet, that work needs to be completed.
+The following per platform commands can be used for layer only builds:
 #### Linux and OSX
 Follow the setup steps for Linux or OSX above, then from your terminal:
 ```
 cd build-android
-./update_external_sources_android.sh
+./update_external_sources_android.sh --no-build
 ./android-generate.sh
 ndk-build -j $(sysctl -n hw.ncpu)
 ```
 #### Windows
-Follow the setup steps for Windows above, then from Developer Command Prompt for VS2013:
+Follow the setup steps for Windows above, then from Developer Command Prompt for VS2015:
 ```
 cd build-android
 update_external_sources_android.bat
 android-generate.bat
 ndk-build
 ```
-#### Android demos
-Use the following steps to build, install, and run Cube and Tri for Android:
+#### Android tests
+Use the following steps to build, install, and run the layer validation tests for Android:
 ```
-cd demos/android
-android update project -s -p . -t "android-23"
-ndk-build
-ant -buildfile cube debug
-adb install ./cube/bin/NativeActivity-debug.apk
+cd build-android
+./build_all.sh
+adb install -r bin/VulkanLayerValidationTests.apk
+adb shell am start com.example.VulkanLayerValidationTests/android.app.NativeActivity
+```
+Alternatively, you can use the test_APK script to install and run the layer validation tests:
+```
+test_APK.sh -s <serial number> -p <plaform name> -f <gtest_filter>
+```
+#### Android demos
+Use the following steps to build, install, and run Cube and Smoke for Android:
+```
+cd build-android
+./build_all.sh
+adb install -r ../demos/android/cube/bin/cube.apk
 adb shell am start com.example.Cube/android.app.NativeActivity
 ```
 To build, install, and run Cube with validation layers, first build layers using steps above, then run:
 ```
-cd demos/android
-android update project -s -p . -t "android-23"
-ndk-build -j
-ant -buildfile cube-with-layers debug
-adb install ./cube-with-layers/bin/NativeActivity-debug.apk
+cd build-android
+./build_all.sh
+adb install -r ../demos/android/cube-with-layers/bin/cube-with-layers.apk
+# Run without validation enabled:
+adb shell am start com.example.CubeWithLayers/android.app.NativeActivity
+# Run with validation enabled:
 adb shell am start -a android.intent.action.MAIN -c android-intent.category.LAUNCH -n com.example.CubeWithLayers/android.app.NativeActivity --es args "--validate"
 ```
+vkjson_info for Android is built as an executable for devices with root access.
 
+To use, simply push it to the device and run it:
+```
+./build_all.sh
+adb push obj/local/<abi>/vkjson_info /data/tmp/
+adb shell /data/tmp/vkjson_info
+```
+The resulting json file will be found in:
+```
+/sdcard/Android/<device_name>.json
+```
 To build, install, and run the Smoke demo for Android, run the following, and any
 prompts that come back from the script:
 ```
@@ -316,34 +389,30 @@ adb shell am start -a android.intent.action.MAIN -c android-intent.category.LAUN
 The [Qt Creator IDE](https://qt.io/download-open-source/#section-2) can open a root CMakeList.txt as a project directly, and it provides tools within Creator to configure and generate Vulkan SDK build files for one to many targets concurrently, resolving configuration issues as needed. Alternatively, when invoking CMake use the -G Codeblocks Ninja option to generate Ninja build files to be used as project files for QtCreator
 
 - Follow the steps defined elsewhere for the OS using the update\_external\_sources script or as shown in **Loader and Validation Layer Dependencies** below
-- Open, configure, and build the gslang and spirv-tools CMakeList.txt files
+- Open, configure, and build the glslang CMakeList.txt files. Note that building the glslang project will provide access to spirv-tools and spirv-headers.
 - Then do the same with the Vulkan-LoaderAndValidationLayers CMakeList.txt file.
 - In order to debug with QtCreator, a [Microsoft WDK: eg WDK 10](http://go.microsoft.com/fwlink/p/?LinkId=526733) is required. Note that installing the WDK breaks the MSVC vcvarsall.bat build scripts provided by MSVC, requiring that the LIB, INCLUDE, and PATH env variables be set to the WDK paths by some other means
 
 ## Loader and Validation Layer Dependencies
-gslang and SPIRV-Tools repos are required to build and run Loader and Validation Layer components. They are not git sub-modules of Vulkan-LoaderAndValidationLayers but Vulkan-LoaderAndValidationLayers is linked to specific revisions of gslang and spirv-tools. These can be automatically cloned and built to predefined locations with the update\_external\_sources scripts. If a custom configuration is required, do the following steps:
+The glslang repo is required to build and run Loader and Validation Layer components. It is not a git sub-module of Vulkan-LoaderAndValidationLayers but Vulkan-LoaderAndValidationLayers is linked to a specific revision of gslang. This can be automatically cloned and built to predefined locations with the update\_external\_sources scripts. If a custom configuration is required, do the following steps:
 
-1) clone the repos:
+1) clone the repo:
 
     git clone https://github.com/KhronosGroup/glslang.git
-    git clone https://github.com/KhronosGroup/SPIRV-Tools.git
 
-
-2) checkout the correct version of each tree based on the contents of the glslang\_revision and spirv-tools\_revision files at the root of the Vulkan-LoaderAndValidationLayers tree (do the same anytime that Vulkan-LoaderAndValidationLayers is updated from remote)
+2) checkout the correct version of the tree based on the contents of the glslang\_revision file at the root of the Vulkan-LoaderAndValidationLayers tree (do the same anytime that Vulkan-LoaderAndValidationLayers is updated from remote)
 
 _on windows_
 
     git checkout < [path to Vulkan-LoaderAndValidationLayers]\glslang_revision [in glslang repo]
-	git checkout < [path to Vulkan-LoaderAndValidationLayers]\spirv-tools_revision[in spriv-tools repo]
 
 *non windows*
 
     git checkout `cat [path to Vulkan-LoaderAndValidationLayers]\glslang_revision` [in glslang repo]
-	git checkout `cat [path to Vulkan-LoaderAndValidationLayers]\spirv-tools_revision` [in spriv-tools repo]
 
-3) Configure the gslang and spirv-tools source trees with cmake and build them with your IDE of choice
+3) Configure the glslang source tree with cmake and build it with your IDE of choice
 
-4) Enable the CUSTOM\_GSLANG\_BIN\_PATH and CUSTOM\_SPIRV\_TOOLS\_BIN\_PATH options in the Vulkan-LoaderAndValidationLayers cmake configuration and point the GSLANG\_BINARY\_PATH and SPIRV\_TOOLS\_BINARY\_PATH variables to the correct location
+4) Enable the CUSTOM\_GLSLANG\_BIN\_PATH and CUSTOM\_SPIRV\_TOOLS\_BIN\_PATH options in the Vulkan-LoaderAndValidationLayers cmake configuration and point the GLSLANG\_BINARY\_PATH  and SPIRV\_TOOLS\_BINARY\_PATH variables to the correct location
 
 5) If building on Windows with MSVC, set DISABLE\_BUILDTGT\_DIR\_DECORATION to _On_. If building on Windows, but without MSVC set DISABLE\_BUILD\_PATH\_DECORATION to _On_
 
@@ -355,6 +424,6 @@ _on windows_
   - If you don't want to use Cygwin, there are other shells and environments that can be used.
     You can also use a Git package that doesn't come from Cygwin.
 
-- [Ninja on all platforms](https://github.com/ninja-build/ninja/releases). [The Ninja-build project](ninja-build.org). [Ninja Users Manual](ninja-build.org/manual.html) 
+- [Ninja on all platforms](https://github.com/ninja-build/ninja/releases). [The Ninja-build project](ninja-build.org). [Ninja Users Manual](ninja-build.org/manual.html)
 
 - [QtCreator as IDE for CMake builds on all platforms](https://qt.io/download-open-source/#section-2)
