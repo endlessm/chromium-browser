@@ -32,7 +32,7 @@
 #include "platform/audio/AudioBus.h"
 #include "platform/wtf/MathExtras.h"
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
 #include <emmintrin.h>
 #endif
 
@@ -277,7 +277,7 @@ void SincResampler::Process(AudioSourceProvider* source_provider,
       {
         float input;
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
         // If the sourceP address is not 16-byte aligned, the first several
         // frames (at most three) should be processed seperately.
         while ((reinterpret_cast<uintptr_t>(input_p) & 0x0F) && n) {

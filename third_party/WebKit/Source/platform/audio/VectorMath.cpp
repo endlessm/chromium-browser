@@ -37,7 +37,7 @@
 #include "platform/audio/cpu/arm/VectorMathNEON.h"
 #elif HAVE_MIPS_MSA_INTRINSICS
 #include "platform/audio/cpu/mips/VectorMathMSA.h"
-#elif defined(ARCH_CPU_X86_FAMILY)
+#elif defined(ARCH_CPU_X86_64)
 #include "platform/audio/cpu/x86/VectorMathX86.h"
 #else
 #include "platform/audio/VectorMathScalar.h"
@@ -54,7 +54,7 @@ namespace Impl = Mac;
 namespace Impl = NEON;
 #elif HAVE_MIPS_MSA_INTRINSICS
 namespace Impl = MSA;
-#elif defined(ARCH_CPU_X86_FAMILY)
+#elif defined(ARCH_CPU_X86_64)
 namespace Impl = X86;
 #else
 namespace Impl = Scalar;
