@@ -239,7 +239,6 @@ use_drfuzz = false
 use_evdev_gestures = false
 use_experimental_allocator_shim = false
 use_external_popup_menu = false
-use_gconf = true
 use_gio = true
 use_glib = true
 use_gnome_keyring = true

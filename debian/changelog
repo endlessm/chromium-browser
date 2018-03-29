@@ -1,3 +1,84 @@
+chromium-browser (65.0.3325.181-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 65.0.3325.181
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 21 Mar 2018 13:51:29 +0100
+
+chromium-browser (65.0.3325.146-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 65.0.3325.146
+    - CVE-2018-6058: Use after free in Flash.
+    - CVE-2018-6059: Use after free in Flash.
+    - CVE-2018-6060: Use after free in Blink.
+    - CVE-2018-6061: Race condition in V8.
+    - CVE-2018-6062: Heap buffer overflow in Skia.
+    - CVE-2018-6057: Incorrect permissions on shared memory.
+    - CVE-2018-6063: Incorrect permissions on shared memory.
+    - CVE-2018-6064: Type confusion in V8.
+    - CVE-2018-6065: Integer overflow in V8.
+    - CVE-2018-6066: Same Origin Bypass via canvas.
+    - CVE-2018-6067: Buffer overflow in Skia.
+    - CVE-2018-6068: Object lifecycle issues in Chrome Custom Tab.
+    - CVE-2018-6069: Stack buffer overflow in Skia.
+    - CVE-2018-6070: CSP bypass through extensions.
+    - CVE-2018-6071: Heap bufffer overflow in Skia.
+    - CVE-2018-6072: Integer overflow in PDFium.
+    - CVE-2018-6073: Heap bufffer overflow in WebGL.
+    - CVE-2018-6074: Mark-of-the-Web bypass.
+    - CVE-2018-6075: Overly permissive cross origin downloads.
+    - CVE-2018-6076: Incorrect handling of URL fragment identifiers in Blink.
+    - CVE-2018-6077: Timing attack using SVG filters.
+    - CVE-2018-6078: URL Spoof in OmniBox.
+    - CVE-2018-6079: Information disclosure via texture data in WebGL.
+    - CVE-2018-6080: Information disclosure in IPC call.
+    - CVE-2018-6081: XSS in interstitials.
+    - CVE-2018-6082: Circumvention of port blocking.
+    - CVE-2018-6083: Incorrect processing of AppManifests.
+  * debian/rules: remove use_gconf build flag
+  * debian/patches/3-chrome-xid.patch: removed, unused
+  * debian/patches/5-desktop-integration-settings.patch: removed, unused
+  * debian/patches/6-passwordless-install-support.patch: removed, unused
+  * debian/patches/7-npapi-permission-not-defaults-to-unauthorized.patch:
+    removed, unused
+  * debian/patches/additional-search-engines.patch: refreshed
+  * debian/patches/breakpad: removed, unused
+  * debian/patches/cups-include-deprecated-ppd: removed, unused
+  * debian/patches/define__libc_malloc.patch: refreshed
+  * debian/patches/disable-sse2: updated
+  * debian/patches/display-scaling-default-value: removed, unused
+  * debian/patches/do-not-use-bundled-clang: removed, unused
+  * debian/patches/enable-chromecast-by-default.patch: refreshed
+  * debian/patches/enable_vaapi_on_linux.diff: removed, unused
+  * debian/patches/flash-redirection: removed, unused
+  * debian/patches/format-flag.patch: removed, unused
+  * debian/patches/gpu_default_disabled: removed, unused
+  * debian/patches/gsettings-display-scaling: removed, unused
+  * debian/patches/ld-memory-32bit.patch: removed, unused
+  * debian/patches/linker-asneeded-bug.patch: removed, unused
+  * debian/patches/lp-translations-paths: removed, unused
+  * debian/patches/mir-ozone-module: removed, unused
+  * debian/patches/mir-support: removed, unused
+  * debian/patches/no-new-ninja-flag.patch: refreshed
+  * debian/patches/relax-ninja-version-requirement.patch: refreshed
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: refreshed
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: refreshed
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/patches/wayland-ozone: removed, unused
+  * debian/patches/xdg-settings-multiexec-desktopfiles.patch: removed, unused
+  * debian/known_gn_gen_args-*: remove use_gconf build flag
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 07 Mar 2018 14:24:07 +0100
+
+chromium-browser (64.0.3282.167-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 64.0.3282.167
+    - CVE-2018-6056: Incorrect derived class instantiation in V8.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 14 Feb 2018 11:54:37 +0100
+
 chromium-browser (64.0.3282.140-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 64.0.3282.140
