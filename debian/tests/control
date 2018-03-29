@@ -1,3 +1,0 @@
-Tests: chromium-version, html5test
-Depends: chromium-browser, chromium-chromedriver, python3-apt, python3-selenium
-Restrictions: allow-stderr
